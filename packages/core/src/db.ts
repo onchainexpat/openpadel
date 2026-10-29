@@ -54,9 +54,13 @@ export interface GameSetTable { game_id: string; set_no: number; a: number; b: n
 
 export interface RatingEventTable { id: string; person_id: string; sport: Generated<string>; game_id: string | null; kind: string; mu_before: number | null; sigma_before: number | null; level_before: string | null; mu_after: number; sigma_after: number; level_after: string; share: number | null; factors: Generated<unknown>; explanation: unknown; action_run_id: string; model_version: string; at: Generated<Date> }
 
+export interface ExternalRefTable { entity: string; entity_id: string; system: string; external_id: string }
+export interface MirrorBookingTable { ref: string; system: Generated<string>; court_id: string; during: string; booking_type: string; status: "held" | "covered" | "conflict" | "gone"; court_time_id: string | null; clash_id: string | null; first_seen_at: Generated<Date>; version: Generated<number> }
+export interface ConnectorStatusTable { system: string; last_sync_at: Date | null; last_ok_at: Date | null; last_error: string | null; fetched: number | null; unmapped: Generated<unknown> }
+
 export interface DB {
   club: ClubTable; location: LocationTable; person: PersonTable; auth_identity: AuthIdentityTable; auth_challenge: AuthChallengeTable;
-  web_session: WebSessionTable; passkey: PasskeyTable; rating_event: RatingEventTable; rating: RatingTable; draw: DrawTable; game: GameTable; game_side: GameSideTable; game_set: GameSetTable; ledger_account: LedgerAccountTable; ledger_txn: LedgerTxnTable; ledger_entry: LedgerEntryTable; payment: PaymentTable; refund: RefundTable; member_credit_balance: MemberCreditBalanceView; court: CourtTable; program: ProgramTable; session: SessionTable; court_time: CourtTimeTable; enrolment: EnrolmentTable; waitlist_offer: WaitlistOfferTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
+  web_session: WebSessionTable; passkey: PasskeyTable; external_ref: ExternalRefTable; mirror_booking: MirrorBookingTable; connector_status: ConnectorStatusTable; rating_event: RatingEventTable; rating: RatingTable; draw: DrawTable; game: GameTable; game_side: GameSideTable; game_set: GameSetTable; ledger_account: LedgerAccountTable; ledger_txn: LedgerTxnTable; ledger_entry: LedgerEntryTable; payment: PaymentTable; refund: RefundTable; member_credit_balance: MemberCreditBalanceView; court: CourtTable; program: ProgramTable; session: SessionTable; court_time: CourtTimeTable; enrolment: EnrolmentTable; waitlist_offer: WaitlistOfferTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
   staff_shift: StaffShiftTable; agent: AgentTable; action_run: ActionRunTable; entity_change: EntityChangeTable; event_outbox: EventOutboxTable;
   channel_consent: ChannelConsentTable; oauth_client: OAuthClientTable; oauth_grant: OAuthGrantTable; oauth_code: OAuthCodeTable; oauth_token: OAuthTokenTable;
 }

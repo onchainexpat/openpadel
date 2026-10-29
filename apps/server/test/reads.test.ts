@@ -82,3 +82,27 @@ test("members can't read staff pages", async () => {
   const r = await get("/staff/programs", cookie);
   assert.equal(r.status, 403); assert.equal(r.json.error, "error.staff_only");
 });
+
+test("staff see the Playtomic mirror: courts to link and bookings that clash", async () => {
+  const cookie = await signIn("robin@example.test");
+  let r = await get("/staff/mirror", cookie);
+  assert.equal(r.status, 200);
+  assert.equal(r.json.status, null);   // not connected yet
+  const courts = await db.selectFrom("court").select(["id", "name"]).orderBy("name").execute();
+  await db.insertInto("connector_status").values({ system: "playtomic", last_sync_at: new Date(), last_ok_at: new Date(), last_error: null, fetched: 3, unmapped: JSON.stringify([{ courtRef: "pt-2", courtName: "Padel 2", bookings: 2 }]) }).execute();
+  await run(db, "connector.map_court", { resource_id: "pt-1", resource_name: "Padel 1", court_id: courts[0]!.id }, owner);
+  // A player's Playtomic booking on top of Friday's Americano.
+  const ct = await db.selectFrom("court_time").select(["id", "court_id"]).where("session_id", "=", sessionId).where("court_id", "=", courts[0]!.id).executeTakeFirstOrThrow();
+  const s = new Date(Date.now() + 864e5 + 1800_000), e = new Date(s.getTime() + 5400_000);
+  await db.insertInto("mirror_booking").values({ ref: "b9:pt-1", court_id: ct.court_id, during: `[${s.toISOString()},${e.toISOString()})`, booking_type: "OPEN_MATCH", status: "conflict", clash_id: ct.id, court_time_id: null }).execute();
+  r = await get("/staff/mirror", cookie);
+  assert.equal(r.json.status.failed, false);
+  assert.deepEqual(r.json.unmapped, [{ courtRef: "pt-2", courtName: "Padel 2", bookings: 2 }]);
+  assert.deepEqual(r.json.linked.map((l: any) => [l.resource_id, l.court]), [["pt-1", "Court 1"]]);
+  assert.equal(r.json.conflicts.length, 1);
+  assert.equal(r.json.conflicts[0].kind, "Open match");
+  assert.equal(r.json.conflicts[0].event, "Friday Americano");
+  assert.equal(r.json.conflicts[0].session_id, sessionId);
+  const member = await signIn("p1@example.test");
+  assert.equal((await get("/staff/mirror", member)).status, 403);
+});

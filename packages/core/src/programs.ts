@@ -8,6 +8,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
+import { isClubBlock } from "./playtomic.ts";
 
 export const OFFER_HOURS = 2;
 /** Refunds outside the rule above this need a second person (action_catalogue.md rule 4). */
@@ -109,6 +110,15 @@ export const programPublish = defineAction({
   async apply(ctx, i) { await ctx.update("program", i.program_id, { status: "published" }); await ctx.emit("program.published", { program_id: i.program_id }); return null; },
 });
 
+/** Court time already on these courts then. A Playtomic block lying inside the new event can be absorbed. */
+async function courtTimeUnder(db: Db | Trx, i: { court_ids: string[]; starts_at: string; ends_at: string }) {
+  const range = sql`tstzrange(${new Date(i.starts_at)}, ${new Date(i.ends_at)})`;
+  const rows = await db.selectFrom("court_time").leftJoin("mirror_booking", "mirror_booking.court_time_id", "court_time.id")
+    .select(["court_time.id", "court_time.court_id", "court_time.kind", "mirror_booking.ref", "mirror_booking.booking_type", sql<boolean>`${range} @> court_time.during`.as("inside")])
+    .where("court_time.court_id", "in", i.court_ids).where("court_time.active", "=", true).where(sql<boolean>`court_time.during && ${range}`).execute();
+  return rows.map((r) => ({ ...r, absorb: r.kind === "mirror" && Boolean(r.ref) && r.inside && isClubBlock(r.booking_type) }));
+}
+
 export const sessionAdd = defineAction({
   name: "session.add", version: 1,
   input: z.object({ program_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), ends_at: z.iso.datetime({ offset: true }), court_ids: z.array(z.uuid()).check(z.minLength(1)) }),
@@ -116,20 +126,26 @@ export const sessionAdd = defineAction({
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     const courts = await ctx.db.selectFrom("court").select(["id", "name", "location_id"]).where("id", "in", i.court_ids).where("archived_at", "is", null).execute();
     if (courts.length !== new Set(i.court_ids).size || courts.some((c) => c.location_id !== p.location_id)) throw new KumiError("error.not_found", { thing: both("thing.court") }, 404);
-    const clash = await ctx.db.selectFrom("court_time").select("id").where("court_id", "in", i.court_ids).where("active", "=", true)
-      .where(sql<boolean>`during && tstzrange(${new Date(i.starts_at)}, ${new Date(i.ends_at)})`).executeTakeFirst();
-    if (clash) throw new KumiError("error.court_taken");
+    if ((await courtTimeUnder(ctx.db, i)).some((c) => !c.absorb)) throw new KumiError("error.court_taken");
     const names = courts.map((c) => c.name).join(", ");
     return { title: both("action.session.add"), summary: both("plan.session.add", { name: p.name, when: when(new Date(i.starts_at), await clubTz(ctx.db)), courts: names }), reads: [read], locationId: p.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     // Lock the courts first, in court-id order (spikes/booking_race.md), then take the time.
     for (const id of [...i.court_ids].sort()) await ctx.trx.selectFrom("court").select("id").where("id", "=", id).forUpdate().execute();
-    const sessionId = uuidv7();
+    const under = await courtTimeUnder(ctx.trx, i);
+    if (under.some((c) => !c.absorb)) throw new KumiError("error.court_taken");
+    // The club already blocked these courts in Playtomic for this event: the event takes over the hold.
+    for (const c of under) await ctx.update("court_time", c.id, { active: false });
+    const sessionId = uuidv7(), held = new Map<string, string>();
     await ctx.insert("session", { id: sessionId, program_id: i.program_id, starts_at: new Date(i.starts_at), ends_at: new Date(i.ends_at) });
     try {
-      for (const court of i.court_ids) await ctx.insert("court_time", { id: uuidv7(), court_id: court, during: sql`tstzrange(${new Date(i.starts_at)}, ${new Date(i.ends_at)})`, kind: "session", session_id: sessionId });
+      for (const court of i.court_ids) {
+        const id = uuidv7(); held.set(court, id);
+        await ctx.insert("court_time", { id, court_id: court, during: sql`tstzrange(${new Date(i.starts_at)}, ${new Date(i.ends_at)})`, kind: "session", session_id: sessionId });
+      }
     } catch (e: any) { if (e?.code === "23P01") throw new KumiError("error.court_taken"); throw e; }
+    for (const c of under) await ctx.update("mirror_booking", c.ref!, { status: "covered", court_time_id: null, clash_id: held.get(c.court_id)! });
     return { session_id: sessionId };
   },
 });
