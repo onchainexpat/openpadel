@@ -9,10 +9,11 @@ import { actions, apply, approve, plan, decide, KumiError, type Actor, type Db }
 import { sessionPerson, signOut, startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
+import { passkeyRoutes } from "./passkeys.ts";
 import type { Mailer } from "./mailer.ts";
 
 export interface AppDeps { db: Db; mailer: Mailer; publicUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata }
-type Me = { id: string; display_name: string; locale: string } | null;
+type Me = { id: string; display_name: string; locale: string; method: "email_code" | "passkey"; created_at: Date } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
 const COOKIE = "kumi_session";
 const EmailStart = z.object({ email: z.email() });
@@ -39,7 +40,7 @@ export function makeApp(deps: AppDeps) {
   const actor = (c: Context<Env>): Actor => {
     const me = c.get("me");
     if (!me) throw new KumiError("error.signed_out", {}, 401);
-    return { personId: me.id, via: "web", lang: c.get("lang") };
+    return { personId: me.id, via: "web", lang: c.get("lang"), auth: me.method };
   };
   const body = async <S extends z.ZodMiniObject>(c: Context<Env>, schema: S): Promise<z.infer<S>> => {
     const parsed = z.safeParse(schema, await c.req.json().catch(() => ({})));
@@ -52,6 +53,7 @@ export function makeApp(deps: AppDeps) {
   // ---- The MCP door: OAuth, then tools generated from the registry ----
   const publicUrl = (deps.publicUrl ?? "http://127.0.0.1:8790").replace(/\/$/, "");
   app.route("/", oauthRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, fetchMetadata: deps.fetchMetadata ?? defaultFetchMetadata, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
+  app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.all("/mcp", async (c) => {
     const who = await bearerPerson(db, c.req.header("authorization"), `${publicUrl}/mcp`, now());
     if (!who) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": `Bearer resource_metadata="${publicUrl}/.well-known/oauth-protected-resource/mcp", scope="kumi"` });
@@ -80,7 +82,8 @@ export function makeApp(deps: AppDeps) {
     const a = actor(c);
     const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id")
       .select(["role.key", "person_role.location_id"]).where("person_role.person_id", "=", a.personId!).where("person_role.active", "=", true).execute();
-    return c.json({ person: c.get("me"), lang: c.get("lang"), roles });
+    const me = c.get("me")!;
+    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles });
   });
 
   // ---- Actions: one description each, the same one the MCP tools and forms use ----

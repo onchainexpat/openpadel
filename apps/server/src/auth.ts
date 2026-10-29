@@ -54,7 +54,7 @@ export async function verifyEmailCode(db: Db, email: string, code: string, userA
 export async function sessionPerson(db: Db, token: string | undefined, now = new Date()) {
   if (!token) return null;
   const s = await db.selectFrom("web_session").innerJoin("person", "person.id", "web_session.person_id")
-    .select(["person.id", "person.display_name", "person.locale", "web_session.token_hash"])
+    .select(["person.id", "person.display_name", "person.locale", "web_session.token_hash", "web_session.method", "web_session.created_at"])
     .where("web_session.token_hash", "=", sha(token)).where("web_session.revoked_at", "is", null).where("web_session.expires_at", ">", now)
     .where("person.status", "!=", "archived").executeTakeFirst();
   if (s) await db.updateTable("web_session").set({ last_seen_at: now }).where("token_hash", "=", s.token_hash).execute();

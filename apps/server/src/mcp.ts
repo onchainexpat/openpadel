@@ -12,7 +12,7 @@ const titleOf = (action: string): Text => (`action.${action}` in en ? both(`acti
 
 export async function mcpServerFor(db: Db, who: { id: string; display_name: string; locale: string; client_name: string | null }, now: () => Date): Promise<McpServer> {
   const lang: Lang = isLang(who.locale) ? who.locale : "en";
-  const actor: Actor = { personId: who.id, via: `mcp:${who.client_name ?? "client"}`, lang };
+  const actor: Actor = { personId: who.id, via: `mcp:${who.client_name ?? "client"}`, lang, auth: "oauth" };
   const server = new McpServer({ name: "kumi", version: "0.1.0" }, { instructions: `You act for ${who.display_name} at their padel club. Every change is two steps: call a *_preview tool, show the person the summary in their words, and only after they agree call the matching *_confirm tool with the run_id. Reply in ${lang === "es" ? "Spanish" : "English"}.` });
   const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v) }] });
   const fail = (e: unknown) => {

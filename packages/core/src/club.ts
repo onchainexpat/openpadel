@@ -52,7 +52,7 @@ export const clubSetup = defineAction({
 });
 
 export const clubUpdate = defineAction({
-  name: "club.update", version: 1,
+  name: "club.update", version: 1, strongAuth: true,
   input: z.object({
     name: z.optional(z.string().check(z.minLength(1))), legal_name: z.optional(z.string()), time_zone: z.optional(timeZone),
     languages: z.optional(z.array(lang).check(z.minLength(1))), default_language: z.optional(lang),
@@ -98,7 +98,7 @@ export const locationUpdate = defineAction({
 });
 
 export const roleAssign = defineAction({
-  name: "role.assign", version: 1,
+  name: "role.assign", version: 1, strongAuth: true,
   input: z.object({ person_id: z.uuid(), role: roleKey, location_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row: person, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
@@ -114,7 +114,7 @@ export const roleAssign = defineAction({
 });
 
 export const roleRemove = defineAction({
-  name: "role.remove", version: 1,
+  name: "role.remove", version: 1, strongAuth: true,
   input: z.object({ person_id: z.uuid(), role: roleKey, location_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row: person } = await readRow(ctx.db, "person", i.person_id, "thing.person");
@@ -146,6 +146,35 @@ export const personUpdateProfile = defineAction({
   async apply(ctx, i) {
     const { person_id, ...rest } = i;
     await ctx.update("person", person_id, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+    return null;
+  },
+});
+
+export const passkeyAdd = defineAction({
+  name: "person.passkey_add", version: 1, internal: true,
+  input: z.object({ person_id: z.uuid(), credential_id: z.string().check(z.minLength(8)), public_key: z.string(), counter: z.number(), transports: z.optional(z.array(z.string())), name: z.optional(z.string()) }),
+  async plan(ctx, i) {
+    const { read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
+    return { title: both("action.person.passkey_add"), summary: both("plan.person.passkey_add", { name: i.name ?? "" }), reads: [read], ownerIds: [i.person_id], undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    await ctx.insert("passkey", { credential_id: i.credential_id, person_id: i.person_id, public_key: Buffer.from(i.public_key, "base64url"), counter: String(i.counter), transports: i.transports ?? null, name: i.name ?? null });
+    await ctx.emit("person.passkey_added", { person_id: i.person_id, name: i.name ?? null });
+    return { credential_id: i.credential_id };
+  },
+});
+
+export const passkeyRemove = defineAction({
+  name: "person.passkey_remove", version: 1, strongAuth: true,
+  input: z.object({ person_id: z.uuid(), credential_id: z.string() }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "passkey", i.credential_id, "thing.passkey");
+    if (row.person_id !== i.person_id || row.revoked_at) throw new KumiError("error.not_found", { thing: both("thing.passkey") }, 404);
+    return { title: both("action.person.passkey_remove"), summary: both("plan.person.passkey_remove", { name: row.name ?? "" }), reads: [read], ownerIds: [i.person_id], undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    await ctx.update("passkey", i.credential_id, { revoked_at: ctx.now });
+    await ctx.emit("person.passkey_removed", { person_id: i.person_id });
     return null;
   },
 });

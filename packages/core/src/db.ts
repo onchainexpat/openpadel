@@ -7,8 +7,9 @@ export interface ClubTable { singleton: Generated<boolean>; name: string; legal_
 export interface LocationTable { id: string; name: string; time_zone: string; address: string | null; opened_on: string | null; archived_at: Date | null; version: Generated<number> }
 export interface PersonTable { id: string; given_name: string | null; family_name: string | null; display_name: string; email: string | null; phone: string | null; birth_year: number | null; locale: Generated<string>; status: Generated<string>; created_via: string; trust_level: Generated<number>; redacted_at: Date | null; created_at: Generated<Date>; version: Generated<number> }
 export interface AuthIdentityTable { id: string; person_id: string; kind: "email" | "phone"; value: string; verified_at: Date | null; created_at: Generated<Date> }
-export interface AuthChallengeTable { id: string; kind: "email_code" | "phone_code"; target: string; code_hash: string; attempts: Generated<number>; expires_at: Date; consumed_at: Date | null; created_at: Generated<Date> }
-export interface WebSessionTable { token_hash: string; person_id: string; created_at: Generated<Date>; expires_at: Date; last_seen_at: Date | null; user_agent: string | null; revoked_at: Date | null }
+export interface AuthChallengeTable { id: string; kind: "email_code" | "phone_code" | "passkey_add" | "passkey_sign_in"; person_id: string | null; target: string; code_hash: string; attempts: Generated<number>; expires_at: Date; consumed_at: Date | null; created_at: Generated<Date> }
+export interface WebSessionTable { token_hash: string; person_id: string; created_at: Generated<Date>; expires_at: Date; last_seen_at: Date | null; user_agent: string | null; revoked_at: Date | null; method: Generated<"email_code" | "passkey"> }
+export interface PasskeyTable { credential_id: string; person_id: string; public_key: Buffer; counter: string; transports: string[] | null; name: string | null; created_at: Generated<Date>; last_used_at: Date | null; revoked_at: Date | null; version: Generated<number> }
 export interface RoleTable { id: string; key: string; system: Generated<boolean>; version: Generated<number> }
 export interface RoleGrantTable { id: string; role_id: string; pattern: string; mode: "allow" | "ask" | "no"; rows_scope: Generated<"any" | "own">; time_scope: Generated<"any_time" | "on_shift">; field_mask: Json | null; version: Generated<number> }
 export interface PersonRoleTable { id: string; person_id: string; role_id: string; location_id: string | null; active: Generated<boolean>; version: Generated<number> }
@@ -33,7 +34,7 @@ export interface OAuthTokenTable { token_hash: string; kind: "access" | "refresh
 
 export interface DB {
   club: ClubTable; location: LocationTable; person: PersonTable; auth_identity: AuthIdentityTable; auth_challenge: AuthChallengeTable;
-  web_session: WebSessionTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
+  web_session: WebSessionTable; passkey: PasskeyTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
   staff_shift: StaffShiftTable; agent: AgentTable; action_run: ActionRunTable; entity_change: EntityChangeTable; event_outbox: EventOutboxTable;
   channel_consent: ChannelConsentTable; oauth_client: OAuthClientTable; oauth_grant: OAuthGrantTable; oauth_code: OAuthCodeTable; oauth_token: OAuthTokenTable;
 }

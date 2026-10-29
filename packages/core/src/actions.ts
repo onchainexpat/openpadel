@@ -9,7 +9,9 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { decide, type Decision } from "./permissions.ts";
 
-export interface Actor { personId: string | null; agentId?: string | null; via: string; lang: Lang }
+/** How the person proved who they are: the strong-sign-in rule reads it. */
+export type AuthMethod = "email_code" | "passkey" | "oauth" | "system";
+export interface Actor { personId: string | null; agentId?: string | null; via: string; lang: Lang; auth?: AuthMethod }
 export type UndoKind = "reversible" | "compensating" | "none";
 export interface Read { entity: Entity; id: string; version: number }
 export interface Plan {
@@ -36,6 +38,10 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   version: number;
   /** Kumi itself may run it with no person (setup, scheduled jobs). Nobody else gets this path. */
   system?: boolean;
+  /** Only Kumi's own code calls it (after a check it did itself); never offered to the API or MCP. */
+  internal?: boolean;
+  /** Once the person has a passkey, this needs a passkey sign-in, not an emailed code. */
+  strongAuth?: boolean;
   input: S;
   plan(ctx: PlanCtx, input: z.infer<S>): Promise<Plan>;
   apply(ctx: ApplyCtx, input: z.infer<S>, plan: Plan): Promise<unknown>;
@@ -49,6 +55,7 @@ const ENTITIES = {
   person_role: { table: "person_role", key: "id", retire: { active: false } },
   role_grant: { table: "role_grant", key: "id", retire: null },
   staff_member: { table: "staff_member", key: "id", retire: { active: false } },
+  passkey: { table: "passkey", key: "credential_id", retire: { revoked_at: "now" } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 
@@ -100,11 +107,20 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
   throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
 }
 
+/** Staff two-step sign-in, the simple way: a person with a passkey makes sensitive changes with it. */
+async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor): Promise<void> {
+  if (!def.strongAuth || !actor.personId || actor.auth === "passkey" || actor.auth === "system") return;
+  const has = await db.selectFrom("passkey").select("credential_id").where("person_id", "=", actor.personId).where("revoked_at", "is", null).executeTakeFirst();
+  if (has) throw new KumiError("error.need_passkey", {}, 403);
+}
+
 export interface Planned { runId: string; status: "planned" | "awaiting_approval"; plan: Plan; expiresAt: Date }
 
 /** Step one: validate, check permission, build the preview, and store it. Nothing changes yet. */
-export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opts: { now?: Date } = {}): Promise<Planned> {
+export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opts: { now?: Date; internal?: boolean } = {}): Promise<Planned> {
   const def = getAction(name);
+  if (def.internal && !opts.internal) throw new KumiError("error.unknown_action", {}, 404);
+  await requireStrongAuth(db, def, actor);
   const input = validate(def, raw);
   const now = opts.now ?? new Date();
   const p = await def.plan({ db, actor, now }, input);
@@ -143,6 +159,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       }
       const def = getAction(run.action);
       const p = run.plan as Plan;
+      if (!approving && !opts.system) await requireStrongAuth(trx, def, actor);
       if (opts.system && !def.system) throw new KumiError("error.forbidden_reason", { reason: both("reason.no_role") }, 403);
       if (!approving && !opts.system) {   // permissions may have changed since the preview
         const d = await decide(trx, run.action, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now });
@@ -224,7 +241,7 @@ export async function runAsSystem(db: Db, name: string, raw: unknown, via: strin
 }
 
 /** Plan and apply in one go, for callers that already showed the preview elsewhere (tests, setup). */
-export async function run(db: Db, name: string, raw: unknown, actor: Actor, opts: { now?: Date; idempotencyKey?: string } = {}) {
+export async function run(db: Db, name: string, raw: unknown, actor: Actor, opts: { now?: Date; idempotencyKey?: string; internal?: boolean } = {}) {
   const p = await plan(db, name, raw, actor, opts);
   if (p.status === "awaiting_approval") return { ...p, result: null };
   return { ...p, result: await apply(db, p.runId, actor, opts) };
