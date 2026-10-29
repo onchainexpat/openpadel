@@ -1,0 +1,1 @@
+{"name":"@kumi/server","private":true,"type":"module","dependencies":{"@hono/node-server":"2.1.5","@kumi/core":"*","@kumi/i18n":"*","hono":"4.13.13"},"scripts":{"start":"node src/main.ts"}}
