@@ -1,9 +1,7 @@
 import { LocationProvider, Router, Route } from "preact-iso";
 import { useEffect } from "preact/hooks";
-import { api, club, lang, loadMe, me, t, type Club } from "./state.ts";
-import { SignIn } from "./SignIn.tsx";
+import { api, club, lang, loadMe, me, t, type Club, SignIn, Profile } from "@kumi/ui";
 import { Changes } from "./Changes.tsx";
-import { Profile } from "./Profile.tsx";
 import { Programs } from "./Programs.tsx";
 import { Program } from "./Program.tsx";
 import { Night } from "./Night.tsx";

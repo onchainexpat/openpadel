@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t } from "./state.ts";
-import { usePreview } from "./Preview.tsx";
+import { api, lang, t } from "@kumi/ui";
+import { usePreview } from "@kumi/ui";
 
 type L = { person: { id: string; display_name: string }; rating: { level: string; provisional: boolean; floor: string | null; rated_games: number } | null;
   events: { at: string; kind: string; level_before: string | null; level_after: string; explanation: string }[] };

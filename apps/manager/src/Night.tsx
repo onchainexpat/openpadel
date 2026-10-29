@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, t } from "./state.ts";
-import { usePreview } from "./Preview.tsx";
+import { api, t } from "@kumi/ui";
+import { usePreview } from "@kumi/ui";
 
 type Game = { id: string; court: string; status: string; odds_a: number; a: string[]; b: string[]; score: { a: number; b: number } | null };
 type Night = { draw: { rounds: number; points_per_game: number } | null; rounds: { round: number; games: Game[] }[]; standings: { name: string; points: number; games: number }[] };

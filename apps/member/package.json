@@ -1,0 +1,3 @@
+{ "name": "@kumi/member", "private": true, "type": "module",
+  "dependencies": { "@kumi/i18n": "*", "@kumi/ui": "*" },
+  "scripts": { "dev": "vite", "build": "vite build", "typecheck": "tsc -p tsconfig.json" } }

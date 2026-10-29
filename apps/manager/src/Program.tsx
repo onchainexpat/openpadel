@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, lang, t } from "./state.ts";
-import { usePreview, dollars } from "./Preview.tsx";
+import { api, lang, t } from "@kumi/ui";
+import { usePreview, dollars } from "@kumi/ui";
 
 type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; paid_by: string; paid_cents: number; level: string | null;
   comp_note: string | null; left_how: string | null; left_reason: string | null; refund_outcome: string | null; refund_cents: number | null; offer_expires_at: string | null };

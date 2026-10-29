@@ -1,5 +1,5 @@
 import { render } from "preact";
 import { App } from "./App.tsx";
-import "./styles.css";
+import "@kumi/ui/styles.css";
 
 render(<App />, document.getElementById("app")!);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, ApiError, lang, loadMe, t } from "./state.ts";
+import { api, ApiError, lang, loadMe, t } from "@kumi/ui";
 
 type Change = { id: string; action: string; status: string; by: string; via: string; summary: string | null; at: string };
 

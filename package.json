@@ -11,7 +11,7 @@
   },
   "license": "AGPL-3.0-only",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json && tsc -p apps/manager/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p apps/manager/tsconfig.json && tsc -p apps/member/tsconfig.json",
     "test": "node --test --test-concurrency=4 'packages/*/test/*.test.ts' 'apps/*/test/*.test.ts'"
   },
   "dependencies": {

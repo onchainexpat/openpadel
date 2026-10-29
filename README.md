@@ -16,6 +16,7 @@ over MCP. A club can run it itself or have it hosted.
 | `apps/server` | The API, the MCP endpoint and background jobs (Hono on Node 24) |
 | `apps/member` | The members' installable web app (Preact) |
 | `apps/manager` | The staff app for phone and web (Preact) |
+| `packages/ui` | What both apps share: sign-in, the preview sheet, the profile page, styles |
 | `migrations` | Plain SQL migrations, numbered, each applied once |
 
 ## Stack
@@ -35,6 +36,7 @@ docker exec kumi-dev-pg createdb -U postgres kumi
 node apps/server/src/seed.ts                                   # a demo club, owner owner@kestrel.test
 KUMI_PUBLIC_URL=http://localhost:5173 node apps/server/src/main.ts   # API on 8790; emailed codes go to its log
 npm run dev -w @kumi/manager                                    # the staff app on http://localhost:5173
+npm run dev -w @kumi/member                                     # the members' app on http://localhost:5174
 npm test && npm run typecheck
 ```
 

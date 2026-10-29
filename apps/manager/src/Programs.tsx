@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, lang, t } from "./state.ts";
-import { usePreview, dollars } from "./Preview.tsx";
+import { api, lang, t } from "@kumi/ui";
+import { usePreview, dollars } from "@kumi/ui";
 
 type Row = { id: string; name: string; kind: string; status: string; capacity: number; price_cents: number; booked: number; waitlisted: number; first_start: string | null };
 type Location = { id: string; name: string };
