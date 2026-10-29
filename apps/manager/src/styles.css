@@ -21,3 +21,9 @@ button:disabled { opacity: .6; }
 .changes { list-style: none; padding: 0; margin: 0; }
 .sheet { border-color: var(--brand); }
 .status.failed, .status.expired { color: var(--error); }
+ul.plain { list-style: none; padding: 0; margin: 0 0 12px; } ul.plain li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+label.check { display: flex; gap: 8px; align-items: center; font-weight: 400; } label.check input { width: auto; margin: 0; }
+fieldset { border: 0; padding: 0; margin: 0 0 12px; } legend { font-weight: 600; }
+.game { padding: 8px 0; border-bottom: 1px solid var(--line); } .score { display: flex; gap: 8px; align-items: center; } .score input { width: 64px; display: inline-block; margin: 0; }
+.big { font-size: 40px; font-weight: 700; margin: 0; } table { width: 100%; border-collapse: collapse; } td { padding: 6px 4px; border-bottom: 1px solid var(--line); }
+a.summary { color: var(--ink); font-weight: 600; text-decoration: none; }

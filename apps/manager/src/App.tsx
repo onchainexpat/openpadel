@@ -4,6 +4,10 @@ import { api, club, lang, loadMe, me, t, type Club } from "./state.ts";
 import { SignIn } from "./SignIn.tsx";
 import { Changes } from "./Changes.tsx";
 import { Profile } from "./Profile.tsx";
+import { Programs } from "./Programs.tsx";
+import { Program } from "./Program.tsx";
+import { Night } from "./Night.tsx";
+import { Level } from "./Level.tsx";
 
 export function App() {
   useEffect(() => {
@@ -19,11 +23,15 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav><a href="/">{t("ui.nav_changes")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav><a href="/programs">{t("ui.nav_programs")}</a><a href="/">{t("ui.nav_changes")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
         <Route path="/" component={Changes} />
         <Route path="/profile" component={Profile} />
+        <Route path="/programs" component={Programs} />
+        <Route path="/programs/:id" component={Program} />
+        <Route path="/sessions/:id" component={Night} />
+        <Route path="/people/:id/level" component={Level} />
       </Router>
     </LocationProvider>
   );
