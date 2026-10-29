@@ -15,8 +15,12 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
         eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first_start"),
         eb.selectFrom("enrolment").select("status").whereRef("enrolment.program_id", "=", "program.id").where("enrolment.person_id", "=", pid).where("enrolment.status", "in", ["booked", "waitlisted"]).limit(1).as("my_status"),
+        eb.selectFrom("waitlist_offer").innerJoin("enrolment", "enrolment.id", "waitlist_offer.enrolment_id").select((x) => x.fn.countAll<string>().as("n"))
+          .whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "waitlisted").where("waitlist_offer.outcome", "is", null).where("waitlist_offer.expires_at", ">", new Date()).as("offered"),
+        eb.selectFrom("waitlist_offer").innerJoin("enrolment", "enrolment.id", "waitlist_offer.enrolment_id").select("waitlist_offer.expires_at")
+          .whereRef("enrolment.program_id", "=", "program.id").where("enrolment.person_id", "=", pid).where("enrolment.status", "=", "waitlisted").where("waitlist_offer.outcome", "is", null).where("waitlist_offer.expires_at", ">", new Date()).limit(1).as("my_offer_until"),
       ]).where("status", "=", "published").where("visibility", "in", ["public", "members"]).execute();
-    return c.json(rows.filter((r) => !r.first_start || new Date(r.first_start as any) > new Date()).map((r) => ({ ...r, booked: Number(r.booked ?? 0) }))
+    return c.json(rows.filter((r) => !r.first_start || new Date(r.first_start as any) > new Date()).map((r) => ({ ...r, booked: Number(r.booked ?? 0), offered: Number(r.offered ?? 0) }))
       .sort((a, b) => String(a.first_start).localeCompare(String(b.first_start))));
   });
 

@@ -103,6 +103,9 @@ test("staff see the Playtomic mirror: courts to link and bookings that clash", a
   assert.equal(r.json.conflicts[0].kind, "Open match");
   assert.equal(r.json.conflicts[0].event, "Friday Americano");
   assert.equal(r.json.conflicts[0].session_id, sessionId);
+  // Linked since the last sync: it leaves the to-link list straight away.
+  await run(db, "connector.map_court", { resource_id: "pt-2", resource_name: "Padel 2", court_id: courts[1]!.id }, owner);
+  assert.deepEqual((await get("/staff/mirror", cookie)).json.unmapped, []);
   const member = await signIn("p1@example.test");
   assert.equal((await get("/staff/mirror", member)).status, 403);
 });

@@ -194,8 +194,8 @@ export const mirrorApply = defineAction({
 export async function syncMirror(db: Db, client: PlaytomicClient, o: { now?: Date; daysBack?: number; daysAhead?: number } = {}) {
   const now = o.now ?? new Date();
   const from = new Date(now.getTime() - (o.daysBack ?? 1) * 864e5), to = new Date(now.getTime() + (o.daysAhead ?? 30) * 864e5);
-  const status = (v: { last_ok_at?: Date; last_error: string | null; fetched?: number; unmapped?: unknown }) => {
-    const row = { last_sync_at: now, ...v, unmapped: v.unmapped === undefined ? undefined : JSON.stringify(v.unmapped) };
+  const status = (v: { last_ok_at?: Date; last_error: string | null; fetched?: number; unmapped?: unknown; courts?: unknown }) => {
+    const row = { last_sync_at: now, ...v, unmapped: v.unmapped === undefined ? undefined : JSON.stringify(v.unmapped), courts: v.courts === undefined ? undefined : JSON.stringify(v.courts) };
     return db.insertInto("connector_status").values({ system: PLAYTOMIC, ...row } as any).onConflict((oc) => oc.column("system").doUpdateSet(row as any)).execute();
   };
   try {
@@ -207,7 +207,8 @@ export async function syncMirror(db: Db, client: PlaytomicClient, o: { now?: Dat
     const result = diff.changes.length
       ? (await runAsSystem(db, "mirror.apply", { changes: diff.changes }, "mirror:playtomic", { now })).result as Counts
       : { held: 0, covered: 0, conflict: 0, gone: 0 };
-    await status({ last_ok_at: now, last_error: null, fetched: raw.length, unmapped: diff.unmapped });
+    const courts = [...new Map(fetched.map((b) => [b.courtRef, b.courtName])).entries()].map(([courtRef, courtName]) => ({ courtRef, courtName }));
+    await status({ last_ok_at: now, last_error: null, fetched: raw.length, unmapped: diff.unmapped, courts });
     return { ok: true as const, fetched: raw.length, unreadable: raw.length - fetched.length, changes: diff.changes.length, unmapped: diff.unmapped, ...result };
   } catch (e) {
     await status({ last_error: (e as Error).message.slice(0, 500) });

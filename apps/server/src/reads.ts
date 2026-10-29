@@ -93,14 +93,16 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const status = await db.selectFrom("connector_status").selectAll().where("system", "=", PLAYTOMIC).executeTakeFirst();
     const refs = await db.selectFrom("external_ref").select(["external_id", "entity_id"]).where("system", "=", PLAYTOMIC).where("entity", "=", "court").execute();
     const courts = new Map((await db.selectFrom("court").select(["id", "name"]).execute()).map((r) => [r.id, r.name]));
+    const ptNames = new Map(((status?.courts ?? []) as { courtRef: string; courtName: string }[]).map((x) => [x.courtRef, x.courtName]));
     const kind = (type: string) => t(l, ({ REGULAR_BOOKING: "pt.regular_booking", OPEN_MATCH: "pt.open_match", PRIVATE_CLASS: "pt.private_class", COURSE_CLASS: "pt.course_class" } as const)[type as "OPEN_MATCH"] ?? "pt.other");
     const conflicts = await db.selectFrom("mirror_booking").leftJoin("court_time", "court_time.id", "mirror_booking.clash_id").leftJoin("session", "session.id", "court_time.session_id").leftJoin("program", "program.id", "session.program_id")
       .select(["mirror_booking.ref", "mirror_booking.court_id", "mirror_booking.booking_type", "program.name as event", "session.id as session_id", sql<Date>`lower(mirror_booking.during)`.as("starts_at"), sql<Date>`upper(mirror_booking.during)`.as("ends_at")])
       .where("mirror_booking.system", "=", PLAYTOMIC).where("mirror_booking.status", "=", "conflict").where(sql<boolean>`upper(mirror_booking.during) > now()`).orderBy(sql`lower(mirror_booking.during)`).execute();
     return c.json({
       status: status ? { last_sync_at: status.last_sync_at, last_ok_at: status.last_ok_at, failed: Boolean(status.last_error), fetched: status.fetched } : null,
-      unmapped: status?.unmapped ?? [],
-      linked: refs.map((r) => ({ resource_id: r.external_id, court_id: r.entity_id, court: courts.get(r.entity_id) ?? "" })),
+      // From the last sync, less any court linked since then.
+      unmapped: ((status?.unmapped ?? []) as { courtRef: string }[]).filter((u) => !refs.some((r) => r.external_id === u.courtRef)),
+      linked: refs.map((r) => ({ resource_id: r.external_id, name: ptNames.get(r.external_id) ?? r.external_id, court_id: r.entity_id, court: courts.get(r.entity_id) ?? "" })),
       conflicts: conflicts.map((r) => ({ ref: r.ref, court: courts.get(r.court_id) ?? "", kind: kind(r.booking_type), starts_at: r.starts_at, ends_at: r.ends_at, event: r.event, session_id: r.session_id })),
     });
   });

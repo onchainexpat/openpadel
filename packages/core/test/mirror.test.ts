@@ -122,6 +122,7 @@ test("bookings on an unlinked court are listed, not copied; once linked they hol
   const st = await db.selectFrom("connector_status").selectAll().where("system", "=", "playtomic").executeTakeFirstOrThrow();
   assert.equal(st.fetched, 4);
   assert.equal(st.last_error, null);
+  assert.deepEqual((st.courts as { courtRef: string; courtName: string }[]).map((c) => [c.courtRef, c.courtName]).sort(), [["pt-1", "Padel 1"], ["pt-9", "Padel 9"]]);
 });
 
 test("a moved booking moves its hold; a cancelled or vanished one lets the court go", async () => {

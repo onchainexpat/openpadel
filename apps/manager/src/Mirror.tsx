@@ -3,7 +3,7 @@ import { api, lang, t, usePreview } from "@kumi/ui";
 
 type M = { status: { last_sync_at: string; last_ok_at: string | null; failed: boolean; fetched: number | null } | null;
   unmapped: { courtRef: string; courtName: string; bookings: number }[];
-  linked: { resource_id: string; court_id: string; court: string }[];
+  linked: { resource_id: string; name: string; court_id: string; court: string }[];
   conflicts: { ref: string; court: string; kind: string; starts_at: string; ends_at: string; event: string | null; session_id: string | null }[] };
 type Court = { id: string; name: string };
 
@@ -32,7 +32,7 @@ export function Mirror() {
             <button disabled={!pick[u.courtRef]} onClick={() => preview("connector.map_court", { resource_id: u.courtRef, resource_name: u.courtName, court_id: pick[u.courtRef] })}>{t("ui.mirror_link")}</button>
           </li>))}</ul></section>}
       {d.linked.length > 0 && <section class="card"><h2>{t("ui.mirror_linked")}</h2>
-        <ul class="plain">{d.linked.map((l) => <li>{l.court} <span class="meta">{l.resource_id}</span></li>)}</ul></section>}
+        <ul class="plain">{d.linked.map((l) => <li>{l.court} <span class="meta">· {t("ui.mirror_is", { name: l.name })}</span></li>)}</ul></section>}
       <section class="card"><h2>{t("ui.mirror_conflicts")}</h2>
         {d.conflicts.length === 0 ? <p class="meta">{t("ui.mirror_no_conflicts")}</p> :
           <ul class="plain">{d.conflicts.map((c) => (

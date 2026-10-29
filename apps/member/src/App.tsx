@@ -18,11 +18,11 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav><a href="/">{t("ui.nav_whats_on")}</a><a href="/my">{t("ui.nav_my")}</a><a href="/level">{t("ui.nav_level")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav><a href="/">{t("ui.nav_whats_on")}</a><a href="/places">{t("ui.nav_my")}</a><a href="/level">{t("ui.nav_level")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
         <Route path="/" component={WhatsOn} />
-        <Route path="/my" component={MyPlaces} />
+        <Route path="/places" component={MyPlaces} />
         <Route path="/level" component={MyLevel} />
         <Route path="/profile" component={Profile} />
       </Router>

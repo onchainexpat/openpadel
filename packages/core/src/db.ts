@@ -56,7 +56,7 @@ export interface RatingEventTable { id: string; person_id: string; sport: Genera
 
 export interface ExternalRefTable { entity: string; entity_id: string; system: string; external_id: string }
 export interface MirrorBookingTable { ref: string; system: Generated<string>; court_id: string; during: string; booking_type: string; status: "held" | "covered" | "conflict" | "gone"; court_time_id: string | null; clash_id: string | null; first_seen_at: Generated<Date>; version: Generated<number> }
-export interface ConnectorStatusTable { system: string; last_sync_at: Date | null; last_ok_at: Date | null; last_error: string | null; fetched: number | null; unmapped: Generated<unknown> }
+export interface ConnectorStatusTable { system: string; last_sync_at: Date | null; last_ok_at: Date | null; last_error: string | null; fetched: number | null; unmapped: Generated<unknown>; courts: Generated<unknown> }
 
 export interface DB {
   club: ClubTable; location: LocationTable; person: PersonTable; auth_identity: AuthIdentityTable; auth_challenge: AuthChallengeTable;

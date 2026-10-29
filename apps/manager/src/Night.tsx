@@ -45,7 +45,7 @@ export function Night({ id }: { id: string }) {
       ))}
       {d.standings.length > 0 && (
         <section class="card"><h2>{t("ui.standings")}</h2>
-          <table><tbody>{d.standings.map((s, i) => <tr><td>{i + 1}</td><td>{s.name}</td><td>{s.points}</td><td class="meta">{s.games} {t("ui.games_played")}</td></tr>)}</tbody></table>
+          <table><tbody>{d.standings.map((s, i) => <tr><td>{i + 1}</td><td>{s.name}</td><td>{s.points}</td><td class="meta">{t("count.games", { count: s.games })}</td></tr>)}</tbody></table>
         </section>
       )}
     </main>

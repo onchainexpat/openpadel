@@ -138,3 +138,22 @@ test("a member can leave their own place but can't take anyone off", async () =>
   await rejects(plan(db, "enrolment.leave", { enrolment_id: e2.enrolment_id }, as(m1)), "error.forbidden_reason");
   await run(db, "enrolment.leave", { enrolment_id: e1.enrolment_id }, as(m1));
 });
+
+test("a place offered from the waitlist is held for that person, and a second opening goes to the next one", async () => {
+  const p = await americano("Held places", 120);
+  const [a, b, c, d, w1, w2, x] = await Promise.all(["Hp A", "Hp B", "Hp C", "Hp D", "Hp W1", "Hp W2", "Hp X"].map((n) => person(n)));
+  const ins: { enrolment_id: string }[] = [];
+  for (const id of [a!, b!, c!, d!]) ins.push(await join(p, id));
+  const wait1 = await join(p, w1!), wait2 = await join(p, w2!);
+  assert.equal(wait1.status, "waitlisted");
+  await run(db, "enrolment.remove", { enrolment_id: ins[0]!.enrolment_id, reason: "other" }, owner);
+  // W1 holds the opened place: someone new joins the waitlist instead of taking it.
+  assert.equal((await join(p, x!)).status, "waitlisted");
+  await run(db, "enrolment.remove", { enrolment_id: ins[1]!.enrolment_id, reason: "other" }, owner);
+  const offers = await db.selectFrom("waitlist_offer").select("enrolment_id").where("outcome", "is", null).where("enrolment_id", "in", [wait1.enrolment_id, wait2.enrolment_id]).execute();
+  assert.deepEqual(offers.map((o) => o.enrolment_id).sort(), [wait1.enrolment_id, wait2.enrolment_id].sort());
+  await run(db, "enrolment.accept_offer", { enrolment_id: wait1.enrolment_id }, as(w1!));
+  await run(db, "enrolment.accept_offer", { enrolment_id: wait2.enrolment_id }, as(w2!));
+  const booked = await db.selectFrom("enrolment").select("person_id").where("program_id", "=", p).where("status", "=", "booked").execute();
+  assert.deepEqual(booked.map((r) => r.person_id).sort(), [c!, d!, w1!, w2!].sort());
+});

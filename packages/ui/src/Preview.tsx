@@ -1,11 +1,12 @@
 // Every change in the staff app: preview with the server's own words, then confirm.
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, t } from "./state.ts";
 
 export type Pending = { runId: string; status: "planned" | "awaiting_approval"; summary: string };
 
 export function usePreview(onDone: () => void) {
   const [pending, setPending] = useState<Pending | null>(null), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
+  useEffect(() => { if (!note) return; const id = setTimeout(() => setNote(null), 5000); return () => clearTimeout(id); }, [note]);
   const preview = async (action: string, input: unknown) => {
     setError(null); setNote(null);
     try {
@@ -19,13 +20,14 @@ export function usePreview(onDone: () => void) {
     try { await api(`/runs/${pending.runId}/apply`, {}, { "idempotency-key": pending.runId }); setPending(null); setNote(t("ui.done")); onDone(); }
     catch (e) { setError(e instanceof ApiError ? e.message : String(e)); setPending(null); }
   };
+  // Docked at the bottom of the screen: on a phone the button that asked for it may be far down the page.
   const sheet = (
-    <>
+    <div class="dock">
       {pending && <div class="card sheet" role="dialog" aria-modal="true"><p>{pending.summary}</p>
         <button class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>}
-      {note && <p class="note" role="status">{note}</p>}
-      {error && <p class="error" role="alert">{error}</p>}
-    </>
+      {note && <p class="note" role="status" onClick={() => setNote(null)}>{note}</p>}
+      {error && <p class="error" role="alert" onClick={() => setError(null)}>{error}</p>}
+    </div>
   );
   return { preview, sheet };
 }

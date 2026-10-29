@@ -8,6 +8,7 @@ export function MyPlaces() {
   const load = () => api<Place[]>("/my/places").then(setRows);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
+  const clock = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { hour: "numeric", minute: "2-digit" }).format(new Date(iso));
   const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso)) : "");
   const payTest = async (id: string) => { await api(`/dev/payments/${id}/settle`, {}); load(); };
   return (
@@ -19,8 +20,8 @@ export function MyPlaces() {
         <li class="card" key={p.id}>
           <div class="summary">{p.name}</div>
           <div class="meta">{when(p.first_start)} · {p.status === "booked" ? t("ui.youre_in") : t("ui.on_waitlist", { n: p.waitlist_position ?? 0 })}
-            {p.paid_cents > 0 ? ` · ${t("ui.paid", { amount: dollars(p.paid_cents, lang.value) })}` : p.pending_payment_id ? ` · ${t("ui.pay_pending")}` : ""}</div>
-          {p.offer_expires_at && <p class="note">{t("ui.offer_ends", { time: when(p.offer_expires_at) })} <button class="small primary" onClick={() => preview("enrolment.accept_offer", { enrolment_id: p.id })}>{t("ui.take_place")}</button></p>}
+            {p.paid_cents > 0 ? ` · ${t("ui.you_paid", { amount: dollars(p.paid_cents, lang.value) })}` : p.pending_payment_id ? ` · ${t("ui.pay_pending")}` : ""}</div>
+          {p.offer_expires_at && <p class="note">{t("ui.offer_ends", { time: clock(p.offer_expires_at) })} <button class="small primary" onClick={() => preview("enrolment.accept_offer", { enrolment_id: p.id })}>{t("ui.take_place")}</button></p>}
           {import.meta.env.DEV && p.pending_payment_id && <button class="small" onClick={() => payTest(p.pending_payment_id!)}>{t("ui.pay_test")}</button>}
           {" "}<button class="small" onClick={() => preview("enrolment.leave", { enrolment_id: p.id })}>{t("ui.leave")}</button>
         </li>
