@@ -42,6 +42,24 @@ npm test && npm run typecheck
 
 Open the staff app at `localhost` (not `127.0.0.1`), so passkeys and the session cookie see one origin.
 
+## Messages and email
+
+Kumi tells people what happened: a place offered from the waitlist, a removal and what happens to the
+money, a payment, a sub taking a place, and, for staff, a refund that failed or a clash with Playtomic.
+Each lands in the in-app inbox at once; the email copy goes from a job every 30 seconds. Confirmations,
+removals and money go straight away; the rest wait out quiet hours (9 pm to 8 am, club time) and are
+dropped rather than sent late. Consent is checked at the send.
+
+Without a Resend key, emails (and sign-in codes) only go to the server's log. With one, they go from the
+club's own domain, which has to be verified in Resend first:
+
+```bash
+KUMI_RESEND_API_KEY=re_… KUMI_MAIL_FROM="Kestrel Padel <hello@kestrelpadel.com>" node apps/server/src/main.ts
+# optional: KUMI_MAIL_REPLY_TO=desk@kestrelpadel.com
+# outside production, only these get real email; everyone else's is held and logged:
+# KUMI_MAIL_TEST_TO=you@example.com,staff@example.com
+```
+
 ## Card payments (Stripe)
 
 Without Stripe keys the server uses a stand-in, and the members' app shows a "Pay (test)" button.

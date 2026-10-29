@@ -7,7 +7,8 @@ import type { Db, Trx } from "./db.ts";
 import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
 
-export interface Mail { to: string; subject: string; text: string }
+/** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout). */
+export interface Mail { to: string; subject: string; text: string; id?: string }
 export interface Mailer { send(mail: Mail): Promise<void> }
 
 /** Quiet hours in the club's time, by default 9 pm to 8 am (messages.md). */
@@ -207,7 +208,7 @@ export async function sendEmails(db: Db, mailer: Mailer, now = new Date(), limit
         return "dropped" as const;
       }
       try {
-        await mailer.send({ to: m.email!, subject: m.subject, text: m.body });
+        await mailer.send({ to: m.email!, subject: m.subject, text: m.body, id: m.id });
         await trx.updateTable("outbound_message").set({ status: "sent", sent_at: now, attempts: sql`attempts + 1` }).where("id", "=", m.id).execute();
         return "sent" as const;
       } catch (e) {
