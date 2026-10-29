@@ -366,6 +366,8 @@ export const en = {
   "ui.payments_connect": "Connect with Stripe",
   "ui.payments_continue": "Continue with Stripe",
   "ui.payments_finish": "Your Stripe account (…{tail}) can't take payments yet: Stripe needs a few more details.",
+  "ui.payments_checking": "Stripe is checking the details for your account (…{tail}). It usually takes a few minutes, and this page updates when Stripe says yes.",
+  "ui.payments_checking_more": "If Stripe asks for anything else, you can add it here.",
   "ui.payments_ready": "Card payments go to your Stripe account (…{tail}).",
   "ui.payments_dashboard": "Open your Stripe dashboard",
   "ui.payments_test_mode": "Test mode: no real money moves.",

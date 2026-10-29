@@ -369,6 +369,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.payments_connect": "Conectar con Stripe",
   "ui.payments_continue": "Continuar con Stripe",
   "ui.payments_finish": "Tu cuenta de Stripe (…{tail}) todavía no puede recibir pagos: Stripe necesita algunos datos más.",
+  "ui.payments_checking": "Stripe está revisando los datos de tu cuenta (…{tail}). Suele tardar unos minutos, y esta página se actualiza cuando Stripe la aprueba.",
+  "ui.payments_checking_more": "Si Stripe pide algo más, puedes agregarlo aquí.",
   "ui.payments_ready": "Los pagos con tarjeta van a tu cuenta de Stripe (…{tail}).",
   "ui.payments_dashboard": "Abrir tu panel de Stripe",
   "ui.payments_test_mode": "Modo de prueba: no se mueve dinero real.",

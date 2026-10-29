@@ -23,6 +23,13 @@ export function Payments() {
     if (back === "refresh") { void connect(); return; }
     (back === "return" ? api("/staff/payments/refresh", {}).catch(() => {}) : Promise.resolve()).then(load);
   }, []);
+  // Stripe has the details and is checking them: the server asks Stripe every 30 seconds, so look again.
+  const checking = Boolean(d?.account?.details_submitted && !d.account.charges_enabled);
+  useEffect(() => {
+    if (!checking) return;
+    const id = setInterval(load, 15_000);
+    return () => clearInterval(id);
+  }, [checking]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const a = d.account;
   return (
@@ -37,7 +44,12 @@ export function Payments() {
           <p class="meta">{t("ui.payments_who")}</p>
           <button class="primary" disabled={busy} onClick={connect}>{t("ui.payments_connect")}</button>
         </>}
-        {d.mode === "connect" && a && !a.charges_enabled && <>
+        {d.mode === "connect" && checking && <>
+          <p>{t("ui.payments_checking", { tail: a!.tail })}</p>
+          <p class="meta">{t("ui.payments_checking_more")}</p>
+          <button disabled={busy} onClick={connect}>{t("ui.payments_continue")}</button>
+        </>}
+        {d.mode === "connect" && a && !a.charges_enabled && !a.details_submitted && <>
           <p>{t("ui.payments_finish", { tail: a.tail })}</p>
           <button class="primary" disabled={busy} onClick={connect}>{t("ui.payments_continue")}</button>
         </>}
