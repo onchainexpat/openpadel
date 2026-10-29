@@ -44,7 +44,7 @@ test("what's on: open programs, each marked rated or friendly before joining", a
 test("join, pay (stand-in), and the place shows as paid; the preview is in Spanish", async () => {
   const cookie = await signIn("ana@example.test");
   const p = await call("/actions/enrolment.join/plan", cookie, { program_id: rated, person_id: ana });
-  assert.equal(p.json.summary, "Apuntar a Ana a Friday Americano por $25.00.");
+  assert.equal(p.json.summary, "Inscribir a Ana en Friday Americano por $25.00.");
   const j = await call(`/runs/${p.json.run_id}/apply`, cookie, {});
   assert.ok(j.json.result.payment_id);
   let places = (await call("/my/places", cookie)).json;

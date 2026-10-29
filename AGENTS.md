@@ -17,8 +17,15 @@ scope and the roadmap.
    constraint. Every write that takes court time locks its courts first, in court-id order.
 4. **English and Spanish for every string** a person sees, from the first commit. No string is
    written straight into a component or a message.
-   Spanish is US and Latin American Spanish: a court is a "cancha", an accountant a "contador",
-   and "tú" throughout.
+   Spanish is US and Latin American Spanish, with "tú" throughout. The words to use:
+   - "cancha" (court), "contador" (accountant), "miembro" (member), "dueño" (owner);
+   - "inscribirse" (sign up), "lugar" or "cupo" (a place), "agregar" (add), "vencer" (expire),
+     "monto" (amount), "Listo" (done);
+   - not Spain's "pista", "apuntarse", "plaza", "añadir", "caducar", "importe" or "Hecho".
+
+   Phrase things about a person so they don't need a gender ("ya se inscribió", not "ya está
+   inscrito"). The `thing.*` words carry their article ("la cancha"), since Spanish nouns have
+   gender. A count goes in a plural message, never a plain one.
 5. **Everything runs on the club's time zone,** never the server clock.
 6. **Messages:** consent checked on the server before every send, STOP always works, quiet hours
    respected, and texts kept to the plain GSM-7 alphabet (no emoji in texts).

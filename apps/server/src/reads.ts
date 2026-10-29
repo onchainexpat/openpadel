@@ -40,7 +40,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/programs/:id", async (c) => {
     const id = c.req.param("id");
     const program = await db.selectFrom("program").selectAll().where("id", "=", id).executeTakeFirst();
-    if (!program) throw new KumiError("error.not_found", { thing: { en: "program", es: "programa" } }, 404);
+    if (!program) throw new KumiError("error.not_found", { thing: { en: "program", es: "el programa" } }, 404);
     const sessions = await db.selectFrom("session").selectAll().where("program_id", "=", id).orderBy("starts_at").execute();
     const courts = await db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id").select(["court_time.session_id", "court.name"])
       .where("court_time.session_id", "in", sessions.length ? sessions.map((s) => s.id) : ["00000000-0000-0000-0000-000000000000"]).where("court_time.active", "=", true).execute();
@@ -81,7 +81,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/people/:id/level", async (c) => {
     const id = c.req.param("id"), l = lang(c);
     const person = await db.selectFrom("person").select(["id", "display_name"]).where("id", "=", id).executeTakeFirst();
-    if (!person) throw new KumiError("error.not_found", { thing: { en: "person", es: "persona" } }, 404);
+    if (!person) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
     const rating = await db.selectFrom("rating").select(["level", "provisional", "floor", "rated_games", "floor_reason"]).where("person_id", "=", id).where("sport", "=", "padel").executeTakeFirst();
     const events = await db.selectFrom("rating_event").select(["at", "kind", "level_before", "level_after", "explanation"]).where("person_id", "=", id).orderBy("id", "desc").limit(50).execute();
     return c.json({ person, rating: rating ?? null, events: events.map((e) => ({ ...e, explanation: (e.explanation as Record<string, string>)[l] ?? "" })) });

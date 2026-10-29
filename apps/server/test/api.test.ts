@@ -50,7 +50,7 @@ test("wrong codes run out after five tries, in the person's language", async () 
   const email = "lee@example.test";
   await db.insertInto("person").values({ id: uuidv7(), display_name: "Lee", email, locale: "es", created_via: "desk" }).execute();
   await call("/auth/email/start", { body: { email } });
-  assert.match(mailer.last(email)!.subject, /^Tu código para entrar en Kestrel Padel/);
+  assert.match(mailer.last(email)!.subject, /^Tu código para entrar a Kestrel Padel/);
   for (let i = 0; i < 4; i++) assert.equal((await call("/auth/email/verify", { body: { email, code: "000000" }, lang: "es" })).json.error, "error.bad_code");
   const fifth = await call("/auth/email/verify", { body: { email, code: "000000" }, lang: "es" });
   assert.equal(fifth.status, 429); assert.equal(fifth.json.message, "Demasiados intentos. Pide un código nuevo.");

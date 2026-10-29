@@ -118,7 +118,7 @@ test("Monica's Americano: a late drop after round 2, the rest re-paired, played 
   await run(db, "enrolment.remove", { enrolment_id: dropped.enrolment, reason: "late_cancel" }, monica);
   await run(db, "enrolment.accept_offer", { enrolment_id: waiting.enrolment }, as(waiting.person));
   const rp = await plan(db, "draw.repair", { session_id: t.sessionId }, monica);
-  assert.equal(rp.plan.summary.en, "Re-pair rounds 3 to 4 for the 8 players now on the roster. The 2 rounds already played keep their scores.");
+  assert.equal(rp.plan.summary.en, "Re-pair rounds 3 to 4 for the 8 players now on the roster. Rounds already played keep their scores.");
   await run(db, "draw.repair", { session_id: t.sessionId }, monica);
   const after = await games(t.sessionId);
   assert.deepEqual(after.filter((g) => g.round! <= 2).map((g) => g.id), before.filter((g) => g.round! <= 2).map((g) => g.id), "played rounds keep their games");
