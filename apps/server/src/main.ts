@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { connect, expireOffers, migrate, PlaytomicClient, syncMirror } from "@kumi/core";
+import { connect, expireOffers, migrate, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer } from "./mailer.ts";
 
@@ -8,16 +8,35 @@ const applied = await migrate(db);
 if (applied.length) console.log(`migrations applied: ${applied.join(", ")}`);
 const port = Number(process.env.PORT ?? 8790);
 const publicUrl = process.env.KUMI_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
-serve({ fetch: makeApp({ db, mailer: new MemoryMailer(true), publicUrl, secureCookies: process.env.NODE_ENV === "production", production: process.env.NODE_ENV === "production" }).fetch, port });
+const production = process.env.NODE_ENV === "production";
+
+// Card payments go to the club's Stripe when its keys are set (from the environment, never the
+// database or the code); otherwise the stand-in. A live key is refused outside production.
+const stripeKey = process.env.KUMI_STRIPE_SECRET_KEY;
+if (stripeKey) {
+  const stripe = new StripeProvider({ secretKey: stripeKey });
+  if (stripe.live && !production) { console.error("refusing a LIVE Stripe key outside production; use a test key (sk_test_)"); process.exit(1); }
+  setPaymentProvider(stripe);
+  console.log(`payments: stripe (${stripe.live ? "live" : "test mode"})`);
+}
+const stripeConfig = { publishableKey: process.env.KUMI_STRIPE_PUBLISHABLE_KEY, webhookSecret: process.env.KUMI_STRIPE_WEBHOOK_SECRET };
+serve({ fetch: makeApp({ db, mailer: new MemoryMailer(true), publicUrl, secureCookies: production, production, stripe: stripeConfig }).fetch, port });
 console.log(`kumi server on http://127.0.0.1:${port}`);
 
-// Waitlist offers that ran out pass to the next person, checked every minute.
-const offers = async () => {
-  try { const r = await expireOffers(db); if (r.expired) console.log(`waitlist offers: ${r.expired} ran out, ${r.offered} passed on`); }
-  catch (e) { console.error("waitlist offers:", (e as Error).message); }
-  finally { setTimeout(offers, 60_000); }
+// The jobs, every 30 seconds: refunds and other events leave through the outbox; waitlist offers that
+// ran out pass on; card payments nobody told us about are checked with the provider.
+const jobs = async () => {
+  try {
+    const sent = await processOutbox(db, moneyHandlers);
+    if (sent.delivered || sent.failed) console.log(`outbox: ${sent.delivered} delivered, ${sent.failed} to retry`);
+    const r = await expireOffers(db);
+    if (r.expired) console.log(`waitlist offers: ${r.expired} ran out, ${r.offered} passed on`);
+    const p = await reconcilePayments(db);
+    if (p.settled) console.log(`payments: ${p.settled} settled by checking with the provider`);
+  } catch (e) { console.error("jobs:", (e as Error).message); }
+  finally { setTimeout(jobs, 30_000); }
 };
-void offers();
+void jobs();
 
 // The read-only Playtomic mirror, when the club has given Kumi its Third Party API keys (through the
 // environment, never the database or the code). One sync at a time, then a rest; pages are a minute apart.

@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { sql } from "kysely";
 import { freshDb } from "./helpers.ts";
-import { approve, creditBalance, moneyHandlers, plan, processOutbox, run, runAsSystem, setPaymentProvider, uuidv7, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { approve, checkPayment, creditBalance, moneyHandlers, openPayment, plan, processOutbox, reconcilePayments, run, runAsSystem, setPaymentProvider, uuidv7, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, monica: Actor, locationId: string;
 const stripe = new TestProvider();
@@ -52,15 +52,40 @@ after(async () => drop());
 test("joining asks for payment; nothing is charged until the provider confirms; then it's in the ledger", async () => {
   const p = await program(2500, 100);
   const ana = await person("Ana");
-  const r = (await run(db, "enrolment.join", { program_id: p, person_id: ana }, as(ana))).result as { payment_id: string; client_secret: string };
-  assert.match(r.client_secret, /^pi_test_/);
-  assert.equal((await db.selectFrom("payment").select("status").where("id", "=", r.payment_id).executeTakeFirstOrThrow()).status, "pending");
+  const intentsBefore = stripe.intents.size;
+  const r = (await run(db, "enrolment.join", { program_id: p, person_id: ana }, as(ana))).result as { payment_id: string };
+  const pay = () => db.selectFrom("payment").select(["status", "provider_ref"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
+  assert.deepEqual(await pay(), { status: "pending", provider_ref: null });
+  assert.equal(stripe.intents.size, intentsBefore, "nothing asked of the provider inside the change");
+  // Ana goes to pay: one intent, opened once and reused.
+  const form = await openPayment(db, r.payment_id, ana);
+  assert.match(form.clientSecret, /^pi_test_/);
+  assert.equal((await openPayment(db, r.payment_id, ana)).clientSecret, form.clientSecret);
+  assert.equal(stripe.intents.size, intentsBefore + 1);
+  const ref = (await pay()).provider_ref!;
+  assert.equal(await checkPayment(db, r.payment_id), "pending");
   const before = await balances();
-  await runAsSystem(db, "payment.settle", { payment_id: r.payment_id, outcome: "succeeded" }, "webhook");
+  stripe.settle(ref, "succeeded");   // the card went through
+  assert.equal(await checkPayment(db, r.payment_id), "succeeded");
+  assert.equal(await checkPayment(db, r.payment_id), "succeeded");   // asked again, e.g. by a webhook
   await runAsSystem(db, "payment.settle", { payment_id: r.payment_id, outcome: "succeeded" }, "webhook");   // a repeated webhook
   const after = await balances();
   assert.equal(after.provider_clearing! - (before.provider_clearing ?? 0), 2500, "counted once");
   assert.equal(after.revenue! - (before.revenue ?? 0), -2500);
+  await assert.rejects(openPayment(db, r.payment_id, ana), (e: unknown) => e instanceof KumiError && e.code === "error.not_pending");
+});
+
+test("only the person who owes a payment can open it, and the minute job settles what nobody reported", async () => {
+  const p = await program(2500, 110);
+  const cal = await person("Cal"), dee = await person("Dee");
+  const r = (await run(db, "enrolment.join", { program_id: p, person_id: cal }, as(cal))).result as { payment_id: string };
+  await assert.rejects(openPayment(db, r.payment_id, dee), (e: unknown) => e instanceof KumiError && e.code === "error.not_found");
+  await openPayment(db, r.payment_id, cal);
+  const ref = (await db.selectFrom("payment").select("provider_ref").where("id", "=", r.payment_id).executeTakeFirstOrThrow()).provider_ref!;
+  stripe.settle(ref, "succeeded");   // paid, but the app closed and the webhook never came
+  const job = await reconcilePayments(db);
+  assert.ok(job.settled >= 1);
+  assert.equal((await db.selectFrom("payment").select("status").where("id", "=", r.payment_id).executeTakeFirstOrThrow()).status, "succeeded");
 });
 
 test("leaving days ahead: the card refund goes out through the outbox, once", async () => {

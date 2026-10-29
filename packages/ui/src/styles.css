@@ -22,7 +22,8 @@ button:disabled { opacity: .6; }
 .changes { list-style: none; padding: 0; margin: 0; }
 .sheet { border-color: var(--brand); }
 .dock:not(:empty) { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; max-width: 640px; margin: 0 auto; padding: 0 16px calc(12px + env(safe-area-inset-bottom)); }
-.dock .sheet { margin: 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, .18); }
+.dock .sheet { margin: 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, .18); max-height: 88vh; overflow-y: auto; }
+.card-form { margin: 8px 0 16px; min-height: 40px; }
 .dock .note, .dock .error { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin: 12px 0 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, .12); cursor: pointer; }
 .status.failed, .status.expired { color: var(--error); }
 ul.plain { list-style: none; padding: 0; margin: 0 0 12px; } ul.plain li { padding: 6px 0; border-bottom: 1px solid var(--line); }

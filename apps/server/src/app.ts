@@ -12,9 +12,10 @@ import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
 import { readRoutes } from "./reads.ts";
 import { memberRoutes } from "./member.ts";
+import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import type { Mailer } from "./mailer.ts";
 
-export interface AppDeps { db: Db; mailer: Mailer; publicUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata; production?: boolean }
+export interface AppDeps { db: Db; mailer: Mailer; publicUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata; production?: boolean; stripe?: StripeConfig }
 type Me = { id: string; display_name: string; locale: string; method: "email_code" | "passkey"; created_at: Date } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
 const COOKIE = "kumi_session";
@@ -60,6 +61,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false }));
+  app.route("/", paymentRoutes(db, (c) => c.get("me"), deps.stripe));
   app.all("/mcp", async (c) => {
     const who = await bearerPerson(db, c.req.header("authorization"), `${publicUrl}/mcp`, now());
     if (!who) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": `Bearer resource_metadata="${publicUrl}/.well-known/oauth-protected-resource/mcp", scope="kumi"` });

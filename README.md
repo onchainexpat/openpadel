@@ -42,6 +42,23 @@ npm test && npm run typecheck
 
 Open the staff app at `localhost` (not `127.0.0.1`), so passkeys and the session cookie see one origin.
 
+## Card payments (Stripe)
+
+Without Stripe keys the server uses a stand-in, and the members' app shows a "Pay (test)" button.
+With a Stripe **test** key it takes real test-mode card payments through Stripe's own card form
+(card details go from the browser to Stripe and never reach Kumi), and refunds go back to the card:
+
+```bash
+KUMI_STRIPE_SECRET_KEY=sk_test_… KUMI_STRIPE_PUBLISHABLE_KEY=pk_test_… node apps/server/src/main.ts
+# optional: KUMI_STRIPE_WEBHOOK_SECRET=whsec_…  (Stripe's webhook, at /webhooks/stripe)
+```
+
+A live key (`sk_live_`) is refused unless `NODE_ENV=production`. A payment is recorded however the
+news arrives first: the app checking right after the card form, Stripe's webhook, or a job every
+30 seconds that asks Stripe about card forms opened in the last two days. Each asks Stripe directly
+rather than trusting a message, so the order and repeats don't matter. Test card: 4242 4242 4242 4242,
+any future date, any CVC. For webhooks locally: `stripe listen --forward-to localhost:8790/webhooks/stripe`.
+
 ## Running beside Playtomic
 
 A club on Playtomic can keep it for court bookings while Kumi runs its events. Kumi copies the

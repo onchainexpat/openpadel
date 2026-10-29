@@ -4,10 +4,16 @@ import { randomBytes } from "node:crypto";
 import type { Trx } from "./db.ts";
 import { uuidv7 } from "./ids.ts";
 
+export type IntentStatus = "pending" | "succeeded" | "failed";
+
 export interface PaymentProvider {
   readonly name: "test" | "stripe";
-  /** Ask for a payment. Nothing is charged until the person confirms it and the provider says so. */
-  createIntent(i: { amountCents: number; description: string; idempotencyKey: string }): Promise<{ ref: string; clientSecret: string }>;
+  /** Ask for a payment. Nothing is charged until the person confirms it and the provider says so.
+   *  The same key always gives back the same intent, so a retry never asks twice. */
+  createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; metadata?: Record<string, string> }): Promise<{ ref: string; clientSecret: string }>;
+  /** Where an intent stands now, asked of the provider: how a missed webhook is caught. A declined
+   *  card isn't a failure (the person can try another); only a cancelled intent is. */
+  getIntent(ref: string): Promise<{ status: IntentStatus; clientSecret: string }>;
   /** Send a refund. Retrying with the same key never refunds twice. */
   refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string }): Promise<{ ref: string; ok: boolean; failure?: string }>;
 }
@@ -15,14 +21,25 @@ export interface PaymentProvider {
 /** A stand-in for Stripe: records what was asked, and can be told to fail. */
 export class TestProvider implements PaymentProvider {
   readonly name = "test" as const;
-  intents = new Map<string, { amountCents: number; description: string }>();
+  intents = new Map<string, { amountCents: number; description: string; status: IntentStatus; clientSecret: string }>();
+  private byKey = new Map<string, string>();
   refunds = new Map<string, { paymentRef: string; amountCents: number; ref: string }>();
   failNextRefund = false;
-  async createIntent(i: { amountCents: number; description: string; idempotencyKey: string }) {
-    const ref = `pi_test_${randomBytes(6).toString("hex")}`;
-    this.intents.set(ref, { amountCents: i.amountCents, description: i.description });
-    return { ref, clientSecret: `${ref}_secret_${randomBytes(6).toString("hex")}` };
+  async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string }) {
+    const known = this.byKey.get(i.idempotencyKey);
+    if (known) return { ref: known, clientSecret: this.intents.get(known)!.clientSecret };
+    const ref = `pi_test_${randomBytes(6).toString("hex")}`, clientSecret = `${ref}_secret_${randomBytes(6).toString("hex")}`;
+    this.intents.set(ref, { amountCents: i.amountCents, description: i.description, status: "pending", clientSecret });
+    this.byKey.set(i.idempotencyKey, ref);
+    return { ref, clientSecret };
   }
+  async getIntent(ref: string) {
+    const it = this.intents.get(ref);
+    if (!it) throw new Error(`no such intent: ${ref}`);
+    return { status: it.status, clientSecret: it.clientSecret };
+  }
+  /** What a card form and the provider would do: the person pays, or the intent is cancelled. */
+  settle(ref: string, status: IntentStatus) { const it = this.intents.get(ref); if (it) it.status = status; }
   async refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string }) {
     const seen = this.refunds.get(i.idempotencyKey);
     if (seen) return { ref: seen.ref, ok: true };

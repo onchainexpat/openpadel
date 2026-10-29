@@ -186,7 +186,7 @@ export const enrolmentJoin = defineAction({
     const id = uuidv7();
     await ctx.insert("enrolment", { id, program_id: i.program_id, person_id: i.person_id, status: planned.status, waitlist_position: planned.position ?? null, price_cents: p.price_cents });
     await ctx.emit(planned.status === "booked" ? "enrolment.booked" : "enrolment.waitlisted", { enrolment_id: id });
-    const pay = planned.status === "booked" ? await requestPayment(ctx, id, i.person_id, p.price_cents, p.name) : null;
+    const pay = planned.status === "booked" ? await requestPayment(ctx, id, i.person_id, p.price_cents) : null;
     return { enrolment_id: id, status: planned.status, ...(pay ?? {}) };
   },
 });
@@ -292,7 +292,7 @@ export const enrolmentTransfer = defineAction({
     if (i.pay === "sub_pays") {
       await startRefund(ctx, e.id, e.person_id, { ...refund, cents: await paidFor(ctx.trx, e.id) }, "waiting_for_sub");
       const sub = await ctx.trx.selectFrom("program").select("name").where("id", "=", e.program_id).executeTakeFirstOrThrow();
-      const pay = await requestPayment(ctx, newId, i.to_person_id, p.price_cents, sub.name);
+      const pay = await requestPayment(ctx, newId, i.to_person_id, p.price_cents);
       await ctx.emit("enrolment.transferred", { from: e.id, to: newId, pay: i.pay });
       return { enrolment_id: newId, ...(pay ?? {}) };
     }
@@ -338,7 +338,7 @@ export const enrolmentAcceptOffer = defineAction({
     await ctx.update("waitlist_offer", (plan.details as { offer_id: string }).offer_id, { outcome: "taken" });
     await ctx.emit("enrolment.booked", { enrolment_id: i.enrolment_id });
     const e = await ctx.trx.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").select(["enrolment.person_id", "enrolment.price_cents", "program.name"]).where("enrolment.id", "=", i.enrolment_id).executeTakeFirstOrThrow();
-    return (await requestPayment(ctx, i.enrolment_id, e.person_id, e.price_cents, e.name)) ?? null;
+    return (await requestPayment(ctx, i.enrolment_id, e.person_id, e.price_cents)) ?? null;
   },
 });
 
@@ -393,13 +393,67 @@ export async function paidFor(db: Db | Trx, enrolmentId: string): Promise<number
 }
 
 /** Ask the provider for a payment. Nothing is charged until it confirms (payment.settle). */
-async function requestPayment(ctx: ApplyContext, enrolmentId: string, personId: string, cents: number, what: string) {
+/** A payment owed. Nothing goes to the provider here, inside the change: the card payment is opened when
+ *  the person goes to pay (openPayment), so a network call never holds a lock and an unpaid place costs nothing. */
+async function requestPayment(ctx: ApplyContext, enrolmentId: string, personId: string, cents: number) {
   if (cents <= 0) return null;
-  const pv = paymentProvider();
-  const intent = await pv.createIntent({ amountCents: cents, description: what, idempotencyKey: enrolmentId });
   const id = uuidv7();
-  await ctx.insert("payment", { id, person_id: personId, amount_cents: cents, method: "card", provider: pv.name, provider_ref: intent.ref, status: "pending", enrolment_id: enrolmentId });
-  return { payment_id: id, client_secret: intent.clientSecret };
+  await ctx.insert("payment", { id, person_id: personId, amount_cents: cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", enrolment_id: enrolmentId });
+  return { payment_id: id };
+}
+
+// ---- Card payments: opened when the person goes to pay, settled however the news arrives ----
+export const paymentOpen = defineAction({
+  name: "payment.open", version: 1, system: true, internal: true,
+  input: z.object({ payment_id: z.uuid(), provider: z.enum(["test", "stripe"]), provider_ref: z.string().check(z.minLength(1)) }),
+  async plan(ctx, i) {
+    const { row: pay } = await readRow(ctx.db, "payment", i.payment_id, "thing.payment");
+    return { title: both("action.payment.open"), summary: both("plan.payment.open", { person: await personName(ctx.db, pay.person_id), amount: usd(pay.amount_cents) }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
+  },
+  async apply(ctx, i) {
+    const pay = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", i.payment_id).forUpdate().executeTakeFirstOrThrow();
+    if (pay.provider_ref === i.provider_ref) return { already: true };   // two taps on Pay: the same intent
+    if (pay.provider_ref || pay.status !== "pending") throw new KumiError("error.changed");
+    await ctx.update("payment", pay.id, { provider: i.provider, provider_ref: i.provider_ref });
+    return null;
+  },
+});
+
+/** The card form for one of the person's own pending payments: the provider's intent, opened once and reused. */
+export async function openPayment(db: Db, paymentId: string, personId: string): Promise<{ clientSecret: string; provider: "test" | "stripe" }> {
+  const pay = await db.selectFrom("payment").leftJoin("enrolment", "enrolment.id", "payment.enrolment_id").leftJoin("program", "program.id", "enrolment.program_id")
+    .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider_ref", "program.name as what"]).where("payment.id", "=", paymentId).executeTakeFirst();
+  if (!pay || pay.person_id !== personId) throw new KumiError("error.not_found", { thing: both("thing.payment") }, 404);
+  if (pay.status !== "pending") throw new KumiError("error.not_pending", {}, 409);
+  const pv = paymentProvider();
+  if (pay.provider_ref) return { clientSecret: (await pv.getIntent(pay.provider_ref)).clientSecret, provider: pv.name };
+  const { currency } = await db.selectFrom("club").select("currency").executeTakeFirstOrThrow();
+  const it = await pv.createIntent({ amountCents: pay.amount_cents, currency, description: pay.what ?? "Kumi", idempotencyKey: pay.id, metadata: { kumi_payment_id: pay.id } });
+  await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: it.ref }, "payments");
+  return { clientSecret: it.clientSecret, provider: pv.name };
+}
+
+/** Ask the provider how a payment stands and record it once it's settled. Safe to call any number of times:
+ *  after the card form, from a webhook, and from the minute job that catches what both missed. */
+export async function checkPayment(db: Db, paymentId: string, via = "payments"): Promise<"pending" | "succeeded" | "failed" | null> {
+  const pay = await db.selectFrom("payment").select(["id", "status", "provider_ref"]).where("id", "=", paymentId).executeTakeFirst();
+  if (!pay) return null;
+  if (pay.status !== "pending" || !pay.provider_ref) return pay.status;
+  const it = await paymentProvider().getIntent(pay.provider_ref);
+  if (it.status !== "pending") await runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: it.status }, via);
+  return it.status;
+}
+
+/** The minute job: card forms opened in the last two days and not yet settled here. */
+export async function reconcilePayments(db: Db, now = new Date(), limit = 50) {
+  const rows = await db.selectFrom("payment").select("id").where("status", "=", "pending").where("provider", "=", paymentProvider().name)
+    .where("provider_ref", "is not", null).where("created_at", ">", new Date(now.getTime() - 2 * 864e5)).orderBy("created_at").limit(limit).execute();
+  let settled = 0;
+  for (const r of rows) {
+    try { if ((await checkPayment(db, r.id, "job:payments")) !== "pending") settled++; }
+    catch (e) { console.error(`payment ${r.id}:`, (e as Error).message); }   // tried again next minute
+  }
+  return { checked: rows.length, settled };
 }
 
 /** Start a refund: club credit at once; a card refund through the outbox, after this change commits. */
