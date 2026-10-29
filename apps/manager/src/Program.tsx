@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, lang, t } from "@kumi/ui";
+import { api, lang, t, shortTime } from "@kumi/ui";
 import { usePreview, dollars } from "@kumi/ui";
 
 type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; paid_by: string; paid_cents: number; level: string | null;
@@ -19,7 +19,6 @@ export function Program({ id }: { id: string }) {
   useEffect(() => { load(); }, [id]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const p = d.program, money = (c: number) => dollars(c, lang.value);
-  const clock = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { hour: "numeric", minute: "2-digit" }).format(new Date(iso));   // offers last two hours
   const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
   const booked = d.roster.filter((r) => r.status === "booked"), waiting = d.roster.filter((r) => r.status === "waitlisted"), gone = d.roster.filter((r) => r.status === "cancelled");
 
@@ -67,7 +66,7 @@ export function Program({ id }: { id: string }) {
             <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setRemoving(null)}>{t("ui.cancel")}</button>
           </form>
         )}
-        {waiting.length > 0 && <><h2>{t("ui.waitlist")}</h2><ol>{waiting.map((r) => <li>{r.display_name}{r.offer_expires_at && <span class="meta"> · {t("ui.offer_until", { time: clock(r.offer_expires_at) })}</span>}</li>)}</ol></>}
+        {waiting.length > 0 && <><h2>{t("ui.waitlist")}</h2><ol>{waiting.map((r) => <li>{r.display_name}{r.offer_expires_at && <span class="meta"> · {t("ui.offer_until", { time: shortTime(r.offer_expires_at) })}</span>}</li>)}</ol></>}
         <h2>{t("ui.comp")}</h2>
         <input placeholder={t("ui.search_person")} value={search} onInput={(e) => find(e.currentTarget.value)} />
         <input placeholder={t("ui.note")} value={compNote} onInput={(e) => setCompNote(e.currentTarget.value)} />

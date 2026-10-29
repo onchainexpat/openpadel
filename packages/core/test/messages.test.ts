@@ -70,6 +70,13 @@ test("signing up with something to pay waits in the inbox; the payment brings th
   assert.equal(box.sent[0]!.to, "sam@example.test"); assert.equal(box.sent[0]!.subject, "Paid: Friday social");
 });
 
+test("paid before the messages went out: one confirmation, not two", async () => {
+  const p = await americano("Quick payer"), lee = await person("Lee");
+  await join(p, lee);   // joins and pays before the outbox runs
+  await deliver();
+  assert.deepEqual(await kinds(lee, "email"), ["paid"]);
+});
+
 test("an event is told once, however many times the outbox runs it", async () => {
   const p = await americano("Twice"), ana = await person("Ana");
   await join(p, ana);
@@ -87,6 +94,7 @@ test("a removal says why and what happens to the money, in the member's language
   const removed = (await messages(lucia, "email")).find((m) => m.kind === "removed")!;
   assert.equal(removed.lang, "es"); assert.ok(removed.essential);
   assert.equal(removed.subject, "Ya no estás en Sábado social");
+  assert.ok(!removed.body.includes(".."), removed.body);   // "10:00 a.m." ends the sentence once
   assert.match(removed.body, /Motivo: decisión del club\. Te devolvemos US\$\s?30\.00 a tu tarjeta\.$|Motivo: decisión del club\. Te devolvemos \$30\.00 a tu tarjeta\.$/);
 });
 

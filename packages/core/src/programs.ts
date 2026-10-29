@@ -9,8 +9,17 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { isClubBlock } from "./playtomic.ts";
+import { quietUntil } from "./messages.ts";
 
-export const OFFER_HOURS = 2;
+/** How long a place offered from the waitlist is held. With texts it would be 2 hours; while email is
+ *  the only way to reach people, it's doubled (messages.md). */
+export const OFFER_HOURS = 4;
+/** When an offer made now runs out. The clock starts when the person can be told (after quiet hours,
+ *  so a place that opens at 10 pm isn't gone by morning), and never runs past the start. */
+export function offerDeadline(now: Date, tz: string, start: Date | null): Date {
+  const end = new Date((quietUntil(now, tz) ?? now).getTime() + OFFER_HOURS * 3600_000);
+  return start && start < end ? start : end;
+}
 /** Refunds outside the rule above this need a second person (action_catalogue.md rule 4). */
 export const TWO_PERSON_CENTS = 50_000;
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
@@ -208,7 +217,8 @@ async function freePlace(ctx: Parameters<NonNullable<Parameters<typeof defineAct
   const next = await nextWaitlisted(ctx.trx, programId, ctx.now, skip);
   if (!next) return null;
   const offerId = uuidv7();
-  await ctx.insert("waitlist_offer", { id: offerId, enrolment_id: next.id, offered_at: ctx.now, expires_at: new Date(ctx.now.getTime() + OFFER_HOURS * 3600_000) });
+  const expires = offerDeadline(ctx.now, await clubTz(ctx.trx), await firstStart(ctx.trx, programId));
+  await ctx.insert("waitlist_offer", { id: offerId, enrolment_id: next.id, offered_at: ctx.now, expires_at: expires });
   await ctx.emit("waitlist.offered", { enrolment_id: next.id, offer_id: offerId });
   return offerId;
 }

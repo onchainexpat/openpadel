@@ -3,4 +3,5 @@
 export * from "./state.ts";
 export { SignIn } from "./SignIn.tsx";
 export { Profile } from "./Profile.tsx";
+export { Inbox, InboxLink } from "./Inbox.tsx";
 export { usePreview, dollars } from "./Preview.tsx";

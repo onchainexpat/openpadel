@@ -87,7 +87,9 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "enrolment.booked"({ db, tz }, p: { enrolment_id: string }) {
     const e = await place(db, p.enrolment_id), due = await owes(db, e.id);
     // With something to pay, the confirmation comes with the payment; until then it's in the inbox only.
+    // Paid already by the time this runs: the payment's message is the confirmation.
     if (due > 0) return [{ to: e.person_id, kind: "booked_to_pay", params: { name: e.name, when: when(e.start, tz), amount: amount(due) }, purpose: "account", essential: false, email: false, link: "/places" }];
+    if (await paidFor(db, e.id) > 0) return [];
     return [{ to: e.person_id, kind: "booked", params: { name: e.name, when: when(e.start, tz) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "payment.succeeded"({ db, tz }, p: { payment_id: string }) {
@@ -149,6 +151,9 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
 };
 
+/** A sentence that ends on a Spanish time ("10:00 a.m.") keeps one full stop, and an empty last line goes. */
+const tidy = (text: string) => text.replace(/([ap]\.\s?m\.)\./g, "$1").replace(/\s+$/, "");
+
 /** Write an event's messages: the inbox copy now, the email copy for the sender. Safe to run twice. */
 async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<number> {
   if (now.getTime() - new Date(ev.created_at).getTime() > TOO_OLD_MS) return 0;
@@ -159,7 +164,7 @@ async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<numbe
     const person = await db.selectFrom("person").select(["locale", "email", "status", "redacted_at"]).where("id", "=", d.to).executeTakeFirst();
     if (!person || person.redacted_at || person.status === "archived") continue;
     const lang: Lang = pickLang(person.locale, pickLang(club.default_language));
-    const words = { subject: t(lang, `msg.${d.kind}.subject` as Key, d.params), body: t(lang, `msg.${d.kind}.body` as Key, d.params).replace(/\s+$/, "") };
+    const words = { subject: tidy(t(lang, `msg.${d.kind}.subject` as Key, d.params)), body: tidy(t(lang, `msg.${d.kind}.body` as Key, d.params)) };
     const base = { event_id: ev.id, person_id: d.to, kind: d.kind, purpose: d.purpose, essential: d.essential, lang, ...words, link: d.link ?? null, stale_at: d.staleAt ?? null };
     const rows = [{ ...base, id: uuidv7(now.getTime()), channel: "inbox", status: "sent", send_after: now, sent_at: now }];
     if (d.email && person.email) {

@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { expireOffers, plan, run, runAsSystem, uuidv7, KumiError, type Actor, type Db } from "../src/index.ts";
+import { expireOffers, offerDeadline, plan, run, runAsSystem, uuidv7, KumiError, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, monica: Actor, locationId: string, court1: string, court2: string;
 const as = (personId: string, lang: "en" | "es" = "en"): Actor => ({ personId, via: "test", lang });
@@ -160,6 +160,7 @@ test("a place offered from the waitlist is held for that person, and a second op
 
 // Offers last two hours; the job runs as if it were later.
 const later = (h: number) => new Date(Date.now() + h * 3600_000);
+const pastDeadline = async (enrolmentId: string) => new Date((await openOfferFor(enrolmentId))!.expires_at.getTime() + 60_000);
 const openOfferFor = (enrolmentId: string) => db.selectFrom("waitlist_offer").selectAll().where("enrolment_id", "=", enrolmentId).where("outcome", "is", null).executeTakeFirst();
 const jobRuns = async () => Number((await db.selectFrom("action_run").select((eb) => eb.fn.countAll<string>().as("n")).where("action", "=", "waitlist.expire_offers").executeTakeFirstOrThrow()).n);
 /** A full event (four booked) with the given people waiting. */
@@ -172,6 +173,14 @@ async function fullWith(name: string, startsIn: number, waiting: string[]) {
   return { p, ins, w };
 }
 
+test("an offer is held 4 hours from when the person can be told, never past the start", () => {
+  const tz = "America/Los_Angeles", far = new Date("2026-08-01T00:00:00Z");
+  assert.equal(offerDeadline(new Date("2026-07-01T19:00:00Z"), tz, far).toISOString(), "2026-07-01T23:00:00.000Z");   // noon: until 4 pm
+  assert.equal(offerDeadline(new Date("2026-07-02T05:00:00Z"), tz, far).toISOString(), "2026-07-02T19:00:00.000Z");   // 10 pm: from 8 am, until noon
+  const nineAm = new Date("2026-07-02T16:00:00Z");
+  assert.equal(offerDeadline(new Date("2026-07-02T05:00:00Z"), tz, nineAm).toISOString(), nineAm.toISOString());     // a 9 am start comes first
+});
+
 test("an offer that runs out goes to the next person, and the one who missed it moves to the back", async () => {
   const { p, ins, w } = await fullWith("Expiry", 130, ["W1", "W2", "W3"]);
   await run(db, "enrolment.remove", { enrolment_id: ins[0]!.enrolment_id, reason: "other" }, owner);
@@ -181,7 +190,7 @@ test("an offer that runs out goes to the next person, and the one who missed it 
   assert.deepEqual(await expireOffers(db), { expired: 0, offered: 0 });
   assert.equal(await jobRuns(), before);
 
-  assert.deepEqual(await expireOffers(db, later(2.5)), { expired: 1, offered: 1 });
+  assert.deepEqual(await expireOffers(db, await pastDeadline(w[0]!.enrolment_id)), { expired: 1, offered: 1 });
   assert.equal((await db.selectFrom("waitlist_offer").select("outcome").where("enrolment_id", "=", w[0]!.enrolment_id).executeTakeFirstOrThrow()).outcome, "expired");
   assert.ok(await openOfferFor(w[1]!.enrolment_id));
   const order = await db.selectFrom("enrolment").select("id").where("program_id", "=", p).where("status", "=", "waitlisted").orderBy("waitlist_position").execute();
@@ -195,7 +204,7 @@ test("an offer that runs out goes to the next person, and the one who missed it 
 test("when nobody else is waiting, a place nobody took opens to anyone", async () => {
   const { p, ins, w } = await fullWith("Lapsed", 140, ["W1"]);
   await run(db, "enrolment.remove", { enrolment_id: ins[0]!.enrolment_id, reason: "other" }, owner);
-  assert.deepEqual(await expireOffers(db, later(2.5)), { expired: 1, offered: 0 });
+  assert.deepEqual(await expireOffers(db, await pastDeadline(w[0]!.enrolment_id)), { expired: 1, offered: 0 });
   assert.equal((await enrolment(w[0]!.enrolment_id)).status, "waitlisted");
   assert.equal((await join(p, await person("Lapsed X"))).status, "booked");
 });

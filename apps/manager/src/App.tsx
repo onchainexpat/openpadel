@@ -1,6 +1,6 @@
 import { LocationProvider, Router, Route } from "preact-iso";
 import { useEffect } from "preact/hooks";
-import { api, club, lang, loadMe, me, t, type Club, SignIn, Profile } from "@kumi/ui";
+import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, Profile } from "@kumi/ui";
 import { Changes } from "./Changes.tsx";
 import { Programs } from "./Programs.tsx";
 import { Program } from "./Program.tsx";
@@ -15,6 +15,12 @@ export function App() {
     loadMe();
   }, []);
   useEffect(() => { document.documentElement.lang = lang.value; }, [lang.value]);
+  useEffect(() => {
+    if (!me.value) return;
+    void loadUnread();
+    const id = setInterval(loadUnread, 60_000);
+    return () => clearInterval(id);
+  }, [Boolean(me.value)]);
 
   if (me.value === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
   if (me.value === null) return <SignIn />;
@@ -23,7 +29,7 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav><a href="/programs">{t("ui.nav_programs")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/">{t("ui.nav_changes")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav><a href="/programs">{t("ui.nav_programs")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><InboxLink /><a href="/">{t("ui.nav_changes")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
         <Route path="/" component={Changes} />
@@ -34,6 +40,7 @@ export function App() {
         <Route path="/people/:id/level" component={Level} />
         <Route path="/playtomic" component={Mirror} />
         <Route path="/payments" component={Payments} />
+        <Route path="/inbox" component={Inbox} />
       </Router>
     </LocationProvider>
   );

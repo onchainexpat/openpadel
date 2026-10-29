@@ -9,6 +9,16 @@ export const me = signal<Me | null | undefined>(undefined);      // undefined: n
 export const club = signal<Club | null>(null);
 export const lang = signal<Lang>(pickLang(navigator.language));
 export const t = (key: Key, params?: Params) => translate(lang.value, key, params);
+/** A moment: the time when it's today, the day and time when it isn't (a place offered at night is held into the next day). */
+export function shortTime(iso: string): string {
+  const d = new Date(iso), today = d.toDateString() === new Date().toDateString();
+  return new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { ...(today ? {} : { weekday: "short" as const }), hour: "numeric", minute: "2-digit" }).format(d);
+}
+/** How many inbox messages are unread, for the nav; checked when the app opens and every minute. */
+export const unread = signal(0);
+export async function loadUnread(): Promise<void> {
+  try { unread.value = (await api<{ unread: number }>("/my/inbox")).unread; } catch { /* signed out or offline: keep the last count */ }
+}
 export const isStaff = computed(() => (me.value?.roles ?? []).some((r) => r.key !== "member"));
 
 export class ApiError extends Error { code: string; status: number; constructor(code: string, message: string, status: number) { super(message); this.code = code; this.status = status; } }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, me, t, usePreview } from "@kumi/ui";
+import { api, dollars, lang, me, t, shortTime, usePreview } from "@kumi/ui";
 
 type P = { id: string; name: string; capacity: number; booked: number; price_cents: number; rated: boolean; level_min: string | null; level_max: string | null; refund_window_hours: number; first_start: string | null; my_status: string | null; offered: number; my_offer_until: string | null };
 
@@ -8,7 +8,6 @@ export function WhatsOn() {
   const load = () => api<P[]>("/open-programs").then(setRows);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
-  const clock = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { hour: "numeric", minute: "2-digit" }).format(new Date(iso));
   const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "long", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso)) : "");
   return (
     <main>
@@ -23,7 +22,7 @@ export function WhatsOn() {
             <div class="meta">{when(p.first_start)} · {dollars(p.price_cents, lang.value)}{p.level_min && p.level_max ? ` · ${t("ui.level_band", { min: p.level_min, max: p.level_max })}` : ""}</div>
             <div class="meta">{t(p.rated ? "ui.rated_label" : "ui.friendly_label")} · {t("ui.refund_rule", { hours: p.refund_window_hours })}</div>
             <div class="meta">{left > 0 ? t("ui.places_left", { count: left }) : t("ui.full_waitlist")}</div>
-            {p.my_offer_until ? <p class="note">{t("ui.offer_ends", { time: clock(p.my_offer_until) })} · <a href="/places">{t("ui.take_place")}</a></p>
+            {p.my_offer_until ? <p class="note">{t("ui.offer_ends", { time: shortTime(p.my_offer_until) })} · <a href="/places">{t("ui.take_place")}</a></p>
               : p.my_status ? <p class="note">{p.my_status === "booked" ? t("ui.youre_in") : t("ui.waitlist")}</p>
               : <button class="primary" onClick={() => preview("enrolment.join", { program_id: p.id, person_id: me.value!.person.id })}>{t("ui.join")}</button>}
           </li>

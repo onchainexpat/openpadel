@@ -19,6 +19,8 @@ button:disabled { opacity: .6; }
 .or { text-align: center; color: var(--muted); }
 .error { color: var(--error); } .note { color: var(--brand); }
 .meta { color: var(--muted); font-size: 14px; }
+.badge { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 6px; border-radius: 9px; background: var(--brand); color: #fff; font-size: 12px; line-height: 18px; text-align: center; }
+.card.unread { border-left: 4px solid var(--brand); }
 .changes { list-style: none; padding: 0; margin: 0; }
 .sheet { border-color: var(--brand); }
 .dock:not(:empty) { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; max-width: 640px; margin: 0 auto; padding: 0 16px calc(12px + env(safe-area-inset-bottom)); }
