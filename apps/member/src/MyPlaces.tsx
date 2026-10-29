@@ -6,12 +6,12 @@ type Place = { id: string; status: string; waitlist_position: number | null; nam
 
 export function MyPlaces() {
   const [rows, setRows] = useState<Place[] | null>(null);
-  const [provider, setProvider] = useState<string | null>(null), [paying, setPaying] = useState<Place | null>(null), [paid, setPaid] = useState(false);
+  const [provider, setProvider] = useState<string | null>(null), [ready, setReady] = useState(true), [paying, setPaying] = useState<Place | null>(null), [paid, setPaid] = useState(false);
   const load = () => api<Place[]>("/my/places").then(setRows);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
   useEffect(() => {
-    api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {});
+    api<{ provider: string; ready: boolean }>("/payments/config").then((c) => { setProvider(c.provider); setReady(c.ready); }).catch(() => {});
     // Back from a bank's own check (only some cards need one): see whether the payment went through.
     const back = new URLSearchParams(location.search).get("paid");
     if (back) { history.replaceState(null, "", "/places"); confirmPaid(back).then((ok) => { setPaid(ok); load(); }); }
@@ -32,7 +32,8 @@ export function MyPlaces() {
           <div class="meta">{when(p.first_start)} · {p.status === "booked" ? t("ui.youre_in") : t("ui.on_waitlist", { n: p.waitlist_position ?? 0 })}
             {p.paid_cents > 0 ? ` · ${t("ui.you_paid", { amount: dollars(p.paid_cents, lang.value) })}` : p.pending_payment_id ? ` · ${t("ui.pay_pending")}` : ""}</div>
           {p.offer_expires_at && <p class="note">{t("ui.offer_ends", { time: clock(p.offer_expires_at) })} <button class="small primary" onClick={() => preview("enrolment.accept_offer", { enrolment_id: p.id })}>{t("ui.take_place")}</button></p>}
-          {p.pending_payment_id && provider === "stripe" && <button class="small primary" onClick={() => setPaying(p)}>{t("ui.pay_now", { amount: dollars(p.price_cents, lang.value) })}</button>}
+          {p.pending_payment_id && provider === "stripe" && !ready && <p class="meta">{t("error.payments_not_set_up")}</p>}
+          {p.pending_payment_id && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(p)}>{t("ui.pay_now", { amount: dollars(p.price_cents, lang.value) })}</button>}
           {import.meta.env.DEV && p.pending_payment_id && provider === "test" && <button class="small" onClick={() => payTest(p.pending_payment_id!)}>{t("ui.pay_test")}</button>}
           {" "}<button class="small" onClick={() => preview("enrolment.leave", { enrolment_id: p.id })}>{t("ui.leave")}</button>
         </li>

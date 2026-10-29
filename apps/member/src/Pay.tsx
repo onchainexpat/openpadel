@@ -38,11 +38,12 @@ export function PaySheet({ paymentId, amountCents, name, onClose, onPaid }: { pa
     let gone = false;
     (async () => {
       try {
-        const it = await api<{ client_secret: string; publishable_key: string | null }>(`/my/payments/${paymentId}/intent`, {});
+        const it = await api<{ client_secret: string; publishable_key: string | null; stripe_account: string | null }>(`/my/payments/${paymentId}/intent`, {});
         if (!it.publishable_key) throw new Error("no publishable key");
         await loadStripeJs();
         if (gone) return;
-        const s = window.Stripe!(it.publishable_key, { locale: lang.value === "es" ? "es-419" : "en" });
+        // Under Connect the payment is made on the club's own Stripe account, so the form names it.
+        const s = window.Stripe!(it.publishable_key, { locale: lang.value === "es" ? "es-419" : "en", ...(it.stripe_account ? { stripeAccount: it.stripe_account } : {}) });
         const brand = getComputedStyle(document.documentElement).getPropertyValue("--brand").trim() || "#0B5A55";
         const elements = s.elements({ clientSecret: it.client_secret, appearance: { theme: "stripe", variables: { colorPrimary: brand, borderRadius: "8px" } } });
         elements.create("payment", { layout: "tabs" }).mount(box.current!);

@@ -7,6 +7,7 @@ import { Program } from "./Program.tsx";
 import { Night } from "./Night.tsx";
 import { Level } from "./Level.tsx";
 import { Mirror } from "./Mirror.tsx";
+import { Payments } from "./Payments.tsx";
 
 export function App() {
   useEffect(() => {
@@ -22,7 +23,7 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav><a href="/programs">{t("ui.nav_programs")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/">{t("ui.nav_changes")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav><a href="/programs">{t("ui.nav_programs")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/">{t("ui.nav_changes")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
         <Route path="/" component={Changes} />
@@ -32,6 +33,7 @@ export function App() {
         <Route path="/sessions/:id" component={Night} />
         <Route path="/people/:id/level" component={Level} />
         <Route path="/playtomic" component={Mirror} />
+        <Route path="/payments" component={Payments} />
       </Router>
     </LocationProvider>
   );

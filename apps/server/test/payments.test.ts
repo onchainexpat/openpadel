@@ -62,7 +62,7 @@ after(async () => drop());
 
 test("the members' app is told which card form to show, with the publishable key", async () => {
   const cookie = await signIn("ana@example.test");
-  assert.deepEqual((await call("/payments/config", cookie)).json, { provider: "stripe", publishable_key: "pk_test_kumi" });
+  assert.deepEqual((await call("/payments/config", cookie)).json, { provider: "stripe", publishable_key: "pk_test_kumi", stripe_account: null, ready: true });   // direct: the key is the club's own
 });
 
 test("pay: the card form opens once, and the app's check records the payment when Stripe has it", async () => {
@@ -71,7 +71,7 @@ test("pay: the card form opens once, and the app's check records the payment whe
   assert.equal(intents.size, 0, "joining asks Stripe for nothing");
   const a = await call(`/my/payments/${pay}/intent`, cookie, {});
   assert.equal(a.status, 200);
-  assert.deepEqual(a.json, { provider: "stripe", client_secret: "pi_1_secret", publishable_key: "pk_test_kumi" });
+  assert.deepEqual(a.json, { provider: "stripe", client_secret: "pi_1_secret", publishable_key: "pk_test_kumi", stripe_account: null });
   assert.equal((await call(`/my/payments/${pay}/intent`, cookie, {})).json.client_secret, "pi_1_secret");
   assert.equal(intents.size, 1);
   assert.equal(intents.get("pi_1")!.amount, 2500);

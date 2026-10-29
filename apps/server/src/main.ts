@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { connect, expireOffers, migrate, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { clubStripeAccount, connect, expireOffers, migrate, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer } from "./mailer.ts";
 
@@ -10,14 +10,17 @@ const port = Number(process.env.PORT ?? 8790);
 const publicUrl = process.env.KUMI_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
 const production = process.env.NODE_ENV === "production";
 
-// Card payments go to the club's Stripe when its keys are set (from the environment, never the
-// database or the code); otherwise the stand-in. A live key is refused outside production.
-const stripeKey = process.env.KUMI_STRIPE_SECRET_KEY;
+// Card payments go through Stripe when a key is set (from the environment, never the database or the
+// code); otherwise the stand-in. Self-hosted, the key is the club's own. Hosted (KUMI_STRIPE_CONNECT=1),
+// it's Kumi's platform key and payments go into the club's own connected account. A live key is
+// refused outside production.
+const stripeKey = process.env.KUMI_STRIPE_SECRET_KEY, connectMode = process.env.KUMI_STRIPE_CONNECT === "1";
+let stripe: StripeProvider | null = null;
 if (stripeKey) {
-  const stripe = new StripeProvider({ secretKey: stripeKey });
+  stripe = new StripeProvider({ secretKey: stripeKey, ...(connectMode ? { connect: clubStripeAccount(db) } : {}) });
   if (stripe.live && !production) { console.error("refusing a LIVE Stripe key outside production; use a test key (sk_test_)"); process.exit(1); }
   setPaymentProvider(stripe);
-  console.log(`payments: stripe (${stripe.live ? "live" : "test mode"})`);
+  console.log(`payments: stripe (${stripe.live ? "live" : "test mode"}${connectMode ? ", the club's connected account" : ""})`);
 }
 const stripeConfig = { publishableKey: process.env.KUMI_STRIPE_PUBLISHABLE_KEY, webhookSecret: process.env.KUMI_STRIPE_WEBHOOK_SECRET };
 serve({ fetch: makeApp({ db, mailer: new MemoryMailer(true), publicUrl, secureCookies: production, production, stripe: stripeConfig }).fetch, port });
@@ -33,6 +36,11 @@ const jobs = async () => {
     if (r.expired) console.log(`waitlist offers: ${r.expired} ran out, ${r.offered} passed on`);
     const p = await reconcilePayments(db);
     if (p.settled) console.log(`payments: ${p.settled} settled by checking with the provider`);
+    // While the club is still setting up its Stripe account, ask Stripe whether it's ready (a webhook says so too).
+    if (stripe?.connect) {
+      const club = await db.selectFrom("club").select(["stripe_account_id", "stripe_charges_enabled"]).executeTakeFirstOrThrow();
+      if (club.stripe_account_id && !club.stripe_charges_enabled) await refreshStripeAccount(db, stripe);
+    }
   } catch (e) { console.error("jobs:", (e as Error).message); }
   finally { setTimeout(jobs, 30_000); }
 };

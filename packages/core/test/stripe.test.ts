@@ -17,21 +17,21 @@ function fakeStripe(answer: (c: Call) => { status?: number; json: unknown }) {
 }
 
 test("Stripe's form encoding nests keys", () => {
-  assert.deepEqual(stripeForm({ amount: 2500, metadata: { kumi_payment_id: "p 1" }, automatic_payment_methods: { enabled: true }, skip: undefined }),
-    ["amount=2500", "metadata%5Bkumi_payment_id%5D=p%201", "automatic_payment_methods%5Benabled%5D=true"]);
+  assert.deepEqual(stripeForm({ amount: 2500, metadata: { kumi_payment_id: "p 1" }, payment_method_types: ["card"], skip: undefined }),
+    ["amount=2500", "metadata%5Bkumi_payment_id%5D=p%201", "payment_method_types%5B0%5D=card"]);
 });
 
 test("a payment intent: the amount, the club's currency, a retry key, and the version pinned", async () => {
   const s = fakeStripe(() => ({ json: { id: "pi_1", client_secret: "pi_1_secret_x", status: "requires_payment_method" } }));
   const p = new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch });
-  assert.deepEqual(await p.createIntent({ amountCents: 2500, currency: "USD", description: "Friday Americano", idempotencyKey: "pay-1", metadata: { kumi_payment_id: "pay-1" } }), { ref: "pi_1", clientSecret: "pi_1_secret_x" });
+  assert.deepEqual(await p.createIntent({ amountCents: 2500, currency: "USD", description: "Friday Americano", idempotencyKey: "pay-1", metadata: { kumi_payment_id: "pay-1" } }), { ref: "pi_1", clientSecret: "pi_1_secret_x", account: null });
   const c = s.calls[0]!;
   assert.equal(c.method, "POST"); assert.equal(c.path, "/v1/payment_intents");
   assert.equal(c.headers.authorization, "Bearer sk_test_abc");
   assert.equal(c.headers["idempotency-key"], "intent:pay-1");
   assert.equal(c.headers["stripe-version"], STRIPE_API_VERSION);
   assert.equal(c.body.get("amount"), "2500"); assert.equal(c.body.get("currency"), "usd");
-  assert.equal(c.body.get("metadata[kumi_payment_id]"), "pay-1"); assert.equal(c.body.get("automatic_payment_methods[enabled]"), "true");
+  assert.equal(c.body.get("metadata[kumi_payment_id]"), "pay-1"); assert.equal(c.body.get("payment_method_types[0]"), "card", "cards only");
 });
 
 test("only a payment that went through is paid; a declined card can still be retried", async () => {

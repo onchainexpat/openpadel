@@ -13,3 +13,4 @@ export * from "./levels.ts";
 export * from "./ratings.ts";
 export * from "./playtomic.ts";
 export * from "./stripe.ts";
+export * from "./connect.ts";

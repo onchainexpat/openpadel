@@ -3,7 +3,7 @@ import pg from "pg";
 import { readdirSync, readFileSync } from "node:fs";
 
 type Json = unknown;
-export interface ClubTable { singleton: Generated<boolean>; name: string; legal_name: string | null; brand_colour: Generated<string>; brand_font: string | null; time_zone: string; languages: Generated<string[]>; default_language: Generated<string>; currency: Generated<string>; version: Generated<number> }
+export interface ClubTable { singleton: Generated<boolean>; name: string; legal_name: string | null; brand_colour: Generated<string>; brand_font: string | null; time_zone: string; languages: Generated<string[]>; default_language: Generated<string>; currency: Generated<string>; stripe_account_id: string | null; stripe_charges_enabled: Generated<boolean>; stripe_details_submitted: Generated<boolean>; version: Generated<number> }
 export interface LocationTable { id: string; name: string; time_zone: string; address: string | null; opened_on: string | null; archived_at: Date | null; version: Generated<number> }
 export interface PersonTable { id: string; given_name: string | null; family_name: string | null; display_name: string; email: string | null; phone: string | null; birth_year: number | null; locale: Generated<string>; status: Generated<string>; created_via: string; trust_level: Generated<number>; redacted_at: Date | null; created_at: Generated<Date>; version: Generated<number> }
 export interface AuthIdentityTable { id: string; person_id: string; kind: "email" | "phone"; value: string; verified_at: Date | null; created_at: Generated<Date> }
@@ -42,7 +42,7 @@ export interface WaitlistOfferTable { id: string; enrolment_id: string; offered_
 export interface LedgerAccountTable { id: string; kind: string; person_id: string | null; revenue_type: string | null }
 export interface LedgerTxnTable { id: string; kind: string; action_run_id: string; at: Generated<Date>; memo: string | null }
 export interface LedgerEntryTable { id: Generated<string>; txn_id: string; account_id: string; amount_cents: string }
-export interface PaymentTable { id: string; person_id: string; amount_cents: number; method: string; provider: string; provider_ref: string | null; status: "pending" | "succeeded" | "failed"; enrolment_id: string | null; created_at: Generated<Date>; version: Generated<number> }
+export interface PaymentTable { id: string; person_id: string; amount_cents: number; method: string; provider: string; provider_ref: string | null; provider_account: string | null; status: "pending" | "succeeded" | "failed"; enrolment_id: string | null; created_at: Generated<Date>; version: Generated<number> }
 export interface RefundTable { id: string; payment_id: string; enrolment_id: string | null; amount_cents: number; destination: "card" | "credit"; status: "waiting_for_sub" | "pending" | "sent" | "failed"; provider_ref: string | null; failure: string | null; created_at: Generated<Date>; version: Generated<number> }
 export interface MemberCreditBalanceView { person_id: string; cents: string }
 

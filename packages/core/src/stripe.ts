@@ -2,6 +2,7 @@
 // card. No SDK; three calls and a signature check. Connect (a club linking its own account to a hosted
 // Kumi) adds the account header later.
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { KumiError } from "./errors.ts";
 import type { IntentStatus, PaymentProvider } from "./money.ts";
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
@@ -23,18 +24,28 @@ export function stripeForm(params: Record<string, unknown>, prefix = ""): string
   });
 }
 
+/** The club's own Stripe account, under Connect: its id, and whether Stripe lets it take payments yet. */
+export type ConnectedAccount = () => Promise<{ id: string | null; ready: boolean }>;
+
+/**
+ * Two ways to run. Direct (self-hosting): the key is the club's own, and payments land in its account.
+ * Connect (the hosted service): the key is Kumi's platform key, and every payment is made on the club's
+ * own connected account (a direct charge), so the money, the fees and any dispute are the club's.
+ */
 export class StripeProvider implements PaymentProvider {
   readonly name = "stripe" as const;
-  private readonly o: { secretKey: string; fetch: Fetch; baseUrl: string };
-  constructor(o: { secretKey: string; fetch?: Fetch; baseUrl?: string }) {
+  private readonly o: { secretKey: string; fetch: Fetch; baseUrl: string; connect?: ConnectedAccount };
+  constructor(o: { secretKey: string; fetch?: Fetch; baseUrl?: string; connect?: ConnectedAccount }) {
     if (!/^(sk|rk)_(test|live)_/.test(o.secretKey)) throw new Error("that isn't a Stripe secret key");
     this.o = { fetch: globalThis.fetch.bind(globalThis), baseUrl: "https://api.stripe.com", ...o };
   }
   get live() { return this.o.secretKey.includes("_live_"); }
+  get connect() { return Boolean(this.o.connect); }
 
-  private async call(method: "GET" | "POST", path: string, params?: Record<string, unknown>, idempotencyKey?: string): Promise<any> {
+  private async call(method: "GET" | "POST", path: string, params?: Record<string, unknown>, idempotencyKey?: string, account?: string | null): Promise<any> {
     const headers: Record<string, string> = { authorization: `Bearer ${this.o.secretKey}`, "stripe-version": STRIPE_API_VERSION };
     if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
+    if (account) headers["stripe-account"] = account;
     let body: string | undefined;
     if (params) { headers["content-type"] = "application/x-www-form-urlencoded"; body = stripeForm(params).join("&"); }
     const r = await this.o.fetch(`${this.o.baseUrl}${path}`, { method, headers, body });
@@ -43,20 +54,31 @@ export class StripeProvider implements PaymentProvider {
     return d;
   }
 
-  async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; metadata?: Record<string, string> }) {
-    const d = await this.call("POST", "/v1/payment_intents", { amount: i.amountCents, currency: i.currency.toLowerCase(), description: i.description,
-      automatic_payment_methods: { enabled: true }, metadata: i.metadata }, `intent:${i.idempotencyKey}`);
-    return { ref: String(d.id), clientSecret: String(d.client_secret) };
+  /** Which account a new payment is made on: none in direct mode; the club's, once it's ready, under Connect. */
+  private async payingAccount(): Promise<string | null> {
+    if (!this.o.connect) return null;
+    const a = await this.o.connect();
+    if (!a.id || !a.ready) throw new KumiError("error.payments_not_set_up", {}, 409);
+    return a.id;
   }
 
-  async getIntent(ref: string) {
-    const d = await this.call("GET", `/v1/payment_intents/${encodeURIComponent(ref)}`);
+  async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; metadata?: Record<string, string> }) {
+    const account = await this.payingAccount();
+    // Cards only, whatever else the Stripe account has switched on: Apple Pay and Google Pay are cards
+    // underneath, so every payment refunds the same way, straight back to the card.
+    const d = await this.call("POST", "/v1/payment_intents", { amount: i.amountCents, currency: i.currency.toLowerCase(), description: i.description,
+      payment_method_types: ["card"], metadata: i.metadata }, `intent:${i.idempotencyKey}`, account);
+    return { ref: String(d.id), clientSecret: String(d.client_secret), account };
+  }
+
+  async getIntent(ref: string, account?: string | null) {
+    const d = await this.call("GET", `/v1/payment_intents/${encodeURIComponent(ref)}`, undefined, undefined, account);
     return { status: intentStatus(d.status), clientSecret: String(d.client_secret) };
   }
 
-  async refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string }) {
+  async refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string; account?: string | null }) {
     try {
-      const d = await this.call("POST", "/v1/refunds", { payment_intent: i.paymentRef, amount: i.amountCents }, `refund:${i.idempotencyKey}`);
+      const d = await this.call("POST", "/v1/refunds", { payment_intent: i.paymentRef, amount: i.amountCents }, `refund:${i.idempotencyKey}`, i.account);
       // "pending" is normal for some cards: Stripe has it and will send it.
       const ok = ["succeeded", "pending", "requires_action"].includes(d.status);
       return { ref: String(d.id), ok, ...(ok ? {} : { failure: String(d.failure_reason ?? d.status) }) };
@@ -67,7 +89,26 @@ export class StripeProvider implements PaymentProvider {
       throw e;
     }
   }
+
+  // ---- Connect: the club's own Stripe account ----
+  /** A new Standard account for the club: its own Stripe account, dashboard and payouts. */
+  async createAccount(i: { country: string; email?: string | null; idempotencyKey: string }): Promise<string> {
+    const d = await this.call("POST", "/v1/accounts", { type: "standard", country: i.country, email: i.email ?? undefined, metadata: { kumi: "club" } }, `account:${i.idempotencyKey}`);
+    return String(d.id);
+  }
+  /** A one-time link to Stripe's own setup pages for that account; it expires within minutes. */
+  async accountLink(account: string, urls: { refresh: string; return: string }): Promise<string> {
+    const d = await this.call("POST", "/v1/account_links", { account, refresh_url: urls.refresh, return_url: urls.return, type: "account_onboarding" });
+    return String(d.url);
+  }
+  async getAccount(account: string): Promise<AccountState> {
+    const d = await this.call("GET", `/v1/accounts/${encodeURIComponent(account)}`);
+    return { id: String(d.id), chargesEnabled: Boolean(d.charges_enabled), detailsSubmitted: Boolean(d.details_submitted),
+      name: d.settings?.dashboard?.display_name ?? d.business_profile?.name ?? null };
+  }
 }
+
+export interface AccountState { id: string; chargesEnabled: boolean; detailsSubmitted: boolean; name: string | null }
 
 /** Only a payment that went through is paid, and only a cancelled intent has failed: after a declined
  *  card the person can still try another. */

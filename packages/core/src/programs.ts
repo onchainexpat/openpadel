@@ -405,7 +405,7 @@ async function requestPayment(ctx: ApplyContext, enrolmentId: string, personId: 
 // ---- Card payments: opened when the person goes to pay, settled however the news arrives ----
 export const paymentOpen = defineAction({
   name: "payment.open", version: 1, system: true, internal: true,
-  input: z.object({ payment_id: z.uuid(), provider: z.enum(["test", "stripe"]), provider_ref: z.string().check(z.minLength(1)) }),
+  input: z.object({ payment_id: z.uuid(), provider: z.enum(["test", "stripe"]), provider_ref: z.string().check(z.minLength(1)), provider_account: z.optional(z.string()) }),
   async plan(ctx, i) {
     const { row: pay } = await readRow(ctx.db, "payment", i.payment_id, "thing.payment");
     return { title: both("action.payment.open"), summary: both("plan.payment.open", { person: await personName(ctx.db, pay.person_id), amount: usd(pay.amount_cents) }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
@@ -414,32 +414,32 @@ export const paymentOpen = defineAction({
     const pay = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", i.payment_id).forUpdate().executeTakeFirstOrThrow();
     if (pay.provider_ref === i.provider_ref) return { already: true };   // two taps on Pay: the same intent
     if (pay.provider_ref || pay.status !== "pending") throw new KumiError("error.changed");
-    await ctx.update("payment", pay.id, { provider: i.provider, provider_ref: i.provider_ref });
+    await ctx.update("payment", pay.id, { provider: i.provider, provider_ref: i.provider_ref, provider_account: i.provider_account ?? null });
     return null;
   },
 });
 
 /** The card form for one of the person's own pending payments: the provider's intent, opened once and reused. */
-export async function openPayment(db: Db, paymentId: string, personId: string): Promise<{ clientSecret: string; provider: "test" | "stripe" }> {
+export async function openPayment(db: Db, paymentId: string, personId: string): Promise<{ clientSecret: string; provider: "test" | "stripe"; account: string | null }> {
   const pay = await db.selectFrom("payment").leftJoin("enrolment", "enrolment.id", "payment.enrolment_id").leftJoin("program", "program.id", "enrolment.program_id")
-    .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider_ref", "program.name as what"]).where("payment.id", "=", paymentId).executeTakeFirst();
+    .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider_ref", "payment.provider_account", "program.name as what"]).where("payment.id", "=", paymentId).executeTakeFirst();
   if (!pay || pay.person_id !== personId) throw new KumiError("error.not_found", { thing: both("thing.payment") }, 404);
   if (pay.status !== "pending") throw new KumiError("error.not_pending", {}, 409);
   const pv = paymentProvider();
-  if (pay.provider_ref) return { clientSecret: (await pv.getIntent(pay.provider_ref)).clientSecret, provider: pv.name };
+  if (pay.provider_ref) return { clientSecret: (await pv.getIntent(pay.provider_ref, pay.provider_account)).clientSecret, provider: pv.name, account: pay.provider_account };
   const { currency } = await db.selectFrom("club").select("currency").executeTakeFirstOrThrow();
   const it = await pv.createIntent({ amountCents: pay.amount_cents, currency, description: pay.what ?? "Kumi", idempotencyKey: pay.id, metadata: { kumi_payment_id: pay.id } });
-  await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: it.ref }, "payments");
-  return { clientSecret: it.clientSecret, provider: pv.name };
+  await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: it.ref, ...(it.account ? { provider_account: it.account } : {}) }, "payments");
+  return { clientSecret: it.clientSecret, provider: pv.name, account: it.account };
 }
 
 /** Ask the provider how a payment stands and record it once it's settled. Safe to call any number of times:
  *  after the card form, from a webhook, and from the minute job that catches what both missed. */
 export async function checkPayment(db: Db, paymentId: string, via = "payments"): Promise<"pending" | "succeeded" | "failed" | null> {
-  const pay = await db.selectFrom("payment").select(["id", "status", "provider_ref"]).where("id", "=", paymentId).executeTakeFirst();
+  const pay = await db.selectFrom("payment").select(["id", "status", "provider_ref", "provider_account"]).where("id", "=", paymentId).executeTakeFirst();
   if (!pay) return null;
   if (pay.status !== "pending" || !pay.provider_ref) return pay.status;
-  const it = await paymentProvider().getIntent(pay.provider_ref);
+  const it = await paymentProvider().getIntent(pay.provider_ref, pay.provider_account);
   if (it.status !== "pending") await runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: it.status }, via);
   return it.status;
 }

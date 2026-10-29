@@ -10,12 +10,12 @@ export interface PaymentProvider {
   readonly name: "test" | "stripe";
   /** Ask for a payment. Nothing is charged until the person confirms it and the provider says so.
    *  The same key always gives back the same intent, so a retry never asks twice. */
-  createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; metadata?: Record<string, string> }): Promise<{ ref: string; clientSecret: string }>;
+  createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; metadata?: Record<string, string> }): Promise<{ ref: string; clientSecret: string; account: string | null }>;
   /** Where an intent stands now, asked of the provider: how a missed webhook is caught. A declined
    *  card isn't a failure (the person can try another); only a cancelled intent is. */
-  getIntent(ref: string): Promise<{ status: IntentStatus; clientSecret: string }>;
+  getIntent(ref: string, account?: string | null): Promise<{ status: IntentStatus; clientSecret: string }>;
   /** Send a refund. Retrying with the same key never refunds twice. */
-  refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string }): Promise<{ ref: string; ok: boolean; failure?: string }>;
+  refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; ok: boolean; failure?: string }>;
 }
 
 /** A stand-in for Stripe: records what was asked, and can be told to fail. */
@@ -27,11 +27,11 @@ export class TestProvider implements PaymentProvider {
   failNextRefund = false;
   async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string }) {
     const known = this.byKey.get(i.idempotencyKey);
-    if (known) return { ref: known, clientSecret: this.intents.get(known)!.clientSecret };
+    if (known) return { ref: known, clientSecret: this.intents.get(known)!.clientSecret, account: null };
     const ref = `pi_test_${randomBytes(6).toString("hex")}`, clientSecret = `${ref}_secret_${randomBytes(6).toString("hex")}`;
     this.intents.set(ref, { amountCents: i.amountCents, description: i.description, status: "pending", clientSecret });
     this.byKey.set(i.idempotencyKey, ref);
-    return { ref, clientSecret };
+    return { ref, clientSecret, account: null };
   }
   async getIntent(ref: string) {
     const it = this.intents.get(ref);

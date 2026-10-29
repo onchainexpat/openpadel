@@ -61,7 +61,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false }));
-  app.route("/", paymentRoutes(db, (c) => c.get("me"), deps.stripe));
+  app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe));
   app.all("/mcp", async (c) => {
     const who = await bearerPerson(db, c.req.header("authorization"), `${publicUrl}/mcp`, now());
     if (!who) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": `Bearer resource_metadata="${publicUrl}/.well-known/oauth-protected-resource/mcp", scope="kumi"` });

@@ -30,9 +30,10 @@ export async function processOutbox(db: Db, handlers: Record<string, Handler>, l
 export const moneyHandlers: Record<string, Handler> = {
   async "refund.requested"(db, payload: { refund_id: string }) {
     const r = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
-      .select(["refund.id", "refund.status", "refund.amount_cents", "payment.provider_ref"]).where("refund.id", "=", payload.refund_id).executeTakeFirstOrThrow();
+      .select(["refund.id", "refund.status", "refund.amount_cents", "payment.provider_ref", "payment.provider_account"]).where("refund.id", "=", payload.refund_id).executeTakeFirstOrThrow();
     if (r.status !== "pending") return;
-    const out = await paymentProvider().refund({ paymentRef: r.provider_ref ?? "", amountCents: r.amount_cents, idempotencyKey: r.id });
+    // Back through the Stripe account the payment was taken on, even if the club has changed accounts since.
+    const out = await paymentProvider().refund({ paymentRef: r.provider_ref ?? "", amountCents: r.amount_cents, idempotencyKey: r.id, account: r.provider_account });
     await runAsSystem(db, "refund.settle", { refund_id: r.id, ok: out.ok, provider_ref: out.ref || undefined, failure: out.failure }, "outbox");
   },
 };

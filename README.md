@@ -59,6 +59,19 @@ news arrives first: the app checking right after the card form, Stripe's webhook
 rather than trusting a message, so the order and repeats don't matter. Test card: 4242 4242 4242 4242,
 any future date, any CVC. For webhooks locally: `stripe listen --forward-to localhost:8790/webhooks/stripe`.
 
+Payments are cards only. Apple Pay and Google Pay are cards underneath, so every payment refunds the
+same way, straight back to the card.
+
+**Hosted, with Stripe Connect** (`KUMI_STRIPE_CONNECT=1`): the key is Kumi's platform key, and each
+club connects its own Stripe account from the manager's Payments page ("Connect with Stripe", then
+Stripe's own setup pages). Every payment is made on the club's account, so the money, the payouts,
+Stripe's fees and any dispute are the club's; Kumi takes no commission and never holds the club's key.
+No payment is taken until Stripe says the club's account is ready, and none ever lands in the
+platform's own account. Only the owner sets the account (a manager can ask), with a passkey sign-in if
+they have one. Each payment remembers its account, so a refund goes back through it even after the
+club changes accounts. Stripe's webhook should send `account.updated` and `payment_intent.*` events
+from connected accounts.
+
 ## Running beside Playtomic
 
 A club on Playtomic can keep it for court bookings while Kumi runs its events. Kumi copies the
