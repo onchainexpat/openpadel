@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { plan, run, runAsSystem, uuidv7, KumiError, type Actor, type Db } from "../src/index.ts";
+import { expireOffers, plan, run, runAsSystem, uuidv7, KumiError, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, monica: Actor, locationId: string, court1: string, court2: string;
 const as = (personId: string, lang: "en" | "es" = "en"): Actor => ({ personId, via: "test", lang });
@@ -156,4 +156,63 @@ test("a place offered from the waitlist is held for that person, and a second op
   await run(db, "enrolment.accept_offer", { enrolment_id: wait2.enrolment_id }, as(w2!));
   const booked = await db.selectFrom("enrolment").select("person_id").where("program_id", "=", p).where("status", "=", "booked").execute();
   assert.deepEqual(booked.map((r) => r.person_id).sort(), [c!, d!, w1!, w2!].sort());
+});
+
+// Offers last two hours; the job runs as if it were later.
+const later = (h: number) => new Date(Date.now() + h * 3600_000);
+const openOfferFor = (enrolmentId: string) => db.selectFrom("waitlist_offer").selectAll().where("enrolment_id", "=", enrolmentId).where("outcome", "is", null).executeTakeFirst();
+const jobRuns = async () => Number((await db.selectFrom("action_run").select((eb) => eb.fn.countAll<string>().as("n")).where("action", "=", "waitlist.expire_offers").executeTakeFirstOrThrow()).n);
+/** A full event (four booked) with the given people waiting. */
+async function fullWith(name: string, startsIn: number, waiting: string[]) {
+  const p = await americano(name, startsIn);
+  const ins = [];
+  for (const n of ["A", "B", "C", "D"]) ins.push(await join(p, await person(`${name} ${n}`)));
+  const w = [];
+  for (const n of waiting) w.push({ id: await person(`${name} ${n}`), ...(await join(p, (await db.selectFrom("person").select("id").where("display_name", "=", `${name} ${n}`).executeTakeFirstOrThrow()).id)) });
+  return { p, ins, w };
+}
+
+test("an offer that runs out goes to the next person, and the one who missed it moves to the back", async () => {
+  const { p, ins, w } = await fullWith("Expiry", 130, ["W1", "W2", "W3"]);
+  await run(db, "enrolment.remove", { enrolment_id: ins[0]!.enrolment_id, reason: "other" }, owner);
+  assert.ok(await openOfferFor(w[0]!.enrolment_id));
+  // Nothing due yet: no run at all.
+  const before = await jobRuns();
+  assert.deepEqual(await expireOffers(db), { expired: 0, offered: 0 });
+  assert.equal(await jobRuns(), before);
+
+  assert.deepEqual(await expireOffers(db, later(2.5)), { expired: 1, offered: 1 });
+  assert.equal((await db.selectFrom("waitlist_offer").select("outcome").where("enrolment_id", "=", w[0]!.enrolment_id).executeTakeFirstOrThrow()).outcome, "expired");
+  assert.ok(await openOfferFor(w[1]!.enrolment_id));
+  const order = await db.selectFrom("enrolment").select("id").where("program_id", "=", p).where("status", "=", "waitlisted").orderBy("waitlist_position").execute();
+  assert.deepEqual(order.map((r) => r.id), [w[1]!.enrolment_id, w[2]!.enrolment_id, w[0]!.enrolment_id]);
+  await rejects(plan(db, "enrolment.accept_offer", { enrolment_id: w[0]!.enrolment_id }, as(w[0]!.id)), "error.no_offer");
+  await run(db, "enrolment.accept_offer", { enrolment_id: w[1]!.enrolment_id }, as(w[1]!.id));
+  assert.equal((await enrolment(w[1]!.enrolment_id)).status, "booked");
+  assert.equal((await db.selectFrom("waitlist_offer").select("id").where("waitlist_offer.outcome", "is", null).where("enrolment_id", "in", w.map((x) => x.enrolment_id)).execute()).length, 0);
+});
+
+test("when nobody else is waiting, a place nobody took opens to anyone", async () => {
+  const { p, ins, w } = await fullWith("Lapsed", 140, ["W1"]);
+  await run(db, "enrolment.remove", { enrolment_id: ins[0]!.enrolment_id, reason: "other" }, owner);
+  assert.deepEqual(await expireOffers(db, later(2.5)), { expired: 1, offered: 0 });
+  assert.equal((await enrolment(w[0]!.enrolment_id)).status, "waitlisted");
+  assert.equal((await join(p, await person("Lapsed X"))).status, "booked");
+});
+
+test("no new offers once the event has started", async () => {
+  const { ins, w } = await fullWith("Started", 1, ["W1", "W2"]);
+  await run(db, "enrolment.remove", { enrolment_id: ins[0]!.enrolment_id, reason: "other" }, owner);
+  assert.deepEqual(await expireOffers(db, later(2.5)), { expired: 1, offered: 0 });
+  assert.equal(await openOfferFor(w[1]!.enrolment_id), undefined);
+});
+
+test("someone holding an offer who leaves the waitlist passes it on", async () => {
+  const { ins, w } = await fullWith("Pass on", 150, ["W1", "W2"]);
+  await run(db, "enrolment.remove", { enrolment_id: ins[0]!.enrolment_id, reason: "other" }, owner);
+  const p = await plan(db, "enrolment.leave", { enrolment_id: w[0]!.enrolment_id }, as(w[0]!.id));
+  assert.match(p.plan.summary.en, /Pass on W2 on the waitlist is offered the place/);
+  await run(db, "enrolment.leave", { enrolment_id: w[0]!.enrolment_id }, as(w[0]!.id));
+  assert.equal((await db.selectFrom("waitlist_offer").select("outcome").where("enrolment_id", "=", w[0]!.enrolment_id).executeTakeFirstOrThrow()).outcome, "declined");
+  assert.ok(await openOfferFor(w[1]!.enrolment_id));
 });

@@ -334,5 +334,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "pt.other": "Reserva del club",
   "count.games": { one: "{count} partido", other: "{count} partidos", many: "{count} partidos" },
   "count.bookings": { one: "{count} reserva", other: "{count} reservas", many: "{count} reservas" },
+  "action.waitlist.expire_offers": "Pasar las ofertas vencidas de la lista de espera",
+  "plan.waitlist.expire_offers": { one: "Venció una oferta de la lista de espera: la plaza pasa a la siguiente persona.", other: "Vencieron {count} ofertas de la lista de espera: las plazas pasan a las siguientes personas.", many: "Vencieron {count} ofertas de la lista de espera: las plazas pasan a las siguientes personas." },
   "count.changes": { one: "{count} cambio", other: "{count} cambios", many: "{count} cambios" },
 };

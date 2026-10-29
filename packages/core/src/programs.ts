@@ -3,7 +3,7 @@
 import * as z from "zod/mini";
 import { sql, type ExpressionBuilder } from "kysely";
 import { both, dateTime, money, type Key, type Text } from "@kumi/i18n";
-import { defineAction, readRow, type PlanCtx } from "./actions.ts";
+import { defineAction, readRow, runAsSystem, type PlanCtx } from "./actions.ts";
 import type { DB, Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
@@ -36,10 +36,14 @@ async function takenCount(db: Db | Trx, programId: string, now: Date): Promise<n
   return Number(r.n);
 }
 /** The next person to offer a place to: first on the waitlist who isn't already holding an offer. */
-async function nextWaitlisted(db: Db | Trx, programId: string, now: Date) {
+async function nextWaitlisted(db: Db | Trx, programId: string, now: Date, skip: string[] = []) {
   return db.selectFrom("enrolment").selectAll().where("program_id", "=", programId).where("status", "=", "waitlisted")
-    .where((eb) => eb.not(holdsOffer(eb, now))).orderBy("waitlist_position").limit(1).executeTakeFirst();
+    .where((eb) => eb.not(holdsOffer(eb, now))).$if(skip.length > 0, (q) => q.where("id", "not in", skip)).orderBy("waitlist_position").limit(1).executeTakeFirst();
 }
+const openOffer = (db: Db | Trx, enrolmentId: string, now: Date) => db.selectFrom("waitlist_offer").selectAll()
+  .where("enrolment_id", "=", enrolmentId).where("outcome", "is", null).where("expires_at", ">", now).executeTakeFirst();
+/** No new offers once the event has started. */
+const started = async (db: Db | Trx, programId: string, now: Date) => { const s = await firstStart(db, programId); return s !== null && s <= now; };
 
 export type RefundOutcome = "none" | "credit" | "partial" | "full";
 export interface Refund { outcome: RefundOutcome; cents: number; text: Text; changed: boolean }
@@ -69,7 +73,7 @@ function staffRefund(rule: Refund, paid: number, o: { outcome: RefundOutcome; ce
 }
 
 async function offerText(db: Db | Trx, programId: string, freesPlace: boolean, now: Date): Promise<Text> {
-  if (!freesPlace) return { en: "", es: "" };
+  if (!freesPlace || await started(db, programId, now)) return { en: "", es: "" };
   const next = await nextWaitlisted(db, programId, now);
   return next ? both("plan.offer_next", { person: await personName(db, next.person_id) }) : { en: "", es: "" };
 }
@@ -195,16 +199,25 @@ async function goingPlan(ctx: PlanCtx, enrolmentId: string, reason: string, refu
   const paid = await paidFor(ctx.db, e.id);
   const rule = ruleRefund(p as any, paid, reason, await firstStart(ctx.db, e.program_id, e.session_id), ctx.now);
   const refund = staffRefund(rule, paid, refundIn);
-  return { e, p, person, refund, read, offer: await offerText(ctx.db, e.program_id, e.status === "booked", ctx.now) };
+  const freesPlace = e.status === "booked" || Boolean(await openOffer(ctx.db, e.id, ctx.now));   // a booked place, or one offered to them
+  return { e, p, person, refund, read, offer: await offerText(ctx.db, e.program_id, freesPlace, ctx.now) };
 }
 
-async function freePlace(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], programId: string) {
-  const next = await nextWaitlisted(ctx.trx, programId, ctx.now);
+async function freePlace(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], programId: string, skip: string[] = []) {
+  if (await started(ctx.trx, programId, ctx.now)) return null;
+  const next = await nextWaitlisted(ctx.trx, programId, ctx.now, skip);
   if (!next) return null;
   const offerId = uuidv7();
   await ctx.insert("waitlist_offer", { id: offerId, enrolment_id: next.id, offered_at: ctx.now, expires_at: new Date(ctx.now.getTime() + OFFER_HOURS * 3600_000) });
   await ctx.emit("waitlist.offered", { enrolment_id: next.id, offer_id: offerId });
   return offerId;
+}
+
+/** Someone on the waitlist leaves while holding an offer: the offer is declined, and the place passes on. */
+async function declineOffer(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], enrolmentId: string) {
+  const offer = await openOffer(ctx.trx, enrolmentId, ctx.now);
+  if (offer) await ctx.update("waitlist_offer", offer.id, { outcome: "declined" });
+  return Boolean(offer);
 }
 
 const leaving = (refund: Refund, how: string, reason: string, ruleVersion: number, note?: string) => ({
@@ -227,7 +240,7 @@ export const enrolmentLeave = defineAction({
     await ctx.update("enrolment", e.id, { ...leaving(refund, "left", "late_cancel", p.refund_rule_version), left_at: ctx.now });
     await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: refund.outcome, refund_cents: refund.cents });
     await startRefund(ctx, e.id, e.person_id, refund);
-    if (e.status === "booked") await freePlace(ctx, e.program_id);
+    if (e.status === "booked" || await declineOffer(ctx, e.id)) await freePlace(ctx, e.program_id);
     return { refund_outcome: refund.outcome, refund_cents: refund.cents };
   },
 });
@@ -250,7 +263,7 @@ export const enrolmentRemove = defineAction({
     await ctx.update("enrolment", e.id, { ...leaving(refund, i.reason === "no_show" ? "no_show" : "removed", i.reason, p.refund_rule_version, i.refund?.note), left_at: ctx.now });
     await ctx.emit("enrolment.removed", { enrolment_id: e.id, reason: i.reason, refund_outcome: refund.outcome, refund_cents: refund.cents });
     await startRefund(ctx, e.id, e.person_id, refund);
-    const offer = e.status === "booked" ? await freePlace(ctx, e.program_id) : null;
+    const offer = e.status === "booked" || await declineOffer(ctx, e.id) ? await freePlace(ctx, e.program_id) : null;
     return { refund_outcome: refund.outcome, refund_cents: refund.cents, offer_id: offer };
   },
 });
@@ -328,6 +341,46 @@ export const enrolmentAcceptOffer = defineAction({
     return (await requestPayment(ctx, i.enrolment_id, e.person_id, e.price_cents, e.name)) ?? null;
   },
 });
+
+/** Offers past their deadline that nobody has taken, declined or expired yet. */
+const dueOffers = (db: Db | Trx, now: Date) => db.selectFrom("waitlist_offer").where("outcome", "is", null).where("expires_at", "<=", now);
+
+export const waitlistExpireOffers = defineAction({
+  name: "waitlist.expire_offers", version: 1, system: true, internal: true,
+  input: z.object({}),
+  async plan(ctx) {
+    const n = Number((await dueOffers(ctx.db, ctx.now).select((eb) => eb.fn.countAll<string>().as("n")).executeTakeFirstOrThrow()).n);
+    return { title: both("action.waitlist.expire_offers"), summary: both("plan.waitlist.expire_offers", { count: n }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
+  },
+  async apply(ctx) {
+    // Claimed under lock, so an offer taken meanwhile, or a second worker, can't be expired twice.
+    const due = await dueOffers(ctx.trx, ctx.now).select(["id", "enrolment_id"]).orderBy("expires_at").forUpdate().skipLocked().execute();
+    const missed: string[] = [], programs = new Set<string>();
+    for (const o of due) {
+      await ctx.update("waitlist_offer", o.id, { outcome: "expired" });
+      const e = await ctx.trx.selectFrom("enrolment").select(["id", "program_id", "status"]).where("id", "=", o.enrolment_id).executeTakeFirstOrThrow();
+      if (e.status !== "waitlisted") continue;
+      const last = await ctx.trx.selectFrom("enrolment").select((eb) => eb.fn.max("waitlist_position").as("m")).where("program_id", "=", e.program_id).where("status", "=", "waitlisted").executeTakeFirst();
+      await ctx.update("enrolment", e.id, { waitlist_position: Number(last?.m ?? 0) + 1 });
+      await ctx.emit("waitlist.offer_expired", { enrolment_id: e.id, offer_id: o.id });
+      missed.push(e.id); programs.add(e.program_id);
+    }
+    let offered = 0;
+    for (const programId of programs) {
+      const { capacity } = await ctx.trx.selectFrom("program").select("capacity").where("id", "=", programId).executeTakeFirstOrThrow();
+      // Nobody else waiting: the place is open to anyone, rather than going straight back to who just missed it.
+      while ((await takenCount(ctx.trx, programId, ctx.now)) < capacity && await freePlace(ctx, programId, missed)) offered++;
+    }
+    return { expired: due.length, offered };
+  },
+});
+
+/** The job: run every minute or so. Nothing due means no action run at all. */
+export async function expireOffers(db: Db, now = new Date()) {
+  const due = await dueOffers(db, now).select("id").limit(1).executeTakeFirst();
+  if (!due) return { expired: 0, offered: 0 };
+  return (await runAsSystem(db, "waitlist.expire_offers", {}, "job:offers", { now })).result as { expired: number; offered: number };
+}
 
 // ---- Money for rosters ----
 type ApplyContext = Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0];

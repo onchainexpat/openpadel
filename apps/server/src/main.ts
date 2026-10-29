@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { connect, migrate, PlaytomicClient, syncMirror } from "@kumi/core";
+import { connect, expireOffers, migrate, PlaytomicClient, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer } from "./mailer.ts";
 
@@ -10,6 +10,14 @@ const port = Number(process.env.PORT ?? 8790);
 const publicUrl = process.env.KUMI_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
 serve({ fetch: makeApp({ db, mailer: new MemoryMailer(true), publicUrl, secureCookies: process.env.NODE_ENV === "production", production: process.env.NODE_ENV === "production" }).fetch, port });
 console.log(`kumi server on http://127.0.0.1:${port}`);
+
+// Waitlist offers that ran out pass to the next person, checked every minute.
+const offers = async () => {
+  try { const r = await expireOffers(db); if (r.expired) console.log(`waitlist offers: ${r.expired} ran out, ${r.offered} passed on`); }
+  catch (e) { console.error("waitlist offers:", (e as Error).message); }
+  finally { setTimeout(offers, 60_000); }
+};
+void offers();
 
 // The read-only Playtomic mirror, when the club has given Kumi its Third Party API keys (through the
 // environment, never the database or the code). One sync at a time, then a rest; pages are a minute apart.

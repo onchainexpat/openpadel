@@ -331,5 +331,7 @@ export const en = {
   "pt.other": "Club booking",
   "count.games": { one: "{count} game", other: "{count} games" },
   "count.bookings": { one: "{count} booking", other: "{count} bookings" },
+  "action.waitlist.expire_offers": "Pass on waitlist offers that ran out",
+  "plan.waitlist.expire_offers": { one: "A waitlist offer ran out: the place goes to the next person waiting.", other: "{count} waitlist offers ran out: the places go to the next people waiting." },
   "count.changes": { one: "{count} change", other: "{count} changes" },
 } as const;
