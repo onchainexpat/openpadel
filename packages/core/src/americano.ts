@@ -1,14 +1,16 @@
 // Americano rounds: rotating partners, fair teams on every court, sit-outs shared evenly.
 // Pure code with a seeded random source, so the same inputs always give the same rounds.
+import { MODEL, winChance } from "./levels.ts";
 
-export interface Player { id: string; level: number }
+export interface Player { id: string; level: number; mu?: number; sigma?: number }
 export interface Pairing { court: string; a: [string, string]; b: [string, string]; predictedA: number }
 export interface Round { games: Pairing[]; sittingOut: string[] }
 export interface History { partners: Map<string, number>; opponents: Map<string, number>; sitouts: Map<string, number> }
 
-/** The chance team A wins, from levels. Part 4 swaps in the rating model's own prediction. */
-export type Predict = (a: number[], b: number[]) => number;
-export const levelPredict: Predict = (a, b) => 1 / (1 + Math.exp(-0.7 * (a.reduce((s, x) => s + x, 0) - b.reduce((s, x) => s + x, 0))));
+/** The chance team A wins. The default reads the rating model (levels.ts); levels stand in for unrated players. */
+export type Predict = (a: Player[], b: Player[]) => number;
+export const levelPredict: Predict = (a, b) => winChance(a.map(skillOf), b.map(skillOf));
+const skillOf = (p: Player) => ({ mu: p.mu ?? p.level, sigma: p.sigma ?? MODEL.sigmaNew });
 
 const key = (x: string, y: string) => (x < y ? `${x}|${y}` : `${y}|${x}`);
 const bump = (m: Map<string, number>, k: string, by = 1) => m.set(k, (m.get(k) ?? 0) + by);
@@ -38,7 +40,7 @@ export function bestSplit(four: Player[], h: History, predict: Predict): { a: [P
   const options: [[Player, Player], [Player, Player]][] = [[[w, x], [y, z]], [[w, y], [x, z]], [[w, z], [x, y]]];
   let best = null as null | { a: [Player, Player]; b: [Player, Player]; p: number; cost: number };
   for (const [a, b] of options) {
-    const p = predict(a.map((q) => q.level), b.map((q) => q.level));
+    const p = predict(a, b);
     let cost = COST.unfair * Math.abs(p - 0.5) * 2;
     cost += COST.repeatPartner * ((h.partners.get(key(a[0].id, a[1].id)) ?? 0) + (h.partners.get(key(b[0].id, b[1].id)) ?? 0));
     for (const m of a) for (const n of b) cost += COST.repeatOpponent * (h.opponents.get(key(m.id, n.id)) ?? 0);

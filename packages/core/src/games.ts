@@ -6,14 +6,16 @@ import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { emptyHistory, recordRound, schedule, type History, type Player, type Round } from "./americano.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { MODEL } from "./levels.ts";
+import { rateGame, recompute } from "./ratings.ts";
 import { uuidv7 } from "./ids.ts";
 
-export const DEFAULT_LEVEL = 2.5;
+export const DEFAULT_LEVEL = MODEL.defaultLevel;
 
 async function sessionPlayers(db: Db | Trx, programId: string): Promise<Player[]> {
   const rows = await db.selectFrom("enrolment").leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "enrolment.person_id").on("rating.sport", "=", "padel"))
-    .select(["enrolment.person_id", "rating.level"]).where("enrolment.program_id", "=", programId).where("enrolment.status", "=", "booked").orderBy("enrolment.created_at").execute();
-  return rows.map((r) => ({ id: r.person_id, level: r.level === null ? DEFAULT_LEVEL : Number(r.level) }));
+    .select(["enrolment.person_id", "rating.level", "rating.mu", "rating.sigma"]).where("enrolment.program_id", "=", programId).where("enrolment.status", "=", "booked").orderBy("enrolment.created_at").execute();
+  return rows.map((r) => ({ id: r.person_id, level: r.level === null ? DEFAULT_LEVEL : Number(r.level), mu: r.mu ?? undefined, sigma: r.sigma ?? undefined }));
 }
 async function sessionCourts(db: Db | Trx, sessionId: string): Promise<{ id: string; name: string }[]> {
   return db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id").select(["court.id", "court.name"])
@@ -49,9 +51,10 @@ async function summary(ctx: PlanCtx, rounds: Round[], players: number, courts: {
 }
 
 async function writeRounds(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], sessionId: string, rounds: Round[], firstRound: number) {
+  const rated = (await ctx.trx.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select("program.rated").where("session.id", "=", sessionId).executeTakeFirstOrThrow()).rated;
   for (const [i, r] of rounds.entries()) for (const g of r.games) {
     const id = uuidv7();
-    await ctx.insert("game", { id, session_id: sessionId, round: firstRound + i, court_id: g.court, predicted_a: g.predictedA.toFixed(3), status: "scheduled" });
+    await ctx.insert("game", { id, session_id: sessionId, round: firstRound + i, court_id: g.court, predicted_a: g.predictedA.toFixed(3), status: "scheduled", rated });
     await ctx.trx.insertInto("game_side").values([...g.a.map((p) => ({ game_id: id, side: "a" as const, person_id: p })), ...g.b.map((p) => ({ game_id: id, side: "b" as const, person_id: p }))]).execute();
   }
 }
@@ -117,8 +120,11 @@ export const gameScore = defineAction({
     return { title: both("action.game.score"), summary: both("plan.game.score", { round: g.round ?? 1, court, a: i.a, b: i.b }), reads: [read], locationId: loc, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
-    await ctx.update("game", i.game_id, { status: "confirmed", played_at: ctx.now, entered_by: ctx.actor.personId });
+    const before = await ctx.trx.selectFrom("game").select(["status", "played_at", "rated"]).where("id", "=", i.game_id).executeTakeFirstOrThrow();
+    await ctx.update("game", i.game_id, { status: "confirmed", played_at: before.played_at ?? ctx.now, entered_by: ctx.actor.personId });
     await ctx.trx.insertInto("game_set").values({ game_id: i.game_id, set_no: 1, a: i.a, b: i.b }).onConflict((oc) => oc.columns(["game_id", "set_no"]).doUpdateSet({ a: i.a, b: i.b })).execute();
+    // A rated game moves levels; a corrected score replays every rating from the events.
+    if (before.rated) { if (before.status === "confirmed") await recompute(ctx); else await rateGame(ctx, i.game_id); }
     await ctx.emit("game.scored", { game_id: i.game_id });
     return null;
   },

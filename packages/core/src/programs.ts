@@ -85,6 +85,7 @@ export const programCreate = defineAction({
     name: z.string().check(z.minLength(1)), capacity: z.number().check(z.int(), z.minimum(1)), price_cents: z.number().check(z.int(), z.minimum(0)),
     level_min: z.optional(z.number()), level_max: z.optional(z.number()),
     refund_window_hours: z.optional(z.number().check(z.int(), z.minimum(0))), refund_inside_window: z.optional(z.enum(["none", "credit", "full"])),
+    rated: z.optional(z.boolean().check(z.describe("Whether results change levels. Friendlies never do."))),
   }),
   async plan(ctx, i) {
     await readRow(ctx.db, "location", i.location_id, "thing.location");
@@ -93,7 +94,7 @@ export const programCreate = defineAction({
   async apply(ctx, i) {
     const id = uuidv7();
     await ctx.insert("program", { id, location_id: i.location_id, kind: i.kind, format: i.format ?? null, name: i.name, capacity: i.capacity, price_cents: i.price_cents,
-      level_min: i.level_min ?? null, level_max: i.level_max ?? null, refund_window_hours: i.refund_window_hours ?? 24, refund_inside_window: i.refund_inside_window ?? "none" });
+      level_min: i.level_min ?? null, level_max: i.level_max ?? null, refund_window_hours: i.refund_window_hours ?? 24, refund_inside_window: i.refund_inside_window ?? "none", rated: i.rated ?? false });
     return { program_id: id };
   },
 });

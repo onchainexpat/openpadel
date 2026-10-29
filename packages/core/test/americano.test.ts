@@ -33,7 +33,7 @@ test("fair teams beat random pairing on a mixed-level night", () => {
   let randomTotal = 0, n = 0;
   for (let t = 0; t < 200; t++) {
     const order = [...ps].sort(() => Math.random() - 0.5);
-    for (let c = 0; c < 2; c++) { const g = order.slice(c * 4, c * 4 + 4); randomTotal += Math.abs(levelPredict([g[0]!.level, g[1]!.level], [g[2]!.level, g[3]!.level]) - 0.5); n++; }
+    for (let c = 0; c < 2; c++) { const g = order.slice(c * 4, c * 4 + 4); randomTotal += Math.abs(levelPredict([g[0]!, g[1]!], [g[2]!, g[3]!]) - 0.5); n++; }
   }
   const avg = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
   assert.ok(avg(fair) < randomTotal / n / 2, `fair ${avg(fair).toFixed(3)} vs random ${(randomTotal / n).toFixed(3)}`);
