@@ -24,6 +24,22 @@ TypeScript end to end on Node 24 LTS, Hono, Postgres 17 with Kysely over node-po
 schemas shared by the API, the MCP tools and the forms, the official MCP SDK, and Preact. The
 reasons and measurements are in the design notes (`docs/`, to come).
 
+## Development
+
+Needs Node 24 and Docker.
+
+```bash
+npm install
+docker run -d --rm --name kumi-dev-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:17-alpine
+docker exec kumi-dev-pg createdb -U postgres kumi
+node apps/server/src/seed.ts                                   # a demo club, owner owner@kestrel.test
+KUMI_PUBLIC_URL=http://localhost:5173 node apps/server/src/main.ts   # API on 8790; emailed codes go to its log
+npm run dev -w @kumi/manager                                    # the staff app on http://localhost:5173
+npm test && npm run typecheck
+```
+
+Open the staff app at `localhost` (not `127.0.0.1`), so passkeys and the session cookie see one origin.
+
 ## Licence
 
 AGPL-3.0. See `LICENSE`.
