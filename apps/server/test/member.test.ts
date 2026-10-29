@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { run, runAsSystem, uuidv7, type Actor, type Db } from "@kumi/core";
+import { messageHandlers, processOutbox, run, runAsSystem, uuidv7, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
@@ -66,4 +66,14 @@ test("the test payment route doesn't exist in production", async () => {
   const r = await prod.request("/dev/payments/00000000-0000-7000-8000-000000000000/settle", { method: "POST" });
   assert.equal(r.status, 404);
   void friendly;
+});
+
+test("the inbox: what Kumi told the member, in their language, marked read once opened", async () => {
+  const cookie = await signIn("ana@example.test");
+  await processOutbox(db, messageHandlers);
+  const box = (await call("/my/inbox", cookie)).json;
+  assert.ok(box.unread >= 1);
+  assert.ok(box.messages.some((m: any) => m.subject === "Pago recibido: Friday Americano"), JSON.stringify(box.messages.map((m: any) => m.subject)));
+  await call("/my/inbox/read", cookie, {});
+  assert.equal((await call("/my/inbox", cookie)).json.unread, 0);
 });

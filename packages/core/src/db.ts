@@ -25,6 +25,7 @@ export interface ActionRunTable {
 }
 export interface EntityChangeTable { id: Generated<string>; action_run_id: string; entity: string; entity_id: string; op: "insert" | "update"; before: Json | null; after: Json; at: Generated<Date> }
 export interface EventOutboxTable { id: Generated<string>; action_run_id: string | null; topic: string; payload: Json; created_at: Generated<Date>; delivered_at: Date | null; attempts: Generated<number> }
+export interface OutboundMessageTable { id: string; event_id: string | null; person_id: string; kind: string; channel: "inbox" | "email" | "push" | "sms" | "whatsapp"; purpose: "account" | "invites" | "club_news" | "staff"; essential: boolean; lang: string; subject: string; body: string; link: string | null; status: "waiting" | "sent" | "failed" | "dropped"; send_after: Date; stale_at: Date | null; attempts: Generated<number>; failure: string | null; created_at: Generated<Date>; sent_at: Date | null; read_at: Date | null }
 export interface ChannelConsentTable { id: string; person_id: string; channel: string; purpose: string; granted: boolean; source: string; form_version: string | null; evidence: Json | null; at: Generated<Date> }
 
 export interface OAuthClientTable { client_id: string; kind: "registered" | "published"; name: string | null; redirect_uris: string[]; auth_method: Generated<string>; secret_hash: string | null; metadata: Json | null; created_at: Generated<Date> }
@@ -61,7 +62,7 @@ export interface ConnectorStatusTable { system: string; last_sync_at: Date | nul
 export interface DB {
   club: ClubTable; location: LocationTable; person: PersonTable; auth_identity: AuthIdentityTable; auth_challenge: AuthChallengeTable;
   web_session: WebSessionTable; passkey: PasskeyTable; external_ref: ExternalRefTable; mirror_booking: MirrorBookingTable; connector_status: ConnectorStatusTable; rating_event: RatingEventTable; rating: RatingTable; draw: DrawTable; game: GameTable; game_side: GameSideTable; game_set: GameSetTable; ledger_account: LedgerAccountTable; ledger_txn: LedgerTxnTable; ledger_entry: LedgerEntryTable; payment: PaymentTable; refund: RefundTable; member_credit_balance: MemberCreditBalanceView; court: CourtTable; program: ProgramTable; session: SessionTable; court_time: CourtTimeTable; enrolment: EnrolmentTable; waitlist_offer: WaitlistOfferTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
-  staff_shift: StaffShiftTable; agent: AgentTable; action_run: ActionRunTable; entity_change: EntityChangeTable; event_outbox: EventOutboxTable;
+  staff_shift: StaffShiftTable; agent: AgentTable; action_run: ActionRunTable; entity_change: EntityChangeTable; event_outbox: EventOutboxTable; outbound_message: OutboundMessageTable;
   channel_consent: ChannelConsentTable; oauth_client: OAuthClientTable; oauth_grant: OAuthGrantTable; oauth_code: OAuthCodeTable; oauth_token: OAuthTokenTable;
 }
 export type Db = Kysely<DB>;

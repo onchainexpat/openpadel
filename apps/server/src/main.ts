@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { clubStripeAccount, connect, expireOffers, migrate, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { clubStripeAccount, combine, connect, expireOffers, messageHandlers, migrate, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer } from "./mailer.ts";
 
@@ -23,15 +23,19 @@ if (stripeKey) {
   console.log(`payments: stripe (${stripe.live ? "live" : "test mode"}${connectMode ? ", the club's connected account" : ""})`);
 }
 const stripeConfig = { publishableKey: process.env.KUMI_STRIPE_PUBLISHABLE_KEY, webhookSecret: process.env.KUMI_STRIPE_WEBHOOK_SECRET };
-serve({ fetch: makeApp({ db, mailer: new MemoryMailer(true), publicUrl, secureCookies: production, production, stripe: stripeConfig }).fetch, port });
+const mailer = new MemoryMailer(true);
+serve({ fetch: makeApp({ db, mailer, publicUrl, secureCookies: production, production, stripe: stripeConfig }).fetch, port });
 console.log(`kumi server on http://127.0.0.1:${port}`);
 
-// The jobs, every 30 seconds: refunds and other events leave through the outbox; waitlist offers that
-// ran out pass on; card payments nobody told us about are checked with the provider.
+// The jobs, every 30 seconds: refunds and messages leave through the outbox, and due emails go out;
+// waitlist offers that ran out pass on; card payments nobody told us about are checked with the provider.
+const handlers = combine(moneyHandlers, messageHandlers);
 const jobs = async () => {
   try {
-    const sent = await processOutbox(db, moneyHandlers);
+    const sent = await processOutbox(db, handlers);
     if (sent.delivered || sent.failed) console.log(`outbox: ${sent.delivered} delivered, ${sent.failed} to retry`);
+    const mail = await sendEmails(db, mailer);
+    if (mail.sent || mail.dropped || mail.failed) console.log(`email: ${mail.sent} sent, ${mail.dropped} dropped, ${mail.failed} to retry`);
     const r = await expireOffers(db);
     if (r.expired) console.log(`waitlist offers: ${r.expired} ran out, ${r.offered} passed on`);
     const p = await reconcilePayments(db);

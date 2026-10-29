@@ -5,7 +5,8 @@ import type { Db } from "./db.ts";
 import { runAsSystem } from "./actions.ts";
 import { paymentProvider } from "./money.ts";
 
-export type Handler = (db: Db, payload: any) => Promise<void>;
+export interface OutboxEvent { id: string; topic: string; payload: any; created_at: Date }
+export type Handler = (db: Db, payload: any, event?: OutboxEvent) => Promise<void>;
 export const MAX_ATTEMPTS = 8;
 
 export async function processOutbox(db: Db, handlers: Record<string, Handler>, limit = 100): Promise<{ delivered: number; failed: number }> {
@@ -20,10 +21,19 @@ export async function processOutbox(db: Db, handlers: Record<string, Handler>, l
     });
     if (!ev) break;
     tried.add(ev.id);
-    try { await handlers[ev.topic]!(db, ev.payload); await db.updateTable("event_outbox").set({ delivered_at: new Date() }).where("id", "=", ev.id).execute(); delivered++; }
+    try { await handlers[ev.topic]!(db, ev.payload, ev as OutboxEvent); await db.updateTable("event_outbox").set({ delivered_at: new Date() }).where("id", "=", ev.id).execute(); delivered++; }
     catch (err) { failed++; console.error(`outbox ${ev.topic} ${ev.id}:`, (err as Error).message); }
   }
   return { delivered, failed };
+}
+
+/** Several sets of handlers on one outbox: an event goes to each that wants it, in order. A failure
+ *  retries the whole event, so every handler must be safe to run twice (each checks what it did). */
+export function combine(...sets: Record<string, Handler>[]): Record<string, Handler> {
+  const topics = [...new Set(sets.flatMap((s) => Object.keys(s)))];
+  return Object.fromEntries(topics.map((topic) => [topic, async (db: Db, payload: unknown, ev?: OutboxEvent) => {
+    for (const s of sets) await s[topic]?.(db, payload, ev);
+  }]));
 }
 
 /** The money handlers: send each requested refund to the provider, once, then record the outcome. */

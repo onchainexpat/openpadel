@@ -24,6 +24,20 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .sort((a, b) => String(a.first_start).localeCompare(String(b.first_start))));
   });
 
+  // The in-app inbox: every message Kumi sent this person, newest first. Reading it marks it read
+  // (the delivery log, like the outbox, is written by the messages code, not through an action).
+  app.get("/my/inbox", async (c) => {
+    const pid = who(c);
+    const rows = await db.selectFrom("outbound_message").select(["id", "kind", "subject", "body", "link", "created_at", "read_at"])
+      .where("person_id", "=", pid).where("channel", "=", "inbox").orderBy("created_at", "desc").limit(50).execute();
+    return c.json({ unread: rows.filter((r) => !r.read_at).length, messages: rows });
+  });
+  app.post("/my/inbox/read", async (c) => {
+    const pid = who(c);
+    await db.updateTable("outbound_message").set({ read_at: new Date() }).where("person_id", "=", pid).where("channel", "=", "inbox").where("read_at", "is", null).execute();
+    return c.json({ ok: true });
+  });
+
   app.get("/my/places", async (c) => {
     const pid = who(c);
     const rows = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id")

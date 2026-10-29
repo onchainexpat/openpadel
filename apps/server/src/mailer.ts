@@ -1,7 +1,7 @@
 // Email goes through a Mailer. In development it is kept in memory and logged; the Resend
-// mailer (the club's own domain) arrives with M1.
-export interface Mail { to: string; subject: string; text: string }
-export interface Mailer { send(mail: Mail): Promise<void> }
+// mailer (the club's own domain) arrives with the trial server.
+import type { Mail, Mailer } from "@kumi/core";
+export type { Mail, Mailer };
 
 export class MemoryMailer implements Mailer {
   sent: Mail[] = [];
