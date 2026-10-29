@@ -1,0 +1,140 @@
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { freshDb } from "./helpers.ts";
+import { plan, run, runAsSystem, uuidv7, KumiError, type Actor, type Db } from "../src/index.ts";
+
+let db: Db, drop: () => Promise<void>, owner: Actor, monica: Actor, locationId: string, court1: string, court2: string;
+const as = (personId: string, lang: "en" | "es" = "en"): Actor => ({ personId, via: "test", lang });
+const hours = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
+async function person(name: string, role: string | null = "member") {
+  const id = uuidv7();
+  await db.insertInto("person").values({ id, display_name: name, email: `${name.toLowerCase().replace(/\W/g, "")}@example.test`, created_via: "desk" }).execute();
+  if (role) {
+    const r = await db.selectFrom("role").select("id").where("key", "=", role).executeTakeFirstOrThrow();
+    await db.insertInto("person_role").values({ id: uuidv7(), person_id: id, role_id: r.id, location_id: null }).execute();
+  }
+  return id;
+}
+async function rejects(p: Promise<unknown>, code: string) {
+  await assert.rejects(p, (e: unknown) => { assert.ok(e instanceof KumiError, String(e)); assert.equal(e.code, code); return true; });
+}
+/** A published Americano starting in `startsIn` hours, with capacity 4 at $25 and the 24-hour rule. */
+async function americano(name: string, startsIn: number, court = court1) {
+  const p = (await run(db, "program.create", { location_id: locationId, kind: "social", format: "americano", name, capacity: 4, price_cents: 2500 }, owner)).result as { program_id: string };
+  await run(db, "session.add", { program_id: p.program_id, starts_at: hours(startsIn), ends_at: hours(startsIn + 2), court_ids: [court] }, owner);
+  await run(db, "program.publish", { program_id: p.program_id }, owner);
+  return p.program_id;
+}
+async function join(programId: string, personId: string, paid = true) {
+  const r = (await run(db, "enrolment.join", { program_id: programId, person_id: personId }, as(personId))).result as { enrolment_id: string; status: string };
+  if (paid && r.status === "booked") await db.updateTable("enrolment").set({ paid_by: "card" }).where("id", "=", r.enrolment_id).execute();   // payments arrive in the next slice
+  return r;
+}
+const enrolment = (id: string) => db.selectFrom("enrolment").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+
+before(async () => {
+  ({ db, drop } = await freshDb());
+  const s = await runAsSystem(db, "club.setup", { name: "Kestrel Padel", time_zone: "America/Los_Angeles", owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
+  owner = as((s.result as { owner_person_id: string }).owner_person_id);
+  monica = as(await person("Monica", "manager"));
+  locationId = ((await run(db, "location.create", { name: "Eastside", time_zone: "America/Los_Angeles" }, owner)).result as { location_id: string }).location_id;
+  court1 = ((await run(db, "court.create", { location_id: locationId, name: "Court 1" }, owner)).result as { court_id: string }).court_id;
+  court2 = ((await run(db, "court.create", { location_id: locationId, name: "Court 2" }, owner)).result as { court_id: string }).court_id;
+});
+after(async () => drop());
+
+test("a date can't take a court that's already taken", async () => {
+  const p = await americano("Clash test", 100);
+  const q = (await run(db, "program.create", { location_id: locationId, kind: "clinic", name: "Overlap", capacity: 4, price_cents: 0 }, owner)).result as { program_id: string };
+  await rejects(plan(db, "session.add", { program_id: q.program_id, starts_at: hours(101), ends_at: hours(102), court_ids: [court1] }, owner), "error.court_taken");
+  await run(db, "session.add", { program_id: q.program_id, starts_at: hours(101), ends_at: hours(102), court_ids: [court2] }, owner);
+  void p;
+});
+
+test("the fifth and sixth sign-ups go on the waitlist, in order", async () => {
+  const p = await americano("Waitlist test", 50, court2);
+  for (const n of ["A1", "A2", "A3", "A4"]) assert.equal((await join(p, await person(n))).status, "booked");
+  const w1 = await join(p, await person("W1")), w2 = await join(p, await person("W2"));
+  assert.equal(w1.status, "waitlisted"); assert.equal((await enrolment(w2.enrolment_id)).waitlist_position, 2);
+});
+
+test("Monica's case: a late drop comes off with no refund, and the next player is offered the place", async () => {
+  const p = await americano("Friday Americano", 6, court2);
+  const dana = await person("Dana");
+  const d = await join(p, dana);
+  for (const n of ["B2", "B3", "B4"]) await join(p, await person(n));
+  const sam = await person("Sam"); const s = await join(p, sam);
+  assert.equal(s.status, "waitlisted");
+  const pr = await plan(db, "enrolment.remove", { enrolment_id: d.enrolment_id, reason: "late_cancel" }, monica);
+  assert.equal(pr.plan.summary.en, "Take Dana off Friday Americano (late cancellation). No refund: it's 5 hours before the start, inside the club's 24-hour window. Sam on the waitlist is offered the place.");
+  assert.match(pr.plan.summary.es, /^Quitar a Dana de Friday Americano \(cancelación tardía\)\. Sin reembolso: faltan 5 horas/);
+  const { result } = await run(db, "enrolment.remove", { enrolment_id: d.enrolment_id, reason: "late_cancel" }, monica);
+  const gone = await enrolment(d.enrolment_id);
+  assert.equal(gone.status, "cancelled"); assert.equal(gone.left_how, "removed"); assert.equal(gone.refund_outcome, "none"); assert.equal(gone.refund_cents, 0);
+  assert.ok((result as any).offer_id, "the waitlist got an offer");
+  await run(db, "enrolment.accept_offer", { enrolment_id: s.enrolment_id }, as(sam));
+  assert.equal((await enrolment(s.enrolment_id)).status, "booked");
+});
+
+test("staff can change the refund, but only with a reason", async () => {
+  const p = await americano("Override test", 6, court1);
+  const e = await join(p, await person("Lee"));
+  await rejects(plan(db, "enrolment.remove", { enrolment_id: e.enrolment_id, reason: "late_cancel", refund: { outcome: "full" } }, monica), "error.refund_note_needed");
+  await run(db, "enrolment.remove", { enrolment_id: e.enrolment_id, reason: "late_cancel", refund: { outcome: "full", note: "Family emergency" } }, monica);
+  const r = await enrolment(e.enrolment_id);
+  assert.equal(r.refund_outcome, "full"); assert.equal(r.refund_cents, 2500); assert.equal(r.refund_changed_by_staff, true); assert.equal(r.refund_note, "Family emergency");
+});
+
+test("leaving days ahead refunds in full; a no-show never does", async () => {
+  const p = await americano("Next week", 72, court1);
+  const a = await join(p, await person("Ann")), b = await join(p, await person("Ben"));
+  const left = await run(db, "enrolment.leave", { enrolment_id: a.enrolment_id }, as((await enrolment(a.enrolment_id)).person_id));
+  assert.deepEqual(left.result, { refund_outcome: "full", refund_cents: 2500 });
+  await run(db, "enrolment.remove", { enrolment_id: b.enrolment_id, reason: "no_show" }, monica);
+  assert.equal((await enrolment(b.enrolment_id)).refund_outcome, "none");
+});
+
+test("passing a place to a sub: as a gift, or the sub pays and the original is refunded", async () => {
+  const p = await americano("Sub test", 10, court1);
+  const ivy = await person("Ivy"), joe = await person("Joe"), kim = await person("Kim"), lu = await person("Lu");
+  const a = await join(p, ivy), b = await join(p, kim);
+  await run(db, "enrolment.transfer", { enrolment_id: a.enrolment_id, to_person_id: joe, pay: "gift" }, as(ivy));
+  const orig = await enrolment(a.enrolment_id);
+  assert.equal(orig.left_how, "transferred"); assert.equal(orig.refund_outcome, "none");
+  assert.equal((await enrolment(orig.replaced_by!)).paid_by, "transfer");
+  await run(db, "enrolment.transfer", { enrolment_id: b.enrolment_id, to_person_id: lu, pay: "sub_pays" }, as(kim));
+  assert.equal((await enrolment(b.enrolment_id)).refund_outcome, "full");
+});
+
+test("a free place for the 17th player, and only when there's room", async () => {
+  const p = await americano("Comp test", 30, court2);
+  const firsts = [];
+  for (const n of ["C1", "C2", "C3", "C4"]) firsts.push(await join(p, await person(n)));
+  const extra = await person("Extra");
+  await rejects(plan(db, "enrolment.comp", { program_id: p, person_id: extra, note: "Covered by C1's kept fee" }, monica), "error.program_full");
+  await run(db, "enrolment.remove", { enrolment_id: firsts[0]!.enrolment_id, reason: "late_cancel" }, monica);
+  const c = await run(db, "enrolment.comp", { program_id: p, person_id: extra, note: "Covered by C1's kept fee" }, monica);
+  const row = await enrolment((c.result as any).enrolment_id);
+  assert.equal(row.paid_by, "comp"); assert.equal(row.price_cents, 0); assert.equal(row.comp_note, "Covered by C1's kept fee");
+});
+
+test("two people previewing the last place: the second gets 'look again'", async () => {
+  const p = await americano("Race test", 40, court1);
+  for (const n of ["R1", "R2", "R3"]) await join(p, await person(n));
+  const x = await person("X"), y = await person("Y");
+  const px = await plan(db, "enrolment.join", { program_id: p, person_id: x }, as(x));
+  const py = await plan(db, "enrolment.join", { program_id: p, person_id: y }, as(y));
+  assert.equal((px.plan.details as any).status, "booked"); assert.equal((py.plan.details as any).status, "booked");
+  const { apply } = await import("../src/index.ts");
+  await apply(db, px.runId, as(x));
+  await rejects(apply(db, py.runId, as(y)), "error.changed");
+});
+
+test("a member can leave their own place but can't take anyone off", async () => {
+  const p = await americano("Permissions test", 60, court2);
+  const m1 = await person("M1", "member"), m2 = await person("M2", "member");
+  const e1 = await join(p, m1), e2 = await join(p, m2);
+  await rejects(plan(db, "enrolment.remove", { enrolment_id: e2.enrolment_id, reason: "other" }, as(m1)), "error.forbidden_reason");
+  await rejects(plan(db, "enrolment.leave", { enrolment_id: e2.enrolment_id }, as(m1)), "error.forbidden_reason");
+  await run(db, "enrolment.leave", { enrolment_id: e1.enrolment_id }, as(m1));
+});

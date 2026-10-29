@@ -4,3 +4,4 @@ export * from "./errors.ts";
 export * from "./permissions.ts";
 export * from "./actions.ts";
 export * from "./club.ts";
+export * from "./programs.ts";

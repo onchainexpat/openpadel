@@ -56,6 +56,12 @@ const ENTITIES = {
   role_grant: { table: "role_grant", key: "id", retire: null },
   staff_member: { table: "staff_member", key: "id", retire: { active: false } },
   passkey: { table: "passkey", key: "credential_id", retire: { revoked_at: "now" } },
+  court: { table: "court", key: "id", retire: { archived_at: "now" } },
+  program: { table: "program", key: "id", retire: { status: "cancelled" } },
+  session: { table: "session", key: "id", retire: { status: "cancelled" } },
+  court_time: { table: "court_time", key: "id", retire: { active: false } },
+  enrolment: { table: "enrolment", key: "id", retire: { status: "cancelled" } },
+  waitlist_offer: { table: "waitlist_offer", key: "id", retire: { outcome: "expired" } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 

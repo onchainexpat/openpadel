@@ -32,9 +32,16 @@ export interface OAuthGrantTable { id: string; person_id: string; client_id: str
 export interface OAuthCodeTable { code_hash: string; grant_id: string; redirect_uri: string; code_challenge: string; resource: string; expires_at: Date; consumed_at: Date | null }
 export interface OAuthTokenTable { token_hash: string; kind: "access" | "refresh"; grant_id: string; family: string; resource: string; expires_at: Date; used_at: Date | null; revoked_at: Date | null; created_at: Generated<Date> }
 
+export interface CourtTable { id: string; location_id: string; name: string; kind: Generated<string>; sport: Generated<string>; bookable: Generated<boolean>; sort: Generated<number>; archived_at: Date | null; version: Generated<number> }
+export interface ProgramTable { id: string; location_id: string; kind: string; format: string | null; name: string; level_min: string | null; level_max: string | null; capacity: number; price_cents: Generated<number>; sign_up: Generated<string>; refund_window_hours: Generated<number>; refund_inside_window: Generated<"none" | "credit" | "full">; refund_rule_version: Generated<number>; visibility: Generated<string>; status: Generated<"draft" | "published" | "cancelled">; version: Generated<number> }
+export interface SessionTable { id: string; program_id: string; starts_at: Date; ends_at: Date; status: Generated<string>; capacity_override: number | null; version: Generated<number> }
+export interface CourtTimeTable { id: string; court_id: string; during: string; kind: string; session_id: string | null; active: Generated<boolean>; hold_until: Date | null; version: Generated<number> }
+export interface EnrolmentTable { id: string; program_id: string; session_id: string | null; person_id: string; status: "booked" | "waitlisted" | "cancelled" | "attended" | "no_show"; waitlist_position: number | null; price_cents: Generated<number>; paid_by: Generated<string>; comp_note: string | null; left_at: Date | null; left_how: string | null; left_reason: string | null; refund_outcome: string | null; refund_cents: number | null; refund_rule_version: number | null; refund_changed_by_staff: Generated<boolean>; refund_note: string | null; replaced_by: string | null; created_at: Generated<Date>; version: Generated<number> }
+export interface WaitlistOfferTable { id: string; enrolment_id: string; offered_at: Date; expires_at: Date; outcome: string | null; version: Generated<number> }
+
 export interface DB {
   club: ClubTable; location: LocationTable; person: PersonTable; auth_identity: AuthIdentityTable; auth_challenge: AuthChallengeTable;
-  web_session: WebSessionTable; passkey: PasskeyTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
+  web_session: WebSessionTable; passkey: PasskeyTable; court: CourtTable; program: ProgramTable; session: SessionTable; court_time: CourtTimeTable; enrolment: EnrolmentTable; waitlist_offer: WaitlistOfferTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
   staff_shift: StaffShiftTable; agent: AgentTable; action_run: ActionRunTable; entity_change: EntityChangeTable; event_outbox: EventOutboxTable;
   channel_consent: ChannelConsentTable; oauth_client: OAuthClientTable; oauth_grant: OAuthGrantTable; oauth_code: OAuthCodeTable; oauth_token: OAuthTokenTable;
 }
