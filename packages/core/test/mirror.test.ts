@@ -74,6 +74,7 @@ test("durations arrive in milliseconds, seconds or minutes, and times without a 
   assert.equal(b.end.toISOString(), "2026-11-06T19:30:00.000Z");
   assert.equal(b.ref, "b:r");
   assert.equal(normalize({ booking_id: "b", resource_id: "r", booking_start_date: "2026-11-06T18:00:00-08:00", duration: 60 })!.start.toISOString(), "2026-11-07T02:00:00.000Z");
+  assert.equal(normalize({ booking_id: "b", resource_id: "r", resource_name: "Padel 4 ", booking_start_date: "2026-11-06T18:00:00", duration: 60 })!.courtName, "Padel 4");
   assert.equal(normalize({ booking_id: "b", booking_start_date: "2026-11-06T18:00:00", duration: 60 }), null);   // no court
   assert.equal(normalize({ booking_id: "b", resource_id: "r", booking_start_date: "not a date", duration: 60 }), null);
 });
@@ -143,23 +144,23 @@ test("a moved booking moves its hold; a cancelled or vanished one lets the court
 
 test("a player's booking over a Kumi event is a conflict, said once, and holds the court once the event goes", async () => {
   const s = await addSession(50, 2);
-  pt.bookings = [booking("c1", 50.5)];
+  pt.bookings = [booking("c1", 50.5), booking("c2", 51, { type: "PUBLIC_CLASS", minutes: 60 })];
   let r = await sync();
   assert.ok(r.ok);
-  assert.equal(r.conflict, 1);
+  assert.equal(r.conflict, 2);   // a clinic on Playtomic's side is real use too
   const c1 = await mb("c1:pt-1");
   assert.equal(c1.status, "conflict");
   assert.equal(c1.court_time_id, null);
   const said = () => db.selectFrom("event_outbox").select("payload").where("topic", "=", "mirror.conflict").execute();
-  assert.equal((await said()).length, 1);
-  assert.equal(((await said())[0]!.payload as any).ref, "c1:pt-1");
+  assert.equal((await said()).length, 2);
+  assert.deepEqual((await said()).map((e) => (e.payload as any).ref).sort(), ["c1:pt-1", "c2:pt-1"]);
 
   const runs = await mirrorRuns();
   r = await sync();
   assert.ok(r.ok);
   assert.equal(r.changes, 0);
   assert.equal(await mirrorRuns(), runs);
-  assert.equal((await said()).length, 1);
+  assert.equal((await said()).length, 2);
 
   await run(db, "action.undo", { run_id: s.runId }, owner);   // the event is taken off the court
   r = await sync();

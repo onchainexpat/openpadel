@@ -64,12 +64,13 @@ export function normalize(raw: any): Booking | null {
   if (!id || !court || typeof startRaw !== "string") return null;
   const start = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(startRaw) ? startRaw : `${startRaw}Z`), ms = durationMs(raw.duration_ms ?? raw.duration);
   if (Number.isNaN(start.getTime()) || !ms) return null;
-  return { ref: `${id}:${court}`, courtRef: String(court), courtName: String(raw.resource_name ?? court), start, end: new Date(start.getTime() + ms), type: String(raw.booking_type ?? ""), cancelled: Boolean(raw.is_canceled) };
+  return { ref: `${id}:${court}`, courtRef: String(court), courtName: String(raw.resource_name ?? court).trim(), start, end: new Date(start.getTime() + ms), type: String(raw.booking_type ?? ""), cancelled: Boolean(raw.is_canceled) };
 }
 
-// Players' own bookings and the club's lessons and courses are real use of the court. Anything else
-// Playtomic shows over a Kumi event (a block, the event's own listing) is the club holding the court for it.
-export const PLAYER_TYPES: ReadonlySet<string> = new Set(["REGULAR_BOOKING", "OPEN_MATCH", "PRIVATE_CLASS", "COURSE_CLASS"]);
+// Players' own bookings and the club's lessons, classes and courses are real use of the court. Anything
+// else Playtomic shows over a Kumi event (its tournaments and open play) is taken as the club's own event,
+// holding the court for it. Seen in a real club's feed in October 2026: seven types, and no court blocks.
+export const PLAYER_TYPES: ReadonlySet<string> = new Set(["REGULAR_BOOKING", "OPEN_MATCH", "PRIVATE_CLASS", "COURSE_CLASS", "PUBLIC_CLASS"]);
 export const isClubBlock = (type: string | null | undefined) => Boolean(type) && !PLAYER_TYPES.has(type!);
 
 interface Slot { id: string; courtId: string; kind: string; s: number; e: number }

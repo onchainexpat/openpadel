@@ -58,10 +58,11 @@ Then staff link each Playtomic court to a Kumi court on the manager's Playtomic 
 copied booking does:
 
 - **On a free court:** it holds the court in Kumi.
-- **A block or the club's own event over a Kumi event:** taken as the club holding the court for
-  it. An event can also be added inside a block that came first.
-- **A player's booking, lesson or course over a Kumi event:** a clash, listed for staff and said
-  once.
+- **The club's own Playtomic tournament or open play over a Kumi event:** taken as the club
+  holding the court for it. A Kumi event can also be added inside one that came first. (Court
+  blocks made in Playtomic don't come through its API at all, so they never clash.)
+- **A player's booking, lesson, class or course over a Kumi event:** a clash, listed for staff and
+  said once.
 - **Cancelled or gone in Playtomic:** the court is free again in Kumi.
 
 ## Licence
