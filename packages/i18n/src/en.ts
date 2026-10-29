@@ -186,5 +186,11 @@ export const en = {
   "thing.session": "date",
   "price.free": "",
   "price.amount": " for {amount}",
+  "action.payment.settle": "Record a payment",
+  "action.refund.settle": "Record a refund",
+  "plan.payment.succeeded": "{person} paid {amount}.",
+  "plan.payment.failed": "{person}'s payment of {amount} didn't go through.",
+  "plan.refund.sent": "{amount} refunded to {person}'s card.",
+  "plan.refund.failed": "The refund of {amount} to {person} failed.",
   "count.changes": { one: "{count} change", other: "{count} changes" },
 } as const;

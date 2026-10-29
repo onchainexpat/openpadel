@@ -26,8 +26,8 @@ async function americano(name: string, startsIn: number, court = court1) {
   return p.program_id;
 }
 async function join(programId: string, personId: string, paid = true) {
-  const r = (await run(db, "enrolment.join", { program_id: programId, person_id: personId }, as(personId))).result as { enrolment_id: string; status: string };
-  if (paid && r.status === "booked") await db.updateTable("enrolment").set({ paid_by: "card" }).where("id", "=", r.enrolment_id).execute();   // payments arrive in the next slice
+  const r = (await run(db, "enrolment.join", { program_id: programId, person_id: personId }, as(personId))).result as { enrolment_id: string; status: string; payment_id?: string };
+  if (paid && r.payment_id) await runAsSystem(db, "payment.settle", { payment_id: r.payment_id, outcome: "succeeded" }, "test");   // the provider's webhook
   return r;
 }
 const enrolment = (id: string) => db.selectFrom("enrolment").selectAll().where("id", "=", id).executeTakeFirstOrThrow();

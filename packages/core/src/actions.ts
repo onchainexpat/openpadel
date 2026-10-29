@@ -21,6 +21,8 @@ export interface Plan {
   undo: { kind: UndoKind; note?: Text; minutes?: number };
   locationId?: string | null;
   ownerIds?: string[];           // whose rows this touches, for "own" grants
+  /** Money rules (permissions.md step 5): a second, different person must approve. */
+  secondPerson?: boolean;
   moneyCents?: number;
   tells?: Text[];
   details?: unknown;
@@ -62,6 +64,8 @@ const ENTITIES = {
   court_time: { table: "court_time", key: "id", retire: { active: false } },
   enrolment: { table: "enrolment", key: "id", retire: { status: "cancelled" } },
   waitlist_offer: { table: "waitlist_offer", key: "id", retire: { outcome: "expired" } },
+  payment: { table: "payment", key: "id", retire: null },
+  refund: { table: "refund", key: "id", retire: null },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 
@@ -132,7 +136,7 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
   const p = await def.plan({ db, actor, now }, input);
   const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now });
   if (d.mode === "no") return refuse(db, def, input, actor, p, d);
-  const status = d.mode === "ask" ? "awaiting_approval" : "planned";
+  const status = d.mode === "ask" || p.secondPerson ? "awaiting_approval" : "planned";
   const expiresAt = new Date(now.getTime() + (status === "planned" ? PLAN_MINUTES * 60_000 : APPROVAL_DAYS * 864e5));
   const runId = uuidv7(now.getTime());
   await db.insertInto("action_run").values({

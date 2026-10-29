@@ -39,9 +39,16 @@ export interface CourtTimeTable { id: string; court_id: string; during: string; 
 export interface EnrolmentTable { id: string; program_id: string; session_id: string | null; person_id: string; status: "booked" | "waitlisted" | "cancelled" | "attended" | "no_show"; waitlist_position: number | null; price_cents: Generated<number>; paid_by: Generated<string>; comp_note: string | null; left_at: Date | null; left_how: string | null; left_reason: string | null; refund_outcome: string | null; refund_cents: number | null; refund_rule_version: number | null; refund_changed_by_staff: Generated<boolean>; refund_note: string | null; replaced_by: string | null; created_at: Generated<Date>; version: Generated<number> }
 export interface WaitlistOfferTable { id: string; enrolment_id: string; offered_at: Date; expires_at: Date; outcome: string | null; version: Generated<number> }
 
+export interface LedgerAccountTable { id: string; kind: string; person_id: string | null; revenue_type: string | null }
+export interface LedgerTxnTable { id: string; kind: string; action_run_id: string; at: Generated<Date>; memo: string | null }
+export interface LedgerEntryTable { id: Generated<string>; txn_id: string; account_id: string; amount_cents: string }
+export interface PaymentTable { id: string; person_id: string; amount_cents: number; method: string; provider: string; provider_ref: string | null; status: "pending" | "succeeded" | "failed"; enrolment_id: string | null; created_at: Generated<Date>; version: Generated<number> }
+export interface RefundTable { id: string; payment_id: string; enrolment_id: string | null; amount_cents: number; destination: "card" | "credit"; status: "waiting_for_sub" | "pending" | "sent" | "failed"; provider_ref: string | null; failure: string | null; created_at: Generated<Date>; version: Generated<number> }
+export interface MemberCreditBalanceView { person_id: string; cents: string }
+
 export interface DB {
   club: ClubTable; location: LocationTable; person: PersonTable; auth_identity: AuthIdentityTable; auth_challenge: AuthChallengeTable;
-  web_session: WebSessionTable; passkey: PasskeyTable; court: CourtTable; program: ProgramTable; session: SessionTable; court_time: CourtTimeTable; enrolment: EnrolmentTable; waitlist_offer: WaitlistOfferTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
+  web_session: WebSessionTable; passkey: PasskeyTable; ledger_account: LedgerAccountTable; ledger_txn: LedgerTxnTable; ledger_entry: LedgerEntryTable; payment: PaymentTable; refund: RefundTable; member_credit_balance: MemberCreditBalanceView; court: CourtTable; program: ProgramTable; session: SessionTable; court_time: CourtTimeTable; enrolment: EnrolmentTable; waitlist_offer: WaitlistOfferTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
   staff_shift: StaffShiftTable; agent: AgentTable; action_run: ActionRunTable; entity_change: EntityChangeTable; event_outbox: EventOutboxTable;
   channel_consent: ChannelConsentTable; oauth_client: OAuthClientTable; oauth_grant: OAuthGrantTable; oauth_code: OAuthCodeTable; oauth_token: OAuthTokenTable;
 }

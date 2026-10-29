@@ -189,5 +189,11 @@ export const es: { [K in keyof typeof en]: Message } = {
   "thing.session": "fecha",
   "price.free": "",
   "price.amount": " por {amount}",
+  "action.payment.settle": "Registrar un pago",
+  "action.refund.settle": "Registrar un reembolso",
+  "plan.payment.succeeded": "{person} pagó {amount}.",
+  "plan.payment.failed": "El pago de {amount} de {person} no se completó.",
+  "plan.refund.sent": "Se reembolsaron {amount} a la tarjeta de {person}.",
+  "plan.refund.failed": "Falló el reembolso de {amount} a {person}.",
   "count.changes": { one: "{count} cambio", other: "{count} cambios", many: "{count} cambios" },
 };

@@ -7,8 +7,11 @@ import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
+import { account, paymentProvider, post } from "./money.ts";
 
 export const OFFER_HOURS = 2;
+/** Refunds outside the rule above this need a second person (action_catalogue.md rule 4). */
+export const TWO_PERSON_CENTS = 50_000;
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const when = (at: Date, tz: string): Text => ({ en: dateTime(at, "en", tz), es: dateTime(at, "es", tz) });
 const priceText = (cents: number): Text => (cents > 0 ? both("price.amount", { amount: usd(cents) }) : both("price.free"));
@@ -155,7 +158,8 @@ export const enrolmentJoin = defineAction({
     const id = uuidv7();
     await ctx.insert("enrolment", { id, program_id: i.program_id, person_id: i.person_id, status: planned.status, waitlist_position: planned.position ?? null, price_cents: p.price_cents });
     await ctx.emit(planned.status === "booked" ? "enrolment.booked" : "enrolment.waitlisted", { enrolment_id: id });
-    return { enrolment_id: id, status: planned.status };
+    const pay = planned.status === "booked" ? await requestPayment(ctx, id, i.person_id, p.price_cents, p.name) : null;
+    return { enrolment_id: id, status: planned.status, ...(pay ?? {}) };
   },
 });
 
@@ -164,7 +168,7 @@ async function goingPlan(ctx: PlanCtx, enrolmentId: string, reason: string, refu
   const person = await personName(ctx.db, e.person_id);
   if (!["booked", "waitlisted"].includes(e.status)) throw new KumiError("error.not_on_roster", { person });
   const { row: p } = await readRow(ctx.db, "program", e.program_id, "thing.program");
-  const paid = e.paid_by === "comp" || e.paid_by === "none" ? 0 : e.price_cents;
+  const paid = await paidFor(ctx.db, e.id);
   const rule = ruleRefund(p as any, paid, reason, await firstStart(ctx.db, e.program_id, e.session_id), ctx.now);
   const refund = staffRefund(rule, paid, refundIn);
   return { e, p, person, refund, read, offer: await offerText(ctx.db, e.program_id, e.status === "booked") };
@@ -198,6 +202,7 @@ export const enrolmentLeave = defineAction({
     const refund = (plan.details as { refund: Refund }).refund;
     await ctx.update("enrolment", e.id, { ...leaving(refund, "left", "late_cancel", p.refund_rule_version), left_at: ctx.now });
     await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: refund.outcome, refund_cents: refund.cents });
+    await startRefund(ctx, e.id, e.person_id, refund);
     if (e.status === "booked") await freePlace(ctx, e.program_id);
     return { refund_outcome: refund.outcome, refund_cents: refund.cents };
   },
@@ -212,7 +217,7 @@ export const enrolmentRemove = defineAction({
   async plan(ctx, i) {
     const g = await goingPlan(ctx, i.enrolment_id, i.reason, i.refund);
     return { title: both("action.enrolment.remove"), summary: join2(both("plan.enrolment.remove", { person: g.person, name: g.p.name, reason: both(`reason.${i.reason}` as Key), refund: g.refund.text }), g.offer),
-      reads: [g.read], locationId: g.p.location_id, moneyCents: g.refund.cents, undo: g.refund.cents > 0 ? { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } : { kind: "compensating" }, details: { refund: g.refund } };
+      reads: [g.read], locationId: g.p.location_id, moneyCents: g.refund.cents, secondPerson: g.refund.changed && g.refund.cents > TWO_PERSON_CENTS, undo: g.refund.cents > 0 ? { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } : { kind: "compensating" }, details: { refund: g.refund } };
   },
   async apply(ctx, i, plan) {
     const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).executeTakeFirstOrThrow();
@@ -220,6 +225,7 @@ export const enrolmentRemove = defineAction({
     const refund = (plan.details as { refund: Refund }).refund;
     await ctx.update("enrolment", e.id, { ...leaving(refund, i.reason === "no_show" ? "no_show" : "removed", i.reason, p.refund_rule_version, i.refund?.note), left_at: ctx.now });
     await ctx.emit("enrolment.removed", { enrolment_id: e.id, reason: i.reason, refund_outcome: refund.outcome, refund_cents: refund.cents });
+    await startRefund(ctx, e.id, e.person_id, refund);
     const offer = e.status === "booked" ? await freePlace(ctx, e.program_id) : null;
     return { refund_outcome: refund.outcome, refund_cents: refund.cents, offer_id: offer };
   },
@@ -246,6 +252,13 @@ export const enrolmentTransfer = defineAction({
     // When the sub pays, the original player's refund is due (the money moves in the payments slice).
     const refund: Refund = i.pay === "gift" ? { outcome: "none", cents: 0, text: both("refund.nothing_paid"), changed: false } : { outcome: "full", cents: e.price_cents, text: both("refund.full", { amount: usd(e.price_cents) }), changed: false };
     await ctx.update("enrolment", e.id, { ...leaving(refund, "transferred", "found_sub", p.refund_rule_version), left_at: ctx.now, replaced_by: newId });
+    if (i.pay === "sub_pays") {
+      await startRefund(ctx, e.id, e.person_id, { ...refund, cents: await paidFor(ctx.trx, e.id) }, "waiting_for_sub");
+      const sub = await ctx.trx.selectFrom("program").select("name").where("id", "=", e.program_id).executeTakeFirstOrThrow();
+      const pay = await requestPayment(ctx, newId, i.to_person_id, p.price_cents, sub.name);
+      await ctx.emit("enrolment.transferred", { from: e.id, to: newId, pay: i.pay });
+      return { enrolment_id: newId, ...(pay ?? {}) };
+    }
     await ctx.emit("enrolment.transferred", { from: e.id, to: newId, pay: i.pay });
     return { enrolment_id: newId };
   },
@@ -287,6 +300,96 @@ export const enrolmentAcceptOffer = defineAction({
     await ctx.update("enrolment", i.enrolment_id, { status: "booked", waitlist_position: null });
     await ctx.update("waitlist_offer", (plan.details as { offer_id: string }).offer_id, { outcome: "taken" });
     await ctx.emit("enrolment.booked", { enrolment_id: i.enrolment_id });
-    return null;
+    const e = await ctx.trx.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").select(["enrolment.person_id", "enrolment.price_cents", "program.name"]).where("enrolment.id", "=", i.enrolment_id).executeTakeFirstOrThrow();
+    return (await requestPayment(ctx, i.enrolment_id, e.person_id, e.price_cents, e.name)) ?? null;
+  },
+});
+
+// ---- Money for rosters ----
+type ApplyContext = Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0];
+
+/** What was actually paid for a place: payments that went through, less refunds on their way or sent. */
+export async function paidFor(db: Db | Trx, enrolmentId: string): Promise<number> {
+  const paid = await db.selectFrom("payment").select((eb) => eb.fn.sum<string>("amount_cents").as("c")).where("enrolment_id", "=", enrolmentId).where("status", "=", "succeeded").executeTakeFirst();
+  const back = await db.selectFrom("refund").select((eb) => eb.fn.sum<string>("amount_cents").as("c")).where("enrolment_id", "=", enrolmentId).where("status", "in", ["pending", "sent", "waiting_for_sub"]).executeTakeFirst();
+  return Number(paid?.c ?? 0) - Number(back?.c ?? 0);
+}
+
+/** Ask the provider for a payment. Nothing is charged until it confirms (payment.settle). */
+async function requestPayment(ctx: ApplyContext, enrolmentId: string, personId: string, cents: number, what: string) {
+  if (cents <= 0) return null;
+  const pv = paymentProvider();
+  const intent = await pv.createIntent({ amountCents: cents, description: what, idempotencyKey: enrolmentId });
+  const id = uuidv7();
+  await ctx.insert("payment", { id, person_id: personId, amount_cents: cents, method: "card", provider: pv.name, provider_ref: intent.ref, status: "pending", enrolment_id: enrolmentId });
+  return { payment_id: id, client_secret: intent.clientSecret };
+}
+
+/** Start a refund: club credit at once; a card refund through the outbox, after this change commits. */
+async function startRefund(ctx: ApplyContext, enrolmentId: string, personId: string, refund: Refund, status: "pending" | "waiting_for_sub" = "pending") {
+  if (refund.cents <= 0 || refund.outcome === "none") return;
+  const pay = await ctx.trx.selectFrom("payment").selectAll().where("enrolment_id", "=", enrolmentId).where("status", "=", "succeeded").orderBy("created_at", "desc").executeTakeFirst();
+  if (!pay) return;
+  const id = uuidv7();
+  if (refund.outcome === "credit") {
+    await ctx.insert("refund", { id, payment_id: pay.id, enrolment_id: enrolmentId, amount_cents: refund.cents, destination: "credit", status: "sent" });
+    await post(ctx.trx, ctx.runId, "credit_grant", "refund as club credit", [
+      { account: await account(ctx.trx, "revenue", { revenueType: "programs" }), cents: refund.cents },
+      { account: await account(ctx.trx, "member_credit", { personId }), cents: -refund.cents },
+    ]);
+    return;
+  }
+  await ctx.insert("refund", { id, payment_id: pay.id, enrolment_id: enrolmentId, amount_cents: refund.cents, destination: "card", status });
+  if (status === "pending") await ctx.emit("refund.requested", { refund_id: id });
+}
+
+export const paymentSettle = defineAction({
+  name: "payment.settle", version: 1, system: true, internal: true,
+  input: z.object({ payment_id: z.uuid(), outcome: z.enum(["succeeded", "failed"]) }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "payment", i.payment_id);
+    return { title: both("action.payment.settle"), summary: both(i.outcome === "succeeded" ? "plan.payment.succeeded" : "plan.payment.failed", { person: await personName(ctx.db, row.person_id), amount: usd(row.amount_cents) }), reads: [read], undo: { kind: "none", note: both("reason.refund_sent") } };
+  },
+  async apply(ctx, i) {
+    const pay = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", i.payment_id).executeTakeFirstOrThrow();
+    if (pay.status !== "pending") return { already: pay.status };   // a repeated webhook does nothing
+    await ctx.update("payment", pay.id, { status: i.outcome });
+    if (i.outcome === "failed") { await ctx.emit("payment.failed", { payment_id: pay.id }); return { status: "failed" }; }
+    await post(ctx.trx, ctx.runId, "payment", "program payment", [
+      { account: await account(ctx.trx, "provider_clearing"), cents: pay.amount_cents },
+      { account: await account(ctx.trx, "revenue", { revenueType: "programs" }), cents: -pay.amount_cents },
+    ]);
+    if (pay.enrolment_id) {
+      await ctx.update("enrolment", pay.enrolment_id, { paid_by: "card" });
+      // A sub has paid: the player they replaced gets their refund now.
+      const from = await ctx.trx.selectFrom("enrolment").select("id").where("replaced_by", "=", pay.enrolment_id).executeTakeFirst();
+      if (from) for (const r of await ctx.trx.selectFrom("refund").select("id").where("enrolment_id", "=", from.id).where("status", "=", "waiting_for_sub").execute()) {
+        await ctx.update("refund", r.id, { status: "pending" });
+        await ctx.emit("refund.requested", { refund_id: r.id });
+      }
+    }
+    await ctx.emit("payment.succeeded", { payment_id: pay.id });
+    return { status: "succeeded" };
+  },
+});
+
+export const refundSettle = defineAction({
+  name: "refund.settle", version: 1, system: true, internal: true,
+  input: z.object({ refund_id: z.uuid(), ok: z.boolean(), provider_ref: z.optional(z.string()), failure: z.optional(z.string()) }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "refund", i.refund_id);
+    const pay = await ctx.db.selectFrom("payment").select("person_id").where("id", "=", row.payment_id).executeTakeFirstOrThrow();
+    return { title: both("action.refund.settle"), summary: both(i.ok ? "plan.refund.sent" : "plan.refund.failed", { person: await personName(ctx.db, pay.person_id), amount: usd(row.amount_cents) }), reads: [read], undo: { kind: "none", note: both("reason.refund_sent") } };
+  },
+  async apply(ctx, i) {
+    const r = await ctx.trx.selectFrom("refund").selectAll().where("id", "=", i.refund_id).executeTakeFirstOrThrow();
+    if (r.status !== "pending") return { already: r.status };
+    if (!i.ok) { await ctx.update("refund", r.id, { status: "failed", failure: i.failure ?? null }); await ctx.emit("refund.failed", { refund_id: r.id }); return { status: "failed" }; }
+    await ctx.update("refund", r.id, { status: "sent", provider_ref: i.provider_ref ?? null });
+    await post(ctx.trx, ctx.runId, "refund", "refund to card", [
+      { account: await account(ctx.trx, "revenue", { revenueType: "programs" }), cents: r.amount_cents },
+      { account: await account(ctx.trx, "provider_clearing"), cents: -r.amount_cents },
+    ]);
+    return { status: "sent" };
   },
 });
