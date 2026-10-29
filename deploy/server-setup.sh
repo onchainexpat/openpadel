@@ -95,6 +95,8 @@ $1 {
 SITE
 }
 { site "$KUMI_HOST" member; site "staff.$KUMI_HOST" manager; } > /etc/caddy/Caddyfile
+# Caddy serves the built apps from the kumi user's (private) home, so it reads as the kumi group.
+usermod -aG kumi caddy
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl reload caddy || systemctl restart caddy
 
