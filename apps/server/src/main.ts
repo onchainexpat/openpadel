@@ -24,15 +24,17 @@ if (stripeKey) {
 }
 const stripeConfig = { publishableKey: process.env.KUMI_STRIPE_PUBLISHABLE_KEY, webhookSecret: process.env.KUMI_STRIPE_WEBHOOK_SECRET };
 // Email: with a Resend key, from the club's own domain (KUMI_MAIL_FROM, like "Kestrel Padel <hello@kestrelpadel.com>").
-// Outside production it only reaches KUMI_MAIL_TEST_TO (comma-separated); without a key it stays in the log.
+// Outside production, or with KUMI_PRACTICE=1, it only reaches KUMI_MAIL_TEST_TO (comma-separated); without a key it stays in the log.
 let mailer: Mailer = new MemoryMailer(true);
 if (process.env.KUMI_RESEND_API_KEY) {
   const from = process.env.KUMI_MAIL_FROM;
   if (!from) { console.error("KUMI_RESEND_API_KEY needs KUMI_MAIL_FROM, the address on the club's own domain"); process.exit(1); }
   const resend = new ResendMailer({ apiKey: process.env.KUMI_RESEND_API_KEY, from, replyTo: process.env.KUMI_MAIL_REPLY_TO });
   const testTo = (process.env.KUMI_MAIL_TEST_TO ?? "").split(",");
-  mailer = production ? resend : new PracticeMailer(resend, testTo);
-  console.log(`email: resend from ${from}${production ? "" : `, practice: only to ${testTo.filter(Boolean).length} test addresses`}`);
+  // A trial server runs in production mode (HTTPS cookies) but still in practice until the club switches over.
+  const practice = !production || process.env.KUMI_PRACTICE === "1";
+  mailer = practice ? new PracticeMailer(resend, testTo) : resend;
+  console.log(`email: resend from ${from}${practice ? `, practice: only to ${testTo.filter(Boolean).length} test addresses` : ""}`);
 }
 serve({ fetch: makeApp({ db, mailer, publicUrl, secureCookies: production, production, stripe: stripeConfig }).fetch, port });
 console.log(`kumi server on http://127.0.0.1:${port}`);
