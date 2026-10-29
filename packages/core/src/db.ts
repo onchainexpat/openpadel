@@ -26,11 +26,16 @@ export interface EntityChangeTable { id: Generated<string>; action_run_id: strin
 export interface EventOutboxTable { id: Generated<string>; action_run_id: string | null; topic: string; payload: Json; created_at: Generated<Date>; delivered_at: Date | null; attempts: Generated<number> }
 export interface ChannelConsentTable { id: string; person_id: string; channel: string; purpose: string; granted: boolean; source: string; form_version: string | null; evidence: Json | null; at: Generated<Date> }
 
+export interface OAuthClientTable { client_id: string; kind: "registered" | "published"; name: string | null; redirect_uris: string[]; auth_method: Generated<string>; secret_hash: string | null; metadata: Json | null; created_at: Generated<Date> }
+export interface OAuthGrantTable { id: string; person_id: string; client_id: string; scopes: string[]; weekly_cap_cents: Generated<number>; created_at: Generated<Date>; revoked_at: Date | null }
+export interface OAuthCodeTable { code_hash: string; grant_id: string; redirect_uri: string; code_challenge: string; resource: string; expires_at: Date; consumed_at: Date | null }
+export interface OAuthTokenTable { token_hash: string; kind: "access" | "refresh"; grant_id: string; family: string; resource: string; expires_at: Date; used_at: Date | null; revoked_at: Date | null; created_at: Generated<Date> }
+
 export interface DB {
   club: ClubTable; location: LocationTable; person: PersonTable; auth_identity: AuthIdentityTable; auth_challenge: AuthChallengeTable;
   web_session: WebSessionTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
   staff_shift: StaffShiftTable; agent: AgentTable; action_run: ActionRunTable; entity_change: EntityChangeTable; event_outbox: EventOutboxTable;
-  channel_consent: ChannelConsentTable;
+  channel_consent: ChannelConsentTable; oauth_client: OAuthClientTable; oauth_grant: OAuthGrantTable; oauth_code: OAuthCodeTable; oauth_token: OAuthTokenTable;
 }
 export type Db = Kysely<DB>;
 export type Trx = Transaction<DB>;

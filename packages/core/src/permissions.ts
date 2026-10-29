@@ -66,3 +66,16 @@ export async function decide(db: Db | Trx, action: string, s: Subject): Promise<
   const capMode: Mode = g?.mode ?? "no";
   return rank[capMode] < rank[person.mode] ? { mode: capMode, reason: "reason.agent_cap" } : person;
 }
+
+/** For listing what a person might do (MCP tools, menus): any role grants it in some scope.
+ *  The full check, with rows, location and time, still runs on every preview. */
+export async function mayEverDo(db: Db | Trx, personId: string, action: string): Promise<boolean> {
+  const rows = await grantsFor(db, personId);
+  const byRole = new Map<string, GrantRow[]>();
+  for (const r of rows) byRole.set(r.role_id, [...(byRole.get(r.role_id) ?? []), r]);
+  for (const grants of byRole.values()) {
+    const g = grants.filter((x) => specificity(x.pattern, action) >= 0).sort((a, b) => specificity(b.pattern, action) - specificity(a.pattern, action))[0];
+    if (g && g.mode !== "no") return true;
+  }
+  return false;
+}

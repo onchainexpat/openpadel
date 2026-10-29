@@ -7,9 +7,11 @@ import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, type Lang } from "@kumi/i18n";
 import { actions, apply, approve, plan, decide, KumiError, type Actor, type Db } from "@kumi/core";
 import { sessionPerson, signOut, startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
+import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } from "./oauth.ts";
+import { handleMcp, mcpServerFor } from "./mcp.ts";
 import type { Mailer } from "./mailer.ts";
 
-export interface AppDeps { db: Db; mailer: Mailer; secureCookies?: boolean; now?: () => Date }
+export interface AppDeps { db: Db; mailer: Mailer; publicUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata }
 type Me = { id: string; display_name: string; locale: string } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
 const COOKIE = "kumi_session";
@@ -46,6 +48,15 @@ export function makeApp(deps: AppDeps) {
   };
 
   app.get("/health", (c) => c.json({ ok: true }));
+
+  // ---- The MCP door: OAuth, then tools generated from the registry ----
+  const publicUrl = (deps.publicUrl ?? "http://127.0.0.1:8790").replace(/\/$/, "");
+  app.route("/", oauthRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, fetchMetadata: deps.fetchMetadata ?? defaultFetchMetadata, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
+  app.all("/mcp", async (c) => {
+    const who = await bearerPerson(db, c.req.header("authorization"), `${publicUrl}/mcp`, now());
+    if (!who) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": `Bearer resource_metadata="${publicUrl}/.well-known/oauth-protected-resource/mcp", scope="kumi"` });
+    return handleMcp(c.req.raw, await mcpServerFor(db, who, now));
+  });
 
   // ---- Sign in by an emailed code ----
   app.post("/auth/email/start", async (c) => {
