@@ -17,6 +17,8 @@ scope and the roadmap.
    constraint. Every write that takes court time locks its courts first, in court-id order.
 4. **English and Spanish for every string** a person sees, from the first commit. No string is
    written straight into a component or a message.
+   Spanish is US and Latin American Spanish: a court is a "cancha", an accountant a "contador",
+   and "tú" throughout.
 5. **Everything runs on the club's time zone,** never the server clock.
 6. **Messages:** consent checked on the server before every send, STOP always works, quiet hours
    respected, and texts kept to the plain GSM-7 alphabet (no emoji in texts).
