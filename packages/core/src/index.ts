@@ -7,3 +7,5 @@ export * from "./club.ts";
 export * from "./programs.ts";
 export * from "./money.ts";
 export * from "./outbox.ts";
+export * from "./americano.ts";
+export * from "./games.ts";

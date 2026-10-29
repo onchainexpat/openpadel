@@ -66,6 +66,8 @@ const ENTITIES = {
   waitlist_offer: { table: "waitlist_offer", key: "id", retire: { outcome: "expired" } },
   payment: { table: "payment", key: "id", retire: null },
   refund: { table: "refund", key: "id", retire: null },
+  draw: { table: "draw", key: "session_id", retire: { status: "void" } },
+  game: { table: "game", key: "id", retire: { status: "void" } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 

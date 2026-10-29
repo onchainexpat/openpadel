@@ -8,7 +8,9 @@ const ADMIN = process.env.KUMI_TEST_ADMIN_URL ?? "postgres://postgres@127.0.0.1:
 
 export async function freshDb(): Promise<{ db: Db; drop: () => Promise<void> }> {
   const name = `kumi_test_${randomBytes(6).toString("hex")}`;
-  const admin = new Kysely<any>({ dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: ADMIN, max: 1 }) }) });
+  const adminPool = new pg.Pool({ connectionString: ADMIN, max: 1 });
+  adminPool.on("error", () => {});
+  const admin = new Kysely<any>({ dialect: new PostgresDialect({ pool: adminPool }) });
   await sql.raw(`CREATE DATABASE ${name}`).execute(admin);
   const db = connect(ADMIN.replace(/\/[^/]*$/, `/${name}`));
   await migrate(db);

@@ -46,9 +46,15 @@ export interface PaymentTable { id: string; person_id: string; amount_cents: num
 export interface RefundTable { id: string; payment_id: string; enrolment_id: string | null; amount_cents: number; destination: "card" | "credit"; status: "waiting_for_sub" | "pending" | "sent" | "failed"; provider_ref: string | null; failure: string | null; created_at: Generated<Date>; version: Generated<number> }
 export interface MemberCreditBalanceView { person_id: string; cents: string }
 
+export interface RatingTable { person_id: string; sport: Generated<string>; mu: number | null; sigma: number | null; level: string; rated_games: Generated<number>; provisional: Generated<boolean>; floor: string | null; floor_set_by: string | null; floor_reason: string | null; self_adjust_used: Generated<string>; version: Generated<number> }
+export interface DrawTable { session_id: string; format: string; points_per_game: Generated<number>; rounds: number; seed: string; status: Generated<string>; version: Generated<number> }
+export interface GameTable { id: string; session_id: string | null; round: number | null; court_id: string | null; format: Generated<string>; rated: Generated<boolean>; status: Generated<string>; predicted_a: string | null; played_at: Date | null; entered_by: string | null; editable_until: Date | null; version: Generated<number> }
+export interface GameSideTable { game_id: string; side: "a" | "b"; person_id: string }
+export interface GameSetTable { game_id: string; set_no: number; a: number; b: number }
+
 export interface DB {
   club: ClubTable; location: LocationTable; person: PersonTable; auth_identity: AuthIdentityTable; auth_challenge: AuthChallengeTable;
-  web_session: WebSessionTable; passkey: PasskeyTable; ledger_account: LedgerAccountTable; ledger_txn: LedgerTxnTable; ledger_entry: LedgerEntryTable; payment: PaymentTable; refund: RefundTable; member_credit_balance: MemberCreditBalanceView; court: CourtTable; program: ProgramTable; session: SessionTable; court_time: CourtTimeTable; enrolment: EnrolmentTable; waitlist_offer: WaitlistOfferTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
+  web_session: WebSessionTable; passkey: PasskeyTable; rating: RatingTable; draw: DrawTable; game: GameTable; game_side: GameSideTable; game_set: GameSetTable; ledger_account: LedgerAccountTable; ledger_txn: LedgerTxnTable; ledger_entry: LedgerEntryTable; payment: PaymentTable; refund: RefundTable; member_credit_balance: MemberCreditBalanceView; court: CourtTable; program: ProgramTable; session: SessionTable; court_time: CourtTimeTable; enrolment: EnrolmentTable; waitlist_offer: WaitlistOfferTable; role: RoleTable; role_grant: RoleGrantTable; person_role: PersonRoleTable; staff_member: StaffMemberTable;
   staff_shift: StaffShiftTable; agent: AgentTable; action_run: ActionRunTable; entity_change: EntityChangeTable; event_outbox: EventOutboxTable;
   channel_consent: ChannelConsentTable; oauth_client: OAuthClientTable; oauth_grant: OAuthGrantTable; oauth_code: OAuthCodeTable; oauth_token: OAuthTokenTable;
 }
@@ -56,7 +62,11 @@ export type Db = Kysely<DB>;
 export type Trx = Transaction<DB>;
 
 export function connect(url = process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi"): Db {
-  return new Kysely<DB>({ dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: url, max: 10 }) }) });
+  const pool = new pg.Pool({ connectionString: url, max: 10 });
+  // An idle connection the server drops (a restart, a failover) must not crash the process; the
+  // pool replaces it on the next query.
+  pool.on("error", (e) => console.error(`postgres: idle connection lost: ${e.message}`));
+  return new Kysely<DB>({ dialect: new PostgresDialect({ pool }) });
 }
 
 const MIGRATIONS = new URL("../../../migrations/", import.meta.url);
