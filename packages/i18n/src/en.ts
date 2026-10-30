@@ -1089,5 +1089,6 @@ export const en = {
   "ui.notifications_turn_on": "Turn on notifications",
   "ui.notifications_turn_off": "Turn them off on this device",
   "ui.notifications_failed": "Notifications couldn't be turned on. Try again, or check the browser's settings.",
+  "ui.level_stakes": "What it could do to your level ({now}): win 6-4 6-4 and it's about {win}; lose by that and it's about {lose}.",
   "count.changes": { one: "{count} change", other: "{count} changes" },
 } as const;

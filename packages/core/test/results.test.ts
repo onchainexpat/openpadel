@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, confirmScores, messageHandlers, openPayment, plan, processOutbox, run, runAsSystem, setPaymentProvider, suggestTeams, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { checkPayment, confirmScores, levelStakes, messageHandlers, openPayment, plan, processOutbox, run, runAsSystem, setPaymentProvider, suggestTeams, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, court: string, match: string, friendly: string, game: string;
 const stripe = new TestProvider();
@@ -48,6 +48,13 @@ before(async () => {
   friendly = await fullMatch("2026-12-03", "10:00", false);
 });
 after(async () => drop());
+
+test("before a rated match: what a typical win or loss would do to each level", async () => {
+  const hal = (await levelStakes(db, match, people.Hal!))!;
+  assert.equal(hal.now, 3.5);
+  assert.ok(hal.win > hal.now && hal.lose < hal.now, JSON.stringify(hal));
+  assert.equal(await levelStakes(db, match, owner.personId!), null);   // not in it, and it's full
+});
 
 test("fair teams for the four, and entering the score: the enterer's side has confirmed it", async () => {
   const t = (await suggestTeams(db, match))!;

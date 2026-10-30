@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { checkCardSetup, ENTER_DAYS, isPushEndpoint, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { checkCardSetup, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -116,6 +116,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       can_dispute: Boolean(side) && (g.status === "awaiting_confirmation" || (g.status === "confirmed" && Boolean(g.editable_until && g.editable_until > new Date()))) } : null;
     const four = seats.filter((x) => !x.leaving_at && x.person_id);
     const teams = !g && four.length === 4 ? await suggestTeams(db, b.id) : null;
+    // A rated match not played yet: what it could do to my level, once the four are known (or I'd make the fourth).
+    const stakes = b.rated && !g && now < start && (mine || (open && taken === b.players - 1)) ? await levelStakes(db, b.id, pid) : null;
     const { organiser_id, invite_code, settled_at, ...rest } = b;
     return { ...rest, host_is_me: host, open, share_cents: shares(b.price_cents, b.players).each, spots_left: Math.max(0, b.players - taken), my_level: level,
       started: now >= start, late_window: now >= start - 3 * 3600_000 && now <= start + 30 * 60_000, no_show_window: now >= start && now <= start + 48 * 3600_000,
@@ -125,7 +127,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       can: mine || !open || taken >= b.players ? null : joinRule(b, level),
       me: mine ? { pending_payment_id: mine.pending_payment_id, held_until: mine.held_until, leaving: Boolean(mine.leaving_at), saved: Boolean(mine.saved_by && !mine.paid_id) } : null, request: request ?? null,
       requests: requests.map(({ person_id, ...r }) => ({ ...r, level: r.level === null ? null : Number(r.level), record: asking.get(person_id) ?? { no_shows: 0, late_leaves: 0 } })),
-      invite_code: host ? invite_code : null, result, teams,
+      invite_code: host ? invite_code : null, result, teams, stakes,
       can_score: Boolean(mine && !mine.leaving_at && !g && four.length === 4 && now >= start && now <= start + ENTER_DAYS * 86400_000),
       four: mine ? four.map((x) => ({ person_id: x.person_id, name: x.display_name })) : [] };
   }

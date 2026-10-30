@@ -1092,5 +1092,6 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.notifications_turn_on": "Activar notificaciones",
   "ui.notifications_turn_off": "Desactivarlas en este dispositivo",
   "ui.notifications_failed": "No se pudieron activar las notificaciones. Inténtalo de nuevo o revisa la configuración del navegador.",
+  "ui.level_stakes": "Lo que puede hacer con tu nivel ({now}): si ganas 6-4 6-4, queda cerca de {win}; si pierdes así, cerca de {lose}.",
   "count.changes": { one: "{count} cambio", other: "{count} cambios", many: "{count} cambios" },
 };

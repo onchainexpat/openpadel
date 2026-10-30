@@ -14,6 +14,7 @@ export type Match = {
   requests: { id: string; display_name: string; level: number | null; note: string | null; record: Rec }[]; invite_code: string | null;
   result: { id: string; status: string; sets: { a: number; b: number }[]; a: string[]; b: string[]; confirm_by: string | null; rated: boolean; my_side: "a" | "b" | null; can_confirm: boolean; can_dispute: boolean } | null;
   teams: { a: { name: string }[]; b: { name: string }[]; odds: string } | null; can_score: boolean; four: { person_id: string; name: string }[];
+  stakes: { now: number; win: number; lose: number } | null;
 };
 type Rec = { no_shows: number; late_leaves: number };
 /** "1 no-show, 2 late cancellations (90 days)", or nothing for a clean record. */
@@ -127,12 +128,13 @@ function Result({ m, preview }: { m: Match; preview: (a: string, i: unknown) => 
   const [partner, setPartner] = useState(""), [sets, setSets] = useState([["", ""], ["", ""], ["", ""]]), [note, setNote] = useState(""), [disputing, setDisputing] = useState(false);
   const pair = (names: string[]) => names.join(" & ");
   const r = m.result;
-  if (!r && !m.can_score && !m.teams) return null;
+  if (!r && !m.can_score && !m.teams && !m.stakes) return null;
   const filled = sets.filter(([us, them]) => us !== "" && them !== "").map(([us, them]) => ({ us: Number(us), them: Number(them) }));
   return (
     <section class="card card-form">
       <h2>{t("ui.score")}</h2>
       {!r && m.teams && <p class="meta">{t("ui.fair_teams", { a: pair(m.teams.a.map((p) => p.name)), b: pair(m.teams.b.map((p) => p.name)), odds: m.teams.odds })}</p>}
+      {!r && m.stakes && <p class="meta">{t("ui.level_stakes", { now: m.stakes.now.toFixed(2), win: m.stakes.win.toFixed(2), lose: m.stakes.lose.toFixed(2) })}</p>}
       {r && <>
         <p><strong>{pair(r.a)} {r.sets.map((s) => `${s.a}-${s.b}`).join(" ")} {pair(r.b)}</strong></p>
         <p class="meta">{r.status === "awaiting_confirmation" ? t("ui.score_waiting", { names: pair(r.b), time: r.confirm_by ? shortTime(r.confirm_by) : "" })

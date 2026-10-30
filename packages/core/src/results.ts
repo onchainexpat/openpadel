@@ -9,7 +9,7 @@ import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts"
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
-import { MODEL, shownOdds, winChance, type Skill } from "./levels.ts";
+import { MODEL, shownLevel, shownOdds, update, winChance, type Skill } from "./levels.ts";
 import { rateGame, recompute } from "./ratings.ts";
 
 /** How long the other side has to answer before the score counts as entered. */
@@ -217,4 +217,28 @@ export async function suggestTeams(db: Db | Trx, bookingId: string) {
   if (four.length !== 4) return null;
   const t = fairTeams(four), odds = Math.round(shownOdds(t.p) * 100);
   return { a: t.a.map((p) => ({ person_id: p.person_id, name: p.display_name })), b: t.b.map((p) => ({ person_id: p.person_id, name: p.display_name })), odds: `${odds}/${100 - odds}` };
+}
+
+/** What a rated match could do to one player's level, before it's played: their shown level after a typical
+ *  win (6-4 6-4) and loss, with the fairest teams. Known once the four are (the player among them, or about
+ *  to make the fourth). */
+export async function levelStakes(db: Db | Trx, bookingId: string, personId: string): Promise<{ now: number; win: number; lose: number } | null> {
+  let four = await fourOf(db, bookingId);
+  if (!four.some((p) => p.person_id === personId)) {
+    if (four.length !== 3) return null;
+    const me = await db.selectFrom("person").leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "person.id").on("rating.sport", "=", "padel"))
+      .select(["person.id as person_id", "person.display_name", "rating.mu", "rating.sigma", "rating.level"]).where("person.id", "=", personId).executeTakeFirst();
+    if (!me) return null;
+    four = [...four, me];
+  }
+  if (four.length !== 4) return null;
+  const t = fairTeams(four), mine = t.a.some((p) => p.person_id === personId) ? "a" : "b";
+  const r = await db.selectFrom("rating").select(["level", "floor"]).where("person_id", "=", personId).where("sport", "=", "padel").executeTakeFirst();
+  const now = r ? Number(r.level) : MODEL.defaultLevel, floor = r?.floor === null || r?.floor === undefined ? null : Number(r.floor);
+  const after = (us: number, them: number) => {
+    const res = update({ a: t.a.map(skillOf), b: t.b.map(skillOf), scoreA: mine === "a" ? us : them, scoreB: mine === "a" ? them : us });
+    const team = mine === "a" ? t.a : t.b, k = team.findIndex((p) => p.person_id === personId), est = (mine === "a" ? res.a : res.b)[k]!;
+    return shownLevel(now, est.mu, est.sigma, floor);
+  };
+  return { now, win: after(12, 8), lose: after(8, 12) };
 }
