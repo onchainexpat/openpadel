@@ -128,6 +128,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     if (!b.organiser_id) return [];
     return [{ to: b.organiser_id, kind: b.pay_mode === "split" ? "booking_confirmed_split" : "booking_confirmed", params: b.base, purpose: "account", essential: true, email: true, link: "/places" }];
   },
+  // Several courts paid together: one message for them all.
+  async "booking.courts_confirmed"({ db }, p: { person_id: string; booking_ids: string[]; cents: number }) {
+    const items: Text[] = [];
+    for (const id of p.booking_ids) items.push(both("msg.booking_courts.item", (await bookingInfo(db, id)).base));
+    const list = { en: items.map((x) => x.en).join("; "), es: items.map((x) => x.es).join("; ") };
+    return [{ to: p.person_id, kind: "booking_courts", params: { count: p.booking_ids.length, list, amount: amount(p.cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
+  },
   async "booking.cancelled"({ db }, p: { booking_id: string }) {
     const b = await bookingInfo(db, p.booking_id);
     // Each player who paid hears what comes back to them; everyone in it hears it's off.

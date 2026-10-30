@@ -17,6 +17,10 @@ The first version a club can run on its own (court bookings included), or for it
   and pay theirs, and what's unpaid at the club's deadline goes once on the organiser's saved card
   (saved, never held). Cancelling refunds what the club's rules give. Calendar links.
   An open match works differently (below): nothing goes on the host's card.
+- Several courts the same day in one checkout (whole courts): one card payment for all of them, at
+  each court's own price (member prices included), and one message. Each court is still its own
+  booking, cancelled on its own, with its part of the payment refunded. If someone takes one of the
+  courts while the payment is going through, that court's part comes back and the rest stay booked.
 - Messages for confirmations, shares paid, cancellations, money owed, and a reminder before playing.
 - Occupancy and revenue by day, with a CSV export.
 

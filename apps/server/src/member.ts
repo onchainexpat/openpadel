@@ -82,12 +82,15 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .select((eb) => [
         eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_payment_id"),
         eb.selectFrom("payment").select((x) => x.fn.sum<string>("amount_cents").as("c")).whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded").as("paid_cents"),
+        // Several courts paid together: paying one pays them all, for their total.
+        eb.selectFrom("payment as p").innerJoin("payment as g", "g.group_id", "p.group_id").select((x) => x.fn.sum<string>("g.amount_cents").as("c"))
+          .whereRef("p.booking_player_id", "=", "booking_player.id").where("p.status", "=", "pending").where("g.status", "=", "pending").as("group_cents"),
         eb.selectFrom("booking_player as bp").select((x) => x.fn.countAll<string>().as("n")).whereRef("bp.booking_id", "=", "booking.id").where("bp.removed_at", "is", null).as("joined"),
         eb.selectFrom("open_match").select("open_match.booking_id").whereRef("open_match.booking_id", "=", "booking.id").as("open_match_id"),
       ])
       .where("booking_player.person_id", "=", pid).where("booking_player.removed_at", "is", null).where("booking.status", "in", ["held", "confirmed"])
       .where(sql<boolean>`upper(court_time.during) > now() - interval '1 day'`).orderBy(sql`lower(court_time.during)`).execute();
-    return c.json(rows.map((r) => ({ ...r, mine: r.organiser_id === pid, paid_cents: Number(r.paid_cents ?? 0), joined: Number(r.joined ?? 0),
+    return c.json(rows.map((r) => ({ ...r, mine: r.organiser_id === pid, paid_cents: Number(r.paid_cents ?? 0), joined: Number(r.joined ?? 0), group_cents: r.group_cents === null ? null : Number(r.group_cents),
       invite_code: r.organiser_id === pid && !r.settled_at ? r.invite_code : null, organiser_id: undefined })));
   });
   // ---- Open matches ----

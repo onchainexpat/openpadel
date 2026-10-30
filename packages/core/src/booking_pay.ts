@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, dateTime, money, type Key, type Text } from "@kumi/i18n";
-import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts";
+import { defineAction, readRow, runAsSystem, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
@@ -45,6 +45,35 @@ async function courtAndPlace(db: Db | Trx, courtId: string) {
   return c;
 }
 
+/** The checks every court booking passes: a length the club offers, a bookable court, in the future, inside
+ *  the person's booking window and the opening hours, and free. */
+async function checkSlot(ctx: PlanCtx, policy: Awaited<ReturnType<typeof currentPolicy>>, s: { court_id: string; starts_at: string; minutes: number }, personId: string) {
+  const court = await courtAndPlace(ctx.db, s.court_id), start = new Date(s.starts_at), end = new Date(start.getTime() + s.minutes * 60_000);
+  if (!policy.lengths.includes(s.minutes)) throw new KumiError("error.length_not_offered", { lengths: policy.lengths.join(", ") });
+  if (!court.bookable) throw new KumiError("error.court_not_bookable", { court: court.name });
+  if (start <= ctx.now) throw new KumiError("error.in_the_past");
+  const ahead = await daysAhead(ctx.db, personId, ctx.now);
+  if (start.getTime() > ctx.now.getTime() + ahead * 86400_000) throw new KumiError("error.too_far_ahead", { count: ahead });
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: court.time_zone }).format(start), open = await openingOn(ctx.db, court.location_id, day);
+  if (!open || start < open.opens || end > open.closes) throw new KumiError("error.closed_then", { court: court.name, when: when(start, court.time_zone) });
+  if ((await occupied(ctx.db, [s.court_id], start, end, ctx.now)).length) throw new KumiError("error.court_taken");
+  return { court, start, end, day };
+}
+/** How many bookings a person has coming up (or being paid for), against the club's limit. */
+async function upcomingCount(db: Db | Trx, personId: string, now: Date): Promise<number> {
+  const r = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").select((eb) => eb.fn.count<string>("booking.id").distinct().as("n"))
+    .where("booking.organiser_id", "=", personId).where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true).where(sql<boolean>`upper(court_time.during) > ${now}`).executeTakeFirstOrThrow();
+  return Number(r.n);
+}
+/** A booking code no booking has yet: the club's initials and four letters ("KP-7QX2"). */
+async function newCode(trx: Trx): Promise<string> {
+  const club = await trx.selectFrom("club").select("name").executeTakeFirstOrThrow();
+  const prefix = club.name.split(/\s+/).map((w) => w[0]).join("").replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase().padEnd(2, "K");
+  let code = `${prefix}-${code4()}`;
+  while (await trx.selectFrom("booking").select("id").where("code", "=", code).executeTakeFirst()) code = `${prefix}-${code4()}`;
+  return code;
+}
+
 export const bookingRequest = defineAction({
   name: "booking.request", version: 1,
   input: z.object({ court_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), minutes: z.number().check(z.int()), pay: z.enum(["whole", "split"]),
@@ -57,18 +86,8 @@ export const bookingRequest = defineAction({
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
     if (i.open && (i.pay !== "split" || (i.players ?? 4) !== 4)) throw new KumiError("error.open_match_split");
     if (i.open && i.open.level_max < i.open.level_min) throw new KumiError("error.bad_band");
-    const policy = await currentPolicy(ctx.db), court = await courtAndPlace(ctx.db, i.court_id), start = new Date(i.starts_at), end = new Date(start.getTime() + i.minutes * 60_000);
-    if (!policy.lengths.includes(i.minutes)) throw new KumiError("error.length_not_offered", { lengths: policy.lengths.join(", ") });
-    if (!court.bookable) throw new KumiError("error.court_not_bookable", { court: court.name });
-    if (start <= ctx.now) throw new KumiError("error.in_the_past");
-    const ahead = await daysAhead(ctx.db, i.person_id, ctx.now);
-    if (start.getTime() > ctx.now.getTime() + ahead * 86400_000) throw new KumiError("error.too_far_ahead", { count: ahead });
-    const day = new Intl.DateTimeFormat("en-CA", { timeZone: court.time_zone }).format(start), open = await openingOn(ctx.db, court.location_id, day);
-    if (!open || start < open.opens || end > open.closes) throw new KumiError("error.closed_then", { court: court.name, when: when(start, court.time_zone) });
-    if ((await occupied(ctx.db, [i.court_id], start, end, ctx.now)).length) throw new KumiError("error.court_taken");
-    const upcoming = await ctx.db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").select((eb) => eb.fn.count<string>("booking.id").distinct().as("n"))
-      .where("booking.organiser_id", "=", i.person_id).where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true).where(sql<boolean>`upper(court_time.during) > ${ctx.now}`).executeTakeFirstOrThrow();
-    if (Number(upcoming.n) >= policy.max_active) throw new KumiError("error.too_many_bookings", { count: policy.max_active });
+    const policy = await currentPolicy(ctx.db), { court, start } = await checkSlot(ctx, policy, i, i.person_id);
+    if (await upcomingCount(ctx.db, i.person_id, ctx.now) >= policy.max_active) throw new KumiError("error.too_many_bookings", { count: policy.max_active });
     const q = await quote(ctx.db, { courtId: i.court_id, start, minutes: i.minutes, personId: i.person_id, at: ctx.now });
     if (!q.priced) throw new KumiError("error.no_price");
     if (i.pay === "split" && start.getTime() - ctx.now.getTime() <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
@@ -88,10 +107,7 @@ export const bookingRequest = defineAction({
     const start = new Date(i.starts_at), end = new Date(start.getTime() + i.minutes * 60_000);
     for (const id of [i.court_id]) await ctx.trx.selectFrom("court").select("id").where("id", "=", id).forUpdate().execute();
     await ctx.trx.updateTable("court_time").set({ active: false }).where("court_id", "=", i.court_id).where("kind", "=", "hold").where("active", "=", true).where("hold_until", "<=", ctx.now).execute();
-    const court = await courtAndPlace(ctx.trx, i.court_id), club = await ctx.trx.selectFrom("club").select("name").executeTakeFirstOrThrow();
-    const prefix = club.name.split(/\s+/).map((w) => w[0]).join("").replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase().padEnd(2, "K");
-    let code = `${prefix}-${code4()}`;
-    while (await ctx.trx.selectFrom("booking").select("id").where("code", "=", code).executeTakeFirst()) code = `${prefix}-${code4()}`;
+    const court = await courtAndPlace(ctx.trx, i.court_id), code = await newCode(ctx.trx);
     const id = uuidv7(), players = i.players ?? 4, s = shares(q.total_cents, players);
     await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id, status: "held", source: "app", price_cents: q.total_cents, tax_cents: q.tax_cents,
       quote: JSON.stringify(q), policy_id, pay_mode: i.pay, players, invite_code: i.pay === "split" ? randomBytes(9).toString("base64url") : null });
@@ -107,6 +123,62 @@ export const bookingRequest = defineAction({
       provider_ref: null, status: "pending", booking_player_id: bp, save_card: i.pay === "split" && !i.open });   // an open match never charges the host for empty places
     await ctx.emit("booking.requested", { booking_id: id });
     return { booking_id: id, code, payment_id: payment };
+  },
+});
+
+// ---- Several courts in one checkout ----
+// Each court is its own booking (its own code, court time, and cancellation under its own rule), with its
+// own payment for its own price, so cancelling, refunds and reports treat it like any booking. The
+// payments share a group: the card form opens one provider payment for their total, and when it settles,
+// every payment in the group settles with it, in one change (payment.settle). A court's refund is then a
+// partial refund of that one card payment.
+const slotInput = z.object({ court_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), minutes: z.number().check(z.int()) });
+export const bookingRequestCourts = defineAction({
+  name: "booking.request_courts", version: 1,
+  input: z.object({ courts: z.array(slotInput).check(z.minLength(2), z.maxLength(8)), person_id: z.uuid() }),
+  async plan(ctx, i) {
+    const club = await ctx.db.selectFrom("club").select(["court_bookings"]).executeTakeFirstOrThrow();
+    if (!club.court_bookings) throw new KumiError("error.bookings_off");
+    const policy = await currentPolicy(ctx.db), slots = [];
+    for (const s of i.courts) slots.push({ ...s, ...(await checkSlot(ctx, policy, s, i.person_id)) });
+    if (new Set(slots.map((s) => s.day)).size > 1) throw new KumiError("error.courts_same_day");
+    for (const [k, a] of slots.entries()) for (const b of slots.slice(k + 1))
+      if (a.court_id === b.court_id && a.start < b.end && b.start < a.end) throw new KumiError("error.court_taken");   // the same court twice at once
+    const upcoming = await upcomingCount(ctx.db, i.person_id, ctx.now);
+    if (upcoming + slots.length > policy.max_active) throw new KumiError("error.too_many_courts", { count: policy.max_active, have: upcoming });
+    const priced = [];
+    for (const s of slots) {
+      const q = await quote(ctx.db, { courtId: s.court_id, start: s.start, minutes: s.minutes, personId: i.person_id, at: ctx.now });
+      if (!q.priced) throw new KumiError("error.no_price");
+      priced.push({ ...s, q });
+    }
+    const total = priced.reduce((n, s) => n + s.q.total_cents, 0);
+    const items = priced.map((s) => both("plan.booking.court_item", { court: s.court.name, when: when(s.start, s.court.time_zone), minutes: s.minutes, price: usd(s.q.total_cents) }));
+    return { title: both("action.booking.request_courts"), reads: [], locationId: priced[0]!.court.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" }, moneyCents: total,
+      summary: both("plan.booking.request_courts", { count: priced.length, list: { en: items.map((x) => x.en).join("; "), es: items.map((x) => x.es).join("; ") }, total: usd(total) }),
+      details: { policy_id: policy.id, quotes: priced.map((s) => s.q) } };
+  },
+  async apply(ctx, i, plan) {
+    const { quotes, policy_id } = plan.details as { quotes: Awaited<ReturnType<typeof quote>>[]; policy_id: string };
+    // Lock the courts in id order (spikes/booking_race.md), clear holds that ran out, then hold them all, or none.
+    for (const id of [...new Set(i.courts.map((s) => s.court_id))].sort()) await ctx.trx.selectFrom("court").select("id").where("id", "=", id).forUpdate().execute();
+    await ctx.trx.updateTable("court_time").set({ active: false }).where("court_id", "in", i.courts.map((s) => s.court_id)).where("kind", "=", "hold").where("active", "=", true).where("hold_until", "<=", ctx.now).execute();
+    const group = uuidv7(), out: { booking_id: string; code: string; payment_id: string }[] = [];
+    for (const [k, s] of i.courts.entries()) {
+      const court = await courtAndPlace(ctx.trx, s.court_id), q = quotes[k]!, start = new Date(s.starts_at), end = new Date(start.getTime() + s.minutes * 60_000);
+      const id = uuidv7(), code = await newCode(ctx.trx), bp = uuidv7(), payment = uuidv7();
+      await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id, status: "held", source: "app", price_cents: q.total_cents, tax_cents: q.tax_cents,
+        quote: JSON.stringify(q), policy_id, pay_mode: "whole", players: 4, invite_code: null });
+      await ctx.insert("booking_player", { id: bp, booking_id: id, person_id: i.person_id, share_cents: q.total_cents });
+      try {
+        await ctx.insert("court_time", { id: uuidv7(), court_id: s.court_id, during: sql`tstzrange(${start}, ${end})`, kind: "hold", booking_id: id, hold_until: new Date(ctx.now.getTime() + HOLD_MINUTES * 60_000) });
+      } catch (e: any) { if (e?.code === "23P01") throw new KumiError("error.court_taken"); throw e; }
+      await ctx.insert("payment", { id: payment, person_id: i.person_id, amount_cents: q.total_cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", booking_player_id: bp, group_id: group });
+      await ctx.emit("booking.requested", { booking_id: id });
+      out.push({ booking_id: id, code, payment_id: payment });
+    }
+    // The member pays the first; its card form covers them all.
+    return { bookings: out, payment_id: out[0]!.payment_id, total_cents: quotes.reduce((n, q) => n + q.total_cents, 0) };
   },
 });
 
@@ -240,22 +312,23 @@ async function takeOverOfferedPlace(ctx: ApplyCtx, subSeat: string, placeId: str
 
 /** After a booking payment succeeds (called by payment.settle). The organiser's payment confirms the booking
  *  and turns its hold into the booking's court time; if the hold ran out and the court went to someone else,
- *  the booking is cancelled and the payment refunded in full. */
-export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amount_cents: number; booking_player_id: string | null }) {
+ *  the booking is cancelled and the payment refunded in full. Quiet: one court of several paid together, whose
+ *  confirmation is one message for them all (the caller sends it); a court lost still says so on its own. */
+export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amount_cents: number; booking_player_id: string | null }, o: { quiet?: boolean } = {}): Promise<"confirmed" | "lost" | null> {
   const bp = await ctx.trx.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id")
     .select(["booking.id", "booking.status", "booking.organiser_id", "booking_player.person_id", "booking_player.removed_at", "booking_player.held_until", "booking_player.replaces"])
     .where("booking_player.id", "=", pay.booking_player_id!).executeTakeFirstOrThrow();
-  if (bp.status === "cancelled") { await refundPayment(ctx, pay.id, pay.amount_cents); return; }
+  if (bp.status === "cancelled") { await refundPayment(ctx, pay.id, pay.amount_cents); return null; }
   if (bp.person_id !== bp.organiser_id) {
     // A player's place: paid after it was let go (too late), all of it back; otherwise it's theirs now.
-    if (bp.removed_at) { await refundPayment(ctx, pay.id, pay.amount_cents); return; }
+    if (bp.removed_at) { await refundPayment(ctx, pay.id, pay.amount_cents); return null; }
     // A sub taking over someone's place: theirs now, unless the offer was taken back meanwhile.
     if (bp.replaces) {
       if (!(await takeOverOfferedPlace(ctx, pay.booking_player_id!, bp.replaces))) {
         await ctx.update("booking_player", pay.booking_player_id!, { removed_at: ctx.now });
         await refundPayment(ctx, pay.id, pay.amount_cents);
       }
-      return;
+      return null;
     }
     if (bp.held_until) await ctx.update("booking_player", pay.booking_player_id!, { held_until: null });
     await takeOverLeavingPlace(ctx, bp.id, bp.person_id!);
@@ -264,9 +337,9 @@ export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amou
       .where("replaces", "is", null).executeTakeFirstOrThrow();
     const size = await ctx.trx.selectFrom("booking").select("players").where("id", "=", bp.id).executeTakeFirstOrThrow();
     await ctx.emit("booking.player_paid", { booking_id: bp.id, booking_player_id: pay.booking_player_id, left: Math.max(0, size.players - Number(seated.n)) });
-    return;
+    return null;
   }
-  if (bp.status !== "held") return;
+  if (bp.status !== "held") return null;
   for (const t of await ctx.trx.selectFrom("court_time").select(["id", "court_id", "active"]).where("booking_id", "=", bp.id).execute()) {
     await ctx.trx.selectFrom("court").select("id").where("id", "=", t.court_id).forUpdate().execute();
     // A savepoint, so a court that's gone can be answered with a refund rather than failing the payment.
@@ -280,11 +353,12 @@ export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amou
       await ctx.update("booking", bp.id, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: "hold_lost" });
       await refundPayment(ctx, pay.id, pay.amount_cents);
       await ctx.emit("booking.lost", { booking_id: bp.id });
-      return;
+      return "lost";
     }
   }
   await ctx.update("booking", bp.id, { status: "confirmed" });
-  await ctx.emit("booking.confirmed", { booking_id: bp.id });
+  if (!o.quiet) await ctx.emit("booking.confirmed", { booking_id: bp.id });
+  return "confirmed";
 }
 
 // ---- Cancelling: what comes back is the booking's own rules (rule 2: staff can choose otherwise) ----

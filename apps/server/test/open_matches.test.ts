@@ -112,6 +112,8 @@ test("taking over a place: the take link, the sub's own view, and a late leaver'
   }
   // Dot's match tonight, booked two days ago: it's past its deadline, and full.
   const start = new Date(Date.now() + 10 * 3600_000); start.setUTCMinutes(0, 0, 0);
+  // Not across midnight: the club's day ends at 24:00, so a 90-minute game can't start after 22:30.
+  while (Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" }).format(start)) >= 22) start.setTime(start.getTime() - 3600_000);
   const then = { now: new Date(Date.now() - 2 * 86400_000) };
   const r = (await run(db, "booking.request", { court_id: court, starts_at: start.toISOString(), minutes: 90, pay: "split", person_id: people.Dot, open: { level_min: 3, level_max: 4 } }, actor("Dot"), then)).result as any;
   await runAsSystem(db, "payment.settle", { payment_id: r.payment_id, outcome: "succeeded" }, "test", then);

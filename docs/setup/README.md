@@ -80,7 +80,9 @@ time and season), the sales tax rate, and the booking rules (how far ahead, how 
 cancellation window, and the "pay my part" deadline). At that deadline, unpaid shares of a booking go
 on its organiser's saved card; an open match that isn't full is cancelled instead, and everyone in it
 gets back all they paid. Members only book courts in the app once "Members book courts in the app" is
-on; leave it off while the club books courts in Playtomic.
+on; leave it off while the club books courts in Playtomic. Paying for whole courts, a member can book
+several the same day in one card payment (each counts toward "how many at once"); each is still its
+own booking, cancelled on its own.
 
 Before the deadline, a player who can't make a match gets their money back straight away. After it,
 what they get back is the club's choice, set in the same place: a percent for when their own sub takes

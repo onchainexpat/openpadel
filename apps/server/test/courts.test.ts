@@ -98,3 +98,20 @@ test("occupancy and revenue for a day, and the same as a spreadsheet", async () 
   assert.match(csv, /^date,open hours,courts,court hours,booked hours,program hours,playtomic hours,blocked hours,occupancy %,court revenue,program revenue\r\n/);
   assert.equal(csv.trim().split("\r\n").length, 2);
 });
+
+test("several courts in one checkout: two bookings under My bookings, paid together for their total", async () => {
+  const ben = (await run(db, "person.create", { display_name: "Ben", email: "ben@example.test" }, owner)).result as { person_id: string };
+  await app.request("/auth/email/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "ben@example.test" }) });
+  const code = mailer.last("ben@example.test")!.text.match(/\b(\d{6})\b/)![1]!;
+  const benCookie = (await app.request("/auth/email/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "ben@example.test", code }) })).headers.get("set-cookie")!.split(";")[0]!;
+  const as = async (path: string, body?: unknown) => { const r = await app.request(path, { method: body ? "POST" : "GET", headers: { cookie: benCookie, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, json: await r.json().catch(() => null) as any }; };
+  const d = localDate(new Date(Date.now() + 4 * 86400_000), TZ);
+  const free = (await as(`/availability?location_id=${loc}&date=${d}&minutes=60`)).json.courts;
+  const plan = (await as("/actions/booking.request_courts/plan", { courts: [{ court_id: free[0].id, starts_at: free[0].starts[2], minutes: 60 }, { court_id: free[1].id, starts_at: free[1].starts[2], minutes: 60 }], person_id: ben.person_id })).json;
+  assert.match(plan.summary, /^Book 2 courts: Court 1, .+ \$84\.00 in all, paid now in one card payment\./);
+  const applied = (await as(`/runs/${plan.run_id}/apply`, {})).json.result;
+  const held = (await as("/my/bookings")).json;
+  assert.deepEqual(held.map((b: any) => [b.status, b.share_cents, b.group_cents]), [["held", 4200, 8400], ["held", 4200, 8400]]);   // paying either pays both (prices with the 5% tax)
+  await as(`/dev/payments/${applied.payment_id}/settle`, {});
+  assert.deepEqual((await as("/my/bookings")).json.map((b: any) => [b.status, b.paid_cents, b.group_cents]), [["confirmed", 4200, null], ["confirmed", 4200, null]]);
+});

@@ -1,6 +1,7 @@
 // Booking a court: pick a day and a length, see when courts are free, choose one, and pay the whole court
-// or only your part, and (paying your part) open it to other players as an open match. Times are the
-// club's, whatever the phone's clock says.
+// or only your part, and (paying your part) open it to other players as an open match. Paying the whole
+// court, more courts the same day can be added and paid together. Times are the club's, whatever the
+// phone's clock says.
 import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
@@ -17,10 +18,13 @@ export function Book() {
   // An open match: the level band (around my own level to start with), and who else may join.
   const [open, setOpen] = useState(false), [myLevel, setMyLevel] = useState<number | null>(null), [matchId, setMatchId] = useState<string | null>(null);
   const [om, setOm] = useState({ min: "3.00", max: "4.00", ask: true, rated: true, listed: true });
+  // Courts added to pay together (the same day, whole courts).
+  const [cart, setCart] = useState<{ court: string; name: string; start: string; minutes: number; cents: number }[]>([]);
+  const cartTotal = cart.reduce((n, x) => n + x.cents, 0);
   const place = o?.locations.find((l) => l.id === loc), tz = place?.time_zone ?? "UTC";
   const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: tz, ...opts }).format(new Date(iso));
-  const { preview, sheet } = usePreview((r?: { payment_id?: string; booking_id?: string }) => {
-    if (r?.payment_id) setPaying({ id: r.payment_id, cents: pay === "whole" ? q!.total_cents : mine });
+  const { preview, sheet } = usePreview((r?: { payment_id?: string; booking_id?: string; total_cents?: number }) => {
+    if (r?.payment_id) setPaying({ id: r.payment_id, cents: r.total_cents ?? (cart.length ? cartTotal : pay === "whole" ? q!.total_cents : mine) });
     setMatchId(open && r?.booking_id ? r.booking_id : null);
   });
 
@@ -38,16 +42,24 @@ export function Book() {
   const days: string[] = [];
   if (o && place) { const today = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date()); for (let k = 0; k < Math.min(o.days_ahead, 60); k++) { const d = new Date(`${today}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + k); days.push(d.toISOString().slice(0, 10)); } }
   useEffect(() => { if (days.length && !day) setDay(days[0]!); }, [o, loc]);
+  useEffect(() => { setCart([]); }, [loc, day]);
   useEffect(() => { if (loc && day) { setPick(null); setQ(null); api<Free>(`/availability?location_id=${loc}&date=${day}&minutes=${minutes}`).then(setFree); } }, [loc, day, minutes]);
   useEffect(() => { if (court && pick) api<Quote>(`/quote?court_id=${court}&starts_at=${encodeURIComponent(pick.start)}&minutes=${minutes}`).then(setQ); }, [court, pick?.start]);
   if (!o) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
   // Every start time with the courts free then.
-  const times = [...new Set(free?.courts.flatMap((c) => c.starts) ?? [])].sort().map((s) => ({ start: s, courts: free!.courts.filter((c) => c.starts.includes(s)) }));
+  // Every start time with the courts free then (less the courts already added, at those times).
+  const ms = (iso: string) => new Date(iso).getTime();
+  const clash = (id: string, s: string) => cart.some((x) => x.court === id && ms(s) < ms(x.start) + x.minutes * 60_000 && ms(x.start) < ms(s) + minutes * 60_000);
+  const times = [...new Set(free?.courts.flatMap((c) => c.starts) ?? [])].sort().map((s) => ({ start: s, courts: free!.courts.filter((c) => c.starts.includes(s) && !clash(c.id, s)) })).filter((x) => x.courts.length);
   const each = q ? Math.floor(q.total_cents / players) : 0, mine = q ? q.total_cents - each * (players - 1) : 0;
   const canSplit = pick ? new Date(pick.start).getTime() - Date.now() > o.split_deadline_hours * 3600_000 : false;
   const choose = (x: { start: string; courts: Free["courts"] }) => { setPick(x); setCourt(x.courts.length === 1 ? x.courts[0]!.id : ""); setQ(null); setPay("whole"); };
   const opened = open && pay === "split" && players === 4;
+  const add = () => { setCart([...cart, { court, name: pick!.courts.find((c) => c.id === court)!.name, start: pick!.start, minutes, cents: q!.total_cents }]); setPick(null); setQ(null); };
+  const bookCart = () => cart.length === 1
+    ? preview("booking.request", { court_id: cart[0]!.court, starts_at: cart[0]!.start, minutes: cart[0]!.minutes, pay: "whole", person_id: me.value!.person.id })
+    : preview("booking.request_courts", { courts: cart.map((x) => ({ court_id: x.court, starts_at: x.start, minutes: x.minutes })), person_id: me.value!.person.id });
   const book = () => preview("booking.request", { court_id: court, starts_at: pick!.start, minutes, pay, ...(pay === "split" ? { players } : {}), person_id: me.value!.person.id,
     ...(opened ? { open: { level_min: Number(om.min), level_max: Number(om.max), outside_band: om.ask ? "ask" : "closed", rated: om.rated, listed: om.listed } } : {}) });
 
@@ -63,6 +75,13 @@ export function Book() {
         <div class="chips scroll" role="group" aria-label={t("ui.day")}>{days.map((d) => <button type="button" class={d === day ? "chip on" : "chip"} onClick={() => setDay(d)}>{fmt(`${d}T12:00:00Z`, { weekday: "short", day: "numeric", timeZone: "UTC" })}</button>)}</div>
         <div class="chips" role="group" aria-label={t("ui.length")}>{o.lengths.map((m) => <button type="button" class={m === minutes ? "chip on" : "chip"} onClick={() => setMinutes(m)}>{t("ui.minutes", { count: m })}</button>)}</div>
       </section>
+      {cart.length > 0 && <section class="card">
+        <h2>{t("ui.courts_chosen")}</h2>
+        <ul class="plain">{cart.map((x, k) => <li class="row"><span>{x.name} · {fmt(x.start, { hour: "numeric", minute: "2-digit" })} · {t("ui.minutes", { count: x.minutes })} · {dollars(x.cents, lang.value)}</span>
+          <button class="small" onClick={() => setCart(cart.filter((_, j) => j !== k))}>{t("ui.remove")}</button></li>)}</ul>
+        <p class="meta">{t(o.late_refund_percent ? "ui.cancel_rule" : "ui.cancel_rule_none", { hours: t("count.hours", { count: o.free_cancel_hours }), percent: o.late_refund_percent })}</p>
+        <button class="primary" onClick={bookCart}>{cart.length === 1 ? t("ui.book_now") : t("ui.book_courts", { count: cart.length, amount: dollars(cartTotal, lang.value) })}</button>
+      </section>}
       {free && !free.open && <p class="card">{t("ui.closed_this_day")}</p>}
       {free?.open && !times.length && <p class="card">{t("ui.no_free_times")}</p>}
       {!pick && times.length > 0 && <section class="card"><div class="chips">{times.map((x) => <button type="button" class="chip" onClick={() => choose(x)}>{fmt(x.start, { hour: "numeric", minute: "2-digit" })}</button>)}</div></section>}
@@ -72,6 +91,7 @@ export function Book() {
           {pick.courts.length > 1 && <div class="chips" role="group" aria-label={t("ui.which_court")}>{pick.courts.map((c) => <button type="button" class={c.id === court ? "chip on" : "chip"} onClick={() => setCourt(c.id)}>{c.name}</button>)}</div>}
           {court && q && (q.priced ? <>
             <p><strong>{dollars(q.total_cents, lang.value)}</strong>{q.tax_cents ? <span class="meta"> · {t("ui.tax_included", { amount: dollars(q.tax_cents, lang.value) })}</span> : null}{q.member ? <span class="meta"> · {t("ui.member_price", { plan: q.member })}</span> : null}</p>
+            {cart.length > 0 ? <button class="primary" onClick={add}>{t("ui.add_this_court")}</button> : <>
             <label class="check"><input type="radio" name="pay" checked={pay === "whole"} onChange={() => setPay("whole")} /> {t("ui.pay_whole", { amount: dollars(q.total_cents, lang.value) })}</label>
             {canSplit && <label class="check"><input type="radio" name="pay" checked={pay === "split"} onChange={() => setPay("split")} /> {t("ui.pay_split")}</label>}
             {pay === "split" && <>
@@ -89,6 +109,8 @@ export function Book() {
             </>}
             <p class="meta">{t(o.late_refund_percent ? "ui.cancel_rule" : "ui.cancel_rule_none", { hours: t("count.hours", { count: o.free_cancel_hours }), percent: o.late_refund_percent })}</p>
             <button class="primary" onClick={book}>{t("ui.book_now")}</button>{" "}
+            {pay === "whole" && <button class="link" onClick={add}>{t("ui.add_another_court")}</button>}
+            </>}
           </> : <p class="meta">{t("error.no_price")}</p>)}
           <button class="link" onClick={() => setPick(null)}>{t("ui.other_time")}</button>
         </section>

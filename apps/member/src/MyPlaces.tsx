@@ -44,7 +44,8 @@ export function MyPlaces() {
 }
 
 type Booking = { id: string; code: string; status: string; pay_mode: string; players: number; price_cents: number; invite_code: string | null; balance_cents: number; share_cents: number;
-  court: string; location: string; time_zone: string; start: string; end: string; pending_payment_id: string | null; paid_cents: number; joined: number; mine: boolean; open_match_id: string | null };
+  court: string; location: string; time_zone: string; start: string; end: string; pending_payment_id: string | null; paid_cents: number; joined: number; mine: boolean; open_match_id: string | null;
+  group_cents: number | null };
 
 /** My court bookings: when and where, what I paid or still owe, the link for the others, and cancelling. */
 function MyBookings({ provider, ready, onPaid }: { provider: string | null; ready: boolean; onPaid: () => void }) {
@@ -64,14 +65,14 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
     <section>
       <h2>{t("ui.my_courts")}</h2>
       {sheet}
-      {paying && <PaySheet paymentId={paying.pending_payment_id!} amountCents={paying.share_cents} name={t("ui.court_booking")} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); onPaid(); load(); }} />}
+      {paying && <PaySheet paymentId={paying.pending_payment_id!} amountCents={paying.group_cents ?? paying.share_cents} name={t("ui.court_booking")} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); onPaid(); load(); }} />}
       <ul class="changes">{rows.map((b) => (
         <li class="card" key={b.id}>
           <div class="summary">{b.court} · {when(b)}</div>
           <div class="meta">{b.code} · {b.location}{b.status === "held" ? ` · ${t("ui.being_paid")}` : ""}{b.paid_cents > 0 ? ` · ${t("ui.you_paid", { amount: dollars(b.paid_cents, lang.value) })}` : ""}
             {b.pay_mode === "split" ? ` · ${t("count.joined", { count: b.joined, total: b.players })}` : ""}</div>
           {b.balance_cents > 0 && b.mine && <p class="error">{t("ui.still_owed", { amount: dollars(b.balance_cents, lang.value) })}</p>}
-          {b.pending_payment_id && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(b)}>{t("ui.pay_now", { amount: dollars(b.share_cents, lang.value) })}</button>}
+          {b.pending_payment_id && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(b)}>{t("ui.pay_now", { amount: dollars(b.group_cents ?? b.share_cents, lang.value) })}</button>}
           {import.meta.env.DEV && b.pending_payment_id && provider === "test" && <button class="small" onClick={async () => { await api(`/dev/payments/${b.pending_payment_id}/settle`, {}); load(); }}>{t("ui.pay_test")}</button>}
           {b.open_match_id && <><a class="small" href={`/match/${b.open_match_id}`}>{t("ui.see_match")}</a>{" "}</>}
           {b.invite_code && <><button class="small" onClick={() => share(b)}>{t("ui.invite_others")}</button>{copied === b.id && <span class="meta"> {t("ui.link_copied")}</span>}</>}

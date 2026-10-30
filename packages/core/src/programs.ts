@@ -506,7 +506,10 @@ export const paymentOpen = defineAction({
     const pay = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", i.payment_id).forUpdate().executeTakeFirstOrThrow();
     if (pay.provider_ref === i.provider_ref) return { already: true };   // two taps on Pay: the same intent
     if (pay.provider_ref || pay.status !== "pending") throw new KumiError("error.changed");
-    await ctx.update("payment", pay.id, { provider: i.provider, provider_ref: i.provider_ref, provider_account: i.provider_account ?? null });
+    // Several courts paid together: every payment in the group is this one card payment.
+    const rows = pay.group_id ? await ctx.trx.selectFrom("payment").select(["id", "provider_ref", "status"]).where("group_id", "=", pay.group_id).forUpdate().execute() : [pay];
+    if (rows.some((r) => r.provider_ref || r.status !== "pending")) throw new KumiError("error.changed");
+    for (const r of rows) await ctx.update("payment", r.id, { provider: i.provider, provider_ref: i.provider_ref, provider_account: i.provider_account ?? null });
     return null;
   },
 });
@@ -517,7 +520,7 @@ export async function openPayment(db: Db, paymentId: string, personId: string): 
     .leftJoin("booking_player", "booking_player.id", "payment.booking_player_id").leftJoin("booking", "booking.id", "booking_player.booking_id")
     .leftJoin("membership", "membership.id", "payment.membership_id")
     .leftJoin("membership_plan", (j) => j.on(sql<boolean>`membership_plan.id = coalesce(payment.membership_plan_id, membership.plan_id)`))
-    .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider_ref", "payment.provider_account", "payment.save_card", "program.name as what", "booking.code",
+    .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider_ref", "payment.provider_account", "payment.save_card", "payment.group_id", "program.name as what", "booking.code",
       "booking.status as booking_status", "membership_plan.name as plan", "membership.status as membership_status"]).where("payment.id", "=", paymentId).executeTakeFirst();
   if (!pay || pay.person_id !== personId) throw new KumiError("error.not_found", { thing: both("thing.payment") }, 404);
   if (pay.status !== "pending") throw new KumiError("error.not_pending", {}, 409);
@@ -526,6 +529,17 @@ export async function openPayment(db: Db, paymentId: string, personId: string): 
   const pv = paymentProvider();
   if (pay.provider_ref) return { clientSecret: (await pv.getIntent(pay.provider_ref, pay.provider_account)).clientSecret, provider: pv.name, account: pay.provider_account };
   const { currency } = await db.selectFrom("club").select("currency").executeTakeFirstOrThrow();
+  // Several courts paid together: one card payment for all of them (any one of them opens it).
+  if (pay.group_id) {
+    const group = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").innerJoin("booking", "booking.id", "booking_player.booking_id")
+      .select(["payment.id", "payment.amount_cents", "payment.status", "booking.code", "booking.status as booking_status"]).where("payment.group_id", "=", pay.group_id).orderBy("payment.id").execute();
+    if (group.some((g) => g.booking_status === "cancelled")) throw new KumiError("error.booking_cancelled", {}, 409);
+    if (group.some((g) => g.status !== "pending")) throw new KumiError("error.not_pending", {}, 409);
+    const it = await pv.createIntent({ amountCents: group.reduce((n, g) => n + g.amount_cents, 0), currency, description: `Court bookings ${group.map((g) => g.code).join(", ")}`,
+      idempotencyKey: pay.group_id, metadata: { kumi_payment_id: group[0]!.id } });
+    await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: it.ref, ...(it.account ? { provider_account: it.account } : {}) }, "payments");
+    return { clientSecret: it.clientSecret, provider: pv.name, account: it.account };
+  }
   // "Pay my part" and memberships: the card is saved for a later charge (the deadline, the renewal), under a customer for them.
   let customer: string | undefined;
   if (pay.save_card) {
@@ -596,6 +610,33 @@ function revenueType(p: { booking_player_id: string | null; membership_plan_id: 
   return p.booking_player_id ? "courts" as const : p.membership_plan_id || p.membership_id ? "memberships" as const : "programs" as const;
 }
 
+/** Several courts paid together: the one card payment settles every payment in its group, in this one change.
+ *  A court whose hold was lost meanwhile is refunded (and says so); the rest are booked, with one message. */
+async function settleGroup(ctx: ApplyContext, pay: { id: string; group_id: string | null; provider_ref: string | null; person_id: string }, outcome: "succeeded" | "failed") {
+  // Succeeded: every payment the card covered, even one marked failed when its booking was cancelled meanwhile
+  // (the money arrived, so it's recorded, then refunded).
+  const rows = await ctx.trx.selectFrom("payment").selectAll().where("group_id", "=", pay.group_id!).where(sql<boolean>`provider_ref IS NOT DISTINCT FROM ${pay.provider_ref}`)
+    .$if(outcome === "succeeded", (q) => q.where("status", "!=", "succeeded")).$if(outcome === "failed", (q) => q.where("status", "=", "pending")).orderBy("id").forUpdate().execute();
+  if (outcome === "failed") {
+    for (const r of rows) await ctx.update("payment", r.id, { status: "failed" });
+    await ctx.emit("payment.failed", { payment_id: pay.id });
+    return { status: "failed" };
+  }
+  const booked: { booking_player_id: string; cents: number }[] = [];
+  for (const r of rows) {
+    await ctx.update("payment", r.id, { status: "succeeded" });
+    await post(ctx.trx, ctx.runId, "payment", "court booking payment", [
+      { account: await account(ctx.trx, "provider_clearing"), cents: r.amount_cents }, { account: await account(ctx.trx, "revenue", { revenueType: "courts" }), cents: -r.amount_cents }]);
+    if ((await afterBookingPayment(ctx, r, { quiet: true })) === "confirmed") booked.push({ booking_player_id: r.booking_player_id!, cents: r.amount_cents });
+    await ctx.emit("payment.succeeded", { payment_id: r.id });
+  }
+  // What the message lists, worked out now: each court booked, and what they came to.
+  const ids = booked.length ? (await ctx.trx.selectFrom("booking_player").select("booking_id").where("id", "in", booked.map((b) => b.booking_player_id)).execute()).map((b) => b.booking_id) : [];
+  if (ids.length === 1) await ctx.emit("booking.confirmed", { booking_id: ids[0] });
+  else if (ids.length > 1) await ctx.emit("booking.courts_confirmed", { person_id: pay.person_id, booking_ids: ids, cents: booked.reduce((n, b) => n + b.cents, 0) });
+  return { status: "succeeded", booked: ids.length };
+}
+
 export const paymentSettle = defineAction({
   name: "payment.settle", version: 1, system: true, internal: true,
   input: z.object({ payment_id: z.uuid(), outcome: z.enum(["succeeded", "failed"]), saved_customer: z.optional(z.string()), saved_method: z.optional(z.string()) }),
@@ -606,6 +647,7 @@ export const paymentSettle = defineAction({
   async apply(ctx, i) {
     const pay = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", i.payment_id).executeTakeFirstOrThrow();
     if (pay.status !== "pending") return { already: pay.status };   // a repeated webhook does nothing
+    if (pay.group_id) return settleGroup(ctx, pay, i.outcome);
     // A card kept for the deadline charge ("pay my part"): the provider's customer and card, never the card itself.
     await ctx.update("payment", pay.id, { status: i.outcome, ...(pay.save_card && i.saved_method ? { saved_customer: i.saved_customer ?? null, saved_method: i.saved_method } : {}) });
     if (i.outcome === "failed") { await ctx.emit("payment.failed", { payment_id: pay.id }); return { status: "failed" }; }
