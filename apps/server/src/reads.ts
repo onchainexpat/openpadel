@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText } from "@kumi/core";
+import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -46,11 +46,33 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         time_off: off.filter((o) => o.coach_id === p.id).map((o) => ({ id: o.id, note: o.note, from: day(o.start), to: day(new Date(new Date(o.end).getTime() - 1)) })) };
     }) });
   });
-  // The signed-in coach's lessons and sessions, for the next two weeks.
+  // The signed-in coach's lessons and sessions, for the next two weeks (and the last two days, while who came
+  // can still be marked).
   app.get("/staff/my-schedule", async (c) => {
     const m = me(c)!, now = new Date();
-    const rows = await coachSchedule(db, m.id, new Date(now.getTime() - 3600_000), new Date(now.getTime() + 14 * 864e5));
+    const rows = await coachSchedule(db, m.id, new Date(now.getTime() - ATTENDANCE_HOURS * 3600_000), new Date(now.getTime() + 14 * 864e5));
     return c.json({ time_zone: await clubTz(), items: rows });
+  });
+  // Who's coming to a lesson or a program date, and who came: the coach who runs it, or front desk and up.
+  app.get("/staff/roster/:kind/:id", async (c) => {
+    const m = me(c)!, roles = await rolesOf(m.id), kind = c.req.param("kind");
+    if (kind !== "lesson" && kind !== "session") throw new KumiError("error.not_found", { thing: { en: "page", es: "la página" } }, 404);
+    const item = await coachItem(db, kind, c.req.param("id"));
+    if (!deskUp(roles) && !(roles.includes("coach") && item.coach_id === m.id)) throw new KumiError("error.staff_only", {}, 403);
+    const r = await rosterOf(db, kind, item.id, new Date());
+    return c.json({ ...r, time_zone: await clubTz(), hours: ATTENDANCE_HOURS });
+  });
+  // The people a coach worked with lately. A coach sees their own; front desk and up pick any coach.
+  app.get("/staff/students", async (c) => {
+    const m = me(c)!, roles = await rolesOf(m.id), desk = deskUp(roles), asked = c.req.query("coach");
+    if (!desk && !roles.includes("coach")) throw new KumiError("error.staff_only", {}, 403);
+    const coachId = desk ? (asked || (roles.includes("coach") ? m.id : null)) : m.id;
+    const coaches = desk ? await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").innerJoin("person", "person.id", "person_role.person_id")
+      .select(["person.id", "person.display_name as name"]).distinct().where("role.key", "=", "coach").where("person_role.active", "=", true).where("person.status", "!=", "archived").orderBy("person.display_name").execute() : [];
+    if (!coachId) return c.json({ coach: null, coaches, days: STUDENT_DAYS, time_zone: await clubTz(), students: [] });
+    const coach = await db.selectFrom("person").select(["id", "display_name as name"]).where("id", "=", coachId).executeTakeFirst();
+    if (!coach) throw new KumiError("error.not_found", { thing: { en: "coach", es: "el entrenador" } }, 404);
+    return c.json({ coach, coaches, days: STUDENT_DAYS, time_zone: await clubTz(), students: await coachStudents(db, coachId, new Date()) });
   });
   // For payroll: each coach's lessons (paid, less refunds) and the sessions they ran. Owners, managers and the
   // accountant see every coach; a coach sees their own.
@@ -327,8 +349,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/levels", async (c) => c.json({ ...await levelQueue(db, new Date()), limit: MOVE_LIMIT, days: MOVE_DAYS }));
   // Everyone who had a place in a session, with their levels, for setting levels after it.
   app.get("/staff/sessions/:id/levels", async (c) => {
-    const { session, players } = await sessionPlayers(db, c.req.param("id")), tz = await clubTz();
-    return c.json({ session: { ...session, when: dateTime(new Date(session.starts_at), lang(c), tz), started: new Date(session.starts_at) <= new Date() }, players });
+    const { session, players, absent } = await sessionPlayers(db, c.req.param("id")), tz = await clubTz();
+    return c.json({ session: { ...session, when: dateTime(new Date(session.starts_at), lang(c), tz), started: new Date(session.starts_at) <= new Date() }, players, absent });
   });
 
   app.get("/staff/people/:id/level", async (c) => {

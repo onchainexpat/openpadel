@@ -50,6 +50,7 @@ export function Coaches() {
               <div class="summary">{c.name}</div>
               <p class="meta">{!c.profile ? t("ui.coach_no_profile") : c.profile.lessons && Object.keys(c.profile.rates).length ? t("ui.lessons_on", { rates: rates(c.profile) }) : t("ui.lessons_off")}</p>
               {open !== c.id && <button class="small" onClick={() => setOpen(c.id)}>{c.profile ? t("ui.edit") : t("ui.make_profile")}</button>}
+              {d.can_edit_all && <>{" "}<a href={`/students?coach=${c.id}`}>{t("ui.students")}</a></>}
             </div>
           </div>
           {open === c.id && <CoachEdit key={JSON.stringify(c)} c={c} d={d} preview={preview} />}

@@ -51,6 +51,7 @@ export function Program({ id }: { id: string }) {
       <section class="card">
         <h2>{t("ui.dates")}</h2>
         {d.sessions.map((s) => <p>{when(s.starts_at)} · {s.courts.join(", ")} {p.format && <a href={`/sessions/${s.id}`}>{t("ui.open_night")}</a>}
+          {s.status !== "cancelled" && <> <a href={`/roster/session/${s.id}`}>{t("ui.students")}</a></>}
           {s.status !== "cancelled" && new Date(s.starts_at) <= new Date() && <> <a href={`/sessions/${s.id}/levels`}>{t("ui.set_levels")}</a></>}
           {s.status !== "cancelled" && d.coaches.length > 0 && <> {coachPick(s.coach_id ?? "", (v) => preview("session.set_coach", { session_id: s.id, coach_id: v || null }))}</>}</p>)}
         {!adding ? <button onClick={() => setAdding(true)}>{t("ui.add_date")}</button> : <form onSubmit={addDate}>

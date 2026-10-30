@@ -189,7 +189,8 @@ export const levelAnswerReview = defineAction({
 });
 
 // ---- A whole clinic session at once ----
-/** Who was signed up for a session (a place in that session, or in the whole program), with their levels. */
+/** Who was at a session: everyone signed up for it (a place in that session, or in the whole program), with
+ *  their levels, less whoever the coach marked as not having come. Someone not marked either way stays in. */
 export async function sessionPlayers(db: Db | Trx, sessionId: string) {
   const s = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.id", "session.program_id", "session.starts_at", "session.status", "session.coach_id", "program.name", "program.location_id"])
     .where("session.id", "=", sessionId).executeTakeFirst();
@@ -199,7 +200,9 @@ export async function sessionPlayers(db: Db | Trx, sessionId: string) {
     .select(["enrolment.person_id", "person.display_name as name", "rating.level", "rating.floor", "rating.provisional"]).distinct()
     .where("enrolment.program_id", "=", s.program_id).where("enrolment.status", "in", ["booked", "attended"])
     .where((eb) => eb.or([eb("enrolment.session_id", "=", sessionId), eb("enrolment.session_id", "is", null)])).orderBy("person.display_name").execute();
-  return { session: s, players };
+  const marks = new Map((await db.selectFrom("attendance").select(["person_id", "came"]).where("session_id", "=", sessionId).where("came", "is not", null).execute()).map((m) => [m.person_id, m.came]));
+  return { session: s, players: players.filter((p) => marks.get(p.person_id) !== false).map((p) => ({ ...p, came: marks.get(p.person_id) ?? null })),
+    absent: players.filter((p) => marks.get(p.person_id) === false).length };
 }
 
 export const levelSetSession = defineAction({

@@ -90,6 +90,17 @@ The first version a club can run on its own (court bookings included), or for it
   everyone's.
 - Choosing a refund other than the club's rule when cancelling a booking is for staff only (a member
   could ask for a full refund on a late cancellation before).
+- A coach's calendar link: Google, Apple or Outlook calendar subscribes to it and shows their lessons
+  and program dates, with the court and the players' names (a junior by first name only, nobody's
+  contact details), refreshed about every hour. A cancelled one stays in as cancelled, so the calendar
+  drops it. The address itself is the key: making a new link stops the old one at once.
+- Who's coming to each lesson and program date, from My schedule and the program page: each player's
+  level, a junior's parents, and whether they've accepted the club's waiver. The coach who runs it (or
+  front desk and up) marks who came and who didn't, from the start until 48 hours after. "Didn't come"
+  counts in the player's no-show record, the same one hosts see in open matches, and the player is
+  told. Setting a clinic's levels leaves out whoever didn't come.
+- My students: everyone a coach worked with in the last 90 days, with their level now and the last
+  time. Front desk and up open any coach's from the Coaches page.
 
 **Families, juniors and the waiver**
 - A parent adds their children under Family in the app: a name and a birth year, nothing more, and no

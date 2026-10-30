@@ -20,6 +20,9 @@ const Coaches = lazy(() => import("./Coaches.tsx").then((m) => m.Coaches));
 const Reports = lazy(() => import("./Reports.tsx").then((m) => m.Reports));
 const Payments = lazy(() => import("./Payments.tsx").then((m) => m.Payments));
 const Mirror = lazy(() => import("./Mirror.tsx").then((m) => m.Mirror));
+// A coach's lists, opened from the schedule.
+const Roster = lazy(() => import("./Roster.tsx").then((m) => m.Roster));
+const Students = lazy(() => import("./Students.tsx").then((m) => m.Students));
 
 export function App() {
   useEffect(() => {
@@ -68,6 +71,8 @@ export function App() {
         <Route path="/levels" component={Levels} />
         <Route path="/coaches" component={Coaches} />
         <Route path="/schedule" component={Schedule} />
+        <Route path="/roster/:kind/:id" component={Roster} />
+        <Route path="/students" component={Students} />
       </Router>
     </LocationProvider>
   );

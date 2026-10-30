@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck } from "@kumi/core";
+import { icsCalendar, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -259,12 +259,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .where("booking.id", "=", c.req.param("id")).where("booking_player.person_id", "in", (await meAndJuniors(pid)).map((x) => x.id)).where("court_time.active", "=", true).executeTakeFirst();
     if (!b) throw new KumiError("error.not_found", { thing: { en: "booking", es: "la reserva" } }, 404);
     const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
-    const stamp = (d: Date) => new Date(d).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-    const esc = (s: string) => s.replace(/[\\;,]/g, (m) => `\\${m}`).replace(/\n/g, "\\n");
     c.header("content-type", "text/calendar; charset=utf-8"); c.header("content-disposition", `attachment; filename="${b.code}.ics"`);
-    return c.body(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Kumi//Bookings//EN", "BEGIN:VEVENT", `UID:${b.id}@kumi`, `DTSTAMP:${stamp(new Date())}`,
-      `DTSTART:${stamp(b.start)}`, `DTEND:${stamp(b.end)}`, `SUMMARY:${esc(`${b.court}, ${club.name} (${b.code})`)}`, `LOCATION:${esc([b.location, b.address].filter(Boolean).join(", "))}`,
-      "END:VEVENT", "END:VCALENDAR", ""].join("\r\n"));
+    return c.body(icsCalendar({ prodId: "-//Kumi//Bookings//EN", events: [{ uid: `${b.id}@kumi`, start: new Date(b.start), end: new Date(b.end),
+      summary: `${b.court}, ${club.name} (${b.code})`, location: [b.location, b.address].filter(Boolean).join(", ") }] }));
   });
 
   app.get("/my/places", async (c) => {

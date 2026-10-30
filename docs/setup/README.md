@@ -161,6 +161,13 @@ levels after it, and can't be booked for a lesson then. Reports shows lesson rev
 and each coach's lessons (paid, less refunds) and the dates they ran, with a CSV for payroll. A coach
 sees their own; owners, managers and the accountant see everyone's.
 
+Under My schedule each coach finds a calendar link to subscribe to in their phone's calendar (Google,
+Apple or Outlook), so their lessons and dates show up there. The link is the key to it, so it's theirs
+alone; making a new one stops the old. Each lesson and date also has its list of players, with their
+level, a junior's parents and the waiver, where the coach (or front desk) marks who came, from the
+start until 48 hours after. "Didn't come" goes on the player's no-show record, and the player is told.
+My students lists everyone a coach worked with in the last 90 days.
+
 ### Step 5g: the waiver, and families with juniors (optional)
 
 If the club asks players to accept a waiver, paste its text into Settings, Waiver. Every adult is

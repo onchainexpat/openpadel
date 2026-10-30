@@ -17,6 +17,7 @@ import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } f
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
 import { readRoutes } from "./reads.ts";
+import { calendarRoutes } from "./calendar.ts";
 import { publicRoutes } from "./public.ts";
 import { memberRoutes } from "./member.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
@@ -119,6 +120,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", oauthRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, fetchMetadata: deps.fetchMetadata ?? defaultFetchMetadata, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
+  app.route("/", calendarRoutes(db, (c) => c.get("me")));
   app.route("/", publicRoutes(db, (c) => c.get("lang"), publicUrl));
   app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false, now }));
   app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe));

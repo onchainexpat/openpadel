@@ -324,12 +324,24 @@ export const bookingMarkNoShow = defineAction({
   },
 });
 
-/** Each person's record over the last 90 days: matches they didn't come to, and places they gave up after the deadline. */
+/** Each person's record over the last 90 days: matches, lessons and program dates they didn't come to, and
+ *  places they gave up after the deadline. A coach's "didn't come" (attendance) counts like a host's no-show;
+ *  a lesson marked both ways counts once. */
 export async function playerRecord(db: Db | Trx, personIds: string[], now = new Date()): Promise<Map<string, { no_shows: number; late_leaves: number }>> {
   if (!personIds.length) return new Map();
   const since = new Date(now.getTime() - 90 * 86400_000);
   const rows = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id")
     .select(["booking_player.person_id", sql<string>`count(*) FILTER (WHERE booking_player.no_show)`.as("no_shows"), sql<string>`count(*) FILTER (WHERE booking_player.late_leave)`.as("late_leaves")])
     .where("booking_player.person_id", "in", personIds).where("booking.created_at", ">=", since).groupBy("booking_player.person_id").execute();
-  return new Map(rows.map((r) => [r.person_id!, { no_shows: Number(r.no_shows), late_leaves: Number(r.late_leaves) }]));
+  const out = new Map(rows.map((r) => [r.person_id!, { no_shows: Number(r.no_shows), late_leaves: Number(r.late_leaves) }]));
+  const missed = await db.selectFrom("attendance").select(["attendance.person_id", sql<string>`count(*)`.as("n")])
+    .where("attendance.person_id", "in", personIds).where("attendance.came", "=", false).where("attendance.marked_at", ">=", since)
+    .where((eb) => eb.not(eb.exists(eb.selectFrom("booking_player").select("booking_player.id").whereRef("booking_player.booking_id", "=", "attendance.booking_id")
+      .whereRef("booking_player.person_id", "=", "attendance.person_id").where("booking_player.no_show", "=", true))))
+    .groupBy("attendance.person_id").execute();
+  for (const m of missed) {
+    const r = out.get(m.person_id) ?? { no_shows: 0, late_leaves: 0 };
+    out.set(m.person_id, { ...r, no_shows: r.no_shows + Number(m.n) });
+  }
+  return out;
 }

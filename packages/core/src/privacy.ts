@@ -185,6 +185,12 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
   const devices = await db.selectFrom("push_subscription").select(["app", "endpoint", "user_agent", "created_at", "last_ok_at", "revoked_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
   const asked = (await sql<{ asked: string; at: Date }>`SELECT asked, at FROM missing_feature WHERE person_id = ${personId} ORDER BY at`.execute(db)).rows;
   const coach = await db.selectFrom("coach").select(["bio", "level_min", "level_max", "languages", "rates", "lessons", "active"]).where("person_id", "=", personId).executeTakeFirst();
+  // Whether they came, as their coaches marked it; and a calendar link of theirs (the address itself is a key, so not shown).
+  const attended = await db.selectFrom("attendance").leftJoin("session", "session.id", "attendance.session_id").leftJoin("program", "program.id", "session.program_id")
+    .leftJoin("booking", "booking.id", "attendance.booking_id")
+    .select(["attendance.came", "attendance.marked_at", "program.name as program", "session.starts_at", "booking.code as lesson"]).where("attendance.person_id", "=", personId).where("attendance.came", "is not", null)
+    .orderBy("attendance.marked_at").execute();
+  const feeds = await db.selectFrom("calendar_feed").select(["created_at", "revoked_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
 
   return {
     profile: { name: p.display_name, given_name: p.given_name, family_name: p.family_name, email: p.email, phone: p.phone, birth_year: p.birth_year, language: p.locale, status: p.status,
@@ -202,6 +208,8 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     // A device's address names the push service, not the device: only the service is kept here.
     push_devices: devices.map((d) => ({ app: d.app, service: (() => { try { return new URL(d.endpoint).host; } catch { return null; } })(), user_agent: d.user_agent, created_at: iso(d.created_at), last_ok_at: iso(d.last_ok_at), revoked_at: iso(d.revoked_at) })),
     asked_for: asked, coach_profile: coach ?? null,
+    attendance: attended.map((a) => ({ came: a.came, marked_at: iso(a.marked_at), program: a.program, starts_at: iso(a.starts_at), lesson: a.lesson })),
+    calendar_links: feeds.map((f) => ({ created_at: iso(f.created_at), stopped_at: iso(f.revoked_at) })),
   };
 }
 
@@ -313,6 +321,7 @@ async function theirIds(db: Trx, personId: string): Promise<string[]> {
   add(await db.selectFrom("friend").select("id").where((w) => w.or([w("person_id", "=", personId), w("friend_id", "=", personId)])).execute());
   add(await db.selectFrom("household_member").select("id").where("person_id", "=", personId).execute());
   add(await db.selectFrom("place_offer").select("id").where((w) => w.or([w("to_person_id", "=", personId), w("taken_by", "=", personId)])).execute());
+  add(await db.selectFrom("attendance").select("id").where("person_id", "=", personId).execute());
   return [...ids];
 }
 
@@ -336,6 +345,7 @@ async function erasePerson(ctx: ApplyCtx, personId: string): Promise<number> {
   await db.deleteFrom("web_session").where("person_id", "=", personId).execute();
   await db.deleteFrom("passkey").where("person_id", "=", personId).execute();
   await db.deleteFrom("push_subscription").where("person_id", "=", personId).execute();
+  await db.deleteFrom("calendar_feed").where("person_id", "=", personId).execute();
   const grants = await db.selectFrom("oauth_grant").select("id").where("person_id", "=", personId).execute();
   if (grants.length) {
     await db.updateTable("oauth_grant").set({ revoked_at: ctx.now }).where("person_id", "=", personId).where("revoked_at", "is", null).execute();
