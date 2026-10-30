@@ -39,11 +39,47 @@ test("sign in by emailed code, then /me shows the owner role", async () => {
   assert.deepEqual(me.json.roles.map((r: any) => r.key), ["owner"]);
 });
 
-test("an unknown email gets the same answer, and no email", async () => {
-  const before = mailer.sent.length;
+test("an unknown email gets the same answer: a code to join, or nothing when sign-up is closed", async () => {
   const r = await call("/auth/email/start", { body: { email: "nobody@example.test" } });
   assert.equal(r.status, 200); assert.deepEqual(r.json, { sent: true });
-  assert.equal(mailer.sent.length, before);
+  assert.match(mailer.last("nobody@example.test")!.subject, /^Your code to join Kestrel Padel: \d{6}$/);
+  await db.updateTable("club").set({ sign_up_open: false }).execute();
+  try {
+    const before = mailer.sent.length;
+    const closed = await call("/auth/email/start", { body: { email: "nobody2@example.test" } });
+    assert.equal(closed.status, 200); assert.deepEqual(closed.json, { sent: true });
+    assert.equal(mailer.sent.length, before);
+  } finally { await db.updateTable("club").set({ sign_up_open: true }).execute(); }
+});
+
+test("joining: the code, then a name and a club-news answer, and they're a member", async () => {
+  const email = "Nadia@Example.test";
+  await call("/auth/email/start", { body: { email }, lang: "es" });
+  const join = mailer.last(email)!;
+  assert.match(join.subject, /^Tu código para unirte a Kestrel Padel/);   // in the language they asked in
+  const code = join.text.match(/\b(\d{6})\b/)![1]!;
+  const v = await call("/auth/email/verify", { body: { email, code } });
+  assert.equal(v.status, 200); assert.equal(v.json.sign_up, true); assert.equal(v.cookie, undefined, "no session until they've joined");
+  const done = await call("/auth/sign-up", { body: { ticket: v.json.ticket, display_name: " Nadia Torres ", locale: "es", club_news: true } });
+  assert.equal(done.status, 200, JSON.stringify(done.json));
+  const me = await call("/me", { cookie: done.cookie });
+  assert.equal(me.json.person.display_name, "Nadia Torres");
+  assert.deepEqual(me.json.roles.map((r: any) => r.key), ["member"]);
+  const p = await db.selectFrom("person").selectAll().where("email", "=", "nadia@example.test").executeTakeFirstOrThrow();
+  assert.equal(p.created_via, "signup"); assert.equal(p.locale, "es");
+  const consent = await db.selectFrom("channel_consent").selectAll().where("person_id", "=", p.id).execute();
+  assert.deepEqual(consent.map((c) => [c.channel, c.purpose, c.granted, c.source]), [["email", "club_news", true, "sign_up"]]);
+  // The ticket works once; the next time they sign in normally.
+  assert.equal((await call("/auth/sign-up", { body: { ticket: v.json.ticket, display_name: "Again", locale: "en", club_news: false } })).json.error, "error.sign_up_expired");
+  assert.ok(await signIn(email));
+});
+
+test("a sign-up ticket runs out, and joining can't take an address that's already used", async () => {
+  const email = "late@example.test";
+  await call("/auth/email/start", { body: { email } });
+  const v = await call("/auth/email/verify", { body: { email, code: mailer.last(email)!.text.match(/\b(\d{6})\b/)![1]! } });
+  await db.updateTable("auth_challenge").set({ expires_at: new Date(Date.now() - 1000) }).where("kind", "=", "sign_up").where("target", "=", email).execute();
+  assert.equal((await call("/auth/sign-up", { body: { ticket: v.json.ticket, display_name: "Late", locale: "en", club_news: false } })).status, 401);
 });
 
 test("wrong codes run out after five tries, in the person's language", async () => {

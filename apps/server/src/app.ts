@@ -6,7 +6,7 @@ import * as z from "zod/mini";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, type Lang } from "@kumi/i18n";
 import { actions, apply, approve, plan, decide, KumiError, type Actor, type Db } from "@kumi/core";
-import { sessionPerson, signOut, startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
+import { completeSignUp, sessionPerson, signOut, startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
@@ -21,6 +21,7 @@ type Env = { Variables: { me: Me; lang: Lang } };
 const COOKIE = "kumi_session";
 const EmailStart = z.object({ email: z.email() });
 const EmailVerify = z.object({ email: z.email(), code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
+const SignUp = z.object({ ticket: z.string().check(z.minLength(20)), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: z.enum(["en", "es"]), club_news: z.boolean() });
 
 export function makeApp(deps: AppDeps) {
   const { db, mailer } = deps;
@@ -76,7 +77,14 @@ export function makeApp(deps: AppDeps) {
   });
   app.post("/auth/email/verify", async (c) => {
     const { email, code } = await body(c, EmailVerify);
-    const { token } = await verifyEmailCode(db, email, code, c.req.header("user-agent") ?? null, now());
+    const r = await verifyEmailCode(db, email, code, c.req.header("user-agent") ?? null, now());
+    if ("signUpTicket" in r) return c.json({ sign_up: true, ticket: r.signUpTicket });
+    setCookie(c, COOKIE, r.token, { httpOnly: true, secure: deps.secureCookies ?? true, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
+    return c.json({ signed_in: true });
+  });
+  app.post("/auth/sign-up", async (c) => {
+    const b = await body(c, SignUp);
+    const { token } = await completeSignUp(db, b.ticket, { display_name: b.display_name, locale: b.locale, club_news: b.club_news }, c.req.header("user-agent") ?? null, now());
     setCookie(c, COOKIE, token, { httpOnly: true, secure: deps.secureCookies ?? true, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
     return c.json({ signed_in: true });
   });

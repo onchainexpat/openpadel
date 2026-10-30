@@ -2,12 +2,15 @@
 // command takes --json, and none of them prints a secret.
 //   kumi setup plan [club.yaml]    what setting the club up from the file would change (changes nothing)
 //   kumi setup apply [club.yaml]   make those changes; run it again after editing the file
+//   kumi import members <file.csv> [--apply]   members from a spreadsheet (a preview unless --apply)
 //   kumi doctor                    is everything working? each check, and the next step when it isn't
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { t, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { connect, migrate } from "@kumi/core";
+import { connect, migrate, plan, run } from "@kumi/core";
+import { readPeopleCsv } from "./csv.ts";
 import { doctor, type Check } from "./doctor.ts";
-import { ClubFileError, readClubFile, setupClub } from "./setup.ts";
+import { ClubFileError, ownerActor, readClubFile, setupClub } from "./setup.ts";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
@@ -39,6 +42,25 @@ async function main(): Promise<number> {
       console.log(t(lang, r.applied ? "cli.applied_heading" : "cli.plan_heading", { file: path }));
       for (const s of r.steps) console.log(`  - ${say(s.text)}`);
       console.log(r.applied ? t(lang, "cli.applied", { changes: t(lang, "count.changes", { count: r.steps.length }) }) : t(lang, "cli.apply_hint", { file: path }));
+      return 0;
+    } finally { await db.destroy(); }
+  }
+  if (cmd === "import" && sub === "members" && rest[0]) {
+    const path = resolve(process.env.KUMI_CALLER_DIR ?? ".", rest[0]);
+    const r = readPeopleCsv(readFileSync(path, "utf8"));
+    const problems = r.problems.map((p) => say(p.text));
+    if (r.fatal) { if (json) out({ ok: false, problems: [say(r.fatal), ...problems] }); else { console.error(say(r.fatal)); for (const p of problems) console.error(`  - ${p}`); } return 2; }
+    const db = connect();
+    try {
+      const owner = await ownerActor(db, lang);
+      if (!owner) { console.error(t(lang, "doctor.club.missing")); return 2; }
+      const apply = args.includes("--apply");
+      const res = apply ? await run(db, "person.import", { rows: r.rows }, owner) : await plan(db, "person.import", { rows: r.rows }, owner);
+      if (json) { out({ ok: true, applied: apply, summary: say(res.plan.summary), problems }); return 0; }
+      for (const p of problems) console.log(`! ${p}`);
+      console.log(say(res.plan.summary));
+      const added = (res as { result?: { added?: number } }).result?.added ?? 0;
+      console.log(apply ? t(lang, "cli.imported", { people: t(lang, "count.people", { count: added }) }) : t(lang, "cli.import_hint", { file: rest[0] }));
       return 0;
     } finally { await db.destroy(); }
   }

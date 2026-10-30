@@ -35,6 +35,13 @@ export function readClubFile(path: string): ClubFile {
   return r.data;
 }
 
+/** The club's first owner, acting from the server itself: what kumi's commands run as after setup. */
+export async function ownerActor(db: Db, lang: Lang): Promise<Actor | null> {
+  const o = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
+    .where("role.key", "=", "owner").where("person_role.active", "=", true).orderBy("person_role.id").executeTakeFirst();
+  return o ? { personId: o.person_id, via: "setup", lang, auth: "system" } : null;
+}
+
 export interface Step { action: string; text: Text }
 export interface SetupResult { steps: Step[]; notes: Text[]; applied: boolean }
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();

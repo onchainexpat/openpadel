@@ -108,12 +108,14 @@ ${c.req.query("sent") ? html`<label>${t(lang, "consent.code_label")}<input name=
     const u = new URL(String(f.back ?? ""), issuer);   // only ever back to this club's own consent page
     if (u.origin !== new URL(issuer).origin || u.pathname !== "/oauth/authorize") throw new KumiError("error.oauth_request", {}, 400);
     if (!f.code) {
-      await startEmailSignIn(deps.db, deps.mailer, email, lang, deps.now());
+      // Connecting an agent needs an account already: joining the club happens in the app.
+      await startEmailSignIn(deps.db, deps.mailer, email, lang, deps.now(), { signUp: false });
       u.searchParams.set("sent", "1"); u.searchParams.set("email", email);
       return c.redirect(`${u.pathname}${u.search}`, 303);
     }
-    const { token } = await verifyEmailCode(deps.db, email, String(f.code), c.req.header("user-agent") ?? null, deps.now());
-    setCookie(c, "kumi_session", token, { httpOnly: true, secure: deps.secureCookies, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
+    const r = await verifyEmailCode(deps.db, email, String(f.code), c.req.header("user-agent") ?? null, deps.now(), { signUp: false });
+    if (!("token" in r)) throw new KumiError("error.no_account", {}, 404);
+    setCookie(c, "kumi_session", r.token, { httpOnly: true, secure: deps.secureCookies, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
     u.searchParams.delete("sent"); u.searchParams.delete("email");
     return c.redirect(`${u.pathname}${u.search}`, 303);
   });

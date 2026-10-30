@@ -117,6 +117,67 @@ export const personCreate = defineAction({
   },
 });
 
+/** Many members at once, from a spreadsheet. Anyone whose email is already here is left as they are, and
+ *  nobody is emailed: telling members about the app is the club's own announcement. */
+export const personImport = defineAction({
+  name: "person.import", version: 1,
+  input: z.object({ rows: z.array(z.object({ display_name: z.string().check(z.minLength(1), z.maxLength(80)), email: z.optional(z.email()), locale: z.optional(lang) })).check(z.minLength(1), z.maxLength(5000)) }),
+  async plan(ctx, i) {
+    const { add, skipped } = await newPeople(ctx, i.rows);
+    const people = both("count.people", { count: add.length });
+    return { title: both("action.person.import"), summary: skipped ? both("plan.person.import_skipped", { people, already: both("count.already_here", { count: skipped }) }) : both("plan.person.import", { people }),
+      reads: [], undo: { kind: "compensating" }, details: { add: add.length, skipped } };
+  },
+  async apply(ctx, i) {
+    const { add } = await newPeople(ctx, i.rows);   // again, in case someone joined meanwhile
+    const member = await ctx.trx.selectFrom("role").select("id").where("key", "=", "member").executeTakeFirstOrThrow();
+    for (const r of add) {
+      const id = uuidv7();
+      await ctx.insert("person", { id, display_name: r.display_name.trim(), email: r.email ?? null, locale: r.locale ?? "en", created_via: "import" });
+      if (r.email) await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: id, kind: "email", value: r.email, verified_at: null }).execute();
+      await ctx.insert("person_role", { id: uuidv7(), person_id: id, role_id: member.id, location_id: null });
+    }
+    await ctx.emit("person.imported", { count: add.length });
+    return { added: add.length };
+  },
+});
+async function newPeople(ctx: PlanCtx, rows: { display_name: string; email?: string; locale?: "en" | "es" }[]) {
+  const emails = rows.map((r) => r.email?.trim().toLowerCase()).filter((e): e is string => Boolean(e));
+  const have = new Set(emails.length ? (await ctx.db.selectFrom("person").select((eb) => eb.fn<string>("lower", ["email"]).as("e")).where((eb) => eb(eb.fn("lower", ["email"]), "in", emails)).execute()).map((r) => r.e) : []);
+  const seen = new Set<string>(), add: typeof rows = [];
+  let skipped = 0;
+  for (const r of rows) {
+    const email = r.email?.trim().toLowerCase();
+    if (email && (have.has(email) || seen.has(email))) { skipped++; continue; }
+    if (email) seen.add(email);
+    add.push({ ...r, email });
+  }
+  return { add, skipped };
+}
+
+/** Someone joins by themselves, after proving their email address. Their answer about club news is kept
+ *  as consent evidence; emails about their own sign-ups and payments need no consent. */
+export const SIGN_UP_FORM = "sign-up-1";
+export const personSignUp = defineAction({
+  name: "person.sign_up", version: 1, system: true, internal: true,
+  input: z.object({ email: z.email(), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: lang, club_news: z.boolean() }),
+  async plan(ctx, i) {
+    const email = i.email.trim().toLowerCase();
+    if (await ctx.db.selectFrom("person").select("id").where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).executeTakeFirst()) throw new KumiError("error.duplicate_email");
+    return { title: both("action.person.sign_up"), summary: both("plan.person.sign_up", { name: i.display_name.trim(), email }), reads: [], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    const id = uuidv7(), email = i.email.trim().toLowerCase();
+    await ctx.insert("person", { id, display_name: i.display_name.trim(), email, locale: i.locale, created_via: "signup" });
+    await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: id, kind: "email", value: email, verified_at: ctx.now }).execute();
+    const member = await ctx.trx.selectFrom("role").select("id").where("key", "=", "member").executeTakeFirstOrThrow();
+    await ctx.insert("person_role", { id: uuidv7(), person_id: id, role_id: member.id, location_id: null });
+    await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: id, channel: "email", purpose: "club_news", granted: i.club_news, source: "sign_up", form_version: SIGN_UP_FORM, evidence: JSON.stringify({ at: ctx.now.toISOString() }) }).execute();
+    await ctx.emit("person.signed_up", { person_id: id });
+    return { person_id: id };
+  },
+});
+
 export const roleAssign = defineAction({
   name: "role.assign", version: 1, strongAuth: true,
   input: z.object({ person_id: z.uuid(), role: roleKey, location_id: z.optional(z.uuid()) }),

@@ -5,6 +5,7 @@ import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { t, type Lang } from "@kumi/i18n";
 import { KumiError, PLAYTOMIC, paidFor, shownOdds, standings, type Db } from "@kumi/core";
+import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
 export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang) {
@@ -21,10 +22,39 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/locations", async (c) => c.json(await db.selectFrom("location").select(["id", "name", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute()));
   app.get("/staff/courts", async (c) => c.json(await db.selectFrom("court").select(["id", "name", "location_id", "kind"]).where("archived_at", "is", null)
     .$if(Boolean(c.req.query("location_id")), (q) => q.where("location_id", "=", c.req.query("location_id")!)).orderBy("sort").orderBy("name").execute()));
+  // Search by name or email; role=staff for everyone with a staff role, or one role's key.
   app.get("/staff/people", async (c) => {
-    const q = `%${(c.req.query("q") ?? "").trim()}%`;
-    return c.json(await db.selectFrom("person").select(["id", "display_name", "email"]).where("status", "!=", "archived")
-      .where((eb) => eb.or([eb("display_name", "ilike", q), eb("email", "ilike", q)])).orderBy("display_name").limit(20).execute());
+    const q = `%${(c.req.query("q") ?? "").trim()}%`, role = c.req.query("role"), limit = Math.min(Number(c.req.query("limit") ?? 20) || 20, 200);
+    const roles = (eb: any) => eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(sql<string[]>`array_agg(DISTINCT role.key)`.as("r"))
+      .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true);
+    return c.json(await db.selectFrom("person").select(["id", "display_name", "email", "created_at"]).select((eb) => roles(eb).as("roles")).where("status", "!=", "archived")
+      .where((eb) => eb.or([eb("display_name", "ilike", q), eb("email", "ilike", q)]))
+      .$if(Boolean(role), (qb) => qb.where((eb) => eb.exists(eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id")
+        .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true)
+        .where("role.key", role === "staff" ? "!=" : "=", role === "staff" ? "member" : role!))))
+      .orderBy("display_name").limit(limit).execute());
+  });
+  app.get("/staff/people/:id", async (c) => {
+    const id = c.req.param("id");
+    const p = await db.selectFrom("person").select(["id", "display_name", "email", "locale", "status", "created_via", "created_at"]).where("id", "=", id).executeTakeFirst();
+    if (!p) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
+    const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").leftJoin("location", "location.id", "person_role.location_id")
+      .select(["role.key", "person_role.location_id", "location.name as location_name"]).where("person_role.person_id", "=", id).where("person_role.active", "=", true).orderBy("role.key").execute();
+    const places = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id")
+      .select(["enrolment.id", "enrolment.status", "enrolment.program_id", "program.name"])
+      .select((eb) => eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").as("first_start"))
+      .where("enrolment.person_id", "=", id).orderBy("enrolment.id", "desc").limit(20).execute();
+    // The latest answer for each kind of message: consent is append-only.
+    const consent = await db.selectFrom("channel_consent").select(["channel", "purpose", "granted", "source", "at"]).distinctOn(["channel", "purpose"])
+      .where("person_id", "=", id).orderBy("channel").orderBy("purpose").orderBy("at", "desc").execute();
+    return c.json({ ...p, roles, places, consent });
+  });
+  // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.
+  app.post("/staff/people/import-preview", async (c) => {
+    const { csv } = await c.req.json().catch(() => ({ csv: "" })) as { csv?: string };
+    const r = readPeopleCsv(String(csv ?? "").slice(0, 2_000_000));
+    const l = lang(c);
+    return c.json({ rows: r.rows, problems: r.problems.map((p) => ({ line: p.line, text: p.text[l] })), ...(r.fatal ? { fatal: r.fatal[l] } : {}) });
   });
 
   app.get("/staff/programs", async (c) => {

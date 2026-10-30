@@ -29,6 +29,7 @@ take a few days.
 | 3 | Domain, server and HTTPS | Owner buys, agent sets up | 1 hour | [accounts/server.md](accounts/server.md) |
 | 4 | Describe the club in `club.yaml`, preview, apply | Agent, owner approves the plan | 20 min | below |
 | 5 | Email from the club's domain | Owner signs up, agent sets up | 30 min | [accounts/resend.md](accounts/resend.md) |
+| 5b | Bring in the existing members (optional) | Owner exports a spreadsheet, agent imports | 15 min | below |
 | 6 | Card payments, in test mode first | Owner copies keys, agent sets up | 30 min | [accounts/stripe.md](accounts/stripe.md) |
 | 7 | Playtomic, only if the club also uses it | Owner creates keys, agent sets up | 20 min | [accounts/playtomic.md](accounts/playtomic.md) |
 | 8 | Practice with the club's own staff | Everyone | a few days | below |
@@ -51,6 +52,23 @@ removing things is done in the staff app, where the preview shows what each chan
 
 The owner then signs in to the staff app with their email address. A code arrives by email (or,
 before email is set up, appears in the server log: `journalctl -u kumi | grep '\[mail'`).
+
+### Step 5b: members
+
+Members can join by themselves: they enter their email in the members' app, get a code, and give
+their name and whether they want club news (that answer is kept as their consent). The club can
+close sign-up so only staff add people.
+
+To bring in an existing list, export it as CSV from a spreadsheet, Playtomic or the old system. It
+needs a Name column (or First name and Last name), and Email and Language if there are any:
+
+```bash
+kumi import members members.csv           # what would be added, and every line that can't be used
+kumi import members members.csv --apply   # add them
+```
+
+People already in Kumi (by email) are left as they are, and nobody is emailed: telling members
+about the app is the club's own announcement. Staff can do the same from People in the staff app.
 
 ### Step 8: practice
 
@@ -77,4 +95,5 @@ agents) and `--lang=es` (for Spanish), and none of them prompts or prints a secr
 |---|---|
 | `kumi setup plan [file]` | What setting the club up from the file would change. Changes nothing. |
 | `kumi setup apply [file]` | Makes those changes, through the same checked and audited actions the apps use. |
+| `kumi import members <file.csv> [--apply]` | Adds members from a spreadsheet; a preview unless `--apply`. Emails nobody. |
 | `kumi doctor` | Checks the database, the club, the address, email, payments, Playtomic and backups. |
