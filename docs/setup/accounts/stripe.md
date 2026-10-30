@@ -1,14 +1,16 @@
 # Card payments: Stripe
 
-**What it's for:** members pay for clinics, socials and Americanos by card (Apple Pay and Google Pay
-work too, as cards), and refunds go straight back to the card. The money goes into the club's own
+**What it's for:** members pay for clinics, socials, Americanos, courts and memberships by card
+(Apple Pay and Google Pay work too, as cards), and refunds go straight back to the card. The money goes into the club's own
 Stripe account and Stripe pays it out to the club's bank. Kumi takes no commission and never sees
 card numbers: they go from the member's browser to Stripe.
 **Who does what:** the owner creates the Stripe account and gives Stripe the business, identity
 and bank details on Stripe's own pages. Never through the agent or the chat. The agent sets Kumi up
 and runs the tests.
 **Time and cost:** 20 minutes to sign up, then Stripe checks the business, which can take a few days.
-Stripe charges its usual card fee per payment and keeps it when a payment is refunded.
+Stripe charges its usual card fee per payment and keeps it when a payment is refunded. Memberships
+renew from the card the member joined with, charged by Kumi when each period ends, so there's no
+Stripe Billing subscription and no Billing fee on top.
 **`kumi doctor` checks:** `payments`.
 
 ## Steps

@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { t, type Key, type Lang } from "@kumi/i18n";
-import { currentPolicy, freeCourts, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
+import { currentPolicy, endDay, freeCourts, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -19,16 +19,19 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     await next();
   });
 
+  const clubTz = async () => (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
   // Membership plans and who holds one (with the last few that ended).
   app.get("/staff/memberships", async (c) => {
     const counts = await planCounts(db);
     const plans = await db.selectFrom("membership_plan").selectAll().where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const members = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person", "person.id", "membership.person_id")
       .select(["membership.id", "membership.person_id", "person.display_name", "person.email", "membership_plan.name as plan", "membership.status", "membership.source", "membership.started_at",
-        "membership.current_period_end", "membership.cancel_at_period_end", "membership.ended_at", "membership.note"])
+        "membership.current_period_end", "membership.cancel_at_period_end", "membership.ended_at", "membership.end_reason", "membership.note", "membership.price_cents"])
       .where((eb) => eb.or([eb("membership.status", "in", ["active", "past_due"]), eb("membership.ended_at", ">", sql<Date>`now() - interval '30 days'`)]))
       .orderBy("membership.status").orderBy("person.display_name").limit(500).execute();
-    return c.json({ plans: plans.map((p) => ({ ...p, members: counts.get(p.id) ?? 0 })), members });
+    const tz = await clubTz();
+    return c.json({ plans: plans.map((p) => ({ ...p, members: counts.get(p.id) ?? 0 })),
+      members: members.map((m) => ({ ...m, ends_on: m.current_period_end ? endDay({ current_period_end: m.current_period_end, source: m.source }, tz) : null })) });
   });
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
@@ -153,10 +156,13 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const consent = await db.selectFrom("channel_consent").select(["channel", "purpose", "granted", "source", "at"]).distinctOn(["channel", "purpose"])
       .where("person_id", "=", id).orderBy("channel").orderBy("purpose").orderBy("at", "desc").execute();
     const membership = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-      .select(["membership.id", "membership.plan_id", "membership_plan.name", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.note"])
+      .select(["membership.id", "membership.plan_id", "membership_plan.name", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end",
+        "membership.cancel_at_period_end", "membership.price_cents", "membership.note"])
       .where("membership.person_id", "=", id).where("membership.status", "in", ["active", "past_due"]).executeTakeFirst();
     const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "sort"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
-    return c.json({ ...p, roles, places, consent, membership: membership ?? null, plans });
+    const tz = await clubTz();
+    return c.json({ ...p, roles, places, consent, plans,
+      membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null } : null });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.
   app.post("/staff/people/import-preview", async (c) => {

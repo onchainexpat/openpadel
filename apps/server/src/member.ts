@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { currentPolicy, daysAhead, freeCourts, KumiError, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -120,18 +120,33 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     return c.json(await Promise.all(rows.map(async (r) => ({ ...r, paid_cents: await paidFor(db, r.id) }))));
   });
 
-  // My membership, if I have one, and what it gives me.
+  // My membership, if I have one, and what it gives me; when it renews or runs until (a club date); and a
+  // payment to make when a renewal didn't go through.
   app.get("/my/membership", async (c) => {
     const pid = who(c);
     const m = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-      .select(["membership.id", "membership_plan.name", "membership_plan.description", "membership_plan.price_cents", "membership_plan.period", "membership_plan.days_ahead", "membership.plan_id",
-        "membership.status", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.provider_ref"])
+      .select(["membership.id", "membership_plan.name", "membership_plan.description", "membership_plan.price_cents as plan_price_cents", "membership_plan.period as plan_period", "membership_plan.days_ahead",
+        "membership.plan_id", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.price_cents",
+        "membership.period", "membership.next_attempt_at"])
       .where("membership.person_id", "=", pid).where("membership.status", "in", ["active", "past_due"]).executeTakeFirst();
     if (!m) return c.json({ membership: null });
-    const prices = await db.selectFrom("price_rule").select("id").where("active", "=", true).where(sql<boolean>`${m.plan_id} = ANY(plan_ids)`).executeTakeFirst();
-    const { provider_ref, plan_id, ...rest } = m;
-    return c.json({ membership: { ...rest, paid_in_app: Boolean(provider_ref), member_prices: Boolean(prices) } });
+    const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
+    const prices = await planPerks(m.plan_id);
+    const owed = m.status === "past_due" ? await db.selectFrom("payment").select(["id", "amount_cents"]).where("membership_id", "=", m.id).where("status", "=", "pending").executeTakeFirst() : null;
+    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, ...rest } = m;
+    return c.json({ membership: { ...rest, price_cents: m.price_cents ?? plan_price_cents, period: m.period ?? plan_period, member_prices: prices,
+      ends_on: current_period_end ? endDay({ current_period_end, source: m.source }, tz) : null, retry_on: next_attempt_at ? localDate(next_attempt_at, tz) : null,
+      pay_now: owed ? { payment_id: owed.id, cents: owed.amount_cents } : null } });
   });
+  // The plans a member can join here, with what each gives.
+  app.get("/membership-plans", async (c) => {
+    who(c);
+    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead"]).where("active", "=", true).where("join_in_app", "=", true)
+      .orderBy("sort").orderBy("price_cents").execute();
+    return c.json(await Promise.all(plans.map(async (p) => ({ ...p, member_prices: await planPerks(p.id) }))));
+  });
+  /** Whether a plan has member prices on courts. */
+  const planPerks = async (planId: string) => Boolean(await db.selectFrom("price_rule").select("id").where("active", "=", true).where(sql<boolean>`${planId} = ANY(plan_ids)`).executeTakeFirst());
 
   app.get("/my/level", async (c) => {
     const pid = who(c), l = lang(c);

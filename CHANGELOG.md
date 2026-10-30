@@ -21,8 +21,12 @@ The first version a club can run on its own (court bookings included), or for it
 
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.
-- The desk gives and ends memberships (with an end date or without); members see theirs in the app,
-  with what it gives them, and get a message when it starts and ends.
+- Members join in the app and pay by card; Kumi renews from that card each period at the price they
+  joined at, with no subscription fee at Stripe. A declined renewal is tried again twice over five
+  days while the membership carries on, and the member can pay with another card meanwhile.
+- Members cancel in the app (it runs to the end of what's paid) and can change their mind until then.
+- The desk gives and ends memberships (with an end date or without), and can stop or restart a
+  renewal. Messages for joining, renewals, declined cards, cancelling and ending.
 
 **Events, programs and money**
 - Clinics, courses, socials and Americanos with dates on courts that can't be double-booked.

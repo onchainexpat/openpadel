@@ -82,23 +82,21 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
   );
 }
 
-type Membership = { name: string; description: string | null; price_cents: number; period: string; days_ahead: number | null; status: string; started_at: string; current_period_end: string | null;
-  cancel_at_period_end: boolean; paid_in_app: boolean; member_prices: boolean };
-/** My membership and what it gives me, when I have one. */
+type Membership = { name: string; status: string; days_ahead: number | null; member_prices: boolean };
+/** My membership and what it gives me, when I have one; the rest is on its own page. */
 function MyMembership() {
   const [m, setM] = useState<Membership | null>(null);
   useEffect(() => { api<{ membership: Membership | null }>("/my/membership").then((r) => setM(r.membership)).catch(() => {}); }, []);
   if (!m) return null;
-  const day = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "long" }).format(new Date(new Date(iso).getTime() - 1));
   return (
     <section class="card">
       <h2>{t("ui.your_membership", { name: m.name })}</h2>
-      {m.description && <p>{m.description}</p>}
+      {m.status === "past_due" && <p class="note">{t("ui.renewal_declined_short")}</p>}
       <ul>
         {m.member_prices && <li>{t("ui.perk_prices")}</li>}
         {m.days_ahead && <li>{t("ui.perk_window", { count: m.days_ahead })}</li>}
       </ul>
-      {m.current_period_end && !m.paid_in_app && <p class="meta">{t("ui.membership_runs_until", { date: day(m.current_period_end) })}</p>}
+      <a href="/membership">{t("ui.see_membership")}</a>
     </section>
   );
 }

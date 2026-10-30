@@ -3,7 +3,7 @@
 # (a test checks they match).
 (kumi) {
 	encode zstd gzip
-	@api path /auth/* /me /me/* /my/* /club /actions/* /runs /runs/* /changes /changes/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /health /open-programs /payments/* /webhooks/* /manifest/* /availability /booking-options /quote /bookings/*
+	@api path /auth/* /me /me/* /my/* /club /actions /actions/* /runs /runs/* /changes /changes/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /health /open-programs /payments/* /webhooks/* /manifest/* /availability /booking-options /quote /bookings/* /membership-plans
 	handle @api {
 		reverse_proxy kumi:8790
 	}

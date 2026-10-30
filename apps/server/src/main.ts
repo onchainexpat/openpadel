@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { clubStripeAccount, combine, connect, endLapsedMemberships, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, remindBookings, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { clubStripeAccount, combine, connect, endLapsedMemberships, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, remindBookings, renewMemberships, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 
@@ -60,6 +60,8 @@ const jobs = async () => {
     if (rem.reminded) console.log(`court reminders: ${rem.reminded} bookings`);
     const ended = await endLapsedMemberships(db);
     if (ended) console.log(`memberships: ${ended} reached their end date`);
+    const mr = await renewMemberships(db);
+    if (mr.renewed || mr.failed || mr.ended) console.log(`membership renewals: ${mr.renewed} renewed, ${mr.failed} card declined (tried again later), ${mr.ended} ended`);
     const p = await reconcilePayments(db);
     if (p.settled) console.log(`payments: ${p.settled} settled by checking with the provider`);
     // While the club is still setting up its Stripe account, ask Stripe whether it's ready (a webhook says so too).

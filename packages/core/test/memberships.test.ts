@@ -82,7 +82,7 @@ test("the desk gives a membership: member prices, the longer window, one at a ti
 
 test("a membership with an end date runs out by itself; ending one early; undo", async () => {
   const g = await run(db, "membership.grant", { person_id: people.Cal, plan_id: annual, until: "2026-12-31" }, owner, opts);
-  assert.equal(g.plan.summary.en, "Give Cal the Annual membership until 31 December 2026.");
+  assert.equal(g.plan.summary.en, "Give Cal the Annual membership until December 31, 2026.");
   await rejects(plan(db, "membership.grant", { person_id: people.Dee, plan_id: annual, until: "2026-11-29" }, owner, opts), "error.in_the_past");
   const lastDay = at("2026-12-31", "22:00"), after = at("2027-01-01", "00:30");
   assert.ok(await memberPlan(db, people.Cal!, lastDay));
@@ -104,7 +104,7 @@ test("a membership with an end date runs out by itself; ending one early; undo",
   const kinds = async (who: string) => (await db.selectFrom("outbound_message").select("kind").where("person_id", "=", people[who]!).where("channel", "=", "email").orderBy("created_at").execute()).map((x) => x.kind);
   assert.deepEqual(await kinds("Cal"), ["membership_started", "membership_ended"]);
   const cal = await db.selectFrom("outbound_message").select("body").where("person_id", "=", people.Cal!).where("kind", "=", "membership_started").where("channel", "=", "email").executeTakeFirstOrThrow();
-  assert.equal(cal.body, "Your Annual membership runs from today until 31 December 2026. You get member prices on courts.");
+  assert.equal(cal.body, "Your Annual membership runs from today until December 31, 2026. You get member prices on courts.");
 });
 
 test("members can't give themselves a membership", async () => {

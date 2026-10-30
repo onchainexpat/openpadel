@@ -87,8 +87,15 @@ month or a year, and how far ahead its members can book courts when that's longe
 rule. Member prices on courts are court prices for chosen plans (Settings, Prices: tick the plans).
 Where a member price and an everyone price have the same priority, the member price wins.
 
+Members join in the app (Membership) and pay by card. Kumi renews each membership from that card when
+its month or year is up, at the price the member joined at. If the card is declined, the membership
+carries on while Kumi tries again two days later and three days after that, and the member can pay
+with another card meanwhile; after the third try it ends. Members cancel in the app, and it runs to
+the end of what they've paid. A plan with "join in the app" off is only given at the desk.
+
 The desk gives a membership on the person's page or under Memberships (a founding member, one paid
-in cash, a free one), with an end date or without. Members joining and paying in the app comes next.
+in cash, a free one), with an end date or without. Staff can also stop or restart an app
+membership's renewal, or end any membership at once (no refund is made by ending it).
 
 ### Step 8: practice
 

@@ -7,7 +7,7 @@ import type { Db, Trx } from "./db.ts";
 import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts } from "./clock.ts";
-import { dayText } from "./memberships.ts";
+import { dayText, endDay } from "./memberships.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout). */
 export interface Mail { to: string; subject: string; text: string; id?: string }
@@ -89,7 +89,7 @@ async function bookingInfo(db: Db, bookingId: string) {
 /** A membership and its plan. */
 async function membershipInfo(db: Db, membershipId: string) {
   return db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .select(["membership.person_id", "membership.plan_id", "membership.current_period_end", "membership.provider_ref", "membership_plan.name", "membership_plan.days_ahead"])
+    .select(["membership.person_id", "membership.plan_id", "membership.current_period_end", "membership.source", "membership.price_cents", "membership.end_reason", "membership_plan.name", "membership_plan.days_ahead"])
     .where("membership.id", "=", membershipId).executeTakeFirstOrThrow();
 }
 
@@ -138,14 +138,37 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "membership.started"({ db, tz }, p: { membership_id: string }) {
     const m = await membershipInfo(db, p.membership_id);
     const prices = await db.selectFrom("price_rule").select("id").where("active", "=", true).where(sql<boolean>`${m.plan_id} = ANY(plan_ids)`).executeTakeFirst();
-    const perks = [prices ? both("msg.membership_perk_prices") : null, m.days_ahead ? both("msg.membership_perk_window", { count: m.days_ahead }) : null].filter((x): x is Text => Boolean(x));
-    const until = m.current_period_end && !m.provider_ref ? both("msg.membership_until", { date: dayText(localDate(new Date(m.current_period_end.getTime() - 1), tz)) }) : NOTHING;
-    return [{ to: m.person_id, kind: "membership_started", params: { name: m.name, until, perks: { en: perks.map((x) => x.en).join(" "), es: perks.map((x) => x.es).join(" ") } },
-      purpose: "account", essential: true, email: true, link: "/places" }];
+    const app = m.source === "app" && m.current_period_end;
+    const more = [prices ? both("msg.membership_perk_prices") : null, m.days_ahead ? both("msg.membership_perk_window", { count: m.days_ahead }) : null,
+      app ? both("msg.membership_renews", { date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)), amount: amount(m.price_cents ?? 0) }) : null].filter((x): x is Text => Boolean(x));
+    const until = m.current_period_end && !app ? both("msg.membership_until", { date: dayText(endDay({ current_period_end: m.current_period_end, source: m.source }, tz)) }) : NOTHING;
+    return [{ to: m.person_id, kind: "membership_started", params: { name: m.name, until, perks: { en: more.map((x) => x.en).join(" "), es: more.map((x) => x.es).join(" ") } },
+      purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
+  async "membership.renewed"({ db, tz }, p: { membership_id: string; payment_id: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    const pay = await db.selectFrom("payment").select("amount_cents").where("id", "=", p.payment_id).executeTakeFirstOrThrow();
+    return [{ to: m.person_id, kind: "membership_renewed", params: { name: m.name, amount: amount(pay.amount_cents), date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)) },
+      purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
+  async "membership.payment_failed"({ db, tz }, p: { membership_id: string; cents: number; next_attempt_at: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    return [{ to: m.person_id, kind: "membership_payment_failed", params: { name: m.name, amount: amount(p.cents), date: dayText(localDate(new Date(p.next_attempt_at), tz)) },
+      purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
+  async "membership.cancelled"({ db, tz }, p: { membership_id: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    return [{ to: m.person_id, kind: "membership_cancelled", params: { name: m.name, date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)) },
+      purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
+  async "membership.resumed"({ db, tz }, p: { membership_id: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    return [{ to: m.person_id, kind: "membership_resumed", params: { name: m.name, amount: amount(m.price_cents ?? 0), date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)) },
+      purpose: "account", essential: true, email: true, link: "/membership" }];
   },
   async "membership.ended"({ db }, p: { membership_id: string }) {
     const m = await membershipInfo(db, p.membership_id);
-    return [{ to: m.person_id, kind: "membership_ended", params: { name: m.name }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: m.person_id, kind: m.end_reason === "not_paid" ? "membership_ended_unpaid" : "membership_ended", params: { name: m.name }, purpose: "account", essential: true, email: true, link: "/membership" }];
   },
   async "enrolment.booked"({ db, tz }, p: { enrolment_id: string }) {
     const e = await place(db, p.enrolment_id), due = await owes(db, e.id);

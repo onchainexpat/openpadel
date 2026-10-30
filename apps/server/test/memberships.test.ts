@@ -52,7 +52,11 @@ test("staff see the plans, who has one, and a member's price at the desk", async
 
 test("a member sees their membership, their price and their longer booking window", async () => {
   const m = (await get("/my/membership", "ann@example.test")).json.membership;
-  assert.deepEqual([m.name, m.description, m.days_ahead, m.member_prices, m.paid_in_app], ["Monthly", "Play more, pay less", 30, true, false]);
+  assert.deepEqual([m.name, m.description, m.days_ahead, m.member_prices, m.source, m.ends_on, m.pay_now], ["Monthly", "Play more, pay less", 30, true, "desk", null, null]);
+  // What can be joined in the app, and whether the members' app shows Membership at all.
+  const offers = (await get("/membership-plans", "ann@example.test")).json;
+  assert.deepEqual(offers.map((o: any) => [o.name, o.price_cents, o.period, o.member_prices]), [["Monthly", 8000, "month", true]]);
+  assert.equal((await get("/club", "ann@example.test")).json.memberships, true);
   assert.equal((await get("/booking-options", "ann@example.test")).json.days_ahead, 30);
   assert.equal((await get("/booking-options", "robin@example.test")).json.days_ahead, 14);
   assert.equal((await get("/my/membership", "robin@example.test")).json.membership, null);

@@ -2,14 +2,14 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, lang, t, usePreview } from "@kumi/ui";
-import { GiveMembership, planPrice, type Plan } from "./Memberships.tsx";
+import { GiveMembership, MembershipButtons, membershipLine, type Plan } from "./Memberships.tsx";
 
 type Role = { key: string; location_id: string | null; location_name: string | null };
 type P = {
   id: string; display_name: string; email: string | null; locale: string; created_via: string; created_at: string;
   roles: Role[]; places: { id: string; status: string; program_id: string; name: string; first_start: string | null }[];
   consent: { channel: string; purpose: string; granted: boolean }[];
-  membership: { id: string; name: string; status: string; source: string; started_at: string; current_period_end: string | null; note: string | null } | null;
+  membership: { id: string; name: string; status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null } | null;
   plans: (Omit<Plan, "members"> & { members?: number })[];
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;
@@ -39,10 +39,8 @@ export function Person({ id }: { id: string }) {
         <section class="card">
           <h2>{t("ui.membership")}</h2>
           <p><strong>{p.membership.name}</strong> {p.membership.status === "past_due" && <span class="badge">{t("ui.past_due")}</span>}</p>
-          <p class="meta">{[t("ui.member_since", { date: date(p.membership.started_at) }),
-            p.membership.current_period_end ? t("ui.member_until", { date: date(new Date(new Date(p.membership.current_period_end).getTime() - 1).toISOString()) }) : t("ui.no_end_date"),
-            t(`ui.membership_${p.membership.source}` as Key), p.membership.note].filter(Boolean).join(" · ")}</p>
-          <button class="small" onClick={() => preview("membership.end", { membership_id: p.membership!.id })}>{t("ui.end_membership")}</button>
+          <p class="meta">{membershipLine(p.membership)}</p>
+          <MembershipButtons m={p.membership} send={preview} />
         </section>
       ) : p.plans.length > 0 && <GiveMembership key={p.id} plans={p.plans.map((x) => ({ ...x, members: 0 }))} send={preview} person={p} />}
 
