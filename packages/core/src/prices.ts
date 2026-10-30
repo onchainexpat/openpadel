@@ -1,7 +1,7 @@
 // What a court booking costs, and the rules for booking. A quote prices each half hour by the highest-priority
-// rule covering it (in the location's time: its weekday, time of day and season), adds the club's tax, and is
-// stored with the booking: the price shown is the price paid. The booking rules come in versions, and a
-// booking keeps the version it was made under.
+// rule covering it (in the location's time: its weekday, time of day and season; a member price only for
+// members of its plans), adds the club's tax, and is stored with the booking: the price shown is the price
+// paid. The booking rules come in versions, and a booking keeps the version it was made under.
 import * as z from "zod/mini";
 import { both, money, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, readRow } from "./actions.ts";
@@ -9,20 +9,27 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, localParts } from "./clock.ts";
+import { memberPlan } from "./memberships.ts";
 
 const clockTime = z.string().check(z.regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/));
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 const HALF = 30 * 60_000;
 
 export interface QuoteLine { rule_id: string | null; name: string; from: string; to: string; cents_per_hour: number; cents: number }
-export interface Quote { lines: QuoteLine[]; subtotal_cents: number; tax_bp: number; tax_cents: number; total_cents: number; priced: boolean }
+/** `member`: the plan whose member price some part of it got. */
+export interface Quote { lines: QuoteLine[]; subtotal_cents: number; tax_bp: number; tax_cents: number; total_cents: number; priced: boolean; member: string | null }
 
-/** The price of a court from `start` for `minutes`. `priced` is false when some half hour has no rule. */
-export async function quote(db: Db | Trx, i: { courtId: string; start: Date; minutes: number }): Promise<Quote> {
+/** The price of a court from `start` for `minutes`, for `personId` (their membership at `at`) or for anyone.
+ *  `priced` is false when some half hour has no rule. */
+export async function quote(db: Db | Trx, i: { courtId: string; start: Date; minutes: number; personId?: string | null; at?: Date }): Promise<Quote> {
   const court = await db.selectFrom("court").innerJoin("location", "location.id", "court.location_id").select(["court.id", "court.location_id", "location.time_zone"])
     .where("court.id", "=", i.courtId).executeTakeFirst();
   if (!court) throw new KumiError("error.not_found", { thing: both("thing.court") }, 404);
-  const rules = await db.selectFrom("price_rule").selectAll().where("location_id", "=", court.location_id).where("active", "=", true).orderBy("priority", "desc").orderBy("id", "desc").execute();
+  const member = i.personId ? await memberPlan(db, i.personId, i.at) : null;
+  // Where priorities tie, a member price beats the price for everyone.
+  const rules = (await db.selectFrom("price_rule").selectAll().where("location_id", "=", court.location_id).where("active", "=", true).orderBy("priority", "desc").orderBy("id", "desc").execute())
+    .filter((r) => !r.plan_ids || (member && r.plan_ids.includes(member.plan_id)))
+    .sort((a, b) => b.priority - a.priority || Number(Boolean(b.plan_ids)) - Number(Boolean(a.plan_ids)));
   const club = await db.selectFrom("club").select("tax_rate_bp").executeTakeFirstOrThrow();
   const lines: QuoteLine[] = [];
   for (let s = i.start.getTime(); s < i.start.getTime() + i.minutes * 60_000; s += HALF) {
@@ -37,7 +44,8 @@ export async function quote(db: Db | Trx, i: { courtId: string; start: Date; min
   }
   for (const l of lines) l.cents = Math.round(l.cents_per_hour * (new Date(l.to).getTime() - new Date(l.from).getTime()) / 3600_000);
   const subtotal = lines.reduce((n, l) => n + l.cents, 0), tax = Math.round(subtotal * club.tax_rate_bp / 10_000);
-  return { lines, subtotal_cents: subtotal, tax_bp: club.tax_rate_bp, tax_cents: tax, total_cents: subtotal + tax, priced: lines.every((l) => l.rule_id) };
+  const memberRule = lines.some((l) => rules.find((r) => r.id === l.rule_id)?.plan_ids);
+  return { lines, subtotal_cents: subtotal, tax_bp: club.tax_rate_bp, tax_cents: tax, total_cents: subtotal + tax, priced: lines.every((l) => l.rule_id), member: memberRule ? member!.name : null };
 }
 
 /** The booking rules in force: the newest active version. */
@@ -59,10 +67,17 @@ function ruleWhen(r: { weekdays?: number[] | null; starts?: string | null; ends?
   return { en: part("en"), es: part("es") };
 }
 
+/** "Monthly or Annual", in each language. */
+function orList(names: string[]): Text {
+  const f = (lang: Lang) => new Intl.ListFormat(lang === "es" ? "es" : "en", { type: "disjunction" }).format(names);
+  return { en: f("en"), es: f("es") };
+}
+
 const ruleInput = {
   location_id: z.uuid(), name: z.string().check(z.minLength(1), z.maxLength(60)), court_ids: z.optional(z.nullable(z.array(z.uuid()))),
   weekdays: z.optional(z.nullable(z.array(z.number().check(z.int(), z.minimum(0), z.maximum(6))))), starts: z.optional(z.nullable(clockTime)), ends: z.optional(z.nullable(clockTime)),
   valid_from: z.optional(z.nullable(clubDate)), valid_to: z.optional(z.nullable(clubDate)), cents_per_hour: z.number().check(z.int(), z.minimum(0)), priority: z.optional(z.number().check(z.int())),
+  plan_ids: z.optional(z.nullable(z.array(z.uuid()))),   // a member price: only for these membership plans
 };
 export const priceRuleSet = defineAction({
   name: "price.rule_set", version: 1,
@@ -71,13 +86,15 @@ export const priceRuleSet = defineAction({
     const { row: loc } = await readRow(ctx.db, "location", i.location_id, "thing.location");
     if (Boolean(i.starts) !== Boolean(i.ends) || (i.starts && i.ends! <= i.starts)) throw new KumiError("error.bad_hours");
     const reads = i.rule_id ? [(await readRow(ctx.db, "price_rule", i.rule_id, "thing.price_rule")).read] : [];
-    return { title: both("action.price.rule_set"), summary: both("plan.price.rule_set", { name: i.name, location: loc.name, amount: usd(i.cents_per_hour), when: ruleWhen(i) }),
-      reads, locationId: i.location_id, undo: { kind: "reversible" } };
+    const plans = i.plan_ids?.length ? await ctx.db.selectFrom("membership_plan").select("name").where("id", "in", i.plan_ids).orderBy("sort").orderBy("name").execute() : [];
+    if (plans.length !== (i.plan_ids?.length ?? 0)) throw new KumiError("error.not_found", { thing: both("thing.membership_plan") }, 404);
+    const p = { name: i.name, location: loc.name, amount: usd(i.cents_per_hour), when: ruleWhen(i), plans: orList(plans.map((x) => x.name)) };
+    return { title: both("action.price.rule_set"), summary: both(plans.length ? "plan.price.rule_set_members" : "plan.price.rule_set", p), reads, locationId: i.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const { rule_id, ...r } = i;
     const row = { ...r, court_ids: r.court_ids?.length ? r.court_ids : null, weekdays: r.weekdays?.length && r.weekdays.length < 7 ? r.weekdays : null,
-      starts: r.starts ?? null, ends: r.ends ?? null, valid_from: r.valid_from ?? null, valid_to: r.valid_to ?? null, priority: r.priority ?? 0 };
+      starts: r.starts ?? null, ends: r.ends ?? null, valid_from: r.valid_from ?? null, valid_to: r.valid_to ?? null, priority: r.priority ?? 0, plan_ids: r.plan_ids?.length ? r.plan_ids : null };
     if (rule_id) { await ctx.update("price_rule", rule_id, row); return { rule_id }; }
     const id = uuidv7();
     await ctx.insert("price_rule", { id, ...row });

@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { currentPolicy, freeCourts, KumiError, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { currentPolicy, daysAhead, freeCourts, KumiError, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -51,16 +51,16 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   // ---- Court bookings ----
   // What the booking screen needs: where, which lengths, how far ahead, and when sharing the cost must be set up.
   app.get("/booking-options", async (c) => {
-    who(c);
+    const pid = who(c);
     const p = await currentPolicy(db);
     const locations = await db.selectFrom("location").select(["id", "name", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
-    return c.json({ locations, lengths: p.lengths, days_ahead: p.days_ahead, split_deadline_hours: p.split_deadline_hours, free_cancel_hours: p.free_cancel_hours, late_refund_percent: p.late_refund_percent });
+    return c.json({ locations, lengths: p.lengths, days_ahead: await daysAhead(db, pid), split_deadline_hours: p.split_deadline_hours, free_cancel_hours: p.free_cancel_hours, late_refund_percent: p.late_refund_percent });
   });
   app.get("/quote", async (c) => {
-    who(c);
+    const pid = who(c);
     const start = new Date(c.req.query("starts_at") ?? ""), minutes = Number(c.req.query("minutes") ?? 0);
     if (isNaN(start.getTime()) || !Number.isInteger(minutes) || minutes < 30 || minutes > 480) throw new KumiError("error.invalid_input", { details: "court_id, starts_at and minutes" }, 400);
-    return c.json(await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes }));
+    return c.json(await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes, personId: pid }));
   });
   // My bookings, as organiser or player: the court and time, what I owe or paid, and the link to share.
   app.get("/my/bookings", async (c) => {
@@ -118,6 +118,19 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
         eb.selectFrom("payment").select("id").whereRef("payment.enrolment_id", "=", "enrolment.id").where("status", "=", "pending").limit(1).as("pending_payment_id")])
       .where("enrolment.person_id", "=", pid).where("enrolment.status", "in", ["booked", "waitlisted"]).execute();
     return c.json(await Promise.all(rows.map(async (r) => ({ ...r, paid_cents: await paidFor(db, r.id) }))));
+  });
+
+  // My membership, if I have one, and what it gives me.
+  app.get("/my/membership", async (c) => {
+    const pid = who(c);
+    const m = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
+      .select(["membership.id", "membership_plan.name", "membership_plan.description", "membership_plan.price_cents", "membership_plan.period", "membership_plan.days_ahead", "membership.plan_id",
+        "membership.status", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.provider_ref"])
+      .where("membership.person_id", "=", pid).where("membership.status", "in", ["active", "past_due"]).executeTakeFirst();
+    if (!m) return c.json({ membership: null });
+    const prices = await db.selectFrom("price_rule").select("id").where("active", "=", true).where(sql<boolean>`${m.plan_id} = ANY(plan_ids)`).executeTakeFirst();
+    const { provider_ref, plan_id, ...rest } = m;
+    return c.json({ membership: { ...rest, paid_in_app: Boolean(provider_ref), member_prices: Boolean(prices) } });
   });
 
   app.get("/my/level", async (c) => {

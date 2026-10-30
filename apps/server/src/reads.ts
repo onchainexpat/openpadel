@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { t, type Key, type Lang } from "@kumi/i18n";
-import { currentPolicy, freeCourts, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, quote, shownOdds, standings, type Db } from "@kumi/core";
+import { currentPolicy, freeCourts, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -19,11 +19,23 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     await next();
   });
 
+  // Membership plans and who holds one (with the last few that ended).
+  app.get("/staff/memberships", async (c) => {
+    const counts = await planCounts(db);
+    const plans = await db.selectFrom("membership_plan").selectAll().where("active", "=", true).orderBy("sort").orderBy("name").execute();
+    const members = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person", "person.id", "membership.person_id")
+      .select(["membership.id", "membership.person_id", "person.display_name", "person.email", "membership_plan.name as plan", "membership.status", "membership.source", "membership.started_at",
+        "membership.current_period_end", "membership.cancel_at_period_end", "membership.ended_at", "membership.note"])
+      .where((eb) => eb.or([eb("membership.status", "in", ["active", "past_due"]), eb("membership.ended_at", ">", sql<Date>`now() - interval '30 days'`)]))
+      .orderBy("membership.status").orderBy("person.display_name").limit(500).execute();
+    return c.json({ plans: plans.map((p) => ({ ...p, members: counts.get(p.id) ?? 0 })), members });
+  });
+
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
     const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp"]).executeTakeFirstOrThrow();
     const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
-    const policy = await currentPolicy(db);
+    const policy = await currentPolicy(db), plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
     const courts = await db.selectFrom("court").select(["id", "location_id", "name", "kind", "bookable", "sort"]).where("archived_at", "is", null).orderBy("sort").orderBy("name").execute();
     const hours = await db.selectFrom("opening_hours").select(["location_id", "weekday", "opens", "closes"]).execute();
@@ -31,7 +43,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const special = await db.selectFrom("hours_exception").select(["id", "location_id", "on_date", "opens", "closes", "note"]).where("active", "=", true)
       .where("on_date", ">=", today).orderBy("on_date").execute();
     const t5 = (x: string | null) => (x ? x.slice(0, 5) : null);
-    return c.json({ club, policy, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id),
+    return c.json({ club, policy, plans, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id),
       prices: rules.filter((r) => r.location_id === l.id).map((r) => ({ ...r, starts: t5(r.starts), ends: t5(r.ends) })),
       hours: [0, 1, 2, 3, 4, 5, 6].map((w) => { const h = hours.find((x) => x.location_id === l.id && x.weekday === w); return { weekday: w, opens: t5(h?.opens ?? null), closes: t5(h?.closes ?? null) }; }),
       special_days: special.filter((x) => x.location_id === l.id).map((x) => ({ ...x, opens: t5(x.opens), closes: t5(x.closes) })) })) });
@@ -75,11 +87,12 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });
 
-  // What a court would cost: for the desk's booking form.
+  // What a court would cost: for the desk's booking form, with the member's price when it's for a member.
   app.get("/staff/quote", async (c) => {
-    const start = new Date(c.req.query("starts_at") ?? ""), minutes = Number(c.req.query("minutes") ?? 0);
+    const start = new Date(c.req.query("starts_at") ?? ""), minutes = Number(c.req.query("minutes") ?? 0), personId = c.req.query("person_id");
     if (isNaN(start.getTime()) || !Number.isInteger(minutes) || minutes < 30 || minutes > 480) throw new KumiError("error.invalid_input", { details: "court_id, starts_at and minutes" }, 400);
-    return c.json(await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes }));
+    if (personId && !/^[0-9a-f-]{36}$/.test(personId)) throw new KumiError("error.invalid_input", { details: "person_id" }, 400);
+    return c.json(await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes, personId: personId || null }));
   });
 
   // One location's courts on one day: what holds each court, in order, and when it's open.
@@ -139,7 +152,11 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // The latest answer for each kind of message: consent is append-only.
     const consent = await db.selectFrom("channel_consent").select(["channel", "purpose", "granted", "source", "at"]).distinctOn(["channel", "purpose"])
       .where("person_id", "=", id).orderBy("channel").orderBy("purpose").orderBy("at", "desc").execute();
-    return c.json({ ...p, roles, places, consent });
+    const membership = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
+      .select(["membership.id", "membership.plan_id", "membership_plan.name", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.note"])
+      .where("membership.person_id", "=", id).where("membership.status", "in", ["active", "past_due"]).executeTakeFirst();
+    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "sort"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
+    return c.json({ ...p, roles, places, consent, membership: membership ?? null, plans });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.
   app.post("/staff/people/import-preview", async (c) => {

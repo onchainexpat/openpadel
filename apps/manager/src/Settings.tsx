@@ -7,11 +7,12 @@ import { api, club as clubSignal, lang, t, usePreview, type Club } from "@kumi/u
 type Court = { id: string; location_id: string; name: string; kind: string; bookable: boolean; sort: number };
 type Hours = { weekday: number; opens: string | null; closes: string | null };
 type Special = { id: string; on_date: string; opens: string | null; closes: string | null; note: string | null };
-type Price = { id: string; name: string; court_ids: string[] | null; weekdays: number[] | null; starts: string | null; ends: string | null; valid_from: string | null; valid_to: string | null; cents_per_hour: number; priority: number };
+type Price = { id: string; name: string; court_ids: string[] | null; weekdays: number[] | null; starts: string | null; ends: string | null; valid_from: string | null; valid_to: string | null; cents_per_hour: number; priority: number; plan_ids: string[] | null };
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; lengths: number[] };
 type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number };
-type S = { club: ClubRow; policy: Policy; locations: Loc[] };
+type Plan = { id: string; name: string };
+type S = { club: ClubRow; policy: Policy; plans: Plan[]; locations: Loc[] };
 type Preview = (action: string, input: unknown) => Promise<void>;
 
 const KINDS = ["indoor", "covered_outdoor", "outdoor"] as const;
@@ -42,7 +43,7 @@ export function Settings() {
       <h1>{t("ui.settings_title")}</h1>
       <ClubForm key={JSON.stringify(s.club)} c={s.club} send={send} />
       <BookingRules key={JSON.stringify(s.policy)} p={s.policy} send={send} />
-      {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} send={send} />)}
+      {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} plans={s.plans} send={send} />)}
       <NewLocation tz={s.club.time_zone} send={send} />
       {note && <p class="note" role="status">{note}</p>}
       {sheet}
@@ -77,7 +78,7 @@ function ClubForm({ c, send }: { c: ClubRow; send: Preview }) {
   );
 }
 
-function LocationCard({ l, send }: { l: Loc; send: Preview }) {
+function LocationCard({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
   const start = { name: l.name, address: l.address ?? "", time_zone: l.time_zone };
   const [f, setF] = useState(start), [court, setCourt] = useState({ name: "", kind: "indoor" });
   return (
@@ -97,7 +98,7 @@ function LocationCard({ l, send }: { l: Loc; send: Preview }) {
         <button>{t("ui.preview")}</button>
       </form>
       <OpeningHours l={l} send={send} />
-      <Prices l={l} send={send} />
+      <Prices l={l} plans={plans} send={send} />
     </section>
   );
 }
@@ -145,13 +146,14 @@ function OpeningHours({ l, send }: { l: Loc; send: Preview }) {
 const ALL_DAYS = [1, 2, 3, 4, 5, 6, 0];
 const usd = (cents: number) => new Intl.NumberFormat(lang.value === "es" ? "es-US" : "en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
-function Prices({ l, send }: { l: Loc; send: Preview }) {
-  const blank = { rule_id: "", name: "", dollars: "", days: [] as number[], allDay: true, starts: "17:00", ends: "22:00", valid_from: "", valid_to: "", courts: [] as string[], priority: 0 };
+function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
+  const blank = { rule_id: "", name: "", dollars: "", days: [] as number[], allDay: true, starts: "17:00", ends: "22:00", valid_from: "", valid_to: "", courts: [] as string[], priority: 0, plans: [] as string[] };
   const [f, setF] = useState(blank);
   const edit = (r: Price) => setF({ rule_id: r.id, name: r.name, dollars: String(r.cents_per_hour / 100), days: r.weekdays ?? [], allDay: !r.starts, starts: r.starts ?? "17:00", ends: r.ends ?? "22:00",
-    valid_from: r.valid_from ?? "", valid_to: r.valid_to ?? "", courts: r.court_ids ?? [], priority: r.priority });
+    valid_from: r.valid_from ?? "", valid_to: r.valid_to ?? "", courts: r.court_ids ?? [], priority: r.priority, plans: r.plan_ids ?? [] });
   const describe = (r: Price) => [r.weekdays?.length ? r.weekdays.map(dayName).join(", ") : t("ui.every_day"), r.starts && `${r.starts} - ${r.ends}`,
-    (r.valid_from || r.valid_to) && `${r.valid_from ?? ""} - ${r.valid_to ?? ""}`, r.court_ids && l.courts.filter((c) => r.court_ids!.includes(c.id)).map((c) => c.name).join(", ")].filter(Boolean).join(" · ");
+    (r.valid_from || r.valid_to) && `${r.valid_from ?? ""} - ${r.valid_to ?? ""}`, r.court_ids && l.courts.filter((c) => r.court_ids!.includes(c.id)).map((c) => c.name).join(", "),
+    r.plan_ids && t("ui.members_of", { plans: plans.filter((p) => r.plan_ids!.includes(p.id)).map((p) => p.name).join(", ") })].filter(Boolean).join(" · ");
   const toggle = (list: (number | string)[], v: number | string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   return (
     <>
@@ -162,7 +164,7 @@ function Prices({ l, send }: { l: Loc; send: Preview }) {
           <span><button type="button" class="small" onClick={() => edit(r)}>{t("ui.change")}</button> <button type="button" class="small" onClick={() => send("price.rule_remove", { rule_id: r.id })}>{t("ui.remove")}</button></span></li>))}</ul>
       <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("price.rule_set", { ...(f.rule_id ? { rule_id: f.rule_id } : {}), location_id: l.id, name: f.name,
         cents_per_hour: Math.round(Number(f.dollars.replace(",", ".")) * 100), weekdays: f.days.length ? f.days : null, starts: f.allDay ? null : f.starts, ends: f.allDay ? null : closing(f.ends),
-        valid_from: f.valid_from || null, valid_to: f.valid_to || null, court_ids: f.courts.length ? f.courts : null, priority: Number(f.priority) }); }}>
+        valid_from: f.valid_from || null, valid_to: f.valid_to || null, court_ids: f.courts.length ? f.courts : null, priority: Number(f.priority), plan_ids: f.plans.length ? f.plans : null }); }}>
         <label>{f.rule_id ? t("ui.change_price") : t("ui.add_price")}<input required placeholder={t("ui.price_name_hint")} value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
         <label>{t("ui.dollars_per_hour")}<input required inputMode="decimal" value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
         <fieldset><legend>{t("ui.days_none_all")}</legend>{ALL_DAYS.map((w) => <label class="check inline"><input type="checkbox" checked={f.days.includes(w)} onChange={() => setF({ ...f, days: toggle(f.days, w) as number[] })} /> {dayName(w)}</label>)}</fieldset>
@@ -172,6 +174,7 @@ function Prices({ l, send }: { l: Loc; send: Preview }) {
         <div class="court-row"><label>{t("ui.season_from")}<input type="date" value={f.valid_from} onInput={(e) => setF({ ...f, valid_from: e.currentTarget.value })} /></label>
           <label>{t("ui.season_to")}<input type="date" value={f.valid_to} onInput={(e) => setF({ ...f, valid_to: e.currentTarget.value })} /></label></div>
         {l.courts.length > 1 && <fieldset><legend>{t("ui.courts_none_all")}</legend>{l.courts.map((c) => <label class="check inline"><input type="checkbox" checked={f.courts.includes(c.id)} onChange={() => setF({ ...f, courts: toggle(f.courts, c.id) as string[] })} /> {c.name}</label>)}</fieldset>}
+        {plans.length > 0 && <fieldset><legend>{t("ui.plans_none_all")}</legend>{plans.map((p) => <label class="check inline"><input type="checkbox" checked={f.plans.includes(p.id)} onChange={() => setF({ ...f, plans: toggle(f.plans, p.id) as string[] })} /> {p.name}</label>)}</fieldset>}
         <label>{t("ui.priority_hint")}<input type="number" min={0} max={99} value={f.priority} onInput={(e) => setF({ ...f, priority: Number(e.currentTarget.value) })} /></label>
         <button>{t("ui.preview")}</button> {f.rule_id && <button type="button" class="link" onClick={() => setF(blank)}>{t("ui.cancel")}</button>}
       </form>

@@ -172,7 +172,7 @@ test("a failed send is tried again later, then given up", async () => {
 test("every message has both languages and no em dashes", () => {
   for (const k of Object.keys(en).filter((k) => k.startsWith("msg."))) {
     assert.ok(k in es, k);
-    for (const v of [en[k as keyof typeof en], es[k as keyof typeof es]]) assert.ok(typeof v === "string" && !v.includes("—"), k);
+    for (const v of [en[k as keyof typeof en], es[k as keyof typeof es]]) assert.ok((typeof v === "string" ? [v] : Object.values(v)).every((x) => !x.includes("—")), k);
   }
 });
 

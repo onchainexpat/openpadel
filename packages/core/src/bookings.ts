@@ -217,7 +217,7 @@ export const bookingCreate = defineAction({
     const start = new Date(i.starts_at), { court, tz } = await checkSlot(ctx, i.court_id, start, i.minutes);
     const who = i.person_id ? (await readRow(ctx.db, "person", i.person_id, "thing.person")).row.display_name : i.guest_name!;
     // The quote's price unless the desk says otherwise (a promotion, a regular's rate).
-    const q = await quote(ctx.db, { courtId: i.court_id, start, minutes: i.minutes }), price = i.price_cents ?? q.total_cents;
+    const q = await quote(ctx.db, { courtId: i.court_id, start, minutes: i.minutes, personId: i.person_id, at: ctx.now }), price = i.price_cents ?? q.total_cents;
     const amount = { en: money(price, "en"), es: money(price, "es") };
     return { title: both("action.booking.create"), summary: both("plan.booking.create_priced", { court: court.name, when: when(start, tz), minutes: i.minutes, who, amount }),
       reads: [], locationId: court.location_id, ownerIds: i.person_id ? [i.person_id] : [], moneyCents: price, undo: { kind: "reversible" } };
@@ -227,7 +227,7 @@ export const bookingCreate = defineAction({
     await lockCourts(ctx, [i.court_id]);
     const court = await ctx.trx.selectFrom("court").select("location_id").where("id", "=", i.court_id).executeTakeFirstOrThrow();
     const club = await ctx.trx.selectFrom("club").select("name").executeTakeFirstOrThrow();
-    const q = await quote(ctx.trx, { courtId: i.court_id, start, minutes: i.minutes }), policy = await currentPolicy(ctx.trx);
+    const q = await quote(ctx.trx, { courtId: i.court_id, start, minutes: i.minutes, personId: i.person_id, at: ctx.now }), policy = await currentPolicy(ctx.trx);
     const price = i.price_cents ?? q.total_cents, tax = i.price_cents === undefined ? q.tax_cents : Math.round(price * q.tax_bp / (10_000 + q.tax_bp));
     const id = uuidv7(), code = await newCode(ctx.trx, club.name);
     await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id ?? null, status: "confirmed", source: "desk", price_cents: price, tax_cents: tax,

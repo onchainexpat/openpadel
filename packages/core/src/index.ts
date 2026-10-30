@@ -9,6 +9,7 @@ export * from "./programs.ts";
 export * from "./bookings.ts";
 export * from "./prices.ts";
 export * from "./booking_pay.ts";
+export * from "./memberships.ts";
 export * from "./money.ts";
 export * from "./outbox.ts";
 export * from "./messages.ts";

@@ -14,6 +14,7 @@ import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { occupied, openingOn } from "./bookings.ts";
 import { currentPolicy, quote } from "./prices.ts";
+import { memberPlan } from "./memberships.ts";
 
 /** How long a court is held while the organiser pays. */
 export const HOLD_MINUTES = 10;
@@ -26,6 +27,12 @@ const code4 = () => Array.from({ length: 4 }, () => CODE_LETTERS[Math.floor(Math
 export function shares(total: number, players: number): { organiser: number; each: number } {
   const each = Math.floor(total / players);
   return { organiser: total - each * (players - 1), each };
+}
+
+/** How far ahead a person can book: the club's rule, or their membership's when it's longer. */
+export async function daysAhead(db: Db | Trx, personId: string, now = new Date()): Promise<number> {
+  const policy = await currentPolicy(db), member = await memberPlan(db, personId, now);
+  return Math.max(policy.days_ahead, member?.days_ahead ?? 0);
 }
 
 async function courtAndPlace(db: Db | Trx, courtId: string) {
@@ -46,14 +53,15 @@ export const bookingRequest = defineAction({
     if (!policy.lengths.includes(i.minutes)) throw new KumiError("error.length_not_offered", { lengths: policy.lengths.join(", ") });
     if (!court.bookable) throw new KumiError("error.court_not_bookable", { court: court.name });
     if (start <= ctx.now) throw new KumiError("error.in_the_past");
-    if (start.getTime() > ctx.now.getTime() + policy.days_ahead * 86400_000) throw new KumiError("error.too_far_ahead", { count: policy.days_ahead });
+    const ahead = await daysAhead(ctx.db, i.person_id, ctx.now);
+    if (start.getTime() > ctx.now.getTime() + ahead * 86400_000) throw new KumiError("error.too_far_ahead", { count: ahead });
     const day = new Intl.DateTimeFormat("en-CA", { timeZone: court.time_zone }).format(start), open = await openingOn(ctx.db, court.location_id, day);
     if (!open || start < open.opens || end > open.closes) throw new KumiError("error.closed_then", { court: court.name, when: when(start, court.time_zone) });
     if ((await occupied(ctx.db, [i.court_id], start, end, ctx.now)).length) throw new KumiError("error.court_taken");
     const upcoming = await ctx.db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").select((eb) => eb.fn.count<string>("booking.id").distinct().as("n"))
       .where("booking.organiser_id", "=", i.person_id).where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true).where(sql<boolean>`upper(court_time.during) > ${ctx.now}`).executeTakeFirstOrThrow();
     if (Number(upcoming.n) >= policy.max_active) throw new KumiError("error.too_many_bookings", { count: policy.max_active });
-    const q = await quote(ctx.db, { courtId: i.court_id, start, minutes: i.minutes });
+    const q = await quote(ctx.db, { courtId: i.court_id, start, minutes: i.minutes, personId: i.person_id, at: ctx.now });
     if (!q.priced) throw new KumiError("error.no_price");
     if (i.pay === "split" && start.getTime() - ctx.now.getTime() <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
     const players = i.players ?? 4, s = shares(q.total_cents, players);

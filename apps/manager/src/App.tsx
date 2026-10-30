@@ -13,6 +13,7 @@ import { Person } from "./Person.tsx";
 import { Settings } from "./Settings.tsx";
 import { Courts } from "./Courts.tsx";
 import { Reports } from "./Reports.tsx";
+import { Memberships } from "./Memberships.tsx";
 
 export function App() {
   useEffect(() => {
@@ -34,7 +35,7 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav><a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/courts">{t("ui.courts")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink /><a href="/">{t("ui.nav_changes")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav><a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/memberships">{t("ui.nav_memberships")}</a><a href="/courts">{t("ui.courts")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink /><a href="/">{t("ui.nav_changes")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
         <Route path="/" component={Changes} />
@@ -51,6 +52,7 @@ export function App() {
         <Route path="/settings" component={Settings} />
         <Route path="/courts" component={Courts} />
         <Route path="/reports" component={Reports} />
+        <Route path="/memberships" component={Memberships} />
       </Router>
     </LocationProvider>
   );

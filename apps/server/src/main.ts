@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { clubStripeAccount, combine, connect, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, remindBookings, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { clubStripeAccount, combine, connect, endLapsedMemberships, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, remindBookings, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 
@@ -58,6 +58,8 @@ const jobs = async () => {
     if (sh.settled) console.log(`shared bookings: ${sh.settled} settled at their deadline, ${sh.charged} charged to the organiser, ${sh.failed} left owing`);
     const rem = await remindBookings(db);
     if (rem.reminded) console.log(`court reminders: ${rem.reminded} bookings`);
+    const ended = await endLapsedMemberships(db);
+    if (ended) console.log(`memberships: ${ended} reached their end date`);
     const p = await reconcilePayments(db);
     if (p.settled) console.log(`payments: ${p.settled} settled by checking with the provider`);
     // While the club is still setting up its Stripe account, ask Stripe whether it's ready (a webhook says so too).

@@ -31,6 +31,8 @@ take a few days.
 | 4 | Describe the club in `club.yaml`, preview, apply | Agent, owner approves the plan | 20 min | below |
 | 5 | Email from the club's domain | Owner signs up, agent sets up | 30 min | [accounts/resend.md](accounts/resend.md) |
 | 5b | Bring in the existing members (optional) | Owner exports a spreadsheet, agent imports | 15 min | below |
+| 5c | Courts, prices and booking rules | Owner decides, staff app | 20 min | below |
+| 5d | Membership plans (optional) | Owner decides, staff app | 10 min | below |
 | 6 | Card payments, in test mode first | Owner copies keys, agent sets up | 30 min | [accounts/stripe.md](accounts/stripe.md) |
 | 7 | Playtomic, only if the club also uses it | Owner creates keys, agent sets up | 20 min | [accounts/playtomic.md](accounts/playtomic.md) |
 | 8 | Practice with the club's own staff | Everyone | a few days | below |
@@ -77,6 +79,16 @@ In the staff app's Settings: each location's opening hours and special days, cou
 time and season), the sales tax rate, and the booking rules (how far ahead, how many at once, the
 cancellation window, when unpaid shares are charged). Members only book courts in the app once
 "Members book courts in the app" is on; leave it off while the club books courts in Playtomic.
+
+### Step 5d: memberships (optional)
+
+If the club sells memberships, add its plans under Memberships in the staff app: a name, the price a
+month or a year, and how far ahead its members can book courts when that's longer than the club's
+rule. Member prices on courts are court prices for chosen plans (Settings, Prices: tick the plans).
+Where a member price and an everyone price have the same priority, the member price wins.
+
+The desk gives a membership on the person's page or under Memberships (a founding member, one paid
+in cash, a free one), with an end date or without. Members joining and paying in the app comes next.
 
 ### Step 8: practice
 

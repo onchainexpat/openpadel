@@ -19,6 +19,11 @@ The first version a club can run on its own (court bookings included), or for it
 - Messages for confirmations, shares paid, cancellations, money owed, and a reminder before playing.
 - Occupancy and revenue by day, with a CSV export.
 
+**Memberships**
+- Plans by the month or the year, with member prices on courts and a longer booking window.
+- The desk gives and ends memberships (with an end date or without); members see theirs in the app,
+  with what it gives them, and get a message when it starts and ends.
+
 **Events, programs and money**
 - Clinics, courses, socials and Americanos with dates on courts that can't be double-booked.
 - Sign-up and pay by card (Stripe; Apple Pay and Google Pay as cards), with waitlists. A place that

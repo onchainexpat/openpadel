@@ -84,8 +84,10 @@ function DeskBooking({ court, starts, clock, preview, onClose }: { court: Court;
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string; email: string | null }[]>([]);
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
   // What the club's prices say it costs, as the start and length change; the desk can type another price.
-  const [quoted, setQuoted] = useState<{ total_cents: number; tax_cents: number; priced: boolean } | null>(null);
-  useEffect(() => { if (f.start) api<{ total_cents: number; tax_cents: number; priced: boolean }>(`/staff/quote?court_id=${court.id}&starts_at=${encodeURIComponent(f.start)}&minutes=${f.minutes}`).then(setQuoted).catch(() => setQuoted(null)); }, [f.start, f.minutes]);
+  // A member's price when it's for a member.
+  type Quoted = { total_cents: number; tax_cents: number; priced: boolean; member: string | null };
+  const [quoted, setQuoted] = useState<Quoted | null>(null);
+  useEffect(() => { if (f.start) api<Quoted>(`/staff/quote?court_id=${court.id}&starts_at=${encodeURIComponent(f.start)}&minutes=${f.minutes}${person ? `&person_id=${person.id}` : ""}`).then(setQuoted).catch(() => setQuoted(null)); }, [f.start, f.minutes, person?.id]);
   const submit = (e: Event) => {
     e.preventDefault();
     preview("booking.create", { court_id: court.id, starts_at: f.start, minutes: Number(f.minutes), ...(person ? { person_id: person.id } : { guest_name: f.guest }),
@@ -101,7 +103,7 @@ function DeskBooking({ court, starts, clock, preview, onClose }: { court: Court;
         {found.length > 0 && <ul class="plain">{found.slice(0, 6).map((p) => <li class="row"><span>{p.display_name}</span><button type="button" class="small" onClick={() => { setPerson(p); setFound([]); setQ(""); }}>{t("ui.choose")}</button></li>)}</ul>}
         <label>{t("ui.or_guest_name")}<input value={f.guest} onInput={(e) => setF({ ...f, guest: e.currentTarget.value })} /></label>
       </>}
-      {quoted && <p class="meta">{quoted.priced ? t("ui.quoted_price", { amount: dollars(quoted.total_cents, lang.value) }) : t("ui.no_price_then")}</p>}
+      {quoted && <p class="meta">{quoted.priced ? t("ui.quoted_price", { amount: dollars(quoted.total_cents, lang.value) }) : t("ui.no_price_then")}{quoted.member ? ` · ${t("ui.member_price", { plan: quoted.member })}` : ""}</p>}
       <label>{t("ui.price_override")}<input inputMode="decimal" value={f.price} placeholder={quoted ? dollars(quoted.total_cents, lang.value) : ""} onInput={(e) => setF({ ...f, price: e.currentTarget.value })} /></label>
       <button class="primary" disabled={!f.start || (!person && !f.guest.trim())}>{t("ui.preview")}</button>
       <button type="button" class="link" onClick={onClose}>{t("ui.cancel")}</button>

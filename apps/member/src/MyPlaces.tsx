@@ -24,6 +24,7 @@ export function MyPlaces() {
       {sheet}
       {paid && <p class="note" role="status">{t("ui.pay_done")}</p>}
       {paying && <PaySheet paymentId={paying.pending_payment_id!} amountCents={paying.price_cents} name={paying.name} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); setPaid(true); load(); }} />}
+      <MyMembership />
       <MyBookings provider={provider} ready={ready} onPaid={() => setPaid(true)} />
       {rows?.length === 0 && <p>{t("ui.no_places")}</p>}
       <ul class="changes">{(rows ?? []).map((p) => (
@@ -77,6 +78,27 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
           {b.mine && b.status === "confirmed" && <>{" "}<button class="small" onClick={() => preview("booking.cancel", { booking_id: b.id })}>{t("ui.cancel_booking_member")}</button></>}
         </li>
       ))}</ul>
+    </section>
+  );
+}
+
+type Membership = { name: string; description: string | null; price_cents: number; period: string; days_ahead: number | null; status: string; started_at: string; current_period_end: string | null;
+  cancel_at_period_end: boolean; paid_in_app: boolean; member_prices: boolean };
+/** My membership and what it gives me, when I have one. */
+function MyMembership() {
+  const [m, setM] = useState<Membership | null>(null);
+  useEffect(() => { api<{ membership: Membership | null }>("/my/membership").then((r) => setM(r.membership)).catch(() => {}); }, []);
+  if (!m) return null;
+  const day = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "long" }).format(new Date(new Date(iso).getTime() - 1));
+  return (
+    <section class="card">
+      <h2>{t("ui.your_membership", { name: m.name })}</h2>
+      {m.description && <p>{m.description}</p>}
+      <ul>
+        {m.member_prices && <li>{t("ui.perk_prices")}</li>}
+        {m.days_ahead && <li>{t("ui.perk_window", { count: m.days_ahead })}</li>}
+      </ul>
+      {m.current_period_end && !m.paid_in_app && <p class="meta">{t("ui.membership_runs_until", { date: day(m.current_period_end) })}</p>}
     </section>
   );
 }
