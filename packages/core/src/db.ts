@@ -1,5 +1,8 @@
 import { Kysely, PostgresDialect, sql, type Generated, type Transaction } from "kysely";
 import pg from "pg";
+// A club date ("2026-12-25") stays a string: as a JavaScript Date it would be midnight in the server's
+// time zone, which isn't the club's, and could print as the day before.
+pg.types.setTypeParser(1082, (v: string) => v);
 import { readdirSync, readFileSync } from "node:fs";
 
 type Json = unknown;

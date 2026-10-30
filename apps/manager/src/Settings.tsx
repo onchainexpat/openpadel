@@ -2,10 +2,12 @@
 // and courts. Every change goes through the preview, like everything else; only what changed is sent.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, club as clubSignal, t, usePreview, type Club } from "@kumi/ui";
+import { api, club as clubSignal, lang, t, usePreview, type Club } from "@kumi/ui";
 
 type Court = { id: string; location_id: string; name: string; kind: string; bookable: boolean; sort: number };
-type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[] };
+type Hours = { weekday: number; opens: string | null; closes: string | null };
+type Special = { id: string; on_date: string; opens: string | null; closes: string | null; note: string | null };
+type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[] };
 type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean };
 type S = { club: ClubRow; locations: Loc[] };
 type Preview = (action: string, input: unknown) => Promise<void>;
@@ -89,7 +91,48 @@ function LocationCard({ l, send }: { l: Loc; send: Preview }) {
         <select value={court.kind} onChange={(e) => setCourt({ ...court, kind: e.currentTarget.value })}>{KINDS.map((k) => <option value={k}>{t(`ui.kind_${k}` as Key)}</option>)}</select>
         <button>{t("ui.preview")}</button>
       </form>
+      <OpeningHours l={l} send={send} />
     </section>
+  );
+}
+
+const ORDER = [1, 2, 3, 4, 5, 6, 0];
+const dayName = (w: number) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
+/** A phone's time picker can't show 24:00, so closing at 00:00 means midnight at the end of the day. */
+const closing = (v: string) => (v === "00:00" ? "24:00" : v);
+
+function OpeningHours({ l, send }: { l: Loc; send: Preview }) {
+  const [days, setDays] = useState(l.hours.map((h) => ({ ...h, closes: h.closes === "24:00" ? "00:00" : h.closes })));
+  const [sp, setSp] = useState({ date: "", closed: true, opens: "09:00", closes: "14:00", note: "" });
+  const set = (w: number, patch: Partial<Hours>) => setDays(days.map((d) => (d.weekday === w ? { ...d, ...patch } : d)));
+  return (
+    <>
+      <h3>{t("ui.hours_title")}</h3>
+      <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("hours.set", { location_id: l.id, days: days.filter((d) => d.opens && d.closes).map((d) => ({ weekday: d.weekday, opens: d.opens, closes: closing(d.closes!) })) }); }}>
+        {ORDER.map((w) => { const d = days.find((x) => x.weekday === w)!; return (
+          <div class="hours-row">
+            <label class="check"><input type="checkbox" checked={Boolean(d.opens)} onChange={(e) => set(w, e.currentTarget.checked ? { opens: "08:00", closes: "22:00" } : { opens: null, closes: null })} /> {dayName(w)}</label>
+            {d.opens ? <>
+              <input type="time" step={1800} aria-label={t("ui.from")} value={d.opens} onInput={(e) => set(w, { opens: e.currentTarget.value })} />
+              <input type="time" step={1800} aria-label={t("ui.to")} value={d.closes ?? ""} onInput={(e) => set(w, { closes: e.currentTarget.value })} />
+            </> : <span class="meta">{t("ui.closed")}</span>}
+          </div>); })}
+        <button>{t("ui.preview")}</button>
+      </form>
+      <h3>{t("ui.special_days")}</h3>
+      <ul class="plain">{l.special_days.map((x) => (
+        <li class="row"><span>{x.on_date} · {x.opens ? `${x.opens} - ${x.closes}` : t("ui.closed")}{x.note ? ` · ${x.note}` : ""}</span>
+          <button type="button" class="small" onClick={() => send("hours.exception_remove", { exception_id: x.id })}>{t("ui.remove")}</button></li>))}</ul>
+      <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("hours.exception_set", { location_id: l.id, date: sp.date, ...(sp.closed ? {} : { opens: sp.opens, closes: closing(sp.closes) }), note: sp.note || undefined }); }}>
+        <label>{t("ui.add_special_day")}<input type="date" required value={sp.date} onInput={(e) => setSp({ ...sp, date: e.currentTarget.value })} /></label>
+        <label class="check"><input type="checkbox" checked={sp.closed} onChange={(e) => setSp({ ...sp, closed: e.currentTarget.checked })} /> {t("ui.closed_all_day")}</label>
+        {!sp.closed && <div class="court-row">
+          <input type="time" step={1800} aria-label={t("ui.from")} value={sp.opens} onInput={(e) => setSp({ ...sp, opens: e.currentTarget.value })} />
+          <input type="time" step={1800} aria-label={t("ui.to")} value={sp.closes} onInput={(e) => setSp({ ...sp, closes: e.currentTarget.value })} /></div>}
+        <label>{t("ui.block_note")}<input value={sp.note} onInput={(e) => setSp({ ...sp, note: e.currentTarget.value })} /></label>
+        <button>{t("ui.preview")}</button>
+      </form>
+    </>
   );
 }
 

@@ -3,8 +3,8 @@
 import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
-import { t, type Lang } from "@kumi/i18n";
-import { KumiError, PLAYTOMIC, paidFor, shownOdds, standings, type Db } from "@kumi/core";
+import { t, type Key, type Lang } from "@kumi/i18n";
+import { freeCourts, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, shownOdds, standings, type Db } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -24,7 +24,42 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open"]).executeTakeFirstOrThrow();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
     const courts = await db.selectFrom("court").select(["id", "location_id", "name", "kind", "bookable", "sort"]).where("archived_at", "is", null).orderBy("sort").orderBy("name").execute();
-    return c.json({ club, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id) })) });
+    const hours = await db.selectFrom("opening_hours").select(["location_id", "weekday", "opens", "closes"]).execute();
+    const today = localDate(new Date(), club.time_zone);
+    const special = await db.selectFrom("hours_exception").select(["id", "location_id", "on_date", "opens", "closes", "note"]).where("active", "=", true)
+      .where("on_date", ">=", today).orderBy("on_date").execute();
+    const t5 = (x: string | null) => (x ? x.slice(0, 5) : null);
+    return c.json({ club, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id),
+      hours: [0, 1, 2, 3, 4, 5, 6].map((w) => { const h = hours.find((x) => x.location_id === l.id && x.weekday === w); return { weekday: w, opens: t5(h?.opens ?? null), closes: t5(h?.closes ?? null) }; }),
+      special_days: special.filter((x) => x.location_id === l.id).map((x) => ({ ...x, opens: t5(x.opens), closes: t5(x.closes) })) })) });
+  });
+
+  // One location's courts on one day: what holds each court, in order, and when it's open.
+  app.get("/staff/grid", async (c) => {
+    const locationId = c.req.query("location_id") ?? "", now = new Date();
+    const loc = await db.selectFrom("location").select(["id", "time_zone"]).where("id", "=", locationId).executeTakeFirst();
+    if (!loc) throw new KumiError("error.not_found", { thing: { en: "location", es: "la sede" } }, 404);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(c.req.query("date") ?? "") ? c.req.query("date")! : localDate(now, loc.time_zone);
+    const open = await openingOn(db, loc.id, date);
+    const from = new Date(`${date}T00:00:00Z`), dayStart = new Date(from.getTime() - 14 * 3600_000), dayEnd = new Date(from.getTime() + 38 * 3600_000);
+    const courts = await db.selectFrom("court").select(["id", "name", "kind"]).where("location_id", "=", loc.id).where("archived_at", "is", null).orderBy("sort").orderBy("name").execute();
+    const items = (await occupied(db, courts.map((x) => x.id), dayStart, dayEnd, now)).filter((t) => localDate(new Date(t.start), loc.time_zone) === date || localDate(new Date(t.end), loc.time_zone) === date);
+    const ids = (k: "booking_id" | "block_id" | "session_id") => [...new Set(items.map((t) => t[k]).filter((x): x is string => Boolean(x)))];
+    const bookings = ids("booking_id").length ? await db.selectFrom("booking").leftJoin("person", "person.id", "booking.organiser_id")
+      .select(["booking.id", "booking.code", "booking.status", "booking.price_cents", "person.display_name"])
+      .select((eb) => eb.selectFrom("booking_player").select("guest_name").whereRef("booking_player.booking_id", "=", "booking.id").where("guest_name", "is not", null).limit(1).as("guest"))
+      .where("booking.id", "in", ids("booking_id")).execute() : [];
+    const blocks = ids("block_id").length ? await db.selectFrom("court_block").select(["id", "reason", "note"]).where("id", "in", ids("block_id")).execute() : [];
+    const sessions = ids("session_id").length ? await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.id", "program.id as program_id", "program.name"]).where("session.id", "in", ids("session_id")).execute() : [];
+    const mirror = await db.selectFrom("mirror_booking").select(["court_time_id", "booking_type"]).where("court_time_id", "in", items.filter((t) => t.kind === "mirror").map((t) => t.id).concat(["00000000-0000-0000-0000-000000000000"])).execute();
+    const l = lang(c);
+    return c.json({ date, time_zone: loc.time_zone, open, courts: courts.map((ct) => ({ ...ct, items: items.filter((x) => x.court_id === ct.id).map((x) => {
+      const base = { start: x.start, end: x.end, kind: x.kind };
+      if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", price_cents: b?.price_cents ?? 0 }; }
+      if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
+      if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, label: s?.name ?? "" }; }
+      return { ...base, label: `Playtomic: ${(mirror.find((m) => m.court_time_id === x.id)?.booking_type ?? "").toLowerCase().replace(/_/g, " ")}` };
+    }) })) });
   });
   app.get("/staff/locations", async (c) => c.json(await db.selectFrom("location").select(["id", "name", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute()));
   app.get("/staff/courts", async (c) => c.json(await db.selectFrom("court").select(["id", "name", "location_id", "kind"]).where("archived_at", "is", null)

@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { KumiError, paidFor, paymentProvider, runAsSystem, type Db } from "@kumi/core";
+import { freeCourts, KumiError, paidFor, paymentProvider, runAsSystem, type Db } from "@kumi/core";
 
 type Me = { id: string } | null;
 export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { production: boolean }) {
@@ -37,6 +37,14 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const pid = who(c);
     await db.updateTable("outbound_message").set({ read_at: new Date() }).where("person_id", "=", pid).where("channel", "=", "inbox").where("read_at", "is", null).execute();
     return c.json({ ok: true });
+  });
+
+  // Free courts at a location on a day, for a length: every half-hourly start each court is free.
+  app.get("/availability", async (c) => {
+    who(c);
+    const locationId = c.req.query("location_id") ?? "", date = c.req.query("date") ?? "", minutes = Number(c.req.query("minutes") ?? 90);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(minutes) || minutes < 30 || minutes > 480 || minutes % 30) throw new KumiError("error.invalid_input", { details: "location_id, date (YYYY-MM-DD) and minutes (30 to 480, in 30s)" }, 400);
+    return c.json(await freeCourts(db, { locationId, date, minutes, now: new Date() }));
   });
 
   app.get("/my/places", async (c) => {
