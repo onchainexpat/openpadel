@@ -7,6 +7,15 @@ over MCP. A club can run it itself or have it hosted.
 
 **Status:** pre-alpha, private while the first version is built. Not ready for use.
 
+## Setting up your club
+
+Start at [`docs/setup/README.md`](docs/setup/README.md): the order, who does what, and a guide for
+each outside account (server, email, Stripe, Playtomic). It's written so an AI agent such as Claude
+Code can do most of it with the owner, under the rules at the top of [`AGENTS.md`](AGENTS.md). On the
+server, `kumi setup plan` and `kumi setup apply` turn a `club.yaml` (see
+[`club.example.yaml`](club.example.yaml)) into the club, and `kumi doctor` says what still needs
+doing.
+
 ## Layout
 
 | Path | What |
@@ -34,6 +43,7 @@ npm install
 docker run -d --rm --name kumi-dev-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:17-alpine
 docker exec kumi-dev-pg createdb -U postgres kumi
 node apps/server/src/seed.ts                                   # a demo club, owner owner@kestrel.test
+npm run kumi -- setup plan club.example.yaml                   # or set up from a club.yaml instead
 KUMI_PUBLIC_URL=http://localhost:5173 node apps/server/src/main.ts   # API on 8790; emailed codes go to its log
 npm run dev -w @kumi/manager                                    # the staff app on http://localhost:5173
 npm run dev -w @kumi/member                                     # the members' app on http://localhost:5174

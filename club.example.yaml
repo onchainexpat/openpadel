@@ -1,0 +1,27 @@
+# Your club, for `kumi setup`. Copy it to club.yaml and change it to match your club, then:
+#   kumi setup plan club.yaml     shows what would change (changes nothing)
+#   kumi setup apply club.yaml    makes those changes
+# Running it again only adds what's new. Renaming or removing things is done in the staff app.
+# No secrets go in this file: Stripe, email and Playtomic keys go in the server's settings.
+
+club:
+  name: Kestrel Padel
+  time_zone: America/Los_Angeles     # an IANA name: America/New_York, America/Chicago, Europe/Madrid...
+  default_language: en               # en or es; each person can choose their own
+
+owner:                               # signs in by a code sent to this address
+  name: Robin Hale
+  email: robin@kestrelpadel.example
+
+locations:
+  - name: Eastside
+    address: 1200 SE Water Ave, Portland, OR 97214
+    courts:                          # a name, or a name and kind: indoor, covered_outdoor or outdoor
+      - Court 1
+      - Court 2
+      - { name: Court 3, kind: covered_outdoor }
+
+staff:                               # roles: manager, front_desk, coach, accountant (or another owner)
+  - { name: Dana Ortiz, email: dana@kestrelpadel.example, role: manager }
+  - { name: Sam Patel, email: sam@kestrelpadel.example, role: coach }
+  - { name: Lee Chen, email: lee@kestrelpadel.example, role: front_desk, location: Eastside }

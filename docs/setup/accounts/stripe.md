@@ -1,0 +1,48 @@
+# Card payments: Stripe
+
+**What it's for:** members pay for clinics, socials and Americanos by card (Apple Pay and Google Pay
+work too, as cards), and refunds go straight back to the card. The money goes into the club's own
+Stripe account and Stripe pays it out to the club's bank. Kumi takes no commission and never sees
+card numbers: they go from the member's browser to Stripe.
+**Who does what:** the owner creates the Stripe account and gives Stripe the business, identity
+and bank details on Stripe's own pages. Never through the agent or the chat. The agent sets Kumi up
+and runs the tests.
+**Time and cost:** 20 minutes to sign up, then Stripe checks the business, which can take a few days.
+Stripe charges its usual card fee per payment and keeps it when a payment is refunded.
+**`kumi doctor` checks:** `payments`.
+
+## Steps
+
+1. **Owner: create the Stripe account** at stripe.com and complete "Activate payments" with the
+   club's legal name, address and bank account. Start this first; it's the slowest part.
+2. **Owner: copy the test keys** (Developers, then API keys, with "Test mode" on): the publishable
+   key `pk_test_...` and the secret key `sk_test_...`. Type them into the server's settings file:
+   ```
+   KUMI_STRIPE_SECRET_KEY=sk_test_...
+   KUMI_STRIPE_PUBLISHABLE_KEY=pk_test_...
+   ```
+3. **Owner: add the webhook** (Developers, then Webhooks, then Add endpoint):
+   - URL: `https://staff.app.yourclub.com/webhooks/stripe`
+   - Events: `payment_intent.succeeded`, `payment_intent.payment_failed` and
+     `payment_intent.canceled`
+   - Then copy its signing secret into the settings file: `KUMI_STRIPE_WEBHOOK_SECRET=whsec_...`
+
+   Payments are also checked every 30 seconds, so a missed webhook never loses one; the webhook
+   just makes it instant.
+4. **Agent:** `systemctl restart kumi`, then `kumi doctor`: `payments` should say test mode.
+5. **Test:** in the members' app, sign up for a paid clinic and pay with 4242 4242 4242 4242 (any
+   future date, any CVC). Then take that member off in the staff app with a refund, and check the
+   refund in Stripe's dashboard.
+
+## Going live (only when the owner says so)
+Stripe has finished checking the business, and the club has practised with test payments. In the
+settings file, replace both keys with the live ones (`sk_live_...`, `pk_live_...`), add a live-mode
+webhook with the same URL and events and use its secret, and restart. Kumi refuses a live key
+unless `NODE_ENV=production` (the server setup sets it).
+
+## Common problems
+- **`payments` fails, "a LIVE Stripe key outside production":** use the test keys on anything that
+  isn't the club's real server.
+- **"Pay" does nothing for members:** the publishable key is missing or from a different Stripe
+  account than the secret key.
+- **Stripe asks for more information:** only the owner can answer, in Stripe's dashboard.
