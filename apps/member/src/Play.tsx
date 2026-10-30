@@ -1,6 +1,6 @@
 // Open matches: the Play page lists them (soonest first), and each has its own page to join, ask the
 // host, pay a held place, say you can't make it or are running late, or (for the host) answer requests,
-// save places for friends, share the link and mark who didn't come.
+// save places for friends (each has added the other), share the link and mark who didn't come.
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, dollars, lang, me, shortTime, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
@@ -52,6 +52,7 @@ export function Play() {
         </section>
       ))}
       <p class="meta">{t("ui.open_your_own")}</p>
+      <p><a href="/friends">{t("ui.see_friends")}</a></p>
     </main>
   );
 }
@@ -107,11 +108,12 @@ export function MatchPage({ id }: { id: string }) {
       {m.host_is_me && m.open && m.spots_left > 0 && <section class="card card-form">
         <h2>{t("ui.save_place_title")}</h2>
         <p class="meta">{t("ui.save_place_hint")}</p>
-        <label>{t("ui.search_person")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>
+        <label>{t("ui.search_friends")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>
         {found.length > 0 && <ul class="plain">{found.map((f) => <li class="row"><span>{f.display_name}</span>
           <button class="small" onClick={() => { setFound([]); setQ(""); void preview("booking.save_place", { booking_id: m.id, person_id: f.id }); }}>{t("ui.save_place")}</button></li>)}</ul>}
         {m.players.filter((p) => p.saved && p.id).map((p) => <p class="row"><span>{p.name} · {t("ui.place_saved_for")}</span>
           <button class="small" onClick={() => preview("booking.drop_saved_place", { booking_player_id: p.id })}>{t("ui.stop_saving")}</button></p>)}
+        <p><a href="/friends">{t("ui.find_friends")}</a></p>
       </section>}
       {m.host_is_me && m.no_show_window && <section class="card">
         <h2>{t("ui.who_came")}</h2>

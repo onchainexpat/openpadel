@@ -30,12 +30,19 @@ The first version a club can run on its own (court bookings included), or for it
   paid, and nothing goes on the host's card (it isn't even saved).
 - If the host cancels, the players who joined get everything back whenever it is; the club's late
   cancellation rule is for the host's own payment.
-- The host saves places for named friends (nobody else can take them; each pays their own, and a
-  saved place still unpaid at the deadline counts as empty). A player who can't make it gets their
+- The host saves places for friends (nobody else can take them; each pays their own, and a saved
+  place still unpaid at the deadline counts as empty). A player who can't make it gets their
   money back at once and the place opens, up to the deadline; after it, the money stays and it's a
   late cancellation. "Running late" tells the others. After the
   game the host marks who didn't come, and hosts see each player's no-shows and late cancellations
   (90 days) when they join or ask.
+
+**Friends**
+- Members add people they've played with (the same booking or game), or anyone who sends them their
+  friend link; once each has added the other, they're friends. A Friends page lists friends, who added
+  you, whom you added, and people you've played with lately. Only friends can save each other a place
+  in a match, and the search for one looks among friends only: no member's name is shown to someone
+  they haven't played with or given their link to.
 
 **Results and levels**
 - After a booking or open match, one of the four enters the score (sets, and who played with whom);

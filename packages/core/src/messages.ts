@@ -202,6 +202,10 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       .where("payment.booking_player_id", "=", p.booking_player_id).executeTakeFirstOrThrow();
     return s.person_id ? [{ to: s.person_id, kind: "match_place_taken", params: { ...s.b.base, person: by, amount: amount(Number(back.c)) }, purpose: "account", essential: true, email: true, link: "/places" }] : [];
   },
+  async "friend.added"({ db }, p: { person_id: string; friend_id: string; mutual: boolean }) {
+    const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirst())?.display_name ?? "";
+    return [{ to: p.friend_id, kind: p.mutual ? "friend_added_back" : "friend_added", params: { name }, purpose: "account", essential: false, email: true, link: "/friends" }];
+  },
   async "booking.running_late"({ db }, p: { booking_id: string; person_id: string; minutes: number }) {
     const b = await bookingInfo(db, p.booking_id);
     const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirst())?.display_name ?? "";

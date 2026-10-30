@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { checkCardSetup, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { checkCardSetup, findFriends, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -132,12 +132,24 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       can_score: Boolean(mine && !cancelled && !mine.leaving_at && !g && four.length === 4 && now >= start && now <= start + ENTER_DAYS * 86400_000),
       four: mine ? four.map((x) => ({ person_id: x.person_id, name: x.display_name })) : [] };
   }
-  // Finding a friend to save a place for: members by name, nothing but the name.
+  // Friends: the page (friends, who added me, whom I added, people I've played with lately) and my link.
+  app.get("/my/friends", async (c) => {
+    const pid = who(c);
+    const code = (await db.selectFrom("person").select("friend_code").where("id", "=", pid).executeTakeFirstOrThrow()).friend_code;
+    return c.json({ ...(await friendsOf(db, pid)), code });
+  });
+  // Finding a friend to save a place for: friends only, by name, nothing but the name.
   app.get("/my/friends/find", async (c) => {
     const pid = who(c), q = (c.req.query("q") ?? "").trim();
-    if (q.length < 2) return c.json([]);
-    return c.json(await db.selectFrom("person").select(["id", "display_name"]).where("status", "=", "active").where("id", "!=", pid).where("redacted_at", "is", null)
-      .where("display_name", "ilike", `%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`).orderBy("display_name").limit(6).execute());
+    return c.json(q.length < 2 ? [] : await findFriends(db, pid, q));
+  });
+  // Someone's friend link: their name (they gave the link out), and where the two of us stand.
+  app.get("/my/friends/link/:code", async (c) => {
+    const pid = who(c), p = await personByFriendCode(db, c.req.param("code"));
+    if (!p) throw new KumiError("error.friend_link_unknown", {}, 404);
+    if (p.id === pid) return c.json({ ...p, status: "self" });
+    const f = await friendsOf(db, pid), has = (list: { id: string }[]) => list.some((x) => x.id === p.id);
+    return c.json({ ...p, status: has(f.friends) ? "friends" : has(f.you_added) ? "waiting" : has(f.added_you) ? "added_you" : "none" });
   });
   app.get("/open-matches", async (c) => {
     const pid = who(c);

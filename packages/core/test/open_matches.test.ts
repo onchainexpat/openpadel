@@ -19,6 +19,12 @@ async function pay(paymentId: string, who: string) {
   stripe.settle(ref, "succeeded");
   return checkPayment(db, paymentId, "test", NOW);
 }
+/** Each adds the other (by their friend link), so they're friends. */
+async function befriend(a: string, b: string) {
+  const code = async (who: string) => (await db.selectFrom("person").select("friend_code").where("id", "=", people[who]!).executeTakeFirstOrThrow()).friend_code;
+  await run(db, "friend.add_by_code", { person_id: people[a], code: await code(b) }, as(a));
+  await run(db, "friend.add", { person_id: people[b], friend_id: people[a] }, as(b));
+}
 const join = async (who: string, booking = match, now = NOW) => (await run(db, "booking.join", { booking_id: booking, person_id: people[who] }, as(who), { now })).result as { payment_id: string };
 const seat = (who: string, booking = match) => db.selectFrom("booking_player").selectAll().where("booking_id", "=", booking).where("person_id", "=", people[who]!).orderBy("id", "desc").executeTakeFirstOrThrow();
 const inbox = (who: string, kind: string) => db.selectFrom("outbound_message").select(["subject", "body"]).where("person_id", "=", people[who]!).where("kind", "=", kind).where("channel", "=", "inbox").orderBy("created_at", "desc").executeTakeFirstOrThrow();
@@ -119,6 +125,7 @@ test("a seat not paid in time opens again; an open card form is called off first
 
 test("not full at the deadline: it's cancelled, the court is free, and everyone gets back all they paid (a saved place nobody paid for is empty)", async () => {
   // Hal, Ann and Dee have paid; Cal's place is saved but not paid.
+  await befriend("Hal", "Cal");
   await run(db, "booking.save_place", { booking_id: match, person_id: people.Cal }, as("Hal"), { now: NOW });
   const charges = stripe.charges.length;
   assert.deepEqual(await settleShares(db, new Date(at("2026-12-01", "17:59"))), { settled: 0, charged: 0, failed: 0, cancelled: 0 });

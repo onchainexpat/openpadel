@@ -81,6 +81,7 @@ const ENTITIES = {
   membership: { table: "membership", key: "id", retire: { status: "ended" } },
   open_match: { table: "open_match", key: "booking_id", retire: null },
   join_request: { table: "join_request", key: "id", retire: { status: "withdrawn" } },
+  friend: { table: "friend", key: "id", retire: { removed_at: "now" } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 

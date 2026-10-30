@@ -14,6 +14,7 @@ import { paymentProvider } from "./money.ts";
 import { abandonPayment } from "./programs.ts";
 import { refundPayment, shares } from "./booking_pay.ts";
 import { band, levelOf, openMatchOf } from "./match_rules.ts";
+import { areFriends } from "./friends.ts";
 
 /** How long a player the host said yes to has to pay before the seat opens again. */
 export const APPROVED_HOLD_MINUTES = 60;
@@ -182,6 +183,8 @@ export const bookingSavePlace = defineAction({
     if (!isOpen(m, ctx.now)) throw new KumiError("error.invite_closed");
     if (m.seated >= m.players) throw new KumiError("error.booking_full");
     if (i.person_id === m.organiser_id || await seatOf(ctx.db, i.booking_id, i.person_id)) throw new KumiError("error.already_in_booking");
+    // Only for a friend (each has added the other): a host can't put a stranger's name on a match.
+    if (!m.organiser_id || !(await areFriends(ctx.db, m.organiser_id, i.person_id))) throw new KumiError("error.not_friends");
     const friend = (await readRow(ctx.db, "person", i.person_id, "thing.person")).row.display_name as string;
     const policy = await ctx.db.selectFrom("booking").innerJoin("booking_policy", "booking_policy.id", "booking.policy_id").select("booking_policy.split_deadline_hours").where("booking.id", "=", i.booking_id).executeTakeFirstOrThrow();
     return { title: both("action.booking.save_place"), summary: both("plan.booking.save_place", { friend, share: usd(m.share), hours: both("count.hours", { count: policy.split_deadline_hours }) }),

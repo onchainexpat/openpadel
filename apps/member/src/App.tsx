@@ -8,6 +8,7 @@ import { Book } from "./Book.tsx";
 import { Join } from "./Join.tsx";
 import { Membership } from "./Membership.tsx";
 import { MatchPage, Play } from "./Play.tsx";
+import { FriendLink, Friends } from "./Friends.tsx";
 
 export function App() {
   useEffect(() => {
@@ -40,6 +41,8 @@ export function App() {
         <Route path="/membership" component={Membership} />
         <Route path="/play" component={Play} />
         <Route path="/match/:id" component={MatchPage} />
+        <Route path="/friends" component={Friends} />
+        <Route path="/friend/:code" component={FriendLink} />
         <Route path="/profile" component={Profile} />
       </Router>
     </LocationProvider>

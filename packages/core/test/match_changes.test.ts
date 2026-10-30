@@ -17,6 +17,12 @@ async function pay(paymentId: string, who: string) {
   stripe.settle((await db.selectFrom("payment").select("provider_ref").where("id", "=", paymentId).executeTakeFirstOrThrow()).provider_ref!, "succeeded");
   return checkPayment(db, paymentId, "test", NOW);
 }
+/** Each adds the other (by their friend link), so they're friends. */
+async function befriend(a: string, b: string) {
+  const code = async (who: string) => (await db.selectFrom("person").select("friend_code").where("id", "=", people[who]!).executeTakeFirstOrThrow()).friend_code;
+  await run(db, "friend.add_by_code", { person_id: people[a], code: await code(b) }, as(a));
+  await run(db, "friend.add", { person_id: people[b], friend_id: people[a] }, as(b));
+}
 const seat = (who: string) => db.selectFrom("booking_player").selectAll().where("booking_id", "=", match).where("person_id", "=", people[who]!).orderBy("id", "desc").executeTakeFirstOrThrow();
 const pendingFor = async (who: string) => (await db.selectFrom("payment").select("id").where("booking_player_id", "=", (await seat(who)).id).where("status", "=", "pending").executeTakeFirstOrThrow()).id;
 const join = async (who: string, now = NOW) => ((await run(db, "booking.join", { booking_id: match, person_id: people[who] }, as(who), { now })).result as { payment_id: string }).payment_id;
@@ -45,12 +51,15 @@ before(async () => {
 after(async () => drop());
 
 test("a place saved for a friend: nobody else takes it, they pay their own, and the host can stop saving it", async () => {
+  await rejects(plan(db, "booking.save_place", { booking_id: match, person_id: people.Cal }, as("Hal"), { now: NOW }), "error.not_friends",
+    "You can only save a place for a friend (someone you've both added as a friend).");
+  await befriend("Hal", "Cal"); await befriend("Hal", "Eve");
   const s = await run(db, "booking.save_place", { booking_id: match, person_id: people.Cal }, as("Hal"), { now: NOW });
   assert.equal(s.plan.summary.en, "Save a place in your match for Cal. They pay their own $15.00 in the app. If it's still unpaid 24 hours before, it counts as empty, and a match that isn't full then is cancelled.");
   assert.deepEqual([(await seat("Cal")).saved_by, (await seat("Cal")).held_until], [people.Hal, null]);   // saved, not held: Cal has no level and still gets in
   assert.deepEqual(await releaseSeats(db, at("2026-12-01", "17:00")), { released: 0 });
   await pay(await pendingFor("Cal"), "Cal");
-  await rejects(plan(db, "booking.save_place", { booking_id: match, person_id: people.Ann }, as("Ann"), { now: NOW }), "error.forbidden_reason");   // only the host
+  await rejects(plan(db, "booking.save_place", { booking_id: match, person_id: people.Eve }, as("Ann"), { now: NOW }), "error.forbidden_reason");   // only the host
   await run(db, "booking.save_place", { booking_id: match, person_id: people.Eve }, as("Hal"), { now: NOW });
   const d = await run(db, "booking.drop_saved_place", { booking_player_id: (await seat("Eve")).id }, as("Hal"), { now: NOW });
   assert.equal(d.plan.summary.en, "Stop saving a place for Eve. It opens for anyone in the band.");
