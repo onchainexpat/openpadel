@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { clubStripeAccount, combine, connect, endLapsedMemberships, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { clubStripeAccount, combine, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 
@@ -58,6 +58,8 @@ const jobs = async () => {
     if (seats.released) console.log(`open matches: ${seats.released} seats not paid in time, open again`);
     const sh = await settleShares(db);
     if (sh.settled) console.log(`shared bookings: ${sh.settled} settled at their deadline, ${sh.charged} charged to the organiser, ${sh.failed} left owing`);
+    const sc = await confirmScores(db);
+    if (sc.confirmed) console.log(`scores: ${sc.confirmed} counted after nobody answered in time`);
     const rem = await remindBookings(db);
     if (rem.reminded) console.log(`court reminders: ${rem.reminded} bookings`);
     const ended = await endLapsedMemberships(db);

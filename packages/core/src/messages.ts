@@ -9,6 +9,7 @@ import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts } from "./clock.ts";
 import { dayText, endDay } from "./memberships.ts";
 import { band } from "./match_rules.ts";
+import { gameView } from "./results.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout). */
 export interface Mail { to: string; subject: string; text: string; id?: string }
@@ -201,6 +202,31 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "booking.no_show"({ db }, p: { booking_player_id: string }) {
     const s = await seatInfo(db, p.booking_player_id);
     return s.person_id ? [{ to: s.person_id, kind: "match_no_show", params: { ...s.b.base, host: s.host }, purpose: "account", essential: false, email: true, link: "/places" }] : [];
+  },
+  async "result.entered"({ db, tz }, p: { game_id: string }) {
+    const g = await gameView(db, p.game_id), b = await bookingInfo(db, g.booking_id!);
+    const by = g.a.find((x) => x.person_id === g.entered_by)?.display_name ?? "";
+    return g.b.map((x) => ({ to: x.person_id, kind: "result_to_confirm", params: { ...b.base, person: by, teamA: g.teamA, teamB: g.teamB, score: g.score, date: when(g.confirm_by, tz) },
+      purpose: "account" as const, essential: false, email: true, link: `/match/${b.id}`, staleAt: g.confirm_by }));
+  },
+  async "result.confirmed"({ db }, p: { game_id: string }) {
+    const g = await gameView(db, p.game_id), b = await bookingInfo(db, g.booking_id!);
+    return [...g.a, ...g.b].map((x) => ({ to: x.person_id, kind: g.rated ? "result_confirmed" : "result_confirmed_friendly", params: { ...b.base, teamA: g.teamA, teamB: g.teamB, score: g.score },
+      purpose: "account" as const, essential: false, email: false, link: g.rated ? "/level" : `/match/${b.id}` }));
+  },
+  async "result.disputed"({ db }, p: { game_id: string; person_id: string; note: string }) {
+    const g = await gameView(db, p.game_id), b = await bookingInfo(db, g.booking_id!);
+    const by = [...g.a, ...g.b].find((x) => x.person_id === p.person_id)?.display_name ?? "";
+    const params = { ...b.base, person: by, teamA: g.teamA, teamB: g.teamB, score: g.score, note: p.note };
+    return [
+      ...(await managers(db)).map((to) => ({ to, kind: "result_disputed_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/scores" })),
+      ...[...g.a, ...g.b].filter((x) => x.person_id !== p.person_id).map((x) => ({ to: x.person_id, kind: "result_disputed", params, purpose: "account" as const, essential: false, email: false, link: `/match/${b.id}` })),
+    ];
+  },
+  async "result.resolved"({ db }, p: { game_id: string; outcome: "keep" | "correct" | "set_aside" }) {
+    const g = await gameView(db, p.game_id), b = await bookingInfo(db, g.booking_id!);
+    return [...g.a, ...g.b].map((x) => ({ to: x.person_id, kind: `result_${p.outcome === "keep" ? "kept" : p.outcome === "correct" ? "corrected" : "set_aside"}`,
+      params: { ...b.base, teamA: g.teamA, teamB: g.teamB, score: g.score }, purpose: "account" as const, essential: false, email: true, link: `/match/${b.id}` }));
   },
   async "booking.reminder"({ db }, p: { booking_id: string }) {
     const b = await bookingInfo(db, p.booking_id);

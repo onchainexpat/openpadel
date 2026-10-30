@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { t, type Key, type Lang } from "@kumi/i18n";
-import { currentPolicy, endDay, freeCourts, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
+import { currentPolicy, endDay, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -19,6 +19,19 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     await next();
   });
 
+  // Scores the club has to decide (disputed), and the last few entered, with what each side said.
+  app.get("/staff/scores", async (c) => {
+    const rows = await db.selectFrom("game").innerJoin("booking", "booking.id", "game.booking_id").innerJoin("court", "court.id", "game.court_id").innerJoin("location", "location.id", "court.location_id")
+      .select(["game.id", "game.status", "game.rated", "game.played_at", "court.name as court", "location.time_zone"])
+      .where("game.booking_id", "is not", null).where((eb) => eb.or([eb("game.status", "=", "disputed"), eb("game.played_at", ">", sql<Date>`now() - interval '14 days'`)]))
+      .orderBy(sql`game.status = 'disputed'`, "desc").orderBy("game.played_at", "desc").limit(100).execute();
+    return c.json(await Promise.all(rows.map(async (r) => {
+      const g = await gameView(db, r.id);
+      const answers = await db.selectFrom("result_answer").leftJoin("person", "person.id", "result_answer.person_id").select(["result_answer.answer", "result_answer.note", "result_answer.at", "person.display_name"])
+        .where("result_answer.game_id", "=", r.id).orderBy("result_answer.at").execute();
+      return { ...r, sets: g.sets, a: g.a.map((x) => x.display_name), b: g.b.map((x) => x.display_name), answers };
+    })));
+  });
   const clubTz = async () => (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
   // Membership plans and who holds one (with the last few that ended).
   app.get("/staff/memberships", async (c) => {

@@ -64,3 +64,31 @@ test("a match kept to its link: not listed, and only seen with the link", async 
   assert.equal((await get(`/matches/${id}?code=${code}`, "ann@example.test")).status, 200);
   assert.equal((await get(`/bookings/invite/${code}`, "ann@example.test")).json.open_match, true);
 });
+
+test("after a match: fair teams, then the score on the match page and on the staff Scores page", async () => {
+  const start = new Date(Date.now() - 2 * 3600_000); start.setUTCMinutes(0, 0, 0);
+  const before = { now: new Date(start.getTime() - 2 * 86400_000) };
+  const ann = { personId: people.Ann!, via: "test", lang: "en" as const }, hal = { personId: people.Hal!, via: "test", lang: "en" as const };
+  const r = (await run(db, "booking.request", { court_id: court, starts_at: start.toISOString(), minutes: 90, pay: "split", person_id: people.Hal, open: { level_min: 3, level_max: 5 } }, hal, before)).result as any;
+  await runAsSystem(db, "payment.settle", { payment_id: r.payment_id, outcome: "succeeded" }, "test", before);
+  for (const name of ["Ann", "Ben", "Cal"]) {
+    if (!people[name]) {
+      people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner)).result as any).person_id;
+      await run(db, "level.set", { person_id: people[name], level: 3.8, reason: "Starting level" }, owner);
+    }
+    const j = (await run(db, "booking.join", { booking_id: r.booking_id, person_id: people[name] }, { personId: people[name]!, via: "test", lang: "en" }, before)).result as any;
+    await runAsSystem(db, "payment.settle", { payment_id: j.payment_id, outcome: "succeeded" }, "test", before);
+  }
+  const m = (await get(`/matches/${r.booking_id}`, "ann@example.test")).json;
+  assert.equal(m.can_score, true); assert.equal(m.result, null);
+  assert.match(m.teams.odds, /^\d+\/\d+$/);
+  await run(db, "result.enter", { booking_id: r.booking_id, person_id: people.Ann, partner_id: people.Hal, sets: [{ us: 6, them: 4 }, { us: 7, them: 5 }] }, ann);
+  const after = (await get(`/matches/${r.booking_id}`, "ben@example.test")).json;
+  assert.deepEqual([after.result.status, after.result.my_side, after.result.can_confirm, after.can_score], ["awaiting_confirmation", "b", true, false]);
+  assert.deepEqual(after.result.sets, [{ a: 6, b: 4 }, { a: 7, b: 5 }]);
+  const staff = (await get("/staff/scores", "hal@example.test")).status;
+  assert.equal(staff, 403);   // Hal is a member, not staff
+  await signIn("robin@example.test");
+  const scores = (await get("/staff/scores", "robin@example.test")).json;
+  assert.deepEqual(scores[0].answers.map((x: any) => [x.display_name, x.answer]), [["Ann", "entered"]]);
+});

@@ -32,8 +32,10 @@ async function event(ctx: ApplyCtx, personId: string, kind: string, before: Stat
 
 async function gameFacts(db: Db | Trx, gameId: string) {
   const sides = await db.selectFrom("game_side").innerJoin("person", "person.id", "game_side.person_id").select(["game_side.side", "game_side.person_id", "person.display_name"]).where("game_id", "=", gameId).orderBy("game_side.person_id").execute();
-  const set = await db.selectFrom("game_set").select(["a", "b"]).where("game_id", "=", gameId).where("set_no", "=", 1).executeTakeFirstOrThrow();
-  return { a: sides.filter((s) => s.side === "a"), b: sides.filter((s) => s.side === "b"), scoreA: set.a, scoreB: set.b };
+  // Games won across all its sets (an Americano game has one "set": its points).
+  const sets = await db.selectFrom("game_set").select(["a", "b"]).where("game_id", "=", gameId).execute();
+  if (!sets.length) throw new Error(`game ${gameId} has no score`);
+  return { a: sides.filter((s) => s.side === "a"), b: sides.filter((s) => s.side === "b"), scoreA: sets.reduce((n, s) => n + s.a, 0), scoreB: sets.reduce((n, s) => n + s.b, 0) };
 }
 
 /** One rated game: four players' ratings move, each with a sentence on why. */
@@ -69,6 +71,9 @@ export async function replay(db: Db | Trx): Promise<Map<string, State>> {
     if (e.kind === "game") {
       if (!e.game_id || done.has(e.game_id)) continue;
       done.add(e.game_id);
+      // A game disputed or set aside since doesn't count (until the club decides it does).
+      const status = (await db.selectFrom("game").select("status").where("id", "=", e.game_id).executeTakeFirst())?.status;
+      if (status !== "confirmed") continue;
       const g = await gameFacts(db, e.game_id);
       const r = update({ a: g.a.map((p) => get(p.person_id)), b: g.b.map((p) => get(p.person_id)), scoreA: g.scoreA, scoreB: g.scoreB });
       for (const [team, next] of [[g.a, r.a], [g.b, r.b]] as const) for (const [k, pl] of team.entries()) {

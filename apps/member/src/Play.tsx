@@ -12,6 +12,8 @@ export type Match = {
   can: "join" | "ask" | "closed" | null; started: boolean; late_window: boolean; no_show_window: boolean;
   me: { pending_payment_id: string | null; held_until: string | null; leaving: boolean; saved: boolean } | null; request: { id: string; status: string } | null;
   requests: { id: string; display_name: string; level: number | null; note: string | null; record: Rec }[]; invite_code: string | null;
+  result: { id: string; status: string; sets: { a: number; b: number }[]; a: string[]; b: string[]; confirm_by: string | null; rated: boolean; my_side: "a" | "b" | null; can_confirm: boolean; can_dispute: boolean } | null;
+  teams: { a: { name: string }[]; b: { name: string }[]; odds: string } | null; can_score: boolean; four: { person_id: string; name: string }[];
 };
 type Rec = { no_shows: number; late_leaves: number };
 /** "1 no-show, 2 late cancellations (90 days)", or nothing for a clean record. */
@@ -92,6 +94,7 @@ export function MatchPage({ id }: { id: string }) {
           {[5, 10, 15, 20].map((n) => <button type="button" class="chip" onClick={() => preview("booking.running_late", { booking_id: m.id, person_id: pid, minutes: n })}>{t("ui.minutes", { count: n })}</button>)}</div>}
         {m.me && !m.host_is_me && !m.me.leaving && !m.started && <p><button onClick={() => preview("booking.leave", { booking_id: m.id, person_id: pid })}>{t("ui.cant_make_it")}</button></p>}
       </section>
+      <Result m={m} preview={preview} />
       {m.host_is_me && <section class="card">
         <h2>{t("ui.requests")}</h2>
         {m.requests.length === 0 ? <p class="meta">{t("ui.no_requests")}</p> : <ul class="plain">{m.requests.map((r) => (
@@ -115,5 +118,41 @@ export function MatchPage({ id }: { id: string }) {
           {p.no_show ? <span class="meta">{t("ui.didnt_come")}</span> : <button class="small" onClick={() => preview("booking.mark_no_show", { booking_player_id: p.id })}>{t("ui.mark_didnt_come")}</button>}</li>)}</ul>
       </section>}
     </main>
+  );
+}
+
+/** The score: fair teams before it's played, the form to enter it, and then confirming or disputing it. */
+function Result({ m, preview }: { m: Match; preview: (a: string, i: unknown) => Promise<void> }) {
+  const pid = me.value!.person.id, others = m.four.filter((p) => p.person_id !== pid);
+  const [partner, setPartner] = useState(""), [sets, setSets] = useState([["", ""], ["", ""], ["", ""]]), [note, setNote] = useState(""), [disputing, setDisputing] = useState(false);
+  const pair = (names: string[]) => names.join(" & ");
+  const r = m.result;
+  if (!r && !m.can_score && !m.teams) return null;
+  const filled = sets.filter(([us, them]) => us !== "" && them !== "").map(([us, them]) => ({ us: Number(us), them: Number(them) }));
+  return (
+    <section class="card card-form">
+      <h2>{t("ui.score")}</h2>
+      {!r && m.teams && <p class="meta">{t("ui.fair_teams", { a: pair(m.teams.a.map((p) => p.name)), b: pair(m.teams.b.map((p) => p.name)), odds: m.teams.odds })}</p>}
+      {r && <>
+        <p><strong>{pair(r.a)} {r.sets.map((s) => `${s.a}-${s.b}`).join(" ")} {pair(r.b)}</strong></p>
+        <p class="meta">{r.status === "awaiting_confirmation" ? t("ui.score_waiting", { names: pair(r.b), time: r.confirm_by ? shortTime(r.confirm_by) : "" })
+          : r.status === "confirmed" ? t(r.rated ? "ui.score_confirmed_rated" : "ui.score_confirmed_friendly") : t("ui.score_disputed")}
+          {r.status === "confirmed" && r.rated && <> <a href="/level">{t("ui.see_my_level")}</a></>}</p>
+        {r.can_confirm && <button class="primary" onClick={() => preview("result.confirm", { game_id: r.id, person_id: pid })}>{t("ui.confirm_score")}</button>}{" "}
+        {r.can_dispute && !disputing && <button onClick={() => setDisputing(true)}>{t("ui.dispute_score")}</button>}
+        {disputing && r.can_dispute && <>
+          <label>{t("ui.dispute_why")}<input value={note} maxLength={300} onInput={(e) => setNote(e.currentTarget.value)} /></label>
+          <button disabled={note.trim().length < 3} onClick={() => preview("result.dispute", { game_id: r.id, person_id: pid, note: note.trim() })}>{t("ui.preview")}</button>
+        </>}
+      </>}
+      {!r && m.can_score && <>
+        <label>{t("ui.played_with")}<select value={partner} onChange={(e) => setPartner(e.currentTarget.value)}><option value="">{t("ui.choose")}</option>
+          {others.map((p) => <option value={p.person_id}>{p.name}</option>)}</select></label>
+        {sets.map(([us, them], k) => <div class="court-row" role="group" aria-label={t("ui.set_n", { n: k + 1 })}>
+          <label>{t("ui.set_us", { n: k + 1 })}<input type="number" min={0} max={99} inputMode="numeric" value={us} onInput={(e) => setSets(sets.map((x, j) => (j === k ? [e.currentTarget.value, x[1]!] : x)))} /></label>
+          <label>{t("ui.set_them", { n: k + 1 })}<input type="number" min={0} max={99} inputMode="numeric" value={them} onInput={(e) => setSets(sets.map((x, j) => (j === k ? [x[0]!, e.currentTarget.value] : x)))} /></label></div>)}
+        <button class="primary" disabled={!partner || !filled.length} onClick={() => preview("result.enter", { booking_id: m.id, person_id: pid, partner_id: partner, sets: filled })}>{t("ui.preview")}</button>
+      </>}
+    </section>
   );
 }

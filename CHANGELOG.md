@@ -32,6 +32,13 @@ The first version a club can run on its own (court bookings included), or for it
   game the host marks who didn't come, and hosts see each player's no-shows and late cancellations
   (90 days) when they join or ask.
 
+**Results and levels**
+- After a booking or open match, one of the four enters the score (sets, and who played with whom);
+  someone from the other side confirms or disputes it, and with no answer in 48 hours it counts as
+  entered. A rated match moves levels once confirmed, each with a sentence on why; a friendly never
+  does. A dispute goes to the club's new Scores page: keep, correct or set aside, and levels are
+  replayed as if it had always been decided that way. Fair teams are suggested once four are in.
+
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.
 - Members join in the app and pay by card; Kumi renews from that card each period at the price they
