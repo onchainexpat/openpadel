@@ -99,6 +99,36 @@ export const courtCreate = defineAction({
   async apply(ctx, i) { const id = uuidv7(); await ctx.insert("court", { id, location_id: i.location_id, name: i.name, kind: i.kind ?? "indoor" }); return { court_id: id }; },
 });
 
+const courtKind = z.enum(["indoor", "covered_outdoor", "outdoor"]);
+export const courtUpdate = defineAction({
+  name: "court.update", version: 1,
+  input: z.object({ court_id: z.uuid(), name: z.optional(z.string().check(z.minLength(1))), kind: z.optional(courtKind), bookable: z.optional(z.boolean()), sort: z.optional(z.number().check(z.int())) }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "court", i.court_id, "thing.court");
+    return { title: both("action.court.update"), summary: both("plan.court.update", { name: row.name }), reads: [read], locationId: row.location_id, undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    const { court_id, ...rest } = i;
+    await ctx.update("court", court_id, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+    return null;
+  },
+});
+
+/** A court that's gone or no longer used. Its history stays; it's refused while dates still to come use it. */
+export const courtArchive = defineAction({
+  name: "court.archive", version: 1,
+  input: z.object({ court_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "court", i.court_id, "thing.court");
+    if (row.archived_at) throw new KumiError("error.not_found", { thing: both("thing.court") }, 404);
+    const ahead = await ctx.db.selectFrom("court_time").select((eb) => eb.fn.countAll<string>().as("n")).where("court_id", "=", i.court_id).where("active", "=", true)
+      .where("kind", "!=", "mirror").where(sql<boolean>`upper(during) > ${ctx.now}`).executeTakeFirstOrThrow();
+    if (Number(ahead.n) > 0) throw new KumiError("error.court_in_use", { count: Number(ahead.n) });
+    return { title: both("action.court.archive"), summary: both("plan.court.archive", { name: row.name }), reads: [read], locationId: row.location_id, undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) { await ctx.update("court", i.court_id, { archived_at: ctx.now }); await ctx.emit("court.archived", { court_id: i.court_id }); return null; },
+});
+
 export const programCreate = defineAction({
   name: "program.create", version: 1,
   input: z.object({

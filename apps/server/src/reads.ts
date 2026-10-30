@@ -19,6 +19,13 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     await next();
   });
 
+  // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
+  app.get("/staff/settings", async (c) => {
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open"]).executeTakeFirstOrThrow();
+    const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
+    const courts = await db.selectFrom("court").select(["id", "location_id", "name", "kind", "bookable", "sort"]).where("archived_at", "is", null).orderBy("sort").orderBy("name").execute();
+    return c.json({ club, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id) })) });
+  });
   app.get("/staff/locations", async (c) => c.json(await db.selectFrom("location").select(["id", "name", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute()));
   app.get("/staff/courts", async (c) => c.json(await db.selectFrom("court").select(["id", "name", "location_id", "kind"]).where("archived_at", "is", null)
     .$if(Boolean(c.req.query("location_id")), (q) => q.where("location_id", "=", c.req.query("location_id")!)).orderBy("sort").orderBy("name").execute()));
