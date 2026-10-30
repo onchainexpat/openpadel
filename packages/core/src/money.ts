@@ -16,6 +16,11 @@ export interface PaymentProvider {
   getIntent(ref: string, account?: string | null): Promise<{ status: IntentStatus; clientSecret: string; paymentMethod?: string | null; customer?: string | null }>;
   /** A customer record for a person, so a card can be saved for a later charge. Same key, same customer. */
   ensureCustomer(i: { key: string; email?: string | null; name?: string }): Promise<{ id: string; account: string | null }>;
+  /** Save a card for later without charging it (a presale: the first charge is on the start date).
+   *  The same key always gives back the same setup. */
+  createSetup(i: { customer: string; idempotencyKey: string; metadata?: Record<string, string> }): Promise<{ ref: string; clientSecret: string; account: string | null }>;
+  /** Where a card setup stands: succeeded once the card is saved, with the card. */
+  getSetup(ref: string, account?: string | null): Promise<{ status: IntentStatus; clientSecret: string; paymentMethod: string | null; customer: string | null }>;
   /** Charge a saved card without the person present (the deadline for unpaid shares). Never throws for a
    *  declined or authentication-needed card: that comes back as failed, with why. */
   chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; currency: string; description: string; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; status: IntentStatus; failure?: string }>;
@@ -30,6 +35,7 @@ export class TestProvider implements PaymentProvider {
   customers = new Map<string, string>();
   charges: { customer: string; paymentMethod: string; amountCents: number; ref: string }[] = [];
   failNextCharge: string | null = null;
+  setups = new Map<string, { status: IntentStatus; clientSecret: string; customer: string; paymentMethod: string | null }>();
   private byKey = new Map<string, string>();
   refunds = new Map<string, { paymentRef: string; amountCents: number; ref: string }>();
   failNextRefund = false;
@@ -50,6 +56,24 @@ export class TestProvider implements PaymentProvider {
   settle(ref: string, status: IntentStatus) {
     const it = this.intents.get(ref);
     if (it) { it.status = status; if (status === "succeeded") it.paymentMethod = `pm_test_${randomBytes(4).toString("hex")}`; }
+  }
+  async createSetup(i: { customer: string; idempotencyKey: string }) {
+    const known = this.byKey.get(`setup:${i.idempotencyKey}`);
+    if (known) return { ref: known, clientSecret: this.setups.get(known)!.clientSecret, account: null };
+    const ref = `seti_test_${randomBytes(6).toString("hex")}`, clientSecret = `${ref}_secret_${randomBytes(6).toString("hex")}`;
+    this.setups.set(ref, { status: "pending", clientSecret, customer: i.customer, paymentMethod: null });
+    this.byKey.set(`setup:${i.idempotencyKey}`, ref);
+    return { ref, clientSecret, account: null };
+  }
+  async getSetup(ref: string) {
+    const s = this.setups.get(ref);
+    if (!s) throw new Error(`no such setup: ${ref}`);
+    return { status: s.status, clientSecret: s.clientSecret, paymentMethod: s.paymentMethod, customer: s.customer };
+  }
+  /** What the card form does for a setup: the card is saved. */
+  settleSetup(ref: string, status: IntentStatus = "succeeded") {
+    const s = this.setups.get(ref);
+    if (s) { s.status = status; if (status === "succeeded") s.paymentMethod = `pm_test_${randomBytes(4).toString("hex")}`; }
   }
   async ensureCustomer(i: { key: string }) {
     if (!this.customers.has(i.key)) this.customers.set(i.key, `cus_test_${randomBytes(4).toString("hex")}`);

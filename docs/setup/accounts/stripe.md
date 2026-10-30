@@ -25,8 +25,8 @@ Stripe Billing subscription and no Billing fee on top.
    ```
 3. **Owner: add the webhook** (Developers, then Webhooks, then Add endpoint):
    - URL: `https://staff.app.yourclub.com/webhooks/stripe`
-   - Events: `payment_intent.succeeded`, `payment_intent.payment_failed` and
-     `payment_intent.canceled`
+   - Events: `payment_intent.succeeded`, `payment_intent.payment_failed`,
+     `payment_intent.canceled` and `setup_intent.succeeded` (a card saved for a founding membership)
    - Then copy its signing secret into the settings file: `KUMI_STRIPE_WEBHOOK_SECRET=whsec_...`
 
    Payments are also checked every 30 seconds, so a missed webhook never loses one; the webhook

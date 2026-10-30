@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { checkCardSetup, openCardSetup, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -127,23 +127,27 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const m = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
       .select(["membership.id", "membership_plan.name", "membership_plan.description", "membership_plan.price_cents as plan_price_cents", "membership_plan.period as plan_period", "membership_plan.days_ahead",
         "membership.plan_id", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.price_cents",
-        "membership.period", "membership.next_attempt_at"])
-      .where("membership.person_id", "=", pid).where("membership.status", "in", ["active", "past_due"]).executeTakeFirst();
+        "membership.period", "membership.next_attempt_at", "membership.saved_method"])
+      .where("membership.person_id", "=", pid).where("membership.status", "in", ["upcoming", "active", "past_due"]).executeTakeFirst();
     if (!m) return c.json({ membership: null });
     const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
     const prices = await planPerks(m.plan_id);
     const owed = m.status === "past_due" ? await db.selectFrom("payment").select(["id", "amount_cents"]).where("membership_id", "=", m.id).where("status", "=", "pending").executeTakeFirst() : null;
-    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, ...rest } = m;
+    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, saved_method, ...rest } = m;
     return c.json({ membership: { ...rest, price_cents: m.price_cents ?? plan_price_cents, period: m.period ?? plan_period, member_prices: prices,
+      starts_on: m.status === "upcoming" ? localDate(m.started_at, tz) : null, card_saved: Boolean(saved_method),
       ends_on: current_period_end ? endDay({ current_period_end, source: m.source }, tz) : null, retry_on: next_attempt_at ? localDate(next_attempt_at, tz) : null,
       pay_now: owed ? { payment_id: owed.id, cents: owed.amount_cents } : null } });
   });
   // The plans a member can join here, with what each gives.
   app.get("/membership-plans", async (c) => {
     who(c);
-    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead"]).where("active", "=", true).where("join_in_app", "=", true)
+    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "max_members", "starts_on"]).where("active", "=", true).where("join_in_app", "=", true)
       .orderBy("sort").orderBy("price_cents").execute();
-    return c.json(await Promise.all(plans.map(async (p) => ({ ...p, member_prices: await planPerks(p.id) }))));
+    const counts = await planCounts(db), today = localDate(new Date(), (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone);
+    // A founding offer: how many places are left, and the start date while it's still ahead.
+    return c.json(await Promise.all(plans.map(async ({ max_members, starts_on, ...p }) => ({ ...p, member_prices: await planPerks(p.id),
+      places_left: max_members ? Math.max(0, max_members - (counts.get(p.id) ?? 0)) : null, starts_on: starts_on && starts_on > today ? starts_on : null }))));
   });
   /** Whether a plan has member prices on courts. */
   const planPerks = async (planId: string) => Boolean(await db.selectFrom("price_rule").select("id").where("active", "=", true).where(sql<boolean>`${planId} = ANY(plan_ids)`).executeTakeFirst());
@@ -155,6 +159,15 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     return c.json({ rating: rating ?? null, events: events.map((e) => ({ at: e.at, kind: e.kind, level_after: e.level_after, explanation: (e.explanation as Record<string, string>)[l] ?? "" })) });
   });
 
+  // Development only: save a stand-in card for a membership joined before its plan starts.
+  if (!opts.production) app.post("/dev/memberships/:id/card", async (c) => {
+    const pid = who(c), pv = paymentProvider();
+    if (!(pv instanceof TestProvider)) throw new KumiError("error.forbidden", {}, 403);
+    await openCardSetup(db, c.req.param("id"), pid);
+    const m = await db.selectFrom("membership").select("provider_ref").where("id", "=", c.req.param("id")).executeTakeFirstOrThrow();
+    pv.settleSetup(m.provider_ref!);
+    return c.json({ status: await checkCardSetup(db, c.req.param("id"), "dev") });
+  });
   // Development only: settle a stand-in payment, as the provider's webhook would.
   if (!opts.production) app.post("/dev/payments/:id/settle", async (c) => {
     who(c);

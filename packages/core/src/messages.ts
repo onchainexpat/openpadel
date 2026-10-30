@@ -166,6 +166,15 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: m.person_id, kind: "membership_resumed", params: { name: m.name, amount: amount(m.price_cents ?? 0), date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)) },
       purpose: "account", essential: true, email: true, link: "/membership" }];
   },
+  async "membership.reserved"({ db, tz }, p: { membership_id: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    return [{ to: m.person_id, kind: "membership_reserved", params: { name: m.name, amount: amount(m.price_cents ?? 0), date: dayText(localDate(m.current_period_end!, tz)) },
+      purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
+  async "membership.released"({ db }, p: { membership_id: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    return [{ to: m.person_id, kind: "membership_released", params: { name: m.name }, purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
   async "membership.ended"({ db }, p: { membership_id: string }) {
     const m = await membershipInfo(db, p.membership_id);
     return [{ to: m.person_id, kind: m.end_reason === "not_paid" ? "membership_ended_unpaid" : "membership_ended", params: { name: m.name }, purpose: "account", essential: true, email: true, link: "/membership" }];

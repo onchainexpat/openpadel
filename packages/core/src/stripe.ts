@@ -78,6 +78,20 @@ export class StripeProvider implements PaymentProvider {
     return { status: intentStatus(d.status), clientSecret: String(d.client_secret), paymentMethod: id(d.payment_method), customer: id(d.customer) };
   }
 
+  async createSetup(i: { customer: string; idempotencyKey: string; metadata?: Record<string, string> }) {
+    const account = await this.payingAccount();
+    // A card saved for charging later without the person present; nothing is charged or held now.
+    const d = await this.call("POST", "/v1/setup_intents", { customer: i.customer, payment_method_types: ["card"], usage: "off_session", metadata: i.metadata },
+      `setup:${i.idempotencyKey}`, account);
+    return { ref: String(d.id), clientSecret: String(d.client_secret), account };
+  }
+
+  async getSetup(ref: string, account?: string | null) {
+    const d = await this.call("GET", `/v1/setup_intents/${encodeURIComponent(ref)}`, undefined, undefined, account);
+    const id = (v: unknown) => (typeof v === "string" ? v : (v as { id?: string } | null)?.id ?? null);
+    return { status: intentStatus(d.status), clientSecret: String(d.client_secret), paymentMethod: id(d.payment_method), customer: id(d.customer) };
+  }
+
   async ensureCustomer(i: { key: string; email?: string | null; name?: string }) {
     const account = await this.payingAccount();
     const d = await this.call("POST", "/v1/customers", { email: i.email ?? undefined, name: i.name, metadata: { kumi_person_id: i.key } }, `customer:${i.key}`, account);

@@ -15,6 +15,21 @@ import { account, paymentProvider, post } from "./money.ts";
 
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 const LIVE = ["active", "past_due"] as const;
+/** Held: live, or joined for a plan that hasn't started yet. One at a time per person. */
+const HELD = ["upcoming", "active", "past_due"] as const;
+/** A presale place with no card saved is let go after this long, so an abandoned card form doesn't keep it. */
+export const CARD_HOURS = 2;
+
+/** Whoever already holds a membership, of any kind (given, paid, or waiting for its plan to start). */
+async function holds(db: Db | Trx, personId: string) {
+  return (await db.selectFrom("membership").select("id").where("person_id", "=", personId).where("status", "in", HELD).executeTakeFirst()) ?? null;
+}
+/** Whether a plan has room for one more (its limit counts every membership held on it). */
+async function hasRoom(db: Db | Trx, plan: { id: string; max_members: number | null }) {
+  if (!plan.max_members) return true;
+  const n = await db.selectFrom("membership").select(sql<string>`count(*)`.as("n")).where("plan_id", "=", plan.id).where("status", "in", HELD).executeTakeFirstOrThrow();
+  return Number(n.n) < plan.max_members;
+}
 
 /** "$80.00 a month", in each language. */
 export function planPrice(cents: number, period: "month" | "year"): Text {
@@ -60,19 +75,24 @@ const planInput = {
   name: z.string().check(z.minLength(1), z.maxLength(60)), description: z.optional(z.nullable(z.string().check(z.maxLength(300)))),
   price_cents: z.number().check(z.int(), z.minimum(0)), period: z.enum(["month", "year"]),
   days_ahead: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(365)))), join_in_app: z.optional(z.boolean()), sort: z.optional(z.number().check(z.int())),
+  max_members: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1)))),   // a founding offer: the first so many
+  starts_on: z.optional(z.nullable(clubDate)),                                      // joining before: card saved, first charge then
 };
 export const planSet = defineAction({
   name: "membership.plan_set", version: 1,
   input: z.object({ plan_id: z.optional(z.uuid()), ...planInput }),
   async plan(ctx, i) {
     const reads = i.plan_id ? [(await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan")).read] : [];
-    const window = i.days_ahead ? both("plan.membership.window", { count: i.days_ahead }) : { en: "", es: "" };
+    const extra = [i.days_ahead ? both("plan.membership.window", { count: i.days_ahead }) : null, i.max_members ? both("plan.membership.limit", { count: i.max_members }) : null,
+      i.starts_on ? both("plan.membership.starts", { date: dayText(i.starts_on) }) : null].filter((x): x is Text => Boolean(x));
+    const window = { en: extra.map((x) => x.en).join(""), es: extra.map((x) => x.es).join("") };
     return { title: both("action.membership.plan_set"), summary: both("plan.membership.plan_set", { name: i.name, price: planPrice(i.price_cents, i.period), window }),
       reads, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const { plan_id, ...p } = i;
-    const row = { ...p, description: p.description ?? null, days_ahead: p.days_ahead ?? null, join_in_app: p.join_in_app ?? true, sort: p.sort ?? 0 };
+    const row = { ...p, description: p.description ?? null, days_ahead: p.days_ahead ?? null, join_in_app: p.join_in_app ?? true, sort: p.sort ?? 0,
+      max_members: p.max_members ?? null, starts_on: p.starts_on ?? null };
     if (plan_id) { await ctx.update("membership_plan", plan_id, row); return { plan_id }; }
     const id = uuidv7();
     await ctx.insert("membership_plan", { id, ...row });
@@ -98,7 +118,7 @@ export const membershipGrant = defineAction({
     const { row: person } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const { row: plan, read } = await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan");
     if (!plan.active) throw new KumiError("error.plan_not_offered", { name: plan.name });
-    if (await memberPlan(ctx.db, i.person_id, ctx.now)) throw new KumiError("error.already_member", { name: person.display_name });
+    if (await holds(ctx.db, i.person_id)) throw new KumiError("error.already_member", { name: person.display_name });
     const club = await ctx.db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow();
     if (i.until && i.until < localDate(ctx.now, club.time_zone)) throw new KumiError("error.in_the_past");
     return { title: both("action.membership.grant"), reads: [read], ownerIds: [i.person_id], undo: { kind: "reversible" },
@@ -161,7 +181,7 @@ export async function endLapsedMemberships(db: Db, now = new Date()): Promise<nu
 
 /** How many people hold each plan now, for the staff pages. */
 export async function planCounts(db: Db): Promise<Map<string, number>> {
-  const rows = await db.selectFrom("membership").select(["plan_id", sql<string>`count(*)`.as("n")]).where("status", "in", LIVE).groupBy("plan_id").execute();
+  const rows = await db.selectFrom("membership").select(["plan_id", sql<string>`count(*)`.as("n")]).where("status", "in", HELD).groupBy("plan_id").execute();
   return new Map(rows.map((r) => [r.plan_id, Number(r.n)]));
 }
 
@@ -214,9 +234,9 @@ export async function afterMembershipPayment(ctx: ApplyCtx, pay: { id: string; p
     await ctx.emit("membership.renewed", { membership_id: pay.membership_id, payment_id: pay.id });
     return;
   }
-  const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period"]).where("id", "=", pay.membership_plan_id!).executeTakeFirstOrThrow();
-  // The price paid is the price it renews at.
-  const id = await memberPlan(ctx.trx, pay.person_id, ctx.now) ? null
+  const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period", "max_members"]).where("id", "=", pay.membership_plan_id!).forUpdate().executeTakeFirstOrThrow();
+  // The price paid is the price it renews at. Paid for the last place someone else took meanwhile: back.
+  const id = await holds(ctx.trx, pay.person_id) || !await hasRoom(ctx.trx, plan) ? null
     : await startMembership(ctx, pay.person_id, { ...plan, price_cents: pay.amount_cents }, { customer: card.customer, method: card.method, account: pay.provider_account });
   if (!id) { await refundCard(ctx, pay.id, pay.amount_cents); return; }   // paid twice, or already a member
   await ctx.update("payment", pay.id, { membership_id: id });
@@ -228,13 +248,28 @@ export const membershipJoin = defineAction({
   async plan(ctx, i) {
     const { row: plan, read } = await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan");
     if (!plan.active || !plan.join_in_app) throw new KumiError("error.plan_not_in_app", { name: plan.name });
-    if (await memberPlan(ctx.db, i.person_id, ctx.now)) throw new KumiError("error.already_a_member");
-    const p = { name: plan.name, price: planPrice(plan.price_cents, plan.period), period: both(plan.period === "year" ? "plan.membership.every_year" : "plan.membership.every_month") };
-    return { title: both("action.membership.join"), summary: both(plan.price_cents ? "plan.membership.join" : "plan.membership.join_free", p), reads: [read], ownerIds: [i.person_id],
-      moneyCents: plan.price_cents, undo: { kind: "compensating" } };
+    if (await holds(ctx.db, i.person_id)) throw new KumiError("error.already_a_member");
+    if (!await hasRoom(ctx.db, plan as { id: string; max_members: number | null })) throw new KumiError("error.plan_full", { name: plan.name });
+    const tz = await clubTz(ctx.db), presale = Boolean(plan.starts_on && plan.starts_on > localDate(ctx.now, tz));
+    const p = { name: plan.name, price: planPrice(plan.price_cents, plan.period), period: both(plan.period === "year" ? "plan.membership.every_year" : "plan.membership.every_month"),
+      date: plan.starts_on ? dayText(plan.starts_on) : "" };
+    return { title: both("action.membership.join"), summary: both(!plan.price_cents ? "plan.membership.join_free" : presale ? "plan.membership.join_presale" : "plan.membership.join", p),
+      reads: [read], ownerIds: [i.person_id], moneyCents: presale ? 0 : plan.price_cents, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
-    const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period"]).where("id", "=", i.plan_id).executeTakeFirstOrThrow();
+    const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period", "max_members", "starts_on"]).where("id", "=", i.plan_id).forUpdate().executeTakeFirstOrThrow();
+    const tz = await clubTz(ctx.trx);
+    if (plan.starts_on && plan.starts_on > localDate(ctx.now, tz)) {
+      // Before the plan starts: a place now, the card saved next (the members' app opens the form), the
+      // first charge on the start date. One place at a time, so the limit holds when many join at once.
+      if (!await hasRoom(ctx.trx, plan)) throw new KumiError("error.plan_full", { name: plan.name });
+      const id = uuidv7(), start = onDate(plan.starts_on, "00:00", tz);
+      try {
+        await ctx.insert("membership", { id, person_id: i.person_id, plan_id: plan.id, status: "upcoming", source: "app", started_at: start, current_period_end: start,
+          price_cents: plan.price_cents, period: plan.period, created_at: ctx.now });
+      } catch (e: any) { if (e?.code === "23505") throw new KumiError("error.already_a_member"); throw e; }
+      return { membership_id: id, save_card: plan.price_cents > 0 };
+    }
     if (!plan.price_cents) {
       const id = await startMembership(ctx, i.person_id, plan, { customer: null, method: null, account: null });
       if (!id) throw new KumiError("error.changed");
@@ -266,11 +301,21 @@ export const membershipCancel = defineAction({
     if (m.status === "ended") throw new KumiError("error.membership_ended");
     if (m.source !== "app") throw new KumiError("error.membership_not_renewing");
     if (m.cancel_at_period_end) throw new KumiError("error.membership_already_cancelled");
+    const own = ctx.actor.personId === m.person_id;
+    // Before its plan starts, nothing has been charged: the place is given up at once.
+    if (m.status === "upcoming") return { title: both("action.membership.cancel"), summary: both(own ? "plan.membership.release_own" : "plan.membership.release", { name: plan.name, person }),
+      reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
     const p = { name: plan.name, person, until: dayText(endDay(m, await clubTz(ctx.db))) };
-    return { title: both("action.membership.cancel"), summary: both(ctx.actor.personId === m.person_id ? "plan.membership.cancel_own" : "plan.membership.cancel", p),
+    return { title: both("action.membership.cancel"), summary: both(own ? "plan.membership.cancel_own" : "plan.membership.cancel", p),
       reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
+    const m = await ctx.trx.selectFrom("membership").select("status").where("id", "=", i.membership_id).executeTakeFirstOrThrow();
+    if (m.status === "upcoming") {
+      await ctx.update("membership", i.membership_id, { status: "ended", ended_at: ctx.now, end_reason: "gave_up_place" });
+      await ctx.emit("membership.released", { membership_id: i.membership_id });
+      return null;
+    }
     await ctx.update("membership", i.membership_id, { cancel_at_period_end: true });
     await ctx.emit("membership.cancelled", { membership_id: i.membership_id });
     return null;
@@ -297,7 +342,7 @@ export const membershipResume = defineAction({
 /** The job: memberships joined in the app whose period is up. Each is renewed from its saved card, tried again
  *  later if that fails, or ended (cancelled, or its tries ran out). */
 export async function renewMemberships(db: Db, now = new Date()) {
-  const due = await db.selectFrom("membership").select("id").where("source", "=", "app").where("status", "in", LIVE).where("current_period_end", "<=", now)
+  const due = await db.selectFrom("membership").select("id").where("source", "=", "app").where("status", "in", HELD).where("current_period_end", "<=", now)
     .where((eb) => eb.or([eb("next_attempt_at", "is", null), eb("next_attempt_at", "<=", now)])).execute();
   const n = { renewed: 0, failed: 0, ended: 0 };
   for (const m of due) {
@@ -326,7 +371,11 @@ export const membershipRenew = defineAction({
     }
     const plan = await ctx.trx.selectFrom("membership_plan").select(["name", "price_cents"]).where("id", "=", m.plan_id).executeTakeFirstOrThrow();
     const cents = m.price_cents ?? plan.price_cents, club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
-    if (cents === 0) { await extend(ctx, m.id); return { outcome: "renewed" }; }
+    if (cents === 0) {
+      await extend(ctx, m.id);
+      if (m.status === "upcoming") await ctx.emit("membership.started", { membership_id: m.id });
+      return { outcome: "renewed" };
+    }
     // One try per period and attempt: a retry of this same change (a crash, a timeout) can't charge twice.
     const charge = m.saved_customer && m.saved_method
       ? await paymentProvider().chargeSaved({ customer: m.saved_customer, paymentMethod: m.saved_method, amountCents: cents, currency: club.currency, description: `${plan.name} membership`,
@@ -340,7 +389,8 @@ export const membershipRenew = defineAction({
         { account: await account(ctx.trx, "provider_clearing"), cents }, { account: await account(ctx.trx, "revenue", { revenueType: "memberships" }), cents: -cents }]);
       await extend(ctx, m.id);
       await dropPayNow(ctx, m.id);
-      await ctx.emit("membership.renewed", { membership_id: m.id, payment_id: id });
+      // The first charge of a membership joined before its plan started is its start.
+      await ctx.emit(m.status === "upcoming" ? "membership.started" : "membership.renewed", { membership_id: m.id, payment_id: id });
       return { outcome: "renewed" };
     }
     const tries = m.failed_attempts + 1;
@@ -358,5 +408,97 @@ export const membershipRenew = defineAction({
       status: "pending", membership_id: m.id, save_card: true });
     await ctx.emit("membership.payment_failed", { membership_id: m.id, cents, next_attempt_at: next.toISOString() });
     return { outcome: "failed", failure: charge.failure };
+  },
+});
+
+// ---- Presales: saving the card of a member who joined before the plan starts ----
+/** The card form for an upcoming membership's card: a setup at the provider, opened once and reused. */
+export async function openCardSetup(db: Db, membershipId: string, personId: string): Promise<{ clientSecret: string; provider: "test" | "stripe"; account: string | null }> {
+  const m = await db.selectFrom("membership").selectAll().where("id", "=", membershipId).executeTakeFirst();
+  if (!m || m.person_id !== personId) throw new KumiError("error.not_found", { thing: both("thing.membership") }, 404);
+  if (m.status !== "upcoming" || m.saved_method) throw new KumiError("error.not_pending", {}, 409);
+  const pv = paymentProvider();
+  if (m.provider_ref) return { clientSecret: (await pv.getSetup(m.provider_ref, m.provider_account)).clientSecret, provider: pv.name, account: m.provider_account };
+  const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", personId).executeTakeFirstOrThrow();
+  const customer = await pv.ensureCustomer({ key: personId, email: person.email, name: person.display_name });
+  const it = await pv.createSetup({ customer: customer.id, idempotencyKey: m.id, metadata: { kumi_membership_id: m.id } });
+  await runAsSystem(db, "membership.card_open", { membership_id: m.id, provider_ref: it.ref, saved_customer: customer.id, ...(it.account ? { provider_account: it.account } : {}) }, "payments");
+  return { clientSecret: it.clientSecret, provider: pv.name, account: it.account };
+}
+
+/** Ask the provider whether the card was saved, and record it once it is. Safe to call any number of times:
+ *  after the card form, from a webhook, and from the job that catches what both missed. */
+export async function checkCardSetup(db: Db, membershipId: string, via = "payments", now?: Date): Promise<"pending" | "succeeded" | "failed" | null> {
+  const m = await db.selectFrom("membership").select(["id", "status", "provider_ref", "provider_account", "saved_method"]).where("id", "=", membershipId).executeTakeFirst();
+  if (!m) return null;
+  if (m.saved_method) return "succeeded";
+  if (!m.provider_ref || m.status !== "upcoming") return m.status === "ended" ? "failed" : "pending";
+  const st = await paymentProvider().getSetup(m.provider_ref, m.provider_account);
+  if (st.status === "succeeded" && st.paymentMethod)
+    await runAsSystem(db, "membership.card_saved", { membership_id: m.id, saved_method: st.paymentMethod, ...(st.customer ? { saved_customer: st.customer } : {}) }, via, now ? { now } : {});
+  return st.status;
+}
+
+export const membershipCardOpen = defineAction({
+  name: "membership.card_open", version: 1, system: true, internal: true,
+  input: z.object({ membership_id: z.uuid(), provider_ref: z.string().check(z.minLength(1)), saved_customer: z.string(), provider_account: z.optional(z.string()) }),
+  async plan(ctx, i) {
+    const { read } = await readRow(ctx.db, "membership", i.membership_id, "thing.membership");
+    return { title: both("action.membership.card_open"), summary: both("action.membership.card_open"), reads: [read], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    const m = await ctx.trx.selectFrom("membership").select(["provider_ref", "status"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    if (m.provider_ref === i.provider_ref) return { already: true };   // two taps: the same setup
+    if (m.provider_ref || m.status !== "upcoming") throw new KumiError("error.changed");
+    await ctx.update("membership", i.membership_id, { provider_ref: i.provider_ref, saved_customer: i.saved_customer, provider_account: i.provider_account ?? null });
+    return null;
+  },
+});
+
+export const membershipCardSaved = defineAction({
+  name: "membership.card_saved", version: 1, system: true, internal: true,
+  input: z.object({ membership_id: z.uuid(), saved_method: z.string(), saved_customer: z.optional(z.string()) }),
+  async plan(ctx, i) {
+    const { read } = await readRow(ctx.db, "membership", i.membership_id, "thing.membership");
+    return { title: both("action.membership.card_saved"), summary: both("action.membership.card_saved"), reads: [read], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    const m = await ctx.trx.selectFrom("membership").select(["saved_method", "status"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    if (m.saved_method) return { already: true };
+    // Let go meanwhile (no card in time): the card is saved, but the place is gone; nothing was charged.
+    if (m.status !== "upcoming") return { gone: true };
+    await ctx.update("membership", i.membership_id, { saved_method: i.saved_method, ...(i.saved_customer ? { saved_customer: i.saved_customer } : {}) });
+    await ctx.emit("membership.reserved", { membership_id: i.membership_id });
+    return null;
+  },
+});
+
+/** The job: card setups not yet recorded here (a missed webhook), then presale places whose card never came. */
+export async function tidyPresales(db: Db, now = new Date()) {
+  const open = await db.selectFrom("membership").select("id").where("status", "=", "upcoming").where("saved_method", "is", null).where("provider_ref", "is not", null).execute();
+  let saved = 0;
+  for (const m of open) {
+    try { if ((await checkCardSetup(db, m.id, "job:payments", now)) === "succeeded") saved++; }
+    catch (e) { console.error(`card setup ${m.id}:`, (e as Error).message); }   // tried again next time
+  }
+  const stale = await db.selectFrom("membership").select("id").where("status", "=", "upcoming").where("saved_method", "is", null).where("price_cents", ">", 0)
+    .where("created_at", "<=", new Date(now.getTime() - CARD_HOURS * 3600_000)).execute();
+  for (const m of stale) await runAsSystem(db, "membership.release", { membership_id: m.id }, "jobs", { now });
+  return { saved, released: stale.length };
+}
+
+/** Kumi lets go of a presale place whose card wasn't saved in time. */
+export const membershipRelease = defineAction({
+  name: "membership.release", version: 1, system: true, internal: true,
+  input: z.object({ membership_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { read } = await readRow(ctx.db, "membership", i.membership_id, "thing.membership");
+    return { title: both("action.membership.release"), summary: both("action.membership.release"), reads: [read], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    const m = await ctx.trx.selectFrom("membership").select(["status", "saved_method"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    if (m.status !== "upcoming" || m.saved_method) return { already: true };
+    await ctx.update("membership", i.membership_id, { status: "ended", ended_at: ctx.now, end_reason: "no_card" });
+    return null;
   },
 });

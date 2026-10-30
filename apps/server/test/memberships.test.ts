@@ -64,3 +64,21 @@ test("a member sees their membership, their price and their longer booking windo
   const q = (await get(`/quote?court_id=${c1}&starts_at=${encodeURIComponent(free.courts[0].starts[4])}&minutes=60`, "ann@example.test")).json;
   assert.deepEqual([q.total_cents, q.member], [3000, "Monthly"]);
 });
+
+test("a founding offer: places left and the start date, then saving the card for a place", async () => {
+  const start = localDate(new Date(Date.now() + 40 * 86400_000), TZ);
+  const founding = ((await run(db, "membership.plan_set", { name: "Founding", price_cents: 6000, period: "month", max_members: 10, starts_on: start }, owner)).result as any).plan_id;
+  const bea = ((await run(db, "person.create", { display_name: "Bea", email: "bea@example.test" }, owner)).result as any).person_id;
+  await signIn("bea@example.test");
+  const offer = (await get("/membership-plans", "bea@example.test")).json.find((o: any) => o.name === "Founding");
+  assert.deepEqual([offer.places_left, offer.starts_on], [10, start]);
+  const id = ((await run(db, "membership.join", { plan_id: founding, person_id: bea }, { personId: bea, via: "test", lang: "en" })).result as any).membership_id;
+  const post = async (path: string, who: string) => { const r = await app.request(path, { method: "POST", headers: { cookie: cookies[who]!, "content-type": "application/json" }, body: "{}" }); return { status: r.status, json: await r.json() as any }; };
+  assert.match((await post(`/my/memberships/${id}/card`, "bea@example.test")).json.client_secret, /^seti_test_/);
+  assert.equal((await post(`/my/memberships/${id}/card`, "ann@example.test")).status, 404);   // not Ann's
+  assert.equal((await post(`/my/memberships/${id}/card/check`, "bea@example.test")).json.status, "pending");
+  assert.equal((await post(`/dev/memberships/${id}/card`, "bea@example.test")).json.status, "succeeded");   // the stand-in card form
+  const m = (await get("/my/membership", "bea@example.test")).json.membership;
+  assert.deepEqual([m.status, m.starts_on, m.card_saved], ["upcoming", start, true]);
+  assert.equal((await get("/membership-plans", "ann@example.test")).json.find((o: any) => o.name === "Founding").places_left, 9);
+});

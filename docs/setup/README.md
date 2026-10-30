@@ -93,6 +93,12 @@ carries on while Kumi tries again two days later and three days after that, and 
 with another card meanwhile; after the third try it ends. Members cancel in the app, and it runs to
 the end of what they've paid. A plan with "join in the app" off is only given at the desk.
 
+For a founding offer (a new club selling memberships before it opens), give a plan a limit, a start
+date, or both. Members who join before the start date save their card, without being charged, and
+keep their place; Kumi makes the first charge on the start date and renews monthly or yearly from
+there. A place whose card isn't saved within two hours is let go, so the limit only counts real
+members. Members can give up their place before the start, and nothing is charged.
+
 The desk gives a membership on the person's page or under Memberships (a founding member, one paid
 in cash, a free one), with an end date or without. Staff can also stop or restart an app
 membership's renewal, or end any membership at once (no refund is made by ending it).
