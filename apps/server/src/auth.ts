@@ -9,6 +9,8 @@ import { KumiError, runAsSystem, uuidv7, type Db } from "@kumi/core";
 import type { Mailer } from "./mailer.ts";
 
 export const CODE_MINUTES = 10, MAX_TRIES = 5, MAX_CODES_PER_HOUR = 5, SESSION_DAYS = 30, SIGN_UP_MINUTES = 30;
+/** Join codes to new addresses, club-wide, per hour: anyone can ask for one, so this caps how much mail a stranger can make the club send. */
+export const JOIN_CODES_PER_HOUR = 30;
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 const codeHash = (challengeId: string, code: string) => sha(`${challengeId}:${code}`);
 
@@ -27,7 +29,12 @@ export async function startEmailSignIn(db: Db, mailer: Mailer, email: string, la
   await db.insertInto("auth_challenge").values({ id, kind: "email_code", target: email, code_hash: codeHash(id, code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
   const club = await db.selectFrom("club").select(["name", "sign_up_open"]).executeTakeFirstOrThrow();
   if (!person) {
-    if (club.sign_up_open && opts.signUp !== false) await mailer.send({ to: email, subject: t(lang, "auth.join_subject", { club: club.name, code }), text: t(lang, "auth.join_body", { club: club.name, code }) });
+    if (!club.sign_up_open || opts.signUp === false) return;
+    const joins = await db.selectFrom("auth_challenge as a").select((eb) => eb.fn.countAll<string>().as("n")).where("a.kind", "=", "email_code").where("a.created_at", ">", new Date(now.getTime() - 3600_000))
+      .where((eb) => eb.not(eb.exists(eb.selectFrom("person").select("person.id").where(sql<boolean>`lower(person.email) = lower(a.target)`)))).executeTakeFirstOrThrow();
+    // The same answer either way; the log says why nothing went.
+    if (Number(joins.n) > JOIN_CODES_PER_HOUR) { console.warn(`sign-up: over ${JOIN_CODES_PER_HOUR} join codes this hour; not sending more until it calms down`); return; }
+    await mailer.send({ to: email, subject: t(lang, "auth.join_subject", { club: club.name, code }), text: t(lang, "auth.join_body", { club: club.name, code }) });
     return;
   }
   const l = (person.locale as Lang) ?? lang;

@@ -2,6 +2,9 @@
 // language (their profile, or Accept-Language before they sign in).
 import { Hono, type Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import { secureHeaders } from "hono/secure-headers";
+import { bodyLimit } from "hono/body-limit";
+import { clientIp, RateLimiter } from "./limits.ts";
 import * as z from "zod/mini";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, type Lang } from "@kumi/i18n";
@@ -15,7 +18,7 @@ import { memberRoutes } from "./member.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import type { Mailer } from "./mailer.ts";
 
-export interface AppDeps { db: Db; mailer: Mailer; publicUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata; production?: boolean; stripe?: StripeConfig }
+export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata; production?: boolean; stripe?: StripeConfig }
 type Me = { id: string; display_name: string; locale: string; method: "email_code" | "passkey"; created_at: Date } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
 const COOKIE = "kumi_session";
@@ -27,6 +30,36 @@ export function makeApp(deps: AppDeps) {
   const { db, mailer } = deps;
   const now = deps.now ?? (() => new Date());
   const app = new Hono<Env>();
+
+  // Security headers on everything the API answers. The only HTML it serves is the agent sign-in and
+  // consent pages, with their own inline styles and no scripts. The apps' headers are set by Caddy.
+  app.use("*", secureHeaders({ contentSecurityPolicy: { defaultSrc: ["'none'"], styleSrc: ["'unsafe-inline'"], imgSrc: ["'self'", "data:"], frameAncestors: ["'none'"], baseUri: ["'none'"] } }));
+  app.use("*", bodyLimit({ maxSize: 3 * 1024 * 1024, onError: () => { throw new KumiError("error.too_big", {}, 413); } }));
+  // A change must come from the club's own pages: refuse what the browser marks as from another site,
+  // and form-style posts (which another site could make) except on the agent sign-in pages, which are
+  // forms. Stripe's webhook and the agent endpoint use signatures and tokens, not the session cookie.
+  app.use("*", async (c, next) => {
+    const path = c.req.path, m = c.req.method;
+    if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && !path.startsWith("/webhooks/") && !path.startsWith("/mcp")) {
+      const site = c.req.header("sec-fetch-site");
+      if (site && site !== "same-origin" && site !== "none") throw new KumiError("error.cross_site", {}, 403);
+      const type = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+      if (["application/x-www-form-urlencoded", "multipart/form-data", "text/plain"].includes(type) && !path.startsWith("/oauth/")) throw new KumiError("error.json_only", {}, 415);
+    }
+    await next();
+  });
+  // How often one address can try to sign in, join or guess a code.
+  const ipOf = deps.clientIp ?? clientIp;
+  const limits = new Map<string, RateLimiter>([
+    ["/auth/email/start", new RateLimiter(10, 15 * 60_000)], ["/oauth/sign-in", new RateLimiter(10, 15 * 60_000)],
+    ["/auth/email/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/sign-up", new RateLimiter(10, 60 * 60_000)],
+    ["/auth/passkey/sign-in/verify", new RateLimiter(30, 15 * 60_000)],
+  ]);
+  app.use("*", async (c, next) => {
+    const l = c.req.method === "POST" ? limits.get(c.req.path) : undefined, ip = l ? ipOf(c) : null;
+    if (l && ip && !l.take(ip)) throw new KumiError("error.too_many_requests", {}, 429);
+    await next();
+  });
 
   app.use("*", async (c, next) => {
     const me = await sessionPerson(db, getCookie(c, COOKIE), now());

@@ -87,6 +87,9 @@ chmod 755 /usr/local/bin/kumi
 
 # The API answers on these paths; everything else is one of the two apps.
 api='/auth/* /me /me/* /my/* /club /actions/* /runs /runs/* /changes /changes/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /health /open-programs /payments/* /webhooks/*'
+# The apps' own security headers (the API sets its own): scripts only from here and Stripe (its card
+# form), never framed by another site, and HTTPS remembered for a year.
+csp="default-src 'self'; script-src 'self' https://js.stripe.com https://*.js.stripe.com; frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com; connect-src 'self' https://api.stripe.com; img-src 'self' data: https://*.stripe.com; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 site() {
   cat <<SITE
 $1 {
@@ -96,6 +99,14 @@ $1 {
 		reverse_proxy 127.0.0.1:8790
 	}
 	handle {
+		header {
+			Content-Security-Policy "$csp"
+			Strict-Transport-Security "max-age=31536000"
+			X-Content-Type-Options nosniff
+			X-Frame-Options DENY
+			Referrer-Policy strict-origin-when-cross-origin
+			Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		}
 		root * /opt/kumi/app/apps/$2/dist
 		try_files {path} /index.html
 		file_server
