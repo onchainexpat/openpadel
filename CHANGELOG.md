@@ -7,7 +7,17 @@ server starts.
 
 ## 0.1.0 (not released yet)
 
-The first version a club can run for its events alongside Playtomic.
+The first version a club can run on its own (court bookings included), or for its events alongside Playtomic.
+
+**Court bookings**
+- Opening hours and special days, court blocks, and a Courts page for staff to see the day, book at the
+  desk (taking cash), block courts and cancel. No double bookings, even when many try at once.
+- Prices by court, day, time and season, sales tax, and booking rules that bookings keep once made.
+- Members book in the app and pay the whole court, or only their part: the others join from a link
+  and pay theirs, and what's unpaid at the club's deadline goes once on the organiser's saved card
+  (saved, never held). Cancelling refunds what the club's rules give. Calendar links.
+- Messages for confirmations, shares paid, cancellations, money owed, and a reminder before playing.
+- Occupancy and revenue by day, with a CSV export.
 
 **Events, programs and money**
 - Clinics, courses, socials and Americanos with dates on courts that can't be double-booked.

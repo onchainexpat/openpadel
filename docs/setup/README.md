@@ -14,7 +14,8 @@ is planned but not offered yet.
 
 - The members' app at your address, for example `https://app.yourclub.com`, and the staff app at
   `https://staff.app.yourclub.com`. Both work on a phone or a computer, in English and Spanish.
-- Clinics, socials and Americanos that members sign up and pay for, with waitlists and refunds.
+- Court bookings members make and pay for in the app (the whole court, or their own part), and staff
+  manage at the desk; clinics, socials and Americanos with waitlists and refunds.
 - Email from your own domain, card payments into your own Stripe account, nightly backups.
 
 ## The order
@@ -69,6 +70,13 @@ kumi import members members.csv --apply   # add them
 
 People already in Kumi (by email) are left as they are, and nobody is emailed: telling members
 about the app is the club's own announcement. Staff can do the same from People in the staff app.
+
+### Step 5c: courts, prices and rules
+
+In the staff app's Settings: each location's opening hours and special days, court prices (by day,
+time and season), the sales tax rate, and the booking rules (how far ahead, how many at once, the
+cancellation window, when unpaid shares are charged). Members only book courts in the app once
+"Members book courts in the app" is on; leave it off while the club books courts in Playtomic.
 
 ### Step 8: practice
 
