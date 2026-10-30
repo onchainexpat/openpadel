@@ -79,6 +79,14 @@ export function connect(url = process.env.DATABASE_URL ?? "postgres://postgres@1
 const MIGRATIONS = new URL("../../../migrations/", import.meta.url);
 
 /** Plain SQL migrations, each applied once, in file order, inside its own transaction. */
+/** Migrations in the folder that this database hasn't applied yet (the server applies them when it starts). */
+export async function pendingMigrations(db: Db, dir: URL = MIGRATIONS): Promise<{ applied: number; pending: string[] }> {
+  const t = await sql<{ t: string | null }>`SELECT to_regclass('schema_migration')::text AS t`.execute(db);
+  const done = t.rows[0]?.t ? new Set((await sql<{ name: string }>`SELECT name FROM schema_migration`.execute(db)).rows.map((r) => r.name)) : new Set<string>();
+  const files = readdirSync(dir).filter((f) => /^\d{3}_.+\.sql$/.test(f)).sort();
+  return { applied: files.filter((f) => done.has(f)).length, pending: files.filter((f) => !done.has(f)) };
+}
+
 export async function migrate(db: Db, dir: URL = MIGRATIONS): Promise<string[]> {
   await sql`CREATE TABLE IF NOT EXISTS schema_migration (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`.execute(db);
   const done = new Set((await sql<{ name: string }>`SELECT name FROM schema_migration`.execute(db)).rows.map((r) => r.name));

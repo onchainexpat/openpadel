@@ -97,6 +97,26 @@ export const locationUpdate = defineAction({
   },
 });
 
+/** Staff add someone: a member by default. Signing in later is by an emailed code to this address. */
+export const personCreate = defineAction({
+  name: "person.create", version: 1,
+  input: z.object({ display_name: z.string().check(z.minLength(1)), email: z.optional(z.email()), locale: z.optional(lang) }),
+  async plan(ctx, i) {
+    const email = i.email?.trim().toLowerCase();
+    if (email && await ctx.db.selectFrom("person").select("id").where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).executeTakeFirst()) throw new KumiError("error.duplicate_email");
+    return { title: both("action.person.create"), summary: both("plan.person.create", { name: i.display_name, email: email ?? "-" }), reads: [], undo: { kind: "compensating" } };
+  },
+  async apply(ctx, i) {
+    const id = uuidv7(), email = i.email?.trim().toLowerCase() ?? null;
+    await ctx.insert("person", { id, display_name: i.display_name, email, locale: i.locale ?? "en", created_via: "desk" });
+    if (email) await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: id, kind: "email", value: email, verified_at: null }).execute();
+    const member = await ctx.trx.selectFrom("role").select("id").where("key", "=", "member").executeTakeFirstOrThrow();
+    await ctx.insert("person_role", { id: uuidv7(), person_id: id, role_id: member.id, location_id: null });
+    await ctx.emit("person.created", { person_id: id });
+    return { person_id: id };
+  },
+});
+
 export const roleAssign = defineAction({
   name: "role.assign", version: 1, strongAuth: true,
   input: z.object({ person_id: z.uuid(), role: roleKey, location_id: z.optional(z.uuid()) }),

@@ -47,6 +47,7 @@ KUMI_PRACTICE=1
 PORT=8790
 DATABASE_URL=postgresql://kumi@/kumi?host=/var/run/postgresql
 KUMI_PUBLIC_URL=https://staff.$KUMI_HOST
+KUMI_CLUB_FILE=/etc/kumi/club.yaml
 # KUMI_RESEND_API_KEY=  KUMI_MAIL_FROM=  KUMI_MAIL_TEST_TO=
 # KUMI_STRIPE_SECRET_KEY=  KUMI_STRIPE_PUBLISHABLE_KEY=  KUMI_STRIPE_WEBHOOK_SECRET=  KUMI_STRIPE_CONNECT=
 # KUMI_PLAYTOMIC_CLIENT_ID=  KUMI_PLAYTOMIC_SECRET=  KUMI_PLAYTOMIC_TENANT_ID=
@@ -75,6 +76,14 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 UNIT
+
+# The kumi command (kumi setup, kumi doctor) runs as the kumi user with the server's settings.
+cat > /usr/local/bin/kumi <<'SH'
+#!/bin/sh
+cd /opt/kumi/app || exit 1
+exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
+SH
+chmod 755 /usr/local/bin/kumi
 
 # The API answers on these paths; everything else is one of the two apps.
 api='/auth/* /me /me/* /my/* /club /actions/* /runs /runs/* /changes /changes/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /health /open-programs /payments/* /webhooks/*'

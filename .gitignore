@@ -147,3 +147,6 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# A club's own setup file: staff names and emails, kept out of the repository
+club.yaml
