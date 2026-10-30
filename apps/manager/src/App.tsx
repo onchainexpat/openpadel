@@ -38,14 +38,17 @@ export function App() {
   if (me.value === null) return <SignIn />;
   const signOut = async () => { await api("/auth/sign-out", {}); me.value = null; };
   const roles = me.value.roles.map((r) => r.key), coach = roles.includes("coach"), desk = roles.some((r) => ["owner", "manager", "front_desk"].includes(r));
+  // Changes is the owner's and managers' home; everyone else starts on the page their role uses most.
+  const changes = roles.some((r) => r === "owner" || r === "manager");
+  const home = changes ? Changes : coach ? Schedule : desk ? Courts : roles.includes("accountant") ? Reports : Programs;
   return (
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}<a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/memberships">{t("ui.nav_memberships")}</a>{(coach || desk) && <a href="/coaches">{t("ui.nav_coaches")}</a>}<a href="/courts">{t("ui.courts")}</a><a href="/scores">{t("ui.nav_scores")}</a><a href="/levels">{t("ui.nav_levels")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink />{(desk || !coach) && <a href="/">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}<a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/memberships">{t("ui.nav_memberships")}</a>{(coach || desk) && <a href="/coaches">{t("ui.nav_coaches")}</a>}<a href="/courts">{t("ui.courts")}</a><a href="/scores">{t("ui.nav_scores")}</a><a href="/levels">{t("ui.nav_levels")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink />{changes && <a href="/">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
-        <Route path="/" component={coach && !desk ? Schedule : Changes} />
+        <Route path="/" component={home} />
         <Route path="/profile" component={() => <Profile app="staff" />} />
         <Route path="/programs" component={Programs} />
         <Route path="/programs/:id" component={Program} />

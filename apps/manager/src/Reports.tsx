@@ -1,6 +1,6 @@
 // Occupancy and revenue by day for a location, with the same figures as a spreadsheet file.
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, t } from "@kumi/ui";
+import { api, dollars, lang, me, t } from "@kumi/ui";
 
 type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number };
 type Earnings = { coaches: { coach_id: string; coach: string; lessons: number; lesson_minutes: number; net_cents: number; sessions: number; session_minutes: number }[] };
@@ -15,7 +15,8 @@ export function Reports() {
   useEffect(() => { if (loc && from && to) api<{ rows: Row[] }>(`/staff/reports?location_id=${loc}&from=${from}&to=${to}`).then((r) => setRows(r.rows)).catch(() => setRows([])); }, [loc, from, to]);
   // Coaches' lessons and sessions, for payroll (for owners, managers and the accountant; a coach sees their own).
   const [earn, setEarn] = useState<Earnings | null>(null);
-  useEffect(() => { if (from && to) api<Earnings>(`/staff/coach-earnings?from=${from}&to=${to}`).then(setEarn).catch(() => setEarn(null)); }, [from, to]);
+  const seesEarnings = (me.value?.roles ?? []).some((r) => ["owner", "manager", "accountant", "coach"].includes(r.key));
+  useEffect(() => { if (seesEarnings && from && to) api<Earnings>(`/staff/coach-earnings?from=${from}&to=${to}`).then(setEarn).catch(() => setEarn(null)); }, [from, to]);
   const sum = (k: keyof Row) => (rows ?? []).reduce((n, r) => n + (r[k] as number), 0);
   const usable = sum("court_hours") - sum("blocked_hours"), used = sum("booked_hours") + sum("program_hours") + sum("playtomic_hours");
   const hrs = (n: number) => (Math.round(n * 10) / 10).toLocaleString(lang.value === "es" ? "es-US" : "en-US");
