@@ -7,23 +7,31 @@ import { api, dollars, lang, t, usePreview } from "@kumi/ui";
 export type Plan = { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; days_ahead: number | null; join_in_app?: boolean;
   max_members?: number | null; starts_on?: string | null; sort: number; members: number };
 type Member = { id: string; person_id: string; display_name: string; email: string | null; plan: string; status: string; source: string; started_at: string; current_period_end: string | null;
-  cancel_at_period_end: boolean; ended_at: string | null; end_reason: string | null; note: string | null; price_cents: number | null; ends_on: string | null; card_saved: boolean };
+  cancel_at_period_end: boolean; ended_at: string | null; end_reason: string | null; note: string | null; price_cents: number | null; ends_on: string | null; card_saved: boolean; paused_until: string | null };
 type Preview = (action: string, input: unknown) => Promise<void>;
 
 const day = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
 /** A club date ("2026-11-30"), as written here. */
 const clubDay = (date: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
 /** When it runs until or renews, and how it came: the line under a member's name. */
-export function membershipLine(m: { status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean }) {
+export const pausedNow = (m: { paused_until?: string | null }) => Boolean(m.paused_until && new Date(m.paused_until) > new Date());
+export function membershipLine(m: { status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null }) {
   // Joined before its plan starts: when it starts, and whether the card is saved for the first charge.
   if (m.status === "upcoming") return [t("ui.starts_on", { date: clubDay(m.ends_on!) }), t(m.card_saved ? "ui.card_saved" : "ui.no_card_yet"), m.note].filter(Boolean).join(" · ");
   const end = !m.ends_on ? t("ui.no_end_date") : m.source !== "app" ? t("ui.member_until", { date: clubDay(m.ends_on) })
     : m.cancel_at_period_end ? t("ui.cancelled_runs_until", { date: clubDay(m.ends_on) }) : t("ui.renews_on", { date: clubDay(m.ends_on) });
-  return [t("ui.member_since", { date: day(m.started_at) }), end, t(`ui.membership_${m.source}` as Key), m.note].filter(Boolean).join(" · ");
+  const paused = pausedNow(m) ? t("ui.paused_until", { date: day(new Date(new Date(m.paused_until!).getTime() - 1).toISOString()) }) : null;
+  return [paused, t("ui.member_since", { date: day(m.started_at) }), end, t(`ui.membership_${m.source}` as Key), m.note].filter(Boolean).join(" · ");
 }
 /** What staff can do with one: stop or restart its renewal (joined in the app), and end it now. */
-export function MembershipButtons({ m, send }: { m: { id: string; status: string; source: string; cancel_at_period_end: boolean }; send: Preview }) {
+export function MembershipButtons({ m, send }: { m: { id: string; status: string; source: string; cancel_at_period_end: boolean; paused_until?: string | null }; send: Preview }) {
+  const [pausing, setPausing] = useState(false), [until, setUntil] = useState("");
   return <span>
+    {m.status !== "upcoming" && (pausedNow(m)
+      ? <button class="small" onClick={() => send("membership.unpause", { membership_id: m.id })}>{t("ui.unpause")}</button>
+      : !pausing ? <button class="small" onClick={() => setPausing(true)}>{t("ui.pause")}</button>
+        : <form class="court-row" onSubmit={(e) => { e.preventDefault(); void send("membership.pause", { membership_id: m.id, until }); }}>
+          <label>{t("ui.pause_until")}<input type="date" required value={until} onInput={(e) => setUntil(e.currentTarget.value)} /></label><button class="small">{t("ui.preview")}</button></form>)}{" "}
     {m.source === "app" && m.status !== "upcoming" && (m.cancel_at_period_end
       ? <button class="small" onClick={() => send("membership.resume", { membership_id: m.id })}>{t("ui.renew_again")}</button>
       : <button class="small" onClick={() => send("membership.cancel", { membership_id: m.id })}>{t("ui.stop_renewing")}</button>)}{" "}

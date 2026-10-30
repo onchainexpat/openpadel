@@ -7,7 +7,7 @@ import { confirmPaid, PaySheet } from "./Pay.tsx";
 
 type Perks = { days_ahead: number | null; member_prices: boolean };
 type Mine = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; status: string; source: string; cancel_at_period_end: boolean;
-  ends_on: string | null; retry_on: string | null; pay_now: { payment_id: string; cents: number } | null; starts_on: string | null; card_saved: boolean };
+  ends_on: string | null; retry_on: string | null; pay_now: { payment_id: string; cents: number } | null; starts_on: string | null; card_saved: boolean; paused_until: string | null };
 type Offer = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; places_left: number | null; starts_on: string | null };
 
 const clubDay = (date: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
@@ -54,6 +54,7 @@ export function Membership() {
           <h2>{mine.name}</h2>
           {mine.description && <p>{mine.description}</p>}
           <PerkList p={mine} />
+          {mine.paused_until && <p class="note">{t("ui.membership_paused_until", { date: clubDay(mine.paused_until) })}</p>}
           {mine.status === "upcoming" && <>
             <p>{mine.card_saved ? t("ui.place_saved", { date: clubDay(mine.starts_on!), amount: dollars(mine.price_cents, lang.value) })
               : t("ui.place_needs_card", { date: clubDay(mine.starts_on!) })}</p>

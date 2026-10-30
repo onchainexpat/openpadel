@@ -9,7 +9,7 @@ type P = {
   id: string; display_name: string; email: string | null; locale: string; created_via: string; created_at: string;
   roles: Role[]; places: { id: string; status: string; program_id: string; name: string; first_start: string | null }[];
   consent: { channel: string; purpose: string; granted: boolean }[];
-  membership: { id: string; name: string; status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean } | null;
+  membership: { id: string; name: string; status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null } | null;
   plans: (Omit<Plan, "members"> & { members?: number })[];
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;

@@ -48,6 +48,8 @@ export async function memberPlan(db: Db | Trx, personId: string, at = new Date()
   return (await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
     .select(["membership.id as membership_id", "membership_plan.id as plan_id", "membership_plan.name", "membership_plan.days_ahead"])
     .where("membership.person_id", "=", personId)
+    // Paused: no benefits until it's over.
+    .where((eb) => eb.or([eb("membership.paused_until", "is", null), eb("membership.paused_until", "<=", at), eb("membership.paused_from", ">", at)]))
     .where((eb) => eb.or([eb("membership.status", "=", "past_due"),
       eb.and([eb("membership.status", "=", "active"), eb.or([eb("membership.current_period_end", "is", null), eb("membership.current_period_end", ">", at)])])]))
     .executeTakeFirst()) ?? null;
@@ -499,6 +501,51 @@ export const membershipRelease = defineAction({
     const m = await ctx.trx.selectFrom("membership").select(["status", "saved_method"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
     if (m.status !== "upcoming" || m.saved_method) return { already: true };
     await ctx.update("membership", i.membership_id, { status: "ended", ended_at: ctx.now, end_reason: "no_card" });
+    return null;
+  },
+});
+
+// ---- Pausing (the club does it: an injury, a long trip) ----
+export const membershipPause = defineAction({
+  name: "membership.pause", version: 1,
+  input: z.object({ membership_id: z.uuid(), until: clubDate, note: z.optional(z.string().check(z.maxLength(200))) }),
+  async plan(ctx, i) {
+    const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
+    if (m.status === "ended" || m.status === "upcoming") throw new KumiError("error.membership_not_live");
+    if (m.paused_until && m.paused_until > ctx.now) throw new KumiError("error.membership_paused_already");
+    const tz = await clubTz(ctx.db), until = onDate(i.until, "24:00", tz);
+    if (until <= ctx.now) throw new KumiError("error.in_the_past");
+    const shift = until.getTime() - ctx.now.getTime();
+    const renews = m.current_period_end ? dayText(endDay({ current_period_end: new Date(m.current_period_end.getTime() + shift), source: m.source }, tz)) : null;
+    return { title: both("action.membership.pause"), reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" },
+      summary: both(renews ? (m.source === "app" ? "plan.membership.pause_renews" : "plan.membership.pause_until") : "plan.membership.pause", { person, name: plan.name, date: dayText(i.until), renews: renews ?? "" }) };
+  },
+  async apply(ctx, i) {
+    const m = await ctx.trx.selectFrom("membership").select(["current_period_end"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    const until = onDate(i.until, "24:00", await clubTz(ctx.trx)), shift = until.getTime() - ctx.now.getTime();
+    // The paid (or given) time left is kept for after the pause.
+    const end = m.current_period_end ? new Date(m.current_period_end.getTime() + shift) : null;
+    await ctx.update("membership", i.membership_id, { paused_from: ctx.now, paused_until: until, ...(end ? { current_period_end: end } : {}), ...(i.note ? { note: i.note } : {}) });
+    // The dates as they are now: the message is written a moment later, and the pause could end early before then.
+    await ctx.emit("membership.paused", { membership_id: i.membership_id, until: until.toISOString(), renews: end?.toISOString() ?? null });
+    return null;
+  },
+});
+
+export const membershipUnpause = defineAction({
+  name: "membership.unpause", version: 1,
+  input: z.object({ membership_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
+    if (!m.paused_until || m.paused_until <= ctx.now) throw new KumiError("error.membership_not_paused");
+    return { title: both("action.membership.unpause"), summary: both("plan.membership.unpause", { person, name: plan.name }), reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    const m = await ctx.trx.selectFrom("membership").select(["current_period_end", "paused_until"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    // Back early: the pause it didn't use comes off the renewal date again.
+    const unused = Math.max(0, m.paused_until!.getTime() - ctx.now.getTime());
+    await ctx.update("membership", i.membership_id, { paused_until: ctx.now, ...(m.current_period_end ? { current_period_end: new Date(m.current_period_end.getTime() - unused) } : {}) });
+    await ctx.emit("membership.unpaused", { membership_id: i.membership_id });
     return null;
   },
 });

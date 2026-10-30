@@ -218,15 +218,16 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const m = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
       .select(["membership.id", "membership_plan.name", "membership_plan.description", "membership_plan.price_cents as plan_price_cents", "membership_plan.period as plan_period", "membership_plan.days_ahead",
         "membership.plan_id", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.price_cents",
-        "membership.period", "membership.next_attempt_at", "membership.saved_method"])
+        "membership.period", "membership.next_attempt_at", "membership.saved_method", "membership.paused_until"])
       .where("membership.person_id", "=", pid).where("membership.status", "in", ["upcoming", "active", "past_due"]).executeTakeFirst();
     if (!m) return c.json({ membership: null });
     const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
     const prices = await planPerks(m.plan_id);
     const owed = m.status === "past_due" ? await db.selectFrom("payment").select(["id", "amount_cents"]).where("membership_id", "=", m.id).where("status", "=", "pending").executeTakeFirst() : null;
-    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, saved_method, ...rest } = m;
+    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, saved_method, paused_until, ...rest } = m;
     return c.json({ membership: { ...rest, price_cents: m.price_cents ?? plan_price_cents, period: m.period ?? plan_period, member_prices: prices,
       starts_on: m.status === "upcoming" ? localDate(m.started_at, tz) : null, card_saved: Boolean(saved_method),
+      paused_until: paused_until && paused_until > new Date() ? localDate(new Date(paused_until.getTime() - 1), tz) : null,
       ends_on: current_period_end ? endDay({ current_period_end, source: m.source }, tz) : null, retry_on: next_attempt_at ? localDate(next_attempt_at, tz) : null,
       pay_now: owed ? { payment_id: owed.id, cents: owed.amount_cents } : null } });
   });

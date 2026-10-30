@@ -147,3 +147,22 @@ test("paid for twice: the second payment goes back to the card", async () => {
   assert.deepEqual([back.amount_cents, back.status], [80000, "pending"]);
   assert.equal((await db.selectFrom("membership").select("id").where("person_id", "=", people.Fay!).execute()).length, 1);
 });
+
+test("the club pauses a membership: no benefits and no charge meanwhile, and the renewal moves with it", async () => {
+  const m = await membership("Fay");   // Monthly, joined 31 January, renews 28 February
+  const p = await run(db, "membership.pause", { membership_id: m.id, until: "2026-02-19" }, owner, { now: la("2026-02-10", "10:00") });
+  assert.equal(p.plan.summary.en, "Pause Fay's Monthly membership until February 19, 2026. Its benefits stop and nothing is charged meanwhile; the paid time left moves to after the pause, so it renews on March 10, 2026.");
+  assert.equal(await memberPlan(db, people.Fay!, la("2026-02-15", "12:00")), null);
+  assert.equal((await memberPlan(db, people.Fay!, la("2026-02-21", "12:00")))!.name, "Monthly");
+  const before = stripe.charges.length;
+  await renewMemberships(db, la("2026-02-28", "10:00"));
+  assert.equal(stripe.charges.length, before);   // not due yet: the pause moved it
+  await rejects(plan(db, "membership.pause", { membership_id: m.id, until: "2026-03-01" }, owner, { now: la("2026-02-12", "10:00") }), "error.membership_paused_already");
+  // Back after five days instead of nine: the pause she didn't use comes off again.
+  await run(db, "membership.unpause", { membership_id: m.id }, owner, { now: la("2026-02-15", "10:00") });
+  assert.equal((await membership("Fay")).current_period_end!.toISOString(), new Date(m.current_period_end!.getTime() + 5 * 86400_000).toISOString());
+  assert.equal((await memberPlan(db, people.Fay!, la("2026-02-15", "12:00")))!.name, "Monthly");
+  await rejects(plan(db, "membership.pause", { membership_id: m.id, until: "2026-03-01" }, as("Fay"), { now: la("2026-02-16", "10:00") }), "error.forbidden_reason");   // the club pauses
+  await processOutbox(db, messageHandlers);
+  assert.match((await email("Fay", "membership_paused")).body, /^Your Monthly membership is paused through February 19, 2026\. Nothing is charged meanwhile, and the time you'd paid for is kept for after\. It now renews on March 10, 2026\.$/);
+});

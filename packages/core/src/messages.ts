@@ -273,6 +273,16 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const m = await membershipInfo(db, p.membership_id);
     return [{ to: m.person_id, kind: "membership_released", params: { name: m.name }, purpose: "account", essential: true, email: true, link: "/membership" }];
   },
+  async "membership.paused"({ db, tz }, p: { membership_id: string; until: string; renews: string | null }) {
+    const m = await membershipInfo(db, p.membership_id);
+    const back = dayText(localDate(new Date(new Date(p.until).getTime() - 1), tz));
+    const renews = m.source === "app" && p.renews ? both("msg.membership_renews_on", { date: dayText(endDay({ current_period_end: new Date(p.renews), source: m.source }, tz)) }) : NOTHING;
+    return [{ to: m.person_id, kind: "membership_paused", params: { name: m.name, date: back, renews }, purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
+  async "membership.unpaused"({ db }, p: { membership_id: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    return [{ to: m.person_id, kind: "membership_unpaused", params: { name: m.name }, purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
   async "membership.ended"({ db }, p: { membership_id: string }) {
     const m = await membershipInfo(db, p.membership_id);
     return [{ to: m.person_id, kind: m.end_reason === "not_paid" ? "membership_ended_unpaid" : "membership_ended", params: { name: m.name }, purpose: "account", essential: true, email: true, link: "/membership" }];

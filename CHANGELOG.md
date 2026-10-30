@@ -45,6 +45,9 @@ The first version a club can run on its own (court bookings included), or for it
   joined at, with no subscription fee at Stripe. A declined renewal is tried again twice over five
   days while the membership carries on, and the member can pay with another card meanwhile.
 - Members cancel in the app (it runs to the end of what's paid) and can change their mind until then.
+- The club pauses a membership until a date (an injury, a long trip): no benefits and nothing charged
+  meanwhile, and the paid time left moves to after the pause; ending a pause early gives the unused
+  time back to the renewal date.
 - Founding offers: a plan for the first so many members, starting on a date. Joining before then
   saves the card without charging it; the first charge is on the start date.
 - The desk gives and ends memberships (with an end date or without), and can stop or restart a

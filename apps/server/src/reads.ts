@@ -39,7 +39,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const plans = await db.selectFrom("membership_plan").selectAll().where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const members = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person", "person.id", "membership.person_id")
       .select(["membership.id", "membership.person_id", "person.display_name", "person.email", "membership_plan.name as plan", "membership.status", "membership.source", "membership.started_at",
-        "membership.current_period_end", "membership.cancel_at_period_end", "membership.ended_at", "membership.end_reason", "membership.note", "membership.price_cents",
+        "membership.current_period_end", "membership.cancel_at_period_end", "membership.ended_at", "membership.end_reason", "membership.note", "membership.price_cents", "membership.paused_until",
         sql<boolean>`membership.saved_method IS NOT NULL`.as("card_saved")])
       .where((eb) => eb.or([eb("membership.status", "in", ["upcoming", "active", "past_due"]), eb("membership.ended_at", ">", sql<Date>`now() - interval '30 days'`)]))
       .orderBy("membership.status").orderBy("person.display_name").limit(500).execute();
@@ -171,7 +171,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("person_id", "=", id).orderBy("channel").orderBy("purpose").orderBy("at", "desc").execute();
     const membership = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
       .select(["membership.id", "membership.plan_id", "membership_plan.name", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end",
-        "membership.cancel_at_period_end", "membership.price_cents", "membership.note", sql<boolean>`membership.saved_method IS NOT NULL`.as("card_saved")])
+        "membership.cancel_at_period_end", "membership.price_cents", "membership.note", "membership.paused_until", sql<boolean>`membership.saved_method IS NOT NULL`.as("card_saved")])
       .where("membership.person_id", "=", id).where("membership.status", "in", ["upcoming", "active", "past_due"]).executeTakeFirst();
     const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "join_in_app", "max_members", "starts_on", "sort"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const tz = await clubTz();
