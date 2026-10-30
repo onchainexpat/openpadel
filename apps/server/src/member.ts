@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -305,12 +305,63 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const mine = await householdOf(db, pid);
     return c.json({ from: inv.from, juniors: inv.juniors, open: inv.open, already: mine?.household_id === inv.household_id });
   });
-  // The club's waiver, and where the member and each of their juniors stand with it.
+  // The club's waiver, and where the member and each of their juniors stand with it. A kid with a login of
+  // their own sees it too, but a parent accepts it for them.
   app.get("/my/waiver", async (c) => {
     const pid = who(c), w = await currentWaiver(db);
     if (!w) return c.json({ waiver: null, people: [] });
-    const people = await Promise.all((await meAndJuniors(pid)).map(async (p) => ({ id: p.id, display_name: p.display_name, me: p.id === pid, accepted_at: (await waiverStatus(db, p.id))?.accepted_at ?? null })));
+    const kid = Boolean(await kidOf(db, pid));
+    const people = await Promise.all((await meAndJuniors(pid)).map(async (p) => ({ id: p.id, display_name: p.display_name, me: p.id === pid, by_parent: kid && p.id === pid,
+      accepted_at: (await waiverStatus(db, p.id))?.accepted_at ?? null })));
     return c.json({ waiver: { version_no: w.version_no, body: w.body }, people });
+  });
+
+  // ---- Kids with a login of their own ----
+  // A parent's view: each junior (and, with a login, the rules and this month's spending), what the kids are
+  // asking for, what's waiting for a parent to pay, and the family card.
+  app.get("/my/kids", async (c) => {
+    const pid = who(c), l = lang(c), hh = await householdOf(db, pid), now = new Date();
+    if (!hh || hh.role !== "adult") return c.json({ kids: [], requests: [], to_pay: [], card: null });
+    const juniors = await juniorsOf(db, pid), ids = juniors.map((j) => j.id);
+    const kids = await Promise.all(juniors.map(async (j) => {
+      const k = await kidOf(db, j.id), p = await db.selectFrom("person").select(["email", "own_login"]).where("id", "=", j.id).executeTakeFirstOrThrow();
+      return { id: j.id, display_name: j.display_name, birth_year: j.birth_year, own_login: p.own_login, email: p.own_login ? p.email : null,
+        rules: k ? { open_matches: k.open_matches, courts: k.courts, programs: k.programs, lessons: k.lessons, monthly_limit_cents: k.monthly_limit_cents, friends: k.friends } : null,
+        spent_cents: k ? await monthSpent(db, j.id, now) : 0 };
+    }));
+    const requests = ids.length ? await db.selectFrom("kid_request").innerJoin("person", "person.id", "kid_request.person_id")
+      .select(["kid_request.id", "kid_request.what", "kid_request.cents", "person.display_name as name"]).where("kid_request.person_id", "in", ids).where("kid_request.status", "=", "asked")
+      .orderBy("kid_request.created_at").execute() : [];
+    // Payments the family card couldn't take, still worth paying (the place or court is still theirs).
+    const owed = ids.length ? await db.selectFrom("payment").innerJoin("person", "person.id", "payment.person_id")
+      .leftJoin("booking_player", "booking_player.id", "payment.booking_player_id").leftJoin("booking", "booking.id", "booking_player.booking_id").leftJoin("enrolment", "enrolment.id", "payment.enrolment_id")
+      .select(["payment.id", "payment.amount_cents", "payment.group_id", "payment.person_id", "payment.booking_player_id", "payment.enrolment_id", "person.display_name as name"])
+      .where("payment.person_id", "in", ids).where("payment.status", "=", "pending").where("payment.parent_to_pay_at", "is not", null)
+      .where((eb) => eb.or([eb("booking.id", "is", null), eb.and([eb("booking.status", "!=", "cancelled"), eb("booking_player.removed_at", "is", null)])]))
+      .where((eb) => eb.or([eb("enrolment.id", "is", null), eb("enrolment.status", "in", ["booked", "waitlisted"])])).orderBy("payment.created_at").execute() : [];
+    const groups = new Map<string, typeof owed>();
+    for (const o of owed) groups.set(o.group_id ?? o.id, [...(groups.get(o.group_id ?? o.id) ?? []), o]);
+    const toPay = await Promise.all([...groups.values()].map(async (g) => ({ payment_id: g[0]!.id, name: g[0]!.name, cents: g.reduce((n, x) => n + x.amount_cents, 0), what: (await paymentsWhat(db, g))[l] })));
+    const card = await familyCardFor(db, pid), tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
+    return c.json({ kids, requests: requests.map((r) => ({ id: r.id, name: r.name, cents: r.cents, what: (r.what as Record<Lang, string>)[l] })), to_pay: toPay,
+      card: card ? { saved_by: card.saved_by_name, saved_on: card.saved_at ? localDate(card.saved_at, tz) : null } : null });
+  });
+  // A kid's own view: what they can book on their own, this month's spending, and what they've asked for.
+  app.get("/my/kid", async (c) => {
+    const pid = who(c), l = lang(c), k = await kidOf(db, pid);
+    if (!k) return c.json({ kid: null });
+    const parents = (await db.selectFrom("person").select("display_name").where("id", "in", await managersOf(db, pid)).execute()).map((p) => p.display_name);
+    const requests = await db.selectFrom("kid_request").select(["id", "what", "cents", "status", "error", "created_at"]).where("person_id", "=", pid)
+      .where("created_at", ">", new Date(Date.now() - 30 * 864e5)).orderBy("created_at", "desc").limit(20).execute();
+    return c.json({ kid: { rules: { open_matches: k.open_matches, courts: k.courts, programs: k.programs, lessons: k.lessons, monthly_limit_cents: k.monthly_limit_cents, friends: k.friends },
+      spent_cents: await monthSpent(db, pid, new Date()), parents, card: Boolean(await familyCardFor(db, pid)),
+      requests: requests.map((r) => ({ id: r.id, cents: r.cents, status: r.status, what: (r.what as Record<Lang, string>)[l], error: r.error ? (r.error as Record<Lang, string>)[l] : null })) } });
+  });
+  // A parent's yes: the kid's action is run then and there, and paid on the family card.
+  app.post("/my/kids/requests/:id/approve", async (c) => {
+    const pid = who(c), l = lang(c);
+    const r = await approveKidRequest(db, c.req.param("id"), { personId: pid, via: "web", lang: l }, new Date());
+    return c.json(r.outcome === "failed" ? { outcome: "failed", message: r.error[l] } : { outcome: "done", paid: r.paid?.status ?? null });
   });
 
   // ---- Push notifications on this device ----
@@ -402,6 +453,14 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const m = await db.selectFrom("membership").select("provider_ref").where("id", "=", c.req.param("id")).executeTakeFirstOrThrow();
     pv.settleSetup(m.provider_ref!);
     return c.json({ status: await checkCardSetup(db, c.req.param("id"), "dev") });
+  });
+  // Development only: save a stand-in family card, as a parent's card form would.
+  if (!opts.production) app.post("/dev/family/card", async (c) => {
+    const pid = who(c), pv = paymentProvider();
+    if (!(pv instanceof TestProvider)) throw new KumiError("error.forbidden", {}, 403);
+    const r = await openFamilyCardSetup(db, { personId: pid, via: "dev", lang: lang(c) });
+    pv.settleSetup((await db.selectFrom("family_card").select("provider_ref").where("id", "=", r.cardId).executeTakeFirstOrThrow()).provider_ref!);
+    return c.json({ status: await checkFamilyCard(db, r.cardId, "dev") });
   });
   // Development only: settle a stand-in payment, as the provider's webhook would.
   if (!opts.production) app.post("/dev/payments/:id/settle", async (c) => {

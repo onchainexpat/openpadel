@@ -2,7 +2,7 @@
 // through can arrive three ways (the app checking, Stripe's webhook, the minute job). Each one asks the
 // provider rather than trusting the message, so the order and repeats don't matter.
 import { Hono, type Context } from "hono";
-import { checkCardSetup, checkPayment, connectStripe, KumiError, manages, openCardSetup, openPayment, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
+import { checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
 
 type Me = { id: string } | null;
 export interface StripeConfig { publishableKey?: string; webhookSecret?: string }
@@ -29,7 +29,15 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
   });
 
   app.post("/my/payments/:id/intent", async (c) => {
-    const r = await openPayment(db, await mine(c), who(c));
+    const id = await mine(c), pid = who(c);
+    // A kid's own payment goes on the family card, never a card form: paid now, or waiting for a parent.
+    const pay = await db.selectFrom("payment").select(["person_id", "parent_to_pay_at", "status"]).where("id", "=", id).executeTakeFirstOrThrow();
+    if (pay.person_id === pid && await kidOf(db, pid)) {
+      if (pay.status === "pending" && pay.parent_to_pay_at) return c.json({ family: "parent" });
+      const f = await payWithFamilyCard(db, id, new Date());
+      if (f) return c.json({ family: f.status, cents: f.cents });
+    }
+    const r = await openPayment(db, id, pid);
     return c.json({ provider: r.provider, client_secret: r.clientSecret, publishable_key: r.provider === "stripe" ? stripe.publishableKey ?? null : null, stripe_account: r.account });
   });
   app.post("/my/payments/:id/check", async (c) => c.json({ status: await checkPayment(db, await mine(c)) }));
@@ -42,6 +50,17 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
     const m = await db.selectFrom("membership").select(["id", "person_id"]).where("id", "=", c.req.param("id")).executeTakeFirst();
     if (!m || m.person_id !== who(c)) throw new KumiError("error.not_found", { thing: { en: "membership", es: "la membresía" } }, 404);
     return c.json({ status: await checkCardSetup(db, m.id) });
+  });
+
+  // A parent saving the family card (a card setup, nothing charged), for their kids with a login of their own.
+  app.post("/my/family/card", async (c) => {
+    const r = await openFamilyCardSetup(db, actor(c));
+    return c.json({ card_id: r.cardId, provider: r.provider, client_secret: r.clientSecret, publishable_key: r.provider === "stripe" ? stripe.publishableKey ?? null : null, stripe_account: r.account });
+  });
+  app.post("/my/family/card/:id/check", async (c) => {
+    const card = await db.selectFrom("family_card").select(["id", "saved_by"]).where("id", "=", c.req.param("id")).executeTakeFirst();
+    if (!card || card.saved_by !== who(c)) throw new KumiError("error.not_found", { thing: { en: "family card", es: "la tarjeta familiar" } }, 404);
+    return c.json({ status: await checkFamilyCard(db, card.id) });
   });
 
   // Stripe's webhook: only a signed, recent message is read, and it only prompts a check with Stripe.
@@ -61,6 +80,8 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
     if (setup) {
       const m = await db.selectFrom("membership").select("id").where("provider_ref", "=", setup).executeTakeFirst();
       if (m) await checkCardSetup(db, m.id, "webhook:stripe");
+      const f = await db.selectFrom("family_card").select("id").where("provider_ref", "=", setup).executeTakeFirst();
+      if (f) await checkFamilyCard(db, f.id, "webhook:stripe");
     }
     return c.json({ received: true });
   });

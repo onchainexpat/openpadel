@@ -11,7 +11,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, type Lang } from "@kumi/i18n";
-import { actions, apply, approve, plan, decide, KumiError, type Actor, type Db } from "@kumi/core";
+import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, type Actor, type Db } from "@kumi/core";
 import { completeSignUp, sessionPerson, signOut, startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
@@ -145,7 +145,8 @@ export function makeApp(deps: AppDeps) {
     const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id")
       .select(["role.key", "person_role.location_id"]).where("person_role.person_id", "=", a.personId!).where("person_role.active", "=", true).execute();
     const me = c.get("me")!;
-    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles });
+    const kid = await kidOf(db, me.id);
+    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null });
   });
 
   // ---- Actions: one description each, the same one the MCP tools and forms use ----
@@ -158,7 +159,13 @@ export function makeApp(deps: AppDeps) {
     const lang = c.get("lang");
     return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt });
   });
-  app.post("/runs/:id/apply", async (c) => c.json({ result: await apply(db, c.req.param("id"), actor(c), { now: now(), idempotencyKey: c.req.header("idempotency-key") }) }));
+  app.post("/runs/:id/apply", async (c) => {
+    const a = actor(c), id = c.req.param("id");
+    const result = await apply(db, id, a, { now: now(), idempotencyKey: c.req.header("idempotency-key") });
+    // A kid's booking or sign-up: what it costs goes on the family card now, so there's no card form to open.
+    const family = await payKidRun(db, id, a.personId, now());
+    return c.json({ result: family ? { ...(result && typeof result === "object" ? result : {}), payment_id: undefined, family } : result });
+  });
   app.post("/runs/:id/approve", async (c) => c.json({ result: await approve(db, c.req.param("id"), actor(c), { now: now() }) }));
 
   // ---- Changes: the audit log, for the people allowed to see it ----

@@ -9,6 +9,7 @@ import { defineAction, readRow, type ApplyCtx, type PlanCtx } from "./actions.ts
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
+import { friendsAllowed, friendsAllowedSql } from "./kids.ts";
 
 /** How far back "people you've played with" looks. */
 export const PLAYED_WITH_DAYS = 90;
@@ -17,11 +18,11 @@ async function added(db: Db | Trx, from: string, to: string) {
   return (await db.selectFrom("friend").selectAll().where("person_id", "=", from).where("friend_id", "=", to).executeTakeFirst()) ?? null;
 }
 
-/** Whether each of the two has added the other. */
+/** Whether each of the two has added the other (and neither is a kid whose parents have friends off). */
 export async function areFriends(db: Db | Trx, a: string, b: string): Promise<boolean> {
   const r = await db.selectFrom("friend").select(sql<string>`count(*)`.as("n")).where("removed_at", "is", null)
     .where((eb) => eb.or([eb.and([eb("person_id", "=", a), eb("friend_id", "=", b)]), eb.and([eb("person_id", "=", b), eb("friend_id", "=", a)])])).executeTakeFirstOrThrow();
-  return Number(r.n) === 2;
+  return Number(r.n) === 2 && await friendsAllowed(db, a) && await friendsAllowed(db, b);
 }
 
 /** Everyone the person has shared a booking (both still in it) or a game with, since `since`. */
@@ -45,16 +46,17 @@ type Named = { id: string; display_name: string };
 /** A member's friends page: friends, who added them (to add back), whom they added (waiting), and people
  *  they've played with lately whom they haven't added. */
 export async function friendsOf(db: Db | Trx, personId: string, now = new Date()) {
-  const live = (q: any) => q.innerJoin("person", "person.id", "f.other").where("person.status", "=", "active").where("person.redacted_at", "is", null);
+  if (!(await friendsAllowed(db, personId))) return { friends: [], added_you: [], you_added: [], played_with: [] };
+  const live = (q: any) => q.innerJoin("person", "person.id", "f.other").where("person.status", "=", "active").where("person.redacted_at", "is", null).where(friendsAllowedSql);
   const mine = await live(db.selectFrom(db.selectFrom("friend").select(["friend_id as other"]).where("person_id", "=", personId).where("removed_at", "is", null).as("f")))
     .select(["person.id", "person.display_name"]).execute() as Named[];
   const theirs = await live(db.selectFrom(db.selectFrom("friend").select(["person_id as other"]).where("friend_id", "=", personId).where("removed_at", "is", null).as("f")))
     .select(["person.id", "person.display_name"]).execute() as Named[];
   const mineIds = new Set(mine.map((p) => p.id)), theirIds = new Set(theirs.map((p) => p.id));
   const since = new Date(now.getTime() - PLAYED_WITH_DAYS * 86400_000);
-  // Never a junior: they have no login, and their names stay with their family and the club.
+  // Never a junior, unless their parents turned friends on: their names stay with their family and the club.
   const played = await db.selectFrom(coPlayerIds(db, personId, since).as("c")).innerJoin("person", "person.id", "c.id").select(["person.id", "person.display_name"]).distinct()
-    .where("person.status", "=", "active").where("person.redacted_at", "is", null).where("person.junior", "=", false).execute();
+    .where("person.status", "=", "active").where("person.redacted_at", "is", null).where(friendsAllowedSql).execute();
   const byName = (a: Named, b: Named) => a.display_name.localeCompare(b.display_name);
   return {
     friends: mine.filter((p) => theirIds.has(p.id)).sort(byName),
@@ -73,13 +75,14 @@ export async function findFriends(db: Db | Trx, personId: string, q: string) {
 
 /** The person behind a friend link, if it's someone who can be added. */
 export async function personByFriendCode(db: Db | Trx, code: string) {
-  return (await db.selectFrom("person").select(["id", "display_name"]).where("friend_code", "=", code).where("status", "=", "active").where("redacted_at", "is", null).where("junior", "=", false).executeTakeFirst()) ?? null;
+  return (await db.selectFrom("person").select(["id", "display_name"]).where("friend_code", "=", code).where("status", "=", "active").where("redacted_at", "is", null).where(friendsAllowedSql).executeTakeFirst()) ?? null;
 }
 
 async function planAdd(ctx: PlanCtx, personId: string, friendId: string, byLink: boolean) {
   if (personId === friendId) throw new KumiError("error.friend_self");
+  if (!(await friendsAllowed(ctx.db, personId))) throw new KumiError("error.kid_friends_off");
   const { row } = await readRow(ctx.db, "person", friendId, "thing.person");
-  if (row.status !== "active" || row.redacted_at || row.junior) throw new KumiError("error.not_found", { thing: both("thing.person") }, 404);
+  if (row.status !== "active" || row.redacted_at || !(await friendsAllowed(ctx.db, friendId))) throw new KumiError("error.not_found", { thing: both("thing.person") }, 404);
   const name = row.display_name as string;
   if ((await added(ctx.db, personId, friendId))?.removed_at === null) throw new KumiError("error.friend_already", { name });
   const back = (await added(ctx.db, friendId, personId))?.removed_at === null;

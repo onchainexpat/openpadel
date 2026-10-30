@@ -15,6 +15,7 @@ import { paymentProvider } from "./money.ts";
 import { HOLD_MINUTES, pastDeadline, policyOf, refundTarget, refundUpTo } from "./booking_pay.ts";
 import { endOffer, matchFacts, paidBy, seatOf } from "./open_matches.ts";
 import { areFriends } from "./friends.ts";
+import { friendsAllowed } from "./kids.ts";
 import { band, joinRule, levelOf } from "./match_rules.ts";
 import { notJunior, requireWaiver } from "./households.ts";
 
@@ -104,6 +105,8 @@ export const bookingTakePlace = defineAction({
     if (o.status !== "offered" || place.removed_at) throw new KumiError("error.offer_closed");
     await requireWaiver(ctx, i.person_id);
     if (o.to_person_id && o.to_person_id !== i.person_id) throw new KumiError("error.offer_not_yours");
+    // A kid whose parents keep friends off doesn't take a place from someone's link.
+    if (!o.to_person_id && !(await friendsAllowed(ctx.db, i.person_id))) throw new KumiError("error.kid_link_off");
     notStarted(m, ctx.now);
     if (await seatOf(ctx.db, place.booking_id, i.person_id)) throw new KumiError("error.already_in_booking");
     const level = await levelOf(ctx.db, i.person_id);

@@ -69,10 +69,11 @@ async function juniorWords(db: Db | Trx, adultId: string): Promise<Text> {
   return names.length ? nameList(names) : both("plan.household.your_juniors");
 }
 
-/** Courts and open matches are for people with their own login: a junior plays in lessons and programs. */
+/** Courts and open matches are for people with their own login: a junior plays in lessons and programs,
+ *  unless a parent gave them a login of their own (kids.ts), when they book as any member does. */
 export async function notJunior(db: Db | Trx, personId: string) {
-  const p = await db.selectFrom("person").select(["junior", "display_name"]).where("id", "=", personId).executeTakeFirst();
-  if (p?.junior) throw new KumiError("error.junior_no_courts", { name: p.display_name });
+  const p = await db.selectFrom("person").select(["junior", "own_login", "display_name"]).where("id", "=", personId).executeTakeFirst();
+  if (p?.junior && !p.own_login) throw new KumiError("error.junior_no_courts", { name: p.display_name });
 }
 
 /** A household's adults, now (who hears about a change is worked out when it happens). */
@@ -242,17 +243,22 @@ export const householdGiveLogin = defineAction({
     if (!row.junior) throw new KumiError("error.not_a_junior", { name: row.display_name });
     if (row.birth_year && (await clubYear(ctx.db, ctx.now)) - row.birth_year < ADULT_AGE) throw new KumiError("error.junior_too_young", { name: row.display_name, year: row.birth_year + ADULT_AGE });
     const email = i.email.trim().toLowerCase();
-    if (await ctx.db.selectFrom("person").select("id").where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).executeTakeFirst()) throw new KumiError("error.duplicate_email");
+    // A kid who already signs in with this address keeps it.
+    const same = row.own_login && (row.email ?? "").toLowerCase() === email;
+    if (!same && await ctx.db.selectFrom("person").select("id").where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).executeTakeFirst()) throw new KumiError("error.duplicate_email");
     return { title: both("action.household.give_login"), summary: both("plan.household.give_login", { name: row.display_name, email }), reads: [read], ownerIds: await withManagers(ctx.db, [i.person_id]),
       undo: { kind: "none" } };
   },
   async apply(ctx, i) {
     const email = i.email.trim().toLowerCase();
-    await ctx.update("person", i.person_id, { email, junior: false });
+    await ctx.update("person", i.person_id, { email, junior: false, own_login: false });
+    await ctx.trx.deleteFrom("auth_identity").where("person_id", "=", i.person_id).execute();   // a kid's own address goes back in below, as an adult's
     try { await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: i.person_id, kind: "email", value: email, verified_at: null }).execute(); }
     catch (e: any) { if (e?.code === "23505") throw new KumiError("error.duplicate_email"); throw e; }
     const member = await ctx.trx.selectFrom("role").select("id").where("key", "=", "member").executeTakeFirstOrThrow();
-    await ctx.insert("person_role", { id: uuidv7(), person_id: i.person_id, role_id: member.id, location_id: null });
+    const had = await ctx.trx.selectFrom("person_role").select(["id", "active"]).where("person_id", "=", i.person_id).where("role_id", "=", member.id).executeTakeFirst();
+    if (!had) await ctx.insert("person_role", { id: uuidv7(), person_id: i.person_id, role_id: member.id, location_id: null });
+    else if (!had.active) await ctx.update("person_role", had.id, { active: true });
     const hh = await householdOf(ctx.trx, i.person_id);
     // Still in the family (a family plan can still cover them), but not one of the parents managing the juniors.
     if (hh) await ctx.update("household_member", hh.id, { role: "member" });
@@ -280,6 +286,8 @@ export async function requireWaiver(ctx: PlanCtx, personId: string) {
   if (!st || st.accepted_at) return;
   const self = ctx.actor.personId === personId, parent = !self && await manages(ctx.db, ctx.actor.personId, personId);
   if (!self && !parent) return;
+  // A kid with their own login: a parent accepts it for them.
+  if (self && (await ctx.db.selectFrom("person").select("junior").where("id", "=", personId).executeTakeFirst())?.junior) throw new KumiError("error.waiver_needed_parent");
   if (self) throw new KumiError("error.waiver_needed");
   const name = (await ctx.db.selectFrom("person").select("display_name").where("id", "=", personId).executeTakeFirstOrThrow()).display_name;
   throw new KumiError("error.waiver_needed_junior", { name });
@@ -323,8 +331,10 @@ export const waiverAccept = defineAction({
     if (!st) throw new KumiError("error.no_waiver");
     const { row } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     if (st.accepted_at) throw new KumiError("error.waiver_accepted", { name: row.display_name });
-    // Only the person, or a parent for their junior: nobody accepts it on someone else's behalf.
+    // Only the person, or a parent for their junior: nobody accepts it on someone else's behalf, and a
+    // kid with their own login doesn't accept it for themselves.
     const self = ctx.actor.personId === i.person_id;
+    if (self && row.junior) throw new KumiError("error.waiver_needed_parent");
     if (!self && !(await manages(ctx.db, ctx.actor.personId, i.person_id))) throw new KumiError("error.waiver_own");
     return { title: both("action.waiver.accept"), summary: both(self ? "plan.waiver.accept" : "plan.waiver.accept_junior", { version: st.version_no, name: row.display_name }),
       reads: [], ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "none" } };

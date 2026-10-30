@@ -7,6 +7,10 @@ type Named = { id: string; display_name: string };
 type Page = { friends: Named[]; added_you: Named[]; you_added: Named[]; played_with: Named[]; code: string };
 
 export function Friends() {
+  if (me.value?.kid && !me.value.kid.friends) return <main><h1>{t("ui.friends")}</h1><p class="card">{t("ui.kid_friends_off_note")}</p></main>;
+  return <FriendsPage />;
+}
+function FriendsPage() {
   const [f, setF] = useState<Page | null>(null), [copied, setCopied] = useState(false);
   const load = () => api<Page>("/my/friends").then(setF);
   const { preview, sheet } = usePreview(() => void load());

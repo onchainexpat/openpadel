@@ -93,6 +93,9 @@ const ENTITIES = {
   household_invite: { table: "household_invite", key: "id", retire: { status: "withdrawn" } },
   waiver: { table: "waiver", key: "id", retire: { active: false } },
   waiver_acceptance: { table: "waiver_acceptance", key: "id", retire: null },
+  kid_rule: { table: "kid_rule", key: "person_id", retire: null },
+  family_card: { table: "family_card", key: "id", retire: { status: "removed" } },
+  kid_request: { table: "kid_request", key: "id", retire: { status: "withdrawn" } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 
@@ -152,9 +155,28 @@ async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor
 }
 
 export interface Planned { runId: string; status: "planned" | "awaiting_approval"; plan: Plan; expiresAt: Date }
+export interface PlanOpts { now?: Date; internal?: boolean; /** A parent approved it: a kid's rules don't stop it again. */ parentApproved?: boolean }
+
+/** A last look before a plan is stored, for what the action itself can't know: a kid's own rules (kids.ts).
+ *  It can hand back another action to plan instead (asking a parent). */
+type PlanGate = (db: Db, name: string, input: unknown, actor: Actor, plan: Plan, now: Date) => Promise<{ name: string; input: unknown } | null>;
+let planGate: PlanGate | null = null;
+export function setPlanGate(gate: PlanGate): void { planGate = gate; }
+
+/** Validate, build the preview and check permission, storing nothing: what an action would do, for a
+ *  plan that wraps another (a kid asking a parent shows what they're asking for). */
+export async function dryPlan(db: Db | Trx, name: string, raw: unknown, actor: Actor, now: Date): Promise<Plan> {
+  const def = getAction(name);
+  if (def.system || def.internal) throw new KumiError("error.unknown_action", {}, 404);
+  const input = validate(def, raw);
+  const p = await def.plan({ db, actor, now }, input);
+  const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now });
+  if (d.mode === "no") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
+  return p;
+}
 
 /** Step one: validate, check permission, build the preview, and store it. Nothing changes yet. */
-export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opts: { now?: Date; internal?: boolean } = {}): Promise<Planned> {
+export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opts: PlanOpts = {}): Promise<Planned> {
   const def = getAction(name);
   if (def.internal && !opts.internal) throw new KumiError("error.unknown_action", {}, 404);
   await requireStrongAuth(db, def, actor);
@@ -163,6 +185,10 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
   const p = await def.plan({ db, actor, now }, input);
   const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now });
   if (d.mode === "no") return refuse(db, def, input, actor, p, d);
+  if (planGate && !opts.parentApproved) {
+    const instead = await planGate(db, name, input, actor, p, now);
+    if (instead) return plan(db, instead.name, instead.input, actor, { now, internal: true });
+  }
   const status = d.mode === "ask" || p.secondPerson ? "awaiting_approval" : "planned";
   const expiresAt = new Date(now.getTime() + (status === "planned" ? PLAN_MINUTES * 60_000 : APPROVAL_DAYS * 864e5));
   const runId = uuidv7(now.getTime());
@@ -278,7 +304,7 @@ export async function runAsSystem(db: Db, name: string, raw: unknown, via: strin
 }
 
 /** Plan and apply in one go, for callers that already showed the preview elsewhere (tests, setup). */
-export async function run(db: Db, name: string, raw: unknown, actor: Actor, opts: { now?: Date; idempotencyKey?: string; internal?: boolean } = {}) {
+export async function run(db: Db, name: string, raw: unknown, actor: Actor, opts: PlanOpts & { idempotencyKey?: string } = {}) {
   const p = await plan(db, name, raw, actor, opts);
   if (p.status === "awaiting_approval") return { ...p, result: null };
   return { ...p, result: await apply(db, p.runId, actor, opts) };

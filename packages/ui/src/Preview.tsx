@@ -1,6 +1,6 @@
 // Every change in the staff app: preview with the server's own words, then confirm.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, t } from "./state.ts";
+import { api, ApiError, lang, t } from "./state.ts";
 
 export type Pending = { runId: string; status: "planned" | "awaiting_approval"; summary: string };
 
@@ -17,7 +17,15 @@ export function usePreview(onDone: (result?: any) => void) {
   };
   const confirm = async () => {
     if (!pending) return;
-    try { const r = await api<{ result?: unknown }>(`/runs/${pending.runId}/apply`, {}, { "idempotency-key": pending.runId }); setPending(null); setNote(t("ui.done")); onDone(r.result); }
+    try {
+      const r = await api<{ result?: any }>(`/runs/${pending.runId}/apply`, {}, { "idempotency-key": pending.runId });
+      setPending(null);
+      // A kid's: sent to their parents to approve, or already paid on the family card (no card form to open).
+      if (r.result?.asked_parent) { setNote(t("ui.kid_asked_parents")); onDone(); return; }
+      const f = r.result?.family as { status: "paid" | "parent"; cents: number } | undefined;
+      setNote(!f ? t("ui.done") : f.status === "paid" ? t("ui.kid_paid_family", { amount: dollars(f.cents, lang.value) }) : t("ui.kid_parent_pays"));
+      onDone(r.result);
+    }
     catch (e) { setError(e instanceof ApiError ? e.message : String(e)); setPending(null); }
   };
   // Docked at the bottom of the screen: on a phone the button that asked for it may be far down the page.

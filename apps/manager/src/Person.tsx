@@ -14,6 +14,7 @@ type P = {
   junior: boolean; birth_year: number | null; family_role: "adult" | "member" | "junior" | null;
   family: { id: string; display_name: string; birth_year: number | null; role: "adult" | "member" | "junior" }[];
   waiver: { version_no: number; accepted_on: string | null; accepted_by: string | null } | null;
+  kid: { email: string | null; rules: string; spent_cents: number } | null;
   covered_by: { membership_id: string; payer_id: string; payer: string; plan: string } | null; also_covers: string[];
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;
@@ -41,7 +42,8 @@ export function Person({ id }: { id: string }) {
 
       <section class="card">
         <h2>{t("ui.person_household")}</h2>
-        {p.junior && <p>{t("ui.person_junior", { year: p.birth_year ?? "", names: p.family.filter((x) => x.role === "adult").map((x) => x.display_name).join(", ") })}</p>}
+        {p.junior && <p>{t(p.kid ? "ui.person_kid" : "ui.person_junior", { year: p.birth_year ?? "", names: p.family.filter((x) => x.role === "adult").map((x) => x.display_name).join(", ") })}</p>}
+        {p.kid && <p class="meta">{t("ui.staff_kid_login", { email: p.kid.email ?? "" })}. {p.kid.rules}</p>}
         {p.family.length > 0 && <ul class="plain">{p.family.map((x) => (
           <li class="row"><a href={`/people/${x.id}`}>{x.display_name}</a><span class="meta">{x.role === "junior" ? `${t("ui.junior_tag")}${x.birth_year ? `, ${t("ui.junior_born", { year: x.birth_year })}` : ""}` : ""}</span></li>))}</ul>}
         <p class="meta">{!p.waiver ? t("ui.waiver_off") : `${t("ui.person_waiver")}: `}{!p.waiver ? null : p.waiver.accepted_on

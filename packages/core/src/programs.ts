@@ -15,6 +15,7 @@ import { afterMembershipPayment } from "./memberships.ts";
 import { quietUntil } from "./messages.ts";
 import { programPerks, programPrice, priceWords, type ProgramPrice } from "./program_prices.ts";
 import { manages, requireWaiver, withManagers } from "./households.ts";
+import { paymentsWhat, paymentWhat } from "./kids.ts";
 
 /** How long a place offered from the waitlist is held. With texts it would be 2 hours; while email is
  *  the only way to reach people, it's doubled (messages.md). */
@@ -516,7 +517,8 @@ async function requestPayment(ctx: ApplyContext, enrolmentId: string, personId: 
 // ---- Card payments: opened when the person goes to pay, settled however the news arrives ----
 export const paymentOpen = defineAction({
   name: "payment.open", version: 1, system: true, internal: true,
-  input: z.object({ payment_id: z.uuid(), provider: z.enum(["test", "stripe"]), provider_ref: z.string().check(z.minLength(1)), provider_account: z.optional(z.string()) }),
+  input: z.object({ payment_id: z.uuid(), provider: z.enum(["test", "stripe"]), provider_ref: z.string().check(z.minLength(1)), provider_account: z.optional(z.string()),
+    family_card_id: z.optional(z.uuid()) }),   // a kid's payment, charged to the family card
   async plan(ctx, i) {
     const { row: pay } = await readRow(ctx.db, "payment", i.payment_id, "thing.payment");
     return { title: both("action.payment.open"), summary: both("plan.payment.open", { person: await personName(ctx.db, pay.person_id), amount: usd(pay.amount_cents) }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
@@ -528,7 +530,7 @@ export const paymentOpen = defineAction({
     // Several courts paid together: every payment in the group is this one card payment.
     const rows = pay.group_id ? await ctx.trx.selectFrom("payment").select(["id", "provider_ref", "status"]).where("group_id", "=", pay.group_id).forUpdate().execute() : [pay];
     if (rows.some((r) => r.provider_ref || r.status !== "pending")) throw new KumiError("error.changed");
-    for (const r of rows) await ctx.update("payment", r.id, { provider: i.provider, provider_ref: i.provider_ref, provider_account: i.provider_account ?? null });
+    for (const r of rows) await ctx.update("payment", r.id, { provider: i.provider, provider_ref: i.provider_ref, provider_account: i.provider_account ?? null, ...(i.family_card_id ? { family_card_id: i.family_card_id } : {}) });
     return null;
   },
 });
@@ -661,6 +663,7 @@ async function settleGroup(ctx: ApplyContext, pay: { id: string; group_id: strin
   const ids = booked.length ? (await ctx.trx.selectFrom("booking_player").select("booking_id").where("id", "in", booked.map((b) => b.booking_player_id)).execute()).map((b) => b.booking_id) : [];
   if (ids.length === 1) await ctx.emit("booking.confirmed", { booking_id: ids[0] });
   else if (ids.length > 1) await ctx.emit("booking.courts_confirmed", { person_id: pay.person_id, booking_ids: ids, cents: booked.reduce((n, b) => n + b.cents, 0) });
+  if (rows[0]?.family_card_id) await familyCharged(ctx, rows);
   return { status: "succeeded", booked: ids.length };
 }
 
@@ -695,9 +698,17 @@ export const paymentSettle = defineAction({
       }
     }
     await ctx.emit("payment.succeeded", { payment_id: pay.id });
+    if (pay.family_card_id) await familyCharged(ctx, [pay]);
     return { status: "succeeded" };
   },
 });
+
+/** A kid's payment went on the family card: the parents hear what for and how much (worked out now). */
+async function familyCharged(ctx: ApplyContext, rows: { person_id: string; amount_cents: number; booking_player_id: string | null; enrolment_id: string | null; family_card_id: string | null }[]) {
+  const card = await ctx.trx.selectFrom("family_card").select("household_id").where("id", "=", rows[0]!.family_card_id!).executeTakeFirstOrThrow();
+  const to = (await ctx.trx.selectFrom("household_member").select("person_id").where("household_id", "=", card.household_id).where("role", "=", "adult").where("removed_at", "is", null).execute()).map((r) => r.person_id);
+  await ctx.emit("family.charged", { kid: rows[0]!.person_id, to, cents: rows.reduce((n, r) => n + r.amount_cents, 0), what: await paymentsWhat(ctx.trx, rows) });
+}
 
 export const refundSettle = defineAction({
   name: "refund.settle", version: 1, system: true, internal: true,
@@ -712,7 +723,13 @@ export const refundSettle = defineAction({
     if (r.status !== "pending") return { already: r.status };
     if (!i.ok) { await ctx.update("refund", r.id, { status: "failed", failure: i.failure ?? null }); await ctx.emit("refund.failed", { refund_id: r.id }); return { status: "failed" }; }
     await ctx.update("refund", r.id, { status: "sent", provider_ref: i.provider_ref ?? null });
-    const paid = await ctx.trx.selectFrom("payment").select(["booking_player_id", "membership_plan_id", "membership_id"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
+    const paid = await ctx.trx.selectFrom("payment").select(["booking_player_id", "membership_plan_id", "membership_id", "enrolment_id", "person_id", "family_card_id"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
+    // Back to the family card: the parents hear it, as they heard the charge.
+    if (paid.family_card_id) {
+      const card = await ctx.trx.selectFrom("family_card").select("household_id").where("id", "=", paid.family_card_id).executeTakeFirstOrThrow();
+      const to = (await ctx.trx.selectFrom("household_member").select("person_id").where("household_id", "=", card.household_id).where("role", "=", "adult").where("removed_at", "is", null).execute()).map((x) => x.person_id);
+      await ctx.emit("family.refunded", { kid: paid.person_id, to, cents: r.amount_cents, what: await paymentWhat(ctx.trx, paid) });
+    }
     await post(ctx.trx, ctx.runId, "refund", "refund to card", [
       { account: await account(ctx.trx, "revenue", { revenueType: await revenueType(ctx.trx, paid) }), cents: r.amount_cents },
       { account: await account(ctx.trx, "provider_clearing"), cents: -r.amount_cents },

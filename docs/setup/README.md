@@ -175,6 +175,13 @@ signs a child up for clinics, books their lessons and pays, and both get the chi
 desk can add a junior from the parent's page in the staff app. A junior can't book courts or join open
 matches. From the year they turn 18, a parent or staff give them their own login with an email address.
 
+From the year a junior turns 13, a parent can turn on a login of their own on the Family page (the
+kid's email address), and save a family card there. The kid then books and joins things themselves,
+paid on that card at once, within rules the parents set: which kinds of booking they can make on their
+own, and a monthly limit ($100 to start). Anything else comes to the parents to approve in the app.
+Nothing to set up for the club; if the club uses Stripe, the webhook's `setup_intent.succeeded` event
+(already needed for founding offers) also records family cards.
+
 ### Notifications
 
 Nothing to set up. Each member turns notifications on for their own phone in Profile, and from then

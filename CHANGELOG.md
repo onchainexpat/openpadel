@@ -106,6 +106,19 @@ The first version a club can run on its own (court bookings included), or for it
   before their first booking or sign-up, and a parent accepts it for each junior; a new version asks
   again. Who accepted, for whom, which version and when are kept, and staff see it on the person's
   page. With no waiver set, nobody is asked. Staff booking at the desk aren't stopped by it.
+- Kids with a login of their own: from the year a junior turns 13, a parent can turn on a login with
+  the kid's email. The kid then books courts, joins open matches, signs up for clinics and programs
+  and books lessons themselves, with the family plan's member prices, and each payment goes on the
+  family card at once (a card a parent saves on the Family page; the kid never sees a card form).
+  The parents get a message for each charge and each refund. They set what the kid may do on their
+  own (open matches, courts, programs and lessons, each on or off) and a monthly limit ($100 to
+  start); anything switched off or over the limit goes to the parents as a request, and a yes books
+  it there and then (planned afresh, so a court taken meanwhile is said, not booked). Nothing is held
+  while a request waits. A card that's declined or wants its owner to confirm, or no card saved,
+  means a parent is asked to pay it in the app instead. The kid stays a junior: off the public page
+  and level lists, the waiver is their parents' to accept, memberships are their parents' to look
+  after, and friends stay off until a parent turns them on (then nobody can add them, and they can't
+  take a place from someone's link). Turning the login off signs them out everywhere.
 
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.

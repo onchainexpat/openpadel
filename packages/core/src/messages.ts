@@ -274,6 +274,38 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
     return [{ to: p.person_id, kind: "household_login_given", params: { club: club.name, email: r?.email ?? "" }, purpose: "account", essential: true, email: true, link: "/" }];
   },
+  // ---- Kids with a login of their own: what they ask for, and what goes on the family card ----
+  async "kid.login_given"({ db }, p: { person_id: string; by: string | null; email: string }) {
+    const by = p.by ? (await db.selectFrom("person").select("display_name").where("id", "=", p.by).executeTakeFirst())?.display_name ?? "" : "";
+    const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
+    return [{ to: p.person_id, kind: "kid_login", params: { by, club: club.name, email: p.email }, purpose: "account", essential: true, email: true, link: "/" }];
+  },
+  async "kid.asked"({ db }, p: { kid: string; to: string[]; what: Text; cents: number; why: Text }) {
+    const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.kid).executeTakeFirst())?.display_name ?? "";
+    return p.to.map((to) => ({ to, kind: "kid_asked", params: { name, what: p.what, why: p.why }, purpose: "account" as const, essential: true, email: true, link: "/family" }));
+  },
+  async "kid.answered"({ db }, p: { kid: string; outcome: "declined" | "done" | "failed"; by: string | null; what: Text; error?: Text | null; to: string[] }) {
+    const names = await db.selectFrom("person").select(["id", "display_name"]).where("id", "in", [p.kid, ...(p.by ? [p.by] : [])]).execute();
+    const name = (id: string | null) => names.find((x) => x.id === id)?.display_name ?? "";
+    const params = { by: name(p.by), name: name(p.kid), what: p.what, error: p.error ?? NOTHING };
+    const kind = { declined: "kid_declined", done: "kid_approved", failed: "kid_approval_failed" }[p.outcome];
+    return [{ to: p.kid, kind, params, purpose: "account" as const, essential: p.outcome !== "declined", email: p.outcome !== "declined", link: "/family" },
+      ...p.to.map((to) => ({ to, kind: "kid_approval_failed_parent", params, purpose: "account" as const, essential: true, email: true, link: "/family" }))];
+  },
+  async "family.charged"({ db }, p: { kid: string; to: string[]; cents: number; what: Text }) {
+    const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.kid).executeTakeFirst())?.display_name ?? "";
+    return p.to.map((to) => ({ to, kind: "family_charged", params: { name, what: p.what, amount: amount(p.cents) }, purpose: "account" as const, essential: true, email: true, link: "/family" }));
+  },
+  async "family.refunded"({ db }, p: { kid: string; to: string[]; cents: number; what: Text }) {
+    const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.kid).executeTakeFirst())?.display_name ?? "";
+    return p.to.map((to) => ({ to, kind: "family_refunded", params: { name, what: p.what, amount: amount(p.cents) }, purpose: "account" as const, essential: true, email: true, link: "/family" }));
+  },
+  async "kid.pay_needed"({ db }, p: { kid: string; to: string[]; cents: number; what: Text; why: string; failure: string | null }) {
+    const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.kid).executeTakeFirst())?.display_name ?? "";
+    const why = both(`kid.pay_why.${p.why}` as Key, { failure: p.failure ?? "" });
+    return [...p.to.map((to) => ({ to, kind: "kid_pay_needed", params: { name, what: p.what, amount: amount(p.cents), why }, purpose: "account" as const, essential: true, email: true, link: "/family" })),
+      { to: p.kid, kind: "kid_parent_pays", params: { what: p.what, amount: amount(p.cents) }, purpose: "account" as const, essential: false, email: false, link: "/places" }];
+  },
   // ---- Family memberships: the person added or taken off hears it (a junior's parents already know) ----
   async "membership.person_added"({ db }, p: { membership_id: string; person_id: string }) {
     const r = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person as payer", "payer.id", "membership.person_id")
@@ -479,12 +511,15 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
 };
 
 /** A junior has no login: what's said to them goes to each adult who manages them, in that adult's language,
- *  saying whom it's about. An adult who'd get the same message anyway gets it once. */
+ *  saying whom it's about. An adult who'd get the same message anyway gets it once. A kid with a login of
+ *  their own hears it themselves; their parents also hear what goes on their card at the deadline. */
+const PARENTS_TOO = new Set(["booking_shares_charged", "booking_balance_due"]);
 async function forJuniors(db: Db, drafts: Draft[]): Promise<(Draft & { junior?: string })[]> {
   const out: (Draft & { junior?: string })[] = [];
   for (const d of drafts) {
-    const p = await db.selectFrom("person").select(["junior", "display_name"]).where("id", "=", d.to).executeTakeFirst();
+    const p = await db.selectFrom("person").select(["junior", "own_login", "display_name"]).where("id", "=", d.to).executeTakeFirst();
     if (!p?.junior) { out.push(d); continue; }
+    if (p.own_login) { out.push(d); if (!PARENTS_TOO.has(d.kind)) continue; }
     for (const to of await managersOf(db, d.to)) if (!out.some((x) => x.to === to && x.kind === d.kind)) out.push({ ...d, to, junior: p.display_name });
   }
   return out;

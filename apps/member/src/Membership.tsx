@@ -106,7 +106,7 @@ export function Membership() {
         </section>
       ) : null}
       {mine?.family && <FamilyCover m={mine} send={preview} />}
-      {mine ? null : offers.length === 0 ? <p class="card">{t("ui.no_plans_in_app")}</p> : offers.map((o) => (
+      {mine ? null : me.value?.kid ? <p class="card">{t("ui.kid_membership_parents")}</p> : offers.length === 0 ? <p class="card">{t("ui.no_plans_in_app")}</p> : offers.map((o) => (
         <section class="card">
           <h2>{o.name} <span class="meta">{price(o)}</span></h2>
           {o.description && <p>{o.description}</p>}
