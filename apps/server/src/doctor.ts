@@ -4,6 +4,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { both, type Key, type Text } from "@kumi/i18n";
 import { pendingMigrations, type Db } from "@kumi/core";
+import { VERSION } from "./version.ts";
 
 export type CheckState = "ok" | "warn" | "fail" | "off";
 export interface Check { id: string; state: CheckState; text: Text; doc?: string }
@@ -14,6 +15,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   const checks: Check[] = [], now = deps.now ?? new Date(), production = env.NODE_ENV === "production";
   const add = (id: string, state: CheckState, key: string, params: Record<string, string | number> = {}, doc?: string) =>
     checks.push({ id, state, text: both(`doctor.${key}` as Key, params), ...(doc ? { doc } : {}) });
+  add("version", "ok", "version", { version: VERSION });
 
   // A missing table (42P01) only means a new database: connected, nothing set up yet.
   try { await db.selectFrom("club").select("name").limit(1).execute().catch(async (e) => { if (e?.code === "42P01") return []; throw e; }); add("database", "ok", "database.ok"); }

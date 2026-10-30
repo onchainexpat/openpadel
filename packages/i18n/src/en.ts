@@ -469,6 +469,7 @@ export const en = {
   "cli.note.no_location": "Skipped {person}: there's no location called {location}.",
   "cli.doctor_good": "Nothing is broken. Anything marked WARN or off is worth a look before members use it.",
   "cli.doctor_bad": "Fix the first FAIL first, then run kumi doctor again.",
+  "doctor.version": "Kumi {version}.",
   "doctor.database.ok": "Database: connected.",
   "doctor.database.fail": "Database: can't connect ({error}). Check DATABASE_URL and that Postgres is running.",
   "doctor.migrations.ok": "Database tables: up to date ({count} migrations).",

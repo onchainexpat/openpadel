@@ -472,6 +472,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "cli.note.no_location": "Se omitió a {person}: no hay ninguna sede llamada {location}.",
   "cli.doctor_good": "No hay nada roto. Conviene revisar lo marcado como WARN u off antes de que lo usen los miembros.",
   "cli.doctor_bad": "Arregla primero el primer FAIL y luego vuelve a ejecutar kumi doctor.",
+  "doctor.version": "Kumi {version}.",
   "doctor.database.ok": "Base de datos: conectada.",
   "doctor.database.fail": "Base de datos: no se puede conectar ({error}). Revisa DATABASE_URL y que Postgres esté funcionando.",
   "doctor.migrations.ok": "Tablas de la base de datos: al día ({count} migraciones).",

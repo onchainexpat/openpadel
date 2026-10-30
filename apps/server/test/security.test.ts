@@ -61,6 +61,7 @@ test("changes from another site, or as a form, are refused", async () => {
 test("security headers, and a limit on how much can be sent", async () => {
   const r = await app.request("/health");
   assert.equal(r.headers.get("x-content-type-options"), "nosniff");
+  assert.match(((await r.json()) as any).version, /^\d+\.\d+\.\d+$/);
   assert.match(r.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
   assert.ok(r.headers.get("strict-transport-security"));
   const big = await post("/staff/people/import-preview", { csv: "x".repeat(4 * 1024 * 1024) });

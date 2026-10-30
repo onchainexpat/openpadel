@@ -57,6 +57,17 @@ sudo -u kumi pg_restore --clean --if-exists --no-owner -d kumi /var/backups/kumi
 systemctl start kumi && kumi doctor
 ```
 
+## Updating
+Read the release's notes in [`CHANGELOG.md`](../../../CHANGELOG.md) first, take a backup, then ship
+the new release and check:
+```bash
+ssh root@SERVER 'sudo -u kumi pg_dump -Fc -d kumi -f /var/backups/kumi/before-update.dump'
+git checkout v0.x.y && deploy/ship.sh root@SERVER
+ssh root@SERVER kumi doctor
+```
+Database changes apply when the server starts. To go back, ship the previous release and restore
+`before-update.dump` (see "Restoring").
+
 ## Logs
 `journalctl -u kumi -f` shows what Kumi is doing. Until email is set up, sign-in codes appear there.
 

@@ -7,7 +7,7 @@ const read = (p: string) => readFileSync(new URL(`../../../${p}`, import.meta.ur
 test("both ways of running Kumi give the apps the same security policy and the same API paths", () => {
   const script = read("deploy/server-setup.sh"), caddy = read("deploy/docker/Caddyfile");
   assert.equal(caddy.match(/Content-Security-Policy "(.*)"/)![1], script.match(/^csp="(.*)"$/m)![1]);
-  assert.equal(caddy.match(/@api path (.*)/)![1].trim(), script.match(/^api='(.*)'$/m)![1]);
+  assert.equal(caddy.match(/@api path (.*)/)![1]!.trim(), script.match(/^api='(.*)'$/m)![1]);
 });
 
 test("container images are pinned to exact versions", () => {

@@ -5,6 +5,7 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { secureHeaders } from "hono/secure-headers";
 import { bodyLimit } from "hono/body-limit";
 import { clientIp, RateLimiter } from "./limits.ts";
+import { VERSION } from "./version.ts";
 import * as z from "zod/mini";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, type Lang } from "@kumi/i18n";
@@ -85,7 +86,7 @@ export function makeApp(deps: AppDeps) {
     return parsed.data;
   };
 
-  app.get("/health", (c) => c.json({ ok: true }));
+  app.get("/health", (c) => c.json({ ok: true, version: VERSION }));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => c.json(await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language"]).executeTakeFirstOrThrow()));
 
