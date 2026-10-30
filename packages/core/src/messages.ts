@@ -7,7 +7,7 @@ import type { Db, Trx } from "./db.ts";
 import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts } from "./clock.ts";
-import { dayText, endDay } from "./memberships.ts";
+import { dayText, endDay, kindList } from "./memberships.ts";
 import { band } from "./match_rules.ts";
 import { gameView } from "./results.ts";
 import { hasPushDevice } from "./push.ts";
@@ -98,7 +98,8 @@ async function bookingInfo(db: Db, bookingId: string) {
 /** A membership and its plan. */
 async function membershipInfo(db: Db, membershipId: string) {
   return db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .select(["membership.person_id", "membership.plan_id", "membership.current_period_end", "membership.source", "membership.price_cents", "membership.end_reason", "membership_plan.name", "membership_plan.days_ahead"])
+    .select(["membership.person_id", "membership.plan_id", "membership.current_period_end", "membership.source", "membership.price_cents", "membership.end_reason", "membership_plan.name", "membership_plan.days_ahead",
+      "membership_plan.period", "membership_plan.program_percent_off", "membership_plan.program_cents_off", "membership_plan.included_sessions", "membership_plan.included_kinds"])
     .where("membership.id", "=", membershipId).executeTakeFirstOrThrow();
 }
 
@@ -285,6 +286,8 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const prices = await db.selectFrom("price_rule").select("id").where("active", "=", true).where(sql<boolean>`${m.plan_id} = ANY(plan_ids)`).executeTakeFirst();
     const app = m.source === "app" && m.current_period_end;
     const more = [prices ? both("msg.membership_perk_prices") : null, m.days_ahead ? both("msg.membership_perk_window", { count: m.days_ahead }) : null,
+      m.program_percent_off ? both("msg.membership_perk_program_percent", { percent: m.program_percent_off }) : m.program_cents_off ? both("msg.membership_perk_program_cents", { amount: amount(m.program_cents_off) }) : null,
+      m.included_sessions ? both("msg.membership_perk_included", { count: m.included_sessions, period: both(`ui.period_${m.period}`), kinds: kindList(m.included_kinds) }) : null,
       app ? both("msg.membership_renews", { date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)), amount: amount(m.price_cents ?? 0) }) : null].filter((x): x is Text => Boolean(x));
     const until = m.current_period_end && !app ? both("msg.membership_until", { date: dayText(endDay({ current_period_end: m.current_period_end, source: m.source }, tz)) }) : NOTHING;
     return [{ to: m.person_id, kind: "membership_started", params: { name: m.name, until, perks: { en: more.map((x) => x.en).join(" "), es: more.map((x) => x.es).join(" ") } },

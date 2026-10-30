@@ -74,6 +74,13 @@ The first version a club can run on its own (court bookings included), or for it
   saves the card without charging it; the first charge is on the start date.
 - The desk gives and ends memberships (with an end date or without), and can stop or restart a
   renewal. Messages for joining, renewals, declined cards, cancelling and ending.
+- Member prices on clinics and other programs: a plan gives a percent or an amount off, and a
+  program can set its own member price instead, which wins. A plan can also include so many single
+  sessions each membership period (say 4 clinics a month), of the kinds it names; courses never count.
+  Signing up uses an included session while there's one left, and leaving in time gives it back.
+  Members see their own price on What's On, and everyone else what members pay (on the public page
+  too). A place keeps the price it was taken at, so changing a price never changes what someone
+  agreed to; staff are told how many have signed up when they change one.
 
 **Events, programs and money**
 - Clinics, courses, socials and Americanos with dates on courts that can't be double-booked.

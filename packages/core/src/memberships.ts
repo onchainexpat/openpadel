@@ -5,7 +5,7 @@
 // at, and cancelling stops renewal at the period's end. One membership at a time per person.
 import * as z from "zod/mini";
 import { sql } from "kysely";
-import { both, money, type Lang, type Text } from "@kumi/i18n";
+import { both, money, type Key, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -70,6 +70,11 @@ export function addPeriod(from: Date, period: "month" | "year", tz: string, day:
 export function endDay(m: { current_period_end: Date; source: string }, tz: string): string {
   return localDate(new Date(m.current_period_end.getTime() - (m.source === "app" ? 0 : 1)), tz);
 }
+/** "clinic, social", in each language. */
+export function kindList(kinds: string[]): Text {
+  const f = (lang: Lang) => kinds.map((k) => both(`kind.${k}` as Key)[lang]).join(", ");
+  return { en: f("en"), es: f("es") };
+}
 const clubTz = async (db: Db | Trx) => (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
 
 // ---- Plans ----
@@ -79,13 +84,24 @@ const planInput = {
   days_ahead: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(365)))), join_in_app: z.optional(z.boolean()), sort: z.optional(z.number().check(z.int())),
   max_members: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1)))),   // a founding offer: the first so many
   starts_on: z.optional(z.nullable(clubDate)),                                      // joining before: card saved, first charge then
+  // On programs (clinics, socials): a discount, a percent or an amount; and single sessions included each period.
+  program_percent_off: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(100)))),
+  program_cents_off: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1)))),
+  included_sessions: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(100), z.describe("Single sessions included each membership period, free")))),
+  included_kinds: z.optional(z.array(z.enum(["clinic", "social", "tournament"])).check(z.minLength(1))),
 };
 export const planSet = defineAction({
   name: "membership.plan_set", version: 1,
   input: z.object({ plan_id: z.optional(z.uuid()), ...planInput }),
   async plan(ctx, i) {
     const reads = i.plan_id ? [(await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan")).read] : [];
-    const extra = [i.days_ahead ? both("plan.membership.window", { count: i.days_ahead }) : null, i.max_members ? both("plan.membership.limit", { count: i.max_members }) : null,
+    if (i.program_percent_off && i.program_cents_off) throw new KumiError("error.one_program_discount");
+    const kinds = i.included_kinds ?? ["clinic", "social"];
+    const extra = [i.days_ahead ? both("plan.membership.window", { count: i.days_ahead }) : null,
+      i.program_percent_off ? both("plan.membership.program_percent", { percent: i.program_percent_off }) : null,
+      i.program_cents_off ? both("plan.membership.program_cents", { amount: { en: money(i.program_cents_off, "en"), es: money(i.program_cents_off, "es") } }) : null,
+      i.included_sessions ? both("plan.membership.included", { count: i.included_sessions, period: both(`ui.period_${i.period}`), kinds: kindList(kinds) }) : null,
+      i.max_members ? both("plan.membership.limit", { count: i.max_members }) : null,
       i.starts_on ? both("plan.membership.starts", { date: dayText(i.starts_on) }) : null].filter((x): x is Text => Boolean(x));
     const window = { en: extra.map((x) => x.en).join(""), es: extra.map((x) => x.es).join("") };
     return { title: both("action.membership.plan_set"), summary: both("plan.membership.plan_set", { name: i.name, price: planPrice(i.price_cents, i.period), window }),
@@ -94,7 +110,8 @@ export const planSet = defineAction({
   async apply(ctx, i) {
     const { plan_id, ...p } = i;
     const row = { ...p, description: p.description ?? null, days_ahead: p.days_ahead ?? null, join_in_app: p.join_in_app ?? true, sort: p.sort ?? 0,
-      max_members: p.max_members ?? null, starts_on: p.starts_on ?? null };
+      max_members: p.max_members ?? null, starts_on: p.starts_on ?? null, program_percent_off: p.program_percent_off ?? null, program_cents_off: p.program_cents_off ?? null,
+      included_sessions: p.included_sessions ?? null, included_kinds: p.included_kinds ?? ["clinic", "social"] };
     if (plan_id) { await ctx.update("membership_plan", plan_id, row); return { plan_id }; }
     const id = uuidv7();
     await ctx.insert("membership_plan", { id, ...row });

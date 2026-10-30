@@ -1,7 +1,12 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, t, shortTime, usePreview } from "@kumi/ui";
 
-type P = { id: string; name: string; capacity: number; booked: number; price_cents: number; rated: boolean; level_min: string | null; level_max: string | null; refund_window_hours: number; first_start: string | null; my_status: string | null; offered: number; my_offer_until: string | null };
+type P = { id: string; name: string; capacity: number; booked: number; price_cents: number; rated: boolean; level_min: string | null; level_max: string | null; refund_window_hours: number; first_start: string | null; my_status: string | null; offered: number; my_offer_until: string | null;
+  my_price_cents: number; my_basis: "full" | "member" | "included"; included: { n: number; of: number } | null; members_cents: number | null };
+/** The price as this person pays it: an included session, their member price, or the price (and what members pay). */
+const priceLine = (p: P) => p.my_basis === "included" ? (p.included ? t("ui.your_included", { n: p.included.n, of: p.included.of }) : t("ui.included_in_yours"))
+  : p.my_basis === "member" ? t("ui.your_member_price", { amount: dollars(p.my_price_cents, lang.value) })
+  : dollars(p.price_cents, lang.value) + (p.members_cents !== null ? ` (${t("ui.members_price", { amount: dollars(p.members_cents, lang.value) })})` : "");
 
 export function WhatsOn() {
   const [rows, setRows] = useState<P[] | null>(null);
@@ -19,7 +24,7 @@ export function WhatsOn() {
         return (
           <li class="card" key={p.id}>
             <div class="summary">{p.name}</div>
-            <div class="meta">{when(p.first_start)} · {dollars(p.price_cents, lang.value)}{p.level_min && p.level_max ? ` · ${t("ui.level_band", { min: p.level_min, max: p.level_max })}` : ""}</div>
+            <div class="meta">{when(p.first_start)} · {priceLine(p)}{p.level_min && p.level_max ? ` · ${t("ui.level_band", { min: p.level_min, max: p.level_max })}` : ""}</div>
             <div class="meta">{t(p.rated ? "ui.rated_label" : "ui.friendly_label")} · {t("ui.refund_rule", { hours: p.refund_window_hours })}</div>
             <div class="meta">{left > 0 ? t("ui.places_left", { count: left }) : t("ui.full_waitlist")}</div>
             {p.my_offer_until ? <p class="note">{t("ui.offer_ends", { time: shortTime(p.my_offer_until) })} · <a href="/places">{t("ui.take_place")}</a></p>

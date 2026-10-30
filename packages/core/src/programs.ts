@@ -12,6 +12,7 @@ import { isClubBlock } from "./playtomic.ts";
 import { afterBookingPayment } from "./booking_pay.ts";
 import { afterMembershipPayment } from "./memberships.ts";
 import { quietUntil } from "./messages.ts";
+import { programPerks, programPrice, priceWords, type ProgramPrice } from "./program_prices.ts";
 
 /** How long a place offered from the waitlist is held. With texts it would be 2 hours; while email is
  *  the only way to reach people, it's doubled (messages.md). */
@@ -26,7 +27,6 @@ export function offerDeadline(now: Date, tz: string, start: Date | null): Date {
 export const TWO_PERSON_CENTS = 50_000;
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const when = (at: Date, tz: string): Text => ({ en: dateTime(at, "en", tz), es: dateTime(at, "es", tz) });
-const priceText = (cents: number): Text => (cents > 0 ? both("price.amount", { amount: usd(cents) }) : both("price.free"));
 
 async function personName(db: Db | Trx, id: string): Promise<string> {
   return (await readRow(db, "person", id, "thing.person")).row.display_name;
@@ -71,6 +71,9 @@ export function ruleRefund(p: { price_cents: number; refund_window_hours: number
   if (inside && p.refund_inside_window === "credit") return { outcome: "credit", cents: paid, text: both("refund.credit", { amount: usd(paid) }), changed: false };
   return { outcome: "full", cents: paid, text: both("refund.full", { amount: usd(paid) }), changed: false };
 }
+
+/** Whether the rule would give money back for leaving now (so an included session comes back too). */
+const ruleGivesBack = (p: Parameters<typeof ruleRefund>[0], reason: string, start: Date | null, now: Date) => ruleRefund(p, 1, reason, start, now).outcome !== "none";
 
 /** Staff may change the refund, with a reason; the plan says what was decided and why. */
 function staffRefund(rule: Refund, paid: number, o: { outcome: RefundOutcome; cents?: number; note?: string } | undefined): Refund {
@@ -136,17 +139,21 @@ export const programCreate = defineAction({
   input: z.object({
     location_id: z.uuid(), kind: z.enum(["clinic", "course", "league", "tournament", "social"]), format: z.optional(z.enum(["americano", "mexicano", "king_of_court"])),
     name: z.string().check(z.minLength(1)), capacity: z.number().check(z.int(), z.minimum(1)), price_cents: z.number().check(z.int(), z.minimum(0)),
+    member_price_cents: z.optional(z.nullable(z.number().check(z.int(), z.minimum(0), z.describe("What members pay instead (any plan). Empty: the plan's own discount on programs, if any.")))),
     level_min: z.optional(z.number()), level_max: z.optional(z.number()),
     refund_window_hours: z.optional(z.number().check(z.int(), z.minimum(0))), refund_inside_window: z.optional(z.enum(["none", "credit", "full"])),
     rated: z.optional(z.boolean().check(z.describe("Whether results change levels. Friendlies never do."))),
   }),
   async plan(ctx, i) {
     await readRow(ctx.db, "location", i.location_id, "thing.location");
-    return { title: both("action.program.create"), summary: both("plan.program.create", { name: i.name, kind: both(`kind.${i.kind}` as Key), capacity: i.capacity, price: usd(i.price_cents) }), reads: [], locationId: i.location_id, undo: { kind: "reversible" } };
+    if (i.member_price_cents != null && i.member_price_cents > i.price_cents) throw new KumiError("error.member_price_higher");
+    const summary = both("plan.program.create", { name: i.name, kind: both(`kind.${i.kind}` as Key), capacity: i.capacity, price: usd(i.price_cents) });
+    return { title: both("action.program.create"), summary: i.member_price_cents == null ? summary : join2(summary, both("plan.program.member_price", { amount: usd(i.member_price_cents) })),
+      reads: [], locationId: i.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const id = uuidv7();
-    await ctx.insert("program", { id, location_id: i.location_id, kind: i.kind, format: i.format ?? null, name: i.name, capacity: i.capacity, price_cents: i.price_cents,
+    await ctx.insert("program", { id, location_id: i.location_id, kind: i.kind, format: i.format ?? null, name: i.name, capacity: i.capacity, price_cents: i.price_cents, member_price_cents: i.member_price_cents ?? null,
       level_min: i.level_min ?? null, level_max: i.level_max ?? null, refund_window_hours: i.refund_window_hours ?? 24, refund_inside_window: i.refund_inside_window ?? "none", rated: i.rated ?? false });
     return { program_id: id };
   },
@@ -160,6 +167,23 @@ export const programPublish = defineAction({
     return { title: both("action.program.publish"), summary: both("plan.program.publish", { name: row.name }), reads: [read], locationId: row.location_id, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) { await ctx.update("program", i.program_id, { status: "published" }); await ctx.emit("program.published", { program_id: i.program_id }); return null; },
+});
+
+/** A program's price and member price. Places already taken keep what they were priced at; staff are told
+ *  how many, since a member price is fairest set before the first sign-up. */
+export const programSetPrices = defineAction({
+  name: "program.set_prices", version: 1,
+  input: z.object({ program_id: z.uuid(), price_cents: z.number().check(z.int(), z.minimum(0)),
+    member_price_cents: z.nullable(z.number().check(z.int(), z.minimum(0), z.describe("What members pay instead (any plan). Null: the plan's own discount on programs, if any."))) }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
+    if (i.member_price_cents !== null && i.member_price_cents > i.price_cents) throw new KumiError("error.member_price_higher");
+    const taken = Number((await ctx.db.selectFrom("enrolment").select((eb) => eb.fn.countAll<string>().as("n")).where("program_id", "=", i.program_id).where("status", "in", ["booked", "waitlisted", "attended"]).executeTakeFirstOrThrow()).n);
+    const member = i.member_price_cents === null ? both("plan.program.member_discount") : both("plan.program.member_price", { amount: usd(i.member_price_cents) });
+    const summary = join2(both("plan.program.set_prices", { name: row.name, price: usd(i.price_cents) }), member);
+    return { title: both("action.program.set_prices"), summary: taken ? join2(summary, both("plan.program.prices_kept", { count: taken })) : summary, reads: [read], locationId: row.location_id, undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) { await ctx.update("program", i.program_id, { price_cents: i.price_cents, member_price_cents: i.member_price_cents }); return null; },
 });
 
 /** Court time already on these courts then. A Playtomic block lying inside the new event can be absorbed. */
@@ -213,24 +237,38 @@ export const enrolmentJoin = defineAction({
     const existing = await ctx.db.selectFrom("enrolment").select("id").where("program_id", "=", i.program_id).where("person_id", "=", i.person_id).where("status", "in", ["booked", "waitlisted"]).executeTakeFirst();
     if (existing) throw new KumiError("error.already_signed_up", { person });
     const full = (await takenCount(ctx.db, i.program_id, ctx.now)) >= p.capacity;
+    // Their own price: a member price, or an included session (only for a real place, not the waitlist).
+    const price = await programPrice(ctx.db, i.program_id, i.person_id, ctx.now, { included: !full });
     if (full) {
       const pos = Number((await ctx.db.selectFrom("enrolment").select((eb) => eb.fn.max("waitlist_position").as("m")).where("program_id", "=", i.program_id).where("status", "=", "waitlisted").executeTakeFirst())?.m ?? 0) + 1;
-      return { title: both("action.enrolment.join"), summary: both("plan.enrolment.waitlist", { person, name: p.name, position: pos }), reads: [read], locationId: p.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" }, details: { status: "waitlisted", position: pos } };
+      return { title: both("action.enrolment.join"), summary: both("plan.enrolment.waitlist", { person, name: p.name, position: pos }), reads: [read], locationId: p.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" }, details: { status: "waitlisted", position: pos, price } };
     }
-    return { title: both("action.enrolment.join"), summary: both("plan.enrolment.join", { person, name: p.name, price: priceText(p.price_cents) }), reads: [read], locationId: p.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" }, moneyCents: p.price_cents, details: { status: "booked" } };
+    return { title: both("action.enrolment.join"), summary: both("plan.enrolment.join", { person, name: p.name, price: priceWords(price) }), reads: [read], locationId: p.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" }, moneyCents: price.cents, details: { status: "booked", price } };
   },
   async apply(ctx, i, plan) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();   // one join at a time per program
-    const planned = (plan.details as { status: string; position?: number });
+    const planned = (plan.details as { status: string; position?: number; price: ProgramPrice });
     const nowFull = (await takenCount(ctx.trx, i.program_id, ctx.now)) >= p.capacity;
     if ((planned.status === "booked") === nowFull) throw new KumiError("error.changed");   // the last place went meanwhile, or one opened up
+    const price = await lockedPrice(ctx, i.program_id, i.person_id, planned.status === "booked");
+    if (price.cents !== planned.price.cents || price.basis !== planned.price.basis) throw new KumiError("error.changed");   // a price or their membership changed meanwhile
     const id = uuidv7();
-    await ctx.insert("enrolment", { id, program_id: i.program_id, person_id: i.person_id, status: planned.status, waitlist_position: planned.position ?? null, price_cents: p.price_cents });
+    await ctx.insert("enrolment", { id, program_id: i.program_id, person_id: i.person_id, status: planned.status, waitlist_position: planned.position ?? null, ...priced(price) });
     await ctx.emit(planned.status === "booked" ? "enrolment.booked" : "enrolment.waitlisted", { enrolment_id: id });
-    const pay = planned.status === "booked" ? await requestPayment(ctx, id, i.person_id, p.price_cents) : null;
+    const pay = planned.status === "booked" ? await requestPayment(ctx, id, i.person_id, price.cents) : null;
     return { enrolment_id: id, status: planned.status, ...(pay ?? {}) };
   },
 });
+
+/** The price inside the change: with an included session, the membership is locked first, so two sign-ups at
+ *  once can't both take its last one. */
+async function lockedPrice(ctx: ApplyContext, programId: string, personId: string, included: boolean): Promise<ProgramPrice> {
+  const perks = included ? await programPerks(ctx.trx, personId, ctx.now) : null;
+  if (perks?.included_sessions) await ctx.trx.selectFrom("membership").select("id").where("id", "=", perks.membership_id).forUpdate().execute();
+  return programPrice(ctx.trx, programId, personId, ctx.now, { included });
+}
+/** The enrolment columns for a price. */
+const priced = (pr: ProgramPrice) => ({ price_cents: pr.cents, price_basis: pr.basis, included_membership_id: pr.included?.membership_id ?? null, included_period_start: pr.included?.period_start ? new Date(pr.included.period_start) : null });
 
 async function goingPlan(ctx: PlanCtx, enrolmentId: string, reason: string, refundIn?: { outcome: RefundOutcome; cents?: number; note?: string }) {
   const { row: e, read } = await readRow(ctx.db, "enrolment", enrolmentId, "thing.person");
@@ -241,7 +279,10 @@ async function goingPlan(ctx: PlanCtx, enrolmentId: string, reason: string, refu
   const rule = ruleRefund(p as any, paid, reason, await firstStart(ctx.db, e.program_id, e.session_id), ctx.now);
   const refund = staffRefund(rule, paid, refundIn);
   const freesPlace = e.status === "booked" || Boolean(await openOffer(ctx.db, e.id, ctx.now));   // a booked place, or one offered to them
-  return { e, p, person, refund, read, offer: await offerText(ctx.db, e.program_id, freesPlace, ctx.now) };
+  // An included session comes back when leaving in time (as money would), or when staff give a refund.
+  const back = e.price_basis !== "included" ? null : refundIn ? refundIn.outcome !== "none" : ruleGivesBack(p as any, reason, await firstStart(ctx.db, e.program_id, e.session_id), ctx.now);
+  const refundText = back === null ? refund.text : both(back ? "refund.included_back" : "refund.included_used");
+  return { e, p, person, refund: { ...refund, text: refundText }, back: Boolean(back), read, offer: await offerText(ctx.db, e.program_id, freesPlace, ctx.now) };
 }
 
 async function freePlace(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], programId: string, skip: string[] = []) {
@@ -273,13 +314,13 @@ export const enrolmentLeave = defineAction({
   async plan(ctx, i) {
     const g = await goingPlan(ctx, i.enrolment_id, "late_cancel");
     return { title: both("action.enrolment.leave"), summary: join2(both("plan.enrolment.leave", { person: g.person, name: g.p.name, refund: g.refund.text }), g.offer), reads: [g.read],
-      locationId: g.p.location_id, ownerIds: [g.e.person_id], moneyCents: g.refund.cents, undo: g.refund.cents > 0 ? { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } : { kind: "compensating" }, details: { refund: g.refund } };
+      locationId: g.p.location_id, ownerIds: [g.e.person_id], moneyCents: g.refund.cents, undo: g.refund.cents > 0 ? { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } : { kind: "compensating" }, details: { refund: g.refund, back: g.back } };
   },
   async apply(ctx, i, plan) {
     const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).executeTakeFirstOrThrow();
     const p = await ctx.trx.selectFrom("program").select("refund_rule_version").where("id", "=", e.program_id).executeTakeFirstOrThrow();
-    const refund = (plan.details as { refund: Refund }).refund;
-    await ctx.update("enrolment", e.id, { ...leaving(refund, "left", "late_cancel", p.refund_rule_version), left_at: ctx.now });
+    const { refund, back } = plan.details as { refund: Refund; back: boolean };
+    await ctx.update("enrolment", e.id, { ...leaving(refund, "left", "late_cancel", p.refund_rule_version), left_at: ctx.now, included_back: back });
     await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: refund.outcome, refund_cents: refund.cents });
     await startRefund(ctx, e.id, e.person_id, refund);
     if (e.status === "booked" || await declineOffer(ctx, e.id)) await freePlace(ctx, e.program_id);
@@ -296,13 +337,13 @@ export const enrolmentRemove = defineAction({
   async plan(ctx, i) {
     const g = await goingPlan(ctx, i.enrolment_id, i.reason, i.refund);
     return { title: both("action.enrolment.remove"), summary: join2(both("plan.enrolment.remove", { person: g.person, name: g.p.name, reason: both(`reason.${i.reason}` as Key), refund: g.refund.text }), g.offer),
-      reads: [g.read], locationId: g.p.location_id, moneyCents: g.refund.cents, secondPerson: g.refund.changed && g.refund.cents > TWO_PERSON_CENTS, undo: g.refund.cents > 0 ? { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } : { kind: "compensating" }, details: { refund: g.refund } };
+      reads: [g.read], locationId: g.p.location_id, moneyCents: g.refund.cents, secondPerson: g.refund.changed && g.refund.cents > TWO_PERSON_CENTS, undo: g.refund.cents > 0 ? { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } : { kind: "compensating" }, details: { refund: g.refund, back: g.back } };
   },
   async apply(ctx, i, plan) {
     const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).executeTakeFirstOrThrow();
     const p = await ctx.trx.selectFrom("program").select("refund_rule_version").where("id", "=", e.program_id).executeTakeFirstOrThrow();
-    const refund = (plan.details as { refund: Refund }).refund;
-    await ctx.update("enrolment", e.id, { ...leaving(refund, i.reason === "no_show" ? "no_show" : "removed", i.reason, p.refund_rule_version, i.refund?.note), left_at: ctx.now });
+    const { refund, back } = plan.details as { refund: Refund; back: boolean };
+    await ctx.update("enrolment", e.id, { ...leaving(refund, i.reason === "no_show" ? "no_show" : "removed", i.reason, p.refund_rule_version, i.refund?.note), left_at: ctx.now, included_back: back });
     await ctx.emit("enrolment.removed", { enrolment_id: e.id, reason: i.reason, refund_outcome: refund.outcome, refund_cents: refund.cents });
     await startRefund(ctx, e.id, e.person_id, refund);
     const offer = e.status === "booked" || await declineOffer(ctx, e.id) ? await freePlace(ctx, e.program_id) : null;
@@ -372,11 +413,20 @@ export const enrolmentAcceptOffer = defineAction({
     const offer = await ctx.db.selectFrom("waitlist_offer").selectAll().where("enrolment_id", "=", i.enrolment_id).where("outcome", "is", null).where("expires_at", ">", ctx.now).executeTakeFirst();
     if (e.status !== "waitlisted" || !offer) throw new KumiError("error.no_offer");
     const { row: p } = await readRow(ctx.db, "program", e.program_id, "thing.program");
-    return { title: both("action.enrolment.accept_offer"), summary: both("plan.enrolment.accept_offer", { person: await personName(ctx.db, e.person_id), name: p.name, price: priceText(e.price_cents) }),
-      reads: [read, { entity: "waitlist_offer", id: offer.id, version: offer.version }], locationId: p.location_id, ownerIds: [e.person_id], moneyCents: e.price_cents, undo: { kind: "compensating" }, details: { offer_id: offer.id } };
+    // Kept at the price it was put on the waitlist at, unless an included session is free now.
+    const now = await programPrice(ctx.db, e.program_id, e.person_id, ctx.now);
+    const price: ProgramPrice = now.basis === "included" ? now : { cents: e.price_cents, full: p.price_cents, basis: e.price_basis, included: null };
+    return { title: both("action.enrolment.accept_offer"), summary: both("plan.enrolment.accept_offer", { person: await personName(ctx.db, e.person_id), name: p.name, price: priceWords(price) }),
+      reads: [read, { entity: "waitlist_offer", id: offer.id, version: offer.version }], locationId: p.location_id, ownerIds: [e.person_id], moneyCents: price.cents, undo: { kind: "compensating" }, details: { offer_id: offer.id, price } };
   },
   async apply(ctx, i, plan) {
-    await ctx.update("enrolment", i.enrolment_id, { status: "booked", waitlist_position: null });
+    const planned = (plan.details as { offer_id: string; price: ProgramPrice }).price;
+    if (planned.basis === "included") {
+      const e = await ctx.trx.selectFrom("enrolment").select(["program_id", "person_id"]).where("id", "=", i.enrolment_id).executeTakeFirstOrThrow();
+      const now = await lockedPrice(ctx, e.program_id, e.person_id, true);
+      if (now.basis !== "included") throw new KumiError("error.changed");
+      await ctx.update("enrolment", i.enrolment_id, { ...priced(now), status: "booked", waitlist_position: null });
+    } else await ctx.update("enrolment", i.enrolment_id, { status: "booked", waitlist_position: null });
     await ctx.update("waitlist_offer", (plan.details as { offer_id: string }).offer_id, { outcome: "taken" });
     await ctx.emit("enrolment.booked", { enrolment_id: i.enrolment_id });
     const e = await ctx.trx.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").select(["enrolment.person_id", "enrolment.price_cents", "program.name"]).where("enrolment.id", "=", i.enrolment_id).executeTakeFirstOrThrow();

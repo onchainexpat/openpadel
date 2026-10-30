@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { checkCardSetup, findFriends, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { membersFrom, programPerks, programPrices, checkCardSetup, findFriends, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -11,17 +11,26 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
 
   app.get("/open-programs", async (c) => {
     const pid = who(c);
-    const rows = await db.selectFrom("program").select(["id", "name", "kind", "format", "capacity", "price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window"])
+    const rows = await db.selectFrom("program").select(["id", "name", "kind", "format", "capacity", "price_cents", "member_price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window"])
       .select((eb) => [
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
         eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first_start"),
         eb.selectFrom("enrolment").select("status").whereRef("enrolment.program_id", "=", "program.id").where("enrolment.person_id", "=", pid).where("enrolment.status", "in", ["booked", "waitlisted"]).limit(1).as("my_status"),
+        eb.selectFrom("enrolment").select(sql<string>`price_cents || ':' || price_basis`.as("x")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.person_id", "=", pid).where("enrolment.status", "in", ["booked", "waitlisted"]).limit(1).as("my_place_price"),
         eb.selectFrom("waitlist_offer").innerJoin("enrolment", "enrolment.id", "waitlist_offer.enrolment_id").select((x) => x.fn.countAll<string>().as("n"))
           .whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "waitlisted").where("waitlist_offer.outcome", "is", null).where("waitlist_offer.expires_at", ">", new Date()).as("offered"),
         eb.selectFrom("waitlist_offer").innerJoin("enrolment", "enrolment.id", "waitlist_offer.enrolment_id").select("waitlist_offer.expires_at")
           .whereRef("enrolment.program_id", "=", "program.id").where("enrolment.person_id", "=", pid).where("enrolment.status", "=", "waitlisted").where("waitlist_offer.outcome", "is", null).where("waitlist_offer.expires_at", ">", new Date()).limit(1).as("my_offer_until"),
       ]).where("status", "=", "published").where("visibility", "in", ["public", "members"]).execute();
-    return c.json(rows.filter((r) => !r.first_start || new Date(r.first_start as any) > new Date()).map((r) => ({ ...r, booked: Number(r.booked ?? 0), offered: Number(r.offered ?? 0) }))
+    // My own price for each (a member price, or an included session); without a membership, what members pay.
+    const now = new Date(), mine = await programPrices(db, rows, pid, now), members = await membersFrom(db, rows);
+    return c.json(rows.filter((r) => !r.first_start || new Date(r.first_start as any) > now).map(({ member_price_cents, my_place_price, ...r }) => {
+      // With a place already: the price it was taken at, not today's.
+      const [cents, basis] = my_place_price ? (my_place_price as string).split(":") : [];
+      const pr = my_place_price ? { cents: Number(cents), basis: basis as "full", included: null } : mine.get(r.id)!;
+      return { ...r, booked: Number(r.booked ?? 0), offered: Number(r.offered ?? 0), my_price_cents: pr.cents, my_basis: pr.basis, included: pr.included ? { n: pr.included.n, of: pr.included.of } : null,
+        members_cents: pr.basis === "full" ? members.get(r.id) ?? null : null };
+    })
       // Soonest first, by the actual time (not the date's text, which starts with the weekday); undated ones last.
       .sort((a, b) => (a.first_start ? new Date(a.first_start as any).getTime() : Infinity) - (b.first_start ? new Date(b.first_start as any).getTime() : Infinity)));
   });
@@ -259,10 +268,11 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .where("membership.person_id", "=", pid).where("membership.status", "in", ["upcoming", "active", "past_due"]).executeTakeFirst();
     if (!m) return c.json({ membership: null });
     const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
-    const prices = await planPerks(m.plan_id);
+    const prices = await planPerks(m.plan_id), perks = await programPerks(db, pid, new Date());
     const owed = m.status === "past_due" ? await db.selectFrom("payment").select(["id", "amount_cents"]).where("membership_id", "=", m.id).where("status", "=", "pending").executeTakeFirst() : null;
     const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, saved_method, paused_until, ...rest } = m;
-    return c.json({ membership: { ...rest, price_cents: m.price_cents ?? plan_price_cents, period: m.period ?? plan_period, member_prices: prices,
+    return c.json({ membership: { ...rest, price_cents: m.price_cents ?? plan_price_cents, period: m.period ?? plan_period, member_prices: prices, ...programTerms(perks ?? (await planTerms(m.plan_id))),
+      included_used: perks?.included_sessions ? perks.used : null,
       starts_on: m.status === "upcoming" ? localDate(m.started_at, tz) : null, card_saved: Boolean(saved_method),
       paused_until: paused_until && paused_until > new Date() ? localDate(new Date(paused_until.getTime() - 1), tz) : null,
       ends_on: current_period_end ? endDay({ current_period_end, source: m.source }, tz) : null, retry_on: next_attempt_at ? localDate(next_attempt_at, tz) : null,
@@ -271,13 +281,18 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   // The plans a member can join here, with what each gives.
   app.get("/membership-plans", async (c) => {
     who(c);
-    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "max_members", "starts_on"]).where("active", "=", true).where("join_in_app", "=", true)
+    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "max_members", "starts_on",
+      "program_percent_off", "program_cents_off", "included_sessions", "included_kinds"]).where("active", "=", true).where("join_in_app", "=", true)
       .orderBy("sort").orderBy("price_cents").execute();
     const counts = await planCounts(db), today = localDate(new Date(), (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone);
     // A founding offer: how many places are left, and the start date while it's still ahead.
     return c.json(await Promise.all(plans.map(async ({ max_members, starts_on, ...p }) => ({ ...p, member_prices: await planPerks(p.id),
       places_left: max_members ? Math.max(0, max_members - (counts.get(p.id) ?? 0)) : null, starts_on: starts_on && starts_on > today ? starts_on : null }))));
   });
+  /** What a plan gives on programs, as the members' app shows it. */
+  const programTerms = (p: { program_percent_off: number | null; program_cents_off: number | null; included_sessions: number | null; included_kinds: string[] }) =>
+    ({ program_percent_off: p.program_percent_off, program_cents_off: p.program_cents_off, included_sessions: p.included_sessions, included_kinds: p.included_kinds });
+  const planTerms = (planId: string) => db.selectFrom("membership_plan").select(["program_percent_off", "program_cents_off", "included_sessions", "included_kinds"]).where("id", "=", planId).executeTakeFirstOrThrow();
   /** Whether a plan has member prices on courts. */
   const planPerks = async (planId: string) => Boolean(await db.selectFrom("price_rule").select("id").where("active", "=", true).where(sql<boolean>`${planId} = ANY(plan_ids)`).executeTakeFirst());
 

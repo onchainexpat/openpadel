@@ -22,7 +22,7 @@ before(async () => {
   await run(db, "price.rule_set", { location_id: loc, name: "Standard", cents_per_hour: 4000 }, owner);
   await run(db, "price.rule_set", { location_id: loc, name: "Members", cents_per_hour: 3000, plan_ids: [monthly] }, owner);
   // A clinic whose name tries to break out of the page.
-  clinic = ((await run(db, "program.create", { location_id: loc, kind: "clinic", name: "Drills <script>alert(1)</script> & lobs", capacity: 8, price_cents: 3500, refund_window_hours: 24 }, owner)).result as any).program_id;
+  clinic = ((await run(db, "program.create", { location_id: loc, kind: "clinic", name: "Drills <script>alert(1)</script> & lobs", capacity: 8, price_cents: 3500, member_price_cents: 3000, refund_window_hours: 24 }, owner)).result as any).program_id;
   const start = new Date(Date.now() + 5 * 86400_000); start.setUTCHours(17, 0, 0, 0);
   await run(db, "session.add", { program_id: clinic, starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 90 * 60_000).toISOString(), court_ids: [court] }, owner);
   await run(db, "program.publish", { program_id: clinic }, owner);
@@ -40,7 +40,7 @@ test("the page: where, when, courts, prices, memberships and what's coming up, a
   assert.equal(p.status, 200); assert.match(p.type!, /^text\/html/);
   for (const s of ["<h1>Kestrel Padel</h1>", "Six courts by the river. Everyone welcome.", "100 Court St, Portland, OR", "2 courts: Indoor, Outdoor", "<td>Monday</td><td>07:00 - 22:00</td>",
     "<td>Sunday</td><td>Closed</td>", "Standard: $40.00 an hour, every day", "Members: $30.00 an hour, every day <span class=\"meta\">(members of Monthly)</span>",
-    "<strong>Monthly</strong>: $80.00 a month. Book courts up to 21 days ahead.</li>", "Drills &lt;script&gt;alert(1)&lt;/script&gt; &amp; lobs", "8 places left", "Join the club"]) assert.ok(p.text.includes(s), s);
+    "<strong>Monthly</strong>: $80.00 a month. Book courts up to 21 days ahead.</li>", "Drills &lt;script&gt;alert(1)&lt;/script&gt; &amp; lobs", "8 places left", "$35.00 (members $30.00)", "Join the club"]) assert.ok(p.text.includes(s), s);
   assert.ok(!p.text.includes("<script>alert(1)"));
   const blocks = [...p.text.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/g)].map((m) => JSON.parse(m[1]!));
   assert.equal(blocks[0]["@type"], "SportsActivityLocation");

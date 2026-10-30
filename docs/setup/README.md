@@ -96,6 +96,12 @@ month or a year, and how far ahead its members can book courts when that's longe
 rule. Member prices on courts are court prices for chosen plans (Settings, Prices: tick the plans).
 Where a member price and an everyone price have the same priority, the member price wins.
 
+A plan can also give members a discount on clinics and other programs (a percent or an amount off),
+and include so many single sessions each membership period, free (say 4 clinics a month, of the
+kinds ticked; courses never count). A program can have its own member price instead, set when it's
+created or with Change prices on its page; it wins over the plan's discount. People already signed
+up keep the price they agreed to, so a member price is fairest set before the first sign-up.
+
 Members join in the app (Membership) and pay by card. Kumi renews each membership from that card when
 its month or year is up, at the price the member joined at. If the card is declined, the membership
 carries on while Kumi tries again two days later and three days after that, and the member can pay

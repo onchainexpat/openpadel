@@ -82,3 +82,24 @@ test("a founding offer: places left and the start date, then saving the card for
   assert.deepEqual([m.status, m.starts_on, m.card_saved], ["upcoming", start, true]);
   assert.equal((await get("/membership-plans", "ann@example.test")).json.find((o: any) => o.name === "Founding").places_left, 9);
 });
+
+test("What's On shows each person their own price: an included session, a member price, or what members pay", async () => {
+  await run(db, "membership.plan_set", { plan_id: plan, name: "Monthly", price_cents: 8000, period: "month", days_ahead: 30, description: "Play more, pay less", program_percent_off: 10, included_sessions: 1, included_kinds: ["clinic"] }, owner);
+  const clinic = async (name: string, h: number) => {
+    const id = ((await run(db, "program.create", { location_id: loc, kind: "clinic", name, capacity: 6, price_cents: 3000 }, owner)).result as any).program_id;
+    const start = new Date(Date.now() + h * 3600_000);
+    await run(db, "session.add", { program_id: id, starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3600_000).toISOString(), court_ids: [c1] }, owner);
+    await run(db, "program.publish", { program_id: id }, owner);
+    return id as string;
+  };
+  const a = await clinic("Drills", 50), b = await clinic("Volleys", 75);
+  const mine = async (who: string, id: string) => (await get("/open-programs", who)).json.find((p: any) => p.id === id);
+  assert.deepEqual(await mine("ann@example.test", a).then((p: any) => [p.my_basis, p.my_price_cents, p.included, p.members_cents]), ["included", 0, { n: 1, of: 1 }, null]);
+  assert.deepEqual(await mine("robin@example.test", a).then((p: any) => [p.my_basis, p.my_price_cents, p.members_cents]), ["full", 3000, 2700]);
+  const m1 = (await get("/my/membership", "ann@example.test")).json.membership;
+  assert.deepEqual([m1.program_percent_off, m1.included_sessions, m1.included_kinds, m1.included_used], [10, 1, ["clinic"], 0]);
+  await run(db, "enrolment.join", { program_id: a, person_id: ann }, { personId: ann, via: "test", lang: "en" });
+  assert.deepEqual(await mine("ann@example.test", b).then((p: any) => [p.my_basis, p.my_price_cents]), ["member", 2700]);
+  assert.deepEqual(await mine("ann@example.test", a).then((p: any) => [p.my_status, p.my_basis, p.my_price_cents, p.included]), ["booked", "included", 0, null]);   // the price the place was taken at
+  assert.equal((await get("/my/membership", "ann@example.test")).json.membership.included_used, 1);
+});

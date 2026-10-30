@@ -2,10 +2,12 @@
 // declined), or without one, the plans to join and pay for here. A plan that hasn't started yet (a founding
 // offer) is joined by saving a card, first charged on its start date. Dates are the club's.
 import { useEffect, useState } from "preact/hooks";
+import type { Key } from "@kumi/i18n";
 import { api, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { confirmPaid, PaySheet } from "./Pay.tsx";
 
-type Perks = { days_ahead: number | null; member_prices: boolean };
+type Perks = { days_ahead: number | null; member_prices: boolean; period: "month" | "year"; program_percent_off: number | null; program_cents_off: number | null;
+  included_sessions: number | null; included_kinds: string[]; included_used?: number | null };
 type Mine = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; status: string; source: string; cancel_at_period_end: boolean;
   ends_on: string | null; retry_on: string | null; pay_now: { payment_id: string; cents: number } | null; starts_on: string | null; card_saved: boolean; paused_until: string | null };
 type Offer = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; places_left: number | null; starts_on: string | null };
@@ -14,8 +16,11 @@ const clubDay = (date: string) => new Intl.DateTimeFormat(lang.value === "es" ? 
 const price = (p: { price_cents: number; period: string }) => t(p.period === "year" ? "ui.price_a_year" : "ui.price_a_month", { amount: dollars(p.price_cents, lang.value) });
 
 function PerkList({ p }: { p: Perks }) {
-  if (!p.member_prices && !p.days_ahead) return null;
-  return <ul>{p.member_prices && <li>{t("ui.perk_prices")}</li>}{p.days_ahead && <li>{t("ui.perk_window", { count: p.days_ahead })}</li>}</ul>;
+  const items = [p.member_prices && t("ui.perk_prices"), p.days_ahead && t("ui.perk_window", { count: p.days_ahead }),
+    p.program_percent_off ? t("ui.perk_program_percent", { percent: p.program_percent_off }) : p.program_cents_off ? t("ui.perk_program_cents", { amount: dollars(p.program_cents_off, lang.value) }) : null,
+    p.included_sessions && t("ui.perk_included", { count: p.included_sessions, period: t(`ui.period_${p.period}`), kinds: p.included_kinds.map((k) => t(`kind.${k}` as Key)).join(", ") }),
+    p.included_sessions && p.included_used != null && t("ui.included_used", { used: p.included_used, of: p.included_sessions })].filter(Boolean);
+  return items.length ? <ul>{items.map((x) => <li>{x}</li>)}</ul> : null;
 }
 
 export function Membership() {

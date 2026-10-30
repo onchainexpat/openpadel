@@ -3,7 +3,7 @@ import type { Key } from "@kumi/i18n";
 import { api, lang, t, shortTime } from "@kumi/ui";
 import { usePreview, dollars } from "@kumi/ui";
 
-type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; paid_by: string; paid_cents: number; level: string | null;
+type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; paid_by: string; paid_cents: number; level: string | null; price_basis: string;
   comp_note: string | null; left_how: string | null; left_reason: string | null; refund_outcome: string | null; refund_cents: number | null; offer_expires_at: string | null };
 type Data = { program: any; sessions: { id: string; starts_at: string; ends_at: string; courts: string[]; has_draw: boolean }[]; roster: Person[] };
 type Court = { id: string; name: string };
@@ -13,9 +13,10 @@ export function Program({ id }: { id: string }) {
   const [removing, setRemoving] = useState<Person | null>(null), [reason, setReason] = useState("late_cancel");
   const [override, setOverride] = useState(false), [outcome, setOutcome] = useState("full"), [amount, setAmount] = useState(0), [why, setWhy] = useState("");
   const [date, setDate] = useState({ starts: "", ends: "", courts: [] as string[] });
+  const [pricing, setPricing] = useState<{ price: string; member: string } | null>(null);
   const [adding, setAdding] = useState(false), [search, setSearch] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]), [compNote, setCompNote] = useState("");
   const load = () => api<Data>(`/staff/programs/${id}`).then((x) => { setD(x); api<Court[]>(`/staff/courts?location_id=${x.program.location_id}`).then(setCourts); });
-  const { preview, sheet } = usePreview(() => { setRemoving(null); setAdding(false); load(); });
+  const { preview, sheet } = usePreview(() => { setRemoving(null); setAdding(false); setPricing(null); load(); });
   useEffect(() => { load(); }, [id]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const p = d.program, money = (c: number) => dollars(c, lang.value);
@@ -32,7 +33,15 @@ export function Program({ id }: { id: string }) {
   return (
     <main>
       <h1>{p.name}</h1>
-      <p class="meta">{t(`kind.${p.kind}` as Key)} · {t("ui.places_taken", { booked: booked.length, capacity: p.capacity })} · {money(p.price_cents)} · {t(`ui.status_${p.status}` as Key)}</p>
+      <p class="meta">{t(`kind.${p.kind}` as Key)} · {t("ui.places_taken", { booked: booked.length, capacity: p.capacity })} · {money(p.price_cents)}{p.member_price_cents !== null ? ` (${t("ui.members_pay", { amount: money(p.member_price_cents) })})` : ""} · {t(`ui.status_${p.status}` as Key)}{" "}
+        {!pricing && <button class="small" onClick={() => setPricing({ price: String(p.price_cents / 100), member: p.member_price_cents === null ? "" : String(p.member_price_cents / 100) })}>{t("ui.change_prices")}</button>}</p>
+      {pricing && <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("program.set_prices", { program_id: id, price_cents: Math.round(Number(pricing.price.replace(",", ".")) * 100),
+        member_price_cents: pricing.member.trim() ? Math.round(Number(pricing.member.replace(",", ".")) * 100) : null }); }}>
+        <label>{t("ui.price")}<input required inputMode="decimal" value={pricing.price} onInput={(e) => setPricing({ ...pricing, price: e.currentTarget.value })} /></label>
+        <label>{t("ui.member_price_optional")}<input inputMode="decimal" value={pricing.member} onInput={(e) => setPricing({ ...pricing, member: e.currentTarget.value })} /></label>
+        {d.roster.some((r) => r.status !== "cancelled") && <p class="meta">{t("ui.member_price_note")}</p>}
+        <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setPricing(null)}>{t("ui.cancel")}</button>
+      </form>}
       {p.status === "draft" && <button class="primary" onClick={() => preview("program.publish", { program_id: id })}>{t("ui.publish")}</button>}
       {sheet}
 
@@ -51,7 +60,7 @@ export function Program({ id }: { id: string }) {
         <h2>{t("ui.roster")}</h2>
         <ul class="plain">{booked.map((r) => (
           <li class="row"><div><a href={`/people/${r.person_id}/level`}>{r.display_name}</a>{r.level && <span class="meta"> · {t("ui.level")} {r.level}</span>}
-            <span class="meta"> · {r.paid_by === "comp" ? t("ui.comped", { note: r.comp_note ?? "" }) : r.paid_cents > 0 ? t("ui.paid", { amount: money(r.paid_cents) }) : t("ui.unpaid")}</span></div>
+            <span class="meta"> · {r.paid_by === "comp" ? t("ui.comped", { note: r.comp_note ?? "" }) : r.price_basis === "included" ? t("ui.included_place") : r.paid_cents > 0 ? t("ui.paid", { amount: money(r.paid_cents) }) : t("ui.unpaid")}</span></div>
             <button class="small" onClick={() => { setRemoving(r); setOverride(false); setReason("late_cancel"); }}>{t("ui.remove")}</button></li>))}</ul>
         {removing && (
           <form class="card sheet" onSubmit={remove}>

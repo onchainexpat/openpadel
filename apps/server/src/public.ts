@@ -4,7 +4,7 @@
 // the club and its events. Nothing about members is shown; "Join the club" goes to the app's sign-up.
 import { Hono, type Context } from "hono";
 import { isLang, money, t, type Key, type Lang } from "@kumi/i18n";
-import { localDate, planCounts, ruleWhen, type Db } from "@kumi/core";
+import { localDate, membersFrom, planCounts, ruleWhen, type Db } from "@kumi/core";
 
 /** Every value from the database goes through this before it reaches the page. */
 const h = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -38,7 +38,7 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, publicUrl:
   /** Upcoming public events: published, open to anyone, with places and the first and last dates. */
   async function events(where?: string) {
     const rows = await db.selectFrom("program").innerJoin("location", "location.id", "program.location_id")
-      .select(["program.id", "program.name", "program.kind", "program.format", "program.capacity", "program.price_cents", "program.level_min", "program.level_max", "program.rated",
+      .select(["program.id", "program.name", "program.kind", "program.format", "program.capacity", "program.price_cents", "program.member_price_cents", "program.level_min", "program.level_max", "program.rated",
         "location.name as location", "location.address", "location.time_zone"])
       .select((eb) => [
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
@@ -46,8 +46,9 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, publicUrl:
         eb.selectFrom("session").select((x) => x.fn.max("ends_at").as("e")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("last"),
       ])
       .where("program.status", "=", "published").where("program.visibility", "=", "public").$if(Boolean(where), (q) => q.where("program.id", "=", where!)).execute();
+    const members = await membersFrom(db, rows);   // what members pay, when it's less
     return rows.filter((r) => r.first && new Date(r.first as any) > new Date()).sort((a, b) => new Date(a.first as any).getTime() - new Date(b.first as any).getTime())
-      .map((r) => ({ ...r, first: new Date(r.first as any), last: new Date(r.last as any), left: Math.max(0, r.capacity - Number(r.booked ?? 0)) }));
+      .map((r) => ({ ...r, first: new Date(r.first as any), last: new Date(r.last as any), left: Math.max(0, r.capacity - Number(r.booked ?? 0)), members_cents: members.get(r.id) ?? null }));
   }
   const eventLd = (e: Awaited<ReturnType<typeof events>>[number], clubName: string, currency: string) => ({
     "@context": "https://schema.org", "@type": "SportsEvent", name: e.name, sport: "Padel", startDate: e.first.toISOString(), endDate: e.last.toISOString(),
@@ -58,7 +59,7 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, publicUrl:
     url: `${base}/public/events/${e.id}`,
   });
   const eventLine = (l: Lang, e: Awaited<ReturnType<typeof events>>[number]) =>
-    `${h(fmt(l, e.time_zone, e.first, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))} · ${h(e.location)} · ${e.price_cents ? h(money(e.price_cents, l)) : h(t(l, "pub.free"))} · ${e.left > 0 ? h(t(l, "ui.places_left", { count: e.left })) : h(t(l, "pub.full"))}`;
+    `${h(fmt(l, e.time_zone, e.first, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))} · ${h(e.location)} · ${e.price_cents ? h(money(e.price_cents, l)) : h(t(l, "pub.free"))}${e.members_cents !== null ? ` (${h(t(l, "ui.members_price", { amount: money(e.members_cents, l) }))})` : ""} · ${e.left > 0 ? h(t(l, "ui.places_left", { count: e.left })) : h(t(l, "pub.full"))}`;
 
   app.get("/public", async (c) => {
     const cl = await club();
@@ -69,7 +70,8 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, publicUrl:
     const hours = await db.selectFrom("opening_hours").select(["location_id", "weekday", "opens", "closes"]).execute();
     const special = await db.selectFrom("hours_exception").select(["location_id", "on_date", "opens", "closes", "note"]).where("active", "=", true).where("on_date", ">=", today).orderBy("on_date").limit(20).execute();
     const prices = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
-    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "max_members", "starts_on"]).where("active", "=", true).where("join_in_app", "=", true).orderBy("sort").orderBy("price_cents").execute();
+    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "max_members", "starts_on",
+      "program_percent_off", "program_cents_off", "included_sessions", "included_kinds"]).where("active", "=", true).where("join_in_app", "=", true).orderBy("sort").orderBy("price_cents").execute();
     const counts = await planCounts(db), planName = new Map(plans.map((p) => [p.id, p.name]));
     const coming = (await events()).slice(0, 30);
     const t5 = (x: string | null) => (x ? x.slice(0, 5) : "");
@@ -84,7 +86,7 @@ ${list ? `<h3>${h(t(l, "ui.prices_title"))}</h3><ul>${list}</ul>` : ""}</section
     }).join("");
     const plansHtml = plans.length ? `<section><h2>${h(t(l, "ui.nav_memberships"))}</h2><ul>${plans.map((p) => {
       const left = p.max_members ? Math.max(0, p.max_members - (counts.get(p.id) ?? 0)) : null, starts = p.starts_on && p.starts_on > today ? p.starts_on : null;
-      return `<li><strong>${h(p.name)}</strong>: ${h(t(l, p.period === "year" ? "ui.price_a_year" : "ui.price_a_month", { amount: money(p.price_cents, l) }))}${p.description ? `. ${h(p.description.replace(/\.$/, ""))}` : ""}${p.days_ahead ? `. ${h(t(l, "ui.perk_window", { count: p.days_ahead }))}` : ""}${starts ? `. ${h(t(l, "ui.plan_starts_on", { date: fmt(l, "UTC", new Date(`${starts}T12:00:00Z`), { month: "long", day: "numeric", year: "numeric" }) }))}` : ""}${left !== null ? `. ${h(left ? t(l, "ui.places_left", { count: left }) : t(l, "ui.plan_full"))}` : ""}`.replace(/\.?$/, ".") + "</li>";
+      return `<li><strong>${h(p.name)}</strong>: ${h(t(l, p.period === "year" ? "ui.price_a_year" : "ui.price_a_month", { amount: money(p.price_cents, l) }))}${p.description ? `. ${h(p.description.replace(/\.$/, ""))}` : ""}${p.days_ahead ? `. ${h(t(l, "ui.perk_window", { count: p.days_ahead }))}` : ""}${p.program_percent_off ? `. ${h(t(l, "ui.perk_program_percent", { percent: p.program_percent_off }))}` : p.program_cents_off ? `. ${h(t(l, "ui.perk_program_cents", { amount: money(p.program_cents_off, l) }))}` : ""}${p.included_sessions ? `. ${h(t(l, "ui.perk_included", { count: p.included_sessions, period: t(l, `ui.period_${p.period}`), kinds: p.included_kinds.map((k) => t(l, `kind.${k}` as Key)).join(", ") }))}` : ""}${starts ? `. ${h(t(l, "ui.plan_starts_on", { date: fmt(l, "UTC", new Date(`${starts}T12:00:00Z`), { month: "long", day: "numeric", year: "numeric" }) }))}` : ""}${left !== null ? `. ${h(left ? t(l, "ui.places_left", { count: left }) : t(l, "ui.plan_full"))}` : ""}`.replace(/\.?$/, ".") + "</li>";
     }).join("")}</ul></section>` : "";
     const eventsHtml = `<section><h2>${h(t(l, "pub.coming_up"))}</h2>${coming.length ? `<ul>${coming.map((e) => `<li><a href="/public/events/${h(e.id)}${l === "es" ? "?lang=es" : ""}">${h(e.name)}</a><br><span class="meta">${eventLine(l, e)}</span></li>`).join("")}</ul>` : `<p class="meta">${h(t(l, "pub.no_events"))}</p>`}</section>`;
     const join = cl.sign_up_open ? t(l, "pub.join") : t(l, "pub.sign_in");
