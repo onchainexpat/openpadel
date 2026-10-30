@@ -23,6 +23,7 @@ collected here.
 | Membership plans: name, price a month or a year, what members get (member court prices, booking further ahead, a discount on clinics and other programs, sessions included each month or year); for a new club, a founding offer (how many, and the opening date) | Memberships (step 5d) | Owner |
 | Starting levels for members who already have one (a Playtomic level, say), and which staff answer level reviews | Each member's level page, and the Levels page | Owner, or the old system |
 | Each coach who gives private lessons: a photo, a few lines about them, the levels and languages they teach, a rate for each lesson length (court included), and the hours they give lessons each week | Coaches (step 5f); each coach can keep their own | The coach, owner approves |
+| The club's waiver text, if players must accept one (a lawyer's wording, not Kumi's) | Settings, Waiver (step 5g) | Owner |
 | A few lines about the club, for its public page | Settings (step 5e) | Website, owner approves |
 | Is the club on Playtomic, and on which plan? | Whether to connect it (its API needs the Champion or Master plan) | Owner |
 

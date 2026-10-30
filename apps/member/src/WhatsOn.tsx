@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, t, shortTime, usePreview } from "@kumi/ui";
+import { ForWhom } from "./ForWhom.tsx";
 
 type P = { id: string; name: string; capacity: number; booked: number; price_cents: number; rated: boolean; level_min: string | null; level_max: string | null; refund_window_hours: number; first_start: string | null; my_status: string | null; offered: number; my_offer_until: string | null;
   my_price_cents: number; my_basis: "full" | "member" | "included"; included: { n: number; of: number } | null; members_cents: number | null };
@@ -9,15 +10,17 @@ const priceLine = (p: P) => p.my_basis === "included" ? (p.included ? t("ui.your
   : dollars(p.price_cents, lang.value) + (p.members_cents !== null ? ` (${t("ui.members_price", { amount: dollars(p.members_cents, lang.value) })})` : "");
 
 export function WhatsOn() {
-  const [rows, setRows] = useState<P[] | null>(null);
-  const load = () => api<P[]>("/open-programs").then(setRows);
+  const [rows, setRows] = useState<P[] | null>(null), [who, setWho] = useState(me.value!.person.id);
+  // For a parent: the programs as one of their juniors would take them (their price, whether they're in).
+  const load = () => api<P[]>(who === me.value!.person.id ? "/open-programs" : `/open-programs?for=${who}`).then(setRows);
   const { preview, sheet } = usePreview(load);
-  useEffect(() => { load(); }, [lang.value]);
+  useEffect(() => { load(); }, [lang.value, who]);
   const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "long", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso)) : "");
   return (
     <main>
       <h1>{t("ui.nav_whats_on")}</h1>
       {sheet}
+      <ForWhom value={who} onChange={setWho} />
       {rows?.length === 0 && <p>{t("ui.nothing_on")}</p>}
       <ul class="changes">{(rows ?? []).map((p) => {
         const left = p.capacity - p.booked - p.offered;
@@ -29,7 +32,7 @@ export function WhatsOn() {
             <div class="meta">{left > 0 ? t("ui.places_left", { count: left }) : t("ui.full_waitlist")}</div>
             {p.my_offer_until ? <p class="note">{t("ui.offer_ends", { time: shortTime(p.my_offer_until) })} · <a href="/places">{t("ui.take_place")}</a></p>
               : p.my_status ? <p class="note">{p.my_status === "booked" ? t("ui.youre_in") : t("ui.waitlist")}</p>
-              : <button class="primary" onClick={() => preview("enrolment.join", { program_id: p.id, person_id: me.value!.person.id })}>{t("ui.join")}</button>}
+              : <button class="primary" onClick={() => preview("enrolment.join", { program_id: p.id, person_id: who })}>{t("ui.join")}</button>}
           </li>
         );
       })}</ul>

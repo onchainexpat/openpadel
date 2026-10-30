@@ -17,6 +17,7 @@ import { freeCourts, occupied } from "./bookings.ts";
 import { currentPolicy } from "./prices.ts";
 import { paymentProvider } from "./money.ts";
 import { checkSlot, courtAndPlace, HOLD_MINUTES, newCode, shares } from "./booking_pay.ts";
+import { requireWaiver, withManagers } from "./households.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const when = (d: Date, tz: string): Text => ({ en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) });
@@ -294,6 +295,7 @@ export const lessonRequest = defineAction({
   async plan(ctx, i) {
     const c = await lessonCoach(ctx.db, i.coach_id), rate = c.rates[String(i.minutes)];
     if (i.person_id === i.coach_id) throw new KumiError("error.own_lesson");
+    await requireWaiver(ctx, i.person_id);
     if (rate === undefined) throw new KumiError("error.lesson_length", { coach: c.name, lengths: Object.keys(c.rates).join(", ") });
     const players = i.players ?? (i.pay === "split" ? 2 : 1);
     if (players > c.max_players) throw new KumiError("error.lesson_too_many", { coach: c.name, count: c.max_players });
@@ -314,7 +316,8 @@ export const lessonRequest = defineAction({
     const p = { coach: c.name, court: court.name, when: when(start, tz), minutes: i.minutes, total: usd(total) };
     const summary = i.pay === "whole" ? both("plan.lesson.request_whole", { ...p, players: both("count.players", { count: players }) })
       : both("plan.lesson.request_split", { ...p, share: usd(s.organiser), players: both("count.players", { count: players }), others: usd(s.each), hours: both("count.hours", { count: policy.split_deadline_hours }) });
-    return { title: both("action.lesson.request"), summary, reads: [], locationId: court.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" },
+    // A parent books their junior's lesson: the lesson is the junior's, the parent pays and manages it.
+    return { title: both("action.lesson.request"), summary, reads: [], locationId: court.location_id, ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "compensating" },
       moneyCents: i.pay === "whole" ? total : s.organiser, details: { court_id: courtId, rate, tax, tax_bp: club.tax_rate_bp, total, players, policy_id: policy.id } };
   },
   async apply(ctx, i, plan) {

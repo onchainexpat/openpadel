@@ -17,6 +17,7 @@ import { occupied, openingOn } from "./bookings.ts";
 import { currentPolicy, quote } from "./prices.ts";
 import { memberPlan } from "./memberships.ts";
 import { band, joinRule, levelOf, openMatchOf } from "./match_rules.ts";
+import { notJunior, requireWaiver, withManagers } from "./households.ts";
 
 /** How long a court is held while the organiser pays. */
 export const HOLD_MINUTES = 10;
@@ -87,6 +88,8 @@ export const bookingRequest = defineAction({
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
     if (i.open && (i.pay !== "split" || (i.players ?? 4) !== 4)) throw new KumiError("error.open_match_split");
     if (i.open && i.open.level_max < i.open.level_min) throw new KumiError("error.bad_band");
+    await notJunior(ctx.db, i.person_id);
+    await requireWaiver(ctx, i.person_id);
     const policy = await currentPolicy(ctx.db), { court, start } = await checkSlot(ctx, policy, i, i.person_id);
     if (await upcomingCount(ctx.db, i.person_id, ctx.now) >= policy.max_active) throw new KumiError("error.too_many_bookings", { count: policy.max_active });
     const q = await quote(ctx.db, { courtId: i.court_id, start, minutes: i.minutes, personId: i.person_id, at: ctx.now });
@@ -140,6 +143,8 @@ export const bookingRequestCourts = defineAction({
   async plan(ctx, i) {
     const club = await ctx.db.selectFrom("club").select(["court_bookings"]).executeTakeFirstOrThrow();
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
+    await notJunior(ctx.db, i.person_id);
+    await requireWaiver(ctx, i.person_id);
     const policy = await currentPolicy(ctx.db), slots = [];
     for (const s of i.courts) slots.push({ ...s, ...(await checkSlot(ctx, policy, s, i.person_id)) });
     if (new Set(slots.map((s) => s.day)).size > 1) throw new KumiError("error.courts_same_day");
@@ -193,6 +198,8 @@ export const bookingJoin = defineAction({
     if (!b || b.status !== "confirmed" || b.pay_mode !== "split") throw new KumiError("error.invite_closed");
     // After the deadline only a place staff opened again can be joined.
     if (b.settled_at && !(await reopenedPlace(ctx.db, b.id))) throw new KumiError("error.invite_settled");
+    await notJunior(ctx.db, i.person_id);
+    await requireWaiver(ctx, i.person_id);
     const players = await ctx.db.selectFrom("booking_player").select(["person_id", "leaving_at"]).where("booking_id", "=", b.id).where("removed_at", "is", null).where("replaces", "is", null).execute();
     if (players.some((p) => p.person_id === i.person_id)) throw new KumiError("error.already_in_booking");
     // A place someone can't make counts as free: whoever takes it pays, and they get their money back.
@@ -392,15 +399,16 @@ export const bookingCancel = defineAction({
     // Choosing what comes back instead of the rule is for the club (rule 2), not the player cancelling.
     if (i.refund && !(await deskOrUp(ctx.db, ctx.actor.personId))) throw new KumiError("error.refund_choice_staff", {}, 403);
     // A lesson the coach or the club calls off: the players get everything back. The coach can't choose less.
-    const lesson = b.kind === "lesson", byCoach = lesson && ctx.actor.personId === b.coach_id;
-    const choice = byCoach ? "full" : i.refund ?? (lesson && ctx.actor.personId !== b.organiser_id ? "full" : "rule");
+    // A junior's lesson is the junior's booking: their parents cancel it as its organiser would.
+    const lesson = b.kind === "lesson", byCoach = lesson && ctx.actor.personId === b.coach_id, organisers = await withManagers(ctx.db, [b.organiser_id]);
+    const choice = byCoach ? "full" : i.refund ?? (lesson && !organisers.includes(ctx.actor.personId ?? "") ? "full" : "rule");
     const r = await cancelRefunds(ctx.db, b.id, ctx.now, choice), total = r.refunds.reduce((n, x) => n + x.cents, 0);
     const joiners = r.refunds.filter((x) => x.joiner).reduce((n, x) => n + x.cents, 0), host = total - joiners, hours = both("count.hours", { count: r.hours });
     const money = !r.refunds.length ? both("refund.nothing_paid")
       : joiners ? both(host ? "plan.booking.refund_open" : "plan.booking.no_refund_open", { host: usd(host), others: usd(joiners), hours })
       : total ? both("plan.booking.refund", { amount: usd(total) }) : both("plan.booking.no_refund", { hours });
     return { title: both("action.booking.cancel"), summary: both(lesson ? "plan.lesson.cancel_refund" : "plan.booking.cancel_refund", { code: b.code, refund: money }), reads: [read], locationId: b.location_id,
-      ownerIds: [b.organiser_id, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };
+      ownerIds: [...organisers, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };
   },
   async apply(ctx, i, plan) {
     await ctx.update("booking", i.booking_id, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: i.reason ?? null });

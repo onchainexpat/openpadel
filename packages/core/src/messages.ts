@@ -11,6 +11,7 @@ import { dayText, endDay, kindList } from "./memberships.ts";
 import { band } from "./match_rules.ts";
 import { gameView } from "./results.ts";
 import { hasPushDevice } from "./push.ts";
+import { managersOf } from "./households.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout). */
 export interface Mail { to: string; subject: string; text: string; id?: string }
@@ -254,6 +255,25 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     if (to.person_id) drafts.push({ to: to.person_id, kind: "match_place_given", params: to.b.base, purpose: "account", essential: true, email: true, link: `/match/${to.b.id}` });
     return drafts;
   },
+  // ---- Households: the other adults hear when a junior is added, and when a parent joins or leaves ----
+  async "household.junior_added"({ db }, p: { junior_id: string; by: string; to: string[] }) {
+    const names = await db.selectFrom("person").select(["id", "display_name"]).where("id", "in", [p.junior_id, p.by]).execute();
+    const name = (id: string) => names.find((x) => x.id === id)?.display_name ?? "";
+    return p.to.map((to) => ({ to, kind: "household_junior_added", params: { name: name(p.junior_id), by: name(p.by) }, purpose: "account" as const, essential: false, email: true, link: "/family" }));
+  },
+  async "household.joined"({ db }, p: { person_id: string; to: string[] }) {
+    const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirst())?.display_name ?? "";
+    return p.to.map((to) => ({ to, kind: "household_joined", params: { name }, purpose: "account" as const, essential: false, email: true, link: "/family" }));
+  },
+  async "household.left"({ db }, p: { person_id: string; to: string[] }) {
+    const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirst())?.display_name ?? "";
+    return p.to.map((to) => ({ to, kind: "household_left", params: { name }, purpose: "account" as const, essential: false, email: true, link: "/family" }));
+  },
+  async "household.login_given"({ db }, p: { person_id: string }) {
+    const r = await db.selectFrom("person").select(["email"]).where("id", "=", p.person_id).executeTakeFirst();
+    const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
+    return [{ to: p.person_id, kind: "household_login_given", params: { club: club.name, email: r?.email ?? "" }, purpose: "account", essential: true, email: true, link: "/" }];
+  },
   async "friend.added"({ db }, p: { person_id: string; friend_id: string; mutual: boolean }) {
     const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirst())?.display_name ?? "";
     return [{ to: p.friend_id, kind: p.mutual ? "friend_added_back" : "friend_added", params: { name }, purpose: "account", essential: false, email: true, link: "/friends" }];
@@ -444,6 +464,18 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
 };
 
+/** A junior has no login: what's said to them goes to each adult who manages them, in that adult's language,
+ *  saying whom it's about. An adult who'd get the same message anyway gets it once. */
+async function forJuniors(db: Db, drafts: Draft[]): Promise<(Draft & { junior?: string })[]> {
+  const out: (Draft & { junior?: string })[] = [];
+  for (const d of drafts) {
+    const p = await db.selectFrom("person").select(["junior", "display_name"]).where("id", "=", d.to).executeTakeFirst();
+    if (!p?.junior) { out.push(d); continue; }
+    for (const to of await managersOf(db, d.to)) if (!out.some((x) => x.to === to && x.kind === d.kind)) out.push({ ...d, to, junior: p.display_name });
+  }
+  return out;
+}
+
 /** A sentence that ends on a Spanish time ("10:00 a.m.") keeps one full stop, and an empty last line goes. */
 const tidy = (text: string) => text.replace(/([ap]\.\s?m\.)\./g, "$1").replace(/\s+$/, "");
 
@@ -462,13 +494,14 @@ async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<numbe
   const since = (await db.selectFrom("message_topic").select("since").where("topic", "=", ev.topic).executeTakeFirst())?.since;
   if (since && new Date(ev.created_at) < since) return 0;
   const club = await db.selectFrom("club").select(["time_zone", "default_language"]).executeTakeFirstOrThrow();
-  const drafts = await composers[ev.topic]!({ db, tz: club.time_zone }, ev.payload);
+  const drafts = await forJuniors(db, await composers[ev.topic]!({ db, tz: club.time_zone }, ev.payload));
   let written = 0;
   for (const d of drafts) {
     const person = await db.selectFrom("person").select(["locale", "email", "status", "redacted_at"]).where("id", "=", d.to).executeTakeFirst();
     if (!person || person.redacted_at || person.status === "archived") continue;
     const lang: Lang = pickLang(person.locale, pickLang(club.default_language));
-    const words = { subject: tidy(t(lang, `msg.${d.kind}.subject` as Key, d.params)), body: tidy(t(lang, `msg.${d.kind}.body` as Key, d.params)) };
+    let words = { subject: tidy(t(lang, `msg.${d.kind}.subject` as Key, d.params)), body: tidy(t(lang, `msg.${d.kind}.body` as Key, d.params)) };
+    if (d.junior) words = { subject: t(lang, "msg.for_junior.subject", { name: d.junior, text: words.subject }), body: t(lang, "msg.for_junior.body", { name: d.junior, text: words.body }) };
     const base = { event_id: ev.id, person_id: d.to, kind: d.kind, purpose: d.purpose, essential: d.essential, lang, ...words, link: d.link ?? null, stale_at: d.staleAt ?? null };
     const rows = [{ ...base, id: uuidv7(now.getTime()), channel: "inbox", status: "sent", send_after: now, sent_at: now }];
     // Staff alerts and essential messages go straight away; the rest wait out quiet hours.

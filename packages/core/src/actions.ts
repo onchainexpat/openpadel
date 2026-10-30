@@ -87,6 +87,11 @@ const ENTITIES = {
   coach: { table: "coach", key: "person_id", retire: { active: false } },
   coach_hours: { table: "coach_hours", key: "id", retire: { active: false } },
   coach_time_off: { table: "coach_time_off", key: "id", retire: { active: false } },
+  household: { table: "household", key: "id", retire: null },
+  household_member: { table: "household_member", key: "id", retire: { removed_at: "now" } },
+  household_invite: { table: "household_invite", key: "id", retire: { status: "withdrawn" } },
+  waiver: { table: "waiver", key: "id", retire: { active: false } },
+  waiver_acceptance: { table: "waiver_acceptance", key: "id", retire: null },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 

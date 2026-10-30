@@ -13,7 +13,7 @@ type Policy = { version_no: number; days_ahead: number; max_active: number; free
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
 type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null };
 type Plan = { id: string; name: string };
-type S = { club: ClubRow; policy: Policy; plans: Plan[]; locations: Loc[] };
+type S = { club: ClubRow; policy: Policy; plans: Plan[]; locations: Loc[]; waiver: { version_no: number; body: string } | null };
 type Preview = (action: string, input: unknown) => Promise<void>;
 
 const KINDS = ["indoor", "covered_outdoor", "outdoor"] as const;
@@ -44,11 +44,27 @@ export function Settings() {
       <h1>{t("ui.settings_title")}</h1>
       <ClubForm key={JSON.stringify(s.club)} c={s.club} send={send} />
       <BookingRules key={JSON.stringify(s.policy)} p={s.policy} send={send} />
+      <WaiverForm key={JSON.stringify(s.waiver)} w={s.waiver} send={send} />
       {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} plans={s.plans} send={send} />)}
       <NewLocation tz={s.club.time_zone} send={send} />
       {note && <p class="note" role="status">{note}</p>}
       {sheet}
     </main>
+  );
+}
+
+/** The club's waiver: one text, saved as a new version each time; members accept it before playing. */
+function WaiverForm({ w, send }: { w: S["waiver"]; send: Preview }) {
+  const [body, setBody] = useState(w?.body ?? "");
+  return (
+    <section class="card card-form">
+      <h2>{t("ui.waiver_settings")}</h2>
+      <p class="meta">{w ? t("ui.waiver_version", { version: w.version_no }) : t("ui.waiver_off")}</p>
+      <p class="meta">{t("ui.waiver_settings_hint")}</p>
+      <textarea rows={8} maxLength={20000} value={body} onInput={(e) => setBody(e.currentTarget.value)} />
+      <button class="primary" disabled={!body.trim() || body.trim() === (w?.body ?? "")} onClick={() => send("waiver.set", { body })}>{t("ui.waiver_save")}</button>{" "}
+      {w && <button onClick={() => send("waiver.clear", {})}>{t("ui.waiver_stop")}</button>}
+    </section>
   );
 }
 

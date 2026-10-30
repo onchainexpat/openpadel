@@ -1,16 +1,25 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, findFriends, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
 export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { production: boolean }) {
   const app = new Hono();
   const who = (c: Context<any>) => { const m = me(c); if (!m) throw new KumiError("error.signed_out", {}, 401); return m.id; };
+  /** Whom a page is for: the member, or (?for=) one of the juniors they manage. */
+  const forWhom = async (c: Context<any>) => {
+    const pid = who(c), f = c.req.query("for");
+    if (!f || f === pid) return pid;
+    if (!(await manages(db, pid, f))) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
+    return f;
+  };
+  /** The member and the juniors they manage, by id, with each junior's name. */
+  const meAndJuniors = async (pid: string) => [{ id: pid, display_name: null as string | null }, ...(await juniorsOf(db, pid)).map((j) => ({ id: j.id, display_name: j.display_name as string | null }))];
 
   app.get("/open-programs", async (c) => {
-    const pid = who(c);
+    const pid = await forWhom(c);
     const rows = await db.selectFrom("program").select(["id", "name", "kind", "format", "capacity", "price_cents", "member_price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window"])
       .select((eb) => [
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
@@ -82,7 +91,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   });
   // When a coach gives a lesson of a length on a club date: their hours, less time off and what they're doing, with a court free.
   app.get("/my/lessons/times", async (c) => {
-    const pid = who(c);
+    const pid = await forWhom(c);
     const coachId = c.req.query("coach_id") ?? "", date = c.req.query("date") ?? "", minutes = Number(c.req.query("minutes") ?? 60);
     if (!/^[0-9a-f-]{36}$/.test(coachId) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(minutes) || minutes < 30 || minutes > 240) throw new KumiError("error.invalid_input", { details: "coach_id, date (YYYY-MM-DD) and minutes" }, 400);
     return c.json({ times: await lessonTimes(db, { coachId, date, minutes, now: new Date() }), days_ahead: await daysAhead(db, pid) });
@@ -106,10 +115,16 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
         eb.selectFrom("booking_player as bp").select((x) => x.fn.countAll<string>().as("n")).whereRef("bp.booking_id", "=", "booking.id").where("bp.removed_at", "is", null).as("joined"),
         eb.selectFrom("open_match").select("open_match.booking_id").whereRef("open_match.booking_id", "=", "booking.id").as("open_match_id"),
       ])
-      .where("booking_player.person_id", "=", pid).where("booking_player.removed_at", "is", null).where("booking.status", "in", ["held", "confirmed"])
+      .select("booking_player.person_id")
+      .where("booking_player.person_id", "in", (await meAndJuniors(pid)).map((x) => x.id)).where("booking_player.removed_at", "is", null).where("booking.status", "in", ["held", "confirmed"])
       .where(sql<boolean>`upper(court_time.during) > now() - interval '1 day'`).orderBy(sql`lower(court_time.during)`).execute();
-    return c.json(rows.map((r) => ({ ...r, mine: r.organiser_id === pid, paid_cents: Number(r.paid_cents ?? 0), joined: Number(r.joined ?? 0), group_cents: r.group_cents === null ? null : Number(r.group_cents),
-      invite_code: r.organiser_id === pid && !r.settled_at ? r.invite_code : null, organiser_id: undefined })));
+    // A junior's lessons show too, marked with their name: the parent pays for and manages them.
+    const people = await meAndJuniors(pid), forName = (id: string | null) => people.find((x) => x.id === id)?.display_name ?? null;
+    return c.json(rows.map(({ person_id, ...r }) => {
+      const mine = r.organiser_id === pid || (r.organiser_id === person_id && person_id !== pid);
+      return { ...r, mine, for_name: forName(person_id), paid_cents: Number(r.paid_cents ?? 0), joined: Number(r.joined ?? 0), group_cents: r.group_cents === null ? null : Number(r.group_cents),
+        invite_code: mine && !r.settled_at ? r.invite_code : null, organiser_id: undefined };
+    }));
   });
   // ---- Open matches ----
   /** One open match as a player sees it: when and where, the band, who's in (with levels), what a place
@@ -240,7 +255,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const b = await db.selectFrom("booking").innerJoin("booking_player", "booking_player.booking_id", "booking.id").innerJoin("court_time", "court_time.booking_id", "booking.id")
       .innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id")
       .select(["booking.id", "booking.code", "court.name as court", "location.name as location", "location.address", sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
-      .where("booking.id", "=", c.req.param("id")).where("booking_player.person_id", "=", pid).where("court_time.active", "=", true).executeTakeFirst();
+      .where("booking.id", "=", c.req.param("id")).where("booking_player.person_id", "in", (await meAndJuniors(pid)).map((x) => x.id)).where("court_time.active", "=", true).executeTakeFirst();
     if (!b) throw new KumiError("error.not_found", { thing: { en: "booking", es: "la reserva" } }, 404);
     const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
     const stamp = (d: Date) => new Date(d).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
@@ -258,8 +273,44 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .select((eb) => [eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").as("first_start"),
         eb.selectFrom("waitlist_offer").select("expires_at").whereRef("waitlist_offer.enrolment_id", "=", "enrolment.id").where("outcome", "is", null).where("expires_at", ">", new Date()).limit(1).as("offer_expires_at"),
         eb.selectFrom("payment").select("id").whereRef("payment.enrolment_id", "=", "enrolment.id").where("status", "=", "pending").limit(1).as("pending_payment_id")])
-      .where("enrolment.person_id", "=", pid).where("enrolment.status", "in", ["booked", "waitlisted"]).execute();
-    return c.json(await Promise.all(rows.map(async (r) => ({ ...r, paid_cents: await paidFor(db, r.id) }))));
+      .select("enrolment.person_id")
+      .where("enrolment.person_id", "in", (await meAndJuniors(pid)).map((x) => x.id)).where("enrolment.status", "in", ["booked", "waitlisted"]).execute();
+    const people = await meAndJuniors(pid);
+    return c.json(await Promise.all(rows.map(async ({ person_id, ...r }) => ({ ...r, for_name: people.find((x) => x.id === person_id)?.display_name ?? null, paid_cents: await paidFor(db, r.id) }))));
+  });
+
+  // ---- Family: the household, its juniors, and invites to another parent ----
+  app.get("/my/household", async (c) => {
+    const pid = who(c), hh = await householdOf(db, pid);
+    if (!hh) return c.json({ household: null, role: null });
+    const rows = await db.selectFrom("household_member").innerJoin("person", "person.id", "household_member.person_id")
+      .leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "household_member.person_id").on("rating.sport", "=", "padel"))
+      .select(["person.id", "person.display_name", "person.birth_year", "household_member.role", "rating.level"]).where("household_member.household_id", "=", hh.household_id)
+      .where("household_member.removed_at", "is", null).where("person.status", "=", "active").orderBy("household_member.created_at").execute();
+    const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
+    const invites = hh.role !== "adult" ? [] : await db.selectFrom("household_invite").select(["id", "code", "expires_at"]).where("household_id", "=", hh.household_id).where("status", "=", "open")
+      .where("expires_at", ">", new Date()).orderBy("created_at").execute();
+    const juniors = await Promise.all(rows.filter((r) => r.role === "junior").map(async (r) => ({ id: r.id, display_name: r.display_name, birth_year: r.birth_year,
+      // A junior's level, for their parents (it's never on a list anyone else sees).
+      level: hh.role === "adult" && r.level !== null ? Number(r.level) : null, waiver: hh.role === "adult" ? await waiverStatus(db, r.id) : null })));
+    return c.json({ role: hh.role, household: { adults: rows.filter((r) => r.role === "adult").map((r) => ({ id: r.id, display_name: r.display_name, me: r.id === pid })),
+      members: rows.filter((r) => r.role === "member").map((r) => ({ id: r.id, display_name: r.display_name, me: r.id === pid })),
+      juniors: hh.role === "adult" ? juniors : juniors.map((j) => ({ id: j.id, display_name: j.display_name })),
+      invites: invites.map((x) => ({ ...x, until: localDate(x.expires_at, tz) })) } });
+  });
+  // An invite link, opened: who sent it and the juniors it's for (they shared the link, so that's theirs to show).
+  app.get("/my/household/invites/:code", async (c) => {
+    const pid = who(c), inv = await inviteByCode(db, c.req.param("code"), new Date());
+    if (!inv) throw new KumiError("error.household_invite_closed", {}, 404);
+    const mine = await householdOf(db, pid);
+    return c.json({ from: inv.from, juniors: inv.juniors, open: inv.open, already: mine?.household_id === inv.household_id });
+  });
+  // The club's waiver, and where the member and each of their juniors stand with it.
+  app.get("/my/waiver", async (c) => {
+    const pid = who(c), w = await currentWaiver(db);
+    if (!w) return c.json({ waiver: null, people: [] });
+    const people = await Promise.all((await meAndJuniors(pid)).map(async (p) => ({ id: p.id, display_name: p.display_name, me: p.id === pid, accepted_at: (await waiverStatus(db, p.id))?.accepted_at ?? null })));
+    return c.json({ waiver: { version_no: w.version_no, body: w.body }, people });
   });
 
   // ---- Push notifications on this device ----

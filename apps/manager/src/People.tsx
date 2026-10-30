@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { Key, Lang } from "@kumi/i18n";
 import { api, lang, t, usePreview } from "@kumi/ui";
 
-type Row = { id: string; display_name: string; email: string | null; roles: string[] | null };
+type Row = { id: string; display_name: string; email: string | null; roles: string[] | null; junior?: boolean };
 type Csv = { rows: { display_name: string; email?: string }[]; problems: { line: number; text: string }[]; fatal?: string };
 /** The roles worth showing: "member" only when it's all they are. */
 export const roleNames = (roles: string[] | null) => {
@@ -33,7 +33,7 @@ export function People() {
         <label class="check"><input type="checkbox" checked={staffOnly} onChange={(e) => setStaffOnly(e.currentTarget.checked)} /> {t("ui.staff_only")}</label>
         {rows === null ? <p>{t("ui.loading")}</p> : rows.length === 0 ? <p class="meta">{t("ui.no_people")}</p> : (
           <ul class="plain">{rows.map((r) => (
-            <li class="row"><a href={`/people/${r.id}`}>{r.display_name}</a><span class="meta">{[r.email, roleNames(r.roles)].filter(Boolean).join(" · ")}</span></li>
+            <li class="row"><a href={`/people/${r.id}`}>{r.display_name}</a><span class="meta">{[r.email, r.junior ? t("ui.junior_tag") : roleNames(r.roles)].filter(Boolean).join(" · ")}</span></li>
           ))}</ul>
         )}
       </section>

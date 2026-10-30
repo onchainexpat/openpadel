@@ -8,6 +8,7 @@ import { both, dateTime, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type Read } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { withManagers } from "./households.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate } from "./clock.ts";
 import { dayText } from "./memberships.ts";
@@ -65,7 +66,8 @@ export const levelRequestReview = defineAction({
     if (last && last.getTime() + REVIEW_EVERY_DAYS * 86400_000 > ctx.now.getTime())
       throw new KumiError("error.review_too_soon", { count: REVIEW_EVERY_DAYS, date: dayText(localDate(new Date(last.getTime() + REVIEW_EVERY_DAYS * 86400_000), await clubTz(ctx.db))) });
     const s = await loadRating(ctx.db, i.person_id), note = i.note?.trim();
-    return { title: both("action.level.request_review"), reads: [], ownerIds: [i.person_id], undo: { kind: "none" },
+    // A parent can ask for their junior's level to be looked at.
+    return { title: both("action.level.request_review"), reads: [], ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "none" },
       summary: both("plan.level.request_review", { level: levelText(s), count: REVIEW_EVERY_DAYS, note: note ? both("plan.level.review_note", { note }) : { en: "", es: "" } }) };
   },
   async apply(ctx, i) {

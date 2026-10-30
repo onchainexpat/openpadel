@@ -4,6 +4,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
+import { ForWhom } from "./ForWhom.tsx";
 
 type Coach = { id: string; name: string; bio: string | null; level_min: string | null; level_max: string | null; languages: string[]; rates: Record<string, number>; photo: string | null; max_players: number };
 type Data = { coaches: Coach[]; time_zone: string; split_deadline_hours: number; free_cancel_hours: number; late_refund_percent: number };
@@ -17,7 +18,7 @@ function Face({ c }: { c: Coach }) {
 export function Lessons() {
   const [d, setD] = useState<Data | null>(null), [coach, setCoach] = useState<Coach | null>(null), [minutes, setMinutes] = useState(60), [day, setDay] = useState("");
   const [times, setTimes] = useState<Time[] | null>(null), [daysAhead, setDaysAhead] = useState(14), [pick, setPick] = useState<Time | null>(null);
-  const [players, setPlayers] = useState(1), [pay, setPay] = useState<"whole" | "split">("whole");
+  const [players, setPlayers] = useState(1), [pay, setPay] = useState<"whole" | "split">("whole"), [who, setWho] = useState(me.value!.person.id);
   const [provider, setProvider] = useState("test"), [paying, setPaying] = useState<{ id: string; cents: number } | null>(null), [done, setDone] = useState(false);
   const { preview, sheet } = usePreview((r?: { payment_id?: string; total_cents?: number }) => { if (r?.payment_id) setPaying({ id: r.payment_id, cents: r.total_cents ?? 0 }); });
   useEffect(() => {
@@ -26,7 +27,7 @@ export function Lessons() {
   }, []);
   // The first day the coach can be booked, once one is chosen (the club's today).
   useEffect(() => { if (coach && !day && d) setDay(new Intl.DateTimeFormat("en-CA", { timeZone: d.time_zone }).format(new Date())); }, [coach?.id]);
-  useEffect(() => { if (coach && day) { setPick(null); setTimes(null); api<{ times: Time[]; days_ahead: number }>(`/my/lessons/times?coach_id=${coach.id}&date=${day}&minutes=${minutes}`).then((r) => { setTimes(r.times); setDaysAhead(r.days_ahead); }); } }, [coach?.id, day, minutes]);
+  useEffect(() => { if (coach && day) { setPick(null); setTimes(null); api<{ times: Time[]; days_ahead: number }>(`/my/lessons/times?coach_id=${coach.id}&date=${day}&minutes=${minutes}&for=${who}`).then((r) => { setTimes(r.times); setDaysAhead(r.days_ahead); }); } }, [coach?.id, day, minutes, who]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const zone = d.time_zone;
   const fmt = (iso: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: zone, ...o }).format(new Date(iso));
@@ -58,7 +59,7 @@ export function Lessons() {
   for (let k = 0; k < Math.min(daysAhead, 30); k++) { const x = new Date(`${today}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + k); days.push(x.toISOString().slice(0, 10)); }
   const price = coach.rates[String(minutes)] ?? 0, each = Math.floor(price / Math.max(players, 1)), mine = price - each * (players - 1);
   const canSplit = players > 1 && pick ? new Date(pick.start).getTime() - Date.now() > d.split_deadline_hours * 3600_000 : false;
-  const book = () => preview("lesson.request", { coach_id: coach.id, starts_at: pick!.start, minutes, court_id: pick!.court_ids[0], pay: canSplit ? pay : "whole", players, person_id: me.value!.person.id });
+  const book = () => preview("lesson.request", { coach_id: coach.id, starts_at: pick!.start, minutes, court_id: pick!.court_ids[0], pay: canSplit ? pay : "whole", players, person_id: who });
   return (
     <main>
       {sheet}
@@ -67,6 +68,7 @@ export function Lessons() {
       <p><button class="link" onClick={() => { setCoach(null); setDay(""); setTimes(null); }}>{t("ui.back_to_coaches")}</button></p>
       <section class="card coach-card"><Face c={coach} /><div><h1>{t("ui.lesson_with", { coach: coach.name })}</h1><p class="meta">{rateList(coach)}</p></div></section>
       <section class="card card-form">
+        <ForWhom value={who} onChange={setWho} />
         <div class="chips" role="group" aria-label={t("ui.length")}>{Object.keys(coach.rates).map(Number).sort((a, b) => a - b).map((m) =>
           <button type="button" class={m === minutes ? "chip on" : "chip"} onClick={() => setMinutes(m)}>{t("ui.minutes", { count: m })}</button>)}</div>
         <div class="chips scroll" role="group" aria-label={t("ui.day")}>{days.map((x) => <button type="button" class={x === day ? "chip on" : "chip"} onClick={() => setDay(x)}>{fmt(`${x}T12:00:00Z`, { weekday: "short", day: "numeric", timeZone: "UTC" })}</button>)}</div>

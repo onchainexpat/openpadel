@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, currentPolicy, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
+import { coachEarnings, coachSchedule, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -118,7 +118,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const special = await db.selectFrom("hours_exception").select(["id", "location_id", "on_date", "opens", "closes", "note"]).where("active", "=", true)
       .where("on_date", ">=", today).orderBy("on_date").execute();
     const t5 = (x: string | null) => (x ? x.slice(0, 5) : null);
-    return c.json({ club, policy, plans, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id),
+    const waiver = await currentWaiver(db);
+    return c.json({ club, policy, plans, waiver: waiver ? { version_no: waiver.version_no, body: waiver.body } : null, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id),
       prices: rules.filter((r) => r.location_id === l.id).map((r) => ({ ...r, starts: t5(r.starts), ends: t5(r.ends) })),
       hours: [0, 1, 2, 3, 4, 5, 6].map((w) => { const h = hours.find((x) => x.location_id === l.id && x.weekday === w); return { weekday: w, opens: t5(h?.opens ?? null), closes: t5(h?.closes ?? null) }; }),
       special_days: special.filter((x) => x.location_id === l.id).map((x) => ({ ...x, opens: t5(x.opens), closes: t5(x.closes) })) })) });
@@ -212,7 +213,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const q = `%${(c.req.query("q") ?? "").trim()}%`, role = c.req.query("role"), limit = Math.min(Number(c.req.query("limit") ?? 20) || 20, 200);
     const roles = (eb: any) => eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(sql<string[]>`array_agg(DISTINCT role.key)`.as("r"))
       .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true);
-    return c.json(await db.selectFrom("person").select(["id", "display_name", "email", "created_at"]).select((eb) => roles(eb).as("roles")).where("status", "!=", "archived")
+    return c.json(await db.selectFrom("person").select(["id", "display_name", "email", "junior", "created_at"]).select((eb) => roles(eb).as("roles")).where("status", "!=", "archived")
       .where((eb) => eb.or([eb("display_name", "ilike", q), eb("email", "ilike", q)]))
       .$if(Boolean(role), (qb) => qb.where((eb) => eb.exists(eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id")
         .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true)
@@ -221,7 +222,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   });
   app.get("/staff/people/:id", async (c) => {
     const id = c.req.param("id");
-    const p = await db.selectFrom("person").select(["id", "display_name", "email", "locale", "status", "created_via", "created_at"]).where("id", "=", id).executeTakeFirst();
+    const p = await db.selectFrom("person").select(["id", "display_name", "email", "locale", "status", "created_via", "created_at", "junior", "birth_year"]).where("id", "=", id).executeTakeFirst();
     if (!p) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
     const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").leftJoin("location", "location.id", "person_role.location_id")
       .select(["role.key", "person_role.location_id", "location.name as location_name"]).where("person_role.person_id", "=", id).where("person_role.active", "=", true).orderBy("role.key").execute();
@@ -238,7 +239,13 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("membership.person_id", "=", id).where("membership.status", "in", ["upcoming", "active", "past_due"]).executeTakeFirst();
     const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "join_in_app", "max_members", "starts_on", "sort"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const tz = await clubTz();
-    return c.json({ ...p, roles, places, consent, plans,
+    // Their family (who manages a junior, and the juniors an adult manages), and the waiver.
+    const hh = await householdOf(db, id);
+    const family = hh ? await db.selectFrom("household_member").innerJoin("person", "person.id", "household_member.person_id")
+      .select(["person.id", "person.display_name", "person.birth_year", "household_member.role"]).where("household_member.household_id", "=", hh.household_id)
+      .where("household_member.removed_at", "is", null).where("person.status", "=", "active").where("person.id", "!=", id).orderBy("household_member.created_at").execute() : [];
+    const waiver = await waiverStatus(db, id);
+    return c.json({ ...p, roles, places, consent, plans, family_role: hh?.role ?? null, family, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
       membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null } : null });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.

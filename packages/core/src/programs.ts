@@ -14,6 +14,7 @@ import { afterBookingPayment } from "./booking_pay.ts";
 import { afterMembershipPayment } from "./memberships.ts";
 import { quietUntil } from "./messages.ts";
 import { programPerks, programPrice, priceWords, type ProgramPrice } from "./program_prices.ts";
+import { manages, requireWaiver, withManagers } from "./households.ts";
 
 /** How long a place offered from the waitlist is held. With texts it would be 2 hours; while email is
  *  the only way to reach people, it's doubled (messages.md). */
@@ -243,14 +244,17 @@ export const enrolmentJoin = defineAction({
     const person = await personName(ctx.db, i.person_id);
     const existing = await ctx.db.selectFrom("enrolment").select("id").where("program_id", "=", i.program_id).where("person_id", "=", i.person_id).where("status", "in", ["booked", "waitlisted"]).executeTakeFirst();
     if (existing) throw new KumiError("error.already_signed_up", { person });
+    await requireWaiver(ctx, i.person_id);
+    // A junior's parents sign them up: their rows are the parents' too.
+    const owners = await withManagers(ctx.db, [i.person_id]);
     const full = (await takenCount(ctx.db, i.program_id, ctx.now)) >= p.capacity;
     // Their own price: a member price, or an included session (only for a real place, not the waitlist).
     const price = await programPrice(ctx.db, i.program_id, i.person_id, ctx.now, { included: !full });
     if (full) {
       const pos = Number((await ctx.db.selectFrom("enrolment").select((eb) => eb.fn.max("waitlist_position").as("m")).where("program_id", "=", i.program_id).where("status", "=", "waitlisted").executeTakeFirst())?.m ?? 0) + 1;
-      return { title: both("action.enrolment.join"), summary: both("plan.enrolment.waitlist", { person, name: p.name, position: pos }), reads: [read], locationId: p.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" }, details: { status: "waitlisted", position: pos, price } };
+      return { title: both("action.enrolment.join"), summary: both("plan.enrolment.waitlist", { person, name: p.name, position: pos }), reads: [read], locationId: p.location_id, ownerIds: owners, undo: { kind: "compensating" }, details: { status: "waitlisted", position: pos, price } };
     }
-    return { title: both("action.enrolment.join"), summary: both("plan.enrolment.join", { person, name: p.name, price: priceWords(price) }), reads: [read], locationId: p.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" }, moneyCents: price.cents, details: { status: "booked", price } };
+    return { title: both("action.enrolment.join"), summary: both("plan.enrolment.join", { person, name: p.name, price: priceWords(price) }), reads: [read], locationId: p.location_id, ownerIds: owners, undo: { kind: "compensating" }, moneyCents: price.cents, details: { status: "booked", price } };
   },
   async apply(ctx, i, plan) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();   // one join at a time per program
@@ -321,7 +325,7 @@ export const enrolmentLeave = defineAction({
   async plan(ctx, i) {
     const g = await goingPlan(ctx, i.enrolment_id, "late_cancel");
     return { title: both("action.enrolment.leave"), summary: join2(both("plan.enrolment.leave", { person: g.person, name: g.p.name, refund: g.refund.text }), g.offer), reads: [g.read],
-      locationId: g.p.location_id, ownerIds: [g.e.person_id], moneyCents: g.refund.cents, undo: g.refund.cents > 0 ? { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } : { kind: "compensating" }, details: { refund: g.refund, back: g.back } };
+      locationId: g.p.location_id, ownerIds: await withManagers(ctx.db, [g.e.person_id]), moneyCents: g.refund.cents, undo: g.refund.cents > 0 ? { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } : { kind: "compensating" }, details: { refund: g.refund, back: g.back } };
   },
   async apply(ctx, i, plan) {
     const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).executeTakeFirstOrThrow();
@@ -371,7 +375,7 @@ export const enrolmentTransfer = defineAction({
     // The sub pays their own price, as if they signed up: a member price, or one of their included sessions.
     const price = i.pay === "gift" ? null : await programPrice(ctx.db, e.program_id, i.to_person_id, ctx.now);
     const money = !price ? both("transfer.gift", { sub, person }) : both(price.cents > 0 ? "transfer.sub_pays" : "transfer.sub_free", { sub, person, price: priceWords(price) });
-    return { title: both("action.enrolment.transfer"), summary: both("plan.enrolment.transfer", { person, name: p.name, sub, money }), reads: [read], locationId: p.location_id, ownerIds: [e.person_id],
+    return { title: both("action.enrolment.transfer"), summary: both("plan.enrolment.transfer", { person, name: p.name, sub, money }), reads: [read], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [e.person_id]),
       undo: { kind: "compensating" }, details: { price } };
   },
   async apply(ctx, i, plan) {
@@ -427,11 +431,12 @@ export const enrolmentAcceptOffer = defineAction({
     const offer = await ctx.db.selectFrom("waitlist_offer").selectAll().where("enrolment_id", "=", i.enrolment_id).where("outcome", "is", null).where("expires_at", ">", ctx.now).executeTakeFirst();
     if (e.status !== "waitlisted" || !offer) throw new KumiError("error.no_offer");
     const { row: p } = await readRow(ctx.db, "program", e.program_id, "thing.program");
+    await requireWaiver(ctx, e.person_id);
     // Kept at the price it was put on the waitlist at, unless an included session is free now.
     const now = await programPrice(ctx.db, e.program_id, e.person_id, ctx.now);
     const price: ProgramPrice = now.basis === "included" ? now : { cents: e.price_cents, full: p.price_cents, basis: e.price_basis, included: null };
     return { title: both("action.enrolment.accept_offer"), summary: both("plan.enrolment.accept_offer", { person: await personName(ctx.db, e.person_id), name: p.name, price: priceWords(price) }),
-      reads: [read, { entity: "waitlist_offer", id: offer.id, version: offer.version }], locationId: p.location_id, ownerIds: [e.person_id], moneyCents: price.cents, undo: { kind: "compensating" }, details: { offer_id: offer.id, price } };
+      reads: [read, { entity: "waitlist_offer", id: offer.id, version: offer.version }], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [e.person_id]), moneyCents: price.cents, undo: { kind: "compensating" }, details: { offer_id: offer.id, price } };
   },
   async apply(ctx, i, plan) {
     const planned = (plan.details as { offer_id: string; price: ProgramPrice }).price;
@@ -536,7 +541,8 @@ export async function openPayment(db: Db, paymentId: string, personId: string): 
     .leftJoin("membership_plan", (j) => j.on(sql<boolean>`membership_plan.id = coalesce(payment.membership_plan_id, membership.plan_id)`))
     .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider_ref", "payment.provider_account", "payment.save_card", "payment.group_id", "program.name as what", "booking.code",
       "booking.status as booking_status", "membership_plan.name as plan", "membership.status as membership_status"]).where("payment.id", "=", paymentId).executeTakeFirst();
-  if (!pay || pay.person_id !== personId) throw new KumiError("error.not_found", { thing: both("thing.payment") }, 404);
+  // A parent pays for their junior's places (the payment stays the junior's, as the place is).
+  if (!pay || (pay.person_id !== personId && !(await manages(db, personId, pay.person_id)))) throw new KumiError("error.not_found", { thing: both("thing.payment") }, 404);
   if (pay.status !== "pending") throw new KumiError("error.not_pending", {}, 409);
   if (pay.booking_status === "cancelled") throw new KumiError("error.booking_cancelled", {}, 409);
   if (pay.membership_status === "ended") throw new KumiError("error.membership_ended", {}, 409);
@@ -554,11 +560,12 @@ export async function openPayment(db: Db, paymentId: string, personId: string): 
     await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: it.ref, ...(it.account ? { provider_account: it.account } : {}) }, "payments");
     return { clientSecret: it.clientSecret, provider: pv.name, account: it.account };
   }
-  // "Pay my part" and memberships: the card is saved for a later charge (the deadline, the renewal), under a customer for them.
+  // "Pay my part" and memberships: the card is saved for a later charge (the deadline, the renewal), under a
+  // customer for whoever pays (a parent paying for their junior: the parent, whose card it is).
   let customer: string | undefined;
   if (pay.save_card) {
-    const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", pay.person_id).executeTakeFirstOrThrow();
-    customer = (await pv.ensureCustomer({ key: pay.person_id, email: person.email, name: person.display_name })).id;
+    const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", personId).executeTakeFirstOrThrow();
+    customer = (await pv.ensureCustomer({ key: personId, email: person.email, name: person.display_name })).id;
   }
   const it = await pv.createIntent({ amountCents: pay.amount_cents, currency, description: pay.what ?? (pay.code ? `Court booking ${pay.code}` : pay.plan ? `${pay.plan} membership` : "Kumi"), idempotencyKey: pay.id,
     metadata: { kumi_payment_id: pay.id }, customer, saveCard: pay.save_card });

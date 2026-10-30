@@ -152,6 +152,20 @@ levels after it, and can't be booked for a lesson then. Reports shows lesson rev
 and each coach's lessons (paid, less refunds) and the dates they ran, with a CSV for payroll. A coach
 sees their own; owners, managers and the accountant see everyone's.
 
+### Step 5g: the waiver, and families with juniors (optional)
+
+If the club asks players to accept a waiver, paste its text into Settings, Waiver. Every adult is
+asked to accept it in the app before their first booking or sign-up, and a parent accepts it for each
+of their juniors; changing the text later makes a new version, and everyone is asked again. Who
+accepted which version, and when, shows on each person's page. Staff booking at the desk aren't
+stopped by it, so check the person's page for walk-ins. With no text, nobody is asked.
+
+Families need nothing set up. A parent adds their children under Family in the app (a name and a
+birth year only: juniors have no login) and invites the other parent with a link. Then either parent
+signs a child up for clinics, books their lessons and pays, and both get the child's messages. Front
+desk can add a junior from the parent's page in the staff app. A junior can't book courts or join open
+matches. From the year they turn 18, a parent or staff give them their own login with an email address.
+
 ### Notifications
 
 Nothing to set up. Each member turns notifications on for their own phone in Profile, and from then

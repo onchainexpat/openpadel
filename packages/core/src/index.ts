@@ -13,6 +13,7 @@ export * from "./memberships.ts";
 export * from "./program_prices.ts";
 export * from "./match_rules.ts";
 export * from "./friends.ts";
+export * from "./households.ts";
 export * from "./open_matches.ts";
 export * from "./match_subs.ts";
 export * from "./results.ts";

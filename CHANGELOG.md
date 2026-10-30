@@ -91,6 +91,22 @@ The first version a club can run on its own (court bookings included), or for it
 - Choosing a refund other than the club's rule when cancelling a booking is for staff only (a member
   could ask for a full refund on a late cancellation before).
 
+**Families, juniors and the waiver**
+- A parent adds their children under Family in the app: a name and a birth year, nothing more, and no
+  login of their own (anyone under 18). Kumi never collects anything from a child directly. The parent
+  signs them up for clinics and programs, books their lessons, pays, and gets their messages, each
+  marked with the child's name. A junior doesn't book courts or play in open matches, and never shows
+  on the public page, among friends or in anyone else's lists; their level is for their parents, their
+  coaches and staff.
+- Another parent joins the family from an invite link (it works for 7 days); then both manage the same
+  juniors and both get their messages, each in their own language. A parent can't leave the juniors
+  with nobody. From the year a junior turns 18, a parent (or staff) gives them their own login by
+  adding an email; they stay in the family but don't manage its juniors.
+- The waiver: the club writes it in Settings, and each change is a new version. An adult accepts it
+  before their first booking or sign-up, and a parent accepts it for each junior; a new version asks
+  again. Who accepted, for whom, which version and when are kept, and staff see it on the person's
+  page. With no waiver set, nobody is asked. Staff booking at the desk aren't stopped by it.
+
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.
 - Members join in the app and pay by card; Kumi renews from that card each period at the price they

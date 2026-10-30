@@ -52,8 +52,9 @@ export async function friendsOf(db: Db | Trx, personId: string, now = new Date()
     .select(["person.id", "person.display_name"]).execute() as Named[];
   const mineIds = new Set(mine.map((p) => p.id)), theirIds = new Set(theirs.map((p) => p.id));
   const since = new Date(now.getTime() - PLAYED_WITH_DAYS * 86400_000);
+  // Never a junior: they have no login, and their names stay with their family and the club.
   const played = await db.selectFrom(coPlayerIds(db, personId, since).as("c")).innerJoin("person", "person.id", "c.id").select(["person.id", "person.display_name"]).distinct()
-    .where("person.status", "=", "active").where("person.redacted_at", "is", null).execute();
+    .where("person.status", "=", "active").where("person.redacted_at", "is", null).where("person.junior", "=", false).execute();
   const byName = (a: Named, b: Named) => a.display_name.localeCompare(b.display_name);
   return {
     friends: mine.filter((p) => theirIds.has(p.id)).sort(byName),
@@ -72,13 +73,13 @@ export async function findFriends(db: Db | Trx, personId: string, q: string) {
 
 /** The person behind a friend link, if it's someone who can be added. */
 export async function personByFriendCode(db: Db | Trx, code: string) {
-  return (await db.selectFrom("person").select(["id", "display_name"]).where("friend_code", "=", code).where("status", "=", "active").where("redacted_at", "is", null).executeTakeFirst()) ?? null;
+  return (await db.selectFrom("person").select(["id", "display_name"]).where("friend_code", "=", code).where("status", "=", "active").where("redacted_at", "is", null).where("junior", "=", false).executeTakeFirst()) ?? null;
 }
 
 async function planAdd(ctx: PlanCtx, personId: string, friendId: string, byLink: boolean) {
   if (personId === friendId) throw new KumiError("error.friend_self");
   const { row } = await readRow(ctx.db, "person", friendId, "thing.person");
-  if (row.status !== "active" || row.redacted_at) throw new KumiError("error.not_found", { thing: both("thing.person") }, 404);
+  if (row.status !== "active" || row.redacted_at || row.junior) throw new KumiError("error.not_found", { thing: both("thing.person") }, 404);
   const name = row.display_name as string;
   if ((await added(ctx.db, personId, friendId))?.removed_at === null) throw new KumiError("error.friend_already", { name });
   const back = (await added(ctx.db, friendId, personId))?.removed_at === null;

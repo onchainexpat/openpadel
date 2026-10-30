@@ -69,3 +69,6 @@ label.inline-number input { flex: none; width: 5.5em; margin: 0; }
 /* A coach's face (or initials) beside their name. */
 .coach-card { display: flex; gap: 12px; align-items: flex-start; }
 .face { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--line); color: var(--muted); font-weight: 600; }
+.note.banner { margin: 0 0 12px; }
+.waiver { max-height: 50vh; overflow-y: auto; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; margin: 8px 0 12px; white-space: pre-line; }
+.chips .meta { align-self: center; }

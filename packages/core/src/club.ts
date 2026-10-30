@@ -3,6 +3,7 @@ import * as z from "zod/mini";
 import { both, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { KumiError } from "./errors.ts";
+import { withManagers } from "./households.ts";
 import { uuidv7 } from "./ids.ts";
 
 const isTimeZone = (v: string) => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } };
@@ -185,6 +186,7 @@ export const roleAssign = defineAction({
   input: z.object({ person_id: z.uuid(), role: roleKey, location_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row: person, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
+    if (person.junior) throw new KumiError("error.not_an_adult");   // a junior has no login, so no role
     await roleId(ctx, i.role);
     return { title: both("action.role.assign"), summary: both("plan.role.assign", { person: person.display_name, role: roleText(i.role), where: await whereText(ctx, i.location_id) }), reads: [read], locationId: i.location_id ?? null, undo: { kind: "reversible" } };
   },
@@ -224,7 +226,7 @@ export const personUpdateProfile = defineAction({
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const { person_id, ...rest } = i;
-    return { title: both("action.person.update_profile"), summary: both("plan.person.update_profile", { fields: fieldList(changed(row, rest)) }), reads: [read], ownerIds: [person_id], undo: { kind: "reversible" } };
+    return { title: both("action.person.update_profile"), summary: both("plan.person.update_profile", { fields: fieldList(changed(row, rest)) }), reads: [read], ownerIds: await withManagers(ctx.db, [person_id]), undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const { person_id, ...rest } = i;

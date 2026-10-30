@@ -2,7 +2,7 @@
 // through can arrive three ways (the app checking, Stripe's webhook, the minute job). Each one asks the
 // provider rather than trusting the message, so the order and repeats don't matter.
 import { Hono, type Context } from "hono";
-import { checkCardSetup, checkPayment, connectStripe, KumiError, openCardSetup, openPayment, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
+import { checkCardSetup, checkPayment, connectStripe, KumiError, manages, openCardSetup, openPayment, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
 
 type Me = { id: string } | null;
 export interface StripeConfig { publishableKey?: string; webhookSecret?: string }
@@ -15,7 +15,8 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
   const who = (c: Context<any>) => { const m = me(c); if (!m) throw new KumiError("error.signed_out", {}, 401); return m.id; };
   const mine = async (c: Context<any>) => {
     const pay = await db.selectFrom("payment").select(["id", "person_id"]).where("id", "=", c.req.param("id")!).executeTakeFirst();
-    if (!pay || pay.person_id !== who(c)) throw new KumiError("error.not_found", { thing: { en: "payment", es: "el pago" } }, 404);
+    // Their own, or one for a junior they manage.
+    if (!pay || (pay.person_id !== who(c) && !(await manages(db, who(c), pay.person_id)))) throw new KumiError("error.not_found", { thing: { en: "payment", es: "el pago" } }, 404);
     return pay.id;
   };
 

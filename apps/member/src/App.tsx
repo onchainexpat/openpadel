@@ -10,8 +10,12 @@ import { Membership } from "./Membership.tsx";
 import { MatchPage, Play } from "./Play.tsx";
 import { FriendLink, Friends } from "./Friends.tsx";
 import { TakePlace } from "./Take.tsx";
+import { loadFamily, waiverDue } from "./ForWhom.tsx";
 // Pages few members open, loaded when they do.
 const Lessons = lazy(() => import("./Lessons.tsx").then((m) => m.Lessons));
+const Family = lazy(() => import("./Family.tsx").then((m) => m.Family));
+const FamilyJoin = lazy(() => import("./Family.tsx").then((m) => m.FamilyJoin));
+const Waiver = lazy(() => import("./Family.tsx").then((m) => m.Waiver));
 
 export function App() {
   useEffect(() => {
@@ -22,6 +26,7 @@ export function App() {
   useEffect(() => {
     if (!me.value) return;
     void loadUnread();
+    void loadFamily();
     const id = setInterval(loadUnread, 60_000);
     return () => clearInterval(id);
   }, [Boolean(me.value)]);
@@ -32,8 +37,9 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav><a href="/">{t("ui.nav_whats_on")}</a>{club.value?.court_bookings && <><a href="/play">{t("ui.nav_play")}</a><a href="/book">{t("ui.nav_book")}</a></>}{club.value?.lessons && <a href="/lessons">{t("ui.nav_lessons")}</a>}<a href="/places">{t("ui.nav_my")}</a>{club.value?.memberships && <a href="/membership">{t("ui.nav_membership")}</a>}<a href="/level">{t("ui.nav_level")}</a><InboxLink /><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav><a href="/">{t("ui.nav_whats_on")}</a>{club.value?.court_bookings && <><a href="/play">{t("ui.nav_play")}</a><a href="/book">{t("ui.nav_book")}</a></>}{club.value?.lessons && <a href="/lessons">{t("ui.nav_lessons")}</a>}<a href="/places">{t("ui.nav_my")}</a>{club.value?.memberships && <a href="/membership">{t("ui.nav_membership")}</a>}<a href="/level">{t("ui.nav_level")}</a><a href="/family">{t("ui.nav_family")}</a><InboxLink /><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
+      {waiverDue.value && <p class="note banner" role="status">{t("ui.waiver_banner")} <a href="/waiver">{t("ui.waiver_read")}</a></p>}
       <Router>
         <Route path="/" component={WhatsOn} />
         <Route path="/places" component={MyPlaces} />
@@ -48,6 +54,9 @@ export function App() {
         <Route path="/friend/:code" component={FriendLink} />
         <Route path="/take/:code" component={TakePlace} />
         <Route path="/lessons" component={Lessons} />
+        <Route path="/family" component={Family} />
+        <Route path="/family/join/:code" component={FamilyJoin} />
+        <Route path="/waiver" component={Waiver} />
         <Route path="/profile" component={Profile} />
       </Router>
     </LocationProvider>
