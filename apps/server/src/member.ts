@@ -21,7 +21,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
           .whereRef("enrolment.program_id", "=", "program.id").where("enrolment.person_id", "=", pid).where("enrolment.status", "=", "waitlisted").where("waitlist_offer.outcome", "is", null).where("waitlist_offer.expires_at", ">", new Date()).limit(1).as("my_offer_until"),
       ]).where("status", "=", "published").where("visibility", "in", ["public", "members"]).execute();
     return c.json(rows.filter((r) => !r.first_start || new Date(r.first_start as any) > new Date()).map((r) => ({ ...r, booked: Number(r.booked ?? 0), offered: Number(r.offered ?? 0) }))
-      .sort((a, b) => String(a.first_start).localeCompare(String(b.first_start))));
+      // Soonest first, by the actual time (not the date's text, which starts with the weekday); undated ones last.
+      .sort((a, b) => (a.first_start ? new Date(a.first_start as any).getTime() : Infinity) - (b.first_start ? new Date(b.first_start as any).getTime() : Infinity)));
   });
 
   // The in-app inbox: every message Kumi sent this person, newest first. Reading it marks it read
