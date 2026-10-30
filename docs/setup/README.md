@@ -182,6 +182,35 @@ own, and a monthly limit ($100 to start). Anything else comes to the parents to 
 Nothing to set up for the club; if the club uses Stripe, the webhook's `setup_intent.succeeded` event
 (already needed for founding offers) also records family cards.
 
+### Members' data: a copy, and deleting an account
+
+Nothing to set up. Each member has a "Your data" box in Profile: one button downloads a JSON file of
+everything the club's Kumi holds about them and the juniors they manage (other people appear only by
+the names they already see in the app), and the other deletes their account. The owner can do the same
+from a member's page in the staff app when the member asks by email or at the desk; a manager's request
+waits for the owner. The member is told when the club downloads their data, and the club hears of
+every download and deletion.
+
+Deleting waits until nothing is still running: bookings and places to come, a membership that would
+charge again (or covers others), money owed, a kid's request. The member sees the list and how to clear
+each. Then:
+
+- **Removed:** their name (it becomes "Former member"), email, phone, sign-in addresses, passkeys,
+  sessions, phones with notifications, agent access, friends, family links, the family card they saved,
+  the kid rules for them, their notes, and the words of messages sent to them. Their name, email and
+  phone are also taken out of the history: Changes, the events behind messages, other people's messages
+  about something they were in, and other players' level reasons ("Won 6-3 with ..."). A junior only
+  they manage is deleted the same way; a junior with another parent stays with that parent.
+- **Kept:** payments, refunds and the ledger (the club's books need them), game results and levels
+  (other players' levels are built on them), waiver acceptances and consent answers (the club's record
+  of what was agreed), and the rows themselves, under "Former member". A membership that wouldn't
+  charge again ends then, with nothing back for the rest of it.
+- **Elsewhere:** Kumi can't reach copies outside it. Stripe keeps its own payment records, emails
+  already delivered stay in inboxes, and backups keep the old data until they age out (the one-server
+  install keeps nightly backups for 14 days). Say so if a member asks.
+
+The same address can join again later as a new member, with nothing of the old account.
+
 ### Notifications
 
 Nothing to set up. Each member turns notifications on for their own phone in Profile, and from then

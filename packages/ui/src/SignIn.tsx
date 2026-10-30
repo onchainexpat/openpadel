@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { startAuthentication } from "@simplewebauthn/browser";
 import type { Lang } from "@kumi/i18n";
-import { api, ApiError, club, lang, loadMe, t } from "./state.ts";
+import { api, ApiError, club, farewell, lang, loadMe, t } from "./state.ts";
 
 export function SignIn() {
   const [email, setEmail] = useState(""), [code, setCode] = useState(""), [sent, setSent] = useState(false);
@@ -44,6 +44,7 @@ export function SignIn() {
   return (
     <main class="card" key="sign-in">
       <h1>{t("ui.sign_in_title", { club: clubName })}</h1>
+      {farewell.value && <p class="note" role="status">{t("ui.account_deleted")}</p>}
       {club.value?.public_page && <p class="meta"><a href="/public">{t("ui.about_the_club")}</a></p>}
       {!sent ? (
         <form onSubmit={send}>

@@ -508,6 +508,24 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const params = { court: p.court_name ?? "", when: when(new Date(p.start), tz), type: p.type.toLowerCase().replace(/_/g, " ") };
     return (await managers(db)).map((to) => ({ to, kind: "mirror_conflict", params, purpose: "staff" as const, essential: false, email: true, link: "/playtomic" }));
   },
+  // A copy of someone's data left Kumi: they hear of it (if it wasn't them, they can say so), and so does the
+  // club when they took it themselves (permissions.md rule 6: these always reach a person).
+  async "privacy.exported"({ db, tz }, p: { person_id: string; by: string | null; self: boolean; at: string }) {
+    const params = { when: when(new Date(p.at), tz) };
+    const drafts: Draft[] = [{ to: p.person_id, kind: p.self ? "privacy_exported" : "privacy_exported_by_club", params, purpose: "account", essential: true, email: true, link: "/profile" }];
+    if (p.self) {
+      const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirst())?.display_name ?? "";
+      for (const to of await managers(db)) if (to !== p.person_id) drafts.push({ to, kind: "privacy_exported_staff", params: { ...params, name }, purpose: "staff", essential: false, email: false, link: `/people/${p.person_id}` });
+    }
+    return drafts;
+  },
+  // An account deleted: the club hears, without a name (it's gone), and who did it.
+  async "privacy.erased"({ db, tz }, p: { self: boolean; by: string | null; juniors: number; at: string }) {
+    const by = p.by ? (await db.selectFrom("person").select("display_name").where("id", "=", p.by).executeTakeFirst())?.display_name ?? "" : "";
+    const params = { when: when(new Date(p.at), tz), how: p.self ? both("msg.privacy_erased_self") : both("msg.privacy_erased_by", { by }),
+      juniors: p.juniors ? both("msg.privacy_erased_juniors", { count: p.juniors }) : NOTHING };
+    return (await managers(db)).filter((to) => to !== p.by).map((to) => ({ to, kind: "privacy_erased_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/people" }));
+  },
 };
 
 /** A junior has no login: what's said to them goes to each adult who manages them, in that adult's language,

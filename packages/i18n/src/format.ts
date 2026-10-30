@@ -28,16 +28,22 @@ export function pickLang(v: string | null | undefined, fallback: Lang = "en"): L
   return fallback;
 }
 
+/** The name an erased account keeps (one stored string), and how each language says it. A sentence that
+ *  names them gets the reader's word, wherever the name came from. */
+export const FORMER_MEMBER = "Former member";
+export const formerMember: Text = { en: FORMER_MEMBER, es: "Exmiembro" };
+export const sayFormer = (s: string, lang: Lang) => lang === "en" || !s.includes(FORMER_MEMBER) ? s : s.replaceAll(FORMER_MEMBER, formerMember[lang]);
+
 /** One message from a catalog. A key the catalog doesn't have comes back as the key itself, so a gap shows. */
 export function format(catalog: Catalog, lang: Lang, key: Key, params: Params = {}): string {
   const m = catalog[key];
   if (m === undefined) return key;
   const raw = typeof m === "string" ? m : (m[plurals[lang].select(Number(params.count ?? 0)) as keyof Plural] ?? m.other);
-  return raw.replace(/\{(\w+)\}/g, (_, k: string) => {
+  return sayFormer(raw.replace(/\{(\w+)\}/g, (_, k: string) => {
     const v = params[k];
     if (v === undefined) return `{${k}}`;
     return typeof v === "object" ? v[lang] : String(v);
-  }).replace(/([ap]\.\s?m\.)\./g, "$1");   // a sentence ending on a Spanish time ("9:00 a.m.") keeps one full stop
+  }).replace(/([ap]\.\s?m\.)\./g, "$1"), lang);   // a sentence ending on a Spanish time ("9:00 a.m.") keeps one full stop
 }
 
 export function money(cents: number, lang: Lang, currency = "USD"): string {

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "preact/hooks";
 import { startRegistration } from "@simplewebauthn/browser";
 import type { Key, Lang } from "@kumi/i18n";
-import { api, ApiError, club, loadMe, me, t } from "./state.ts";
+import { api, ApiError, club, farewell, loadMe, me, t } from "./state.ts";
+import { AccountData } from "./AccountData.tsx";
 
 /** Notifications on this device: the browser's own permission, then a subscription the club's server pushes
  *  to. `app` says which app's messages it gets (staff alerts in the staff app, the rest in the members'). */
@@ -88,6 +89,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
         <h2>{t("ui.passkeys")}</h2>
         <button onClick={addPasskey}>{t("ui.add_passkey")}</button>
       </section>
+      <AccountData personId={m.person.id} self kid={Boolean(m.kid)} onDeleted={() => { farewell.value = true; me.value = null; }} />
       {note && <p class="note" role="status">{note}</p>}
       {error && <p class="error" role="alert">{error}</p>}
     </main>

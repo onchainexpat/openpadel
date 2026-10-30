@@ -13,6 +13,7 @@ label { display: block; margin: 0 0 12px; font-weight: 600; }
 input, select, textarea { display: block; width: 100%; font: inherit; padding: 10px; margin-top: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
 button { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--brand); background: transparent; color: var(--brand); cursor: pointer; }
 button.primary { background: var(--brand); color: #fff; }
+button.danger { border-color: var(--error); color: var(--error); } .sheet button.danger { background: var(--error); color: #fff; }
 button.link { border: 0; padding: 0; text-decoration: underline; }
 button.small { padding: 4px 10px; font-size: 14px; margin-top: 8px; }
 button:disabled { opacity: .6; }

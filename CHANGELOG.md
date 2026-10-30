@@ -167,6 +167,17 @@ The first version a club can run on its own (court bookings included), or for it
   import a spreadsheet. Staff roles by location.
 - Messages: an in-app inbox and email for offers, confirmations, removals, refunds and staff alerts,
   with quiet hours and consent checked at the send.
+- Your data: a member downloads a copy of everything Kumi holds about them (and the juniors they
+  manage) as one JSON file from Profile, or deletes their account. Anything still running (bookings or
+  places to come, a membership that would charge again, money owed, a kid's request) is listed with how
+  to clear it, and deleting waits until it's cleared. Deleting removes their name, contact details,
+  sign-ins, devices, friends and family links, here and in the history (Changes, events, other people's
+  messages and level reasons), and keeps payments, refunds and game results under "Former member"
+  ("Exmiembro" in Spanish), so the books and other players' levels still add up. Juniors only they
+  manage go with them. The owner can do either for a member who asks (a manager asks the owner), and
+  the club is told each time.
+- Staff start on the page their role uses: owners and managers on Changes, coaches on their schedule,
+  front desk on Courts, the accountant on Reports.
 
 **The public page**
 - Once switched on: the club's locations, hours, courts, prices, memberships and upcoming public
@@ -184,7 +195,7 @@ The first version a club can run on its own (court bookings included), or for it
 - One-server install script or Docker Compose, HTTPS, nightly backups, tested restore.
 - English and US Spanish throughout. Security: rate limits, no cross-site changes, strict headers.
 - Light apps: each app downloads only its own wording, in the person's language, and set-up pages load
-  when opened. The members' app needs about 112 kB of JavaScript before its first screen (under its
-  200 kB budget, which the build now checks); the staff app about 127 kB.
+  when opened. The members' app needs about 115 kB of JavaScript before its first screen (under its
+  200 kB budget, which the build now checks); the staff app about 130 kB.
 
 **When updating:** nothing; this is the first release.

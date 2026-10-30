@@ -1,12 +1,13 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat } from "@kumi/core";
+import { lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
-export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { production: boolean }) {
+export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { production: boolean; now?: () => Date }) {
   const app = new Hono();
+  const now = opts.now ?? (() => new Date());
   const who = (c: Context<any>) => { const m = me(c); if (!m) throw new KumiError("error.signed_out", {}, 401); return m.id; };
   /** Whom a page is for: the member, or (?for=) one of the juniors they manage. */
   const forWhom = async (c: Context<any>) => {
@@ -365,6 +366,24 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   });
 
   // ---- Push notifications on this device ----
+  // ---- Your data: what stops an account being deleted, and the file a confirmed download gets ----
+  app.get("/my/privacy/check", async (c) => {
+    const pid = who(c), target = c.req.query("person_id") || pid, at = now(), l = lang(c);
+    if (!(await mayCheck(db, pid, target, at))) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
+    const r = await deleteCheck(db, target, at);
+    return c.json({ blockers: r.blockers.map((b) => ({ kind: b.kind, text: b.text[l], how: b.how[l] })), juniors: r.juniors.map((j) => j.display_name), ends: r.ends.map((e) => e[l]) });
+  });
+  // Made when it's fetched, from the export the person just confirmed: never stored, and never in Changes.
+  app.get("/my/privacy/export/:run", async (c) => {
+    const pid = who(c), at = now();
+    const target = await exportRun(db, c.req.param("run"), pid, at);
+    const data = await exportData(db, target, at, lang(c));
+    c.header("content-type", "application/json; charset=utf-8");
+    c.header("content-disposition", `attachment; filename="kumi-data-${at.toISOString().slice(0, 10)}.json"`);
+    c.header("cache-control", "no-store");
+    return c.body(JSON.stringify(data, null, 2));
+  });
+
   app.get("/my/push/key", async (c) => { who(c); return c.json({ public_key: (await pushKeys(db)).publicKey }); });
   const b64u = /^[A-Za-z0-9_-]+={0,2}$/;
   app.post("/my/push", async (c) => {

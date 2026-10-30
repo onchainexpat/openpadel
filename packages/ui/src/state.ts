@@ -8,6 +8,8 @@ export type Me = { person: { id: string; display_name: string; locale: string };
 export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
+/** The account was just deleted: the sign-in page says so. */
+export const farewell = signal(false);
 export const club = signal<Club | null>(null);
 export const lang = signal<Lang>(pickLang(navigator.language));
 

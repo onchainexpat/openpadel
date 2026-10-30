@@ -227,7 +227,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   });
   app.get("/staff/people/:id", async (c) => {
     const id = c.req.param("id");
-    const p = await db.selectFrom("person").select(["id", "display_name", "email", "locale", "status", "created_via", "created_at", "junior", "birth_year"]).where("id", "=", id).executeTakeFirst();
+    const p = await db.selectFrom("person").select(["id", "display_name", "email", "locale", "status", "created_via", "created_at", "junior", "birth_year", "redacted_at"]).where("id", "=", id).executeTakeFirst();
     if (!p) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
     const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").leftJoin("location", "location.id", "person_role.location_id")
       .select(["role.key", "person_role.location_id", "location.name as location_name"]).where("person_role.person_id", "=", id).where("person_role.active", "=", true).orderBy("role.key").execute();

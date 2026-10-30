@@ -1,7 +1,8 @@
 // One person: who they are, their roles (given and taken away here), their sign-ups and their email answer.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { useLocation } from "preact-iso";
+import { AccountData, api, lang, me, t, usePreview } from "@kumi/ui";
 import { GiveMembership, MembershipButtons, membershipLine, type Plan } from "./Memberships.tsx";
 
 type Role = { key: string; location_id: string | null; location_name: string | null };
@@ -16,12 +17,14 @@ type P = {
   waiver: { version_no: number; accepted_on: string | null; accepted_by: string | null } | null;
   kid: { email: string | null; rules: string; spent_cents: number } | null;
   covered_by: { membership_id: string; payer_id: string; payer: string; plan: string } | null; also_covers: string[];
+  redacted_at: string | null;
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;
 
 export function Person({ id }: { id: string }) {
   const [p, setP] = useState<P | null>(null), [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [role, setRole] = useState<string>("front_desk"), [where, setWhere] = useState(""), [jName, setJName] = useState(""), [jYear, setJYear] = useState("");
+  const { route } = useLocation();
   const load = () => api<P>(`/staff/people/${id}`).then(setP);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); api<{ id: string; name: string }[]>("/staff/locations").then(setLocations); }, [id]);
@@ -30,6 +33,10 @@ export function Person({ id }: { id: string }) {
   const date = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
   const news = p.consent.find((c) => c.channel === "email" && c.purpose === "club_news");
   const staffRoles = p.roles.filter((r) => r.key !== "member");
+  // A deleted account: nothing left to show or change.
+  if (p.redacted_at) return <main><h1>{p.display_name}</h1><section class="card"><p>{t("ui.data_deleted_for")}</p></section></main>;
+  // Owners (and managers, asking the owner) copy or delete someone's data when they ask.
+  const privacy = (me.value?.roles ?? []).some((r) => r.key === "owner" || r.key === "manager");
   return (
     <main>
       <h1>{p.display_name}</h1>
@@ -93,6 +100,7 @@ export function Person({ id }: { id: string }) {
           ))}</ul>
         )}
       </section>
+      {privacy && <AccountData personId={p.id} self={p.id === me.value?.person.id} onDeleted={() => route("/people")} />}
       {sheet}
     </main>
   );

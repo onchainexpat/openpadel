@@ -10,7 +10,7 @@ import { manifestRoutes } from "./manifest.ts";
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
-import { pickLang, isLang, type Lang } from "@kumi/i18n";
+import { pickLang, isLang, formerMember, FORMER_MEMBER, type Lang } from "@kumi/i18n";
 import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, type Actor, type Db } from "@kumi/core";
 import { completeSignUp, sessionPerson, signOut, startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } from "./oauth.ts";
@@ -72,6 +72,19 @@ export function makeApp(deps: AppDeps) {
     await next();
   });
 
+  // A deleted account's stored name is one string; a Spanish reader gets the Spanish one, wherever it shows.
+  app.use("*", async (c, next) => {
+    await next();
+    const l = c.get("lang");
+    if (l === "en" || !(c.res.headers.get("content-type") ?? "").startsWith("application/json")) return;
+    const text = await c.res.clone().text();
+    if (!text.includes(FORMER_MEMBER)) return;
+    const headers = new Headers(c.res.headers), status = c.res.status;
+    headers.delete("content-length");
+    c.res = undefined as any;   // so the new answer doesn't take the old one's headers back
+    c.res = new Response(text.replaceAll(FORMER_MEMBER, formerMember[l]), { status, headers });
+  });
+
   app.onError((e, c) => {
     if (e instanceof KumiError) return c.json({ error: e.code, message: e.text[c.get("lang") ?? "en"] }, e.status as 400);
     console.error(e);
@@ -107,7 +120,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", publicRoutes(db, (c) => c.get("lang"), publicUrl));
-  app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false }));
+  app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false, now }));
   app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe));
   app.all("/mcp", async (c) => {
     const who = await bearerPerson(db, c.req.header("authorization"), `${publicUrl}/mcp`, now());
