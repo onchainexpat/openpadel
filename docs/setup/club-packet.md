@@ -16,6 +16,11 @@ collected here.
 | A domain the club owns (or can buy), and who controls its DNS | The app's address and email | Owner |
 | Brand colour and logo | The apps | Website, owner approves |
 | Clinic, social and Americano prices, and the cancellation rule (how many hours before a refund stops) | Programs, once set up | Owner |
+| Opening hours for each location, and the days it's closed | Settings, Opening hours (step 5c) | Website or Google listing, owner checks |
+| Court prices: by day, time of day and season, and the sales tax rate if any | Settings, Prices (step 5c) | Owner |
+| Booking rules: how far ahead, how many at once, the free cancellation window, the lengths offered | Settings, Booking rules (step 5c) | Owner |
+| Membership plans: name, price a month or a year, what members get (member court prices, booking further ahead); for a new club, a founding offer (how many, and the opening date) | Memberships (step 5d) | Owner |
+| A few lines about the club, for its public page | Settings (step 5e) | Website, owner approves |
 | Is the club on Playtomic, and on which plan? | Whether to connect it (its API needs the Champion or Master plan) | Owner |
 
 **Not collected here, ever:** bank accounts, card numbers, Social Security or tax ID numbers, ID

@@ -1,6 +1,8 @@
 // Push copies of messages: the devices a person turned notifications on for, the club's signing keys, and the
 // job that sends what's due. A dead device (the push service says it's gone) is dropped; a message with no
-// device left to go to is dropped too, not retried.
+// device left to go to is dropped too, not retried. Devices, like sign-in sessions, are written here rather
+// than through actions: they belong to the person's browser, not the club, and each person only ever turns
+// their own on or off. The delivery log (outbound_message) is the messages code's, as for email.
 import type { Db } from "./db.ts";
 import { uuidv7 } from "./ids.ts";
 import { generateVapidKeys, isPushEndpoint, sendPush, type VapidKeys } from "./webpush.ts";
