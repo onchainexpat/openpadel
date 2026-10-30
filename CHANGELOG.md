@@ -16,6 +16,7 @@ The first version a club can run on its own (court bookings included), or for it
 - Members book in the app and pay the whole court, or only their part: the others join from a link
   and pay theirs, and what's unpaid at the club's deadline goes once on the organiser's saved card
   (saved, never held). Cancelling refunds what the club's rules give. Calendar links.
+  An open match works differently (below): nothing goes on the host's card.
 - Messages for confirmations, shares paid, cancellations, money owed, and a reminder before playing.
 - Occupancy and revenue by day, with a CSV export.
 
@@ -24,11 +25,15 @@ The first version a club can run on its own (court bookings included), or for it
   or friendly, listed on the Play page or only by its link. Players inside the band join and pay
   their place at once; outside it they ask the host, who says yes or no. A seat taken but not paid
   for opens again (10 minutes, or an hour for a player the host said yes to), and a payment left
-  half-done is called off at Stripe first, so it can't go through unrecorded. Places still empty at
-  the club's deadline go on the host's saved card.
-- The host saves places for named friends (nobody else can take them; each pays their own). A player
-  who can't make it puts their place up, and gets their money back when the match fills without
-  them; after the deadline it's a late cancellation. "Running late" tells the others. After the
+  half-done is called off at Stripe first, so it can't go through unrecorded. A match that isn't
+  full at the club's deadline is cancelled: the court is free again and everyone gets back all they
+  paid, and nothing goes on the host's card (it isn't even saved).
+- If the host cancels, the players who joined get everything back whenever it is; the club's late
+  cancellation rule is for the host's own payment.
+- The host saves places for named friends (nobody else can take them; each pays their own, and a
+  saved place still unpaid at the deadline counts as empty). A player who can't make it gets their
+  money back at once and the place opens, up to the deadline; after it, the money stays and it's a
+  late cancellation. "Running late" tells the others. After the
   game the host marks who didn't come, and hosts see each player's no-shows and late cancellations
   (90 days) when they join or ask.
 

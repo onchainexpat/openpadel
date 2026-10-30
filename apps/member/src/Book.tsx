@@ -76,7 +76,7 @@ export function Book() {
             {canSplit && <label class="check"><input type="radio" name="pay" checked={pay === "split"} onChange={() => setPay("split")} /> {t("ui.pay_split")}</label>}
             {pay === "split" && <>
               <div class="chips" role="group" aria-label={t("ui.sharing")}>{[2, 4].map((n) => <button type="button" class={n === players ? "chip on" : "chip"} onClick={() => setPlayers(n)}>{t("count.players", { count: n })}</button>)}</div>
-              <p class="meta">{t("ui.split_explain", { mine: dollars(mine, lang.value), each: dollars(each, lang.value), hours: t("count.hours", { count: o.split_deadline_hours }) })}</p>
+              <p class="meta">{t(opened ? "ui.open_explain" : "ui.split_explain", { mine: dollars(mine, lang.value), each: dollars(each, lang.value), hours: t("count.hours", { count: o.split_deadline_hours }) })}</p>
               {players === 4 && <label class="check"><input type="checkbox" checked={open} onChange={(e) => setOpen(e.currentTarget.checked)} /> {t("ui.open_to_others")}</label>}
               {opened && <fieldset>
                 <legend>{t("ui.match_band", { level: myLevel === null ? t("ui.no_level_yet") : myLevel.toFixed(2) })}</legend>

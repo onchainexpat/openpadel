@@ -101,14 +101,14 @@ test("pay my part: each pays a share; at the deadline the rest goes on the organ
   await pay(ben.payment_id, "Ben");
   const cal = (await run(db, "booking.join", { invite_code: code, person_id: people.Cal }, as("Cal"), { now: NOW })).result as { payment_id: string };   // joins, doesn't pay
   await rejects(plan(db, "booking.join", { invite_code: code, person_id: people.Ben }, as("Ben"), { now: NOW }), "error.already_in_booking");
-  assert.deepEqual(await settleShares(db, later(60)), { settled: 0, charged: 0, failed: 0 });   // not the deadline yet
+  assert.deepEqual(await settleShares(db, later(60)), { settled: 0, charged: 0, failed: 0, cancelled: 0 });   // not the deadline yet
   const deadline = new Date(new Date(at("2026-12-06", "18:00")).getTime() - 24 * 3600_000 + 60_000);
-  assert.deepEqual(await settleShares(db, deadline), { settled: 1, charged: 1, failed: 0 });
+  assert.deepEqual(await settleShares(db, deadline), { settled: 1, charged: 1, failed: 0, cancelled: 0 });
   assert.equal(stripe.charges.at(-1)!.amountCents, 3000);   // Cal's share and the empty place
   assert.equal((await db.selectFrom("payment").select("status").where("id", "=", cal.payment_id).executeTakeFirstOrThrow()).status, "failed");
   assert.ok((await booking(booking_id)).settled_at);
   await rejects(plan(db, "booking.join", { invite_code: code, person_id: people.Eve }, as("Eve"), { now: deadline }), "error.invite_settled");
-  assert.deepEqual(await settleShares(db, deadline), { settled: 0, charged: 0, failed: 0 });   // once
+  assert.deepEqual(await settleShares(db, deadline), { settled: 0, charged: 0, failed: 0, cancelled: 0 });   // once
 });
 
 test("when the saved card is declined at the deadline, the booking shows what's owed", async () => {
@@ -116,7 +116,7 @@ test("when the saved card is declined at the deadline, the booking shows what's 
   await pay(r.payment_id, "Eve");
   stripe.failNextCharge = "card_declined";
   const deadline = new Date(new Date(at("2026-12-07", "18:00")).getTime() - 23 * 3600_000);
-  assert.deepEqual(await settleShares(db, deadline), { settled: 1, charged: 0, failed: 1 });
+  assert.deepEqual(await settleShares(db, deadline), { settled: 1, charged: 0, failed: 1, cancelled: 0 });
   assert.equal((await booking(r.booking_id)).balance_cents, 3000);
 });
 

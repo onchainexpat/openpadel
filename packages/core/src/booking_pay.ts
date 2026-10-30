@@ -1,8 +1,9 @@
 // Members book and pay for courts. A booking holds its court for a few minutes while the organiser pays.
 // Two ways to pay: the whole court, or only their part, when each player pays their own share in the app
 // and the organiser's card is saved (never held); whatever is unpaid at the club's deadline is charged to
-// that card once. The club's booking rules (how far ahead, how many at once, the lengths, cancellation)
-// are the version in force when the booking is made, and stay with it.
+// that card once. An open match is the exception: not full by the deadline, it's cancelled and everyone
+// gets their money back (nothing is saved or charged). The club's booking rules (how far ahead, how many
+// at once, the lengths, cancellation) are the version in force when the booking is made, and stay with it.
 import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
@@ -73,9 +74,10 @@ export const bookingRequest = defineAction({
     if (i.pay === "split" && start.getTime() - ctx.now.getTime() <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
     const players = i.players ?? 4, s = shares(q.total_cents, players);
     const p = { court: court.name, when: when(start, court.time_zone), minutes: i.minutes, total: usd(q.total_cents) };
+    const hours = both("count.hours", { count: policy.split_deadline_hours });
     const summary = i.pay === "whole" ? both("plan.booking.request_whole", p)
-      : both("plan.booking.request_split", { ...p, share: usd(s.organiser), players: both("count.players", { count: players }), others: usd(s.each), hours: both("count.hours", { count: policy.split_deadline_hours }) });
-    const openText = i.open ? both(i.open.rated === false ? "plan.booking.open_friendly" : "plan.booking.open_rated", { band: band(i.open),
+      : both(i.open ? "plan.booking.request_open" : "plan.booking.request_split", { ...p, share: usd(s.organiser), players: both("count.players", { count: players }), others: usd(s.each), hours });
+    const openText = i.open ? both(i.open.rated === false ? "plan.booking.open_friendly" : "plan.booking.open_rated", { band: band(i.open), hours,
       outside: both(i.open.outside_band === "closed" ? "plan.booking.outside_closed" : "plan.booking.outside_ask") }) : null;
     return { title: both("action.booking.request"), reads: [], locationId: court.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" },
       moneyCents: i.pay === "whole" ? q.total_cents : s.organiser, details: { quote: q, policy_id: policy.id },
@@ -102,7 +104,7 @@ export const bookingRequest = defineAction({
     } catch (e: any) { if (e?.code === "23P01") throw new KumiError("error.court_taken"); throw e; }
     const payment = uuidv7();
     await ctx.insert("payment", { id: payment, person_id: i.person_id, amount_cents: i.pay === "whole" ? q.total_cents : s.organiser, method: "card", provider: paymentProvider().name,
-      provider_ref: null, status: "pending", booking_player_id: bp, save_card: i.pay === "split" });
+      provider_ref: null, status: "pending", booking_player_id: bp, save_card: i.pay === "split" && !i.open });   // an open match never charges the host for empty places
     await ctx.emit("booking.requested", { booking_id: id });
     return { booking_id: id, code, payment_id: payment };
   },
@@ -161,7 +163,8 @@ export async function refundPayment(ctx: ApplyCtx, paymentId: string, cents: num
 }
 
 /** When a new player's payment goes through and the match was full only because someone can't make it: the
- *  oldest such place is theirs now, and its player gets back what they paid. */
+ *  oldest such place is theirs now, and its player gets back what they paid. (Saying so only keeps the place
+ *  after the deadline, so this is a player who joined before the job settled the match.) */
 async function takeOverLeavingPlace(ctx: ApplyCtx, bookingId: string, newPlayer: string) {
   const b = await ctx.trx.selectFrom("booking").select("players").where("id", "=", bookingId).executeTakeFirstOrThrow();
   const seats = await ctx.trx.selectFrom("booking_player").select(["id", "leaving_at"]).where("booking_id", "=", bookingId).where("removed_at", "is", null).orderBy("leaving_at").execute();
@@ -214,15 +217,24 @@ export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amou
 }
 
 // ---- Cancelling: what comes back is the booking's own rules (rule 2: staff can choose otherwise) ----
+/** What each payment gets back. In an open match, under the rule, the players who joined get everything
+ *  back whatever the timing (the host called it off, not them); the late rule is for the host's own payment. */
 export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, choice: "rule" | "full" | "none") {
-  const b = await db.selectFrom("booking").select(["id", "policy_id"]).where("id", "=", bookingId).executeTakeFirstOrThrow();
+  const b = await db.selectFrom("booking").select(["id", "policy_id", "organiser_id"]).where("id", "=", bookingId).executeTakeFirstOrThrow();
   const start = await db.selectFrom("court_time").select(sql<Date>`min(lower(during))`.as("s")).where("booking_id", "=", bookingId).executeTakeFirst();
   const policy = b.policy_id ? await db.selectFrom("booking_policy").selectAll().where("id", "=", b.policy_id).executeTakeFirstOrThrow() : await currentPolicy(db);
+  // A place let go was already paid back (or never paid): only the players still in it.
   const paid = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-    .select(["payment.id", "payment.amount_cents"]).where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "succeeded").execute();
+    .select(["payment.id", "payment.amount_cents", "booking_player.person_id"]).where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null)
+    .where("payment.status", "=", "succeeded").execute();
   const early = start?.s ? new Date(start.s).getTime() - now.getTime() >= policy.free_cancel_hours * 3600_000 : true;
   const percent = choice === "full" ? 100 : choice === "none" ? 0 : early ? 100 : policy.late_refund_percent;
-  return { percent, early, hours: policy.free_cancel_hours, refunds: paid.map((p) => ({ payment_id: p.id, cents: Math.round(p.amount_cents * percent / 100) })) };
+  const open = choice === "rule" && Boolean(await openMatchOf(db, bookingId));
+  const refunds = paid.map((p) => {
+    const joiner = open && p.person_id !== b.organiser_id;
+    return { payment_id: p.id, cents: Math.round(p.amount_cents * (joiner ? 100 : percent) / 100), joiner };
+  });
+  return { percent, early, hours: policy.free_cancel_hours, refunds };
 }
 export const bookingCancel = defineAction({
   name: "booking.cancel", version: 1,
@@ -231,7 +243,10 @@ export const bookingCancel = defineAction({
     const { row: b, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
     const r = await cancelRefunds(ctx.db, b.id, ctx.now, i.refund ?? "rule"), total = r.refunds.reduce((n, x) => n + x.cents, 0);
-    const money = !r.refunds.length ? both("refund.nothing_paid") : total ? both("plan.booking.refund", { amount: usd(total) }) : both("plan.booking.no_refund", { hours: both("count.hours", { count: r.hours }) });
+    const joiners = r.refunds.filter((x) => x.joiner).reduce((n, x) => n + x.cents, 0), host = total - joiners, hours = both("count.hours", { count: r.hours });
+    const money = !r.refunds.length ? both("refund.nothing_paid")
+      : joiners ? both(host ? "plan.booking.refund_open" : "plan.booking.no_refund_open", { host: usd(host), others: usd(joiners), hours })
+      : total ? both("plan.booking.refund", { amount: usd(total) }) : both("plan.booking.no_refund", { hours });
     return { title: both("action.booking.cancel"), summary: both("plan.booking.cancel_refund", { code: b.code, refund: money }), reads: [read], locationId: b.location_id,
       ownerIds: b.organiser_id ? [b.organiser_id] : [], moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };
   },
@@ -281,8 +296,11 @@ export const bookingSettleShares = defineAction({
   async apply(ctx, i) {
     const b = await ctx.trx.selectFrom("booking").selectAll().where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
     if (b.settled_at || b.status !== "confirmed") return { already: true };
+    if (await openMatchOf(ctx.trx, b.id) && await paidPlaces(ctx.trx, b.id) < b.players) return cancelUnfilled(ctx, b.id);
+    // What's been paid for the places still taken (a place let go was paid back, if it was paid at all).
     const paid = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-      .select((eb) => eb.fn.sum<string>("payment.amount_cents").as("c")).where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "succeeded").executeTakeFirst();
+      .select((eb) => eb.fn.sum<string>("payment.amount_cents").as("c")).where("booking_player.booking_id", "=", b.id).where("booking_player.removed_at", "is", null)
+      .where("payment.status", "=", "succeeded").executeTakeFirst();
     const unpaid = b.price_cents - Number(paid?.c ?? 0);
     // Seats taken and never paid for open again (the organiser covers the place, not a no-show's seat);
     // friends' shares not paid by now can't be paid any more: the organiser covers them.
@@ -313,6 +331,35 @@ export const bookingSettleShares = defineAction({
     return { owed: unpaid, failure: charge.failure };
   },
 });
+
+/** Places paid for by players still coming (a player who can't make it doesn't fill one). */
+async function paidPlaces(trx: Trx, bookingId: string): Promise<number> {
+  const r = await trx.selectFrom("booking_player").select(sql<string>`count(*)`.as("n")).where("booking_id", "=", bookingId).where("removed_at", "is", null).where("leaving_at", "is", null)
+    .where((eb) => eb.exists(eb.selectFrom("payment").select("payment.id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded")))
+    .executeTakeFirstOrThrow();
+  return Number(r.n);
+}
+
+/** An open match not full at the deadline: it's off, the court is free, and everyone gets back all they paid. */
+async function cancelUnfilled(ctx: ApplyCtx, bookingId: string) {
+  await ctx.update("booking", bookingId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: "not_filled" });
+  for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", bookingId).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
+  for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
+    .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await ctx.update("payment", p.id, { status: "failed" });
+  // Who hears it, with what comes back to each (worked out now, not when the message is written).
+  const seats = await ctx.trx.selectFrom("booking_player").select(["id", "person_id"]).where("booking_id", "=", bookingId).where("removed_at", "is", null).execute();
+  const players: { person_id: string; cents: number }[] = [];
+  for (const s of seats) {
+    let cents = 0;
+    for (const p of await ctx.trx.selectFrom("payment").select(["id", "amount_cents"]).where("booking_player_id", "=", s.id).where("status", "=", "succeeded").execute()) {
+      await refundPayment(ctx, p.id, p.amount_cents);
+      cents += p.amount_cents;
+    }
+    if (s.person_id) players.push({ person_id: s.person_id, cents });
+  }
+  await ctx.emit("booking.not_filled", { booking_id: bookingId, players });
+  return { cancelled: true };
+}
 
 // ---- Reminders: a few hours before, once ----
 export const REMINDER_HOURS = 3;

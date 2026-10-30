@@ -182,10 +182,18 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const s = await seatInfo(db, p.booking_player_id);
     return s.person_id ? [{ to: s.person_id, kind: "match_place_dropped", params: { ...s.b.base, host: s.host }, purpose: "account", essential: false, email: false, link: "/play", staleAt: new Date(s.b.start) }] : [];
   },
-  async "booking.player_left"({ db }, p: { booking_player_id: string; paid: boolean }) {
+  async "booking.player_left"({ db }, p: { booking_player_id: string; paid: boolean; late?: boolean; refunded?: number }) {
     const s = await seatInfo(db, p.booking_player_id);
-    return s.b.organiser_id ? [{ to: s.b.organiser_id, kind: p.paid ? "match_player_leaving" : "match_player_left", params: { ...s.b.base, person: s.name }, purpose: "account", essential: false,
-      email: false, link: `/match/${s.b.id}`, staleAt: new Date(s.b.start) }] : [];
+    // Paid and past the deadline, the place stays empty; otherwise it's open again (and a paid player is paid back).
+    const drafts: Draft[] = s.b.organiser_id ? [{ to: s.b.organiser_id, kind: p.paid && p.late ? "match_player_leaving" : "match_player_left", params: { ...s.b.base, person: s.name },
+      purpose: "account", essential: false, email: false, link: `/match/${s.b.id}`, staleAt: new Date(s.b.start) }] : [];
+    if (s.person_id && p.refunded) drafts.push({ to: s.person_id, kind: "match_left_refund", params: { ...s.b.base, amount: amount(p.refunded) }, purpose: "account", essential: true, email: true, link: "/places" });
+    return drafts;
+  },
+  async "booking.not_filled"({ db }, p: { booking_id: string; players: { person_id: string; cents: number }[] }) {
+    const b = await bookingInfo(db, p.booking_id);
+    return p.players.map((x) => ({ to: x.person_id, kind: "match_not_filled", params: { ...b.base, refund: x.cents ? both("msg.refund_card", { amount: amount(x.cents) }) : NOTHING },
+      purpose: "account" as const, essential: true, email: true, link: "/play" }));
   },
   async "booking.place_taken"({ db }, p: { booking_player_id: string; by: string }) {
     const s = await seatInfo(db, p.booking_player_id);

@@ -42,13 +42,16 @@ before(async () => {
 });
 after(async () => drop());
 
-test("opening a match: the preview says the band and what it counts for", async () => {
+test("opening a match: the preview says the band, what it counts for, and what happens if it doesn't fill", async () => {
   const input = { court_id: court, starts_at: at("2026-12-02", "18:00"), minutes: 90, pay: "split", person_id: people.Hal, open: { level_min: 3, level_max: 4 } };
   const r = await run(db, "booking.request", input, as("Hal"), { now: NOW });
-  assert.match(r.plan.summary.en, / It's an open match for levels 3\.00-4\.00, rated \(it counts for levels\); players outside the band can ask you\.$/);
+  assert.equal(r.plan.summary.en, "Book Court 1, Wed, Dec 2, 6:00 PM, for 90 minutes: $60.00, split between 4 players. You pay your part, $15.00, now, and each player who joins pays $15.00. "
+    + "It's an open match for levels 3.00-4.00, rated (it counts for levels); players outside the band can ask you. If it isn't full 24 hours before, it's cancelled and everyone gets their money back.");
   match = (r.result as any).booking_id;
   await pay((r.result as any).payment_id, "Hal");
   assert.equal((await db.selectFrom("booking").select("status").where("id", "=", match).executeTakeFirstOrThrow()).status, "confirmed");
+  const hostPay = await db.selectFrom("payment").select(["save_card", "saved_method"]).where("id", "=", (r.result as any).payment_id).executeTakeFirstOrThrow();
+  assert.deepEqual([hostPay.save_card, hostPay.saved_method], [false, null]);   // nothing will ever go on the host's card, so it isn't kept
   await rejects(plan(db, "booking.request", { ...input, pay: "whole" }, as("Hal"), { now: NOW }), "error.open_match_split");
   await rejects(plan(db, "booking.request", { ...input, open: { level_min: 4, level_max: 3 } }, as("Hal"), { now: NOW }), "error.bad_band");
 });
@@ -114,17 +117,34 @@ test("a seat not paid in time opens again; an open card form is called off first
   assert.equal((await inbox("Ben", "match_seat_released")).subject, "Your place wasn't paid: Court 1, Wed, Dec 2, 6:00 PM");
 });
 
-test("at the deadline the empty place goes on the host's card; a match kept to its band", async () => {
+test("not full at the deadline: it's cancelled, the court is free, and everyone gets back all they paid (a saved place nobody paid for is empty)", async () => {
+  // Hal, Ann and Dee have paid; Cal's place is saved but not paid.
+  await run(db, "booking.save_place", { booking_id: match, person_id: people.Cal }, as("Hal"), { now: NOW });
   const charges = stripe.charges.length;
-  const r = await settleShares(db, new Date(at("2026-12-01", "18:00")));
-  assert.equal(r.charged, 1);
-  assert.equal(stripe.charges.length, charges + 1);
-  assert.equal(stripe.charges.at(-1)!.amountCents, 1500);   // Ben's empty place
-  await rejects(plan(db, "booking.join", { booking_id: match, person_id: people.Eve }, as("Eve"), { now: new Date(at("2026-12-01", "18:05")) }), "error.invite_settled");
+  assert.deepEqual(await settleShares(db, new Date(at("2026-12-01", "17:59"))), { settled: 0, charged: 0, failed: 0, cancelled: 0 });
+  assert.deepEqual(await settleShares(db, new Date(at("2026-12-01", "18:00"))), { settled: 1, charged: 0, failed: 0, cancelled: 1 });
+  assert.equal(stripe.charges.length, charges);   // nothing on the host's card
+  const b = await db.selectFrom("booking").select(["status", "cancel_reason"]).where("id", "=", match).executeTakeFirstOrThrow();
+  assert.deepEqual([b.status, b.cancel_reason], ["cancelled", "not_filled"]);
+  assert.equal((await db.selectFrom("court_time").select("id").where("booking_id", "=", match).where("active", "=", true).execute()).length, 0);
+  const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+    .select(["booking_player.person_id", "refund.amount_cents"]).where("booking_player.booking_id", "=", match).execute();
+  assert.deepEqual(back.map((x) => [x.person_id, x.amount_cents]).sort(), [[people.Hal, 1500], [people.Ann, 1500], [people.Dee, 1500]].sort());
+  assert.equal((await db.selectFrom("payment").select("status").where("booking_player_id", "=", (await seat("Cal")).id).executeTakeFirstOrThrow()).status, "failed");
+  await rejects(plan(db, "booking.join", { booking_id: match, person_id: people.Eve }, as("Eve"), { now: new Date(at("2026-12-01", "18:05")) }), "error.invite_closed");
+  assert.deepEqual(await settleShares(db, new Date(at("2026-12-01", "18:05"))), { settled: 0, charged: 0, failed: 0, cancelled: 0 });   // once
+  await processOutbox(db, messageHandlers);
+  const told = async (who: string) => (await db.selectFrom("outbound_message").select("body").where("person_id", "=", people[who]!).where("kind", "=", "match_not_filled").where("channel", "=", "email").executeTakeFirstOrThrow()).body;
+  assert.equal(await told("Hal"), "Your match on Court 1, Wed, Dec 2, 6:00 PM, didn't fill by the deadline, so it's cancelled and the court is free. $15.00 goes back to your card.");
+  assert.equal(await told("Cal"), "Your match on Court 1, Wed, Dec 2, 6:00 PM, didn't fill by the deadline, so it's cancelled and the court is free.");
+  assert.equal((await db.selectFrom("outbound_message").select("subject").where("person_id", "=", people.Ann!).where("kind", "=", "match_not_filled").where("channel", "=", "inbox").executeTakeFirstOrThrow()).subject,
+    "Cancelled, not full: Court 1, Wed, Dec 2, 6:00 PM");
+});
 
+test("a match kept to its band; a booking that isn't an open match can't be joined by its id", async () => {
   const f = await run(db, "booking.request", { court_id: court, starts_at: at("2026-12-04", "10:00"), minutes: 90, pay: "split", person_id: people.Hal,
     open: { level_min: 3.25, level_max: 3.75, outside_band: "closed", rated: false } }, as("Hal"), { now: NOW });
-  assert.match(f.plan.summary.en, /a friendly \(it doesn't count for levels\); players outside the band can't join\.$/);
+  assert.match(f.plan.summary.en, /a friendly \(it doesn't count for levels\); players outside the band can't join\. If it isn't full 24 hours before, it's cancelled/);
   friendly = (f.result as any).booking_id;
   await pay((f.result as any).payment_id, "Hal");
   await rejects(plan(db, "booking.join", { booking_id: friendly, person_id: people.Ben }, as("Ben"), { now: NOW }), "error.outside_band");
@@ -133,4 +153,23 @@ test("at the deadline the empty place goes on the host's card; a match kept to i
   const plain = await run(db, "booking.request", { court_id: court, starts_at: at("2026-12-05", "10:00"), minutes: 90, pay: "split", person_id: people.Ann }, as("Ann"), { now: NOW });
   await pay((plain.result as any).payment_id, "Ann");
   await rejects(plan(db, "booking.join", { booking_id: (plain.result as any).booking_id, person_id: people.Eve }, as("Eve"), { now: NOW }), "error.invite_closed");
+});
+
+test("a full match goes ahead at the deadline; if its host cancels late, the players who joined still get everything back", async () => {
+  const r = await run(db, "booking.request", { court_id: court, starts_at: at("2026-12-03", "10:00"), minutes: 90, pay: "split", person_id: people.Hal, open: { level_min: 3, level_max: 4 } }, as("Hal"), { now: NOW });
+  const id = (r.result as any).booking_id;
+  await pay((r.result as any).payment_id, "Hal");
+  for (const who of ["Ann", "Dee", "Eve"]) await pay((await join(who, id)).payment_id, who);
+  assert.deepEqual(await settleShares(db, new Date(at("2026-12-02", "10:00"))), { settled: 1, charged: 0, failed: 0, cancelled: 0 });
+  assert.equal((await db.selectFrom("booking").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status, "confirmed");
+  const late = new Date(at("2026-12-03", "08:00"));
+  const code = (await db.selectFrom("booking").select("code").where("id", "=", id).executeTakeFirstOrThrow()).code;
+  const c = await run(db, "booking.cancel", { booking_id: id }, as("Hal"), { now: late });
+  assert.equal(c.plan.summary.en, `Cancel booking ${code}; the court is free again. Nothing goes back to the host's card (it's less than 24 hours before), but the players who joined get back everything they paid ($45.00).`);
+  const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+    .select(["booking_player.person_id", "refund.amount_cents"]).where("booking_player.booking_id", "=", id).execute();
+  assert.deepEqual(back.map((x) => [x.person_id, x.amount_cents]).sort(), [[people.Ann, 1500], [people.Dee, 1500], [people.Eve, 1500]].sort());
+  await processOutbox(db, messageHandlers);
+  const ann = await db.selectFrom("outbound_message").select("body").where("person_id", "=", people.Ann!).where("kind", "=", "booking_cancelled").where("channel", "=", "email").executeTakeFirstOrThrow();
+  assert.match(ann.body, /is cancelled\. \$15\.00 goes back to your card\.$/);
 });

@@ -6,7 +6,7 @@ import { api, ApiError, dollars, lang, me, shortTime, t, usePreview } from "@kum
 import { PaySheet } from "./Pay.tsx";
 
 export type Match = {
-  id: string; court: string; location: string; time_zone: string; start: string; end: string; host: string | null; host_is_me: boolean; open: boolean; rated: boolean; listed: boolean;
+  id: string; court: string; location: string; time_zone: string; start: string; end: string; host: string | null; host_is_me: boolean; open: boolean; cancelled: boolean; rated: boolean; listed: boolean;
   level_min: string; level_max: string; outside_band: "ask" | "closed"; note: string | null; share_cents: number; spots_left: number; my_level: number | null;
   players: { id?: string; name: string | null; level: number | null; host: boolean; paying: boolean; saved: boolean; leaving: boolean; no_show?: boolean; record?: Rec }[];
   can: "join" | "ask" | "closed" | null; started: boolean; late_window: boolean; no_show_window: boolean;
@@ -89,14 +89,14 @@ export function MatchPage({ id }: { id: string }) {
             {m.request?.status !== "declined" && <button class="primary" onClick={() => preview("booking.ask", { booking_id: m.id, person_id: pid })}>{t("ui.ask_to_join")}</button>}
           </>)}
         {m.can === "closed" && <p class="meta">{t("ui.outside_band_closed", { level: lv(m.my_level), band: band(m) })}</p>}
-        {!m.open && !m.me && <p class="meta">{t("ui.match_closed")}</p>}
+        {m.cancelled ? <p class="meta">{t("ui.match_cancelled")}</p> : !m.open && !m.me && <p class="meta">{t("ui.match_closed")}</p>}
         {m.me && m.me.leaving && <p class="meta">{t("ui.you_cant_make_it")}</p>}
         {m.me && m.late_window && !m.me.leaving && <div class="chips" role="group" aria-label={t("ui.running_late")}><span class="meta">{t("ui.running_late")}:</span>
           {[5, 10, 15, 20].map((n) => <button type="button" class="chip" onClick={() => preview("booking.running_late", { booking_id: m.id, person_id: pid, minutes: n })}>{t("ui.minutes", { count: n })}</button>)}</div>}
-        {m.me && !m.host_is_me && !m.me.leaving && !m.started && <p><button onClick={() => preview("booking.leave", { booking_id: m.id, person_id: pid })}>{t("ui.cant_make_it")}</button></p>}
+        {m.me && !m.cancelled && !m.host_is_me && !m.me.leaving && !m.started && <p><button onClick={() => preview("booking.leave", { booking_id: m.id, person_id: pid })}>{t("ui.cant_make_it")}</button></p>}
       </section>
       <Result m={m} preview={preview} />
-      {m.host_is_me && <section class="card">
+      {m.host_is_me && !m.cancelled && <section class="card">
         <h2>{t("ui.requests")}</h2>
         {m.requests.length === 0 ? <p class="meta">{t("ui.no_requests")}</p> : <ul class="plain">{m.requests.map((r) => (
           <li class="row"><span>{r.display_name} · {lv(r.level)}{recText(r.record) ? <span class="meta"> · {recText(r.record)}</span> : null}{r.note ? <><br /><span class="meta">{r.note}</span></> : null}</span>

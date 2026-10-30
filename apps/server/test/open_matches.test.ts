@@ -92,3 +92,13 @@ test("after a match: fair teams, then the score on the match page and on the sta
   const scores = (await get("/staff/scores", "robin@example.test")).json;
   assert.deepEqual(scores[0].answers.map((x: any) => [x.display_name, x.answer]), [["Ann", "entered"]]);
 });
+
+test("a match that didn't fill shows as cancelled to its players, with nothing left to do in it", async () => {
+  const id = await openMatch(16, { level_min: 3, level_max: 4 });
+  const j = (await run(db, "booking.join", { booking_id: id, person_id: people.Ann }, { personId: people.Ann!, via: "test", lang: "en" })).result as any;
+  await runAsSystem(db, "payment.settle", { payment_id: j.payment_id, outcome: "succeeded" }, "test");
+  await runAsSystem(db, "booking.settle_shares", { booking_id: id }, "jobs");   // what the job does at the deadline: only two are in
+  assert.ok(!(await get("/open-matches", "ben@example.test")).json.some((m: any) => m.id === id));
+  const m = (await get(`/matches/${id}`, "ann@example.test")).json;
+  assert.deepEqual([m.cancelled, m.open, m.can, m.spots_left, m.late_window, m.can_score, m.stakes, m.teams], [true, false, null, 0, false, false, null, null]);
+});

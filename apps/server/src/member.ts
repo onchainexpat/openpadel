@@ -91,8 +91,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .select(["booking.id", "booking.status", "booking.players", "booking.price_cents", "booking.settled_at", "booking.organiser_id", "booking.invite_code", "open_match.level_min", "open_match.level_max",
         "open_match.outside_band", "open_match.rated", "open_match.listed", "open_match.note", "court.name as court", "location.name as location", "location.time_zone", "person.display_name as host",
         sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
-      .where("booking.id", "=", bookingId).where("court_time.active", "=", true).executeTakeFirst();
+      .where("booking.id", "=", bookingId).orderBy(sql`court_time.active`, "desc").executeTakeFirst();   // a cancelled one still shows, as cancelled
     if (!b) return null;
+    const cancelled = b.status === "cancelled";
     const seats = await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id")
       .leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "booking_player.person_id").on("rating.sport", "=", "padel"))
       .select(["booking_player.id", "booking_player.person_id", "booking_player.held_until", "booking_player.saved_by", "booking_player.leaving_at", "booking_player.no_show", "person.display_name", "rating.level"])
@@ -115,12 +116,12 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       can_confirm: side === "b" && g.status === "awaiting_confirmation",
       can_dispute: Boolean(side) && (g.status === "awaiting_confirmation" || (g.status === "confirmed" && Boolean(g.editable_until && g.editable_until > new Date()))) } : null;
     const four = seats.filter((x) => !x.leaving_at && x.person_id);
-    const teams = !g && four.length === 4 ? await suggestTeams(db, b.id) : null;
+    const teams = !g && !cancelled && four.length === 4 ? await suggestTeams(db, b.id) : null;
     // A rated match not played yet: what it could do to my level, once the four are known (or I'd make the fourth).
-    const stakes = b.rated && !g && now < start && (mine || (open && taken === b.players - 1)) ? await levelStakes(db, b.id, pid) : null;
+    const stakes = b.rated && !g && !cancelled && now < start && (mine || (open && taken === b.players - 1)) ? await levelStakes(db, b.id, pid) : null;
     const { organiser_id, invite_code, settled_at, ...rest } = b;
-    return { ...rest, host_is_me: host, open, share_cents: shares(b.price_cents, b.players).each, spots_left: Math.max(0, b.players - taken), my_level: level,
-      started: now >= start, late_window: now >= start - 3 * 3600_000 && now <= start + 30 * 60_000, no_show_window: now >= start && now <= start + 48 * 3600_000,
+    return { ...rest, host_is_me: host, open, cancelled, share_cents: shares(b.price_cents, b.players).each, spots_left: cancelled ? 0 : Math.max(0, b.players - taken), my_level: level,
+      started: now >= start, late_window: !cancelled && now >= start - 3 * 3600_000 && now <= start + 30 * 60_000, no_show_window: !cancelled && now >= start && now <= start + 48 * 3600_000,
       players: seats.map((x) => ({ id: host ? x.id : undefined, name: x.display_name, level: x.level === null ? null : Number(x.level), host: x.person_id === organiser_id,
         paying: Boolean(x.held_until), saved: Boolean(x.saved_by && !x.paid_id), leaving: Boolean(x.leaving_at), no_show: host ? x.no_show : undefined,
         record: host && x.person_id !== organiser_id ? record.get(x.person_id!) ?? { no_shows: 0, late_leaves: 0 } : undefined })),
@@ -128,7 +129,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       me: mine ? { pending_payment_id: mine.pending_payment_id, held_until: mine.held_until, leaving: Boolean(mine.leaving_at), saved: Boolean(mine.saved_by && !mine.paid_id) } : null, request: request ?? null,
       requests: requests.map(({ person_id, ...r }) => ({ ...r, level: r.level === null ? null : Number(r.level), record: asking.get(person_id) ?? { no_shows: 0, late_leaves: 0 } })),
       invite_code: host ? invite_code : null, result, teams, stakes,
-      can_score: Boolean(mine && !mine.leaving_at && !g && four.length === 4 && now >= start && now <= start + ENTER_DAYS * 86400_000),
+      can_score: Boolean(mine && !cancelled && !mine.leaving_at && !g && four.length === 4 && now >= start && now <= start + ENTER_DAYS * 86400_000),
       four: mine ? four.map((x) => ({ person_id: x.person_id, name: x.display_name })) : [] };
   }
   // Finding a friend to save a place for: members by name, nothing but the name.

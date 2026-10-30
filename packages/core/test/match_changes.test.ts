@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, messageHandlers, openPayment, plan, playerRecord, processOutbox, releaseSeats, run, runAsSystem, setPaymentProvider, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { checkPayment, messageHandlers, openPayment, plan, playerRecord, processOutbox, releaseSeats, run, runAsSystem, setPaymentProvider, settleShares, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, court: string, match: string;
 const stripe = new TestProvider();
@@ -46,7 +46,7 @@ after(async () => drop());
 
 test("a place saved for a friend: nobody else takes it, they pay their own, and the host can stop saving it", async () => {
   const s = await run(db, "booking.save_place", { booking_id: match, person_id: people.Cal }, as("Hal"), { now: NOW });
-  assert.equal(s.plan.summary.en, "Save a place in your match for Cal. They pay their own $15.00 in the app; if it's still unpaid 24 hours before, it goes on your card with any other empty place.");
+  assert.equal(s.plan.summary.en, "Save a place in your match for Cal. They pay their own $15.00 in the app. If it's still unpaid 24 hours before, it counts as empty, and a match that isn't full then is cancelled.");
   assert.deepEqual([(await seat("Cal")).saved_by, (await seat("Cal")).held_until], [people.Hal, null]);   // saved, not held: Cal has no level and still gets in
   assert.deepEqual(await releaseSeats(db, at("2026-12-01", "17:00")), { released: 0 });
   await pay(await pendingFor("Cal"), "Cal");
@@ -63,29 +63,32 @@ test("a place saved for a friend: nobody else takes it, they pay their own, and 
     "Hal saved you a place: Court 1, Wed, Dec 2, 6:00 PM");
 });
 
-test("can't make it: the next player takes the place and the leaver gets their money back; after the deadline it's a late cancellation", async () => {
+test("can't make it: before the deadline it all comes back at once and the place opens; after it, it's a late cancellation", async () => {
   const l = await run(db, "booking.leave", { booking_id: match, person_id: people.Ann }, as("Ann"), { now: NOW });
-  assert.equal(l.plan.summary.en, "Say you can't make the match on Court 1, Wed, Dec 2, 6:00 PM. Your place opens for someone else, and when the match fills without you, your $15.00 goes back to your card. If it doesn't fill, nothing comes back.");
-  assert.ok((await seat("Ann")).leaving_at);
-  await rejects(plan(db, "booking.leave", { booking_id: match, person_id: people.Hal }, as("Hal"), { now: NOW }), "error.host_cancels");
-  // Eve takes the place: until she pays, Ann is still down to play.
-  const eve = await join("Eve");
-  assert.equal((await seat("Ann")).removed_at, null);
-  await pay(eve, "Eve");
+  assert.equal(l.plan.summary.en, "Leave the match on Court 1, Wed, Dec 2, 6:00 PM. Your $15.00 goes back to your card and your place opens for someone else.");
   assert.ok((await seat("Ann")).removed_at);
   const annPaid = await db.selectFrom("payment").select("id").where("booking_player_id", "=", (await seat("Ann")).id).where("status", "=", "succeeded").executeTakeFirstOrThrow();
   assert.equal((await db.selectFrom("refund").select("amount_cents").where("payment_id", "=", annPaid.id).executeTakeFirstOrThrow()).amount_cents, 1500);
+  await rejects(plan(db, "booking.leave", { booking_id: match, person_id: people.Hal }, as("Hal"), { now: NOW }), "error.host_cancels");
+  await pay(await join("Eve"), "Eve");
+  // Full at the deadline (Hal, Cal, Dee and Eve): it goes ahead, and nothing is charged.
+  assert.deepEqual(await settleShares(db, at("2026-12-01", "18:00")), { settled: 1, charged: 0, failed: 0, cancelled: 0 });
+  assert.equal((await db.selectFrom("booking").select("status").where("id", "=", match).executeTakeFirstOrThrow()).status, "confirmed");
 
   const late = at("2026-12-01", "19:00");
   const d = await run(db, "booking.leave", { booking_id: match, person_id: people.Dee }, as("Dee"), { now: late });
   assert.match(d.plan.summary.en, /It's past the deadline, so nobody can take your place now and your \$15\.00 doesn't come back\. It counts as a late cancellation\.$/);
   assert.equal((await playerRecord(db, [people.Dee!])).get(people.Dee!)!.late_leaves, 1);
 
+  assert.equal((await seat("Dee")).removed_at, null);   // the place stays Dee's, and so does the money
+  assert.equal((await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select("refund.id").where("payment.booking_player_id", "=", (await seat("Dee")).id).execute()).length, 0);
+
   await processOutbox(db, messageHandlers);
-  assert.equal((await db.selectFrom("outbound_message").select("body").where("person_id", "=", people.Ann!).where("kind", "=", "match_place_taken").where("channel", "=", "email").executeTakeFirstOrThrow()).body,
-    "Eve took your place in the match on Court 1, Wed, Dec 2, 6:00 PM, so $15.00 goes back to your card.");
-  const leaving = await db.selectFrom("outbound_message").select("subject").where("person_id", "=", people.Hal!).where("kind", "=", "match_player_leaving").where("channel", "=", "inbox").execute();
-  assert.deepEqual(leaving.map((m) => m.subject).sort(), ["Ann can't make it: Court 1, Wed, Dec 2, 6:00 PM", "Dee can't make it: Court 1, Wed, Dec 2, 6:00 PM"]);
+  assert.equal((await db.selectFrom("outbound_message").select("body").where("person_id", "=", people.Ann!).where("kind", "=", "match_left_refund").where("channel", "=", "email").executeTakeFirstOrThrow()).body,
+    "You're out of the match on Court 1, Wed, Dec 2, 6:00 PM, and $15.00 goes back to your card.");
+  assert.equal((await inbox("Hal", "match_player_left")).body, "Ann can't make your match on Court 1, Wed, Dec 2, 6:00 PM. Their place is open again.");
+  assert.equal((await inbox("Hal", "match_player_leaving")).body, "Dee can't make your match on Court 1, Wed, Dec 2, 6:00 PM. It's past the deadline, so the place can't be filled in the app now.");
+  assert.equal((await db.selectFrom("outbound_message").select("id").where("person_id", "=", people.Dee!).where("kind", "=", "match_left_refund").execute()).length, 0);
 });
 
 test("running late tells the others; the host marks who didn't come, and it goes on their record", async () => {

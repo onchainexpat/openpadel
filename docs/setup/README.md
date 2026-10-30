@@ -77,8 +77,10 @@ about the app is the club's own announcement. Staff can do the same from People 
 
 In the staff app's Settings: each location's opening hours and special days, court prices (by day,
 time and season), the sales tax rate, and the booking rules (how far ahead, how many at once, the
-cancellation window, when unpaid shares are charged). Members only book courts in the app once
-"Members book courts in the app" is on; leave it off while the club books courts in Playtomic.
+cancellation window, and the "pay my part" deadline). At that deadline, unpaid shares of a booking go
+on its organiser's saved card; an open match that isn't full is cancelled instead, and everyone in it
+gets back all they paid. Members only book courts in the app once "Members book courts in the app" is
+on; leave it off while the club books courts in Playtomic.
 
 ### Step 5d: memberships (optional)
 

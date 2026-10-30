@@ -1,7 +1,8 @@
 // Open matches, the parts around joining: a player outside the band asks the host, who says yes (their
 // seat is then held an hour while they pay) or no; seats taken and not paid for open again; and at the
-// club's deadline, what's unpaid goes on the host's card. A payment whose card form was opened is called
-// off at the provider before it's given up, so a late payment can't go through unrecorded.
+// club's deadline, a match that isn't full is cancelled and everyone gets their money back. A payment whose
+// card form was opened is called off at the provider before it's given up, so a late payment can't go
+// through unrecorded.
 import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, dateTime, money, type Text } from "@kumi/i18n";
@@ -28,7 +29,7 @@ async function matchFacts(db: Db | Trx, bookingId: string) {
   if (!b) throw new KumiError("error.not_found", { thing: both("thing.booking") }, 404);
   const om = await openMatchOf(db, bookingId);
   if (!om) throw new KumiError("error.not_open_match");
-  // Seats taken: a player who can't make it has put theirs up for someone else.
+  // Seats taken (a player who said after the deadline that they can't make it doesn't fill one).
   const seated = Number((await db.selectFrom("booking_player").select(sql<string>`count(*)`.as("n")).where("booking_id", "=", bookingId).where("removed_at", "is", null).where("leaving_at", "is", null).executeTakeFirstOrThrow()).n);
   const when: Text = { en: dateTime(new Date(b.start), "en", b.time_zone), es: dateTime(new Date(b.start), "es", b.time_zone) };
   return { ...b, om, seated, when, share: shares(b.price_cents, b.players).each };
@@ -137,25 +138,27 @@ export async function releaseSeats(db: Db, now = new Date()) {
   return { released };
 }
 
-/** "Pay my part" bookings (open matches among them) at their deadline: whatever is unpaid goes on the
- *  organiser's saved card, once. Card forms still open are called off first. */
+/** "Pay my part" bookings at their deadline: whatever is unpaid goes on the organiser's saved card, once;
+ *  an open match that isn't full is cancelled instead, with everyone paid back. Card forms still open are
+ *  called off first (one that went through counts as paid). */
 export async function settleShares(db: Db, now = new Date()) {
   const due = await db.selectFrom("booking").innerJoin("booking_policy", "booking_policy.id", "booking.policy_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
     .select(["booking.id"]).distinct().where("booking.pay_mode", "=", "split").where("booking.status", "=", "confirmed").where("booking.settled_at", "is", null).where("court_time.active", "=", true)
     .where(sql<boolean>`lower(court_time.during) - make_interval(hours => booking_policy.split_deadline_hours) <= ${now}`).execute();
-  let charged = 0, failed = 0;
+  let charged = 0, failed = 0, cancelled = 0;
   for (const b of due) {
     for (const pay of await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
       .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "pending").where("payment.provider_ref", "is not", null).execute())
       await abandonPayment(db, pay.id, "job:settle", now);
     const r = await runAsSystem(db, "booking.settle_shares", { booking_id: b.id }, "jobs", { now });
-    if ((r.result as { charged?: number })?.charged) charged++; else if ((r.result as { owed?: number })?.owed) failed++;
+    const res = r.result as { charged?: number; owed?: number; cancelled?: boolean } | null;
+    if (res?.cancelled) cancelled++; else if (res?.charged) charged++; else if (res?.owed) failed++;
   }
-  return { settled: due.length, charged, failed };
+  return { settled: due.length, charged, failed, cancelled };
 }
 
 // ---- When plans change: saved places, can't make it, running late, no-shows ----
-/** Seats taken (or up for someone else, for a player who can't make it, which still count as theirs). */
+/** A person's seat (one who said after the deadline that they can't make it still has theirs). */
 async function seatOf(db: Db | Trx, bookingId: string, personId: string) {
   return (await db.selectFrom("booking_player").selectAll().where("booking_id", "=", bookingId).where("person_id", "=", personId).where("removed_at", "is", null).executeTakeFirst()) ?? null;
 }
@@ -189,7 +192,8 @@ export const bookingSavePlace = defineAction({
     const m = await matchFacts(ctx.trx, i.booking_id);
     if (m.seated >= m.players || await seatOf(ctx.trx, i.booking_id, i.person_id)) throw new KumiError("error.changed");
     const id = uuidv7();
-    // Saved, not held: it stays the friend's until the deadline (then, unpaid, the host covers it like any place).
+    // Saved, not held: it stays the friend's until the deadline (unpaid then, it's an empty place, and a match
+    // that isn't full is cancelled).
     await ctx.insert("booking_player", { id, booking_id: i.booking_id, person_id: i.person_id, share_cents: m.share, saved_by: m.organiser_id });
     await ctx.insert("payment", { id: uuidv7(), person_id: i.person_id, amount_cents: m.share, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", booking_player_id: id });
     await ctx.emit("booking.place_saved", { booking_player_id: id });
@@ -227,19 +231,27 @@ export const bookingLeave = defineAction({
     const seat = await seatOf(ctx.db, i.booking_id, i.person_id);
     if (!seat || seat.leaving_at) throw new KumiError("error.not_in_match");
     if (m.status !== "confirmed" || new Date(m.start) <= ctx.now) throw new KumiError("error.match_started");
+    // Before the deadline a paid player gets it all back at once: a match that isn't full by then is
+    // cancelled with everyone paid back anyway. After it, the place stays theirs and so does the money.
     const paid = await paidBy(ctx.db, seat.id), late = await pastDeadline(ctx.db, i.booking_id, ctx.now);
     const p = { court: m.court, when: m.when, share: usd(paid) };
     return { title: both("action.booking.leave"), summary: both(!paid ? "plan.booking.leave_unpaid" : late ? "plan.booking.leave_late" : "plan.booking.leave_paid", p),
-      reads: [], locationId: m.location_id, ownerIds: [i.person_id], undo: { kind: paid ? "reversible" : "none" }, details: { seat: seat.id, paid, late } };
+      reads: [], locationId: m.location_id, ownerIds: [i.person_id], undo: { kind: "none" }, details: { seat: seat.id, paid, late } };
   },
   async apply(ctx, i, plan) {
     const { seat, paid, late } = plan.details as { seat: string; paid: number; late: boolean };
-    if (!paid) {
+    let refunded = 0;
+    if (paid && late) await ctx.update("booking_player", seat, { leaving_at: ctx.now, late_leave: true });
+    else {
       await ctx.update("booking_player", seat, { removed_at: ctx.now, late_leave: late });
       for (const p of await ctx.trx.selectFrom("payment").select("id").where("booking_player_id", "=", seat).where("status", "=", "pending").where("provider_ref", "is", null).execute())
         await ctx.update("payment", p.id, { status: "failed" });
-    } else await ctx.update("booking_player", seat, { leaving_at: ctx.now, late_leave: late });
-    await ctx.emit("booking.player_left", { booking_player_id: seat, paid: paid > 0 });
+      for (const p of await ctx.trx.selectFrom("payment").select(["id", "amount_cents"]).where("booking_player_id", "=", seat).where("status", "=", "succeeded").execute()) {
+        await refundPayment(ctx, p.id, p.amount_cents);
+        refunded += p.amount_cents;
+      }
+    }
+    await ctx.emit("booking.player_left", { booking_player_id: seat, paid: paid > 0, late, refunded });
     return null;
   },
 });
