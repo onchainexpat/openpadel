@@ -155,9 +155,20 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
 /** A sentence that ends on a Spanish time ("10:00 a.m.") keeps one full stop, and an empty last line goes. */
 const tidy = (text: string) => text.replace(/([ap]\.\s?m\.)\./g, "$1").replace(/\s+$/, "");
 
+/** Record when this server started telling people about each kind of event. Called when the server
+ *  starts, before any event is handled; a kind that's already recorded keeps its date. */
+export async function registerMessageTopics(db: Db, now = new Date()): Promise<string[]> {
+  const r = await db.insertInto("message_topic").values(Object.keys(composers).map((topic) => ({ topic, since: now })))
+    .onConflict((oc) => oc.column("topic").doNothing()).returning("topic").execute();
+  return r.map((x) => x.topic);
+}
+
 /** Write an event's messages: the inbox copy now, the email copy for the sender. Safe to run twice. */
 async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<number> {
   if (now.getTime() - new Date(ev.created_at).getTime() > TOO_OLD_MS) return 0;
+  // An event from before this kind of message existed here (an update just added it) tells nobody.
+  const since = (await db.selectFrom("message_topic").select("since").where("topic", "=", ev.topic).executeTakeFirst())?.since;
+  if (since && new Date(ev.created_at) < since) return 0;
   const club = await db.selectFrom("club").select(["time_zone", "default_language"]).executeTakeFirstOrThrow();
   const drafts = await composers[ev.topic]!({ db, tz: club.time_zone }, ev.payload);
   let written = 0;

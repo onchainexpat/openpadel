@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
 import { en, es } from "@kumi/i18n";
-import { messageHandlers, processOutbox, quietUntil, run, runAsSystem, sendEmails, uuidv7, type Actor, type Db, type Mail } from "../src/index.ts";
+import { messageHandlers, processOutbox, quietUntil, registerMessageTopics, run, runAsSystem, sendEmails, uuidv7, type Actor, type Db, type Mail } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, monica: Actor, locationId: string, court1: string;
 const as = (personId: string): Actor => ({ personId, via: "test", lang: "en" });
@@ -174,4 +174,15 @@ test("every message has both languages and no em dashes", () => {
     assert.ok(k in es, k);
     for (const v of [en[k as keyof typeof en], es[k as keyof typeof es]]) assert.ok(typeof v === "string" && !v.includes("—"), k);
   }
+});
+
+test("after an update adds a kind of message, events from before it tell nobody", async () => {
+  const p = await americano("Before the update"), early = await person("Early");
+  await join(p, early);   // its events are waiting in the outbox when the new server starts
+  await db.deleteFrom("message_topic").execute();
+  assert.ok((await registerMessageTopics(db, new Date(Date.now() + 1000))).includes("payment.succeeded"));
+  await deliver();
+  assert.deepEqual(await kinds(early), []);
+  assert.deepEqual(await registerMessageTopics(db), [], "a second start keeps the first date");
+  await db.updateTable("message_topic").set({ since: new Date(0) }).execute();   // back to normal for the other tests
 });

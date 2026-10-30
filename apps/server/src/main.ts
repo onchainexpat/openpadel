@@ -1,11 +1,13 @@
 import { serve } from "@hono/node-server";
-import { clubStripeAccount, combine, connect, expireOffers, messageHandlers, migrate, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { clubStripeAccount, combine, connect, expireOffers, messageHandlers, migrate, registerMessageTopics, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 
 const db = connect();
 const applied = await migrate(db);
 if (applied.length) console.log(`migrations applied: ${applied.join(", ")}`);
+const newTopics = await registerMessageTopics(db);   // before any event is handled: see message_topic
+if (newTopics.length) console.log(`messages: now telling people about ${newTopics.join(", ")}`);
 const port = Number(process.env.PORT ?? 8790);
 const publicUrl = process.env.KUMI_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
 const production = process.env.NODE_ENV === "production";
