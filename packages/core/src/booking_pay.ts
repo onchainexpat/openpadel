@@ -117,9 +117,10 @@ export const bookingJoin = defineAction({
       .$if(!i.invite_code, (q) => q.where("id", "=", i.booking_id ?? "00000000-0000-0000-0000-000000000000")).executeTakeFirst();
     if (!b || b.status !== "confirmed" || b.pay_mode !== "split") throw new KumiError("error.invite_closed");
     if (b.settled_at) throw new KumiError("error.invite_settled");
-    const players = await ctx.db.selectFrom("booking_player").select(["person_id"]).where("booking_id", "=", b.id).where("removed_at", "is", null).execute();
+    const players = await ctx.db.selectFrom("booking_player").select(["person_id", "leaving_at"]).where("booking_id", "=", b.id).where("removed_at", "is", null).execute();
     if (players.some((p) => p.person_id === i.person_id)) throw new KumiError("error.already_in_booking");
-    if (players.length >= b.players) throw new KumiError("error.booking_full");
+    // A place someone can't make counts as free: whoever takes it pays, and they get their money back.
+    if (players.filter((p) => !p.leaving_at).length >= b.players) throw new KumiError("error.booking_full");
     // An open match: only from inside its level band (outside it, players ask the host). Not by id otherwise.
     const om = await openMatchOf(ctx.db, b.id);
     if (!om && !i.invite_code) throw new KumiError("error.invite_closed");
@@ -139,7 +140,7 @@ export const bookingJoin = defineAction({
   async apply(ctx, i, plan) {
     const { booking_id, share } = plan.details as { booking_id: string; share: number };
     await ctx.trx.selectFrom("booking").select("id").where("id", "=", booking_id).forUpdate().execute();   // one joiner at a time
-    const n = await ctx.trx.selectFrom("booking_player").select((eb) => eb.fn.countAll<string>().as("n")).where("booking_id", "=", booking_id).where("removed_at", "is", null).executeTakeFirstOrThrow();
+    const n = await ctx.trx.selectFrom("booking_player").select((eb) => eb.fn.countAll<string>().as("n")).where("booking_id", "=", booking_id).where("removed_at", "is", null).where("leaving_at", "is", null).executeTakeFirstOrThrow();
     const b = await ctx.trx.selectFrom("booking").select(["players", "settled_at", "status"]).where("id", "=", booking_id).executeTakeFirstOrThrow();
     if (Number(n.n) >= b.players || b.settled_at || b.status !== "confirmed") throw new KumiError("error.changed");
     const bp = uuidv7(), payment = uuidv7();
@@ -159,6 +160,20 @@ export async function refundPayment(ctx: ApplyCtx, paymentId: string, cents: num
   await ctx.emit("refund.requested", { refund_id: id });
 }
 
+/** When a new player's payment goes through and the match was full only because someone can't make it: the
+ *  oldest such place is theirs now, and its player gets back what they paid. */
+async function takeOverLeavingPlace(ctx: ApplyCtx, bookingId: string, newPlayer: string) {
+  const b = await ctx.trx.selectFrom("booking").select("players").where("id", "=", bookingId).executeTakeFirstOrThrow();
+  const seats = await ctx.trx.selectFrom("booking_player").select(["id", "leaving_at"]).where("booking_id", "=", bookingId).where("removed_at", "is", null).orderBy("leaving_at").execute();
+  const leaving = seats.filter((s) => s.leaving_at);
+  if (!leaving.length || seats.length <= b.players) return;
+  const out = leaving[0]!;
+  await ctx.update("booking_player", out.id, { removed_at: ctx.now });
+  for (const p of await ctx.trx.selectFrom("payment").select(["id", "amount_cents"]).where("booking_player_id", "=", out.id).where("status", "=", "succeeded").execute())
+    await refundPayment(ctx, p.id, p.amount_cents);
+  await ctx.emit("booking.place_taken", { booking_player_id: out.id, by: newPlayer });
+}
+
 /** After a booking payment succeeds (called by payment.settle). The organiser's payment confirms the booking
  *  and turns its hold into the booking's court time; if the hold ran out and the court went to someone else,
  *  the booking is cancelled and the payment refunded in full. */
@@ -170,8 +185,9 @@ export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amou
     // A player's place: paid after it was let go (too late), all of it back; otherwise it's theirs now.
     if (bp.removed_at) { await refundPayment(ctx, pay.id, pay.amount_cents); return; }
     if (bp.held_until) await ctx.update("booking_player", pay.booking_player_id!, { held_until: null });
+    await takeOverLeavingPlace(ctx, bp.id, bp.person_id!);
     // How many places are left now, for the host's message (it's written a moment later).
-    const seated = await ctx.trx.selectFrom("booking_player").select(sql<string>`count(*)`.as("n")).where("booking_id", "=", bp.id).where("removed_at", "is", null).executeTakeFirstOrThrow();
+    const seated = await ctx.trx.selectFrom("booking_player").select(sql<string>`count(*)`.as("n")).where("booking_id", "=", bp.id).where("removed_at", "is", null).where("leaving_at", "is", null).executeTakeFirstOrThrow();
     const size = await ctx.trx.selectFrom("booking").select("players").where("id", "=", bp.id).executeTakeFirstOrThrow();
     await ctx.emit("booking.player_paid", { booking_id: bp.id, booking_player_id: pay.booking_player_id, left: Math.max(0, size.players - Number(seated.n)) });
     return;

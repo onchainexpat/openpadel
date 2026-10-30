@@ -26,6 +26,11 @@ The first version a club can run on its own (court bookings included), or for it
   for opens again (10 minutes, or an hour for a player the host said yes to), and a payment left
   half-done is called off at Stripe first, so it can't go through unrecorded. Places still empty at
   the club's deadline go on the host's saved card.
+- The host saves places for named friends (nobody else can take them; each pays their own). A player
+  who can't make it puts their place up, and gets their money back when the match fills without
+  them; after the deadline it's a late cancellation. "Running late" tells the others. After the
+  game the host marks who didn't come, and hosts see each player's no-shows and late cancellations
+  (90 days) when they join or ask.
 
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.

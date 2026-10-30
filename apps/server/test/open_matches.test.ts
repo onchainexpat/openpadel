@@ -44,7 +44,7 @@ test("the Play page lists open matches with who's in and what each player can do
   const id = await openMatch(18, { level_min: 3, level_max: 4 });
   const [m] = (await get("/open-matches", "ann@example.test")).json;
   assert.equal(m.id, id);
-  assert.deepEqual(m.players, [{ name: "Hal", level: 3.5, host: true, paying: false }]);
+  assert.deepEqual(m.players, [{ name: "Hal", level: 3.5, host: true, paying: false, saved: false, leaving: false }]);
   assert.deepEqual([m.spots_left, m.share_cents, m.can, m.my_level, m.rated], [3, 1500, "join", 3.4, true]);
   assert.equal(m.invite_code, null);   // only the host sees the link
   const ben = (await get(`/matches/${id}`, "ben@example.test")).json;

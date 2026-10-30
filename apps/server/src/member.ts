@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { checkCardSetup, joinRule, levelOf, openCardSetup, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { checkCardSetup, joinRule, levelOf, openCardSetup, playerRecord, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -95,21 +95,37 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     if (!b) return null;
     const seats = await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id")
       .leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "booking_player.person_id").on("rating.sport", "=", "padel"))
-      .select(["booking_player.id", "booking_player.person_id", "booking_player.held_until", "person.display_name", "rating.level"])
+      .select(["booking_player.id", "booking_player.person_id", "booking_player.held_until", "booking_player.saved_by", "booking_player.leaving_at", "booking_player.no_show", "person.display_name", "rating.level"])
+      .select((eb) => eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded").limit(1).as("paid_id"))
       .select((eb) => eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_payment_id"))
       .where("booking_player.booking_id", "=", b.id).where("booking_player.removed_at", "is", null).orderBy("booking_player.id").execute();
-    const mine = seats.find((x) => x.person_id === pid), host = b.organiser_id === pid;
+    const mine = seats.find((x) => x.person_id === pid), host = b.organiser_id === pid, taken = seats.filter((x) => !x.leaving_at).length;
+    // The host sees each player's record (no-shows and late leaves, 90 days), and so does anyone asking.
+    const record = host ? await playerRecord(db, [...seats.map((x) => x.person_id!).filter(Boolean)]) : new Map();
+    const now = Date.now(), start = new Date(b.start).getTime();
     const request = await db.selectFrom("join_request").select(["id", "status"]).where("booking_id", "=", b.id).where("person_id", "=", pid).orderBy("created_at", "desc").limit(1).executeTakeFirst();
     const level = await levelOf(db, pid), open = b.status === "confirmed" && !b.settled_at && new Date(b.start) > new Date();
-    const requests = host ? await db.selectFrom("join_request").innerJoin("person", "person.id", "join_request.person_id").select(["join_request.id", "person.display_name", "join_request.level", "join_request.note"])
+    const requests = host ? await db.selectFrom("join_request").innerJoin("person", "person.id", "join_request.person_id").select(["join_request.id", "join_request.person_id", "person.display_name", "join_request.level", "join_request.note"])
       .where("join_request.booking_id", "=", b.id).where("join_request.status", "=", "requested").orderBy("join_request.created_at").execute() : [];
+    const asking = host ? await playerRecord(db, requests.map((r) => r.person_id)) : new Map();
     const { organiser_id, invite_code, settled_at, ...rest } = b;
-    return { ...rest, host_is_me: host, open, share_cents: shares(b.price_cents, b.players).each, spots_left: Math.max(0, b.players - seats.length), my_level: level,
-      players: seats.map((x) => ({ name: x.display_name, level: x.level === null ? null : Number(x.level), host: x.person_id === organiser_id, paying: Boolean(x.held_until) })),
-      can: mine || !open || seats.length >= b.players ? null : joinRule(b, level),
-      me: mine ? { pending_payment_id: mine.pending_payment_id, held_until: mine.held_until } : null, request: request ?? null,
-      requests: requests.map((r) => ({ ...r, level: r.level === null ? null : Number(r.level) })), invite_code: host ? invite_code : null };
+    return { ...rest, host_is_me: host, open, share_cents: shares(b.price_cents, b.players).each, spots_left: Math.max(0, b.players - taken), my_level: level,
+      started: now >= start, late_window: now >= start - 3 * 3600_000 && now <= start + 30 * 60_000, no_show_window: now >= start && now <= start + 48 * 3600_000,
+      players: seats.map((x) => ({ id: host ? x.id : undefined, name: x.display_name, level: x.level === null ? null : Number(x.level), host: x.person_id === organiser_id,
+        paying: Boolean(x.held_until), saved: Boolean(x.saved_by && !x.paid_id), leaving: Boolean(x.leaving_at), no_show: host ? x.no_show : undefined,
+        record: host && x.person_id !== organiser_id ? record.get(x.person_id!) ?? { no_shows: 0, late_leaves: 0 } : undefined })),
+      can: mine || !open || taken >= b.players ? null : joinRule(b, level),
+      me: mine ? { pending_payment_id: mine.pending_payment_id, held_until: mine.held_until, leaving: Boolean(mine.leaving_at), saved: Boolean(mine.saved_by && !mine.paid_id) } : null, request: request ?? null,
+      requests: requests.map(({ person_id, ...r }) => ({ ...r, level: r.level === null ? null : Number(r.level), record: asking.get(person_id) ?? { no_shows: 0, late_leaves: 0 } })),
+      invite_code: host ? invite_code : null };
   }
+  // Finding a friend to save a place for: members by name, nothing but the name.
+  app.get("/my/friends/find", async (c) => {
+    const pid = who(c), q = (c.req.query("q") ?? "").trim();
+    if (q.length < 2) return c.json([]);
+    return c.json(await db.selectFrom("person").select(["id", "display_name"]).where("status", "=", "active").where("id", "!=", pid).where("redacted_at", "is", null)
+      .where("display_name", "ilike", `%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`).orderBy("display_name").limit(6).execute());
+  });
   app.get("/open-matches", async (c) => {
     const pid = who(c);
     const ids = await db.selectFrom("open_match").innerJoin("booking", "booking.id", "open_match.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id").select("booking.id")

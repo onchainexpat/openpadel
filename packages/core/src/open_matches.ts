@@ -11,7 +11,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { paymentProvider } from "./money.ts";
 import { abandonPayment } from "./programs.ts";
-import { shares } from "./booking_pay.ts";
+import { refundPayment, shares } from "./booking_pay.ts";
 import { band, levelOf, openMatchOf } from "./match_rules.ts";
 
 /** How long a player the host said yes to has to pay before the seat opens again. */
@@ -28,7 +28,8 @@ async function matchFacts(db: Db | Trx, bookingId: string) {
   if (!b) throw new KumiError("error.not_found", { thing: both("thing.booking") }, 404);
   const om = await openMatchOf(db, bookingId);
   if (!om) throw new KumiError("error.not_open_match");
-  const seated = Number((await db.selectFrom("booking_player").select(sql<string>`count(*)`.as("n")).where("booking_id", "=", bookingId).where("removed_at", "is", null).executeTakeFirstOrThrow()).n);
+  // Seats taken: a player who can't make it has put theirs up for someone else.
+  const seated = Number((await db.selectFrom("booking_player").select(sql<string>`count(*)`.as("n")).where("booking_id", "=", bookingId).where("removed_at", "is", null).where("leaving_at", "is", null).executeTakeFirstOrThrow()).n);
   const when: Text = { en: dateTime(new Date(b.start), "en", b.time_zone), es: dateTime(new Date(b.start), "es", b.time_zone) };
   return { ...b, om, seated, when, share: shares(b.price_cents, b.players).each };
 }
@@ -151,4 +152,148 @@ export async function settleShares(db: Db, now = new Date()) {
     if ((r.result as { charged?: number })?.charged) charged++; else if ((r.result as { owed?: number })?.owed) failed++;
   }
   return { settled: due.length, charged, failed };
+}
+
+// ---- When plans change: saved places, can't make it, running late, no-shows ----
+/** Seats taken (or up for someone else, for a player who can't make it, which still count as theirs). */
+async function seatOf(db: Db | Trx, bookingId: string, personId: string) {
+  return (await db.selectFrom("booking_player").selectAll().where("booking_id", "=", bookingId).where("person_id", "=", personId).where("removed_at", "is", null).executeTakeFirst()) ?? null;
+}
+async function paidBy(db: Db | Trx, bookingPlayerId: string): Promise<number> {
+  const r = await db.selectFrom("payment").select(sql<string>`coalesce(sum(amount_cents), 0)`.as("c")).where("booking_player_id", "=", bookingPlayerId).where("status", "=", "succeeded").executeTakeFirstOrThrow();
+  return Number(r.c);
+}
+/** Whether the club's deadline for this booking has passed (after it, nobody new can take a place). */
+async function pastDeadline(db: Db | Trx, bookingId: string, now: Date) {
+  const r = await db.selectFrom("booking").innerJoin("booking_policy", "booking_policy.id", "booking.policy_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
+    .select(sql<boolean>`booking.settled_at IS NOT NULL OR lower(court_time.during) - make_interval(hours => booking_policy.split_deadline_hours) <= ${now}`.as("past"))
+    .where("booking.id", "=", bookingId).where("court_time.active", "=", true).executeTakeFirst();
+  return Boolean(r?.past);
+}
+
+export const bookingSavePlace = defineAction({
+  name: "booking.save_place", version: 1,
+  input: z.object({ booking_id: z.uuid(), person_id: z.uuid() }),
+  async plan(ctx, i) {
+    const m = await matchFacts(ctx.db, i.booking_id);
+    if (!isOpen(m, ctx.now)) throw new KumiError("error.invite_closed");
+    if (m.seated >= m.players) throw new KumiError("error.booking_full");
+    if (i.person_id === m.organiser_id || await seatOf(ctx.db, i.booking_id, i.person_id)) throw new KumiError("error.already_in_booking");
+    const friend = (await readRow(ctx.db, "person", i.person_id, "thing.person")).row.display_name as string;
+    const policy = await ctx.db.selectFrom("booking").innerJoin("booking_policy", "booking_policy.id", "booking.policy_id").select("booking_policy.split_deadline_hours").where("booking.id", "=", i.booking_id).executeTakeFirstOrThrow();
+    return { title: both("action.booking.save_place"), summary: both("plan.booking.save_place", { friend, share: usd(m.share), hours: both("count.hours", { count: policy.split_deadline_hours }) }),
+      reads: [], locationId: m.location_id, ownerIds: m.organiser_id ? [m.organiser_id] : [], undo: { kind: "compensating" } };
+  },
+  async apply(ctx, i) {
+    await ctx.trx.selectFrom("booking").select("id").where("id", "=", i.booking_id).forUpdate().execute();   // one seat at a time
+    const m = await matchFacts(ctx.trx, i.booking_id);
+    if (m.seated >= m.players || await seatOf(ctx.trx, i.booking_id, i.person_id)) throw new KumiError("error.changed");
+    const id = uuidv7();
+    // Saved, not held: it stays the friend's until the deadline (then, unpaid, the host covers it like any place).
+    await ctx.insert("booking_player", { id, booking_id: i.booking_id, person_id: i.person_id, share_cents: m.share, saved_by: m.organiser_id });
+    await ctx.insert("payment", { id: uuidv7(), person_id: i.person_id, amount_cents: m.share, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", booking_player_id: id });
+    await ctx.emit("booking.place_saved", { booking_player_id: id });
+    return { booking_player_id: id };
+  },
+});
+
+export const bookingDropSavedPlace = defineAction({
+  name: "booking.drop_saved_place", version: 1,
+  input: z.object({ booking_player_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { row: p, read } = await readRow(ctx.db, "booking_player", i.booking_player_id, "thing.booking");
+    if (!p.saved_by || p.removed_at || await paidBy(ctx.db, p.id)) throw new KumiError("error.place_not_saved");
+    const m = await matchFacts(ctx.db, p.booking_id);
+    const friend = (await readRow(ctx.db, "person", p.person_id, "thing.person")).row.display_name as string;
+    return { title: both("action.booking.drop_saved_place"), summary: both("plan.booking.drop_saved_place", { friend }), reads: [read], locationId: m.location_id,
+      ownerIds: m.organiser_id ? [m.organiser_id] : [], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    await ctx.update("booking_player", i.booking_player_id, { removed_at: ctx.now });
+    // A card form the friend opened stays as it is: paid after this, it's refunded (afterBookingPayment).
+    for (const p of await ctx.trx.selectFrom("payment").select("id").where("booking_player_id", "=", i.booking_player_id).where("status", "=", "pending").where("provider_ref", "is", null).execute())
+      await ctx.update("payment", p.id, { status: "failed" });
+    await ctx.emit("booking.place_dropped", { booking_player_id: i.booking_player_id });
+    return null;
+  },
+});
+
+export const bookingLeave = defineAction({
+  name: "booking.leave", version: 1,
+  input: z.object({ booking_id: z.uuid(), person_id: z.uuid() }),
+  async plan(ctx, i) {
+    const m = await matchFacts(ctx.db, i.booking_id);
+    if (i.person_id === m.organiser_id) throw new KumiError("error.host_cancels");
+    const seat = await seatOf(ctx.db, i.booking_id, i.person_id);
+    if (!seat || seat.leaving_at) throw new KumiError("error.not_in_match");
+    if (m.status !== "confirmed" || new Date(m.start) <= ctx.now) throw new KumiError("error.match_started");
+    const paid = await paidBy(ctx.db, seat.id), late = await pastDeadline(ctx.db, i.booking_id, ctx.now);
+    const p = { court: m.court, when: m.when, share: usd(paid) };
+    return { title: both("action.booking.leave"), summary: both(!paid ? "plan.booking.leave_unpaid" : late ? "plan.booking.leave_late" : "plan.booking.leave_paid", p),
+      reads: [], locationId: m.location_id, ownerIds: [i.person_id], undo: { kind: paid ? "reversible" : "none" }, details: { seat: seat.id, paid, late } };
+  },
+  async apply(ctx, i, plan) {
+    const { seat, paid, late } = plan.details as { seat: string; paid: number; late: boolean };
+    if (!paid) {
+      await ctx.update("booking_player", seat, { removed_at: ctx.now, late_leave: late });
+      for (const p of await ctx.trx.selectFrom("payment").select("id").where("booking_player_id", "=", seat).where("status", "=", "pending").where("provider_ref", "is", null).execute())
+        await ctx.update("payment", p.id, { status: "failed" });
+    } else await ctx.update("booking_player", seat, { leaving_at: ctx.now, late_leave: late });
+    await ctx.emit("booking.player_left", { booking_player_id: seat, paid: paid > 0 });
+    return null;
+  },
+});
+
+export const bookingRunningLate = defineAction({
+  name: "booking.running_late", version: 1,
+  input: z.object({ booking_id: z.uuid(), person_id: z.uuid(), minutes: z.number().check(z.int(), z.minimum(5), z.maximum(60)) }),
+  async plan(ctx, i) {
+    const m = await matchFacts(ctx.db, i.booking_id).catch(() => null) ?? await plainBooking(ctx.db, i.booking_id);
+    const seat = await seatOf(ctx.db, i.booking_id, i.person_id);
+    if (!seat || seat.leaving_at) throw new KumiError("error.not_in_match");
+    const start = new Date(m.start).getTime();
+    if (ctx.now.getTime() < start - 3 * 3600_000 || ctx.now.getTime() > start + 30 * 60_000) throw new KumiError("error.not_now_late");
+    return { title: both("action.booking.running_late"), summary: both("plan.booking.running_late", { court: m.court, when: m.when, minutes: i.minutes }),
+      reads: [], locationId: m.location_id, ownerIds: [i.person_id], undo: { kind: "none", note: both("reason.undo_final") } };
+  },
+  async apply(ctx, i) { await ctx.emit("booking.running_late", { booking_id: i.booking_id, person_id: i.person_id, minutes: i.minutes }); return null; },
+});
+/** Any booking with players (running late works for a plain shared booking too). */
+async function plainBooking(db: Db | Trx, bookingId: string) {
+  const b = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id")
+    .select(["booking.location_id", "court.name as court", "location.time_zone", sql<Date>`lower(court_time.during)`.as("start")]).where("booking.id", "=", bookingId).where("court_time.active", "=", true).executeTakeFirst();
+  if (!b) throw new KumiError("error.not_found", { thing: both("thing.booking") }, 404);
+  return { ...b, when: { en: dateTime(new Date(b.start), "en", b.time_zone), es: dateTime(new Date(b.start), "es", b.time_zone) } as Text };
+}
+
+export const bookingMarkNoShow = defineAction({
+  name: "booking.mark_no_show", version: 1,
+  input: z.object({ booking_player_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { row: p, read } = await readRow(ctx.db, "booking_player", i.booking_player_id, "thing.booking");
+    const b = await ctx.db.selectFrom("booking").select(["organiser_id", "location_id"]).where("id", "=", p.booking_id).executeTakeFirstOrThrow();
+    const m = await plainBooking(ctx.db, p.booking_id);
+    if (p.removed_at || !p.person_id || p.person_id === b.organiser_id) throw new KumiError("error.not_in_match");
+    if (p.no_show) throw new KumiError("error.already_no_show");
+    const start = new Date(m.start).getTime();
+    if (ctx.now.getTime() < start || ctx.now.getTime() > start + 48 * 3600_000) throw new KumiError("error.no_show_window");
+    const person = (await readRow(ctx.db, "person", p.person_id, "thing.person")).row.display_name as string;
+    return { title: both("action.booking.mark_no_show"), summary: both("plan.booking.mark_no_show", { person, court: m.court, when: m.when }), reads: [read], locationId: b.location_id,
+      ownerIds: b.organiser_id ? [b.organiser_id] : [], undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    await ctx.update("booking_player", i.booking_player_id, { no_show: true, no_show_by: ctx.actor.personId, no_show_at: ctx.now });
+    await ctx.emit("booking.no_show", { booking_player_id: i.booking_player_id });
+    return null;
+  },
+});
+
+/** Each person's record over the last 90 days: matches they didn't come to, and places they gave up after the deadline. */
+export async function playerRecord(db: Db | Trx, personIds: string[], now = new Date()): Promise<Map<string, { no_shows: number; late_leaves: number }>> {
+  if (!personIds.length) return new Map();
+  const since = new Date(now.getTime() - 90 * 86400_000);
+  const rows = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id")
+    .select(["booking_player.person_id", sql<string>`count(*) FILTER (WHERE booking_player.no_show)`.as("no_shows"), sql<string>`count(*) FILTER (WHERE booking_player.late_leave)`.as("late_leaves")])
+    .where("booking_player.person_id", "in", personIds).where("booking.created_at", ">=", since).groupBy("booking_player.person_id").execute();
+  return new Map(rows.map((r) => [r.person_id!, { no_shows: Number(r.no_shows), late_leaves: Number(r.late_leaves) }]));
 }

@@ -94,6 +94,15 @@ async function membershipInfo(db: Db, membershipId: string) {
     .where("membership.id", "=", membershipId).executeTakeFirstOrThrow();
 }
 
+/** One player's seat in a booking: who they are, the booking, and its host's name. */
+async function seatInfo(db: Db, bookingPlayerId: string) {
+  const s = await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id").select(["booking_player.booking_id", "booking_player.person_id", "booking_player.share_cents", "person.display_name"])
+    .where("booking_player.id", "=", bookingPlayerId).executeTakeFirstOrThrow();
+  const b = await bookingInfo(db, s.booking_id);
+  const host = b.organiser_id ? (await db.selectFrom("person").select("display_name").where("id", "=", b.organiser_id).executeTakeFirst())?.display_name ?? "" : "";
+  return { ...s, name: s.display_name ?? "", b, host };
+}
+
 const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "booking.confirmed"({ db }, p: { booking_id: string }) {
     const b = await bookingInfo(db, p.booking_id);
@@ -161,6 +170,37 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     if (!b.organiser_id || !who) return [];
     return [{ to: b.organiser_id, kind: "match_player_in", params: { ...b.base, person: who.display_name, spots: p.left > 0 ? both("msg.match_spots", { count: p.left }) : both("msg.match_full") },
       purpose: "account", essential: false, email: false, link: `/match/${b.id}`, staleAt: new Date(b.start) }];
+  },
+  async "booking.place_saved"({ db }, p: { booking_player_id: string }) {
+    const s = await seatInfo(db, p.booking_player_id);
+    return s.person_id ? [{ to: s.person_id, kind: "match_place_saved", params: { ...s.b.base, host: s.host, share: amount(s.share_cents) }, purpose: "account", essential: false, email: true,
+      link: `/match/${s.b.id}`, staleAt: new Date(s.b.start) }] : [];
+  },
+  async "booking.place_dropped"({ db }, p: { booking_player_id: string }) {
+    const s = await seatInfo(db, p.booking_player_id);
+    return s.person_id ? [{ to: s.person_id, kind: "match_place_dropped", params: { ...s.b.base, host: s.host }, purpose: "account", essential: false, email: false, link: "/play", staleAt: new Date(s.b.start) }] : [];
+  },
+  async "booking.player_left"({ db }, p: { booking_player_id: string; paid: boolean }) {
+    const s = await seatInfo(db, p.booking_player_id);
+    return s.b.organiser_id ? [{ to: s.b.organiser_id, kind: p.paid ? "match_player_leaving" : "match_player_left", params: { ...s.b.base, person: s.name }, purpose: "account", essential: false,
+      email: false, link: `/match/${s.b.id}`, staleAt: new Date(s.b.start) }] : [];
+  },
+  async "booking.place_taken"({ db }, p: { booking_player_id: string; by: string }) {
+    const s = await seatInfo(db, p.booking_player_id);
+    const by = (await db.selectFrom("person").select("display_name").where("id", "=", p.by).executeTakeFirst())?.display_name ?? "";
+    const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select(sql<string>`coalesce(sum(refund.amount_cents), 0)`.as("c"))
+      .where("payment.booking_player_id", "=", p.booking_player_id).executeTakeFirstOrThrow();
+    return s.person_id ? [{ to: s.person_id, kind: "match_place_taken", params: { ...s.b.base, person: by, amount: amount(Number(back.c)) }, purpose: "account", essential: true, email: true, link: "/places" }] : [];
+  },
+  async "booking.running_late"({ db }, p: { booking_id: string; person_id: string; minutes: number }) {
+    const b = await bookingInfo(db, p.booking_id);
+    const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirst())?.display_name ?? "";
+    return b.players.filter((x) => x.person_id && x.person_id !== p.person_id).map((x) => ({ to: x.person_id!, kind: "match_running_late", params: { ...b.base, person: name, minutes: p.minutes },
+      purpose: "account" as const, essential: true, email: false, staleAt: new Date(new Date(b.start).getTime() + 60 * 60_000) }));
+  },
+  async "booking.no_show"({ db }, p: { booking_player_id: string }) {
+    const s = await seatInfo(db, p.booking_player_id);
+    return s.person_id ? [{ to: s.person_id, kind: "match_no_show", params: { ...s.b.base, host: s.host }, purpose: "account", essential: false, email: true, link: "/places" }] : [];
   },
   async "booking.reminder"({ db }, p: { booking_id: string }) {
     const b = await bookingInfo(db, p.booking_id);
