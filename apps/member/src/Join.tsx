@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
-type Invite = { id: string; open_match: boolean; code: string; court: string; location: string; time_zone: string; organiser: string | null; start: string; end: string; share_cents: number; spots_left: number; open: boolean };
+type Invite = { id: string; open_match: boolean; kind: string; coach: string | null; code: string; court: string; location: string; time_zone: string; organiser: string | null; start: string; end: string; share_cents: number; spots_left: number; open: boolean };
 
 export function Join({ code }: { code: string }) {
   const [inv, setInv] = useState<Invite | null>(null), [error, setError] = useState<string | null>(null), [paying, setPaying] = useState<string | null>(null), [done, setDone] = useState(false);
@@ -22,10 +22,10 @@ export function Join({ code }: { code: string }) {
   return (
     <main>
       {sheet}
-      {paying && <PaySheet paymentId={paying} amountCents={inv.share_cents} name={t("ui.court_booking")} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); setDone(true); }} />}
+      {paying && <PaySheet paymentId={paying} amountCents={inv.share_cents} name={t(inv.kind === "lesson" ? "ui.private_lesson" : "ui.court_booking")} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); setDone(true); }} />}
       {paying && provider === "test" && import.meta.env.DEV && <p><button class="primary" onClick={async () => { await api(`/dev/payments/${paying}/settle`, {}); setPaying(null); setDone(true); }}>{t("ui.pay_test")}</button></p>}
       <section class="card">
-        <h1>{t("ui.join_booking_title", { organiser: inv.organiser ?? "" })}</h1>
+        <h1>{inv.kind === "lesson" ? t("ui.join_lesson_title", { organiser: inv.organiser ?? "", coach: inv.coach ?? "" }) : t("ui.join_booking_title", { organiser: inv.organiser ?? "" })}</h1>
         <p>{inv.court}, {inv.location} · {when}</p>
         {inv.open ? <>
           <p>{t("ui.your_part", { amount: dollars(inv.share_cents, lang.value) })}</p>

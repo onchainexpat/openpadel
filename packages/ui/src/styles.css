@@ -65,3 +65,7 @@ label.inline-number input { flex: none; width: 5.5em; margin: 0; }
 .table-scroll { overflow-x: auto; }
 .table-scroll table { border-collapse: collapse; width: 100%; font-size: 14px; }
 .table-scroll th, .table-scroll td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+
+/* A coach's face (or initials) beside their name. */
+.coach-card { display: flex; gap: 12px; align-items: flex-start; }
+.face { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--line); color: var(--muted); font-weight: 600; }

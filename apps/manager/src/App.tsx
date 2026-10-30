@@ -1,6 +1,8 @@
 import { LocationProvider, Router, Route } from "preact-iso";
 import { useEffect } from "preact/hooks";
 import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, Profile } from "@kumi/ui";
+import { Coaches } from "./Coaches.tsx";
+import { Schedule } from "./Schedule.tsx";
 import { Changes } from "./Changes.tsx";
 import { Programs } from "./Programs.tsx";
 import { Program } from "./Program.tsx";
@@ -34,14 +36,15 @@ export function App() {
   if (me.value === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
   if (me.value === null) return <SignIn />;
   const signOut = async () => { await api("/auth/sign-out", {}); me.value = null; };
+  const roles = me.value.roles.map((r) => r.key), coach = roles.includes("coach"), desk = roles.some((r) => ["owner", "manager", "front_desk"].includes(r));
   return (
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav><a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/memberships">{t("ui.nav_memberships")}</a><a href="/courts">{t("ui.courts")}</a><a href="/scores">{t("ui.nav_scores")}</a><a href="/levels">{t("ui.nav_levels")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink /><a href="/">{t("ui.nav_changes")}</a><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}<a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/memberships">{t("ui.nav_memberships")}</a>{(coach || desk) && <a href="/coaches">{t("ui.nav_coaches")}</a>}<a href="/courts">{t("ui.courts")}</a><a href="/scores">{t("ui.nav_scores")}</a><a href="/levels">{t("ui.nav_levels")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink />{(desk || !coach) && <a href="/">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
-        <Route path="/" component={Changes} />
+        <Route path="/" component={coach && !desk ? Schedule : Changes} />
         <Route path="/profile" component={() => <Profile app="staff" />} />
         <Route path="/programs" component={Programs} />
         <Route path="/programs/:id" component={Program} />
@@ -59,6 +62,8 @@ export function App() {
         <Route path="/memberships" component={Memberships} />
         <Route path="/scores" component={Scores} />
         <Route path="/levels" component={Levels} />
+        <Route path="/coaches" component={Coaches} />
+        <Route path="/schedule" component={Schedule} />
       </Router>
     </LocationProvider>
   );

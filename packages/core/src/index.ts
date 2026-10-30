@@ -26,6 +26,7 @@ export * from "./games.ts";
 export * from "./levels.ts";
 export * from "./ratings.ts";
 export * from "./level_tools.ts";
+export * from "./lessons.ts";
 export * from "./playtomic.ts";
 export * from "./stripe.ts";
 export * from "./connect.ts";

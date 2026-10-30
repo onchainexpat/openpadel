@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { currentPolicy, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
+import { coachEarnings, coachSchedule, currentPolicy, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -17,6 +17,64 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("person_role.person_id", "=", m.id).where("person_role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst();
     if (!staff) throw new KumiError("error.staff_only", {}, 403);
     await next();
+  });
+
+  const rolesOf = async (id: string) => (await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
+    .where("person_role.person_id", "=", id).where("person_role.active", "=", true).execute()).map((r) => r.key);
+  const deskUp = (roles: string[]) => roles.some((r) => ["owner", "manager", "front_desk"].includes(r));
+
+  // ---- Coaches ----
+  // Everyone with the coach role, with their profile (if they have one yet), lesson hours and time off coming
+  // up. Front desk and up see them all; a coach sees their own.
+  app.get("/staff/coaches", async (c) => {
+    const m = me(c)!, roles = await rolesOf(m.id), all = deskUp(roles);
+    if (!all && !roles.includes("coach")) throw new KumiError("error.staff_only", {}, 403);
+    const people = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").innerJoin("person", "person.id", "person_role.person_id")
+      .select(["person.id", "person.display_name"]).distinct().where("role.key", "=", "coach").where("person_role.active", "=", true).where("person.status", "!=", "archived")
+      .$if(!all, (q) => q.where("person.id", "=", m.id)).orderBy("person.display_name").execute();
+    const ids = people.length ? people.map((p) => p.id) : ["00000000-0000-0000-0000-000000000000"];
+    const profiles = await db.selectFrom("coach").selectAll().where("person_id", "in", ids).execute();
+    const hours = await db.selectFrom("coach_hours").select(["coach_id", "location_id", "weekday", "starts", "ends"]).where("coach_id", "in", ids).where("active", "=", true).orderBy("weekday").orderBy("starts").execute();
+    const off = await db.selectFrom("coach_time_off").select(["id", "coach_id", "note", sql<Date>`lower(during)`.as("start"), sql<Date>`upper(during)`.as("end")])
+      .where("coach_id", "in", ids).where("active", "=", true).where(sql<boolean>`upper(during) > now()`).orderBy(sql`lower(during)`).execute();
+    const tz = await clubTz(), day = (d: Date) => localDate(new Date(d), tz), t5 = (x: string) => x.slice(0, 5);
+    const policy = await currentPolicy(db), locations = await db.selectFrom("location").select(["id", "name"]).where("archived_at", "is", null).orderBy("name").execute();
+    return c.json({ can_edit_all: all, lengths: policy.lengths, locations, coaches: people.map((p) => {
+      const pr = profiles.find((x) => x.person_id === p.id);
+      return { id: p.id, name: p.display_name, profile: pr ? { ...pr, photo: pr.photo_id ? `/public/photos/${pr.photo_id}` : null } : null,
+        hours: hours.filter((h) => h.coach_id === p.id).map((h) => ({ location_id: h.location_id, weekday: h.weekday, starts: t5(h.starts), ends: t5(h.ends) })),
+        time_off: off.filter((o) => o.coach_id === p.id).map((o) => ({ id: o.id, note: o.note, from: day(o.start), to: day(new Date(new Date(o.end).getTime() - 1)) })) };
+    }) });
+  });
+  // The signed-in coach's lessons and sessions, for the next two weeks.
+  app.get("/staff/my-schedule", async (c) => {
+    const m = me(c)!, now = new Date();
+    const rows = await coachSchedule(db, m.id, new Date(now.getTime() - 3600_000), new Date(now.getTime() + 14 * 864e5));
+    return c.json({ time_zone: await clubTz(), items: rows });
+  });
+  // For payroll: each coach's lessons (paid, less refunds) and the sessions they ran. Owners, managers and the
+  // accountant see every coach; a coach sees their own.
+  async function earnings(c: Context<any>) {
+    const m = me(c)!, roles = await rolesOf(m.id), all = roles.some((r) => ["owner", "manager", "accountant"].includes(r));
+    if (!all && !roles.includes("coach")) throw new KumiError("error.staff_only", {}, 403);
+    const from = c.req.query("from") ?? "", to = c.req.query("to") ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) throw new KumiError("error.invalid_input", { details: "from and to (YYYY-MM-DD)" }, 400);
+    const r = await coachEarnings(db, from, to, all ? undefined : [m.id]);
+    return { ...r, lessons: r.lessons.filter((l) => l.status !== "cancelled" || l.paid_cents > 0) };
+  }
+  app.get("/staff/coach-earnings", async (c) => c.json(await earnings(c)));
+  app.get("/staff/coach-earnings.csv", async (c) => {
+    const r = await earnings(c), l = lang(c);
+    const at = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: r.time_zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(d)).replace(",", "");
+    const q = (v: unknown) => { const x = String(v ?? ""); return /[",\r\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+    const head = ["coach", "kind", "when", "minutes", "what", "status", "paid", "refunded", "net"].map((k) => t(l, `csv.${k}` as Key));
+    const lines = [
+      ...r.lessons.map((x) => [x.coach, t(l, "csv.lesson"), at(x.start), x.minutes, `${x.code} ${x.booked_by ?? ""} (${x.court})`, t(l, `csv.status_${x.status === "cancelled" ? "cancelled" : "held"}` as Key),
+        (x.paid_cents / 100).toFixed(2), (x.refunded_cents / 100).toFixed(2), (x.net_cents / 100).toFixed(2)]),
+      ...r.sessions.map((x) => [x.coach, t(l, "csv.session"), at(x.start), x.minutes, x.name, t(l, "csv.status_held"), "", "", ""]),
+    ].sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2]))).map((row) => row.map(q).join(","));
+    c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-coaches-${r.from}-to-${r.to}.csv"`);
+    return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });
 
   // Scores the club has to decide (disputed), and the last few entered, with what each side said.
@@ -90,16 +148,16 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       const cents = (type: string) => Number(money.find((r) => r.day === day && r.revenue_type === type)?.cents ?? 0);
       rows.push({ date: day, open_hours: openMin / 60, courts: courts.length, court_hours: capacity / 60, booked_hours: (by.booking ?? 0) / 60, program_hours: (by.session ?? 0) / 60,
         playtomic_hours: (by.mirror ?? 0) / 60, blocked_hours: blocked / 60, occupancy_percent: capacity - blocked > 0 ? Math.round(used / (capacity - blocked) * 1000) / 10 : 0,
-        court_revenue_cents: cents("courts"), program_revenue_cents: cents("programs") });
+        court_revenue_cents: cents("courts"), lesson_revenue_cents: cents("lessons"), program_revenue_cents: cents("programs") });
     }
     return { location: loc.name, from, to, rows };
   }
   app.get("/staff/reports", async (c) => c.json(await report(c.req.query("location_id") ?? "", c.req.query("from") ?? "", c.req.query("to") ?? "")));
   app.get("/staff/reports.csv", async (c) => {
     const r = await report(c.req.query("location_id") ?? "", c.req.query("from") ?? "", c.req.query("to") ?? "");
-    const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "program revenue"];
+    const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "lesson revenue", "program revenue"];
     const lines = r.rows.map((x) => [x.date, x.open_hours, x.courts, x.court_hours, x.booked_hours, x.program_hours, x.playtomic_hours, x.blocked_hours, x.occupancy_percent,
-      (x.court_revenue_cents / 100).toFixed(2), (x.program_revenue_cents / 100).toFixed(2)].join(","));
+      (x.court_revenue_cents / 100).toFixed(2), (x.lesson_revenue_cents / 100).toFixed(2), (x.program_revenue_cents / 100).toFixed(2)].join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-${r.from}-to-${r.to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });
@@ -205,7 +263,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const id = c.req.param("id");
     const program = await db.selectFrom("program").selectAll().where("id", "=", id).executeTakeFirst();
     if (!program) throw new KumiError("error.not_found", { thing: { en: "program", es: "el programa" } }, 404);
-    const sessions = await db.selectFrom("session").selectAll().where("program_id", "=", id).orderBy("starts_at").execute();
+    const sessions = await db.selectFrom("session").leftJoin("person", "person.id", "session.coach_id").selectAll("session").select("person.display_name as coach").where("program_id", "=", id).orderBy("starts_at").execute();
+    // Who could run a date: everyone with the coach role.
+    const coaches = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").innerJoin("person", "person.id", "person_role.person_id")
+      .select(["person.id", "person.display_name as name"]).distinct().where("role.key", "=", "coach").where("person_role.active", "=", true).orderBy("person.display_name").execute();
     const courts = await db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id").select(["court_time.session_id", "court.name"])
       .where("court_time.session_id", "in", sessions.length ? sessions.map((s) => s.id) : ["00000000-0000-0000-0000-000000000000"]).where("court_time.active", "=", true).execute();
     const draws = await db.selectFrom("draw").select("session_id").where("status", "!=", "void").execute();
@@ -217,7 +278,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const offers = await db.selectFrom("waitlist_offer").select(["enrolment_id", "expires_at"]).where("outcome", "is", null).where("expires_at", ">", new Date())
       .where("enrolment_id", "in", roster.length ? roster.map((r) => r.id) : ["00000000-0000-0000-0000-000000000000"]).execute();
     return c.json({
-      program,
+      program, coaches,
       sessions: sessions.map((s) => ({ ...s, courts: courts.filter((x) => x.session_id === s.id).map((x) => x.name), has_draw: draws.some((d) => d.session_id === s.id) })),
       roster: await Promise.all(roster.map(async (r) => ({ ...r, paid_cents: await paidFor(db, r.id), offer_expires_at: offers.find((o) => o.enrolment_id === r.id)?.expires_at ?? null }))),
     });

@@ -43,7 +43,7 @@ export function MyPlaces() {
   );
 }
 
-type Booking = { id: string; code: string; status: string; pay_mode: string; players: number; price_cents: number; invite_code: string | null; balance_cents: number; share_cents: number;
+type Booking = { id: string; code: string; status: string; kind: string; coach: string | null; pay_mode: string; players: number; price_cents: number; invite_code: string | null; balance_cents: number; share_cents: number;
   court: string; location: string; time_zone: string; start: string; end: string; pending_payment_id: string | null; paid_cents: number; joined: number; mine: boolean; open_match_id: string | null;
   group_cents: number | null };
 
@@ -68,7 +68,7 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
       {paying && <PaySheet paymentId={paying.pending_payment_id!} amountCents={paying.group_cents ?? paying.share_cents} name={t("ui.court_booking")} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); onPaid(); load(); }} />}
       <ul class="changes">{rows.map((b) => (
         <li class="card" key={b.id}>
-          <div class="summary">{b.court} · {when(b)}</div>
+          <div class="summary">{b.kind === "lesson" ? `${t("ui.lesson_with", { coach: b.coach ?? "" })} · ` : ""}{b.court} · {when(b)}</div>
           <div class="meta">{b.code} · {b.location}{b.status === "held" ? ` · ${t("ui.being_paid")}` : ""}{b.paid_cents > 0 ? ` · ${t("ui.you_paid", { amount: dollars(b.paid_cents, lang.value) })}` : ""}
             {b.pay_mode === "split" ? ` · ${t("count.joined", { count: b.joined, total: b.players })}` : ""}</div>
           {b.balance_cents > 0 && b.mine && <p class="error">{t("ui.still_owed", { amount: dollars(b.balance_cents, lang.value) })}</p>}

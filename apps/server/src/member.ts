@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, findFriends, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, findFriends, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -71,13 +71,31 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     if (isNaN(start.getTime()) || !Number.isInteger(minutes) || minutes < 30 || minutes > 480) throw new KumiError("error.invalid_input", { details: "court_id, starts_at and minutes" }, 400);
     return c.json(await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes, personId: pid }));
   });
+  // ---- Private lessons ----
+  // The coaches members can book, with their rates and photo (never their contact details).
+  app.get("/my/lessons/coaches", async (c) => {
+    who(c);
+    const p = await currentPolicy(db);
+    return c.json({ coaches: (await lessonCoaches(db)).filter((x) => x.lessons && Object.keys(x.rates).length)
+      .map(({ photo_id, ...x }) => ({ ...x, photo: photo_id ? `/public/photos/${photo_id}` : null })),
+      time_zone: (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone, split_deadline_hours: p.split_deadline_hours, free_cancel_hours: p.free_cancel_hours, late_refund_percent: p.late_refund_percent });
+  });
+  // When a coach gives a lesson of a length on a club date: their hours, less time off and what they're doing, with a court free.
+  app.get("/my/lessons/times", async (c) => {
+    const pid = who(c);
+    const coachId = c.req.query("coach_id") ?? "", date = c.req.query("date") ?? "", minutes = Number(c.req.query("minutes") ?? 60);
+    if (!/^[0-9a-f-]{36}$/.test(coachId) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(minutes) || minutes < 30 || minutes > 240) throw new KumiError("error.invalid_input", { details: "coach_id, date (YYYY-MM-DD) and minutes" }, 400);
+    return c.json({ times: await lessonTimes(db, { coachId, date, minutes, now: new Date() }), days_ahead: await daysAhead(db, pid) });
+  });
+
   // My bookings, as organiser or player: the court and time, what I owe or paid, and the link to share.
   app.get("/my/bookings", async (c) => {
     const pid = who(c);
     const rows = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id")
       .innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id")
-      .select(["booking.id", "booking.code", "booking.status", "booking.pay_mode", "booking.players", "booking.price_cents", "booking.organiser_id", "booking.invite_code", "booking.settled_at",
-        "booking.balance_cents", "booking_player.id as player_id", "booking_player.share_cents", "court.name as court", "location.name as location", "location.time_zone"])
+      .leftJoin("person as coach", "coach.id", "booking.coach_id")
+      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.players", "booking.price_cents", "booking.organiser_id", "booking.invite_code", "booking.settled_at",
+        "booking.balance_cents", "booking_player.id as player_id", "booking_player.share_cents", "court.name as court", "location.name as location", "location.time_zone", "coach.display_name as coach"])
       .select([sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
       .select((eb) => [
         eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_payment_id"),
@@ -207,8 +225,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     who(c);
     const b = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id")
       .innerJoin("location", "location.id", "court.location_id").leftJoin("person", "person.id", "booking.organiser_id")
-      .select(["booking.id", "booking.code", "booking.status", "booking.pay_mode", "booking.players", "booking.price_cents", "booking.settled_at", "court.name as court", "location.name as location",
-        "location.time_zone", "person.display_name as organiser", sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
+      .leftJoin("person as coach", "coach.id", "booking.coach_id")
+      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.players", "booking.price_cents", "booking.settled_at", "court.name as court", "location.name as location",
+        "location.time_zone", "person.display_name as organiser", "coach.display_name as coach", sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
       .where("booking.invite_code", "=", c.req.param("code")).where("court_time.active", "=", true).executeTakeFirst();
     if (!b || b.pay_mode !== "split") throw new KumiError("error.invite_closed", {}, 404);
     const joined = Number((await db.selectFrom("booking_player").select((x) => x.fn.countAll<string>().as("n")).where("booking_id", "=", b.id).where("removed_at", "is", null).executeTakeFirstOrThrow()).n);

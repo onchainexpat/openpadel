@@ -8,6 +8,7 @@ import { clientIp, RateLimiter } from "./limits.ts";
 import { VERSION } from "./version.ts";
 import { manifestRoutes } from "./manifest.ts";
 import * as z from "zod/mini";
+import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, type Lang } from "@kumi/i18n";
 import { actions, apply, approve, plan, decide, KumiError, type Actor, type Db } from "@kumi/core";
@@ -95,7 +96,9 @@ export function makeApp(deps: AppDeps) {
     const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page"]).executeTakeFirstOrThrow();
     // Whether there's a membership to join in the app.
     const plan = await db.selectFrom("membership_plan").select("id").where("active", "=", true).where("join_in_app", "=", true).executeTakeFirst();
-    return c.json({ ...club, memberships: Boolean(plan) });
+    // Whether any coach takes lessons in the app.
+    const coach = await db.selectFrom("coach").select("person_id").where("active", "=", true).where("lessons", "=", true).where(sql<boolean>`rates <> '{}'::jsonb`).executeTakeFirst();
+    return c.json({ ...club, memberships: Boolean(plan), lessons: Boolean(coach) });
   });
 
   // ---- The MCP door: OAuth, then tools generated from the registry ----

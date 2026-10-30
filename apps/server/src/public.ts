@@ -4,7 +4,7 @@
 // the club and its events. Nothing about members is shown; "Join the club" goes to the app's sign-up.
 import { Hono, type Context } from "hono";
 import { isLang, money, t, type Key, type Lang } from "@kumi/i18n";
-import { localDate, membersFrom, planCounts, ruleWhen, type Db } from "@kumi/core";
+import { coachPhoto, lessonCoaches, localDate, membersFrom, planCounts, ruleWhen, type Db } from "@kumi/core";
 
 /** Every value from the database goes through this before it reaches the page. */
 const h = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -16,6 +16,7 @@ const weekday = (lang: Lang, w: number) => new Intl.DateTimeFormat(lang === "es"
 const STYLE = `:root{--brand:#0B5A55}*{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1d2321;background:#f6f6f2}
 main{max-width:720px;margin:0 auto;padding:16px}header{padding:24px 0 8px}h1{margin:0 0 4px;font-size:28px}h2{font-size:20px;margin:0 0 8px}
 section{background:#fff;border:1px solid #e3e3dc;border-radius:12px;padding:16px;margin:12px 0}.meta{color:#5d6662;font-size:14px}a{color:var(--brand)}
+.coach{display:flex;gap:12px;align-items:flex-start;margin:0 0 12px}.coach img{width:72px;height:72px;border-radius:50%;object-fit:cover;flex:none}
 .button{display:inline-block;background:var(--brand);color:#fff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600}
 table{border-collapse:collapse;width:100%}td{padding:4px 0;vertical-align:top}td+td{text-align:right}ul{padding-left:20px;margin:4px 0}footer{padding:16px 0;font-size:13px;color:#5d6662}`;
 
@@ -88,10 +89,18 @@ ${list ? `<h3>${h(t(l, "ui.prices_title"))}</h3><ul>${list}</ul>` : ""}</section
       const left = p.max_members ? Math.max(0, p.max_members - (counts.get(p.id) ?? 0)) : null, starts = p.starts_on && p.starts_on > today ? p.starts_on : null;
       return `<li><strong>${h(p.name)}</strong>: ${h(t(l, p.period === "year" ? "ui.price_a_year" : "ui.price_a_month", { amount: money(p.price_cents, l) }))}${p.description ? `. ${h(p.description.replace(/\.$/, ""))}` : ""}${p.days_ahead ? `. ${h(t(l, "ui.perk_window", { count: p.days_ahead }))}` : ""}${p.program_percent_off ? `. ${h(t(l, "ui.perk_program_percent", { percent: p.program_percent_off }))}` : p.program_cents_off ? `. ${h(t(l, "ui.perk_program_cents", { amount: money(p.program_cents_off, l) }))}` : ""}${p.included_sessions ? `. ${h(t(l, "ui.perk_included", { count: p.included_sessions, period: t(l, `ui.period_${p.period}`), kinds: p.included_kinds.map((k) => t(l, `kind.${k}` as Key)).join(", ") }))}` : ""}${starts ? `. ${h(t(l, "ui.plan_starts_on", { date: fmt(l, "UTC", new Date(`${starts}T12:00:00Z`), { month: "long", day: "numeric", year: "numeric" }) }))}` : ""}${left !== null ? `. ${h(left ? t(l, "ui.places_left", { count: left }) : t(l, "ui.plan_full"))}` : ""}`.replace(/\.?$/, ".") + "</li>";
     }).join("")}</ul></section>` : "";
+    // The coaches, with what members see in the app: never their contact details.
+    const coaches = (await lessonCoaches(db)).filter((x) => x.bio || (x.lessons && Object.keys(x.rates).length));
+    const coachesHtml = coaches.length ? `<section><h2>${h(t(l, "pub.coaches"))}</h2>${coaches.map((x) => {
+      const rates = x.lessons ? Object.entries(x.rates).map(([m, c]) => [Number(m), c] as const).sort((a, b) => a[0] - b[0]).map(([m, c]) => t(l, "pub.lesson_rate", { minutes: t(l, "ui.minutes", { count: m }), price: money(c, l) })).join(", ") : "";
+      const levels = x.level_min && x.level_max ? t(l, "pub.coach_levels", { min: x.level_min, max: x.level_max }) : "";
+      const langs = x.languages.map((g) => t(l, `ui.lang_${g}` as Key)).join(", ");
+      return `<div class="coach">${x.photo_id ? `<img src="/public/photos/${h(x.photo_id)}" alt="${h(x.name)}" loading="lazy">` : ""}<div><strong>${h(x.name)}</strong>${x.bio ? `<br>${h(x.bio)}` : ""}<br><span class="meta">${h([levels, langs, rates ? t(l, "pub.private_lessons", { rates }) : ""].filter(Boolean).join(" · "))}</span></div></div>`;
+    }).join("")}</section>` : "";
     const eventsHtml = `<section><h2>${h(t(l, "pub.coming_up"))}</h2>${coming.length ? `<ul>${coming.map((e) => `<li><a href="/public/events/${h(e.id)}${l === "es" ? "?lang=es" : ""}">${h(e.name)}</a><br><span class="meta">${eventLine(l, e)}</span></li>`).join("")}</ul>` : `<p class="meta">${h(t(l, "pub.no_events"))}</p>`}</section>`;
     const join = cl.sign_up_open ? t(l, "pub.join") : t(l, "pub.sign_in");
     const body = `<header><h1>${h(cl.name)}</h1>${cl.about ? `<p>${h(cl.about)}</p>` : ""}<p><a class="button" href="/">${h(join)}</a> <a href="/public?lang=${l === "es" ? "en" : "es"}">${l === "es" ? "English" : "Español"}</a></p></header>
-${where}${plansHtml}${eventsHtml}<footer>${h(t(l, "pub.footer"))}</footer>`;
+${where}${plansHtml}${coachesHtml}${eventsHtml}<footer>${h(t(l, "pub.footer"))}</footer>`;
     const clubLd = { "@context": "https://schema.org", "@type": "SportsActivityLocation", name: cl.name, url: `${base}/public`, ...(cl.about ? { description: cl.about } : {}),
       ...(locations[0]?.address ? { address: locations[0].address } : {}),
       openingHoursSpecification: hours.filter((x) => x.location_id === locations[0]?.id && x.opens).map((x) => ({ "@type": "OpeningHoursSpecification",
@@ -116,6 +125,18 @@ ${where}${plansHtml}${eventsHtml}<footer>${h(t(l, "pub.footer"))}</footer>`;
 <p>${h(e.location)}${e.address ? `, ${h(e.address)}` : ""}</p><p><a class="button" href="/">${h(t(l, "pub.sign_up_event"))}</a></p></section><footer>${h(t(l, "pub.footer"))}</footer>`;
     return html(c, page({ lang: l, title: `${e.name} · ${cl.name}`, description: `${e.name}: ${fmt(l, e.time_zone, e.first, { dateStyle: "long", timeStyle: "short" })}, ${cl.name}`,
       canonical: `${base}/public/events/${e.id}${l === "es" ? "?lang=es" : ""}`, other: `${base}/public/events/${e.id}${l === "es" ? "" : "?lang=es"}`, brand: cl.brand_colour, body, jsonLd: [eventLd(e, cl.name, cl.currency)] }));
+  });
+
+  // A coach's photo: for this page and the apps, whether or not the page is on (a coach's face is on their
+  // profile in the app too). Only photos on an active coach's profile; the type is the one checked when it was added.
+  app.get("/public/photos/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!/^[0-9a-f-]{36}$/.test(id)) return off(c);
+    const p = await coachPhoto(db, id);
+    if (!p) return off(c);
+    c.header("content-type", p.content_type); c.header("x-content-type-options", "nosniff"); c.header("cache-control", "public, max-age=86400, immutable");
+    c.header("content-security-policy", "default-src 'none'"); c.header("content-disposition", "inline");
+    return c.body(new Uint8Array(p.bytes));
   });
 
   // For search engines: the public pages there are.

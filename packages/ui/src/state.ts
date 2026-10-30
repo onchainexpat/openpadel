@@ -3,7 +3,7 @@ import { signal, computed } from "@preact/signals";
 import { pickLang, t as translate, type Key, type Lang, type Params } from "@kumi/i18n";
 
 export type Me = { person: { id: string; display_name: string; locale: string }; signed_in_with: "email_code" | "passkey"; lang: Lang; roles: { key: string; location_id: string | null }[] };
-export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; court_bookings?: boolean; memberships?: boolean; public_page?: boolean };
+export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
 export const club = signal<Club | null>(null);

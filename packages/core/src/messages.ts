@@ -86,13 +86,20 @@ function refundLine(outcome: string, cents: number, paid: number): Text {
 /** A court booking: where and when (in its location's time), and who's in it. */
 async function bookingInfo(db: Db, bookingId: string) {
   const b = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id")
-    .innerJoin("location", "location.id", "court.location_id")
-    .select(["booking.id", "booking.code", "booking.organiser_id", "booking.pay_mode", "booking.balance_cents", "court.name as court", "location.name as location", "location.time_zone",
-      sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
+    .innerJoin("location", "location.id", "court.location_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
+    .select(["booking.id", "booking.code", "booking.kind", "booking.coach_id", "booking.organiser_id", "booking.pay_mode", "booking.balance_cents", "court.name as court", "location.name as location", "location.time_zone",
+      "coach.display_name as coach", sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
     .where("booking.id", "=", bookingId).orderBy(sql`court_time.active`, "desc").executeTakeFirstOrThrow();
-  const players = await db.selectFrom("booking_player").select(["id", "person_id"]).where("booking_id", "=", bookingId).where("removed_at", "is", null).where("replaces", "is", null).execute();
+  const players = await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id").select(["booking_player.id", "booking_player.person_id", "person.display_name"])
+    .where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null).where("booking_player.replaces", "is", null).execute();
   const minutes = Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60_000);
-  return { ...b, minutes, players, base: { court: b.court, location: b.location, when: when(new Date(b.start), b.time_zone), code: b.code, minutes } };
+  return { ...b, minutes, players, base: { court: b.court, location: b.location, when: when(new Date(b.start), b.time_zone), code: b.code, minutes, coach: b.coach ?? "" } };
+}
+/** A lesson's coach hears about it too, with who's coming. */
+function toCoach(b: Awaited<ReturnType<typeof bookingInfo>>, kind: string, o: { essential?: boolean; staleAt?: Date } = {}): Draft[] {
+  if (!b.coach_id) return [];
+  const names = b.players.map((p) => p.display_name).filter(Boolean).join(", ");
+  return [{ to: b.coach_id, kind, params: { ...b.base, players: names }, purpose: "staff", essential: o.essential ?? false, email: true, link: "/schedule", staleAt: o.staleAt }];
 }
 
 /** A membership and its plan. */
@@ -124,9 +131,10 @@ async function placeChanged(db: Db, p: { from_seat: string; to_seat: string; ref
 
 const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "booking.confirmed"({ db }, p: { booking_id: string }) {
-    const b = await bookingInfo(db, p.booking_id);
+    const b = await bookingInfo(db, p.booking_id), lesson = b.kind === "lesson";
     if (!b.organiser_id) return [];
-    return [{ to: b.organiser_id, kind: b.pay_mode === "split" ? "booking_confirmed_split" : "booking_confirmed", params: b.base, purpose: "account", essential: true, email: true, link: "/places" }];
+    const kind = `${lesson ? "lesson" : "booking"}_confirmed${b.pay_mode === "split" ? "_split" : ""}`;
+    return [{ to: b.organiser_id, kind, params: b.base, purpose: "account", essential: true, email: true, link: "/places" }, ...toCoach(b, "coach_lesson_booked")];
   },
   // Several courts paid together: one message for them all.
   async "booking.courts_confirmed"({ db }, p: { person_id: string; booking_ids: string[]; cents: number }) {
@@ -135,8 +143,8 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const list = { en: items.map((x) => x.en).join("; "), es: items.map((x) => x.es).join("; ") };
     return [{ to: p.person_id, kind: "booking_courts", params: { count: p.booking_ids.length, list, amount: amount(p.cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
-  async "booking.cancelled"({ db }, p: { booking_id: string }) {
-    const b = await bookingInfo(db, p.booking_id);
+  async "booking.cancelled"({ db }, p: { booking_id: string; by?: string | null }) {
+    const b = await bookingInfo(db, p.booking_id), lesson = b.kind === "lesson";
     // Each player who paid hears what comes back to them; everyone in it hears it's off.
     const drafts: Draft[] = [];
     for (const pl of b.players) {
@@ -144,9 +152,10 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select((eb) => eb.fn.sum<string>("refund.amount_cents").as("c"))
         .where("payment.booking_player_id", "=", pl.id).executeTakeFirst();
       const cents = Number(back?.c ?? 0);
-      drafts.push({ to: pl.person_id, kind: "booking_cancelled", params: { ...b.base, refund: cents ? both("msg.refund_card", { amount: amount(cents) }) : NOTHING }, purpose: "account", essential: true, email: true, link: "/places" });
+      drafts.push({ to: pl.person_id, kind: lesson ? "lesson_cancelled" : "booking_cancelled", params: { ...b.base, refund: cents ? both("msg.refund_card", { amount: amount(cents) }) : NOTHING }, purpose: "account", essential: true, email: true, link: "/places" });
     }
-    return drafts;
+    // The coach, unless they called it off themselves.
+    return [...drafts, ...(p.by && p.by === b.coach_id ? [] : toCoach(b, "coach_lesson_cancelled", { essential: true }))];
   },
   async "booking.lost"({ db }, p: { booking_id: string }) {
     const b = await bookingInfo(db, p.booking_id);
@@ -302,7 +311,8 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   async "booking.reminder"({ db }, p: { booking_id: string }) {
     const b = await bookingInfo(db, p.booking_id);
-    return b.players.filter((pl) => pl.person_id).map((pl) => ({ to: pl.person_id!, kind: "booking_reminder", params: b.base, purpose: "account" as const, essential: false, email: true, link: "/places", staleAt: new Date(b.start) }));
+    return [...b.players.filter((pl) => pl.person_id).map((pl) => ({ to: pl.person_id!, kind: b.kind === "lesson" ? "lesson_reminder" : "booking_reminder", params: b.base, purpose: "account" as const, essential: false, email: true, link: "/places", staleAt: new Date(b.start) })),
+      ...toCoach(b, "coach_lesson_reminder", { staleAt: new Date(b.start) })];
   },
   async "membership.started"({ db, tz }, p: { membership_id: string }) {
     const m = await membershipInfo(db, p.membership_id);

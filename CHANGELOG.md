@@ -70,8 +70,26 @@ The first version a club can run on its own (court bookings included), or for it
 - A new Levels page for staff (front desk and up, and coaches): the reviews asked for, and any level
   that moved more than 0.50 in 30 days (counted from the last time staff looked at it). Each is kept
   or changed with a reason; players who asked are told either way, and a changed level is always told.
-- After a clinic or any program date, staff set the levels of everyone who had a place in one go, with
-  one reason; each player whose level changes is told why.
+- After a clinic or any program date, staff (or the coach who ran it) set the levels of everyone who had
+  a place in one go, with one reason; each player whose level changes is told why.
+
+**Coaches and private lessons**
+- A profile for each coach (photo, a few lines, the levels and languages they teach, a rate for each
+  lesson length, court included), the hours they give lessons each week, and time off. Coaches keep
+  their own from the staff app; front desk and up keep anyone's. Members see the coaches in the app,
+  and on the public page when it's on, never with their contact details.
+- Members book a private lesson in the app: a coach, a length and a time when the coach gives lessons
+  and a court is free. It's paid whole, or by each of 2 to 4 players like "pay my part". The court is
+  booked with it, a coach can't be booked twice at once (nor during a date they run), and lessons
+  don't count toward the club's limit on court bookings. The booker cancels under the club's rule; a
+  lesson the coach or the club calls off gives everyone all their money back. The coach hears about
+  each lesson booked, cancelled and coming up, and has a My schedule page.
+- Each program date can name its coach, who then sets the levels after it (other coaches can't).
+- Reports show lesson revenue apart from courts, and each coach's lessons (paid, less refunds) and the
+  dates they ran, with a CSV for payroll: a coach sees their own; owners, managers and the accountant
+  everyone's.
+- Choosing a refund other than the club's rule when cancelling a booking is for staff only (a member
+  could ask for a full refund on a late cancellation before).
 
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.

@@ -22,6 +22,7 @@ collected here.
 | What a player who can't make a match after the deadline gets back, in percent: when their own sub takes the place (default 100), when the club fills it with a paying player (100), and when nobody takes it or it's given free (0) | Settings, Booking rules (step 5c) | Owner |
 | Membership plans: name, price a month or a year, what members get (member court prices, booking further ahead, a discount on clinics and other programs, sessions included each month or year); for a new club, a founding offer (how many, and the opening date) | Memberships (step 5d) | Owner |
 | Starting levels for members who already have one (a Playtomic level, say), and which staff answer level reviews | Each member's level page, and the Levels page | Owner, or the old system |
+| Each coach who gives private lessons: a photo, a few lines about them, the levels and languages they teach, a rate for each lesson length (court included), and the hours they give lessons each week | Coaches (step 5f); each coach can keep their own | The coach, owner approves |
 | A few lines about the club, for its public page | Settings (step 5e) | Website, owner approves |
 | Is the club on Playtomic, and on which plan? | Whether to connect it (its API needs the Champion or Master plan) | Owner |
 

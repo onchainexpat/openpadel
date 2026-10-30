@@ -84,6 +84,9 @@ const ENTITIES = {
   friend: { table: "friend", key: "id", retire: { removed_at: "now" } },
   place_offer: { table: "place_offer", key: "id", retire: { status: "withdrawn" } },
   level_review: { table: "level_review", key: "id", retire: null },
+  coach: { table: "coach", key: "person_id", retire: { active: false } },
+  coach_hours: { table: "coach_hours", key: "id", retire: { active: false } },
+  coach_time_off: { table: "coach_time_off", key: "id", retire: { active: false } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 

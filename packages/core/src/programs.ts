@@ -9,6 +9,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { isClubBlock } from "./playtomic.ts";
+import { checkSessionCoach, coachBusy } from "./lessons.ts";
 import { afterBookingPayment } from "./booking_pay.ts";
 import { afterMembershipPayment } from "./memberships.ts";
 import { quietUntil } from "./messages.ts";
@@ -197,24 +198,30 @@ async function courtTimeUnder(db: Db | Trx, i: { court_ids: string[]; starts_at:
 
 export const sessionAdd = defineAction({
   name: "session.add", version: 1,
-  input: z.object({ program_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), ends_at: z.iso.datetime({ offset: true }), court_ids: z.array(z.uuid()).check(z.minLength(1)) }),
+  input: z.object({ program_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), ends_at: z.iso.datetime({ offset: true }), court_ids: z.array(z.uuid()).check(z.minLength(1)),
+    coach_id: z.optional(z.uuid().check(z.describe("The coach who runs it: someone with the coach role, with no lesson then."))) }),
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     const courts = await ctx.db.selectFrom("court").select(["id", "name", "location_id"]).where("id", "in", i.court_ids).where("archived_at", "is", null).execute();
     if (courts.length !== new Set(i.court_ids).size || courts.some((c) => c.location_id !== p.location_id)) throw new KumiError("error.not_found", { thing: both("thing.court") }, 404);
     if ((await courtTimeUnder(ctx.db, i)).some((c) => !c.absorb)) throw new KumiError("error.court_taken");
-    const names = courts.map((c) => c.name).join(", ");
-    return { title: both("action.session.add"), summary: both("plan.session.add", { name: p.name, when: when(new Date(i.starts_at), await clubTz(ctx.db)), courts: names }), reads: [read], locationId: p.location_id, undo: { kind: "reversible" } };
+    const coach = i.coach_id ? await checkSessionCoach(ctx, i.coach_id, new Date(i.starts_at), new Date(i.ends_at)) : null;
+    const names = courts.map((c) => c.name).join(", "), summary = both("plan.session.add", { name: p.name, when: when(new Date(i.starts_at), await clubTz(ctx.db)), courts: names });
+    return { title: both("action.session.add"), summary: coach ? join2(summary, both("plan.session.add_coach", { coach })) : summary, reads: [read], locationId: p.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
-    // Lock the courts first, in court-id order (spikes/booking_race.md), then take the time.
+    // The coach first (one booking of a coach at a time), then the courts, in court-id order (spikes/booking_race.md).
+    if (i.coach_id) {
+      await ctx.trx.selectFrom("person").select("id").where("id", "=", i.coach_id).forUpdate().execute();
+      if ((await coachBusy(ctx.trx, i.coach_id, new Date(i.starts_at), new Date(i.ends_at), ctx.now)).length) throw new KumiError("error.changed");
+    }
     for (const id of [...i.court_ids].sort()) await ctx.trx.selectFrom("court").select("id").where("id", "=", id).forUpdate().execute();
     const under = await courtTimeUnder(ctx.trx, i);
     if (under.some((c) => !c.absorb)) throw new KumiError("error.court_taken");
     // The club already blocked these courts in Playtomic for this event: the event takes over the hold.
     for (const c of under) await ctx.update("court_time", c.id, { active: false });
     const sessionId = uuidv7(), held = new Map<string, string>();
-    await ctx.insert("session", { id: sessionId, program_id: i.program_id, starts_at: new Date(i.starts_at), ends_at: new Date(i.ends_at) });
+    await ctx.insert("session", { id: sessionId, program_id: i.program_id, starts_at: new Date(i.starts_at), ends_at: new Date(i.ends_at), coach_id: i.coach_id ?? null });
     try {
       for (const court of i.court_ids) {
         const id = uuidv7(); held.set(court, id);
@@ -612,9 +619,15 @@ async function startRefund(ctx: ApplyContext, enrolmentId: string, personId: str
   if (status === "pending") await ctx.emit("refund.requested", { refund_id: id });
 }
 
-/** Which revenue a payment is: courts, memberships or programs. */
-function revenueType(p: { booking_player_id: string | null; membership_plan_id: string | null; membership_id: string | null }) {
-  return p.booking_player_id ? "courts" as const : p.membership_plan_id || p.membership_id ? "memberships" as const : "programs" as const;
+/** Which revenue a payment is: courts, lessons, memberships or programs. */
+async function revenueType(db: Db | Trx, p: { booking_player_id: string | null; membership_plan_id: string | null; membership_id: string | null }) {
+  if (p.booking_player_id) return await bookingRevenue(db, p.booking_player_id);
+  return p.membership_plan_id || p.membership_id ? "memberships" as const : "programs" as const;
+}
+/** A booking's revenue: a lesson's apart from courts, so the club sees what its coaching brings in. */
+export async function bookingRevenue(db: Db | Trx, bookingPlayerId: string): Promise<"courts" | "lessons"> {
+  const b = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").select("booking.kind").where("booking_player.id", "=", bookingPlayerId).executeTakeFirst();
+  return b?.kind === "lesson" ? "lessons" : "courts";
 }
 
 /** Several courts paid together: the one card payment settles every payment in its group, in this one change.
@@ -658,8 +671,8 @@ export const paymentSettle = defineAction({
     // A card kept for the deadline charge ("pay my part"): the provider's customer and card, never the card itself.
     await ctx.update("payment", pay.id, { status: i.outcome, ...(pay.save_card && i.saved_method ? { saved_customer: i.saved_customer ?? null, saved_method: i.saved_method } : {}) });
     if (i.outcome === "failed") { await ctx.emit("payment.failed", { payment_id: pay.id }); return { status: "failed" }; }
-    const kind = revenueType(pay);
-    await post(ctx.trx, ctx.runId, "payment", { courts: "court booking payment", memberships: "membership payment", programs: "program payment" }[kind], [
+    const kind = await revenueType(ctx.trx, pay);
+    await post(ctx.trx, ctx.runId, "payment", { courts: "court booking payment", lessons: "lesson payment", memberships: "membership payment", programs: "program payment" }[kind], [
       { account: await account(ctx.trx, "provider_clearing"), cents: pay.amount_cents },
       { account: await account(ctx.trx, "revenue", { revenueType: kind }), cents: -pay.amount_cents },
     ]);
@@ -694,7 +707,7 @@ export const refundSettle = defineAction({
     await ctx.update("refund", r.id, { status: "sent", provider_ref: i.provider_ref ?? null });
     const paid = await ctx.trx.selectFrom("payment").select(["booking_player_id", "membership_plan_id", "membership_id"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
     await post(ctx.trx, ctx.runId, "refund", "refund to card", [
-      { account: await account(ctx.trx, "revenue", { revenueType: revenueType(paid) }), cents: r.amount_cents },
+      { account: await account(ctx.trx, "revenue", { revenueType: await revenueType(ctx.trx, paid) }), cents: r.amount_cents },
       { account: await account(ctx.trx, "provider_clearing"), cents: -r.amount_cents },
     ]);
     return { status: "sent" };

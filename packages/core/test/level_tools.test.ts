@@ -107,7 +107,7 @@ test("a level that moved more than 0.50 in 30 days is in the queue until staff l
 test("after a clinic, its levels set in one go; each player whose level changes is told", async () => {
   const pid = ((await run(db, "program.create", { location_id: loc, kind: "clinic", name: "Clinic L", capacity: 8, price_cents: 0 }, owner, opts)).result as any).program_id;
   const court = ((await run(db, "court.create", { location_id: loc, name: "Court 1" }, owner, opts)).result as any).court_id;
-  const session = ((await run(db, "session.add", { program_id: pid, starts_at: at(2).toISOString(), ends_at: at(3).toISOString(), court_ids: [court] }, owner, opts)).result as any).session_id;
+  const session = ((await run(db, "session.add", { program_id: pid, starts_at: at(2).toISOString(), ends_at: at(3).toISOString(), court_ids: [court], coach_id: coach.personId }, owner, opts)).result as any).session_id;
   await run(db, "program.publish", { program_id: pid }, owner, opts);
   for (const who of ["Ann", "Ben", "Cy"]) await run(db, "enrolment.join", { program_id: pid, person_id: people[who] }, as(who), opts);
   const levels = [{ person_id: people.Ann, level: 3.45 }, { person_id: people.Ben, level: 3.5 }, { person_id: people.Cy, level: 2.75 }];
@@ -115,6 +115,8 @@ test("after a clinic, its levels set in one go; each player whose level changes 
   await rejects(plan(db, "level.set_session", input, coach, opts), "error.session_not_started");
   await rejects(plan(db, "level.set_session", { ...input, levels: [...levels, { person_id: people.Eve, level: 3 }] }, coach, { now: at(3) }), "error.not_in_session", "Eve didn't have a place in this session.");
   await rejects(plan(db, "level.set_session", input, as("Ann"), { now: at(3) }), "error.forbidden_reason");
+  const other = await staff("Otto Coach", "coach");   // a coach sets levels only after the dates they run
+  await rejects(plan(db, "level.set_session", input, other, { now: at(3) }), "error.forbidden_reason");
   const r = await run(db, "level.set_session", input, coach, { now: at(3) });
   assert.equal(r.plan.summary.en, "Set levels after Clinic L, Tue, Dec 1, 12:00 PM: Ben from 3.10 to 3.50; Cy from no level yet to 2.75. Reason: Assessed in the clinic drills. 1 other player stays as they are. Each player whose level changes is told.");
   assert.deepEqual([(await rating("Ben")).level, (await rating("Cy")).level, (await rating("Ann")).level], ["3.50", "2.75", "3.45"]);

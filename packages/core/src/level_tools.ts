@@ -189,7 +189,7 @@ export const levelAnswerReview = defineAction({
 // ---- A whole clinic session at once ----
 /** Who was signed up for a session (a place in that session, or in the whole program), with their levels. */
 export async function sessionPlayers(db: Db | Trx, sessionId: string) {
-  const s = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.id", "session.program_id", "session.starts_at", "session.status", "program.name", "program.location_id"])
+  const s = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.id", "session.program_id", "session.starts_at", "session.status", "session.coach_id", "program.name", "program.location_id"])
     .where("session.id", "=", sessionId).executeTakeFirst();
   if (!s) throw new KumiError("error.not_found", { thing: both("thing.session") }, 404);
   const players = await db.selectFrom("enrolment").innerJoin("person", "person.id", "enrolment.person_id")
@@ -223,7 +223,8 @@ export const levelSetSession = defineAction({
     const tz = await clubTz(ctx.db), when: Text = { en: dateTime(new Date(s.starts_at), "en", tz), es: dateTime(new Date(s.starts_at), "es", tz) };
     const items = changes.map((c) => both("plan.level.change_item", { name: c.name, before: c.before ?? both("plan.level.no_level"), after: c.after }));
     const left = players.length - changes.length;
-    return { title: both("action.level.set_session"), reads, locationId: s.location_id, undo: { kind: "compensating" }, details: { changes },
+    // A coach sets levels after the sessions they run (their grant is for their own); front desk and up, any.
+    return { title: both("action.level.set_session"), reads, locationId: s.location_id, ownerIds: s.coach_id ? [s.coach_id] : [], undo: { kind: "compensating" }, details: { changes },
       summary: both("plan.level.set_session", { program: s.name, when, changes: { en: items.map((x) => x.en).join("; "), es: items.map((x) => x.es).join("; ") }, reason: i.reason.trim(),
         rest: left > 0 ? both("plan.level.rest_unchanged", { count: left }) : { en: "", es: "" } }) };
   },

@@ -33,6 +33,7 @@ take a few days.
 | 5b | Bring in the existing members (optional) | Owner exports a spreadsheet, agent imports | 15 min | below |
 | 5c | Courts, prices and booking rules | Owner decides, staff app | 20 min | below |
 | 5d | Membership plans (optional) | Owner decides, staff app | 10 min | below |
+| 5f | Coaches and private lessons (optional) | Each coach, staff app | 10 min a coach | below |
 | 6 | Card payments, in test mode first | Owner copies keys, agent sets up | 30 min | [accounts/stripe.md](accounts/stripe.md) |
 | 7 | Playtomic, only if the club also uses it | Owner creates keys, agent sets up | 20 min | [accounts/playtomic.md](accounts/playtomic.md) |
 | 8 | Practice with the club's own staff | Everyone | a few days | below |
@@ -129,6 +130,28 @@ all of it, with schema.org markup for the club and its events, and a sitemap at 
 Nothing about members is shown. "Join the club" goes to the app's sign-up, so before opening it works
 as the interest list: people join with their email and say whether they want club news.
 
+### Step 5f: coaches and private lessons (optional)
+
+Give each coach the coach role on their page in the staff app (or in `club.yaml`). Then, under Coaches,
+make their profile: a photo, a few lines about them, the levels and languages they teach, and a rate
+for each lesson length they offer. The rate is the whole price, court included, and all of it goes to
+the club. Add the hours they give lessons each week (more than one stretch a day is fine) and any time
+off. Coaches can keep their own profile, hours and time off from the staff app; front desk and up can
+keep anyone's.
+
+Members then book a lesson under Lessons in the app: a coach, a length and a time when the coach gives
+lessons and a court is free. They pay it all, or (2 to 4 players) each pays their part, like a court
+booking, with what's unpaid at the deadline going on the booker's card. The court is booked with the
+lesson, a coach can't be in two places at once, and lessons don't count toward the club's limit on
+court bookings. Cancelling follows the club's cancellation rule; when the coach or the club calls a
+lesson off, the players get everything back. The coach hears about each lesson booked, cancelled and
+coming up, and sees their own two weeks under My schedule.
+
+Each program date can name the coach who runs it (on the program's page); that coach then sets the
+levels after it, and can't be booked for a lesson then. Reports shows lesson revenue apart from courts,
+and each coach's lessons (paid, less refunds) and the dates they ran, with a CSV for payroll. A coach
+sees their own; owners, managers and the accountant see everyone's.
+
 ### Notifications
 
 Nothing to set up. Each member turns notifications on for their own phone in Profile, and from then
@@ -142,8 +165,9 @@ Nothing to set up. Staff can give a member who already has a level elsewhere (Pl
 level to start from, with a reason, on their level page; after that, rated results move it. A new
 player who feels it's wrong can move it once, by up to half a level, in their first 5 rated games,
 and anyone can ask the club for a review (free, once every 30 days). Staff answer reviews on the
-Levels page, which also lists any level that moved more than 0.50 in 30 days. After a clinic, a coach
-or the front desk sets the levels of everyone who came in one go, from that date on the program's page.
+Levels page, which also lists any level that moved more than 0.50 in 30 days. After a clinic, the coach
+who ran it or the front desk sets the levels of everyone who came in one go, from that date on the
+program's page.
 
 ### Step 8: practice
 

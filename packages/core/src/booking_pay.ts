@@ -38,7 +38,7 @@ export async function daysAhead(db: Db | Trx, personId: string, now = new Date()
   return Math.max(policy.days_ahead, member?.days_ahead ?? 0);
 }
 
-async function courtAndPlace(db: Db | Trx, courtId: string) {
+export async function courtAndPlace(db: Db | Trx, courtId: string) {
   const c = await db.selectFrom("court").innerJoin("location", "location.id", "court.location_id")
     .select(["court.id", "court.name", "court.location_id", "court.bookable", "court.archived_at", "location.time_zone"]).where("court.id", "=", courtId).executeTakeFirst();
   if (!c || c.archived_at) throw new KumiError("error.not_found", { thing: both("thing.court") }, 404);
@@ -46,10 +46,10 @@ async function courtAndPlace(db: Db | Trx, courtId: string) {
 }
 
 /** The checks every court booking passes: a length the club offers, a bookable court, in the future, inside
- *  the person's booking window and the opening hours, and free. */
-async function checkSlot(ctx: PlanCtx, policy: Awaited<ReturnType<typeof currentPolicy>>, s: { court_id: string; starts_at: string; minutes: number }, personId: string) {
+ *  the person's booking window and the opening hours, and free. A lesson's length is the coach's to offer. */
+export async function checkSlot(ctx: PlanCtx, policy: Awaited<ReturnType<typeof currentPolicy>>, s: { court_id: string; starts_at: string; minutes: number }, personId: string, o: { anyLength?: boolean } = {}) {
   const court = await courtAndPlace(ctx.db, s.court_id), start = new Date(s.starts_at), end = new Date(start.getTime() + s.minutes * 60_000);
-  if (!policy.lengths.includes(s.minutes)) throw new KumiError("error.length_not_offered", { lengths: policy.lengths.join(", ") });
+  if (!o.anyLength && !policy.lengths.includes(s.minutes)) throw new KumiError("error.length_not_offered", { lengths: policy.lengths.join(", ") });
   if (!court.bookable) throw new KumiError("error.court_not_bookable", { court: court.name });
   if (start <= ctx.now) throw new KumiError("error.in_the_past");
   const ahead = await daysAhead(ctx.db, personId, ctx.now);
@@ -59,14 +59,15 @@ async function checkSlot(ctx: PlanCtx, policy: Awaited<ReturnType<typeof current
   if ((await occupied(ctx.db, [s.court_id], start, end, ctx.now)).length) throw new KumiError("error.court_taken");
   return { court, start, end, day };
 }
-/** How many bookings a person has coming up (or being paid for), against the club's limit. */
+/** How many court bookings a person has coming up (or being paid for), against the club's limit. Lessons
+ *  don't count: the limit shares out courts members book for themselves. */
 async function upcomingCount(db: Db | Trx, personId: string, now: Date): Promise<number> {
   const r = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").select((eb) => eb.fn.count<string>("booking.id").distinct().as("n"))
-    .where("booking.organiser_id", "=", personId).where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true).where(sql<boolean>`upper(court_time.during) > ${now}`).executeTakeFirstOrThrow();
+    .where("booking.organiser_id", "=", personId).where("booking.kind", "=", "court").where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true).where(sql<boolean>`upper(court_time.during) > ${now}`).executeTakeFirstOrThrow();
   return Number(r.n);
 }
 /** A booking code no booking has yet: the club's initials and four letters ("KP-7QX2"). */
-async function newCode(trx: Trx): Promise<string> {
+export async function newCode(trx: Trx): Promise<string> {
   const club = await trx.selectFrom("club").select("name").executeTakeFirstOrThrow();
   const prefix = club.name.split(/\s+/).map((w) => w[0]).join("").replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase().padEnd(2, "K");
   let code = `${prefix}-${code4()}`;
@@ -208,8 +209,9 @@ export const bookingJoin = defineAction({
     const t = await ctx.db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id")
       .select(["court.name", "location.time_zone", sql<Date>`lower(during)`.as("start")]).where("court_time.booking_id", "=", b.id).where("court_time.active", "=", true).executeTakeFirstOrThrow();
     const organiser = b.organiser_id ? (await readRow(ctx.db, "person", b.organiser_id, "thing.person")).row.display_name : "";
+    const coach = b.coach_id ? (await readRow(ctx.db, "person", b.coach_id, "thing.person")).row.display_name : "";
     const s = shares(b.price_cents, b.players);
-    return { title: both("action.booking.join"), summary: both(om ? "plan.booking.join_match" : "plan.booking.join", { organiser, court: t.name, when: when(new Date(t.start), t.time_zone), share: usd(s.each) }),
+    return { title: both("action.booking.join"), summary: both(om ? "plan.booking.join_match" : b.kind === "lesson" ? "plan.lesson.join" : "plan.booking.join", { organiser, coach, court: t.name, when: when(new Date(t.start), t.time_zone), share: usd(s.each) }),
       reads: [], locationId: b.location_id, ownerIds: [i.person_id], moneyCents: s.each, undo: { kind: "compensating" }, details: { booking_id: b.id, share: s.each } };
   },
   async apply(ctx, i, plan) {
@@ -387,13 +389,18 @@ export const bookingCancel = defineAction({
   async plan(ctx, i) {
     const { row: b, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
-    const r = await cancelRefunds(ctx.db, b.id, ctx.now, i.refund ?? "rule"), total = r.refunds.reduce((n, x) => n + x.cents, 0);
+    // Choosing what comes back instead of the rule is for the club (rule 2), not the player cancelling.
+    if (i.refund && !(await deskOrUp(ctx.db, ctx.actor.personId))) throw new KumiError("error.refund_choice_staff", {}, 403);
+    // A lesson the coach or the club calls off: the players get everything back. The coach can't choose less.
+    const lesson = b.kind === "lesson", byCoach = lesson && ctx.actor.personId === b.coach_id;
+    const choice = byCoach ? "full" : i.refund ?? (lesson && ctx.actor.personId !== b.organiser_id ? "full" : "rule");
+    const r = await cancelRefunds(ctx.db, b.id, ctx.now, choice), total = r.refunds.reduce((n, x) => n + x.cents, 0);
     const joiners = r.refunds.filter((x) => x.joiner).reduce((n, x) => n + x.cents, 0), host = total - joiners, hours = both("count.hours", { count: r.hours });
     const money = !r.refunds.length ? both("refund.nothing_paid")
       : joiners ? both(host ? "plan.booking.refund_open" : "plan.booking.no_refund_open", { host: usd(host), others: usd(joiners), hours })
       : total ? both("plan.booking.refund", { amount: usd(total) }) : both("plan.booking.no_refund", { hours });
-    return { title: both("action.booking.cancel"), summary: both("plan.booking.cancel_refund", { code: b.code, refund: money }), reads: [read], locationId: b.location_id,
-      ownerIds: b.organiser_id ? [b.organiser_id] : [], moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };
+    return { title: both("action.booking.cancel"), summary: both(lesson ? "plan.lesson.cancel_refund" : "plan.booking.cancel_refund", { code: b.code, refund: money }), reads: [read], locationId: b.location_id,
+      ownerIds: [b.organiser_id, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };
   },
   async apply(ctx, i, plan) {
     await ctx.update("booking", i.booking_id, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: i.reason ?? null });
@@ -402,10 +409,16 @@ export const bookingCancel = defineAction({
     // Shares not paid yet can't be paid any more.
     for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
       .where("booking_player.booking_id", "=", i.booking_id).where("payment.status", "=", "pending").execute()) await ctx.update("payment", p.id, { status: "failed" });
-    await ctx.emit("booking.cancelled", { booking_id: i.booking_id });
+    await ctx.emit("booking.cancelled", { booking_id: i.booking_id, by: ctx.actor.personId });
     return null;
   },
 });
+/** Owners, managers and front desk: who may choose a refund other than the rule. */
+async function deskOrUp(db: Db | Trx, personId: string | null): Promise<boolean> {
+  if (!personId) return false;
+  return Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id").where("person_role.person_id", "=", personId)
+    .where("person_role.active", "=", true).where("role.key", "in", ["owner", "manager", "front_desk"]).executeTakeFirst());
+}
 
 // ---- The jobs ----
 /** Holds nobody paid for in time: the booking lapses and the court is free (it already is, to new bookings). */
@@ -466,7 +479,7 @@ export const bookingSettleShares = defineAction({
       await ctx.insert("payment", { id: uuidv7(), person_id: b.organiser_id!, amount_cents: unpaid, method: "card", provider: paymentProvider().name, provider_ref: charge.ref,
         provider_account: organiserPay?.provider_account ?? null, status: "succeeded", booking_player_id: organiserPay!.bp });
       await post(ctx.trx, ctx.runId, "payment", "court booking: unpaid shares", [
-        { account: await account(ctx.trx, "provider_clearing"), cents: unpaid }, { account: await account(ctx.trx, "revenue", { revenueType: "courts" }), cents: -unpaid }]);
+        { account: await account(ctx.trx, "provider_clearing"), cents: unpaid }, { account: await account(ctx.trx, "revenue", { revenueType: b.kind === "lesson" ? "lessons" : "courts" }), cents: -unpaid }]);
       await ctx.update("booking", b.id, { settled_at: ctx.now });
       await ctx.emit("booking.shares_charged", { booking_id: b.id, cents: unpaid });
       return { charged: unpaid };
@@ -554,7 +567,7 @@ export const bookingRecordPayment = defineAction({
     await ctx.insert("payment", { id, person_id: player.person_id ?? b.organiser_id ?? ctx.actor.personId!, amount_cents: i.cents, method: i.method, provider: "none", provider_ref: null, status: "succeeded", booking_player_id: player.id });
     await post(ctx.trx, ctx.runId, "payment", `court booking paid at the desk (${i.method})${i.note ? `: ${i.note}` : ""}`, [
       { account: await account(ctx.trx, i.method === "cash" ? "cash_drawer" : "provider_clearing"), cents: i.cents },
-      { account: await account(ctx.trx, "revenue", { revenueType: "courts" }), cents: -i.cents }]);
+      { account: await account(ctx.trx, "revenue", { revenueType: b.kind === "lesson" ? "lessons" : "courts" }), cents: -i.cents }]);
     if (b.balance_cents) await ctx.update("booking", b.id, { balance_cents: Math.max(0, b.balance_cents - i.cents) });
     await ctx.emit("booking.paid_at_desk", { booking_id: b.id, payment_id: id });
     return { payment_id: id };
