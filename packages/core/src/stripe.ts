@@ -62,18 +62,38 @@ export class StripeProvider implements PaymentProvider {
     return a.id;
   }
 
-  async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; metadata?: Record<string, string> }) {
+  async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; metadata?: Record<string, string>; customer?: string; saveCard?: boolean }) {
     const account = await this.payingAccount();
     // Cards only, whatever else the Stripe account has switched on: Apple Pay and Google Pay are cards
-    // underneath, so every payment refunds the same way, straight back to the card.
+    // underneath, so every payment refunds the same way, straight back to the card. A card saved for a
+    // later charge is saved, never held: nothing is reserved on it.
     const d = await this.call("POST", "/v1/payment_intents", { amount: i.amountCents, currency: i.currency.toLowerCase(), description: i.description,
-      payment_method_types: ["card"], metadata: i.metadata }, `intent:${i.idempotencyKey}`, account);
+      payment_method_types: ["card"], metadata: i.metadata, customer: i.customer, ...(i.saveCard ? { setup_future_usage: "off_session" } : {}) }, `intent:${i.idempotencyKey}`, account);
     return { ref: String(d.id), clientSecret: String(d.client_secret), account };
   }
 
   async getIntent(ref: string, account?: string | null) {
     const d = await this.call("GET", `/v1/payment_intents/${encodeURIComponent(ref)}`, undefined, undefined, account);
-    return { status: intentStatus(d.status), clientSecret: String(d.client_secret) };
+    const id = (v: unknown) => (typeof v === "string" ? v : (v as { id?: string } | null)?.id ?? null);
+    return { status: intentStatus(d.status), clientSecret: String(d.client_secret), paymentMethod: id(d.payment_method), customer: id(d.customer) };
+  }
+
+  async ensureCustomer(i: { key: string; email?: string | null; name?: string }) {
+    const account = await this.payingAccount();
+    const d = await this.call("POST", "/v1/customers", { email: i.email ?? undefined, name: i.name, metadata: { kumi_person_id: i.key } }, `customer:${i.key}`, account);
+    return { id: String(d.id), account };
+  }
+
+  async chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; currency: string; description: string; idempotencyKey: string; account?: string | null }) {
+    try {
+      const d = await this.call("POST", "/v1/payment_intents", { amount: i.amountCents, currency: i.currency.toLowerCase(), description: i.description, customer: i.customer,
+        payment_method: i.paymentMethod, payment_method_types: ["card"], off_session: true, confirm: true }, `charge:${i.idempotencyKey}`, i.account);
+      return { ref: String(d.id), status: intentStatus(d.status), ...(d.status === "succeeded" ? {} : { failure: String(d.status) }) };
+    } catch (e) {
+      // A declined card, or one that needs its owner to confirm: a failed charge, for the desk to settle.
+      if (e instanceof StripeError && e.status >= 400 && e.status < 500 && e.status !== 429) return { ref: "", status: "failed" as const, failure: e.code ?? e.message };
+      throw e;
+    }
   }
 
   async refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string; account?: string | null }) {

@@ -9,6 +9,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { isClubBlock } from "./playtomic.ts";
+import { afterBookingPayment } from "./booking_pay.ts";
 import { quietUntil } from "./messages.ts";
 
 /** How long a place offered from the waitlist is held. With texts it would be 2 hours; while email is
@@ -462,13 +463,22 @@ export const paymentOpen = defineAction({
 /** The card form for one of the person's own pending payments: the provider's intent, opened once and reused. */
 export async function openPayment(db: Db, paymentId: string, personId: string): Promise<{ clientSecret: string; provider: "test" | "stripe"; account: string | null }> {
   const pay = await db.selectFrom("payment").leftJoin("enrolment", "enrolment.id", "payment.enrolment_id").leftJoin("program", "program.id", "enrolment.program_id")
-    .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider_ref", "payment.provider_account", "program.name as what"]).where("payment.id", "=", paymentId).executeTakeFirst();
+    .leftJoin("booking_player", "booking_player.id", "payment.booking_player_id").leftJoin("booking", "booking.id", "booking_player.booking_id")
+    .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider_ref", "payment.provider_account", "payment.save_card", "program.name as what", "booking.code", "booking.status as booking_status"]).where("payment.id", "=", paymentId).executeTakeFirst();
   if (!pay || pay.person_id !== personId) throw new KumiError("error.not_found", { thing: both("thing.payment") }, 404);
   if (pay.status !== "pending") throw new KumiError("error.not_pending", {}, 409);
+  if (pay.booking_status === "cancelled") throw new KumiError("error.booking_cancelled", {}, 409);
   const pv = paymentProvider();
   if (pay.provider_ref) return { clientSecret: (await pv.getIntent(pay.provider_ref, pay.provider_account)).clientSecret, provider: pv.name, account: pay.provider_account };
   const { currency } = await db.selectFrom("club").select("currency").executeTakeFirstOrThrow();
-  const it = await pv.createIntent({ amountCents: pay.amount_cents, currency, description: pay.what ?? "Kumi", idempotencyKey: pay.id, metadata: { kumi_payment_id: pay.id } });
+  // "Pay my part": the organiser's card is saved for the deadline charge, under a customer for them.
+  let customer: string | undefined;
+  if (pay.save_card) {
+    const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", pay.person_id).executeTakeFirstOrThrow();
+    customer = (await pv.ensureCustomer({ key: pay.person_id, email: person.email, name: person.display_name })).id;
+  }
+  const it = await pv.createIntent({ amountCents: pay.amount_cents, currency, description: pay.what ?? (pay.code ? `Court booking ${pay.code}` : "Kumi"), idempotencyKey: pay.id,
+    metadata: { kumi_payment_id: pay.id }, customer, saveCard: pay.save_card });
   await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: it.ref, ...(it.account ? { provider_account: it.account } : {}) }, "payments");
   return { clientSecret: it.clientSecret, provider: pv.name, account: it.account };
 }
@@ -480,7 +490,7 @@ export async function checkPayment(db: Db, paymentId: string, via = "payments"):
   if (!pay) return null;
   if (pay.status !== "pending" || !pay.provider_ref) return pay.status;
   const it = await paymentProvider().getIntent(pay.provider_ref, pay.provider_account);
-  if (it.status !== "pending") await runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: it.status }, via);
+  if (it.status !== "pending") await runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: it.status, ...(it.paymentMethod ? { saved_method: it.paymentMethod } : {}), ...(it.customer ? { saved_customer: it.customer } : {}) }, via);
   return it.status;
 }
 
@@ -516,7 +526,7 @@ async function startRefund(ctx: ApplyContext, enrolmentId: string, personId: str
 
 export const paymentSettle = defineAction({
   name: "payment.settle", version: 1, system: true, internal: true,
-  input: z.object({ payment_id: z.uuid(), outcome: z.enum(["succeeded", "failed"]) }),
+  input: z.object({ payment_id: z.uuid(), outcome: z.enum(["succeeded", "failed"]), saved_customer: z.optional(z.string()), saved_method: z.optional(z.string()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "payment", i.payment_id);
     return { title: both("action.payment.settle"), summary: both(i.outcome === "succeeded" ? "plan.payment.succeeded" : "plan.payment.failed", { person: await personName(ctx.db, row.person_id), amount: usd(row.amount_cents) }), reads: [read], undo: { kind: "none", note: both("reason.refund_sent") } };
@@ -524,12 +534,15 @@ export const paymentSettle = defineAction({
   async apply(ctx, i) {
     const pay = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", i.payment_id).executeTakeFirstOrThrow();
     if (pay.status !== "pending") return { already: pay.status };   // a repeated webhook does nothing
-    await ctx.update("payment", pay.id, { status: i.outcome });
+    // A card kept for the deadline charge ("pay my part"): the provider's customer and card, never the card itself.
+    await ctx.update("payment", pay.id, { status: i.outcome, ...(pay.save_card && i.saved_method ? { saved_customer: i.saved_customer ?? null, saved_method: i.saved_method } : {}) });
     if (i.outcome === "failed") { await ctx.emit("payment.failed", { payment_id: pay.id }); return { status: "failed" }; }
-    await post(ctx.trx, ctx.runId, "payment", "program payment", [
+    const court = Boolean(pay.booking_player_id);
+    await post(ctx.trx, ctx.runId, "payment", court ? "court booking payment" : "program payment", [
       { account: await account(ctx.trx, "provider_clearing"), cents: pay.amount_cents },
-      { account: await account(ctx.trx, "revenue", { revenueType: "programs" }), cents: -pay.amount_cents },
+      { account: await account(ctx.trx, "revenue", { revenueType: court ? "courts" : "programs" }), cents: -pay.amount_cents },
     ]);
+    if (pay.booking_player_id) await afterBookingPayment(ctx, pay);
     if (pay.enrolment_id) {
       await ctx.update("enrolment", pay.enrolment_id, { paid_by: "card" });
       // A sub has paid: the player they replaced gets their refund now.
@@ -557,8 +570,9 @@ export const refundSettle = defineAction({
     if (r.status !== "pending") return { already: r.status };
     if (!i.ok) { await ctx.update("refund", r.id, { status: "failed", failure: i.failure ?? null }); await ctx.emit("refund.failed", { refund_id: r.id }); return { status: "failed" }; }
     await ctx.update("refund", r.id, { status: "sent", provider_ref: i.provider_ref ?? null });
+    const courtPay = Boolean((await ctx.trx.selectFrom("payment").select("booking_player_id").where("id", "=", r.payment_id).executeTakeFirstOrThrow()).booking_player_id);
     await post(ctx.trx, ctx.runId, "refund", "refund to card", [
-      { account: await account(ctx.trx, "revenue", { revenueType: "programs" }), cents: r.amount_cents },
+      { account: await account(ctx.trx, "revenue", { revenueType: courtPay ? "courts" : "programs" }), cents: r.amount_cents },
       { account: await account(ctx.trx, "provider_clearing"), cents: -r.amount_cents },
     ]);
     return { status: "sent" };

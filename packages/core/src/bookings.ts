@@ -238,20 +238,3 @@ export const bookingCreate = defineAction({
     return { booking_id: id, code };
   },
 });
-
-export const bookingCancel = defineAction({
-  name: "booking.cancel", version: 1,
-  input: z.object({ booking_id: z.uuid(), reason: z.optional(z.string().check(z.maxLength(200))) }),
-  async plan(ctx, i) {
-    const { row: b, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
-    if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
-    return { title: both("action.booking.cancel"), summary: both("plan.booking.cancel", { code: b.code }), reads: [read], locationId: b.location_id,
-      ownerIds: b.organiser_id ? [b.organiser_id] : [], undo: { kind: "reversible" } };
-  },
-  async apply(ctx, i) {
-    await ctx.update("booking", i.booking_id, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: i.reason ?? null });
-    for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", i.booking_id).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
-    await ctx.emit("booking.cancelled", { booking_id: i.booking_id });
-    return null;
-  },
-});

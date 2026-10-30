@@ -38,7 +38,7 @@ test("only a payment that went through is paid; a declined card can still be ret
   for (const [s, want] of [["succeeded", "succeeded"], ["canceled", "failed"], ["requires_payment_method", "pending"], ["processing", "pending"], ["requires_action", "pending"]] as const)
     assert.equal(intentStatus(s), want);
   const s = fakeStripe(() => ({ json: { id: "pi_1", client_secret: "cs", status: "succeeded" } }));
-  assert.deepEqual(await new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch }).getIntent("pi_1"), { status: "succeeded", clientSecret: "cs" });
+  assert.deepEqual(await new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch }).getIntent("pi_1"), { status: "succeeded", clientSecret: "cs", paymentMethod: null, customer: null });
   assert.equal(s.calls[0]!.method, "GET"); assert.equal(s.calls[0]!.path, "/v1/payment_intents/pi_1");
 });
 
@@ -70,4 +70,20 @@ test("a webhook is read only when Stripe signed it, recently", () => {
   assert.ok(!verifyStripeSignature(body, `t=${t - 600},v1=${sig(t - 600)}`, secret, now), "too old: a replay");
   assert.ok(!verifyStripeSignature(body, null, secret, now));
   assert.ok(!verifyStripeSignature(body, `t=${t},v1=nothex`, secret, now));
+});
+
+test("pay my part: a card saved for later (never held), and the one charge at the deadline", async () => {
+  const s = fakeStripe((c) => ({ json: c.path === "/v1/customers" ? { id: "cus_1" } : { id: "pi_9", client_secret: "cs", status: "succeeded", payment_method: { id: "pm_1" }, customer: "cus_1" } }));
+  const p = new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch });
+  assert.deepEqual(await p.ensureCustomer({ key: "person-1", email: "ann@example.test", name: "Ann" }), { id: "cus_1", account: null });
+  assert.equal(s.calls[0]!.headers["idempotency-key"], "customer:person-1");
+  await p.createIntent({ amountCents: 1500, currency: "USD", description: "Court booking KP-AAAA", idempotencyKey: "pay-1", customer: "cus_1", saveCard: true });
+  assert.equal(s.calls[1]!.body.get("customer"), "cus_1"); assert.equal(s.calls[1]!.body.get("setup_future_usage"), "off_session");
+  assert.equal(s.calls[1]!.body.get("capture_method"), null, "saved, not held");
+  assert.deepEqual(await p.getIntent("pi_9"), { status: "succeeded", clientSecret: "cs", paymentMethod: "pm_1", customer: "cus_1" });
+  const c = await p.chargeSaved({ customer: "cus_1", paymentMethod: "pm_1", amountCents: 3000, currency: "USD", description: "unpaid shares", idempotencyKey: "b1" });
+  assert.deepEqual(c, { ref: "pi_9", status: "succeeded" });
+  assert.equal(s.calls.at(-1)!.body.get("off_session"), "true"); assert.equal(s.calls.at(-1)!.headers["idempotency-key"], "charge:b1");
+  const declined = new StripeProvider({ secretKey: "sk_test_abc", fetch: fakeStripe(() => ({ status: 402, json: { error: { code: "authentication_required", message: "needs the owner" } } })).fetch });
+  assert.deepEqual(await declined.chargeSaved({ customer: "cus_1", paymentMethod: "pm_1", amountCents: 3000, currency: "USD", description: "x", idempotencyKey: "b2" }), { ref: "", status: "failed", failure: "authentication_required" });
 });

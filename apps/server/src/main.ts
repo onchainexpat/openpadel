@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { clubStripeAccount, combine, connect, expireOffers, messageHandlers, migrate, registerMessageTopics, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { clubStripeAccount, combine, connect, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 
@@ -52,6 +52,10 @@ const jobs = async () => {
     if (mail.sent || mail.dropped || mail.failed) console.log(`email: ${mail.sent} sent, ${mail.dropped} dropped, ${mail.failed} to retry`);
     const r = await expireOffers(db);
     if (r.expired) console.log(`waitlist offers: ${r.expired} ran out, ${r.offered} passed on`);
+    const h = await expireHolds(db);
+    if (h.lapsed) console.log(`court holds: ${h.lapsed} not paid in time, released`);
+    const sh = await settleShares(db);
+    if (sh.settled) console.log(`shared bookings: ${sh.settled} settled at their deadline, ${sh.charged} charged to the organiser, ${sh.failed} left owing`);
     const p = await reconcilePayments(db);
     if (p.settled) console.log(`payments: ${p.settled} settled by checking with the provider`);
     // While the club is still setting up its Stripe account, ask Stripe whether it's ready (a webhook says so too).

@@ -10,10 +10,15 @@ export interface PaymentProvider {
   readonly name: "test" | "stripe";
   /** Ask for a payment. Nothing is charged until the person confirms it and the provider says so.
    *  The same key always gives back the same intent, so a retry never asks twice. */
-  createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; metadata?: Record<string, string> }): Promise<{ ref: string; clientSecret: string; account: string | null }>;
+  createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; metadata?: Record<string, string>; customer?: string; saveCard?: boolean }): Promise<{ ref: string; clientSecret: string; account: string | null }>;
   /** Where an intent stands now, asked of the provider: how a missed webhook is caught. A declined
    *  card isn't a failure (the person can try another); only a cancelled intent is. */
-  getIntent(ref: string, account?: string | null): Promise<{ status: IntentStatus; clientSecret: string }>;
+  getIntent(ref: string, account?: string | null): Promise<{ status: IntentStatus; clientSecret: string; paymentMethod?: string | null; customer?: string | null }>;
+  /** A customer record for a person, so a card can be saved for a later charge. Same key, same customer. */
+  ensureCustomer(i: { key: string; email?: string | null; name?: string }): Promise<{ id: string; account: string | null }>;
+  /** Charge a saved card without the person present (the deadline for unpaid shares). Never throws for a
+   *  declined or authentication-needed card: that comes back as failed, with why. */
+  chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; currency: string; description: string; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; status: IntentStatus; failure?: string }>;
   /** Send a refund. Retrying with the same key never refunds twice. */
   refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; ok: boolean; failure?: string }>;
 }
@@ -21,25 +26,41 @@ export interface PaymentProvider {
 /** A stand-in for Stripe: records what was asked, and can be told to fail. */
 export class TestProvider implements PaymentProvider {
   readonly name = "test" as const;
-  intents = new Map<string, { amountCents: number; description: string; status: IntentStatus; clientSecret: string }>();
+  intents = new Map<string, { amountCents: number; description: string; status: IntentStatus; clientSecret: string; customer?: string; saveCard?: boolean; paymentMethod?: string }>();
+  customers = new Map<string, string>();
+  charges: { customer: string; paymentMethod: string; amountCents: number; ref: string }[] = [];
+  failNextCharge: string | null = null;
   private byKey = new Map<string, string>();
   refunds = new Map<string, { paymentRef: string; amountCents: number; ref: string }>();
   failNextRefund = false;
-  async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string }) {
+  async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; customer?: string; saveCard?: boolean }) {
     const known = this.byKey.get(i.idempotencyKey);
     if (known) return { ref: known, clientSecret: this.intents.get(known)!.clientSecret, account: null };
     const ref = `pi_test_${randomBytes(6).toString("hex")}`, clientSecret = `${ref}_secret_${randomBytes(6).toString("hex")}`;
-    this.intents.set(ref, { amountCents: i.amountCents, description: i.description, status: "pending", clientSecret });
+    this.intents.set(ref, { amountCents: i.amountCents, description: i.description, status: "pending", clientSecret, customer: i.customer, saveCard: i.saveCard });
     this.byKey.set(i.idempotencyKey, ref);
     return { ref, clientSecret, account: null };
   }
   async getIntent(ref: string) {
     const it = this.intents.get(ref);
     if (!it) throw new Error(`no such intent: ${ref}`);
-    return { status: it.status, clientSecret: it.clientSecret };
+    return { status: it.status, clientSecret: it.clientSecret, paymentMethod: it.paymentMethod ?? null, customer: it.customer ?? null };
   }
-  /** What a card form and the provider would do: the person pays, or the intent is cancelled. */
-  settle(ref: string, status: IntentStatus) { const it = this.intents.get(ref); if (it) it.status = status; }
+  /** What a card form and the provider would do: the person pays (a card used, and kept if asked), or the intent is cancelled. */
+  settle(ref: string, status: IntentStatus) {
+    const it = this.intents.get(ref);
+    if (it) { it.status = status; if (status === "succeeded") it.paymentMethod = `pm_test_${randomBytes(4).toString("hex")}`; }
+  }
+  async ensureCustomer(i: { key: string }) {
+    if (!this.customers.has(i.key)) this.customers.set(i.key, `cus_test_${randomBytes(4).toString("hex")}`);
+    return { id: this.customers.get(i.key)!, account: null };
+  }
+  async chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; idempotencyKey: string }) {
+    const ref = `pi_test_${randomBytes(6).toString("hex")}`;
+    if (this.failNextCharge) { const failure = this.failNextCharge; this.failNextCharge = null; return { ref, status: "failed" as const, failure }; }
+    this.charges.push({ customer: i.customer, paymentMethod: i.paymentMethod, amountCents: i.amountCents, ref });
+    return { ref, status: "succeeded" as const };
+  }
   async refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string }) {
     const seen = this.refunds.get(i.idempotencyKey);
     if (seen) return { ref: seen.ref, ok: true };
