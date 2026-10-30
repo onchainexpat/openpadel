@@ -66,6 +66,12 @@ async function owes(db: Db, enrolmentId: string): Promise<number> {
   const r = await db.selectFrom("payment").select((eb) => eb.fn.sum<string>("amount_cents").as("c")).where("enrolment_id", "=", enrolmentId).where("status", "=", "pending").executeTakeFirst();
   return Number(r?.c ?? 0);
 }
+/** Front desk and up: who hears about a place left empty at the last minute. */
+async function desk(db: Db): Promise<string[]> {
+  const rows = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
+    .where("role.key", "in", ["owner", "manager", "front_desk"]).where("person_role.active", "=", true).distinct().execute();
+  return rows.map((r) => r.person_id);
+}
 /** Owners and managers: who hears about money that went wrong and clashes with Playtomic. */
 async function managers(db: Db): Promise<string[]> {
   const rows = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
@@ -84,7 +90,7 @@ async function bookingInfo(db: Db, bookingId: string) {
     .select(["booking.id", "booking.code", "booking.organiser_id", "booking.pay_mode", "booking.balance_cents", "court.name as court", "location.name as location", "location.time_zone",
       sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
     .where("booking.id", "=", bookingId).orderBy(sql`court_time.active`, "desc").executeTakeFirstOrThrow();
-  const players = await db.selectFrom("booking_player").select(["id", "person_id"]).where("booking_id", "=", bookingId).where("removed_at", "is", null).execute();
+  const players = await db.selectFrom("booking_player").select(["id", "person_id"]).where("booking_id", "=", bookingId).where("removed_at", "is", null).where("replaces", "is", null).execute();
   const minutes = Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60_000);
   return { ...b, minutes, players, base: { court: b.court, location: b.location, when: when(new Date(b.start), b.time_zone), code: b.code, minutes } };
 }
@@ -103,6 +109,16 @@ async function seatInfo(db: Db, bookingPlayerId: string) {
   const b = await bookingInfo(db, s.booking_id);
   const host = b.organiser_id ? (await db.selectFrom("person").select("display_name").where("id", "=", b.organiser_id).executeTakeFirst())?.display_name ?? "" : "";
   return { ...s, name: s.display_name ?? "", b, host };
+}
+
+/** What came back to a player who gave up a place: the amount, or that the club's rules give nothing more. */
+const backLine = (cents: number): Text => cents > 0 ? both("msg.refund_card", { amount: amount(cents) }) : both("msg.refund_none_rule");
+async function placeChanged(db: Db, p: { from_seat: string; to_seat: string; refunded: number }, kind: string): Promise<Draft[]> {
+  const from = await seatInfo(db, p.from_seat), to = await seatInfo(db, p.to_seat);
+  const drafts: Draft[] = from.person_id ? [{ to: from.person_id, kind, params: { ...from.b.base, person: to.name, refund: backLine(p.refunded) }, purpose: "account", essential: true, email: true, link: "/places" }] : [];
+  for (const x of from.b.players) if (x.person_id && x.person_id !== to.person_id && x.person_id !== from.person_id)
+    drafts.push({ to: x.person_id, kind: "match_place_changed", params: { ...from.b.base, person: from.name, sub: to.name }, purpose: "account", essential: false, email: false, link: `/match/${from.b.id}`, staleAt: new Date(from.b.start) });
+  return drafts;
 }
 
 const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
@@ -188,6 +204,9 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const drafts: Draft[] = s.b.organiser_id ? [{ to: s.b.organiser_id, kind: p.paid && p.late ? "match_player_leaving" : "match_player_left", params: { ...s.b.base, person: s.name },
       purpose: "account", essential: false, email: false, link: `/match/${s.b.id}`, staleAt: new Date(s.b.start) }] : [];
     if (s.person_id && p.refunded) drafts.push({ to: s.person_id, kind: "match_left_refund", params: { ...s.b.base, amount: amount(p.refunded) }, purpose: "account", essential: true, email: true, link: "/places" });
+    // A paid place left empty after the deadline: the desk hears once, straight away (it may be hours away).
+    if (p.paid && p.late) for (const to of await desk(db))
+      drafts.push({ to, kind: "match_late_cancel_staff", params: { ...s.b.base, person: s.name }, purpose: "staff", essential: true, email: true, link: "/courts", staleAt: new Date(s.b.start) });
     return drafts;
   },
   async "booking.not_filled"({ db }, p: { booking_id: string; players: { person_id: string; cents: number }[] }) {
@@ -195,12 +214,28 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return p.players.map((x) => ({ to: x.person_id, kind: "match_not_filled", params: { ...b.base, refund: x.cents ? both("msg.refund_card", { amount: amount(x.cents) }) : NOTHING },
       purpose: "account" as const, essential: true, email: true, link: "/play" }));
   },
-  async "booking.place_taken"({ db }, p: { booking_player_id: string; by: string }) {
+  async "booking.place_taken"({ db }, p: { booking_player_id: string; by: string; refunded?: number }) {
     const s = await seatInfo(db, p.booking_player_id);
     const by = (await db.selectFrom("person").select("display_name").where("id", "=", p.by).executeTakeFirst())?.display_name ?? "";
-    const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select(sql<string>`coalesce(sum(refund.amount_cents), 0)`.as("c"))
-      .where("payment.booking_player_id", "=", p.booking_player_id).executeTakeFirstOrThrow();
-    return s.person_id ? [{ to: s.person_id, kind: "match_place_taken", params: { ...s.b.base, person: by, amount: amount(Number(back.c)) }, purpose: "account", essential: true, email: true, link: "/places" }] : [];
+    return s.person_id ? [{ to: s.person_id, kind: "match_place_taken", params: { ...s.b.base, person: by, refund: backLine(p.refunded ?? 0) }, purpose: "account", essential: true, email: true, link: "/places" }] : [];
+  },
+  async "booking.place_offered"({ db }, p: { offer_id: string }) {
+    const o = await db.selectFrom("place_offer").select(["booking_player_id", "to_person_id", "code"]).where("id", "=", p.offer_id).executeTakeFirstOrThrow();
+    if (!o.to_person_id) return [];
+    const s = await seatInfo(db, o.booking_player_id);
+    return [{ to: o.to_person_id, kind: "match_place_offered", params: { ...s.b.base, name: s.name, share: amount(s.share_cents) }, purpose: "account", essential: false, email: true,
+      link: `/take/${o.code}`, staleAt: new Date(s.b.start) }];
+  },
+  // A sub paid and took over a place, or staff gave it to someone: its player hears what comes back, and the
+  // rest of the match (host included) who's in now.
+  async "booking.place_handed"({ db }, p: { from_seat: string; to_seat: string; refunded: number }) {
+    return placeChanged(db, p, "match_place_handed");
+  },
+  async "booking.place_given"({ db }, p: { from_seat: string; to_seat: string; refunded: number }) {
+    const drafts = await placeChanged(db, p, "match_place_taken");
+    const to = await seatInfo(db, p.to_seat);
+    if (to.person_id) drafts.push({ to: to.person_id, kind: "match_place_given", params: to.b.base, purpose: "account", essential: true, email: true, link: `/match/${to.b.id}` });
+    return drafts;
   },
   async "friend.added"({ db }, p: { person_id: string; friend_id: string; mutual: boolean }) {
     const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirst())?.display_name ?? "";

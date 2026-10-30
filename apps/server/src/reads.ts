@@ -132,10 +132,15 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const blocks = ids("block_id").length ? await db.selectFrom("court_block").select(["id", "reason", "note"]).where("id", "in", ids("block_id")).execute() : [];
     const sessions = ids("session_id").length ? await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.id", "program.id as program_id", "program.name"]).where("session.id", "in", ids("session_id")).execute() : [];
     const mirror = await db.selectFrom("mirror_booking").select(["court_time_id", "booking_type"]).where("court_time_id", "in", items.filter((t) => t.kind === "mirror").map((t) => t.id).concat(["00000000-0000-0000-0000-000000000000"])).execute();
+    // Places players gave up after the deadline, still empty: staff can open them in the app or give them away.
+    const empty = ids("booking_id").length ? await db.selectFrom("booking_player").innerJoin("person", "person.id", "booking_player.person_id")
+      .select(["booking_player.id", "booking_player.booking_id", "booking_player.fill_refund_percent", "person.display_name as name"])
+      .where("booking_player.booking_id", "in", ids("booking_id")).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is not", null).orderBy("booking_player.leaving_at").execute() : [];
     const l = lang(c);
     return c.json({ date, time_zone: loc.time_zone, open, courts: courts.map((ct) => ({ ...ct, items: items.filter((x) => x.court_id === ct.id).map((x) => {
       const base = { start: x.start, end: x.end, kind: x.kind };
-      if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", price_cents: b?.price_cents ?? 0, paid_cents: Number(b?.paid_cents ?? 0), balance_cents: b?.balance_cents ?? 0 }; }
+      if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", price_cents: b?.price_cents ?? 0, paid_cents: Number(b?.paid_cents ?? 0), balance_cents: b?.balance_cents ?? 0,
+        empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: e.name, open: e.fill_refund_percent !== null })) }; }
       if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
       if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, label: s?.name ?? "" }; }
       return { ...base, label: `Playtomic: ${(mirror.find((m) => m.court_time_id === x.id)?.booking_type ?? "").toLowerCase().replace(/_/g, " ")}` };

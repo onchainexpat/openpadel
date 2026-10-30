@@ -19,6 +19,7 @@ collected here.
 | Opening hours for each location, and the days it's closed | Settings, Opening hours (step 5c) | Website or Google listing, owner checks |
 | Court prices: by day, time of day and season, and the sales tax rate if any | Settings, Prices (step 5c) | Owner |
 | Booking rules: how far ahead, how many at once, the free cancellation window, the lengths offered, and the deadline for "pay my part" (unpaid shares go on the organiser's card then, and an open match that isn't full is cancelled with everyone paid back) | Settings, Booking rules (step 5c) | Owner |
+| What a player who can't make a match after the deadline gets back, in percent: when their own sub takes the place (default 100), when the club fills it with a paying player (100), and when nobody takes it or it's given free (0) | Settings, Booking rules (step 5c) | Owner |
 | Membership plans: name, price a month or a year, what members get (member court prices, booking further ahead); for a new club, a founding offer (how many, and the opening date) | Memberships (step 5d) | Owner |
 | A few lines about the club, for its public page | Settings (step 5e) | Website, owner approves |
 | Is the club on Playtomic, and on which plan? | Whether to connect it (its API needs the Champion or Master plan) | Owner |

@@ -4,7 +4,9 @@ import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, dollars, lang, t, usePreview } from "@kumi/ui";
 
-type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; block_id?: string; session_id?: string; program_id?: string; label?: string };
+type Empty = { id: string; name: string; open: boolean };
+type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; block_id?: string; session_id?: string; program_id?: string; label?: string;
+  empty_places?: Empty[] };
 type Court = { id: string; name: string; kind: string; items: Item[] };
 type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; courts: Court[] };
 type Loc = { id: string; name: string; time_zone: string };
@@ -54,7 +56,7 @@ export function Courts() {
         <section class="card">
           <h2>{c.name}</h2>
           <ul class="plain">
-            {[...c.items.map((it) => ({ at: it.start, el: (
+            {[...c.items.map((it) => ({ at: it.start, el: (<>
               <li class="row"><span><strong>{clock(it.start)} - {clock(it.end)}</strong> {it.booking_id ? `${it.who} · ${it.code}` : it.kind === "hold" ? t("ui.being_paid") : it.label}
                 {it.booking_id && it.kind === "booking" && (it.price_cents ?? 0) > (it.paid_cents ?? 0) && <span class="meta"> · {t("ui.unpaid_amount", { amount: dollars((it.price_cents ?? 0) - (it.paid_cents ?? 0), lang.value) })}</span>}</span>
                 <span>
@@ -63,7 +65,9 @@ export function Courts() {
                 </span>
                 {it.block_id && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
                 {it.program_id && <a href={`/programs/${it.program_id}`}>{t("ui.open")}</a>}
-              </li>) })),
+              </li>
+              {it.empty_places?.map((e) => <li><EmptyPlace e={e} preview={preview} /></li>)}
+            </>) })),
             ...gaps(c).map((gap) => ({ at: gap.from, el: (
               <li class="row"><span class="meta">{t("ui.free_from_to", { from: clock(gap.from), to: clock(gap.to) })}</span>
                 <button class="small" onClick={() => setForm({ court: c, starts: slots.filter((s) => s >= gap.from && new Date(s).getTime() + HALF <= new Date(gap.to).getTime() && new Date(s) > new Date()) })}>{t("ui.book_here")}</button>
@@ -108,6 +112,28 @@ function DeskBooking({ court, starts, clock, preview, onClose }: { court: Court;
       <button class="primary" disabled={!f.start || (!person && !f.guest.trim())}>{t("ui.preview")}</button>
       <button type="button" class="link" onClick={onClose}>{t("ui.cancel")}</button>
     </form>
+  );
+}
+
+/** A place a player gave up after the deadline: open it in the app, or give it to someone free. Leaving and
+ *  refunding are separate: what the player gets back is the club's rule unless staff choose otherwise. */
+function EmptyPlace({ e, preview }: { e: Empty; preview: (a: string, i: unknown) => Promise<void> }) {
+  const [refund, setRefund] = useState("rule"), [giving, setGiving] = useState(false);
+  const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]);
+  const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
+  return (
+    <div class="note">
+      <p>{t(e.open ? "ui.empty_place_open" : "ui.empty_place", { name: e.name })}</p>
+      <label>{t("ui.refund_choice", { name: e.name })}<select value={refund} onChange={(x) => setRefund(x.currentTarget.value)}>
+        <option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_all")}</option><option value="none">{t("ui.refund_nothing_more")}</option></select></label>
+      <p>{!e.open && <><button class="small" onClick={() => preview("booking.reopen_place", { booking_player_id: e.id, refund })}>{t("ui.open_in_app")}</button>{" "}</>}
+        <button class="small" onClick={() => setGiving(!giving)}>{t("ui.give_free")}</button></p>
+      {giving && <>
+        <label>{t("ui.search_person")}<input type="search" value={q} onInput={(x) => find(x.currentTarget.value)} /></label>
+        {found.length > 0 && <ul class="plain">{found.slice(0, 6).map((p) => <li class="row"><span>{p.display_name}</span>
+          <button type="button" class="small" onClick={() => { setFound([]); setQ(""); void preview("booking.give_place", { booking_player_id: e.id, person_id: p.id, refund }); }}>{t("ui.choose")}</button></li>)}</ul>}
+      </>}
+    </div>
   );
 }
 

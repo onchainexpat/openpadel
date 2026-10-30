@@ -82,6 +82,13 @@ on its organiser's saved card; an open match that isn't full is cancelled instea
 gets back all they paid. Members only book courts in the app once "Members book courts in the app" is
 on; leave it off while the club books courts in Playtomic.
 
+Before the deadline, a player who can't make a match gets their money back straight away. After it,
+what they get back is the club's choice, set in the same place: a percent for when their own sub takes
+the place, one for when the club fills it with a paying player, and one for when nobody takes it (or
+staff give it away free). The defaults are 100, 100 and 0. The front desk is told when a place is left
+empty after the deadline, and fills it from the Courts page; staff can choose a different refund there,
+case by case.
+
 ### Step 5d: memberships (optional)
 
 If the club sells memberships, add its plans under Memberships in the staff app: a name, the price a

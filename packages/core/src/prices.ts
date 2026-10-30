@@ -119,6 +119,10 @@ export const policySet = defineAction({
     days_ahead: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(365))), max_active: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(50))),
     free_cancel_hours: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(720))), late_refund_percent: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100))),
     split_deadline_hours: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(168))),
+    // A player who can't make it after the deadline gets back this much of what they paid: their own sub took
+    // the place, the club filled it with a paying player, or nobody took it (or it was given free).
+    late_sub_refund_percent: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100))), late_filled_refund_percent: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100))),
+    late_empty_refund_percent: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100))),
     lengths: z.optional(z.array(z.number().check(z.int(), z.minimum(30), z.maximum(480))).check(z.minLength(1))),
   }),
   async plan(ctx, i) {
@@ -126,7 +130,8 @@ export const policySet = defineAction({
     if (next.lengths.some((m) => m % 30)) throw new KumiError("error.bad_length");
     return { title: both("action.policy.set"), reads: [], undo: { kind: "reversible" },
       summary: both("plan.policy.set", { version: cur.version_no + 1, days: next.days_ahead, max: next.max_active, hours: next.free_cancel_hours, percent: next.late_refund_percent,
-        split: next.split_deadline_hours, lengths: [...next.lengths].sort((a, b) => a - b).join(", ") }) };
+        split: next.split_deadline_hours, lengths: [...next.lengths].sort((a, b) => a - b).join(", "),
+        sub: next.late_sub_refund_percent, filled: next.late_filled_refund_percent, empty: next.late_empty_refund_percent }) };
   },
   async apply(ctx, i) {
     const cur = await currentPolicy(ctx.trx);

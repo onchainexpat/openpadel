@@ -10,7 +10,8 @@ export type Match = {
   level_min: string; level_max: string; outside_band: "ask" | "closed"; note: string | null; share_cents: number; spots_left: number; my_level: number | null;
   players: { id?: string; name: string | null; level: number | null; host: boolean; paying: boolean; saved: boolean; leaving: boolean; no_show?: boolean; record?: Rec }[];
   can: "join" | "ask" | "closed" | null; started: boolean; late_window: boolean; no_show_window: boolean;
-  me: { pending_payment_id: string | null; held_until: string | null; leaving: boolean; saved: boolean } | null; request: { id: string; status: string } | null;
+  me: { pending_payment_id: string | null; held_until: string | null; leaving: boolean; saved: boolean; paid: boolean; sub: boolean; offer: { id: string; code: string; to_name: string | null } | null } | null;
+  request: { id: string; status: string } | null;
   requests: { id: string; display_name: string; level: number | null; note: string | null; record: Rec }[]; invite_code: string | null;
   result: { id: string; status: string; sets: { a: number; b: number }[]; a: string[]; b: string[]; confirm_by: string | null; rated: boolean; my_side: "a" | "b" | null; can_confirm: boolean; can_dispute: boolean } | null;
   teams: { a: { name: string }[]; b: { name: string }[]; odds: string } | null; can_score: boolean; four: { person_id: string; name: string }[];
@@ -63,6 +64,9 @@ export function MatchPage({ id }: { id: string }) {
   const [paying, setPaying] = useState<string | null>(null), [copied, setCopied] = useState(false);
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]);
   const find = async (v: string) => { setQ(v); setFound(v.trim().length > 1 ? await api(`/my/friends/find?q=${encodeURIComponent(v)}`) : []); };
+  // Can't make it: a friend to take my place.
+  const [sq, setSq] = useState(""), [subs, setSubs] = useState<{ id: string; display_name: string }[]>([]), [takeCopied, setTakeCopied] = useState(false);
+  const findSub = async (v: string) => { setSq(v); setSubs(v.trim().length > 1 ? await api(`/my/friends/find?q=${encodeURIComponent(v)}`) : []); };
   const load = () => api<Match>(`/matches/${id}${code ? `?code=${encodeURIComponent(code)}` : ""}`).then(setM).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   const { preview, sheet } = usePreview((r?: { payment_id?: string }) => { if (r?.payment_id) setPaying(r.payment_id); void load(); });
   useEffect(() => { void load(); api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {}); }, [id, lang.value]);
@@ -70,6 +74,7 @@ export function MatchPage({ id }: { id: string }) {
   if (!m) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const pid = me.value!.person.id, payNow = m.me?.pending_payment_id;
   const share = async () => { await navigator.clipboard?.writeText(`${location.origin}/join/${m.invite_code}`).catch(() => {}); setCopied(true); };
+  const copyTake = async () => { await navigator.clipboard?.writeText(`${location.origin}/take/${m.me!.offer!.code}`).catch(() => {}); setTakeCopied(true); };
   return (
     <main>
       <h1>{m.host_is_me ? t("ui.your_match") : t("ui.match_by", { host: m.host ?? "" })}</h1>
@@ -94,8 +99,22 @@ export function MatchPage({ id }: { id: string }) {
         {m.me && m.me.leaving && <p class="meta">{t("ui.you_cant_make_it")}</p>}
         {m.me && m.late_window && !m.me.leaving && <div class="chips" role="group" aria-label={t("ui.running_late")}><span class="meta">{t("ui.running_late")}:</span>
           {[5, 10, 15, 20].map((n) => <button type="button" class="chip" onClick={() => preview("booking.running_late", { booking_id: m.id, person_id: pid, minutes: n })}>{t("ui.minutes", { count: n })}</button>)}</div>}
-        {m.me && !m.cancelled && !m.host_is_me && !m.me.leaving && !m.started && <p><button onClick={() => preview("booking.leave", { booking_id: m.id, person_id: pid })}>{t("ui.cant_make_it")}</button></p>}
       </section>
+      {m.me && !m.cancelled && !m.host_is_me && !m.me.leaving && !m.me.sub && !m.started && <section class="card card-form">
+        <h2>{t("ui.cant_make_it_title")}</h2>
+        {m.me.offer ? <>
+          <p>{m.me.offer.to_name ? t("ui.offer_open_friend", { name: m.me.offer.to_name }) : t("ui.offer_open_link")}</p>
+          <p><button onClick={copyTake}>{takeCopied ? t("ui.link_copied") : t("ui.copy_take_link")}</button>{" "}
+            <button onClick={() => preview("booking.withdraw_offer", { offer_id: m.me!.offer!.id })}>{t("ui.take_back")}</button></p>
+        </> : m.me.paid && <>
+          <p class="meta">{t("ui.sub_hint")}</p>
+          <label>{t("ui.search_friends")}<input type="search" value={sq} onInput={(e) => findSub(e.currentTarget.value)} /></label>
+          {subs.length > 0 && <ul class="plain">{subs.map((f) => <li class="row"><span>{f.display_name}</span>
+            <button class="small" onClick={() => { setSubs([]); setSq(""); void preview("booking.offer_place", { booking_id: m.id, person_id: pid, to_person_id: f.id }); }}>{t("ui.ask_friend_to_take")}</button></li>)}</ul>}
+          <p><button onClick={() => preview("booking.offer_place", { booking_id: m.id, person_id: pid })}>{t("ui.make_take_link")}</button></p>
+        </>}
+        <p><button onClick={() => preview("booking.leave", { booking_id: m.id, person_id: pid })}>{t("ui.cant_make_it")}</button></p>
+      </section>}
       <Result m={m} preview={preview} />
       {m.host_is_me && !m.cancelled && <section class="card">
         <h2>{t("ui.requests")}</h2>

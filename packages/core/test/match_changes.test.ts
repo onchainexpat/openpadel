@@ -86,7 +86,7 @@ test("can't make it: before the deadline it all comes back at once and the place
 
   const late = at("2026-12-01", "19:00");
   const d = await run(db, "booking.leave", { booking_id: match, person_id: people.Dee }, as("Dee"), { now: late });
-  assert.match(d.plan.summary.en, /It's past the deadline, so nobody can take your place now and your \$15\.00 doesn't come back\. It counts as a late cancellation\.$/);
+  assert.match(d.plan.summary.en, /It's past the deadline, so it counts as a late cancellation: you get \$0\.00 back now, or \$15\.00 in all if the club fills your place with a paying player\./);
   assert.equal((await playerRecord(db, [people.Dee!])).get(people.Dee!)!.late_leaves, 1);
 
   assert.equal((await seat("Dee")).removed_at, null);   // the place stays Dee's, and so does the money
@@ -96,7 +96,7 @@ test("can't make it: before the deadline it all comes back at once and the place
   assert.equal((await db.selectFrom("outbound_message").select("body").where("person_id", "=", people.Ann!).where("kind", "=", "match_left_refund").where("channel", "=", "email").executeTakeFirstOrThrow()).body,
     "You're out of the match on Court 1, Wed, Dec 2, 6:00 PM, and $15.00 goes back to your card.");
   assert.equal((await inbox("Hal", "match_player_left")).body, "Ann can't make your match on Court 1, Wed, Dec 2, 6:00 PM. Their place is open again.");
-  assert.equal((await inbox("Hal", "match_player_leaving")).body, "Dee can't make your match on Court 1, Wed, Dec 2, 6:00 PM. It's past the deadline, so the place can't be filled in the app now.");
+  assert.equal((await inbox("Hal", "match_player_leaving")).body, "Dee can't make your match on Court 1, Wed, Dec 2, 6:00 PM. It's past the deadline, so the club has been told and may fill the place.");
   assert.equal((await db.selectFrom("outbound_message").select("id").where("person_id", "=", people.Dee!).where("kind", "=", "match_left_refund").execute()).length, 0);
 });
 

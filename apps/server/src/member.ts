@@ -96,16 +96,22 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const cancelled = b.status === "cancelled";
     const seats = await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id")
       .leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "booking_player.person_id").on("rating.sport", "=", "padel"))
-      .select(["booking_player.id", "booking_player.person_id", "booking_player.held_until", "booking_player.saved_by", "booking_player.leaving_at", "booking_player.no_show", "person.display_name", "rating.level"])
+      .select(["booking_player.id", "booking_player.person_id", "booking_player.held_until", "booking_player.saved_by", "booking_player.leaving_at", "booking_player.no_show", "booking_player.replaces",
+        "booking_player.fill_refund_percent", "person.display_name", "rating.level"])
       .select((eb) => eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded").limit(1).as("paid_id"))
       .select((eb) => eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_payment_id"))
       .where("booking_player.booking_id", "=", b.id).where("booking_player.removed_at", "is", null).orderBy("booking_player.id").execute();
-    const mine = seats.find((x) => x.person_id === pid), host = b.organiser_id === pid, taken = seats.filter((x) => !x.leaving_at).length;
+    // A sub still paying to take over someone's place sees their own seat; to everyone else it isn't a place.
+    const mine = seats.find((x) => x.person_id === pid), host = b.organiser_id === pid, places = seats.filter((x) => !x.replaces), taken = places.filter((x) => !x.leaving_at).length;
+    const reopened = places.some((x) => x.leaving_at && x.fill_refund_percent !== null);
+    const offer = mine && !mine.replaces ? await db.selectFrom("place_offer").leftJoin("person", "person.id", "place_offer.to_person_id").select(["place_offer.id", "place_offer.code", "person.display_name as to_name"])
+      .where("place_offer.booking_player_id", "=", mine.id).where("place_offer.status", "=", "offered").executeTakeFirst() : undefined;
     // The host sees each player's record (no-shows and late leaves, 90 days), and so does anyone asking.
-    const record = host ? await playerRecord(db, [...seats.map((x) => x.person_id!).filter(Boolean)]) : new Map();
+    const record = host ? await playerRecord(db, [...places.map((x) => x.person_id!).filter(Boolean)]) : new Map();
     const now = Date.now(), start = new Date(b.start).getTime();
     const request = await db.selectFrom("join_request").select(["id", "status"]).where("booking_id", "=", b.id).where("person_id", "=", pid).orderBy("created_at", "desc").limit(1).executeTakeFirst();
-    const level = await levelOf(db, pid), open = b.status === "confirmed" && !b.settled_at && new Date(b.start) > new Date();
+    // Open to join: before the deadline, or after it when staff opened a late leaver's place again.
+    const level = await levelOf(db, pid), open = b.status === "confirmed" && (!b.settled_at || reopened) && new Date(b.start) > new Date();
     const requests = host ? await db.selectFrom("join_request").innerJoin("person", "person.id", "join_request.person_id").select(["join_request.id", "join_request.person_id", "person.display_name", "join_request.level", "join_request.note"])
       .where("join_request.booking_id", "=", b.id).where("join_request.status", "=", "requested").orderBy("join_request.created_at").execute() : [];
     const asking = host ? await playerRecord(db, requests.map((r) => r.person_id)) : new Map();
@@ -115,21 +121,23 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const result = g ? { id: g.id, status: g.status, sets: g.sets, a: g.a.map((x) => x.display_name), b: g.b.map((x) => x.display_name), confirm_by: g.confirm_by, rated: g.rated, my_side: side,
       can_confirm: side === "b" && g.status === "awaiting_confirmation",
       can_dispute: Boolean(side) && (g.status === "awaiting_confirmation" || (g.status === "confirmed" && Boolean(g.editable_until && g.editable_until > new Date()))) } : null;
-    const four = seats.filter((x) => !x.leaving_at && x.person_id);
+    const four = places.filter((x) => !x.leaving_at && x.person_id);
     const teams = !g && !cancelled && four.length === 4 ? await suggestTeams(db, b.id) : null;
     // A rated match not played yet: what it could do to my level, once the four are known (or I'd make the fourth).
-    const stakes = b.rated && !g && !cancelled && now < start && (mine || (open && taken === b.players - 1)) ? await levelStakes(db, b.id, pid) : null;
+    const playing = mine && !mine.leaving_at && !mine.replaces;
+    const stakes = b.rated && !g && !cancelled && now < start && (playing || (!mine && open && taken === b.players - 1)) ? await levelStakes(db, b.id, pid) : null;
     const { organiser_id, invite_code, settled_at, ...rest } = b;
     return { ...rest, host_is_me: host, open, cancelled, share_cents: shares(b.price_cents, b.players).each, spots_left: cancelled ? 0 : Math.max(0, b.players - taken), my_level: level,
       started: now >= start, late_window: !cancelled && now >= start - 3 * 3600_000 && now <= start + 30 * 60_000, no_show_window: !cancelled && now >= start && now <= start + 48 * 3600_000,
-      players: seats.map((x) => ({ id: host ? x.id : undefined, name: x.display_name, level: x.level === null ? null : Number(x.level), host: x.person_id === organiser_id,
+      players: places.map((x) => ({ id: host ? x.id : undefined, name: x.display_name, level: x.level === null ? null : Number(x.level), host: x.person_id === organiser_id,
         paying: Boolean(x.held_until), saved: Boolean(x.saved_by && !x.paid_id), leaving: Boolean(x.leaving_at), no_show: host ? x.no_show : undefined,
         record: host && x.person_id !== organiser_id ? record.get(x.person_id!) ?? { no_shows: 0, late_leaves: 0 } : undefined })),
       can: mine || !open || taken >= b.players ? null : joinRule(b, level),
-      me: mine ? { pending_payment_id: mine.pending_payment_id, held_until: mine.held_until, leaving: Boolean(mine.leaving_at), saved: Boolean(mine.saved_by && !mine.paid_id) } : null, request: request ?? null,
+      me: mine ? { pending_payment_id: mine.pending_payment_id, held_until: mine.held_until, leaving: Boolean(mine.leaving_at), saved: Boolean(mine.saved_by && !mine.paid_id), paid: Boolean(mine.paid_id),
+        sub: Boolean(mine.replaces), offer: offer ? { id: offer.id, code: offer.code, to_name: offer.to_name } : null } : null, request: request ?? null,
       requests: requests.map(({ person_id, ...r }) => ({ ...r, level: r.level === null ? null : Number(r.level), record: asking.get(person_id) ?? { no_shows: 0, late_leaves: 0 } })),
       invite_code: host ? invite_code : null, result, teams, stakes,
-      can_score: Boolean(mine && !cancelled && !mine.leaving_at && !g && four.length === 4 && now >= start && now <= start + ENTER_DAYS * 86400_000),
+      can_score: Boolean(mine && !cancelled && !mine.leaving_at && !mine.replaces && !g && four.length === 4 && now >= start && now <= start + ENTER_DAYS * 86400_000),
       four: mine ? four.map((x) => ({ person_id: x.person_id, name: x.display_name })) : [] };
   }
   // Friends: the page (friends, who added me, whom I added, people I've played with lately) and my link.
@@ -154,9 +162,25 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   app.get("/open-matches", async (c) => {
     const pid = who(c);
     const ids = await db.selectFrom("open_match").innerJoin("booking", "booking.id", "open_match.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id").select("booking.id")
-      .where("open_match.listed", "=", true).where("booking.status", "=", "confirmed").where("booking.settled_at", "is", null).where("court_time.active", "=", true)
+      .where("open_match.listed", "=", true).where("booking.status", "=", "confirmed").where("court_time.active", "=", true)
+      .where((eb) => eb.or([eb("booking.settled_at", "is", null), eb.exists(eb.selectFrom("booking_player").select("booking_player.id").whereRef("booking_player.booking_id", "=", "booking.id")
+        .where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is not", null).where("booking_player.fill_refund_percent", "is not", null))]))
       .where(sql<boolean>`lower(court_time.during) > now()`).orderBy(sql`lower(court_time.during)`).limit(100).execute();
     return c.json((await Promise.all(ids.map((r) => matchView(r.id, pid)))).filter(Boolean));
+  });
+  // A "take my place" link: the place and match, whose it is, and whether this person can take it.
+  app.get("/my/place-offers/:code", async (c) => {
+    const pid = who(c);
+    const o = await db.selectFrom("place_offer").innerJoin("booking_player", "booking_player.id", "place_offer.booking_player_id").innerJoin("person", "person.id", "booking_player.person_id")
+      .select(["place_offer.status", "place_offer.to_person_id", "booking_player.booking_id", "booking_player.share_cents", "booking_player.removed_at", "person.display_name as from"])
+      .where("place_offer.code", "=", c.req.param("code")).executeTakeFirst();
+    if (!o) throw new KumiError("error.offer_unknown", {}, 404);
+    const m = await matchView(o.booking_id, pid);
+    if (!m) throw new KumiError("error.offer_unknown", {}, 404);
+    const can = m.me && !m.me.sub ? "in" : o.status !== "offered" || o.removed_at || m.started || m.cancelled ? "closed" : o.to_person_id && o.to_person_id !== pid ? "not_yours"
+      : joinRule(m, m.my_level) !== "join" ? "outside" : "take";
+    return c.json({ from: o.from, share_cents: o.share_cents, can, match: { id: m.id, court: m.court, location: m.location, time_zone: m.time_zone, start: m.start, level_min: m.level_min, level_max: m.level_max,
+      rated: m.rated, my_level: m.my_level, me: m.me } });
   });
   // One match: listed ones for anyone signed in; one kept to its link, for its players and whoever has the link.
   app.get("/matches/:id", async (c) => {

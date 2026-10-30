@@ -27,7 +27,8 @@ async function fourOf(db: Db | Trx, bookingId: string) {
   return (await db.selectFrom("booking_player").innerJoin("person", "person.id", "booking_player.person_id")
     .leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "booking_player.person_id").on("rating.sport", "=", "padel"))
     .select(["booking_player.person_id", "person.display_name", "rating.mu", "rating.sigma", "rating.level"])
-    .where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is", null).orderBy("booking_player.id").execute())
+    .where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is", null)
+    .where("booking_player.replaces", "is", null).orderBy("booking_player.id").execute())
     .map((p) => ({ ...p, person_id: p.person_id! }));   // joined to a person, so never a guest
 }
 const skillOf = (p: { mu: number | null; sigma: number | null; level: string | null }): Skill =>

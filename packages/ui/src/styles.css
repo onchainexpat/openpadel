@@ -51,6 +51,9 @@ input[type=color] { width: 72px; height: 44px; padding: 4px; cursor: pointer; }
 .hours-row label.check { flex: 0 0 4.5em; margin: 0; }
 /* Choices side by side: days of the week, courts. */
 label.check.inline { display: inline-flex; margin: 0 12px 6px 0; }
+/* A number inside a sentence: "[100]% when their own sub takes the place". */
+label.inline-number { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+label.inline-number input { flex: none; width: 5.5em; margin: 0; }
 /* A row of choices to tap: days, lengths, times, courts. */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 /* A long row (the days a member can book) scrolls sideways instead of wrapping. */

@@ -102,3 +102,43 @@ test("a match that didn't fill shows as cancelled to its players, with nothing l
   const m = (await get(`/matches/${id}`, "ann@example.test")).json;
   assert.deepEqual([m.cancelled, m.open, m.can, m.spots_left, m.late_window, m.can_score, m.stakes, m.teams], [true, false, null, 0, false, false, null, null]);
 });
+
+test("taking over a place: the take link, the sub's own view, and a late leaver's place that staff open again", async () => {
+  const actor = (name: string) => ({ personId: people[name]!, via: "test", lang: "en" as const });
+  for (const name of ["Dot", "Eli", "Flo"]) {
+    people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner)).result as any).person_id;
+    await run(db, "level.set", { person_id: people[name], level: 3.5, reason: "Starting level" }, owner);
+    await signIn(`${name.toLowerCase()}@example.test`);
+  }
+  // Dot's match tonight, booked two days ago: it's past its deadline, and full.
+  const start = new Date(Date.now() + 10 * 3600_000); start.setUTCMinutes(0, 0, 0);
+  const then = { now: new Date(Date.now() - 2 * 86400_000) };
+  const r = (await run(db, "booking.request", { court_id: court, starts_at: start.toISOString(), minutes: 90, pay: "split", person_id: people.Dot, open: { level_min: 3, level_max: 4 } }, actor("Dot"), then)).result as any;
+  await runAsSystem(db, "payment.settle", { payment_id: r.payment_id, outcome: "succeeded" }, "test", then);
+  for (const name of ["Ann", "Hal", "Eli"]) {
+    const j = (await run(db, "booking.join", { booking_id: r.booking_id, person_id: people[name] }, actor(name), then)).result as any;
+    await runAsSystem(db, "payment.settle", { payment_id: j.payment_id, outcome: "succeeded" }, "test", then);
+  }
+  await runAsSystem(db, "booking.settle_shares", { booking_id: r.booking_id }, "jobs");
+  // Ann makes a take-my-place link.
+  const code = ((await run(db, "booking.offer_place", { booking_id: r.booking_id, person_id: people.Ann }, actor("Ann"))).result as any).code;
+  assert.equal((await get(`/matches/${r.booking_id}`, "ann@example.test")).json.me.offer.code, code);
+  assert.deepEqual([(await get(`/my/place-offers/${code}`, "flo@example.test")).json.can, (await get(`/my/place-offers/${code}`, "ben@example.test")).json.can,
+    (await get(`/my/place-offers/${code}`, "dot@example.test")).json.can], ["take", "outside", "in"]);
+  assert.equal((await get(`/my/place-offers/${code}`, "flo@example.test")).json.from, "Ann");
+  await run(db, "booking.take_place", { code, person_id: people.Flo }, actor("Flo"));
+  const flo = (await get(`/matches/${r.booking_id}`, "flo@example.test")).json;
+  assert.deepEqual([flo.me.sub, Boolean(flo.me.pending_payment_id), flo.spots_left, flo.players.length], [true, true, 0, 4]);   // paying for Ann's place, not a fifth
+  // Eli backs out: the place is empty; the desk sees it, and opens it again in the app.
+  await run(db, "booking.leave", { booking_id: r.booking_id, person_id: people.Eli }, actor("Eli"));
+  await signIn("robin@example.test");
+  const loc = (await get("/staff/locations", "robin@example.test")).json[0].id;
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(start);
+  const grid = (await get(`/staff/grid?location_id=${loc}&date=${day}`, "robin@example.test")).json;
+  const item = grid.courts.flatMap((c: any) => c.items).find((x: any) => x.booking_id === r.booking_id);
+  assert.deepEqual(item.empty_places.map((e: any) => [e.name, e.open]), [["Eli", false]]);
+  assert.ok(!(await get("/open-matches", "ben@example.test")).json.some((m: any) => m.id === r.booking_id));
+  await run(db, "booking.reopen_place", { booking_player_id: item.empty_places[0].id }, owner);
+  const listed = (await get("/open-matches", "ben@example.test")).json.find((m: any) => m.id === r.booking_id);
+  assert.deepEqual([listed.open, listed.spots_left], [true, 1]);
+});

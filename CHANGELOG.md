@@ -32,8 +32,18 @@ The first version a club can run on its own (court bookings included), or for it
   cancellation rule is for the host's own payment.
 - The host saves places for friends (nobody else can take them; each pays their own, and a saved
   place still unpaid at the deadline counts as empty). A player who can't make it gets their
-  money back at once and the place opens, up to the deadline; after it, the money stays and it's a
-  late cancellation. "Running late" tells the others. After the
+  money back at once and the place opens, up to the deadline.
+- Up to the start, a player who can't make it can find someone to take their place: a friend by
+  name, or anyone inside the band through a "take my place" link. The sub pays in the app; only
+  then is the place theirs and the player paid back, and it isn't a late cancellation. The offer
+  can be taken back while nobody has paid (a payment that goes through after that is refunded).
+- After the deadline, backing out without a sub is a late cancellation, and the front desk hears
+  about it once. Staff open the empty place in the app (whoever joins and pays takes it over) or give
+  it to someone free, from the Courts page.
+- What a late leaver gets back is the club's rule, set in Settings with the booking rules and kept
+  with each booking: by default all of it when their own sub or a paying player takes the place, and
+  nothing when nobody does or it's given free. Staff can choose all or nothing more instead, case by
+  case, and every preview says the amount. "Running late" tells the others. After the
   game the host marks who didn't come, and hosts see each player's no-shows and late cancellations
   (90 days) when they join or ask.
 
