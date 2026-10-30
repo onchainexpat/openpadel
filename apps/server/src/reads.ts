@@ -3,8 +3,8 @@
 import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
-import { t, type Key, type Lang } from "@kumi/i18n";
-import { currentPolicy, endDay, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
+import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
+import { currentPolicy, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -240,6 +240,14 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     }
     const table = (await standings(db, id)).map((s) => ({ name: names.get(s.person_id) ?? "", points: s.points, games: s.games }));
     return c.json({ draw: draw ?? null, rounds: [...rounds].map(([round, gs]) => ({ round, games: gs })), standings: table });
+  });
+
+  // The level review queue: reviews players asked for, and levels that moved a lot.
+  app.get("/staff/levels", async (c) => c.json({ ...await levelQueue(db, new Date()), limit: MOVE_LIMIT, days: MOVE_DAYS }));
+  // Everyone who had a place in a session, with their levels, for setting levels after it.
+  app.get("/staff/sessions/:id/levels", async (c) => {
+    const { session, players } = await sessionPlayers(db, c.req.param("id")), tz = await clubTz();
+    return c.json({ session: { ...session, when: dateTime(new Date(session.starts_at), lang(c), tz), started: new Date(session.starts_at) <= new Date() }, players });
   });
 
   app.get("/staff/people/:id/level", async (c) => {

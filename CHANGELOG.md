@@ -64,6 +64,14 @@ The first version a club can run on its own (court bookings included), or for it
   entered. A rated match moves levels once confirmed, each with a sentence on why; a friendly never
   does. A dispute goes to the club's new Scores page: keep, correct or set aside, and levels are
   replayed as if it had always been decided that way. Fair teams are suggested once four are in.
+- A new player who feels their level is wrong can move it once, by up to half a level either way, in
+  their first 5 rated games; it's kept as a move, so a replay after a corrected score keeps it too.
+- Any player can ask the club to review their level, free, once every 30 days, with a note.
+- A new Levels page for staff (front desk and up, and coaches): the reviews asked for, and any level
+  that moved more than 0.50 in 30 days (counted from the last time staff looked at it). Each is kept
+  or changed with a reason; players who asked are told either way, and a changed level is always told.
+- After a clinic or any program date, staff set the levels of everyone who had a place in one go, with
+  one reason; each player whose level changes is told why.
 
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.
@@ -91,7 +99,8 @@ The first version a club can run on its own (court bookings included), or for it
 - Sign-up and pay by card (Stripe; Apple Pay and Google Pay as cards), with waitlists. A place that
   opens is offered to the next person, held from when they can be told, and passed on if they don't
   take it.
-- Taking someone off and refunding are separate decisions; passing a place to a sub; comped places.
+- Taking someone off and refunding are separate decisions; passing a place to a sub (who pays their
+  own price: a member price, or one of their included sessions); comped places.
 - Americano rounds with fair teams, scores and re-pairing.
 - Levels from results: members see theirs, how many rated games it rests on and each change;
   staff can set a level or a coach's floor, always with a reason.

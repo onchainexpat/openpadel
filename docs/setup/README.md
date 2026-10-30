@@ -136,6 +136,15 @@ on every message the app sends them also arrives as a notification (quiet hours 
 On an iPhone they have to add the app to the Home Screen first (Share, then Add to Home Screen); on
 Android and computers it works in the browser. Staff turn them on in the staff app for staff alerts.
 
+### Levels
+
+Nothing to set up. Staff can give a member who already has a level elsewhere (Playtomic, say) that
+level to start from, with a reason, on their level page; after that, rated results move it. A new
+player who feels it's wrong can move it once, by up to half a level, in their first 5 rated games,
+and anyone can ask the club for a review (free, once every 30 days). Staff answer reviews on the
+Levels page, which also lists any level that moved more than 0.50 in 30 days. After a clinic, a coach
+or the front desk sets the levels of everyone who came in one go, from that date on the program's page.
+
 ### Step 8: practice
 
 Practice mode (`KUMI_PRACTICE=1`, on by default) sends real email only to the addresses in

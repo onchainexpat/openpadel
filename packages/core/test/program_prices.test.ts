@@ -117,6 +117,27 @@ test("a waitlist place is held at the member price, and takes an included sessio
   assert.deepEqual([(await place(w.enrolment_id)).price_basis, (await place(w.enrolment_id)).price_cents], ["included", 0]);
 });
 
+test("a place passed to a sub: the sub pays their own price, and an included session means the refund needn't wait", async () => {
+  const refund = (enrolmentId: string) => db.selectFrom("refund").select(["status", "amount_cents"]).where("enrolment_id", "=", enrolmentId).executeTakeFirstOrThrow();
+  const paid = async (pid: string) => {
+    const r = (await join(pid, "Bob")).result as any;
+    await runAsSystem(db, "payment.settle", { payment_id: r.payment_id, outcome: "succeeded" }, "webhook", opts);
+    return r.enrolment_id as string;
+  };
+  const t1 = await program("Clinic T", "clinic", 3000, { startsIn: 24 * 45 }), b1 = await paid(t1);
+  const to = await run(db, "enrolment.transfer", { enrolment_id: b1, to_person_id: people.Dee, pay: "sub_pays" }, as("Bob"), opts);
+  assert.equal(to.plan.summary.en, "Bob's place in Clinic T goes to Dee. Dee takes it for $24.00 (member price), and Bob is refunded once Dee has paid.");
+  assert.equal((await db.selectFrom("payment").select("amount_cents").where("id", "=", (to.result as any).payment_id).executeTakeFirstOrThrow()).amount_cents, 2400);
+  assert.deepEqual(await refund(b1), { status: "waiting_for_sub", amount_cents: 3000 });
+  const t2 = await program("Clinic V", "clinic", 3000, { startsIn: 24 * 45 }), b2 = await paid(t2);
+  const jan = { now: new Date("2027-01-03T18:00:00Z") };
+  const free = await run(db, "enrolment.transfer", { enrolment_id: b2, to_person_id: people.Ann, pay: "sub_pays" }, as("Bob"), jan);
+  assert.equal(free.plan.summary.en, "Bob's place in Clinic V goes to Ann. Ann takes it at no charge: included session 2 of 2 in the membership this period, so there's nothing to pay, and Bob is refunded now.");
+  assert.equal((free.result as any).payment_id, undefined);
+  assert.deepEqual([(await place((free.result as any).enrolment_id)).price_basis, (await place((free.result as any).enrolment_id)).price_cents], ["included", 0]);
+  assert.deepEqual(await refund(b2), { status: "pending", amount_cents: 3000 });
+});
+
 test("the membership's welcome says what it gives on programs", async () => {
   await processOutbox(db, messageHandlers);
   const msg = await db.selectFrom("outbound_message").select("body").where("person_id", "=", people.Ann!).where("kind", "=", "membership_started").where("channel", "=", "email").executeTakeFirstOrThrow();

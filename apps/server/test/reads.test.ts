@@ -8,7 +8,13 @@ import { MemoryMailer } from "../src/mailer.ts";
 let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor, programId: string, sessionId: string, players: string[] = [];
 const mailer = new MemoryMailer();
 const as = (id: string): Actor => ({ personId: id, via: "test", lang: "en" });
+const cookies = new Map<string, string>();
+/** Signed in once per address (a code is limited to a few an hour). */
 async function signIn(email: string) {
+  if (!cookies.has(email)) cookies.set(email, await newSignIn(email));
+  return cookies.get(email)!;
+}
+async function newSignIn(email: string) {
   await app.request("/auth/email/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
   const code = mailer.last(email)!.text.match(/\b(\d{6})\b/)![1]!;
   const r = await app.request("/auth/email/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, code }) });
@@ -108,4 +114,19 @@ test("staff see the Playtomic mirror: courts to link and bookings that clash", a
   assert.deepEqual((await get("/staff/mirror", cookie)).json.unmapped, []);
   const member = await signIn("p1@example.test");
   assert.equal((await get("/staff/mirror", member)).status, 403);
+});
+
+test("levels: the review queue, a session's players for setting levels, and what a player can do on their level page", async () => {
+  await run(db, "level.request_review", { person_id: players[1], note: "Too high after one night" }, as(players[1]!));
+  const staff = await signIn("robin@example.test");
+  const q = (await get("/staff/levels", staff)).json;
+  assert.deepEqual(q.requests.map((r: any) => [r.name, r.note]), [["P1", "Too high after one night"]]);
+  assert.deepEqual([q.limit, q.days], [0.5, 30]);
+  const s = (await get(`/staff/sessions/${sessionId}/levels`, staff)).json;
+  assert.equal(s.session.name, "Friday Americano"); assert.equal(s.session.started, false);
+  assert.equal(s.players.length, 8);   // the waitlisted player had no place
+  const p1 = (await get("/my/level", await signIn("p1@example.test"))).json;
+  assert.equal(p1.review.open.note, "Too high after one night");
+  assert.deepEqual([p1.self_adjust.can, p1.self_adjust.games, p1.self_adjust.played, p1.self_adjust.max], [true, 5, 1, 0.5]);
+  assert.equal((await get("/staff/levels", await signIn("p2@example.test"))).status, 403);
 });

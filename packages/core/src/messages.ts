@@ -279,6 +279,22 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       ...[...g.a, ...g.b].filter((x) => x.person_id !== p.person_id).map((x) => ({ to: x.person_id, kind: "result_disputed", params, purpose: "account" as const, essential: false, email: false, link: `/match/${b.id}` })),
     ];
   },
+  async "level.review_requested"({ db }, p: { person_id: string; level: string | null; note: string | null }) {
+    const person = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirstOrThrow()).display_name;
+    const params = { person, level: p.level ?? both("plan.level.no_level"), note: p.note ? both("msg.level_review_note", { note: p.note }) : NOTHING };
+    return (await desk(db)).map((to) => ({ to, kind: "level_review_requested_staff", params, purpose: "staff" as const, essential: false, email: false, link: "/levels" }));
+  },
+  async "level.reviewed"(_c, p: { person_id: string; asked: boolean; outcome: "keep" | "change"; before: string | null; after: string | null; reason: string | null }) {
+    // A big move staff checked and kept: the player never asked, so there's nothing to tell them.
+    if (!p.asked && p.outcome === "keep") return [];
+    const note = p.reason ? both("msg.level_review_note", { note: p.reason }) : NOTHING;
+    return [{ to: p.person_id, kind: p.outcome === "keep" ? "level_review_kept" : "level_review_changed", purpose: "account" as const, essential: false, email: true, link: "/level",
+      params: { before: p.before ?? both("plan.level.no_level"), after: p.after ?? both("plan.level.no_level"), level: p.after ?? both("plan.level.no_level"), note } }];
+  },
+  async "level.session_set"({ tz }, p: { program: string; starts_at: string; by: string; reason: string; changes: { person_id: string; before: string | null; after: string }[] }) {
+    return p.changes.map((c) => ({ to: c.person_id, kind: "level_set_session", purpose: "account" as const, essential: false, email: true, link: "/level",
+      params: { program: p.program, when: when(new Date(p.starts_at), tz), by: p.by, reason: p.reason, before: c.before ?? both("plan.level.no_level"), after: c.after } }));
+  },
   async "result.resolved"({ db }, p: { game_id: string; outcome: "keep" | "correct" | "set_aside" }) {
     const g = await gameView(db, p.game_id), b = await bookingInfo(db, g.booking_id!);
     return [...g.a, ...g.b].map((x) => ({ to: x.person_id, kind: `result_${p.outcome === "keep" ? "kept" : p.outcome === "correct" ? "corrected" : "set_aside"}`,

@@ -5,7 +5,7 @@ import { usePreview, dollars } from "@kumi/ui";
 
 type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; paid_by: string; paid_cents: number; level: string | null; price_basis: string;
   comp_note: string | null; left_how: string | null; left_reason: string | null; refund_outcome: string | null; refund_cents: number | null; offer_expires_at: string | null };
-type Data = { program: any; sessions: { id: string; starts_at: string; ends_at: string; courts: string[]; has_draw: boolean }[]; roster: Person[] };
+type Data = { program: any; sessions: { id: string; starts_at: string; ends_at: string; status: string; courts: string[]; has_draw: boolean }[]; roster: Person[] };
 type Court = { id: string; name: string };
 
 export function Program({ id }: { id: string }) {
@@ -47,7 +47,8 @@ export function Program({ id }: { id: string }) {
 
       <section class="card">
         <h2>{t("ui.dates")}</h2>
-        {d.sessions.map((s) => <p>{when(s.starts_at)} · {s.courts.join(", ")} {p.format && <a href={`/sessions/${s.id}`}>{t("ui.open_night")}</a>}</p>)}
+        {d.sessions.map((s) => <p>{when(s.starts_at)} · {s.courts.join(", ")} {p.format && <a href={`/sessions/${s.id}`}>{t("ui.open_night")}</a>}
+          {s.status !== "cancelled" && new Date(s.starts_at) <= new Date() && <> <a href={`/sessions/${s.id}/levels`}>{t("ui.set_levels")}</a></>}</p>)}
         {!adding ? <button onClick={() => setAdding(true)}>{t("ui.add_date")}</button> : <form onSubmit={addDate}>
           <label>{t("ui.starts")}<input type="datetime-local" required value={date.starts} onInput={(e) => setDate({ ...date, starts: e.currentTarget.value })} /></label>
           <label>{t("ui.ends")}<input type="datetime-local" required value={date.ends} onInput={(e) => setDate({ ...date, ends: e.currentTarget.value })} /></label>

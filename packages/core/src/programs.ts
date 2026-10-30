@@ -361,21 +361,28 @@ export const enrolmentTransfer = defineAction({
     const { row: p } = await readRow(ctx.db, "program", e.program_id, "thing.program");
     const dup = await ctx.db.selectFrom("enrolment").select("id").where("program_id", "=", e.program_id).where("person_id", "=", i.to_person_id).where("status", "in", ["booked", "waitlisted"]).executeTakeFirst();
     if (dup) throw new KumiError("error.already_signed_up", { person: sub });
-    const money = i.pay === "gift" ? both("transfer.gift", { sub, person }) : both("transfer.sub_pays", { sub, person, amount: usd(e.price_cents) });
-    return { title: both("action.enrolment.transfer"), summary: both("plan.enrolment.transfer", { person, name: p.name, sub, money }), reads: [read], locationId: p.location_id, ownerIds: [e.person_id], undo: { kind: "compensating" } };
+    // The sub pays their own price, as if they signed up: a member price, or one of their included sessions.
+    const price = i.pay === "gift" ? null : await programPrice(ctx.db, e.program_id, i.to_person_id, ctx.now);
+    const money = !price ? both("transfer.gift", { sub, person }) : both(price.cents > 0 ? "transfer.sub_pays" : "transfer.sub_free", { sub, person, price: priceWords(price) });
+    return { title: both("action.enrolment.transfer"), summary: both("plan.enrolment.transfer", { person, name: p.name, sub, money }), reads: [read], locationId: p.location_id, ownerIds: [e.person_id],
+      undo: { kind: "compensating" }, details: { price } };
   },
-  async apply(ctx, i) {
+  async apply(ctx, i, plan) {
     const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).executeTakeFirstOrThrow();
     const p = await ctx.trx.selectFrom("program").select(["price_cents", "refund_rule_version"]).where("id", "=", e.program_id).executeTakeFirstOrThrow();
+    const planned = (plan.details as { price: ProgramPrice | null }).price;
+    const price = planned ? await lockedPrice(ctx, e.program_id, i.to_person_id, true) : null;
+    if (planned && (price!.cents !== planned.cents || price!.basis !== planned.basis)) throw new KumiError("error.changed");   // a price or their membership changed meanwhile
     const newId = uuidv7();
-    await ctx.insert("enrolment", { id: newId, program_id: e.program_id, session_id: e.session_id, person_id: i.to_person_id, status: "booked", price_cents: i.pay === "gift" ? e.price_cents : p.price_cents, paid_by: i.pay === "gift" ? "transfer" : "none" });
+    await ctx.insert("enrolment", { id: newId, program_id: e.program_id, session_id: e.session_id, person_id: i.to_person_id, status: "booked",
+      ...(price ? priced(price) : { price_cents: e.price_cents }), paid_by: price ? "none" : "transfer" });
     // When the sub pays, the original player's refund is due (the money moves in the payments slice).
     const refund: Refund = i.pay === "gift" ? { outcome: "none", cents: 0, text: both("refund.nothing_paid"), changed: false } : { outcome: "full", cents: e.price_cents, text: both("refund.full", { amount: usd(e.price_cents) }), changed: false };
     await ctx.update("enrolment", e.id, { ...leaving(refund, "transferred", "found_sub", p.refund_rule_version), left_at: ctx.now, replaced_by: newId });
     if (i.pay === "sub_pays") {
-      await startRefund(ctx, e.id, e.person_id, { ...refund, cents: await paidFor(ctx.trx, e.id) }, "waiting_for_sub");
-      const sub = await ctx.trx.selectFrom("program").select("name").where("id", "=", e.program_id).executeTakeFirstOrThrow();
-      const pay = await requestPayment(ctx, newId, i.to_person_id, p.price_cents);
+      const pay = await requestPayment(ctx, newId, i.to_person_id, price!.cents);
+      // Nothing for the sub to pay (an included session): the refund needn't wait for them.
+      await startRefund(ctx, e.id, e.person_id, { ...refund, cents: await paidFor(ctx.trx, e.id) }, pay ? "waiting_for_sub" : "pending");
       await ctx.emit("enrolment.transferred", { from: e.id, to: newId, pay: i.pay });
       return { enrolment_id: newId, ...(pay ?? {}) };
     }
