@@ -6,12 +6,12 @@ import { MyPlaces } from "./MyPlaces.tsx";
 import { MyLevel } from "./MyLevel.tsx";
 import { Book } from "./Book.tsx";
 import { Join } from "./Join.tsx";
-import { Membership } from "./Membership.tsx";
 import { MatchPage, Play } from "./Play.tsx";
 import { FriendLink, Friends } from "./Friends.tsx";
 import { TakePlace } from "./Take.tsx";
 import { loadFamily, waiverDue } from "./ForWhom.tsx";
 // Pages few members open, loaded when they do.
+const Membership = lazy(() => import("./Membership.tsx").then((m) => m.Membership));
 const Lessons = lazy(() => import("./Lessons.tsx").then((m) => m.Lessons));
 const Family = lazy(() => import("./Family.tsx").then((m) => m.Family));
 const FamilyJoin = lazy(() => import("./Family.tsx").then((m) => m.FamilyJoin));

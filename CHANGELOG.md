@@ -183,5 +183,8 @@ The first version a club can run on its own (court bookings included), or for it
   `kumi doctor`; guides an owner's AI agent can follow (`docs/setup`).
 - One-server install script or Docker Compose, HTTPS, nightly backups, tested restore.
 - English and US Spanish throughout. Security: rate limits, no cross-site changes, strict headers.
+- Light apps: each app downloads only its own wording, in the person's language, and set-up pages load
+  when opened. The members' app needs about 112 kB of JavaScript before its first screen (under its
+  200 kB budget, which the build now checks); the staff app about 127 kB.
 
 **When updating:** nothing; this is the first release.

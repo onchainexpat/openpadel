@@ -1,24 +1,25 @@
-import { LocationProvider, Router, Route } from "preact-iso";
+import { LocationProvider, Router, Route, lazy } from "preact-iso";
 import { useEffect } from "preact/hooks";
 import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, Profile } from "@kumi/ui";
-import { Coaches } from "./Coaches.tsx";
 import { Schedule } from "./Schedule.tsx";
 import { Changes } from "./Changes.tsx";
 import { Programs } from "./Programs.tsx";
 import { Program } from "./Program.tsx";
 import { Night } from "./Night.tsx";
 import { Level } from "./Level.tsx";
-import { Mirror } from "./Mirror.tsx";
-import { Payments } from "./Payments.tsx";
 import { People } from "./People.tsx";
 import { Person } from "./Person.tsx";
-import { Settings } from "./Settings.tsx";
 import { Courts } from "./Courts.tsx";
-import { Reports } from "./Reports.tsx";
 import { Memberships } from "./Memberships.tsx";
 import { Scores } from "./Scores.tsx";
 import { Levels } from "./Levels.tsx";
 import { SessionLevels } from "./SessionLevels.tsx";
+// Set-up pages, opened now and then, loaded when they are.
+const Settings = lazy(() => import("./Settings.tsx").then((m) => m.Settings));
+const Coaches = lazy(() => import("./Coaches.tsx").then((m) => m.Coaches));
+const Reports = lazy(() => import("./Reports.tsx").then((m) => m.Reports));
+const Payments = lazy(() => import("./Payments.tsx").then((m) => m.Payments));
+const Mirror = lazy(() => import("./Mirror.tsx").then((m) => m.Mirror));
 
 export function App() {
   useEffect(() => {

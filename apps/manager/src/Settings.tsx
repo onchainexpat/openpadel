@@ -218,8 +218,8 @@ function BookingRules({ p, send }: { p: Policy; send: Preview }) {
       <label>{t("ui.late_refund_percent")}<input type="number" min={0} max={100} value={f.late_refund_percent} onInput={num("late_refund_percent")} /></label>
       <label>{t("ui.split_deadline_hours")}<input type="number" min={1} max={168} value={f.split_deadline_hours} onInput={num("split_deadline_hours")} /></label>
       <fieldset><legend>{t("ui.late_refunds")}</legend>
-        {(["late_sub_refund_percent", "late_filled_refund_percent", "late_empty_refund_percent"] as const).map((k) =>
-          <label class="inline-number"><input type="number" min={0} max={100} value={f[k]} onInput={num(k)} /> {t(`ui.${k}`)}</label>)}
+        {([["late_sub_refund_percent", "ui.late_sub_refund_percent"], ["late_filled_refund_percent", "ui.late_filled_refund_percent"], ["late_empty_refund_percent", "ui.late_empty_refund_percent"]] as const).map(([k, label]) =>
+          <label class="inline-number"><input type="number" min={0} max={100} value={f[k]} onInput={num(k)} /> {t(label)}</label>)}
       </fieldset>
       <fieldset><legend>{t("ui.lengths")}</legend>{[60, 90, 120, 150, 180].map((m) => <label class="check inline"><input type="checkbox" checked={f.lengths.includes(m)}
         onChange={() => setF({ ...f, lengths: f.lengths.includes(m) ? f.lengths.filter((x) => x !== m) : [...f.lengths, m].sort((a, b) => a - b) })} /> {m}</label>)}</fieldset>

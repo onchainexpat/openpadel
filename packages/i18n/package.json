@@ -1,1 +1,2 @@
-{ "name": "@kumi/i18n", "private": true, "type": "module", "exports": { ".": "./src/index.ts" } }
+{ "name": "@kumi/i18n", "private": true, "type": "module",
+  "exports": { ".": "./src/index.ts", "./format": "./src/format.ts", "./vite": "./src/vite.ts" } }

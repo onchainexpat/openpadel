@@ -32,6 +32,11 @@ Sign-in codes appear in the server's output.
 - **Is small,** with commit messages that say why, not only what.
 - **Keeps both languages:** new wording goes in `packages/i18n/src/en.ts` and `es.ts` together,
   using the US Spanish word list in `AGENTS.md`.
+- **Writes keys the apps can find:** each app ships only the keys its code names, found by the build
+  (`packages/i18n/src/wording.ts`). In app code, call `t()` with the key as a string (`t("ui.book")`), a
+  choice of strings (`t(paid ? "ui.paid" : "ui.unpaid")`), or a template whose fixed start names the
+  family (`` t(`kind.${k}` as Key) `` ships every `kind.*`). A key built any other way can't be found, and
+  `packages/i18n/test/wording.test.ts` fails, naming the line. The server has every key in both languages.
 - **Adds a changelog line** under "not released yet" in [`CHANGELOG.md`](CHANGELOG.md) when a club
   would notice the change.
 
