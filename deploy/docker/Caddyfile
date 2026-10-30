@@ -1,0 +1,30 @@
+# Caddy for Kumi in Docker: HTTPS for the members' app ({$KUMI_HOST}) and the staff app (staff.{$KUMI_HOST}),
+# the API on its paths, and the apps' security headers. Keep the policy the same as server-setup.sh's
+# (a test checks they match).
+(kumi) {
+	encode zstd gzip
+	@api path /auth/* /me /me/* /my/* /club /actions/* /runs /runs/* /changes /changes/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /health /open-programs /payments/* /webhooks/*
+	handle @api {
+		reverse_proxy kumi:8790
+	}
+	handle {
+		header {
+			Content-Security-Policy "default-src 'self'; script-src 'self' https://js.stripe.com https://*.js.stripe.com; frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com; connect-src 'self' https://api.stripe.com; img-src 'self' data: https://*.stripe.com; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+			Strict-Transport-Security "max-age=31536000"
+			X-Content-Type-Options nosniff
+			X-Frame-Options DENY
+			Referrer-Policy strict-origin-when-cross-origin
+			Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		}
+		root * /srv/apps/{args[0]}/dist
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+{$KUMI_HOST} {
+	import kumi member
+}
+staff.{$KUMI_HOST} {
+	import kumi manager
+}

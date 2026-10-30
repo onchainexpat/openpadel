@@ -1,0 +1,44 @@
+# Kumi in Docker: Postgres, the server, Caddy with HTTPS, and a nightly backup. Settings come from .env
+# (copy deploy/docker/env.example). See deploy/docker/README.md.
+name: kumi
+services:
+  db:
+    image: postgres:17.9-alpine
+    environment:
+      POSTGRES_USER: kumi
+      POSTGRES_DB: kumi
+      POSTGRES_PASSWORD: ${KUMI_DB_PASSWORD:?set KUMI_DB_PASSWORD in .env}
+    volumes: [db:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U kumi -d kumi"], interval: 5s, timeout: 5s, retries: 20 }
+    restart: unless-stopped
+
+  kumi:
+    build: { context: ., target: server }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://kumi:${KUMI_DB_PASSWORD}@db/kumi
+      KUMI_PUBLIC_URL: https://staff.${KUMI_HOST:?set KUMI_HOST in .env}
+    volumes:
+      - ./config:/etc/kumi:ro            # club.yaml and member lists for the kumi command
+      - ./backups:/var/backups/kumi:ro   # so kumi doctor can see the backups
+    depends_on: { db: { condition: service_healthy } }
+    restart: unless-stopped
+
+  web:
+    build: { context: ., target: web }
+    environment: { KUMI_HOST: "${KUMI_HOST}" }
+    ports: ["${KUMI_HTTP_PORT:-80}:80", "${KUMI_HTTPS_PORT:-443}:443", "${KUMI_HTTPS_PORT:-443}:443/udp"]
+    volumes: [caddy-data:/data, caddy-config:/config]
+    depends_on: [kumi]
+    restart: unless-stopped
+
+  # Every night at about 3:17 in the server's time, kept 14 days, in ./backups.
+  backup:
+    image: postgres:17.9-alpine
+    environment: { PGPASSWORD: "${KUMI_DB_PASSWORD}" }
+    volumes: ["./backups:/backups"]
+    entrypoint: ["sh", "-c", "while true; do sleep $$(( ($$(date -d 03:17 +%s 2>/dev/null || date -D %H:%M -d 03:17 +%s) - $$(date +%s) + 86400) % 86400 )); pg_dump -Fc -h db -U kumi -d kumi -f /backups/kumi-$$(date +%F).dump && find /backups -name 'kumi-*.dump' -mtime +14 -delete; sleep 60; done"]
+    depends_on: { db: { condition: service_healthy } }
+    restart: unless-stopped
+
+volumes: { db: {}, caddy-data: {}, caddy-config: {} }
