@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDecipheriv, createECDH, createPublicKey, hkdfSync, verify } from "node:crypto";
-import { encryptPush, generateVapidKeys, sendPush, vapidAuthorization } from "../src/webpush.ts";
+import { encryptPush, generateVapidKeys, isPushEndpoint, sendPush, vapidAuthorization } from "../src/webpush.ts";
 
 const u = (s: string) => Buffer.from(s, "base64url");
 
@@ -41,6 +41,11 @@ test("the VAPID token is signed with the club's key, for that push service, and 
   const pub = u(keys.publicKey);
   const key = createPublicKey({ format: "jwk", key: { kty: "EC", crv: "P-256", x: pub.subarray(1, 33).toString("base64url"), y: pub.subarray(33).toString("base64url") } });
   assert.ok(verify("sha256", Buffer.from(`${h}.${c}`), { key, dsaEncoding: "ieee-p1363" }, u(s!)));
+});
+
+test("only browser push services are push endpoints", () => {
+  assert.ok(isPushEndpoint("https://fcm.googleapis.com/fcm/send/x"));
+  for (const bad of ["http://fcm.googleapis.com/x", "https://evil.test/x", "https://127.0.0.1/x", "https://fcm.googleapis.com.evil.test/x", "not a url"]) assert.ok(!isPushEndpoint(bad), bad);
 });
 
 test("sending: the headers a push service needs, and a dead subscription comes back as gone", async () => {

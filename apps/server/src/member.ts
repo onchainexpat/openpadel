@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { checkCardSetup, ENTER_DAYS, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { checkCardSetup, ENTER_DAYS, isPushEndpoint, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -197,9 +197,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   const b64u = /^[A-Za-z0-9_-]+={0,2}$/;
   app.post("/my/push", async (c) => {
     const pid = who(c), body = await c.req.json().catch(() => ({})) as { app?: string; endpoint?: string; keys?: { p256dh?: string; auth?: string } };
-    const ok = (body.app === "member" || body.app === "staff") && typeof body.endpoint === "string" && /^https:\/\/[^\s]{8,2000}$/.test(body.endpoint)
+    const ok = (body.app === "member" || body.app === "staff") && typeof body.endpoint === "string" && body.endpoint.length <= 2000 && isPushEndpoint(body.endpoint)
       && b64u.test(body.keys?.p256dh ?? "") && (body.keys!.p256dh!.length >= 80 && body.keys!.p256dh!.length <= 100) && b64u.test(body.keys?.auth ?? "") && body.keys!.auth!.length >= 16 && body.keys!.auth!.length <= 32;
-    if (!ok) throw new KumiError("error.invalid_input", { details: "app, endpoint (https) and keys.p256dh and keys.auth, as the browser gives them" }, 400);
+    if (!ok) throw new KumiError("error.invalid_input", { details: "app, endpoint (a browser push service) and keys.p256dh and keys.auth, as the browser gives them" }, 400);
     await subscribePush(db, pid, body.app as "member" | "staff", { endpoint: body.endpoint!, p256dh: body.keys!.p256dh!, auth: body.keys!.auth! }, c.req.header("user-agent") ?? null);
     return c.json({ ok: true });
   });

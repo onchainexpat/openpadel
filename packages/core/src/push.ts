@@ -3,7 +3,7 @@
 // device left to go to is dropped too, not retried.
 import type { Db } from "./db.ts";
 import { uuidv7 } from "./ids.ts";
-import { generateVapidKeys, sendPush, type VapidKeys } from "./webpush.ts";
+import { generateVapidKeys, isPushEndpoint, sendPush, type VapidKeys } from "./webpush.ts";
 
 /** The club's push keys, made (once, whichever server process gets there first) the first time they're needed. */
 export async function pushKeys(db: Db): Promise<VapidKeys> {
@@ -52,6 +52,7 @@ export async function sendPushes(db: Db, o: { subject: string; now?: Date; fetch
     }
     let ok = 0, retry = false;
     for (const s of subs) {
+      if (!isPushEndpoint(s.endpoint)) { await db.updateTable("push_subscription").set({ revoked_at: now }).where("id", "=", s.id).execute(); continue; }
       try {
         const r = await sendPush(s, { title: m.subject, body: m.body, url: m.link ?? "/", tag: m.kind }, keys, o.subject, { fetch: o.fetch, now, urgency: m.purpose === "staff" ? "high" : "normal" });
         if (r.ok) { ok++; await db.updateTable("push_subscription").set({ last_ok_at: now }).where("id", "=", s.id).execute(); }

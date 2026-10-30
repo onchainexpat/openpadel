@@ -42,6 +42,13 @@ export function encryptPush(plaintext: Buffer, p256dh: string, auth: string, fix
   return Buffer.concat([salt, rs, Buffer.from([asPublic.length]), asPublic, body]);
 }
 
+/** The push services browsers use (Chrome and Android, Firefox, Safari and iPhone, Edge). The server only ever
+ *  sends to these: a subscription naming anywhere else could make it call addresses it shouldn't. */
+const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^updates\.push\.services\.mozilla\.com$/, /^web\.push\.apple\.com$/, /(^|\.)notify\.windows\.com$/];
+export function isPushEndpoint(endpoint: string): boolean {
+  try { const u = new URL(endpoint); return u.protocol === "https:" && !u.port && PUSH_HOSTS.some((h) => h.test(u.hostname)); } catch { return false; }
+}
+
 export type PushResult = { ok: true } | { ok: false; gone: boolean; status: number };
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 

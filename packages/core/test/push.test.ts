@@ -35,8 +35,8 @@ test("the club's keys are made once and kept", async () => {
 });
 
 test("a message goes as a push to the person's devices, encrypted for each; a dead device is dropped", async () => {
-  await subscribePush(db, people.Ann!, "member", device("https://push.example.test/ann-phone"), "test phone");
-  await subscribePush(db, people.Ann!, "member", device("https://push.example.test/ann-old-tablet"), "old tablet");
+  await subscribePush(db, people.Ann!, "member", device("https://fcm.googleapis.com/fcm/send/ann-phone"), "test phone");
+  await subscribePush(db, people.Ann!, "member", device("https://fcm.googleapis.com/fcm/send/ann-old-tablet"), "old tablet");
   await run(db, "membership.grant", { person_id: people.Ann, plan_id: plan }, owner);
   await run(db, "membership.grant", { person_id: people.Ben, plan_id: plan }, owner);
   await processOutbox(db, messageHandlers);
@@ -50,7 +50,7 @@ test("a message goes as a push to the person's devices, encrypted for each; a de
   assert.deepEqual(r, { sent: 1, dropped: 0, failed: 0 });
   assert.deepEqual(open(sent[0]!.body), { title: "Your membership: Monthly", body: "Your Monthly membership runs from today.", url: "/membership", tag: "membership_started" });
   assert.match(sent[0]!.headers.authorization!, /^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]+$/);
-  const tablet = await db.selectFrom("push_subscription").select("revoked_at").where("endpoint", "=", "https://push.example.test/ann-old-tablet").executeTakeFirstOrThrow();
+  const tablet = await db.selectFrom("push_subscription").select("revoked_at").where("endpoint", "=", "https://fcm.googleapis.com/fcm/send/ann-old-tablet").executeTakeFirstOrThrow();
   assert.ok(tablet.revoked_at);
 });
 
@@ -60,7 +60,7 @@ test("staff alerts go to the staff app's devices only; turning a device off stop
   await db.insertInto("outbound_message").values(msg("staff")).execute();
   const r = await sendPushes(db, { subject: "https://play.kestrel.test", fetch: async () => new Response(null, { status: 201 }) });
   assert.deepEqual(r, { sent: 0, dropped: 1, failed: 0 });   // Ann's phone is a members'-app device
-  await unsubscribePush(db, people.Ann!, "https://push.example.test/ann-phone");
+  await unsubscribePush(db, people.Ann!, "https://fcm.googleapis.com/fcm/send/ann-phone");
   await db.insertInto("outbound_message").values(msg("account")).execute();
   assert.equal((await sendPushes(db, { subject: "https://play.kestrel.test", fetch: async () => new Response(null, { status: 201 }) })).dropped, 1);
 });
