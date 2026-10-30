@@ -9,7 +9,8 @@ Do these once, before the first public release:
       "Report a vulnerability" button, which only appears once this is on.
 - [ ] **Decide how outside contributions are signed:** DCO (a sign-off line on each commit) or a CLA.
 - [ ] **The name:** the trademark search on "Kumi" done.
-- [ ] Tests running on every pull request (GitHub Actions), a contribution guide and a code of conduct.
+- [ ] **A contact for the code of conduct:** an address for reports, added to `CODE_OF_CONDUCT.md`.
+- [ ] **Tests on every push:** add `push:` to `.github/workflows/test.yml` (public repositories don't use up Actions minutes).
 
 ## Cutting a release
 

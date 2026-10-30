@@ -1,0 +1,29 @@
+# Typecheck, tests and both app builds, on pull requests and when started by hand (Actions, then Run
+# workflow). Not on every push while the repository is private: private repos share a monthly allowance
+# of Actions minutes. Actions are pinned to exact commits of releases at least two weeks old.
+name: test
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.9-alpine
+        env: { POSTGRES_HOST_AUTH_METHOD: trust }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      KUMI_TEST_ADMIN_URL: postgres://postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1   # v7.1.0
+        with: { node-version: 24.22.0, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: npm audit --audit-level=high
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build -w @kumi/member -w @kumi/manager

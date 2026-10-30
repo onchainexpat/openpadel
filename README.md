@@ -27,6 +27,8 @@ doing.
 | `apps/manager` | The staff app for phone and web (Preact) |
 | `packages/ui` | What both apps share: sign-in, the preview sheet, the profile page, styles |
 | `migrations` | Plain SQL migrations, numbered, each applied once |
+| `deploy` | Running it: the one-server script, Docker Compose, and shipping updates |
+| `docs` | Setting up a club ([`docs/setup`](docs/setup/README.md)), [every setting](docs/settings.md), [releasing](docs/releasing.md) |
 
 ## Stack
 
@@ -40,7 +42,7 @@ Needs Node 24 and Docker.
 
 ```bash
 npm install
-docker run -d --rm --name kumi-dev-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:17-alpine
+docker run -d --rm --name kumi-dev-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:17.9-alpine
 docker exec kumi-dev-pg createdb -U postgres kumi
 node apps/server/src/seed.ts                                   # a demo club, owner owner@kestrel.test
 npm run kumi -- setup plan club.example.yaml                   # or set up from a club.yaml instead
@@ -122,6 +124,12 @@ copied booking does:
 - **A player's booking, lesson, class or course over a Kumi event:** a clash, listed for staff and
   said once.
 - **Cancelled or gone in Playtomic:** the court is free again in Kumi.
+
+## Taking part
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for changes, [`SECURITY.md`](SECURITY.md) for security problems,
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) for how we treat each other, and [`CHANGELOG.md`](CHANGELOG.md)
+for what each release changes.
 
 ## Licence
 

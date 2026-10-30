@@ -1,0 +1,17 @@
+name: Something isn't working
+description: Kumi does something wrong, or doesn't do what the docs say.
+labels: [problem]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: "What you did, what you expected, and what happened instead. No members' names or contact details, please." }
+    validations: { required: true }
+  - type: textarea
+    id: doctor
+    attributes: { label: kumi doctor, description: "The output of kumi doctor (it never shows keys).", render: text }
+  - type: input
+    id: version
+    attributes: { label: Version, description: "From kumi doctor's first line, or /health." }
+  - type: dropdown
+    id: how
+    attributes: { label: How it runs, options: ["The server script (deploy/server-setup.sh)", "Docker Compose", "Development", "Something else"] }
