@@ -67,3 +67,14 @@ test("security headers, and a limit on how much can be sent", async () => {
   const big = await post("/staff/people/import-preview", { csv: "x".repeat(4 * 1024 * 1024) });
   assert.equal(big.status, 413);
 });
+
+test("the apps can be installed: a manifest in the club's name and color, and icons", async () => {
+  const m = await app.request("/manifest/staff.webmanifest");
+  assert.equal(m.headers.get("content-type"), "application/manifest+json");
+  const j = await m.json() as any;
+  assert.equal(j.name, "Kestrel Padel Staff"); assert.equal(j.display, "standalone"); assert.match(j.theme_color, /^#[0-9A-Fa-f]{6}$/);
+  assert.deepEqual(j.icons.map((i: any) => i.sizes), ["192x192", "512x512"]);
+  const png = Buffer.from(await (await app.request("/manifest/icon-192.png")).arrayBuffer());
+  assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.equal(png.readUInt32BE(16), 192); assert.equal(png.readUInt32BE(20), 192);
+});
