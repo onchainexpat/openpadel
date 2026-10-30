@@ -1,5 +1,6 @@
 // Booking a court: pick a day and a length, see when courts are free, choose one, and pay the whole court
-// or only your part. Times are the club's, whatever the phone's clock says.
+// or only your part, and (paying your part) open it to other players as an open match. Times are the
+// club's, whatever the phone's clock says.
 import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
@@ -13,13 +14,25 @@ export function Book() {
   const [free, setFree] = useState<Free | null>(null), [pick, setPick] = useState<{ start: string; courts: Free["courts"] } | null>(null), [court, setCourt] = useState("");
   const [q, setQ] = useState<Quote | null>(null), [pay, setPay] = useState<"whole" | "split">("whole"), [players, setPlayers] = useState(4);
   const [provider, setProvider] = useState("test"), [paying, setPaying] = useState<{ id: string; cents: number } | null>(null), [done, setDone] = useState(false);
+  // An open match: the level band (around my own level to start with), and who else may join.
+  const [open, setOpen] = useState(false), [myLevel, setMyLevel] = useState<number | null>(null), [matchId, setMatchId] = useState<string | null>(null);
+  const [om, setOm] = useState({ min: "3.00", max: "4.00", ask: true, rated: true, listed: true });
   const place = o?.locations.find((l) => l.id === loc), tz = place?.time_zone ?? "UTC";
   const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: tz, ...opts }).format(new Date(iso));
-  const { preview, sheet } = usePreview((r?: { payment_id?: string }) => { if (r?.payment_id) setPaying({ id: r.payment_id, cents: pay === "whole" ? q!.total_cents : mine }); });
+  const { preview, sheet } = usePreview((r?: { payment_id?: string; booking_id?: string }) => {
+    if (r?.payment_id) setPaying({ id: r.payment_id, cents: pay === "whole" ? q!.total_cents : mine });
+    setMatchId(open && r?.booking_id ? r.booking_id : null);
+  });
 
   useEffect(() => {
     api<Options>("/booking-options").then((x) => { setO(x); setLoc(x.locations[0]?.id ?? ""); setMinutes(x.lengths.includes(90) ? 90 : x.lengths[0]!); });
     api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {});
+    api<{ rating: { level: string } | null }>("/my/level").then((r) => {
+      if (!r.rating) return;
+      // Half a level either side, out to the nearest quarter: 2.39 gives 1.75 to 3.00.
+      const l = Number(r.rating.level), clamp = (x: number) => Math.min(7, Math.max(0.5, x)).toFixed(2);
+      setMyLevel(l); setOm((o) => ({ ...o, min: clamp(Math.floor((l - 0.5) * 4) / 4), max: clamp(Math.ceil((l + 0.5) * 4) / 4) }));
+    }).catch(() => {});
   }, []);
   // The next days, in the club's time.
   const days: string[] = [];
@@ -34,9 +47,11 @@ export function Book() {
   const each = q ? Math.floor(q.total_cents / players) : 0, mine = q ? q.total_cents - each * (players - 1) : 0;
   const canSplit = pick ? new Date(pick.start).getTime() - Date.now() > o.split_deadline_hours * 3600_000 : false;
   const choose = (x: { start: string; courts: Free["courts"] }) => { setPick(x); setCourt(x.courts.length === 1 ? x.courts[0]!.id : ""); setQ(null); setPay("whole"); };
-  const book = () => preview("booking.request", { court_id: court, starts_at: pick!.start, minutes, pay, ...(pay === "split" ? { players } : {}), person_id: me.value!.person.id });
+  const opened = open && pay === "split" && players === 4;
+  const book = () => preview("booking.request", { court_id: court, starts_at: pick!.start, minutes, pay, ...(pay === "split" ? { players } : {}), person_id: me.value!.person.id,
+    ...(opened ? { open: { level_min: Number(om.min), level_max: Number(om.max), outside_band: om.ask ? "ask" : "closed", rated: om.rated, listed: om.listed } } : {}) });
 
-  if (done) return <main class="card"><h1>{t("ui.booked")}</h1><p><a href="/places">{t("ui.see_my_bookings")}</a></p></main>;
+  if (done) return <main class="card"><h1>{t("ui.booked")}</h1><p>{matchId ? <a href={`/match/${matchId}`}>{t("ui.see_your_match")}</a> : <a href="/places">{t("ui.see_my_bookings")}</a>}</p></main>;
   return (
     <main>
       <h1>{t("ui.book_title")}</h1>
@@ -62,6 +77,15 @@ export function Book() {
             {pay === "split" && <>
               <div class="chips" role="group" aria-label={t("ui.sharing")}>{[2, 4].map((n) => <button type="button" class={n === players ? "chip on" : "chip"} onClick={() => setPlayers(n)}>{t("count.players", { count: n })}</button>)}</div>
               <p class="meta">{t("ui.split_explain", { mine: dollars(mine, lang.value), each: dollars(each, lang.value), hours: t("count.hours", { count: o.split_deadline_hours }) })}</p>
+              {players === 4 && <label class="check"><input type="checkbox" checked={open} onChange={(e) => setOpen(e.currentTarget.checked)} /> {t("ui.open_to_others")}</label>}
+              {opened && <fieldset>
+                <legend>{t("ui.match_band", { level: myLevel === null ? t("ui.no_level_yet") : myLevel.toFixed(2) })}</legend>
+                <div class="court-row"><label>{t("ui.from")}<input type="number" min={0.5} max={7} step={0.25} value={om.min} onInput={(e) => setOm({ ...om, min: e.currentTarget.value })} /></label>
+                  <label>{t("ui.to")}<input type="number" min={0.5} max={7} step={0.25} value={om.max} onInput={(e) => setOm({ ...om, max: e.currentTarget.value })} /></label></div>
+                <label class="check"><input type="checkbox" checked={om.ask} onChange={(e) => setOm({ ...om, ask: e.currentTarget.checked })} /> {t("ui.outside_can_ask")}</label>
+                <label class="check"><input type="checkbox" checked={om.rated} onChange={(e) => setOm({ ...om, rated: e.currentTarget.checked })} /> {t("ui.match_counts")}</label>
+                <label class="check"><input type="checkbox" checked={om.listed} onChange={(e) => setOm({ ...om, listed: e.currentTarget.checked })} /> {t("ui.list_on_play")}</label>
+              </fieldset>}
             </>}
             <p class="meta">{t(o.late_refund_percent ? "ui.cancel_rule" : "ui.cancel_rule_none", { hours: t("count.hours", { count: o.free_cancel_hours }), percent: o.late_refund_percent })}</p>
             <button class="primary" onClick={book}>{t("ui.book_now")}</button>{" "}

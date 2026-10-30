@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { checkCardSetup, openCardSetup, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { checkCardSetup, joinRule, levelOf, openCardSetup, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -74,12 +74,57 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
         eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_payment_id"),
         eb.selectFrom("payment").select((x) => x.fn.sum<string>("amount_cents").as("c")).whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded").as("paid_cents"),
         eb.selectFrom("booking_player as bp").select((x) => x.fn.countAll<string>().as("n")).whereRef("bp.booking_id", "=", "booking.id").where("bp.removed_at", "is", null).as("joined"),
+        eb.selectFrom("open_match").select("open_match.booking_id").whereRef("open_match.booking_id", "=", "booking.id").as("open_match_id"),
       ])
       .where("booking_player.person_id", "=", pid).where("booking_player.removed_at", "is", null).where("booking.status", "in", ["held", "confirmed"])
       .where(sql<boolean>`upper(court_time.during) > now() - interval '1 day'`).orderBy(sql`lower(court_time.during)`).execute();
     return c.json(rows.map((r) => ({ ...r, mine: r.organiser_id === pid, paid_cents: Number(r.paid_cents ?? 0), joined: Number(r.joined ?? 0),
       invite_code: r.organiser_id === pid && !r.settled_at ? r.invite_code : null, organiser_id: undefined })));
   });
+  // ---- Open matches ----
+  /** One open match as a player sees it: when and where, the band, who's in (with levels), what a place
+   *  costs, and what this player can do (join, ask, or not), with their own seat or request. The host also
+   *  sees the requests waiting for an answer. */
+  async function matchView(bookingId: string, pid: string) {
+    const b = await db.selectFrom("open_match").innerJoin("booking", "booking.id", "open_match.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
+      .innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id").leftJoin("person", "person.id", "booking.organiser_id")
+      .select(["booking.id", "booking.status", "booking.players", "booking.price_cents", "booking.settled_at", "booking.organiser_id", "booking.invite_code", "open_match.level_min", "open_match.level_max",
+        "open_match.outside_band", "open_match.rated", "open_match.listed", "open_match.note", "court.name as court", "location.name as location", "location.time_zone", "person.display_name as host",
+        sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
+      .where("booking.id", "=", bookingId).where("court_time.active", "=", true).executeTakeFirst();
+    if (!b) return null;
+    const seats = await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id")
+      .leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "booking_player.person_id").on("rating.sport", "=", "padel"))
+      .select(["booking_player.id", "booking_player.person_id", "booking_player.held_until", "person.display_name", "rating.level"])
+      .select((eb) => eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_payment_id"))
+      .where("booking_player.booking_id", "=", b.id).where("booking_player.removed_at", "is", null).orderBy("booking_player.id").execute();
+    const mine = seats.find((x) => x.person_id === pid), host = b.organiser_id === pid;
+    const request = await db.selectFrom("join_request").select(["id", "status"]).where("booking_id", "=", b.id).where("person_id", "=", pid).orderBy("created_at", "desc").limit(1).executeTakeFirst();
+    const level = await levelOf(db, pid), open = b.status === "confirmed" && !b.settled_at && new Date(b.start) > new Date();
+    const requests = host ? await db.selectFrom("join_request").innerJoin("person", "person.id", "join_request.person_id").select(["join_request.id", "person.display_name", "join_request.level", "join_request.note"])
+      .where("join_request.booking_id", "=", b.id).where("join_request.status", "=", "requested").orderBy("join_request.created_at").execute() : [];
+    const { organiser_id, invite_code, settled_at, ...rest } = b;
+    return { ...rest, host_is_me: host, open, share_cents: shares(b.price_cents, b.players).each, spots_left: Math.max(0, b.players - seats.length), my_level: level,
+      players: seats.map((x) => ({ name: x.display_name, level: x.level === null ? null : Number(x.level), host: x.person_id === organiser_id, paying: Boolean(x.held_until) })),
+      can: mine || !open || seats.length >= b.players ? null : joinRule(b, level),
+      me: mine ? { pending_payment_id: mine.pending_payment_id, held_until: mine.held_until } : null, request: request ?? null,
+      requests: requests.map((r) => ({ ...r, level: r.level === null ? null : Number(r.level) })), invite_code: host ? invite_code : null };
+  }
+  app.get("/open-matches", async (c) => {
+    const pid = who(c);
+    const ids = await db.selectFrom("open_match").innerJoin("booking", "booking.id", "open_match.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id").select("booking.id")
+      .where("open_match.listed", "=", true).where("booking.status", "=", "confirmed").where("booking.settled_at", "is", null).where("court_time.active", "=", true)
+      .where(sql<boolean>`lower(court_time.during) > now()`).orderBy(sql`lower(court_time.during)`).limit(100).execute();
+    return c.json((await Promise.all(ids.map((r) => matchView(r.id, pid)))).filter(Boolean));
+  });
+  // One match: listed ones for anyone signed in; one kept to its link, for its players and whoever has the link.
+  app.get("/matches/:id", async (c) => {
+    const pid = who(c), m = await matchView(c.req.param("id"), pid);
+    const code = (await db.selectFrom("booking").select("invite_code").where("id", "=", c.req.param("id")).executeTakeFirst())?.invite_code;
+    if (!m || (!m.listed && !m.me && !m.host_is_me && (!code || c.req.query("code") !== code))) throw new KumiError("error.not_found", { thing: { en: "match", es: "el partido" } }, 404);
+    return c.json(m);
+  });
+
   // An invitation to share a booking: what it is and what one place costs, before joining.
   app.get("/bookings/invite/:code", async (c) => {
     who(c);
@@ -90,7 +135,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .where("booking.invite_code", "=", c.req.param("code")).where("court_time.active", "=", true).executeTakeFirst();
     if (!b || b.pay_mode !== "split") throw new KumiError("error.invite_closed", {}, 404);
     const joined = Number((await db.selectFrom("booking_player").select((x) => x.fn.countAll<string>().as("n")).where("booking_id", "=", b.id).where("removed_at", "is", null).executeTakeFirstOrThrow()).n);
-    return c.json({ ...b, share_cents: shares(b.price_cents, b.players).each, spots_left: Math.max(0, b.players - joined), open: b.status === "confirmed" && !b.settled_at && joined < b.players });
+    const om = await db.selectFrom("open_match").select("booking_id").where("booking_id", "=", b.id).executeTakeFirst();
+    return c.json({ ...b, share_cents: shares(b.price_cents, b.players).each, spots_left: Math.max(0, b.players - joined), open: b.status === "confirmed" && !b.settled_at && joined < b.players, open_match: Boolean(om) });
   });
   // The booking in a phone's calendar.
   app.get("/my/bookings/:id/calendar.ics", async (c) => {

@@ -499,6 +499,18 @@ export async function checkPayment(db: Db, paymentId: string, via = "payments", 
   return it.status;
 }
 
+/** Give up on a payment nobody finished (a seat held too long, a deadline passed). One whose card form was
+ *  opened is called off at the provider first, so it can't go through later unrecorded; if it already went
+ *  through, it's settled as paid. Returns where it ended up. A payment with no card form opened is left
+ *  to the caller to mark failed, inside its own change. */
+export async function abandonPayment(db: Db, paymentId: string, via = "payments", now?: Date): Promise<"pending" | "succeeded" | "failed" | null> {
+  const pay = await db.selectFrom("payment").select(["id", "status", "provider_ref", "provider_account"]).where("id", "=", paymentId).executeTakeFirst();
+  if (!pay || pay.status !== "pending" || !pay.provider_ref) return pay?.status ?? null;
+  const pv = paymentProvider();
+  if ((await pv.getIntent(pay.provider_ref, pay.provider_account)).status === "pending") await pv.cancelIntent(pay.provider_ref, pay.provider_account);
+  return checkPayment(db, pay.id, via, now);
+}
+
 /** The minute job: card forms opened in the last two days and not yet settled here. */
 export async function reconcilePayments(db: Db, now = new Date(), limit = 50) {
   const rows = await db.selectFrom("payment").select("id").where("status", "=", "pending").where("provider", "=", paymentProvider().name)

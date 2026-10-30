@@ -14,6 +14,9 @@ export interface PaymentProvider {
   /** Where an intent stands now, asked of the provider: how a missed webhook is caught. A declined
    *  card isn't a failure (the person can try another); only a cancelled intent is. */
   getIntent(ref: string, account?: string | null): Promise<{ status: IntentStatus; clientSecret: string; paymentMethod?: string | null; customer?: string | null }>;
+  /** Call off a payment nobody finished, so it can't go through later. If it already went through, says
+   *  so: then it's paid, not cancelled. */
+  cancelIntent(ref: string, account?: string | null): Promise<{ status: IntentStatus }>;
   /** A customer record for a person, so a card can be saved for a later charge. Same key, same customer. */
   ensureCustomer(i: { key: string; email?: string | null; name?: string }): Promise<{ id: string; account: string | null }>;
   /** Save a card for later without charging it (a presale: the first charge is on the start date).
@@ -51,6 +54,12 @@ export class TestProvider implements PaymentProvider {
     const it = this.intents.get(ref);
     if (!it) throw new Error(`no such intent: ${ref}`);
     return { status: it.status, clientSecret: it.clientSecret, paymentMethod: it.paymentMethod ?? null, customer: it.customer ?? null };
+  }
+  async cancelIntent(ref: string) {
+    const it = this.intents.get(ref);
+    if (!it) throw new Error(`no such intent: ${ref}`);
+    if (it.status === "pending") it.status = "failed";
+    return { status: it.status };
   }
   /** What a card form and the provider would do: the person pays (a card used, and kept if asked), or the intent is cancelled. */
   settle(ref: string, status: IntentStatus) {

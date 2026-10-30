@@ -8,6 +8,7 @@ import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts } from "./clock.ts";
 import { dayText, endDay } from "./memberships.ts";
+import { band } from "./match_rules.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout). */
 export interface Mail { to: string; subject: string; text: string; id?: string }
@@ -130,6 +131,36 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       ...(b.organiser_id ? [{ to: b.organiser_id, kind: "booking_balance_due", params, purpose: "account" as const, essential: true, email: true, link: "/places" }] : []),
       ...(await managers(db)).map((to) => ({ to, kind: "booking_balance_due_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/courts" })),
     ];
+  },
+  async "booking.asked"({ db }, p: { request_id: string }) {
+    const r = await db.selectFrom("join_request").innerJoin("person", "person.id", "join_request.person_id").innerJoin("open_match", "open_match.booking_id", "join_request.booking_id")
+      .select(["join_request.booking_id", "join_request.level", "person.display_name", "open_match.level_min", "open_match.level_max"]).where("join_request.id", "=", p.request_id).executeTakeFirstOrThrow();
+    const b = await bookingInfo(db, r.booking_id);
+    if (!b.organiser_id) return [];
+    const level = r.level === null ? both("plan.booking.no_level") : Number(r.level).toFixed(2);
+    return [{ to: b.organiser_id, kind: "match_ask", params: { ...b.base, person: r.display_name, level, band: band(r) }, purpose: "account", essential: false, email: true,
+      link: `/match/${b.id}`, staleAt: new Date(b.start) }];
+  },
+  async "booking.ask_answered"({ db }, p: { request_id: string }) {
+    const r = await db.selectFrom("join_request").select(["booking_id", "person_id", "status"]).where("id", "=", p.request_id).executeTakeFirstOrThrow();
+    const b = await bookingInfo(db, r.booking_id);
+    const host = b.organiser_id ? (await db.selectFrom("person").select("display_name").where("id", "=", b.organiser_id).executeTakeFirst())?.display_name ?? "" : "";
+    const share = await db.selectFrom("booking_player").select("share_cents").where("booking_id", "=", b.id).where("person_id", "=", r.person_id).where("removed_at", "is", null).executeTakeFirst();
+    return [{ to: r.person_id, kind: r.status === "approved" ? "match_ask_yes" : "match_ask_no", params: { ...b.base, host, share: amount(share?.share_cents ?? 0), hours: both("count.hours", { count: 1 }) },
+      purpose: "account", essential: true, email: true, link: r.status === "approved" ? `/match/${b.id}` : "/play", staleAt: new Date(b.start) }];
+  },
+  async "booking.seat_released"({ db }, p: { booking_player_id: string }) {
+    const bp = await db.selectFrom("booking_player").select(["booking_id", "person_id"]).where("id", "=", p.booking_player_id).executeTakeFirstOrThrow();
+    if (!bp.person_id) return [];
+    const b = await bookingInfo(db, bp.booking_id);
+    return [{ to: bp.person_id, kind: "match_seat_released", params: b.base, purpose: "account", essential: false, email: false, link: `/match/${b.id}`, staleAt: new Date(b.start) }];
+  },
+  async "booking.player_paid"({ db }, p: { booking_id: string; booking_player_id: string; left: number }) {
+    const b = await bookingInfo(db, p.booking_id);
+    const who = await db.selectFrom("booking_player").innerJoin("person", "person.id", "booking_player.person_id").select("person.display_name").where("booking_player.id", "=", p.booking_player_id).executeTakeFirst();
+    if (!b.organiser_id || !who) return [];
+    return [{ to: b.organiser_id, kind: "match_player_in", params: { ...b.base, person: who.display_name, spots: p.left > 0 ? both("msg.match_spots", { count: p.left }) : both("msg.match_full") },
+      purpose: "account", essential: false, email: false, link: `/match/${b.id}`, staleAt: new Date(b.start) }];
   },
   async "booking.reminder"({ db }, p: { booking_id: string }) {
     const b = await bookingInfo(db, p.booking_id);

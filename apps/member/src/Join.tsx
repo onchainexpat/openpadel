@@ -3,14 +3,16 @@ import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
-type Invite = { code: string; court: string; location: string; time_zone: string; organiser: string | null; start: string; end: string; share_cents: number; spots_left: number; open: boolean };
+type Invite = { id: string; open_match: boolean; code: string; court: string; location: string; time_zone: string; organiser: string | null; start: string; end: string; share_cents: number; spots_left: number; open: boolean };
 
 export function Join({ code }: { code: string }) {
   const [inv, setInv] = useState<Invite | null>(null), [error, setError] = useState<string | null>(null), [paying, setPaying] = useState<string | null>(null), [done, setDone] = useState(false);
   const [provider, setProvider] = useState("test");
   const { preview, sheet } = usePreview((r?: { payment_id?: string }) => { if (r?.payment_id) setPaying(r.payment_id); });
   useEffect(() => {
-    api<Invite>(`/bookings/invite/${encodeURIComponent(code)}`).then(setInv).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
+    // An open match's link goes to the match's own page, where its level band applies.
+    api<Invite>(`/bookings/invite/${encodeURIComponent(code)}`).then((x) => { if (x.open_match) location.replace(`/match/${x.id}?code=${encodeURIComponent(code)}`); else setInv(x); })
+      .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
     api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {});
   }, [code]);
   if (error) return <main class="card"><p class="error">{error}</p></main>;

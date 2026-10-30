@@ -15,12 +15,14 @@ import { account, paymentProvider, post } from "./money.ts";
 import { occupied, openingOn } from "./bookings.ts";
 import { currentPolicy, quote } from "./prices.ts";
 import { memberPlan } from "./memberships.ts";
+import { band, joinRule, levelOf, openMatchOf } from "./match_rules.ts";
 
 /** How long a court is held while the organiser pays. */
 export const HOLD_MINUTES = 10;
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const when = (d: Date, tz: string): Text => ({ en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) });
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const levelInput = z.number().check(z.minimum(0.5), z.maximum(7));
 const code4 = () => Array.from({ length: 4 }, () => CODE_LETTERS[Math.floor(Math.random() * CODE_LETTERS.length)]).join("");
 
 /** Each player's share; the organiser takes the odd cents. */
@@ -45,10 +47,15 @@ async function courtAndPlace(db: Db | Trx, courtId: string) {
 export const bookingRequest = defineAction({
   name: "booking.request", version: 1,
   input: z.object({ court_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), minutes: z.number().check(z.int()), pay: z.enum(["whole", "split"]),
-    players: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(8))), person_id: z.uuid() }),
+    players: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(8))), person_id: z.uuid(),
+    // An open match: other players can find it and join, inside the level band (or ask the host).
+    open: z.optional(z.object({ level_min: levelInput, level_max: levelInput, outside_band: z.optional(z.enum(["ask", "closed"])), rated: z.optional(z.boolean()),
+      listed: z.optional(z.boolean()), note: z.optional(z.string().check(z.maxLength(200))) })) }),
   async plan(ctx, i) {
     const club = await ctx.db.selectFrom("club").select(["court_bookings"]).executeTakeFirstOrThrow();
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
+    if (i.open && (i.pay !== "split" || (i.players ?? 4) !== 4)) throw new KumiError("error.open_match_split");
+    if (i.open && i.open.level_max < i.open.level_min) throw new KumiError("error.bad_band");
     const policy = await currentPolicy(ctx.db), court = await courtAndPlace(ctx.db, i.court_id), start = new Date(i.starts_at), end = new Date(start.getTime() + i.minutes * 60_000);
     if (!policy.lengths.includes(i.minutes)) throw new KumiError("error.length_not_offered", { lengths: policy.lengths.join(", ") });
     if (!court.bookable) throw new KumiError("error.court_not_bookable", { court: court.name });
@@ -66,10 +73,13 @@ export const bookingRequest = defineAction({
     if (i.pay === "split" && start.getTime() - ctx.now.getTime() <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
     const players = i.players ?? 4, s = shares(q.total_cents, players);
     const p = { court: court.name, when: when(start, court.time_zone), minutes: i.minutes, total: usd(q.total_cents) };
+    const summary = i.pay === "whole" ? both("plan.booking.request_whole", p)
+      : both("plan.booking.request_split", { ...p, share: usd(s.organiser), players: both("count.players", { count: players }), others: usd(s.each), hours: both("count.hours", { count: policy.split_deadline_hours }) });
+    const openText = i.open ? both(i.open.rated === false ? "plan.booking.open_friendly" : "plan.booking.open_rated", { band: band(i.open),
+      outside: both(i.open.outside_band === "closed" ? "plan.booking.outside_closed" : "plan.booking.outside_ask") }) : null;
     return { title: both("action.booking.request"), reads: [], locationId: court.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" },
       moneyCents: i.pay === "whole" ? q.total_cents : s.organiser, details: { quote: q, policy_id: policy.id },
-      summary: i.pay === "whole" ? both("plan.booking.request_whole", p)
-        : both("plan.booking.request_split", { ...p, share: usd(s.organiser), players: both("count.players", { count: players }), others: usd(s.each), hours: both("count.hours", { count: policy.split_deadline_hours }) }) };
+      summary: openText ? { en: `${summary.en} ${openText.en}`, es: `${summary.es} ${openText.es}` } : summary };
   },
   async apply(ctx, i, plan) {
     const { quote: q, policy_id } = plan.details as { quote: Awaited<ReturnType<typeof quote>>; policy_id: string };
@@ -83,6 +93,8 @@ export const bookingRequest = defineAction({
     const id = uuidv7(), players = i.players ?? 4, s = shares(q.total_cents, players);
     await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id, status: "held", source: "app", price_cents: q.total_cents, tax_cents: q.tax_cents,
       quote: JSON.stringify(q), policy_id, pay_mode: i.pay, players, invite_code: i.pay === "split" ? randomBytes(9).toString("base64url") : null });
+    if (i.open) await ctx.insert("open_match", { booking_id: id, level_min: i.open.level_min.toFixed(2), level_max: i.open.level_max.toFixed(2), outside_band: i.open.outside_band ?? "ask",
+      rated: i.open.rated ?? true, listed: i.open.listed ?? true, note: i.open.note ?? null });
     const bp = uuidv7();
     await ctx.insert("booking_player", { id: bp, booking_id: id, person_id: i.person_id, share_cents: i.pay === "whole" ? q.total_cents : s.organiser });
     try {
@@ -98,19 +110,30 @@ export const bookingRequest = defineAction({
 
 export const bookingJoin = defineAction({
   name: "booking.join", version: 1,
-  input: z.object({ invite_code: z.string().check(z.minLength(8)), person_id: z.uuid() }),
+  // From its link, or (an open match) from the Play page.
+  input: z.object({ invite_code: z.optional(z.string().check(z.minLength(8))), booking_id: z.optional(z.uuid()), person_id: z.uuid() }),
   async plan(ctx, i) {
-    const b = await ctx.db.selectFrom("booking").selectAll().where("invite_code", "=", i.invite_code).executeTakeFirst();
+    const b = await ctx.db.selectFrom("booking").selectAll().$if(Boolean(i.invite_code), (q) => q.where("invite_code", "=", i.invite_code!))
+      .$if(!i.invite_code, (q) => q.where("id", "=", i.booking_id ?? "00000000-0000-0000-0000-000000000000")).executeTakeFirst();
     if (!b || b.status !== "confirmed" || b.pay_mode !== "split") throw new KumiError("error.invite_closed");
     if (b.settled_at) throw new KumiError("error.invite_settled");
     const players = await ctx.db.selectFrom("booking_player").select(["person_id"]).where("booking_id", "=", b.id).where("removed_at", "is", null).execute();
     if (players.some((p) => p.person_id === i.person_id)) throw new KumiError("error.already_in_booking");
     if (players.length >= b.players) throw new KumiError("error.booking_full");
+    // An open match: only from inside its level band (outside it, players ask the host). Not by id otherwise.
+    const om = await openMatchOf(ctx.db, b.id);
+    if (!om && !i.invite_code) throw new KumiError("error.invite_closed");
+    if (om) {
+      const level = await levelOf(ctx.db, i.person_id), rule = joinRule(om, level);
+      const lv = level === null ? both("plan.booking.no_level") : level.toFixed(2);
+      if (rule === "ask") throw new KumiError("error.outside_band_ask", { level: lv, band: band(om) });
+      if (rule === "closed") throw new KumiError("error.outside_band", { level: lv, band: band(om) });
+    }
     const t = await ctx.db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id")
       .select(["court.name", "location.time_zone", sql<Date>`lower(during)`.as("start")]).where("court_time.booking_id", "=", b.id).where("court_time.active", "=", true).executeTakeFirstOrThrow();
     const organiser = b.organiser_id ? (await readRow(ctx.db, "person", b.organiser_id, "thing.person")).row.display_name : "";
     const s = shares(b.price_cents, b.players);
-    return { title: both("action.booking.join"), summary: both("plan.booking.join", { organiser, court: t.name, when: when(new Date(t.start), t.time_zone), share: usd(s.each) }),
+    return { title: both("action.booking.join"), summary: both(om ? "plan.booking.join_match" : "plan.booking.join", { organiser, court: t.name, when: when(new Date(t.start), t.time_zone), share: usd(s.each) }),
       reads: [], locationId: b.location_id, ownerIds: [i.person_id], moneyCents: s.each, undo: { kind: "compensating" }, details: { booking_id: b.id, share: s.each } };
   },
   async apply(ctx, i, plan) {
@@ -120,7 +143,8 @@ export const bookingJoin = defineAction({
     const b = await ctx.trx.selectFrom("booking").select(["players", "settled_at", "status"]).where("id", "=", booking_id).executeTakeFirstOrThrow();
     if (Number(n.n) >= b.players || b.settled_at || b.status !== "confirmed") throw new KumiError("error.changed");
     const bp = uuidv7(), payment = uuidv7();
-    await ctx.insert("booking_player", { id: bp, booking_id, person_id: i.person_id, share_cents: share });
+    // The seat is theirs while they pay; unpaid, it opens again (releaseSeats).
+    await ctx.insert("booking_player", { id: bp, booking_id, person_id: i.person_id, share_cents: share, held_until: new Date(ctx.now.getTime() + HOLD_MINUTES * 60_000) });
     await ctx.insert("payment", { id: payment, person_id: i.person_id, amount_cents: share, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", booking_player_id: bp });
     await ctx.emit("booking.joined", { booking_id, booking_player_id: bp });
     return { booking_id, payment_id: payment };
@@ -128,7 +152,7 @@ export const bookingJoin = defineAction({
 });
 
 /** Refund a payment to its card (the outbox sends it). */
-async function refundPayment(ctx: ApplyCtx, paymentId: string, cents: number) {
+export async function refundPayment(ctx: ApplyCtx, paymentId: string, cents: number) {
   if (cents <= 0) return;
   const id = uuidv7();
   await ctx.insert("refund", { id, payment_id: paymentId, enrolment_id: null, amount_cents: cents, destination: "card", status: "pending" });
@@ -140,9 +164,19 @@ async function refundPayment(ctx: ApplyCtx, paymentId: string, cents: number) {
  *  the booking is cancelled and the payment refunded in full. */
 export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amount_cents: number; booking_player_id: string | null }) {
   const bp = await ctx.trx.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id")
-    .select(["booking.id", "booking.status", "booking.organiser_id", "booking_player.person_id"]).where("booking_player.id", "=", pay.booking_player_id!).executeTakeFirstOrThrow();
+    .select(["booking.id", "booking.status", "booking.organiser_id", "booking_player.person_id", "booking_player.removed_at", "booking_player.held_until"]).where("booking_player.id", "=", pay.booking_player_id!).executeTakeFirstOrThrow();
   if (bp.status === "cancelled") { await refundPayment(ctx, pay.id, pay.amount_cents); return; }
-  if (bp.status !== "held" || bp.person_id !== bp.organiser_id) return;
+  if (bp.person_id !== bp.organiser_id) {
+    // A player's place: paid after it was let go (too late), all of it back; otherwise it's theirs now.
+    if (bp.removed_at) { await refundPayment(ctx, pay.id, pay.amount_cents); return; }
+    if (bp.held_until) await ctx.update("booking_player", pay.booking_player_id!, { held_until: null });
+    // How many places are left now, for the host's message (it's written a moment later).
+    const seated = await ctx.trx.selectFrom("booking_player").select(sql<string>`count(*)`.as("n")).where("booking_id", "=", bp.id).where("removed_at", "is", null).executeTakeFirstOrThrow();
+    const size = await ctx.trx.selectFrom("booking").select("players").where("id", "=", bp.id).executeTakeFirstOrThrow();
+    await ctx.emit("booking.player_paid", { booking_id: bp.id, booking_player_id: pay.booking_player_id, left: Math.max(0, size.players - Number(seated.n)) });
+    return;
+  }
+  if (bp.status !== "held") return;
   for (const t of await ctx.trx.selectFrom("court_time").select(["id", "court_id", "active"]).where("booking_id", "=", bp.id).execute()) {
     await ctx.trx.selectFrom("court").select("id").where("id", "=", t.court_id).forUpdate().execute();
     // A savepoint, so a court that's gone can be answered with a refund rather than failing the payment.
@@ -221,18 +255,6 @@ export const bookingLapse = defineAction({
   },
 });
 
-/** "Pay my part" bookings at their deadline: whatever is unpaid goes on the organiser's saved card, once. */
-export async function settleShares(db: Db, now = new Date()) {
-  const due = await db.selectFrom("booking").innerJoin("booking_policy", "booking_policy.id", "booking.policy_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
-    .select(["booking.id"]).distinct().where("booking.pay_mode", "=", "split").where("booking.status", "=", "confirmed").where("booking.settled_at", "is", null).where("court_time.active", "=", true)
-    .where(sql<boolean>`lower(court_time.during) - make_interval(hours => booking_policy.split_deadline_hours) <= ${now}`).execute();
-  let charged = 0, failed = 0;
-  for (const b of due) {
-    const r = await runAsSystem(db, "booking.settle_shares", { booking_id: b.id }, "jobs", { now });
-    if ((r.result as { charged?: number })?.charged) charged++; else if ((r.result as { owed?: number })?.owed) failed++;
-  }
-  return { settled: due.length, charged, failed };
-}
 export const bookingSettleShares = defineAction({
   name: "booking.settle_shares", version: 1, system: true, internal: true,
   input: z.object({ booking_id: z.uuid() }),
@@ -246,7 +268,10 @@ export const bookingSettleShares = defineAction({
     const paid = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
       .select((eb) => eb.fn.sum<string>("payment.amount_cents").as("c")).where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "succeeded").executeTakeFirst();
     const unpaid = b.price_cents - Number(paid?.c ?? 0);
-    // Friends' shares not paid by now can't be paid any more: the organiser covers them.
+    // Seats taken and never paid for open again (the organiser covers the place, not a no-show's seat);
+    // friends' shares not paid by now can't be paid any more: the organiser covers them.
+    for (const p of await ctx.trx.selectFrom("booking_player").select("id").where("booking_id", "=", b.id).where("removed_at", "is", null).where("held_until", "is not", null).execute())
+      await ctx.update("booking_player", p.id, { removed_at: ctx.now });
     for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
       .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "pending").execute()) await ctx.update("payment", p.id, { status: "failed" });
     if (unpaid <= 0) { await ctx.update("booking", b.id, { settled_at: ctx.now }); return { charged: 0 }; }

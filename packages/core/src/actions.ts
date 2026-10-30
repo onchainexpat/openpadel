@@ -79,6 +79,8 @@ const ENTITIES = {
   booking_policy: { table: "booking_policy", key: "id", retire: { active: false } },
   membership_plan: { table: "membership_plan", key: "id", retire: { active: false } },
   membership: { table: "membership", key: "id", retire: { status: "ended" } },
+  open_match: { table: "open_match", key: "booking_id", retire: null },
+  join_request: { table: "join_request", key: "id", retire: { status: "withdrawn" } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 

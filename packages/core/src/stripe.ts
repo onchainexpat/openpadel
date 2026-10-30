@@ -92,6 +92,17 @@ export class StripeProvider implements PaymentProvider {
     return { status: intentStatus(d.status), clientSecret: String(d.client_secret), paymentMethod: id(d.payment_method), customer: id(d.customer) };
   }
 
+  async cancelIntent(ref: string, account?: string | null) {
+    try {
+      const d = await this.call("POST", `/v1/payment_intents/${encodeURIComponent(ref)}/cancel`, {}, `cancel:${ref}`, account);
+      return { status: intentStatus(d.status) };
+    } catch (e) {
+      // Too late to cancel (it went through, or is going through): say where it stands.
+      if (e instanceof StripeError && e.status === 400) return { status: (await this.getIntent(ref, account)).status };
+      throw e;
+    }
+  }
+
   async ensureCustomer(i: { key: string; email?: string | null; name?: string }) {
     const account = await this.payingAccount();
     const d = await this.call("POST", "/v1/customers", { email: i.email ?? undefined, name: i.name, metadata: { kumi_person_id: i.key } }, `customer:${i.key}`, account);

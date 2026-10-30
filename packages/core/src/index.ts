@@ -10,6 +10,8 @@ export * from "./bookings.ts";
 export * from "./prices.ts";
 export * from "./booking_pay.ts";
 export * from "./memberships.ts";
+export * from "./match_rules.ts";
+export * from "./open_matches.ts";
 export * from "./money.ts";
 export * from "./outbox.ts";
 export * from "./messages.ts";

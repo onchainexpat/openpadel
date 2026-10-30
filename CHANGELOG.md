@@ -19,6 +19,14 @@ The first version a club can run on its own (court bookings included), or for it
 - Messages for confirmations, shares paid, cancellations, money owed, and a reminder before playing.
 - Occupancy and revenue by day, with a CSV export.
 
+**Open matches**
+- A member booking a court and paying their part can open it to other players: a level band, rated
+  or friendly, listed on the Play page or only by its link. Players inside the band join and pay
+  their place at once; outside it they ask the host, who says yes or no. A seat taken but not paid
+  for opens again (10 minutes, or an hour for a player the host said yes to), and a payment left
+  half-done is called off at Stripe first, so it can't go through unrecorded. Places still empty at
+  the club's deadline go on the host's saved card.
+
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.
 - Members join in the app and pay by card; Kumi renews from that card each period at the price they

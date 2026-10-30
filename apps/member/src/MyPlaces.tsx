@@ -44,7 +44,7 @@ export function MyPlaces() {
 }
 
 type Booking = { id: string; code: string; status: string; pay_mode: string; players: number; price_cents: number; invite_code: string | null; balance_cents: number; share_cents: number;
-  court: string; location: string; time_zone: string; start: string; end: string; pending_payment_id: string | null; paid_cents: number; joined: number; mine: boolean };
+  court: string; location: string; time_zone: string; start: string; end: string; pending_payment_id: string | null; paid_cents: number; joined: number; mine: boolean; open_match_id: string | null };
 
 /** My court bookings: when and where, what I paid or still owe, the link for the others, and cancelling. */
 function MyBookings({ provider, ready, onPaid }: { provider: string | null; ready: boolean; onPaid: () => void }) {
@@ -73,6 +73,7 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
           {b.balance_cents > 0 && b.mine && <p class="error">{t("ui.still_owed", { amount: dollars(b.balance_cents, lang.value) })}</p>}
           {b.pending_payment_id && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(b)}>{t("ui.pay_now", { amount: dollars(b.share_cents, lang.value) })}</button>}
           {import.meta.env.DEV && b.pending_payment_id && provider === "test" && <button class="small" onClick={async () => { await api(`/dev/payments/${b.pending_payment_id}/settle`, {}); load(); }}>{t("ui.pay_test")}</button>}
+          {b.open_match_id && <><a class="small" href={`/match/${b.open_match_id}`}>{t("ui.see_match")}</a>{" "}</>}
           {b.invite_code && <><button class="small" onClick={() => share(b)}>{t("ui.invite_others")}</button>{copied === b.id && <span class="meta"> {t("ui.link_copied")}</span>}</>}
           {" "}<a class="small" href={`/my/bookings/${b.id}/calendar.ics`}>{t("ui.add_calendar")}</a>
           {b.mine && b.status === "confirmed" && <>{" "}<button class="small" onClick={() => preview("booking.cancel", { booking_id: b.id })}>{t("ui.cancel_booking_member")}</button></>}
