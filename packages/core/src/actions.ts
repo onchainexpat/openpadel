@@ -79,6 +79,7 @@ const ENTITIES = {
   booking_policy: { table: "booking_policy", key: "id", retire: { active: false } },
   membership_plan: { table: "membership_plan", key: "id", retire: { active: false } },
   membership: { table: "membership", key: "id", retire: { status: "ended" } },
+  membership_member: { table: "membership_member", key: "id", retire: { ends_at: "now" } },
   open_match: { table: "open_match", key: "booking_id", retire: null },
   join_request: { table: "join_request", key: "id", retire: { status: "withdrawn" } },
   friend: { table: "friend", key: "id", retire: { removed_at: "now" } },

@@ -120,6 +120,12 @@ The first version a club can run on its own (court bookings included), or for it
   saves the card without charging it; the first charge is on the start date.
 - The desk gives and ends memberships (with an end date or without), and can stop or restart a
   renewal. Messages for joining, renewals, declined cards, cancelling and ending.
+- Family plans: a plan covers up to so many people from one household on the payer's card, and
+  optionally more at a price each. The payer adds the other parent, grown-up children and juniors on
+  the Membership page; each of them gets the plan's benefits (member prices, the booking window,
+  program discounts) and their own included sessions. One more than the plan covers is charged for the
+  current period at once and added to each renewal; someone taken off (or who leaves the family) keeps
+  the benefits until the next renewal. Pausing, a late renewal and ending apply to everyone on it.
 - Member prices on clinics and other programs: a plan gives a percent or an amount off, and a
   program can set its own member price instead, which wins. A plan can also include so many single
   sessions each membership period (say 4 clinics a month), of the kinds it names; courses never count.

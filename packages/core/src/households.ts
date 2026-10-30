@@ -223,6 +223,10 @@ export const householdLeave = defineAction({
   async apply(ctx, i, plan) {
     const { member_id, household_id } = plan.details as { member_id: string; household_id: string };
     await ctx.update("household_member", member_id, { removed_at: ctx.now });
+    // Out of the family, off a family plan: covered to the end of what's paid, as if taken off it.
+    for (const c of await ctx.trx.selectFrom("membership_member").innerJoin("membership", "membership.id", "membership_member.membership_id")
+      .select(["membership_member.id", "membership.current_period_end", "membership.source"]).where("membership_member.person_id", "=", i.person_id).where("membership_member.ends_at", "is", null).execute())
+      await ctx.update("membership_member", c.id, { ends_at: c.source === "app" && c.current_period_end && c.current_period_end > ctx.now ? c.current_period_end : ctx.now });
     await ctx.emit("household.left", { person_id: i.person_id, to: await adultsNow(ctx.trx, household_id) });
     return null;
   },

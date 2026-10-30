@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -333,21 +333,38 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   // My membership, if I have one, and what it gives me; when it renews or runs until (a club date); and a
   // payment to make when a renewal didn't go through.
   app.get("/my/membership", async (c) => {
-    const pid = who(c);
-    const m = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-      .select(["membership.id", "membership_plan.name", "membership_plan.description", "membership_plan.price_cents as plan_price_cents", "membership_plan.period as plan_period", "membership_plan.days_ahead",
-        "membership.plan_id", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.price_cents",
-        "membership.period", "membership.next_attempt_at", "membership.saved_method", "membership.paused_until"])
-      .where("membership.person_id", "=", pid).where("membership.status", "in", ["upcoming", "active", "past_due"]).executeTakeFirst();
+    const pid = who(c), now = new Date();
+    const q = () => db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person as payer", "payer.id", "membership.person_id")
+      .select(["membership.id", "membership.person_id", "payer.display_name as payer", "membership_plan.name", "membership_plan.description", "membership_plan.price_cents as plan_price_cents", "membership_plan.period as plan_period",
+        "membership_plan.days_ahead", "membership.plan_id", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.price_cents",
+        "membership.period", "membership.next_attempt_at", "membership.saved_method", "membership.paused_until", "membership.family_size", "membership.extra_person_cents"])
+      .where("membership.status", "in", ["upcoming", "active", "past_due"]);
+    // Mine, or a family plan someone else pays that covers me.
+    const m = await q().where("membership.person_id", "=", pid).executeTakeFirst() ?? await q().where((eb) => eb.exists(eb.selectFrom("membership_member").select("membership_member.id")
+      .whereRef("membership_member.membership_id", "=", "membership.id").where("membership_member.person_id", "=", pid)
+      .where((w) => w.or([w("membership_member.ends_at", "is", null), w("membership_member.ends_at", ">", now)])))).executeTakeFirst();
     if (!m) return c.json({ membership: null });
-    const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
-    const prices = await planPerks(m.plan_id), perks = await programPerks(db, pid, new Date());
-    const owed = m.status === "past_due" ? await db.selectFrom("payment").select(["id", "amount_cents"]).where("membership_id", "=", m.id).where("status", "=", "pending").executeTakeFirst() : null;
-    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, saved_method, paused_until, ...rest } = m;
-    return c.json({ membership: { ...rest, price_cents: m.price_cents ?? plan_price_cents, period: m.period ?? plan_period, member_prices: prices, ...programTerms(perks ?? (await planTerms(m.plan_id))),
+    const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone, mine = m.person_id === pid;
+    const prices = await planPerks(m.plan_id), perks = await programPerks(db, pid, now);
+    const owed = mine && m.status === "past_due" ? await db.selectFrom("payment").select(["id", "amount_cents"]).where("membership_id", "=", m.id).where("status", "=", "pending").executeTakeFirst() : null;
+    // A family plan: who it covers, and (for the payer) who else in the family could be added.
+    const covered = m.family_size ? await coveredBy(db, m.id, now) : [];
+    const candidates = mine && m.family_size ? (await (async () => {
+      const hh = await householdOf(db, pid);
+      if (!hh) return [];
+      return db.selectFrom("household_member").innerJoin("person", "person.id", "household_member.person_id").select(["person.id", "person.display_name"]).where("household_member.household_id", "=", hh.household_id)
+        .where("household_member.removed_at", "is", null).where("person.status", "=", "active").where("person.id", "!=", pid).orderBy("household_member.created_at").execute();
+    })()).filter((x) => !covered.some((c) => c.person_id === x.id)) : [];
+    const family = m.family_size ? { size: m.family_size, extra_cents: m.extra_person_cents, payer: m.payer,
+      covered: covered.map((x) => ({ person_id: x.person_id, display_name: x.display_name, until: x.ends_at ? endDay({ current_period_end: x.ends_at, source: "app" }, tz) : null })),
+      can_add: candidates.map((x) => ({ id: x.id, display_name: x.display_name })) } : null;
+    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, saved_method, paused_until, person_id, payer, family_size, extra_person_cents, ...rest } = m;
+    return c.json({ membership: { ...rest, mine, covered_by: mine ? null : payer, family,
+      // What a period costs: with a family plan, each person beyond its number too.
+      price_cents: await periodCents(db, m, plan_price_cents, now), period: m.period ?? plan_period, member_prices: prices, ...programTerms(perks ?? (await planTerms(m.plan_id))),
       included_used: perks?.included_sessions ? perks.used : null,
       starts_on: m.status === "upcoming" ? localDate(m.started_at, tz) : null, card_saved: Boolean(saved_method),
-      paused_until: paused_until && paused_until > new Date() ? localDate(new Date(paused_until.getTime() - 1), tz) : null,
+      paused_until: paused_until && paused_until > now ? localDate(new Date(paused_until.getTime() - 1), tz) : null,
       ends_on: current_period_end ? endDay({ current_period_end, source: m.source }, tz) : null, retry_on: next_attempt_at ? localDate(next_attempt_at, tz) : null,
       pay_now: owed ? { payment_id: owed.id, cents: owed.amount_cents } : null } });
   });
@@ -355,7 +372,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   app.get("/membership-plans", async (c) => {
     who(c);
     const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "max_members", "starts_on",
-      "program_percent_off", "program_cents_off", "included_sessions", "included_kinds"]).where("active", "=", true).where("join_in_app", "=", true)
+      "program_percent_off", "program_cents_off", "included_sessions", "included_kinds", "family_size", "extra_person_cents"]).where("active", "=", true).where("join_in_app", "=", true)
       .orderBy("sort").orderBy("price_cents").execute();
     const counts = await planCounts(db), today = localDate(new Date(), (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone);
     // A founding offer: how many places are left, and the start date while it's still ahead.

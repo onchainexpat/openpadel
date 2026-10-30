@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
+import { coachEarnings, coachSchedule, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -101,9 +101,14 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         sql<boolean>`membership.saved_method IS NOT NULL`.as("card_saved")])
       .where((eb) => eb.or([eb("membership.status", "in", ["upcoming", "active", "past_due"]), eb("membership.ended_at", ">", sql<Date>`now() - interval '30 days'`)]))
       .orderBy("membership.status").orderBy("person.display_name").limit(500).execute();
-    const tz = await clubTz();
+    const tz = await clubTz(), now = new Date();
+    // A family membership: the others it covers now.
+    const others = members.length ? await db.selectFrom("membership_member").innerJoin("person", "person.id", "membership_member.person_id").select(["membership_member.membership_id", "person.display_name"])
+      .where("membership_member.membership_id", "in", members.map((m) => m.id)).where((w) => w.or([w("membership_member.ends_at", "is", null), w("membership_member.ends_at", ">", now)]))
+      .orderBy("membership_member.created_at").execute() : [];
     return c.json({ plans: plans.map((p) => ({ ...p, members: counts.get(p.id) ?? 0 })),
-      members: members.map((m) => ({ ...m, ends_on: m.current_period_end ? endDay({ current_period_end: m.current_period_end, source: m.source }, tz) : null })) });
+      members: members.map((m) => ({ ...m, also_covers: others.filter((o) => o.membership_id === m.id).map((o) => o.display_name),
+        ends_on: m.current_period_end ? endDay({ current_period_end: m.current_period_end, source: m.source }, tz) : null })) });
   });
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
@@ -245,7 +250,12 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .select(["person.id", "person.display_name", "person.birth_year", "household_member.role"]).where("household_member.household_id", "=", hh.household_id)
       .where("household_member.removed_at", "is", null).where("person.status", "=", "active").where("person.id", "!=", id).orderBy("household_member.created_at").execute() : [];
     const waiver = await waiverStatus(db, id);
-    return c.json({ ...p, roles, places, consent, plans, family_role: hh?.role ?? null, family, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
+    const cover = membership ? null : await db.selectFrom("membership_member").innerJoin("membership", "membership.id", "membership_member.membership_id")
+      .innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person as payer", "payer.id", "membership.person_id")
+      .select(["membership.id as membership_id", "membership.person_id as payer_id", "payer.display_name as payer", "membership_plan.name as plan"]).where("membership_member.person_id", "=", id)
+      .where("membership.status", "in", ["upcoming", "active", "past_due"]).where((w) => w.or([w("membership_member.ends_at", "is", null), w("membership_member.ends_at", ">", new Date())])).executeTakeFirst();
+    const alsoCovers = membership ? (await coveredBy(db, membership.id, new Date())).map((x) => x.display_name) : [];
+    return c.json({ ...p, roles, places, consent, plans, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
       membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null } : null });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.

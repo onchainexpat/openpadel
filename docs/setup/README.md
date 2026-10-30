@@ -111,6 +111,15 @@ carries on while Kumi tries again two days later and three days after that, and 
 with another card meanwhile; after the third try it ends. Members cancel in the app, and it runs to
 the end of what they've paid. A plan with "join in the app" off is only given at the desk.
 
+A family plan covers a household on one card, the payer's: give the plan how many people it covers
+(the payer included) and, if more can be added, the price of each one more a month or a year. The
+payer joins in the app, then adds people from their family on the Membership page: the other parent,
+grown-up children with their own login, and juniors (step 5g). Everyone added gets the plan's benefits
+as their own, and its included sessions each. Someone added beyond the plan's number is charged their
+price for the current period at once, and each renewal is the plan's price plus theirs. Someone taken
+off keeps the benefits until the next renewal. Pausing or ending the membership does it for everyone
+on it.
+
 For a founding offer (a new club selling memberships before it opens), give a plan a limit, a start
 date, or both. Members who join before the start date save their card, without being charged, and
 keep their place; Kumi makes the first charge on the start date and renews monthly or yearly from

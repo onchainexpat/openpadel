@@ -34,10 +34,11 @@ export function periodStart(m: { started_at: Date; period: "month" | "year" }, t
   return start;
 }
 
-/** Included sessions already used in a period: places still held, and ones left too late to give back. */
-export async function includedUsed(db: Db | Trx, membershipId: string, start: Date): Promise<number> {
+/** Included sessions a person has used in a period: places still held, and ones left too late to give back.
+ *  On a family plan each person covered has their own. */
+export async function includedUsed(db: Db | Trx, membershipId: string, start: Date, personId: string): Promise<number> {
   const r = await db.selectFrom("enrolment").select(sql<string>`count(*)`.as("n")).where("price_basis", "=", "included")
-    .where("included_membership_id", "=", membershipId).where("included_period_start", "=", start)
+    .where("included_membership_id", "=", membershipId).where("included_period_start", "=", start).where("person_id", "=", personId)
     .where((eb) => eb.or([eb("status", "in", ["booked", "attended", "no_show"]), eb.and([eb("status", "=", "cancelled"), eb("included_back", "=", false)])])).executeTakeFirstOrThrow();
   return Number(r.n);
 }
@@ -51,7 +52,7 @@ export async function programPerks(db: Db | Trx, personId: string, at: Date) {
       "membership_plan.program_cents_off", "membership_plan.included_sessions", "membership_plan.included_kinds"]).where("membership.id", "=", m.membership_id).executeTakeFirstOrThrow();
   const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
   const start = row.included_sessions ? periodStart({ started_at: row.started_at, period: row.period ?? row.plan_period }, tz, at) : null;
-  return { ...row, membership_id: row.id, period: row.period ?? row.plan_period, period_start: start, used: start ? await includedUsed(db, row.id, start) : 0 };
+  return { ...row, membership_id: row.id, period: row.period ?? row.plan_period, period_start: start, used: start ? await includedUsed(db, row.id, start, personId) : 0 };
 }
 export type ProgramPerks = NonNullable<Awaited<ReturnType<typeof programPerks>>>;
 

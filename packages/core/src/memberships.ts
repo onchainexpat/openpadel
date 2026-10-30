@@ -2,7 +2,8 @@
 // member prices on courts (price rules for that plan) and a longer booking window. The desk gives a
 // membership (a comp, a founding member, one paid at the counter), with or without an end date. Members
 // join in the app and pay by card; Kumi renews from that saved card each period, at the price they joined
-// at, and cancelling stops renewal at the period's end. One membership at a time per person.
+// at, and cancelling stops renewal at the period's end. One membership at a time per person. A family plan
+// covers others from the payer's household too (see memberships covered below).
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { both, money, type Key, type Lang, type Text } from "@kumi/i18n";
@@ -12,6 +13,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts, onDate } from "./clock.ts";
 import { account, paymentProvider, post } from "./money.ts";
+import { householdOf } from "./households.ts";
 
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 const LIVE = ["active", "past_due"] as const;
@@ -20,9 +22,12 @@ const HELD = ["upcoming", "active", "past_due"] as const;
 /** A presale place with no card saved is let go after this long, so an abandoned card form doesn't keep it. */
 export const CARD_HOURS = 2;
 
-/** Whoever already holds a membership, of any kind (given, paid, or waiting for its plan to start). */
+/** Whoever already holds a membership, of any kind (given, paid, or waiting for its plan to start), or is
+ *  covered by someone's family plan. */
 async function holds(db: Db | Trx, personId: string) {
-  return (await db.selectFrom("membership").select("id").where("person_id", "=", personId).where("status", "in", HELD).executeTakeFirst()) ?? null;
+  return (await db.selectFrom("membership").select("id").where("person_id", "=", personId).where("status", "in", HELD).executeTakeFirst())
+    ?? (await db.selectFrom("membership_member").innerJoin("membership", "membership.id", "membership_member.membership_id").select("membership.id")
+      .where("membership_member.person_id", "=", personId).where("membership_member.ends_at", "is", null).where("membership.status", "in", HELD).executeTakeFirst()) ?? null;
 }
 /** Whether a plan has room for one more (its limit counts every membership held on it). */
 async function hasRoom(db: Db | Trx, plan: { id: string; max_members: number | null }) {
@@ -47,7 +52,10 @@ export function dayText(date: string): Text {
 export async function memberPlan(db: Db | Trx, personId: string, at = new Date()) {
   return (await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
     .select(["membership.id as membership_id", "membership_plan.id as plan_id", "membership_plan.name", "membership_plan.days_ahead"])
-    .where("membership.person_id", "=", personId)
+    // Theirs, or a family plan that covers them (until they're taken off it).
+    .where((eb) => eb.or([eb("membership.person_id", "=", personId), eb.exists(eb.selectFrom("membership_member").select("membership_member.id")
+      .whereRef("membership_member.membership_id", "=", "membership.id").where("membership_member.person_id", "=", personId)
+      .where((w) => w.or([w("membership_member.ends_at", "is", null), w("membership_member.ends_at", ">", at)])))]))
     // Paused: no benefits until it's over.
     .where((eb) => eb.or([eb("membership.paused_until", "is", null), eb("membership.paused_until", "<=", at), eb("membership.paused_from", ">", at)]))
     .where((eb) => eb.or([eb("membership.status", "=", "past_due"),
@@ -89,6 +97,9 @@ const planInput = {
   program_cents_off: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1)))),
   included_sessions: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(100), z.describe("Single sessions included each membership period, free")))),
   included_kinds: z.optional(z.array(z.enum(["clinic", "social", "tournament"])).check(z.minLength(1))),
+  // A family plan: how many people from one household it covers (the payer included), and the price of each one more.
+  family_size: z.optional(z.nullable(z.number().check(z.int(), z.minimum(2), z.maximum(12), z.describe("People covered, the payer included: a family plan")))),
+  extra_person_cents: z.optional(z.nullable(z.number().check(z.int(), z.minimum(0), z.describe("Each person beyond family_size, each period; none: no more than family_size")))),
 };
 export const planSet = defineAction({
   name: "membership.plan_set", version: 1,
@@ -96,11 +107,14 @@ export const planSet = defineAction({
   async plan(ctx, i) {
     const reads = i.plan_id ? [(await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan")).read] : [];
     if (i.program_percent_off && i.program_cents_off) throw new KumiError("error.one_program_discount");
+    if (i.extra_person_cents != null && !i.family_size) throw new KumiError("error.extra_needs_family");
     const kinds = i.included_kinds ?? ["clinic", "social"];
     const extra = [i.days_ahead ? both("plan.membership.window", { count: i.days_ahead }) : null,
       i.program_percent_off ? both("plan.membership.program_percent", { percent: i.program_percent_off }) : null,
       i.program_cents_off ? both("plan.membership.program_cents", { amount: { en: money(i.program_cents_off, "en"), es: money(i.program_cents_off, "es") } }) : null,
       i.included_sessions ? both("plan.membership.included", { count: i.included_sessions, period: both(`ui.period_${i.period}`), kinds: kindList(kinds) }) : null,
+      i.family_size ? both("plan.membership.family", { count: i.family_size }) : null,
+      i.family_size && i.extra_person_cents != null ? both("plan.membership.family_extra", { amount: { en: money(i.extra_person_cents, "en"), es: money(i.extra_person_cents, "es") } }) : null,
       i.max_members ? both("plan.membership.limit", { count: i.max_members }) : null,
       i.starts_on ? both("plan.membership.starts", { date: dayText(i.starts_on) }) : null].filter((x): x is Text => Boolean(x));
     const window = { en: extra.map((x) => x.en).join(""), es: extra.map((x) => x.es).join("") };
@@ -111,7 +125,8 @@ export const planSet = defineAction({
     const { plan_id, ...p } = i;
     const row = { ...p, description: p.description ?? null, days_ahead: p.days_ahead ?? null, join_in_app: p.join_in_app ?? true, sort: p.sort ?? 0,
       max_members: p.max_members ?? null, starts_on: p.starts_on ?? null, program_percent_off: p.program_percent_off ?? null, program_cents_off: p.program_cents_off ?? null,
-      included_sessions: p.included_sessions ?? null, included_kinds: p.included_kinds ?? ["clinic", "social"] };
+      included_sessions: p.included_sessions ?? null, included_kinds: p.included_kinds ?? ["clinic", "social"],
+      family_size: p.family_size ?? null, extra_person_cents: p.family_size ? p.extra_person_cents ?? null : null };
     if (plan_id) { await ctx.update("membership_plan", plan_id, row); return { plan_id }; }
     const id = uuidv7();
     await ctx.insert("membership_plan", { id, ...row });
@@ -147,8 +162,9 @@ export const membershipGrant = defineAction({
     const club = await ctx.trx.selectFrom("club").select("time_zone").executeTakeFirstOrThrow();
     const id = uuidv7();
     try {
+      const plan = await ctx.trx.selectFrom("membership_plan").select(["family_size", "extra_person_cents"]).where("id", "=", i.plan_id).executeTakeFirstOrThrow();
       await ctx.insert("membership", { id, person_id: i.person_id, plan_id: i.plan_id, status: "active", source: "desk", started_at: ctx.now,
-        current_period_end: i.until ? onDate(i.until, "24:00", club.time_zone) : null, note: i.note ?? null });
+        current_period_end: i.until ? onDate(i.until, "24:00", club.time_zone) : null, note: i.note ?? null, family_size: plan.family_size, extra_person_cents: plan.extra_person_cents });
     } catch (e: any) { if (e?.code === "23505") throw new KumiError("error.changed"); throw e; }
     await ctx.emit("membership.started", { membership_id: id });
     return { membership_id: id };
@@ -205,7 +221,7 @@ export async function planCounts(db: Db): Promise<Map<string, number>> {
 }
 
 // ---- Joining in the app, and renewing ----
-type PlanRow = { id: string; name: string; price_cents: number; period: "month" | "year" };
+type PlanRow = { id: string; name: string; price_cents: number; period: "month" | "year"; family_size: number | null; extra_person_cents: number | null };
 
 /** The membership starts now, for one period, renewing from the card it was paid with. */
 async function startMembership(ctx: ApplyCtx, personId: string, plan: PlanRow, card: { customer: string | null; method: string | null; account: string | null }) {
@@ -213,7 +229,7 @@ async function startMembership(ctx: ApplyCtx, personId: string, plan: PlanRow, c
   try {
     await ctx.insert("membership", { id, person_id: personId, plan_id: plan.id, status: "active", source: "app", started_at: ctx.now,
       current_period_end: addPeriod(ctx.now, plan.period, tz, localParts(ctx.now, tz).d), price_cents: plan.price_cents, period: plan.period,
-      saved_customer: card.customer, saved_method: card.method, provider_account: card.account });
+      family_size: plan.family_size, extra_person_cents: plan.extra_person_cents, saved_customer: card.customer, saved_method: card.method, provider_account: card.account });
   } catch (e: any) { if (e?.code === "23505") return null; throw e; }   // they became a member another way meanwhile
   await ctx.emit("membership.started", { membership_id: id });
   return id;
@@ -253,7 +269,7 @@ export async function afterMembershipPayment(ctx: ApplyCtx, pay: { id: string; p
     await ctx.emit("membership.renewed", { membership_id: pay.membership_id, payment_id: pay.id });
     return;
   }
-  const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period", "max_members"]).where("id", "=", pay.membership_plan_id!).forUpdate().executeTakeFirstOrThrow();
+  const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period", "max_members", "family_size", "extra_person_cents"]).where("id", "=", pay.membership_plan_id!).forUpdate().executeTakeFirstOrThrow();
   // The price paid is the price it renews at. Paid for the last place someone else took meanwhile: back.
   const id = await holds(ctx.trx, pay.person_id) || !await hasRoom(ctx.trx, plan) ? null
     : await startMembership(ctx, pay.person_id, { ...plan, price_cents: pay.amount_cents }, { customer: card.customer, method: card.method, account: pay.provider_account });
@@ -272,11 +288,15 @@ export const membershipJoin = defineAction({
     const tz = await clubTz(ctx.db), presale = Boolean(plan.starts_on && plan.starts_on > localDate(ctx.now, tz));
     const p = { name: plan.name, price: planPrice(plan.price_cents, plan.period), period: both(plan.period === "year" ? "plan.membership.every_year" : "plan.membership.every_month"),
       date: plan.starts_on ? dayText(plan.starts_on) : "" };
-    return { title: both("action.membership.join"), summary: both(!plan.price_cents ? "plan.membership.join_free" : presale ? "plan.membership.join_presale" : "plan.membership.join", p),
+    const base = both(!plan.price_cents ? "plan.membership.join_free" : presale ? "plan.membership.join_presale" : "plan.membership.join", p);
+    // A family plan: whom else it can cover, added afterwards from the Membership page.
+    const fam = plan.family_size ? both(plan.extra_person_cents != null ? "plan.membership.join_family_extra" : "plan.membership.join_family",
+      { count: plan.family_size - 1, amount: { en: money(plan.extra_person_cents ?? 0, "en"), es: money(plan.extra_person_cents ?? 0, "es") }, period: both(`ui.period_${plan.period}` as Key) }) : null;
+    return { title: both("action.membership.join"), summary: fam ? { en: `${base.en} ${fam.en}`, es: `${base.es} ${fam.es}` } : base,
       reads: [read], ownerIds: [i.person_id], moneyCents: presale ? 0 : plan.price_cents, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
-    const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period", "max_members", "starts_on"]).where("id", "=", i.plan_id).forUpdate().executeTakeFirstOrThrow();
+    const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period", "max_members", "starts_on", "family_size", "extra_person_cents"]).where("id", "=", i.plan_id).forUpdate().executeTakeFirstOrThrow();
     const tz = await clubTz(ctx.trx);
     if (plan.starts_on && plan.starts_on > localDate(ctx.now, tz)) {
       // Before the plan starts: a place now, the card saved next (the members' app opens the form), the
@@ -285,7 +305,7 @@ export const membershipJoin = defineAction({
       const id = uuidv7(), start = onDate(plan.starts_on, "00:00", tz);
       try {
         await ctx.insert("membership", { id, person_id: i.person_id, plan_id: plan.id, status: "upcoming", source: "app", started_at: start, current_period_end: start,
-          price_cents: plan.price_cents, period: plan.period, created_at: ctx.now });
+          price_cents: plan.price_cents, period: plan.period, family_size: plan.family_size, extra_person_cents: plan.extra_person_cents, created_at: ctx.now });
       } catch (e: any) { if (e?.code === "23505") throw new KumiError("error.already_a_member"); throw e; }
       return { membership_id: id, save_card: plan.price_cents > 0 };
     }
@@ -389,7 +409,7 @@ export const membershipRenew = defineAction({
       return { outcome: "ended" };
     }
     const plan = await ctx.trx.selectFrom("membership_plan").select(["name", "price_cents"]).where("id", "=", m.plan_id).executeTakeFirstOrThrow();
-    const cents = m.price_cents ?? plan.price_cents, club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
+    const cents = await periodCents(ctx.trx, m, plan.price_cents, ctx.now), club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
     if (cents === 0) {
       await extend(ctx, m.id);
       if (m.status === "upcoming") await ctx.emit("membership.started", { membership_id: m.id });
@@ -518,6 +538,97 @@ export const membershipRelease = defineAction({
     const m = await ctx.trx.selectFrom("membership").select(["status", "saved_method"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
     if (m.status !== "upcoming" || m.saved_method) return { already: true };
     await ctx.update("membership", i.membership_id, { status: "ended", ended_at: ctx.now, end_reason: "no_card" });
+    return null;
+  },
+});
+
+// ---- Family plans: who's covered, and what each period costs ----
+/** The people a family plan covers at `at`, besides its payer (someone taken off is covered until their end). */
+export async function coveredBy(db: Db | Trx, membershipId: string, at: Date) {
+  return db.selectFrom("membership_member").innerJoin("person", "person.id", "membership_member.person_id")
+    .select(["membership_member.id", "membership_member.person_id", "membership_member.ends_at", "membership_member.extra", "person.display_name", "person.junior"])
+    .where("membership_member.membership_id", "=", membershipId).where((w) => w.or([w("membership_member.ends_at", "is", null), w("membership_member.ends_at", ">", at)]))
+    .orderBy("membership_member.created_at").execute();
+}
+/** What a period costs: the price joined at, and each person beyond the plan's number at their price.
+ *  Someone taken off doesn't count once their cover has ended (at the renewal). */
+export async function periodCents(db: Db | Trx, m: { id: string; price_cents: number | null; family_size: number | null; extra_person_cents: number | null }, planCents: number, at: Date): Promise<number> {
+  const base = m.price_cents ?? planCents;
+  if (!m.family_size || !m.extra_person_cents) return base;
+  const people = 1 + (await coveredBy(db, m.id, at)).filter((x) => !x.ends_at).length;
+  return base + Math.max(0, people - m.family_size) * m.extra_person_cents;
+}
+const usdText = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
+
+export const membershipAddPerson = defineAction({
+  name: "membership.add_person", version: 1,
+  input: z.object({ membership_id: z.uuid(), person_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { m, read, plan, person: payer } = await membershipRow(ctx.db, i.membership_id);
+    if (!["upcoming", "active", "past_due"].includes(m.status)) throw new KumiError("error.membership_not_live");
+    if (!m.family_size) throw new KumiError("error.not_family_plan", { name: plan.name });
+    const { row: who } = await readRow(ctx.db, "person", i.person_id, "thing.person");
+    // Only from the payer's household: the other parent, a grown-up child, or a junior.
+    const mine = await householdOf(ctx.db, m.person_id), theirs = await householdOf(ctx.db, i.person_id);
+    if (i.person_id === m.person_id || !mine || theirs?.household_id !== mine.household_id || who.status !== "active") throw new KumiError("error.not_in_family", { name: who.display_name });
+    if (await holds(ctx.db, i.person_id)) throw new KumiError("error.already_member", { name: who.display_name });
+    const people = 1 + (await coveredBy(ctx.db, m.id, ctx.now)).filter((x) => !x.ends_at).length, extra = people + 1 > m.family_size;
+    if (extra && m.extra_person_cents == null) throw new KumiError("error.family_full", { name: plan.name, count: m.family_size });
+    const xc = m.extra_person_cents ?? 0, tz = await clubTz(ctx.db), p = { name: who.display_name, plan: plan.name, count: m.family_size, amount: usdText(xc) };
+    // One more than the plan covers: charged now for this period (a plan that hasn't started yet: from its first charge).
+    const total = usdText((m.price_cents ?? plan.price_cents) + Math.max(0, people + 1 - m.family_size) * xc);
+    const money_ = !extra ? both("plan.membership.add_included", p)
+      : m.status === "upcoming" ? both("plan.membership.add_extra_later", { ...p, total, date: dayText(localDate(m.started_at, tz)) })
+      : m.source !== "app" ? both("plan.membership.add_extra_desk", p)
+      : both("plan.membership.add_extra_now", { ...p, total });
+    return { title: both("action.membership.add_person"), summary: { en: `${both("plan.membership.add_person", p).en} ${money_.en}`, es: `${both("plan.membership.add_person", p).es} ${money_.es}` },
+      reads: [read], ownerIds: [m.person_id], moneyCents: extra && m.status !== "upcoming" && m.source === "app" ? xc : 0, undo: { kind: "compensating" },
+      details: { extra, charge: extra && m.status !== "upcoming" && m.source === "app" && xc > 0 ? xc : 0 } };
+  },
+  async apply(ctx, i, plan) {
+    const { extra, charge } = plan.details as { extra: boolean; charge: number };
+    const m = await ctx.trx.selectFrom("membership").selectAll().where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();   // one at a time
+    const people = 1 + (await coveredBy(ctx.trx, m.id, ctx.now)).filter((x) => !x.ends_at).length;
+    if ((people + 1 > (m.family_size ?? 0)) !== extra) throw new KumiError("error.changed");
+    const id = uuidv7();
+    try { await ctx.insert("membership_member", { id, membership_id: m.id, person_id: i.person_id, extra, added_by: ctx.actor.personId }); }
+    catch (e: any) { if (e?.code === "23505") throw new KumiError("error.changed"); throw e; }
+    if (charge) {
+      const planRow = await ctx.trx.selectFrom("membership_plan").select("name").where("id", "=", m.plan_id).executeTakeFirstOrThrow();
+      const club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
+      const r = m.saved_customer && m.saved_method
+        ? await paymentProvider().chargeSaved({ customer: m.saved_customer, paymentMethod: m.saved_method, amountCents: charge, currency: club.currency, description: `${planRow.name} membership: one more person`,
+            idempotencyKey: `extra:${m.id}:${i.person_id}:${m.current_period_end?.toISOString() ?? ""}`, account: m.provider_account })
+        : { ref: "", status: "failed" as const, failure: "no saved card" };
+      if (r.status !== "succeeded") throw new KumiError("error.extra_declined", { failure: r.failure ?? "" });
+      await ctx.insert("payment", { id: uuidv7(), person_id: m.person_id, amount_cents: charge, method: "card", provider: paymentProvider().name, provider_ref: r.ref,
+        provider_account: m.provider_account, status: "succeeded", membership_id: m.id, membership_member_id: id });
+      await post(ctx.trx, ctx.runId, "payment", "family membership: one more person", [
+        { account: await account(ctx.trx, "provider_clearing"), cents: charge }, { account: await account(ctx.trx, "revenue", { revenueType: "memberships" }), cents: -charge }]);
+    }
+    await ctx.emit("membership.person_added", { membership_id: m.id, person_id: i.person_id, charged: charge });
+    return { membership_member_id: id };
+  },
+});
+
+export const membershipRemovePerson = defineAction({
+  name: "membership.remove_person", version: 1,
+  input: z.object({ membership_id: z.uuid(), person_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { m, read, plan } = await membershipRow(ctx.db, i.membership_id);
+    const row = (await coveredBy(ctx.db, m.id, ctx.now)).find((x) => x.person_id === i.person_id && !x.ends_at);
+    if (!row) throw new KumiError("error.not_covered");
+    // Covered until the next renewal (paid for until then); at once when nothing renews.
+    const until = m.source === "app" && m.status !== "upcoming" && m.current_period_end && m.current_period_end > ctx.now ? m.current_period_end as Date : null;
+    const p = { name: row.display_name, plan: plan.name, date: until ? dayText(endDay({ current_period_end: until, source: "app" }, await clubTz(ctx.db))) : "" };
+    return { title: both("action.membership.remove_person"), summary: both(until ? "plan.membership.remove_person" : "plan.membership.remove_person_now", p),
+      reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" },
+      details: { row: row.id, until: (until ?? ctx.now).toISOString() } };
+  },
+  async apply(ctx, i, plan) {
+    const { row, until } = plan.details as { row: string; until: string };
+    await ctx.update("membership_member", row, { ends_at: new Date(until) });
+    await ctx.emit("membership.person_removed", { membership_id: i.membership_id, person_id: i.person_id, until });
     return null;
   },
 });

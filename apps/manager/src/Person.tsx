@@ -14,6 +14,7 @@ type P = {
   junior: boolean; birth_year: number | null; family_role: "adult" | "member" | "junior" | null;
   family: { id: string; display_name: string; birth_year: number | null; role: "adult" | "member" | "junior" }[];
   waiver: { version_no: number; accepted_on: string | null; accepted_by: string | null } | null;
+  covered_by: { membership_id: string; payer_id: string; payer: string; plan: string } | null; also_covers: string[];
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;
 
@@ -43,7 +44,7 @@ export function Person({ id }: { id: string }) {
         {p.junior && <p>{t("ui.person_junior", { year: p.birth_year ?? "", names: p.family.filter((x) => x.role === "adult").map((x) => x.display_name).join(", ") })}</p>}
         {p.family.length > 0 && <ul class="plain">{p.family.map((x) => (
           <li class="row"><a href={`/people/${x.id}`}>{x.display_name}</a><span class="meta">{x.role === "junior" ? `${t("ui.junior_tag")}${x.birth_year ? `, ${t("ui.junior_born", { year: x.birth_year })}` : ""}` : ""}</span></li>))}</ul>}
-        <p class="meta">{t("ui.person_waiver")}: {!p.waiver ? t("ui.waiver_off") : p.waiver.accepted_on
+        <p class="meta">{!p.waiver ? t("ui.waiver_off") : `${t("ui.person_waiver")}: `}{!p.waiver ? null : p.waiver.accepted_on
           ? t("ui.waiver_accepted_by", { version: p.waiver.version_no, date: date(`${p.waiver.accepted_on}T12:00:00Z`), name: p.waiver.accepted_by ?? "" }) : t("ui.waiver_not_accepted", { version: p.waiver.version_no })}</p>
         {!p.junior && p.family_role !== "member" && <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("household.add_junior", { person_id: p.id, display_name: jName, birth_year: Number(jYear) }); }}>
           <label>{t("ui.junior_name")}<input required maxLength={80} value={jName} onInput={(e) => setJName(e.currentTarget.value)} /></label>
@@ -57,7 +58,13 @@ export function Person({ id }: { id: string }) {
           <h2>{t("ui.membership")}</h2>
           <p><strong>{p.membership.name}</strong> {p.membership.status === "past_due" && <span class="badge">{t("ui.past_due")}</span>}</p>
           <p class="meta">{membershipLine(p.membership)}</p>
+          {p.also_covers.length > 0 && <p class="meta">{t("ui.family_covers_staff", { names: p.also_covers.join(", ") })}</p>}
           <MembershipButtons m={p.membership} send={preview} />
+        </section>
+      ) : p.covered_by ? (
+        <section class="card">
+          <h2>{t("ui.membership")}</h2>
+          <p><a href={`/people/${p.covered_by.payer_id}`}>{t("ui.staff_covered_by", { name: p.covered_by.payer, plan: p.covered_by.plan })}</a></p>
         </section>
       ) : p.plans.length > 0 && <GiveMembership key={p.id} plans={p.plans.map((x) => ({ ...x, members: 0 }))} send={preview} person={p} />}
 
