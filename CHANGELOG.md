@@ -126,6 +126,7 @@ The first version a club can run on its own (court bookings included), or for it
   program discounts) and their own included sessions. One more than the plan covers is charged for the
   current period at once and added to each renewal; someone taken off (or who leaves the family) keeps
   the benefits until the next renewal. Pausing, a late renewal and ending apply to everyone on it.
+  If the card is declined for one more person, they aren't added, and adding them again tries the card again.
 - Member prices on clinics and other programs: a plan gives a percent or an amount off, and a
   program can set its own member price instead, which wins. A plan can also include so many single
   sessions each membership period (say 4 clinics a month), of the kinds it names; courses never count.

@@ -112,3 +112,15 @@ test("pausing the membership pauses everyone's benefits; leaving the family ends
   const m = await db.selectFrom("membership").select("current_period_end").where("id", "=", mid).executeTakeFirstOrThrow();
   assert.equal(row.ends_at?.toISOString(), m.current_period_end?.toISOString());
 });
+
+test("a declined card for one more person: they aren't added, and adding them again tries the card again", async () => {
+  const t0 = new Date("2027-02-03T19:00:00Z");
+  people.Zoe = ((await run(db, "household.add_junior", { person_id: people.Pat, display_name: "Zoe", birth_year: 2019 }, as("Pat"), { now: t0 })).result as any).person_id;
+  stripe.failNextCharge = "card_declined";
+  await rejects(add("Zoe", t0), "error.extra_declined", "The card was declined for the extra person (card_declined), so they weren't added.");
+  assert.equal(await memberPlan(db, people.Zoe!, t0), null);
+  const charges = stripe.charges.length;
+  await add("Zoe", t0);   // the card works now: a new try, not the first answer again
+  assert.equal((await memberPlan(db, people.Zoe!, t0))?.plan_id, family);
+  assert.deepEqual([stripe.charges.length, stripe.charges.at(-1)!.amountCents], [charges + 1, 3000]);
+});

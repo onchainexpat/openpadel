@@ -88,11 +88,18 @@ export class TestProvider implements PaymentProvider {
     if (!this.customers.has(i.key)) this.customers.set(i.key, `cus_test_${randomBytes(4).toString("hex")}`);
     return { id: this.customers.get(i.key)!, account: null };
   }
+  private chargesByKey = new Map<string, { asked: string; answer: { ref: string; status: IntentStatus; failure?: string } }>();
+  /** As Stripe does: a key used again gets the first answer back (a decline included), and a key used again
+   *  for a different charge is refused. */
   async chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; idempotencyKey: string }) {
+    const asked = `${i.customer} ${i.paymentMethod} ${i.amountCents}`, seen = this.chargesByKey.get(i.idempotencyKey);
+    if (seen) return seen.asked === asked ? seen.answer : { ref: "", status: "failed" as const, failure: "idempotency_error" };
     const ref = `pi_test_${randomBytes(6).toString("hex")}`;
-    if (this.failNextCharge) { const failure = this.failNextCharge; this.failNextCharge = null; return { ref, status: "failed" as const, failure }; }
-    this.charges.push({ customer: i.customer, paymentMethod: i.paymentMethod, amountCents: i.amountCents, ref });
-    return { ref, status: "succeeded" as const };
+    let answer: { ref: string; status: IntentStatus; failure?: string };
+    if (this.failNextCharge) { answer = { ref, status: "failed", failure: this.failNextCharge }; this.failNextCharge = null; }
+    else { this.charges.push({ customer: i.customer, paymentMethod: i.paymentMethod, amountCents: i.amountCents, ref }); answer = { ref, status: "succeeded" }; }
+    this.chargesByKey.set(i.idempotencyKey, { asked, answer });
+    return answer;
   }
   async refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string }) {
     const seen = this.refunds.get(i.idempotencyKey);

@@ -1584,7 +1584,7 @@ export const en = {
   "error.not_family_plan": "{name} isn't a family plan.",
   "error.not_in_family": "{name} isn't in this family. A parent adds them under Family first (a junior), or invites them (another adult).",
   "error.family_full": { one: "The {name} membership covers {count} person, and it's full.", other: "The {name} membership covers {count} people, and it's full." },
-  "error.extra_declined": "The card was declined for the person more ({failure}), so they weren't added.",
+  "error.extra_declined": "The card was declined for the extra person ({failure}), so they weren't added.",
   "error.not_covered": "They aren't on this membership.",
   "action.membership.add_person": "Add someone to a family membership",
   "action.membership.remove_person": "Take someone off a family membership",
