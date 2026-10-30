@@ -70,6 +70,11 @@ const ENTITIES = {
   draw: { table: "draw", key: "session_id", retire: { status: "void" } },
   game: { table: "game", key: "id", retire: { status: "void" } },
   rating: { table: "rating", key: "person_id", retire: null },
+  opening_hours: { table: "opening_hours", key: "id", retire: { opens: null, closes: null } },
+  hours_exception: { table: "hours_exception", key: "id", retire: { active: false } },
+  court_block: { table: "court_block", key: "id", retire: { active: false } },
+  booking: { table: "booking", key: "id", retire: { status: "cancelled" } },
+  booking_player: { table: "booking_player", key: "id", retire: { removed_at: "now" } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 

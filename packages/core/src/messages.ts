@@ -6,6 +6,7 @@ import { both, dateTime, money, t, pickLang, type Key, type Lang, type Params, t
 import type { Db, Trx } from "./db.ts";
 import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
+import { atLocal, localParts } from "./clock.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout). */
 export interface Mail { to: string; subject: string; text: string; id?: string }
@@ -29,18 +30,6 @@ interface Draft {
   staleAt?: Date | null;        // not worth sending after this
 }
 
-function localParts(d: Date, tz: string) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" })
-    .formatToParts(d).map((x) => [x.type, Number(x.value)]));
-  return { y: p.year!, m: p.month!, d: p.day!, h: p.hour!, min: p.minute! };
-}
-/** The instant the clock in `tz` shows that local date and hour. */
-function atLocal(y: number, m: number, d: number, h: number, tz: string): Date {
-  const want = Date.UTC(y, m - 1, d, h);
-  let guess = want;
-  for (let i = 0; i < 2; i++) { const p = localParts(new Date(guess), tz); guess -= Date.UTC(p.y, p.m - 1, p.d, p.h, p.min) - want; }
-  return new Date(guess);
-}
 /** When quiet hours end, if `now` is inside them in the club's time; otherwise null. */
 export function quietUntil(now: Date, tz: string, q = QUIET): Date | null {
   const p = localParts(now, tz);
