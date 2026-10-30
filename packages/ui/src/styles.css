@@ -54,3 +54,7 @@ label.check.inline { display: inline-flex; margin: 0 12px 6px 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .chip { margin: 0; padding: 8px 12px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--ink); }
 .chip.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+/* Tables that can be wider than a phone scroll sideways inside their card. */
+.table-scroll { overflow-x: auto; }
+.table-scroll table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.table-scroll th, .table-scroll td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }

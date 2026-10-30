@@ -4,7 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, dollars, lang, t, usePreview } from "@kumi/ui";
 
-type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; block_id?: string; session_id?: string; program_id?: string; label?: string };
+type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; block_id?: string; session_id?: string; program_id?: string; label?: string };
 type Court = { id: string; name: string; kind: string; items: Item[] };
 type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; courts: Court[] };
 type Loc = { id: string; name: string; time_zone: string };
@@ -55,8 +55,12 @@ export function Courts() {
           <h2>{c.name}</h2>
           <ul class="plain">
             {[...c.items.map((it) => ({ at: it.start, el: (
-              <li class="row"><span><strong>{clock(it.start)} - {clock(it.end)}</strong> {it.booking_id ? `${it.who} · ${it.code}` : it.kind === "hold" ? t("ui.being_paid") : it.label}</span>
+              <li class="row"><span><strong>{clock(it.start)} - {clock(it.end)}</strong> {it.booking_id ? `${it.who} · ${it.code}` : it.kind === "hold" ? t("ui.being_paid") : it.label}
+                {it.booking_id && it.kind === "booking" && (it.price_cents ?? 0) > (it.paid_cents ?? 0) && <span class="meta"> · {t("ui.unpaid_amount", { amount: dollars((it.price_cents ?? 0) - (it.paid_cents ?? 0), lang.value) })}</span>}</span>
+                <span>
+                {it.booking_id && it.kind === "booking" && (it.price_cents ?? 0) > (it.paid_cents ?? 0) && <button class="small" onClick={() => preview("booking.record_payment", { booking_id: it.booking_id, cents: (it.price_cents ?? 0) - (it.paid_cents ?? 0), method: "cash" })}>{t("ui.record_cash")}</button>}{" "}
                 {it.booking_id && it.kind === "booking" && <button class="small" onClick={() => preview("booking.cancel", { booking_id: it.booking_id })}>{t("ui.cancel_booking")}</button>}
+                </span>
                 {it.block_id && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
                 {it.program_id && <a href={`/programs/${it.program_id}`}>{t("ui.open")}</a>}
               </li>) })),

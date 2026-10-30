@@ -6,7 +6,7 @@
 import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, dateTime, money, type Text } from "@kumi/i18n";
+import { both, dateTime, money, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -262,5 +262,60 @@ export const bookingSettleShares = defineAction({
     await ctx.update("booking", b.id, { settled_at: ctx.now, balance_cents: unpaid });
     await ctx.emit("booking.balance_due", { booking_id: b.id, cents: unpaid, failure: charge.failure ?? null });
     return { owed: unpaid, failure: charge.failure };
+  },
+});
+
+// ---- Reminders: a few hours before, once ----
+export const REMINDER_HOURS = 3;
+/** Confirmed bookings starting within the next few hours that haven't been reminded. A booking made inside
+ *  that window isn't: its players already know. */
+export async function remindBookings(db: Db, now = new Date()) {
+  const soon = new Date(now.getTime() + REMINDER_HOURS * 3600_000);
+  const due = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").select("booking.id").distinct()
+    .where("booking.status", "=", "confirmed").where("booking.reminded_at", "is", null).where("court_time.active", "=", true)
+    .where(sql<boolean>`lower(court_time.during) > ${now}`).where(sql<boolean>`lower(court_time.during) <= ${soon}`)
+    .where(sql<boolean>`booking.created_at <= lower(court_time.during) - make_interval(hours => ${REMINDER_HOURS})`).execute();
+  for (const b of due) await runAsSystem(db, "booking.remind", { booking_id: b.id }, "jobs", { now });
+  return { reminded: due.length };
+}
+export const bookingRemind = defineAction({
+  name: "booking.remind", version: 1, system: true, internal: true,
+  input: z.object({ booking_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
+    return { title: both("action.booking.remind"), summary: both("plan.booking.remind", { code: row.code }), reads: [read], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    const b = await ctx.trx.selectFrom("booking").select("reminded_at").where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
+    if (b.reminded_at) return { already: true };
+    await ctx.update("booking", i.booking_id, { reminded_at: ctx.now });
+    await ctx.emit("booking.reminder", { booking_id: i.booking_id });
+    return null;
+  },
+});
+
+// ---- Paid at the desk: cash, the club's own card reader, or another way ----
+export const bookingRecordPayment = defineAction({
+  name: "booking.record_payment", version: 1,
+  input: z.object({ booking_id: z.uuid(), cents: z.number().check(z.int(), z.minimum(1)), method: z.enum(["cash", "terminal", "other"]), note: z.optional(z.string().check(z.maxLength(200))) }),
+  async plan(ctx, i) {
+    const { row: b, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
+    if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
+    return { title: both("action.booking.record_payment"), summary: both("plan.booking.record_payment", { amount: usd(i.cents), code: b.code, how: both(`paid_by.${i.method}` as Key) }),
+      reads: [read], locationId: b.location_id, moneyCents: i.cents, undo: { kind: "compensating" } };
+  },
+  async apply(ctx, i) {
+    const b = await ctx.trx.selectFrom("booking").selectAll().where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
+    const player = await ctx.trx.selectFrom("booking_player").select(["id", "person_id"]).where("booking_id", "=", b.id).where("removed_at", "is", null)
+      .orderBy(sql`person_id = ${b.organiser_id}`, "desc").orderBy("id").executeTakeFirstOrThrow();
+    const id = uuidv7();
+    // A walk-in has no person: the payment is recorded against the organiser, or whoever runs the desk.
+    await ctx.insert("payment", { id, person_id: player.person_id ?? b.organiser_id ?? ctx.actor.personId!, amount_cents: i.cents, method: i.method, provider: "none", provider_ref: null, status: "succeeded", booking_player_id: player.id });
+    await post(ctx.trx, ctx.runId, "payment", `court booking paid at the desk (${i.method})${i.note ? `: ${i.note}` : ""}`, [
+      { account: await account(ctx.trx, i.method === "cash" ? "cash_drawer" : "provider_clearing"), cents: i.cents },
+      { account: await account(ctx.trx, "revenue", { revenueType: "courts" }), cents: -i.cents }]);
+    if (b.balance_cents) await ctx.update("booking", b.id, { balance_cents: Math.max(0, b.balance_cents - i.cents) });
+    await ctx.emit("booking.paid_at_desk", { booking_id: b.id, payment_id: id });
+    return { payment_id: id };
   },
 });

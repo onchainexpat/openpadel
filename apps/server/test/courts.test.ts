@@ -85,3 +85,16 @@ test("members: book from the app, see it under my bookings with its calendar fil
   const body = await ics.text();
   assert.match(body, /BEGIN:VEVENT/); assert.match(body, /SUMMARY:Court 1\\, Kestrel Padel \(KP-/);
 });
+
+test("occupancy and revenue for a day, and the same as a spreadsheet", async () => {
+  const d = day();
+  const r = (await get(`/staff/reports?location_id=${loc}&from=${d}&to=${d}`)).json;
+  assert.equal(r.rows.length, 1);
+  const row = r.rows[0];
+  assert.equal(row.courts, 2); assert.equal(row.court_hours, 28);   // 08:00 to 22:00 on two courts
+  assert.ok(row.booked_hours >= 1.5); assert.equal(row.blocked_hours, 1);
+  assert.ok(row.occupancy_percent > 0);
+  const csv = await (await app.request(`/staff/reports.csv?location_id=${loc}&from=${d}&to=${d}`, { headers: { cookie } })).text();
+  assert.match(csv, /^date,open hours,courts,court hours,booked hours,program hours,playtomic hours,blocked hours,occupancy %,court revenue,program revenue\r\n/);
+  assert.equal(csv.trim().split("\r\n").length, 2);
+});

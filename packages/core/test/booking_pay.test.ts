@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, expireHolds, openPayment, plan, run, runAsSystem, setPaymentProvider, settleShares, uuidv7, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { checkPayment, expireHolds, messageHandlers, openPayment, plan, processOutbox, remindBookings, run, runAsSystem, setPaymentProvider, settleShares, uuidv7, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, loc: string, c1: string, c2: string;
 const stripe = new TestProvider();
@@ -133,4 +133,30 @@ test("cancelling: early gets everything back, late gets the club's rule, and sta
   assert.match(staff.plan.summary.en, /\$60\.00 goes back to the card\.$/);
   // A member can't cancel someone else's booking.
   await rejects(plan(db, "booking.cancel", { booking_id: late.booking_id }, as("Dee"), { now: NOW }), "error.forbidden_reason");
+});
+
+test("who hears what: confirmations, a part paid, what was charged or is owed, a lost court, cancelling", async () => {
+  await processOutbox(db, messageHandlers);
+  const kinds = async (who: string) => (await db.selectFrom("outbound_message").select("kind").where("person_id", "=", people[who] ?? who).where("channel", "=", "email").orderBy("created_at").execute()).map((m) => m.kind);
+  assert.ok((await kinds("Ann")).includes("booking_confirmed"));
+  assert.ok((await kinds("Ben")).includes("booking_share_paid"));
+  assert.deepEqual((await kinds("Dee")).filter((k) => k.startsWith("booking_")), ["booking_lost", "booking_confirmed_split", "booking_shares_charged"]);
+  assert.ok((await kinds("Eve")).includes("booking_balance_due"));
+  assert.ok((await kinds(owner.personId!)).includes("booking_balance_due_staff"));
+  const cancelled = await db.selectFrom("outbound_message").select("body").where("person_id", "=", people.Cal!).where("kind", "=", "booking_cancelled").where("channel", "=", "email").execute();
+  assert.ok(cancelled.some((m) => /\$60\.00 goes back to your card\.$/.test(m.body)), cancelled.map((m) => m.body).join(" | "));
+  const charged = await db.selectFrom("outbound_message").select("subject").where("person_id", "=", people.Dee!).where("kind", "=", "booking_shares_charged").where("channel", "=", "email").executeTakeFirstOrThrow();
+  assert.equal(charged.subject, "$30.00 for the unpaid places");
+});
+
+test("a reminder a few hours before, once; and paying at the desk", async () => {
+  const twoHoursBefore = new Date(new Date(at("2026-12-02", "10:00")).getTime() - 2 * 3600_000);
+  const r = await remindBookings(db, twoHoursBefore);
+  assert.ok(r.reminded >= 1);
+  assert.deepEqual(await remindBookings(db, twoHoursBefore), { reminded: 0 });
+  const desk = (await run(db, "booking.create", { court_id: c2, starts_at: at("2026-12-09", "10:00"), minutes: 60, guest_name: "Walk-in" }, owner, { now: NOW })).result as { booking_id: string };
+  const paid = await run(db, "booking.record_payment", { booking_id: desk.booking_id, cents: 4000, method: "cash" }, owner, { now: NOW });
+  assert.equal(paid.plan.summary.en, "Record $40.00 paid in cash for booking " + (await booking(desk.booking_id)).code + ".");
+  const pay = await db.selectFrom("payment").selectAll().where("id", "=", (paid.result as any).payment_id).executeTakeFirstOrThrow();
+  assert.deepEqual([pay.status, pay.method, pay.provider, pay.amount_cents], ["succeeded", "cash", "none", 4000]);
 });

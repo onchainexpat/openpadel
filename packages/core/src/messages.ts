@@ -73,7 +73,60 @@ function refundLine(outcome: string, cents: number, paid: number): Text {
   return paid > 0 ? both("msg.refund_none") : NOTHING;
 }
 
+/** A court booking: where and when (in its location's time), and who's in it. */
+async function bookingInfo(db: Db, bookingId: string) {
+  const b = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id")
+    .innerJoin("location", "location.id", "court.location_id")
+    .select(["booking.id", "booking.code", "booking.organiser_id", "booking.pay_mode", "booking.balance_cents", "court.name as court", "location.name as location", "location.time_zone",
+      sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
+    .where("booking.id", "=", bookingId).orderBy(sql`court_time.active`, "desc").executeTakeFirstOrThrow();
+  const players = await db.selectFrom("booking_player").select(["id", "person_id"]).where("booking_id", "=", bookingId).where("removed_at", "is", null).execute();
+  const minutes = Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60_000);
+  return { ...b, minutes, players, base: { court: b.court, location: b.location, when: when(new Date(b.start), b.time_zone), code: b.code, minutes } };
+}
+
 const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
+  async "booking.confirmed"({ db }, p: { booking_id: string }) {
+    const b = await bookingInfo(db, p.booking_id);
+    if (!b.organiser_id) return [];
+    return [{ to: b.organiser_id, kind: b.pay_mode === "split" ? "booking_confirmed_split" : "booking_confirmed", params: b.base, purpose: "account", essential: true, email: true, link: "/places" }];
+  },
+  async "booking.cancelled"({ db }, p: { booking_id: string }) {
+    const b = await bookingInfo(db, p.booking_id);
+    // Each player who paid hears what comes back to them; everyone in it hears it's off.
+    const drafts: Draft[] = [];
+    for (const pl of b.players) {
+      if (!pl.person_id) continue;
+      const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select((eb) => eb.fn.sum<string>("refund.amount_cents").as("c"))
+        .where("payment.booking_player_id", "=", pl.id).executeTakeFirst();
+      const cents = Number(back?.c ?? 0);
+      drafts.push({ to: pl.person_id, kind: "booking_cancelled", params: { ...b.base, refund: cents ? both("msg.refund_card", { amount: amount(cents) }) : NOTHING }, purpose: "account", essential: true, email: true, link: "/places" });
+    }
+    return drafts;
+  },
+  async "booking.lost"({ db }, p: { booking_id: string }) {
+    const b = await bookingInfo(db, p.booking_id);
+    const paid = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select((eb) => eb.fn.sum<string>("payment.amount_cents").as("c"))
+      .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "succeeded").executeTakeFirst();
+    return b.organiser_id ? [{ to: b.organiser_id, kind: "booking_lost", params: { ...b.base, amount: amount(Number(paid?.c ?? 0)) }, purpose: "account", essential: true, email: true, link: "/book" }] : [];
+  },
+  async "booking.shares_charged"({ db }, p: { booking_id: string; cents: number }) {
+    const b = await bookingInfo(db, p.booking_id);
+    return b.organiser_id ? [{ to: b.organiser_id, kind: "booking_shares_charged", params: { ...b.base, amount: amount(p.cents) }, purpose: "account", essential: true, email: true, link: "/places" }] : [];
+  },
+  async "booking.balance_due"({ db }, p: { booking_id: string; cents: number; failure: string | null }) {
+    const b = await bookingInfo(db, p.booking_id);
+    const name = b.organiser_id ? (await db.selectFrom("person").select("display_name").where("id", "=", b.organiser_id).executeTakeFirst())?.display_name ?? "" : "";
+    const params = { ...b.base, amount: amount(p.cents), failure: p.failure ?? "", name };
+    return [
+      ...(b.organiser_id ? [{ to: b.organiser_id, kind: "booking_balance_due", params, purpose: "account" as const, essential: true, email: true, link: "/places" }] : []),
+      ...(await managers(db)).map((to) => ({ to, kind: "booking_balance_due_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/courts" })),
+    ];
+  },
+  async "booking.reminder"({ db }, p: { booking_id: string }) {
+    const b = await bookingInfo(db, p.booking_id);
+    return b.players.filter((pl) => pl.person_id).map((pl) => ({ to: pl.person_id!, kind: "booking_reminder", params: b.base, purpose: "account" as const, essential: false, email: true, link: "/places", staleAt: new Date(b.start) }));
+  },
   async "enrolment.booked"({ db, tz }, p: { enrolment_id: string }) {
     const e = await place(db, p.enrolment_id), due = await owes(db, e.id);
     // With something to pay, the confirmation comes with the payment; until then it's in the inbox only.
@@ -83,7 +136,14 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: e.person_id, kind: "booked", params: { name: e.name, when: when(e.start, tz) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "payment.succeeded"({ db, tz }, p: { payment_id: string }) {
-    const pay = await db.selectFrom("payment").select(["enrolment_id", "amount_cents", "person_id"]).where("id", "=", p.payment_id).executeTakeFirstOrThrow();
+    const pay = await db.selectFrom("payment").select(["enrolment_id", "amount_cents", "person_id", "booking_player_id"]).where("id", "=", p.payment_id).executeTakeFirstOrThrow();
+    if (pay.booking_player_id) {
+      // A player's part of a shared court; the organiser's payment is confirmed by booking.confirmed instead.
+      const bp = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").select(["booking.id", "booking.organiser_id", "booking.status"]).where("booking_player.id", "=", pay.booking_player_id).executeTakeFirstOrThrow();
+      if (bp.organiser_id === pay.person_id || bp.status !== "confirmed") return [];
+      const b = await bookingInfo(db, bp.id);
+      return [{ to: pay.person_id, kind: "booking_share_paid", params: { ...b.base, amount: amount(pay.amount_cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    }
     if (!pay.enrolment_id) return [];
     const e = await place(db, pay.enrolment_id);
     return [{ to: pay.person_id, kind: "paid", params: { name: e.name, when: when(e.start, tz), amount: amount(pay.amount_cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
