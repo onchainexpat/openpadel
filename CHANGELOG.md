@@ -69,6 +69,11 @@ The first version a club can run on its own (court bookings included), or for it
 - Messages: an in-app inbox and email for offers, confirmations, removals, refunds and staff alerts,
   with quiet hours and consent checked at the send.
 
+**The public page**
+- Once switched on: the club's locations, hours, courts, prices, memberships and upcoming public
+  events, as plain HTML that search engines and AI assistants read, with schema.org markup and a
+  sitemap. "Join the club" goes to the app's sign-up (the interest list before opening).
+
 **Running it**
 - Setting up from `club.yaml` (`kumi setup plan`, `kumi setup apply`), member import, and
   `kumi doctor`; guides an owner's AI agent can follow (`docs/setup`).

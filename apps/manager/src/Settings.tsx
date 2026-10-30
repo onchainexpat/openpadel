@@ -10,7 +10,7 @@ type Special = { id: string; on_date: string; opens: string | null; closes: stri
 type Price = { id: string; name: string; court_ids: string[] | null; weekdays: number[] | null; starts: string | null; ends: string | null; valid_from: string | null; valid_to: string | null; cents_per_hour: number; priority: number; plan_ids: string[] | null };
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; lengths: number[] };
-type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number };
+type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null };
 type Plan = { id: string; name: string };
 type S = { club: ClubRow; policy: Policy; plans: Plan[]; locations: Loc[] };
 type Preview = (action: string, input: unknown) => Promise<void>;
@@ -52,7 +52,7 @@ export function Settings() {
 }
 
 function ClubForm({ c, send }: { c: ClubRow; send: Preview }) {
-  const start = { ...c, legal_name: c.legal_name ?? "" };
+  const start = { ...c, legal_name: c.legal_name ?? "", about: c.about ?? "" };
   const [f, setF] = useState(start);
   const set = (k: keyof ClubRow, v: unknown) => setF({ ...f, [k]: v });
   const toggleLang = (l: string, on: boolean) => set("languages", on ? [...new Set([...f.languages, l])].sort() : f.languages.filter((x) => x !== l));
@@ -72,6 +72,9 @@ function ClubForm({ c, send }: { c: ClubRow; send: Preview }) {
         {f.languages.map((l) => <option value={l}>{l === "es" ? "Español" : "English"}</option>)}</select></label>
       <label class="check"><input type="checkbox" checked={f.sign_up_open} onChange={(e) => set("sign_up_open", e.currentTarget.checked)} /> {t("ui.sign_up_open")}</label>
       <label class="check"><input type="checkbox" checked={f.court_bookings} onChange={(e) => set("court_bookings", e.currentTarget.checked)} /> {t("ui.court_bookings_on")}</label>
+      <label class="check"><input type="checkbox" checked={f.public_page} onChange={(e) => set("public_page", e.currentTarget.checked)} /> {t("ui.public_page_on")}</label>
+      {c.public_page && <p class="meta"><a href="/public" target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
+      <label>{t("ui.about_club")}<textarea maxLength={600} rows={3} value={f.about ?? ""} onInput={(e) => set("about", e.currentTarget.value)} /></label>
       <label>{t("ui.tax_rate")}<input inputMode="decimal" value={String(f.tax_rate_bp / 100)} onChange={(e) => set("tax_rate_bp", Math.round(Number(e.currentTarget.value.replace(",", ".")) * 100) || 0)} /></label>
       <button class="primary">{t("ui.preview")}</button>
     </form>

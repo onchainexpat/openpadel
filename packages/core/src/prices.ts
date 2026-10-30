@@ -60,8 +60,8 @@ function dayNames(days: number[] | null | undefined, lang: Lang): string {
   const f = (w: number) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
   return [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map(f).join(", ");
 }
-/** "every day 17:00 to 22:00, 2026-06-01 to 2026-08-31", in each language. */
-function ruleWhen(r: { weekdays?: number[] | null; starts?: string | null; ends?: string | null; valid_from?: string | null; valid_to?: string | null }): Text {
+/** "every day 17:00 to 22:00, 2026-06-01 to 2026-08-31", in each language (also on the public page). */
+export function ruleWhen(r: { weekdays?: number[] | null; starts?: string | null; ends?: string | null; valid_from?: string | null; valid_to?: string | null }): Text {
   const part = (lang: Lang) => [dayNames(r.weekdays, lang), r.starts ? `${r.starts.slice(0, 5)} ${lang === "es" ? "a" : "to"} ${r.ends!.slice(0, 5)}` : "",
     r.valid_from || r.valid_to ? `${r.valid_from ?? "…"} ${lang === "es" ? "a" : "to"} ${r.valid_to ?? "…"}` : ""].filter(Boolean).join(", ");
   return { en: part("en"), es: part("es") };

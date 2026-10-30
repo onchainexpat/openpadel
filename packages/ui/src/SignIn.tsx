@@ -44,6 +44,7 @@ export function SignIn() {
   return (
     <main class="card" key="sign-in">
       <h1>{t("ui.sign_in_title", { club: clubName })}</h1>
+      {club.value?.public_page && <p class="meta"><a href="/public">{t("ui.about_the_club")}</a></p>}
       {!sent ? (
         <form onSubmit={send}>
           <label>{t("ui.email")}<input type="email" required autocomplete="username webauthn" value={email} onInput={(e) => setEmail(e.currentTarget.value)} /></label>

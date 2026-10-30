@@ -103,6 +103,15 @@ The desk gives a membership on the person's page or under Memberships (a foundin
 in cash, a free one), with an end date or without. Staff can also stop or restart an app
 membership's renewal, or end any membership at once (no refund is made by ending it).
 
+### Step 5e: the public page (optional)
+
+In Settings, "Public page" puts the club's details on the web at `https://app.yourclub.com/public`:
+its locations and hours, courts, prices, memberships (founding offers with places left) and upcoming
+public events, each event on its own page. It's plain HTML, so search engines and AI assistants read
+all of it, with schema.org markup for the club and its events, and a sitemap at `/public/sitemap.xml`.
+Nothing about members is shown. "Join the club" goes to the app's sign-up, so before opening it works
+as the interest list: people join with their email and say whether they want club news.
+
 ### Step 8: practice
 
 Practice mode (`KUMI_PRACTICE=1`, on by default) sends real email only to the addresses in

@@ -58,6 +58,7 @@ export const clubUpdate = defineAction({
     languages: z.optional(z.array(lang).check(z.minLength(1))), default_language: z.optional(lang),
     brand_colour: z.optional(z.string().check(z.regex(/^#[0-9A-Fa-f]{6}$/))), sign_up_open: z.optional(z.boolean()),
     court_bookings: z.optional(z.boolean()), tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
+    public_page: z.optional(z.boolean()), about: z.optional(z.nullable(z.string().check(z.maxLength(600)))),
   }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "club", "singleton");

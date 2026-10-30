@@ -16,6 +16,7 @@ import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } f
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
 import { readRoutes } from "./reads.ts";
+import { publicRoutes } from "./public.ts";
 import { memberRoutes } from "./member.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import type { Mailer } from "./mailer.ts";
@@ -91,7 +92,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page"]).executeTakeFirstOrThrow();
     // Whether there's a membership to join in the app.
     const plan = await db.selectFrom("membership_plan").select("id").where("active", "=", true).where("join_in_app", "=", true).executeTakeFirst();
     return c.json({ ...club, memberships: Boolean(plan) });
@@ -102,6 +103,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", oauthRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, fetchMetadata: deps.fetchMetadata ?? defaultFetchMetadata, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
+  app.route("/", publicRoutes(db, (c) => c.get("lang"), publicUrl));
   app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false }));
   app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe));
   app.all("/mcp", async (c) => {
