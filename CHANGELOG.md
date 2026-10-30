@@ -74,6 +74,11 @@ The first version a club can run on its own (court bookings included), or for it
   events, as plain HTML that search engines and AI assistants read, with schema.org markup and a
   sitemap. "Join the club" goes to the app's sign-up (the interest list before opening).
 
+**Notifications**
+- Push notifications on phones and computers, turned on per device in Profile: every message also
+  arrives as a notification, encrypted for that device (Web Push, no third-party service of Kumi's
+  own), with quiet hours and consent as for email. Staff alerts go to the staff app's devices.
+
 **Running it**
 - Setting up from `club.yaml` (`kumi setup plan`, `kumi setup apply`), member import, and
   `kumi doctor`; guides an owner's AI agent can follow (`docs/setup`).

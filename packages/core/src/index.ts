@@ -13,6 +13,8 @@ export * from "./memberships.ts";
 export * from "./match_rules.ts";
 export * from "./open_matches.ts";
 export * from "./results.ts";
+export * from "./webpush.ts";
+export * from "./push.ts";
 export * from "./money.ts";
 export * from "./outbox.ts";
 export * from "./messages.ts";

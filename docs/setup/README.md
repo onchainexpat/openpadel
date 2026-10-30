@@ -112,6 +112,13 @@ all of it, with schema.org markup for the club and its events, and a sitemap at 
 Nothing about members is shown. "Join the club" goes to the app's sign-up, so before opening it works
 as the interest list: people join with their email and say whether they want club news.
 
+### Notifications
+
+Nothing to set up. Each member turns notifications on for their own phone in Profile, and from then
+on every message the app sends them also arrives as a notification (quiet hours apply, as for email).
+On an iPhone they have to add the app to the Home Screen first (Share, then Add to Home Screen); on
+Android and computers it works in the browser. Staff turn them on in the staff app for staff alerts.
+
 ### Step 8: practice
 
 Practice mode (`KUMI_PRACTICE=1`, on by default) sends real email only to the addresses in

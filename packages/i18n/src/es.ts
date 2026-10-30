@@ -1084,5 +1084,13 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.see_public_page": "Ver la página pública",
   "ui.about_club": "Sobre el club (unas líneas para la página pública)",
   "ui.about_the_club": "Sobre el club: horarios, precios y actividades",
+  "ui.notifications": "Notificaciones en este dispositivo",
+  "ui.notifications_hint": "Recibe aquí los mensajes del club como notificaciones: lugares que se liberan, pagos, tus partidos. Se respeta el horario de descanso, igual que con el correo.",
+  "ui.notifications_are_on": "Las notificaciones están activas en este dispositivo.",
+  "ui.notifications_blocked": "Las notificaciones de este sitio están bloqueadas en la configuración del navegador. Permítelas allí y vuelve.",
+  "ui.notifications_unsupported": "Este navegador no puede mostrar notificaciones de la app. En un iPhone, primero agrega la app a la pantalla de inicio (Compartir, luego Agregar a inicio) y ábrela desde allí.",
+  "ui.notifications_turn_on": "Activar notificaciones",
+  "ui.notifications_turn_off": "Desactivarlas en este dispositivo",
+  "ui.notifications_failed": "No se pudieron activar las notificaciones. Inténtalo de nuevo o revisa la configuración del navegador.",
   "count.changes": { one: "{count} cambio", other: "{count} cambios", many: "{count} cambios" },
 };

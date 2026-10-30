@@ -40,7 +40,7 @@ export function App() {
       </header>
       <Router>
         <Route path="/" component={Changes} />
-        <Route path="/profile" component={Profile} />
+        <Route path="/profile" component={() => <Profile app="staff" />} />
         <Route path="/programs" component={Programs} />
         <Route path="/programs/:id" component={Program} />
         <Route path="/sessions/:id" component={Night} />

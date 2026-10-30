@@ -1081,5 +1081,13 @@ export const en = {
   "ui.see_public_page": "See the public page",
   "ui.about_club": "About the club (a few lines for the public page)",
   "ui.about_the_club": "About the club: hours, prices and what's on",
+  "ui.notifications": "Notifications on this device",
+  "ui.notifications_hint": "Get the club's messages here as notifications: places that open, payments, your matches. Quiet hours apply, as for email.",
+  "ui.notifications_are_on": "Notifications are on for this device.",
+  "ui.notifications_blocked": "Notifications are blocked for this site in the browser's settings. Allow them there, then come back.",
+  "ui.notifications_unsupported": "This browser can't show notifications from the app. On an iPhone, add the app to your Home Screen first (Share, then Add to Home Screen) and open it from there.",
+  "ui.notifications_turn_on": "Turn on notifications",
+  "ui.notifications_turn_off": "Turn them off on this device",
+  "ui.notifications_failed": "Notifications couldn't be turned on. Try again, or check the browser's settings.",
   "count.changes": { one: "{count} change", other: "{count} changes" },
 } as const;

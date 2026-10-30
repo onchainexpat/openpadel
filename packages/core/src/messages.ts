@@ -10,6 +10,7 @@ import { atLocal, localDate, localParts } from "./clock.ts";
 import { dayText, endDay } from "./memberships.ts";
 import { band } from "./match_rules.ts";
 import { gameView } from "./results.ts";
+import { hasPushDevice } from "./push.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout). */
 export interface Mail { to: string; subject: string; text: string; id?: string }
@@ -377,11 +378,11 @@ async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<numbe
     const words = { subject: tidy(t(lang, `msg.${d.kind}.subject` as Key, d.params)), body: tidy(t(lang, `msg.${d.kind}.body` as Key, d.params)) };
     const base = { event_id: ev.id, person_id: d.to, kind: d.kind, purpose: d.purpose, essential: d.essential, lang, ...words, link: d.link ?? null, stale_at: d.staleAt ?? null };
     const rows = [{ ...base, id: uuidv7(now.getTime()), channel: "inbox", status: "sent", send_after: now, sent_at: now }];
-    if (d.email && person.email) {
-      // Staff alerts and essential messages go straight away; the rest wait out quiet hours.
-      const wait = d.essential || d.purpose === "staff" ? null : quietUntil(now, club.time_zone);
-      rows.push({ ...base, id: uuidv7(now.getTime()), channel: "email", status: "waiting", send_after: wait ?? now, sent_at: null as any });
-    }
+    // Staff alerts and essential messages go straight away; the rest wait out quiet hours.
+    const wait = d.essential || d.purpose === "staff" ? null : quietUntil(now, club.time_zone);
+    if (d.email && person.email) rows.push({ ...base, id: uuidv7(now.getTime()), channel: "email", status: "waiting", send_after: wait ?? now, sent_at: null as any });
+    // Every message also goes to the phones they turned notifications on for.
+    if (await hasPushDevice(db, d.to)) rows.push({ ...base, id: uuidv7(now.getTime()), channel: "push", status: "waiting", send_after: wait ?? now, sent_at: null as any });
     const r = await db.insertInto("outbound_message").values(rows as any).onConflict((oc) => oc.columns(["event_id", "person_id", "kind", "channel"]).doNothing()).execute();
     written += r.reduce((n, x) => n + Number(x.numInsertedOrUpdatedRows ?? 0), 0);
   }

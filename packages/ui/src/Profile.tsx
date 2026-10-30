@@ -1,9 +1,49 @@
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { startRegistration } from "@simplewebauthn/browser";
 import type { Key, Lang } from "@kumi/i18n";
 import { api, ApiError, club, loadMe, me, t } from "./state.ts";
 
-export function Profile() {
+/** Notifications on this device: the browser's own permission, then a subscription the club's server pushes
+ *  to. `app` says which app's messages it gets (staff alerts in the staff app, the rest in the members'). */
+function PushToggle({ app }: { app: "member" | "staff" }) {
+  const supported = typeof navigator !== "undefined" && "serviceWorker" in navigator && typeof window !== "undefined" && "PushManager" in window && "Notification" in window;
+  const [state, setState] = useState<"loading" | "on" | "off" | "blocked" | "unsupported">(supported ? "loading" : "unsupported");
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  const current = async () => (await (await navigator.serviceWorker.getRegistration("/"))?.pushManager.getSubscription()) ?? null;
+  useEffect(() => {
+    if (!supported) return;
+    if (Notification.permission === "denied") { setState("blocked"); return; }
+    current().then((s) => setState(s ? "on" : "off")).catch(() => setState("off"));
+  }, []);
+  const run = (f: () => Promise<void>) => async () => { setBusy(true); setError(null); try { await f(); } catch (e) { setError(e instanceof ApiError ? e.message : t("ui.notifications_failed")); } finally { setBusy(false); } };
+  const on = run(async () => {
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    await navigator.serviceWorker.ready;
+    const answer = await Notification.requestPermission();
+    if (answer !== "granted") { setState(answer === "denied" ? "blocked" : "off"); return; }
+    const { public_key } = await api<{ public_key: string }>("/my/push/key");
+    const key = Uint8Array.from(atob(public_key.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    await api("/my/push", { app, ...sub.toJSON() });
+    setState("on");
+  });
+  const off = run(async () => {
+    const sub = await current();
+    if (sub) { await api("/my/push/off", { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+    setState("off");
+  });
+  return (
+    <section class="card">
+      <h2>{t("ui.notifications")}</h2>
+      <p class="meta">{t(state === "unsupported" ? "ui.notifications_unsupported" : state === "blocked" ? "ui.notifications_blocked" : state === "on" ? "ui.notifications_are_on" : "ui.notifications_hint")}</p>
+      {state === "off" && <button class="primary" disabled={busy} onClick={on}>{t("ui.notifications_turn_on")}</button>}
+      {state === "on" && <button disabled={busy} onClick={off}>{t("ui.notifications_turn_off")}</button>}
+      {error && <p class="error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
+export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
   const m = me.value!;
   const [name, setName] = useState(m.person.display_name), [locale, setLocale] = useState<Lang>(m.person.locale as Lang);
   const [pending, setPending] = useState<{ runId: string; summary: string } | null>(null);
@@ -43,6 +83,7 @@ export function Profile() {
           <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>
         )}
       </form>
+      <PushToggle app={app} />
       <section class="card">
         <h2>{t("ui.passkeys")}</h2>
         <button onClick={addPasskey}>{t("ui.add_passkey")}</button>
