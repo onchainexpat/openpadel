@@ -7,9 +7,11 @@ import { api, club as clubSignal, lang, t, usePreview, type Club } from "@kumi/u
 type Court = { id: string; location_id: string; name: string; kind: string; bookable: boolean; sort: number };
 type Hours = { weekday: number; opens: string | null; closes: string | null };
 type Special = { id: string; on_date: string; opens: string | null; closes: string | null; note: string | null };
-type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[] };
-type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean };
-type S = { club: ClubRow; locations: Loc[] };
+type Price = { id: string; name: string; court_ids: string[] | null; weekdays: number[] | null; starts: string | null; ends: string | null; valid_from: string | null; valid_to: string | null; cents_per_hour: number; priority: number };
+type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
+type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; lengths: number[] };
+type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number };
+type S = { club: ClubRow; policy: Policy; locations: Loc[] };
 type Preview = (action: string, input: unknown) => Promise<void>;
 
 const KINDS = ["indoor", "covered_outdoor", "outdoor"] as const;
@@ -32,13 +34,14 @@ export function Settings() {
   // Send a change only if there is one.
   const send: Preview = async (action, input) => {
     const { court_id, location_id, ...rest } = input as Record<string, unknown>;
-    if (!Object.keys(rest).length && action.endsWith(".update")) { setNote(t("error.nothing_changed")); return; }
+    if (!Object.keys(rest).length && (action.endsWith(".update") || action === "policy.set")) { setNote(t("error.nothing_changed")); return; }
     setNote(null); await preview(action, input);
   };
   return (
     <main>
       <h1>{t("ui.settings_title")}</h1>
       <ClubForm key={JSON.stringify(s.club)} c={s.club} send={send} />
+      <BookingRules key={JSON.stringify(s.policy)} p={s.policy} send={send} />
       {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} send={send} />)}
       <NewLocation tz={s.club.time_zone} send={send} />
       {note && <p class="note" role="status">{note}</p>}
@@ -67,6 +70,8 @@ function ClubForm({ c, send }: { c: ClubRow; send: Preview }) {
       <label>{t("ui.default_language")}<select value={f.default_language} onChange={(e) => set("default_language", e.currentTarget.value)}>
         {f.languages.map((l) => <option value={l}>{l === "es" ? "Español" : "English"}</option>)}</select></label>
       <label class="check"><input type="checkbox" checked={f.sign_up_open} onChange={(e) => set("sign_up_open", e.currentTarget.checked)} /> {t("ui.sign_up_open")}</label>
+      <label class="check"><input type="checkbox" checked={f.court_bookings} onChange={(e) => set("court_bookings", e.currentTarget.checked)} /> {t("ui.court_bookings_on")}</label>
+      <label>{t("ui.tax_rate")}<input inputMode="decimal" value={String(f.tax_rate_bp / 100)} onChange={(e) => set("tax_rate_bp", Math.round(Number(e.currentTarget.value.replace(",", ".")) * 100) || 0)} /></label>
       <button class="primary">{t("ui.preview")}</button>
     </form>
   );
@@ -92,6 +97,7 @@ function LocationCard({ l, send }: { l: Loc; send: Preview }) {
         <button>{t("ui.preview")}</button>
       </form>
       <OpeningHours l={l} send={send} />
+      <Prices l={l} send={send} />
     </section>
   );
 }
@@ -133,6 +139,64 @@ function OpeningHours({ l, send }: { l: Loc; send: Preview }) {
         <button>{t("ui.preview")}</button>
       </form>
     </>
+  );
+}
+
+const ALL_DAYS = [1, 2, 3, 4, 5, 6, 0];
+const usd = (cents: number) => new Intl.NumberFormat(lang.value === "es" ? "es-US" : "en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+
+function Prices({ l, send }: { l: Loc; send: Preview }) {
+  const blank = { rule_id: "", name: "", dollars: "", days: [] as number[], allDay: true, starts: "17:00", ends: "22:00", valid_from: "", valid_to: "", courts: [] as string[], priority: 0 };
+  const [f, setF] = useState(blank);
+  const edit = (r: Price) => setF({ rule_id: r.id, name: r.name, dollars: String(r.cents_per_hour / 100), days: r.weekdays ?? [], allDay: !r.starts, starts: r.starts ?? "17:00", ends: r.ends ?? "22:00",
+    valid_from: r.valid_from ?? "", valid_to: r.valid_to ?? "", courts: r.court_ids ?? [], priority: r.priority });
+  const describe = (r: Price) => [r.weekdays?.length ? r.weekdays.map(dayName).join(", ") : t("ui.every_day"), r.starts && `${r.starts} - ${r.ends}`,
+    (r.valid_from || r.valid_to) && `${r.valid_from ?? ""} - ${r.valid_to ?? ""}`, r.court_ids && l.courts.filter((c) => r.court_ids!.includes(c.id)).map((c) => c.name).join(", ")].filter(Boolean).join(" · ");
+  const toggle = (list: (number | string)[], v: number | string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+  return (
+    <>
+      <h3>{t("ui.prices_title")}</h3>
+      {l.prices.length === 0 && <p class="meta">{t("ui.no_prices")}</p>}
+      <ul class="plain">{l.prices.map((r) => (
+        <li class="row"><span><strong>{r.name}</strong> {usd(r.cents_per_hour)}{t("ui.per_hour")}<br /><span class="meta">{describe(r)}{r.priority ? ` · ${t("ui.priority")} ${r.priority}` : ""}</span></span>
+          <span><button type="button" class="small" onClick={() => edit(r)}>{t("ui.change")}</button> <button type="button" class="small" onClick={() => send("price.rule_remove", { rule_id: r.id })}>{t("ui.remove")}</button></span></li>))}</ul>
+      <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("price.rule_set", { ...(f.rule_id ? { rule_id: f.rule_id } : {}), location_id: l.id, name: f.name,
+        cents_per_hour: Math.round(Number(f.dollars.replace(",", ".")) * 100), weekdays: f.days.length ? f.days : null, starts: f.allDay ? null : f.starts, ends: f.allDay ? null : closing(f.ends),
+        valid_from: f.valid_from || null, valid_to: f.valid_to || null, court_ids: f.courts.length ? f.courts : null, priority: Number(f.priority) }); }}>
+        <label>{f.rule_id ? t("ui.change_price") : t("ui.add_price")}<input required placeholder={t("ui.price_name_hint")} value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
+        <label>{t("ui.dollars_per_hour")}<input required inputMode="decimal" value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
+        <fieldset><legend>{t("ui.days_none_all")}</legend>{ALL_DAYS.map((w) => <label class="check inline"><input type="checkbox" checked={f.days.includes(w)} onChange={() => setF({ ...f, days: toggle(f.days, w) as number[] })} /> {dayName(w)}</label>)}</fieldset>
+        <label class="check"><input type="checkbox" checked={f.allDay} onChange={(e) => setF({ ...f, allDay: e.currentTarget.checked })} /> {t("ui.all_day")}</label>
+        {!f.allDay && <div class="court-row"><input type="time" step={1800} aria-label={t("ui.from")} value={f.starts} onInput={(e) => setF({ ...f, starts: e.currentTarget.value })} />
+          <input type="time" step={1800} aria-label={t("ui.to")} value={f.ends} onInput={(e) => setF({ ...f, ends: e.currentTarget.value })} /></div>}
+        <div class="court-row"><label>{t("ui.season_from")}<input type="date" value={f.valid_from} onInput={(e) => setF({ ...f, valid_from: e.currentTarget.value })} /></label>
+          <label>{t("ui.season_to")}<input type="date" value={f.valid_to} onInput={(e) => setF({ ...f, valid_to: e.currentTarget.value })} /></label></div>
+        {l.courts.length > 1 && <fieldset><legend>{t("ui.courts_none_all")}</legend>{l.courts.map((c) => <label class="check inline"><input type="checkbox" checked={f.courts.includes(c.id)} onChange={() => setF({ ...f, courts: toggle(f.courts, c.id) as string[] })} /> {c.name}</label>)}</fieldset>}
+        <label>{t("ui.priority_hint")}<input type="number" min={0} max={99} value={f.priority} onInput={(e) => setF({ ...f, priority: Number(e.currentTarget.value) })} /></label>
+        <button>{t("ui.preview")}</button> {f.rule_id && <button type="button" class="link" onClick={() => setF(blank)}>{t("ui.cancel")}</button>}
+      </form>
+    </>
+  );
+}
+
+function BookingRules({ p, send }: { p: Policy; send: Preview }) {
+  const [f, setF] = useState({ ...p });
+  const num = (k: keyof Policy) => (e: Event) => setF({ ...f, [k]: Number((e.currentTarget as HTMLInputElement).value) });
+  const changed = Object.fromEntries((["days_ahead", "max_active", "free_cancel_hours", "late_refund_percent", "split_deadline_hours", "lengths"] as const)
+    .filter((k) => JSON.stringify(f[k]) !== JSON.stringify(p[k])).map((k) => [k, f[k]]));
+  return (
+    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("policy.set", changed); }}>
+      <h2>{t("ui.booking_rules")}</h2>
+      <p class="meta">{t("ui.booking_rules_hint", { version: p.version_no })}</p>
+      <label>{t("ui.days_ahead")}<input type="number" min={1} max={365} value={f.days_ahead} onInput={num("days_ahead")} /></label>
+      <label>{t("ui.max_active")}<input type="number" min={1} max={50} value={f.max_active} onInput={num("max_active")} /></label>
+      <label>{t("ui.free_cancel_hours")}<input type="number" min={0} max={720} value={f.free_cancel_hours} onInput={num("free_cancel_hours")} /></label>
+      <label>{t("ui.late_refund_percent")}<input type="number" min={0} max={100} value={f.late_refund_percent} onInput={num("late_refund_percent")} /></label>
+      <label>{t("ui.split_deadline_hours")}<input type="number" min={1} max={168} value={f.split_deadline_hours} onInput={num("split_deadline_hours")} /></label>
+      <fieldset><legend>{t("ui.lengths")}</legend>{[60, 90, 120, 150, 180].map((m) => <label class="check inline"><input type="checkbox" checked={f.lengths.includes(m)}
+        onChange={() => setF({ ...f, lengths: f.lengths.includes(m) ? f.lengths.filter((x) => x !== m) : [...f.lengths, m].sort((a, b) => a - b) })} /> {m}</label>)}</fieldset>
+      <button class="primary">{t("ui.preview")}</button>
+    </form>
   );
 }
 

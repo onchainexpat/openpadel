@@ -48,3 +48,5 @@ input[type=color] { width: 72px; height: 44px; padding: 4px; cursor: pointer; }
 .hours-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .hours-row input[type=time] { flex: 1 1 0; min-width: 0; max-width: 9em; margin: 0; padding: 8px 4px; }
 .hours-row label.check { flex: 0 0 4.5em; margin: 0; }
+/* Choices side by side: days of the week, courts. */
+label.check.inline { display: inline-flex; margin: 0 12px 6px 0; }

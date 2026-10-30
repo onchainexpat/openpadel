@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { t, type Key, type Lang } from "@kumi/i18n";
-import { freeCourts, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, shownOdds, standings, type Db } from "@kumi/core";
+import { currentPolicy, freeCourts, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, quote, shownOdds, standings, type Db } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -21,7 +21,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp"]).executeTakeFirstOrThrow();
+    const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
+    const policy = await currentPolicy(db);
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
     const courts = await db.selectFrom("court").select(["id", "location_id", "name", "kind", "bookable", "sort"]).where("archived_at", "is", null).orderBy("sort").orderBy("name").execute();
     const hours = await db.selectFrom("opening_hours").select(["location_id", "weekday", "opens", "closes"]).execute();
@@ -29,9 +31,17 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const special = await db.selectFrom("hours_exception").select(["id", "location_id", "on_date", "opens", "closes", "note"]).where("active", "=", true)
       .where("on_date", ">=", today).orderBy("on_date").execute();
     const t5 = (x: string | null) => (x ? x.slice(0, 5) : null);
-    return c.json({ club, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id),
+    return c.json({ club, policy, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id),
+      prices: rules.filter((r) => r.location_id === l.id).map((r) => ({ ...r, starts: t5(r.starts), ends: t5(r.ends) })),
       hours: [0, 1, 2, 3, 4, 5, 6].map((w) => { const h = hours.find((x) => x.location_id === l.id && x.weekday === w); return { weekday: w, opens: t5(h?.opens ?? null), closes: t5(h?.closes ?? null) }; }),
       special_days: special.filter((x) => x.location_id === l.id).map((x) => ({ ...x, opens: t5(x.opens), closes: t5(x.closes) })) })) });
+  });
+
+  // What a court would cost: for the desk's booking form.
+  app.get("/staff/quote", async (c) => {
+    const start = new Date(c.req.query("starts_at") ?? ""), minutes = Number(c.req.query("minutes") ?? 0);
+    if (isNaN(start.getTime()) || !Number.isInteger(minutes) || minutes < 30 || minutes > 480) throw new KumiError("error.invalid_input", { details: "court_id, starts_at and minutes" }, 400);
+    return c.json(await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes }));
   });
 
   // One location's courts on one day: what holds each court, in order, and when it's open.

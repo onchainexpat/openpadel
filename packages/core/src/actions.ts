@@ -75,6 +75,8 @@ const ENTITIES = {
   court_block: { table: "court_block", key: "id", retire: { active: false } },
   booking: { table: "booking", key: "id", retire: { status: "cancelled" } },
   booking_player: { table: "booking_player", key: "id", retire: { removed_at: "now" } },
+  price_rule: { table: "price_rule", key: "id", retire: { active: false } },
+  booking_policy: { table: "booking_policy", key: "id", retire: { active: false } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 

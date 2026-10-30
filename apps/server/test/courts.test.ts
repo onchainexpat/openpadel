@@ -50,3 +50,15 @@ test("settings carry each location's week of hours and its special days to come"
   assert.equal(l.hours.length, 7); assert.deepEqual(l.hours[3], { weekday: 3, opens: "08:00", closes: "22:00" });
   assert.deepEqual(l.special_days.map((x: any) => [x.on_date, x.opens, x.note]), [["2099-12-25", null, "Christmas"]]);
 });
+
+test("prices and booking rules: in settings, and a quote for the desk's form", async () => {
+  await run(db, "price.rule_set", { location_id: loc, name: "Standard", cents_per_hour: 4000 }, owner);
+  await run(db, "club.update", { tax_rate_bp: 500, court_bookings: true }, owner);
+  const s = (await get("/staff/settings")).json;
+  assert.deepEqual(s.locations[0].prices.map((p: any) => [p.name, p.cents_per_hour]), [["Standard", 4000]]);
+  assert.equal(s.policy.version_no, 1); assert.deepEqual(s.policy.lengths, [60, 90, 120]);
+  assert.equal(s.club.tax_rate_bp, 500); assert.equal(s.club.court_bookings, true);
+  const start = (await get(`/availability?location_id=${loc}&date=${day()}&minutes=60`)).json.courts[1].starts[0];
+  const q = (await get(`/staff/quote?court_id=${c1}&starts_at=${encodeURIComponent(start)}&minutes=90`)).json;
+  assert.deepEqual([q.subtotal_cents, q.tax_cents, q.total_cents, q.priced], [6000, 300, 6300, true]);
+});

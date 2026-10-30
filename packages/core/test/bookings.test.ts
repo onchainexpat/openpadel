@@ -60,7 +60,7 @@ test("free courts: every start, half-hourly, that fits before closing and around
 test("a desk booking: confirmed, with a short code; and every way it can't be made", async () => {
   const r = await run(db, "booking.create", { court_id: c2, starts_at: at("09:00"), minutes: 90, guest_name: "Sam (walk-in)", price_cents: 4800 }, guestDesk, opts);
   assert.match((r.result as any).code, /^KP-[A-HJ-NP-Z2-9]{4}$/);
-  assert.equal(r.plan.summary.en, "Book Court 2, Tue, Dec 1, 9:00 AM, for 90 minutes, for Sam (walk-in).");
+  assert.equal(r.plan.summary.en, "Book Court 2, Tue, Dec 1, 9:00 AM, for 90 minutes, for Sam (walk-in): $48.00.");
   const b = await db.selectFrom("booking").selectAll().where("id", "=", (r.result as any).booking_id).executeTakeFirstOrThrow();
   assert.equal(b.status, "confirmed"); assert.equal(b.source, "desk"); assert.equal(b.price_cents, 4800);
   await rejects(book(c2, "10:00"), "error.court_taken");           // overlaps 9:00 to 10:30

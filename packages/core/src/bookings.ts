@@ -4,12 +4,13 @@
 // one slot from stalling or deadlocking (spikes/booking_race.md).
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, dateTime, type Key, type Lang, type Text } from "@kumi/i18n";
+import { both, dateTime, money, type Key, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { onDate, weekdayOf } from "./clock.ts";
+import { currentPolicy, quote } from "./prices.ts";
 
 const clockTime = z.string().check(z.regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/));
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
@@ -215,16 +216,22 @@ export const bookingCreate = defineAction({
     if (Boolean(i.person_id) === Boolean(i.guest_name)) throw new KumiError("error.booking_who");
     const start = new Date(i.starts_at), { court, tz } = await checkSlot(ctx, i.court_id, start, i.minutes);
     const who = i.person_id ? (await readRow(ctx.db, "person", i.person_id, "thing.person")).row.display_name : i.guest_name!;
-    return { title: both("action.booking.create"), summary: both("plan.booking.create", { court: court.name, when: when(start, tz), minutes: i.minutes, who }),
-      reads: [], locationId: court.location_id, ownerIds: i.person_id ? [i.person_id] : [], moneyCents: i.price_cents ?? 0, undo: { kind: "reversible" } };
+    // The quote's price unless the desk says otherwise (a promotion, a regular's rate).
+    const q = await quote(ctx.db, { courtId: i.court_id, start, minutes: i.minutes }), price = i.price_cents ?? q.total_cents;
+    const amount = { en: money(price, "en"), es: money(price, "es") };
+    return { title: both("action.booking.create"), summary: both("plan.booking.create_priced", { court: court.name, when: when(start, tz), minutes: i.minutes, who, amount }),
+      reads: [], locationId: court.location_id, ownerIds: i.person_id ? [i.person_id] : [], moneyCents: price, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const start = new Date(i.starts_at), end = new Date(start.getTime() + i.minutes * 60_000);
     await lockCourts(ctx, [i.court_id]);
     const court = await ctx.trx.selectFrom("court").select("location_id").where("id", "=", i.court_id).executeTakeFirstOrThrow();
     const club = await ctx.trx.selectFrom("club").select("name").executeTakeFirstOrThrow();
-    const id = uuidv7(), code = await newCode(ctx.trx, club.name), price = i.price_cents ?? 0;
-    await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id ?? null, status: "confirmed", source: "desk", price_cents: price, note: i.note ?? null });
+    const q = await quote(ctx.trx, { courtId: i.court_id, start, minutes: i.minutes }), policy = await currentPolicy(ctx.trx);
+    const price = i.price_cents ?? q.total_cents, tax = i.price_cents === undefined ? q.tax_cents : Math.round(price * q.tax_bp / (10_000 + q.tax_bp));
+    const id = uuidv7(), code = await newCode(ctx.trx, club.name);
+    await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id ?? null, status: "confirmed", source: "desk", price_cents: price, tax_cents: tax,
+      quote: JSON.stringify(q), policy_id: policy.id, note: i.note ?? null });
     await ctx.insert("booking_player", { id: uuidv7(), booking_id: id, person_id: i.person_id ?? null, guest_name: i.person_id ? null : i.guest_name!, share_cents: price });
     await insertTime(ctx, [{ id: uuidv7(), court_id: i.court_id, during: range(start, end), kind: "booking", booking_id: id }]);
     await ctx.emit("booking.created", { booking_id: id });
