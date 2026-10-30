@@ -4,6 +4,8 @@ import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club
 import { WhatsOn } from "./WhatsOn.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
 import { MyLevel } from "./MyLevel.tsx";
+import { Book } from "./Book.tsx";
+import { Join } from "./Join.tsx";
 
 export function App() {
   useEffect(() => {
@@ -24,13 +26,15 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav><a href="/">{t("ui.nav_whats_on")}</a><a href="/places">{t("ui.nav_my")}</a><a href="/level">{t("ui.nav_level")}</a><InboxLink /><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav><a href="/">{t("ui.nav_whats_on")}</a>{club.value?.court_bookings && <a href="/book">{t("ui.nav_book")}</a>}<a href="/places">{t("ui.nav_my")}</a><a href="/level">{t("ui.nav_level")}</a><InboxLink /><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
         <Route path="/" component={WhatsOn} />
         <Route path="/places" component={MyPlaces} />
         <Route path="/level" component={MyLevel} />
         <Route path="/inbox" component={Inbox} />
+        <Route path="/book" component={Book} />
+        <Route path="/join/:code" component={Join} />
         <Route path="/profile" component={Profile} />
       </Router>
     </LocationProvider>

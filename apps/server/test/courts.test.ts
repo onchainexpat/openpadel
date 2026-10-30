@@ -62,3 +62,26 @@ test("prices and booking rules: in settings, and a quote for the desk's form", a
   const q = (await get(`/staff/quote?court_id=${c1}&starts_at=${encodeURIComponent(start)}&minutes=90`)).json;
   assert.deepEqual([q.subtotal_cents, q.tax_cents, q.total_cents, q.priced], [6000, 300, 6300, true]);
 });
+
+test("members: book from the app, see it under my bookings with its calendar file, and share a split booking", async () => {
+  const ann = (await run(db, "person.create", { display_name: "Ann", email: "ann@example.test" }, owner)).result as { person_id: string };
+  await app.request("/auth/email/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "ann@example.test" }) });
+  const code = mailer.last("ann@example.test")!.text.match(/\b(\d{6})\b/)![1]!;
+  const annCookie = (await app.request("/auth/email/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "ann@example.test", code }) })).headers.get("set-cookie")!.split(";")[0]!;
+  const as = async (path: string, body?: unknown) => { const r = await app.request(path, { method: body ? "POST" : "GET", headers: { cookie: annCookie, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, json: await r.json().catch(() => null) as any }; };
+  const opts = (await as("/booking-options")).json;
+  assert.deepEqual(opts.lengths, [60, 90, 120]);
+  const later = localDate(new Date(Date.now() + 3 * 86400_000), TZ);
+  const start = (await as(`/availability?location_id=${loc}&date=${later}&minutes=90`)).json.courts[0].starts[6];
+  const plan = (await as("/actions/booking.request/plan", { court_id: c1, starts_at: start, minutes: 90, pay: "split", players: 4, person_id: ann.person_id })).json;
+  const applied = (await as(`/runs/${plan.run_id}/apply`, {})).json.result;
+  await as(`/dev/payments/${applied.payment_id}/settle`, {});
+  const mine = (await as("/my/bookings")).json;
+  assert.equal(mine.length, 1); assert.equal(mine[0].status, "confirmed"); assert.equal(mine[0].mine, true); assert.ok(mine[0].invite_code);
+  const invite = (await as(`/bookings/invite/${mine[0].invite_code}`)).json;
+  assert.equal(invite.organiser, "Ann"); assert.equal(invite.spots_left, 3); assert.equal(invite.open, true);
+  const ics = await app.request(`/my/bookings/${mine[0].id}/calendar.ics`, { headers: { cookie: annCookie } });
+  assert.match(ics.headers.get("content-type") ?? "", /text\/calendar/);
+  const body = await ics.text();
+  assert.match(body, /BEGIN:VEVENT/); assert.match(body, /SUMMARY:Court 1\\, Kestrel Padel \(KP-/);
+});

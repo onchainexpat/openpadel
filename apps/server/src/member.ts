@@ -1,7 +1,8 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { freeCourts, KumiError, paidFor, paymentProvider, runAsSystem, type Db } from "@kumi/core";
+import { currentPolicy, freeCourts, KumiError, paidFor, paymentProvider, quote, runAsSystem, shares, type Db } from "@kumi/core";
+import { sql } from "kysely";
 
 type Me = { id: string } | null;
 export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { production: boolean }) {
@@ -45,6 +46,67 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const locationId = c.req.query("location_id") ?? "", date = c.req.query("date") ?? "", minutes = Number(c.req.query("minutes") ?? 90);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(minutes) || minutes < 30 || minutes > 480 || minutes % 30) throw new KumiError("error.invalid_input", { details: "location_id, date (YYYY-MM-DD) and minutes (30 to 480, in 30s)" }, 400);
     return c.json(await freeCourts(db, { locationId, date, minutes, now: new Date() }));
+  });
+
+  // ---- Court bookings ----
+  // What the booking screen needs: where, which lengths, how far ahead, and when sharing the cost must be set up.
+  app.get("/booking-options", async (c) => {
+    who(c);
+    const p = await currentPolicy(db);
+    const locations = await db.selectFrom("location").select(["id", "name", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
+    return c.json({ locations, lengths: p.lengths, days_ahead: p.days_ahead, split_deadline_hours: p.split_deadline_hours, free_cancel_hours: p.free_cancel_hours, late_refund_percent: p.late_refund_percent });
+  });
+  app.get("/quote", async (c) => {
+    who(c);
+    const start = new Date(c.req.query("starts_at") ?? ""), minutes = Number(c.req.query("minutes") ?? 0);
+    if (isNaN(start.getTime()) || !Number.isInteger(minutes) || minutes < 30 || minutes > 480) throw new KumiError("error.invalid_input", { details: "court_id, starts_at and minutes" }, 400);
+    return c.json(await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes }));
+  });
+  // My bookings, as organiser or player: the court and time, what I owe or paid, and the link to share.
+  app.get("/my/bookings", async (c) => {
+    const pid = who(c);
+    const rows = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id")
+      .innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id")
+      .select(["booking.id", "booking.code", "booking.status", "booking.pay_mode", "booking.players", "booking.price_cents", "booking.organiser_id", "booking.invite_code", "booking.settled_at",
+        "booking.balance_cents", "booking_player.id as player_id", "booking_player.share_cents", "court.name as court", "location.name as location", "location.time_zone"])
+      .select([sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
+      .select((eb) => [
+        eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_payment_id"),
+        eb.selectFrom("payment").select((x) => x.fn.sum<string>("amount_cents").as("c")).whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded").as("paid_cents"),
+        eb.selectFrom("booking_player as bp").select((x) => x.fn.countAll<string>().as("n")).whereRef("bp.booking_id", "=", "booking.id").where("bp.removed_at", "is", null).as("joined"),
+      ])
+      .where("booking_player.person_id", "=", pid).where("booking_player.removed_at", "is", null).where("booking.status", "in", ["held", "confirmed"])
+      .where(sql<boolean>`upper(court_time.during) > now() - interval '1 day'`).orderBy(sql`lower(court_time.during)`).execute();
+    return c.json(rows.map((r) => ({ ...r, mine: r.organiser_id === pid, paid_cents: Number(r.paid_cents ?? 0), joined: Number(r.joined ?? 0),
+      invite_code: r.organiser_id === pid && !r.settled_at ? r.invite_code : null, organiser_id: undefined })));
+  });
+  // An invitation to share a booking: what it is and what one place costs, before joining.
+  app.get("/bookings/invite/:code", async (c) => {
+    who(c);
+    const b = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id")
+      .innerJoin("location", "location.id", "court.location_id").leftJoin("person", "person.id", "booking.organiser_id")
+      .select(["booking.id", "booking.code", "booking.status", "booking.pay_mode", "booking.players", "booking.price_cents", "booking.settled_at", "court.name as court", "location.name as location",
+        "location.time_zone", "person.display_name as organiser", sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
+      .where("booking.invite_code", "=", c.req.param("code")).where("court_time.active", "=", true).executeTakeFirst();
+    if (!b || b.pay_mode !== "split") throw new KumiError("error.invite_closed", {}, 404);
+    const joined = Number((await db.selectFrom("booking_player").select((x) => x.fn.countAll<string>().as("n")).where("booking_id", "=", b.id).where("removed_at", "is", null).executeTakeFirstOrThrow()).n);
+    return c.json({ ...b, share_cents: shares(b.price_cents, b.players).each, spots_left: Math.max(0, b.players - joined), open: b.status === "confirmed" && !b.settled_at && joined < b.players });
+  });
+  // The booking in a phone's calendar.
+  app.get("/my/bookings/:id/calendar.ics", async (c) => {
+    const pid = who(c);
+    const b = await db.selectFrom("booking").innerJoin("booking_player", "booking_player.booking_id", "booking.id").innerJoin("court_time", "court_time.booking_id", "booking.id")
+      .innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id")
+      .select(["booking.id", "booking.code", "court.name as court", "location.name as location", "location.address", sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
+      .where("booking.id", "=", c.req.param("id")).where("booking_player.person_id", "=", pid).where("court_time.active", "=", true).executeTakeFirst();
+    if (!b) throw new KumiError("error.not_found", { thing: { en: "booking", es: "la reserva" } }, 404);
+    const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
+    const stamp = (d: Date) => new Date(d).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const esc = (s: string) => s.replace(/[\\;,]/g, (m) => `\\${m}`).replace(/\n/g, "\\n");
+    c.header("content-type", "text/calendar; charset=utf-8"); c.header("content-disposition", `attachment; filename="${b.code}.ics"`);
+    return c.body(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Kumi//Bookings//EN", "BEGIN:VEVENT", `UID:${b.id}@kumi`, `DTSTAMP:${stamp(new Date())}`,
+      `DTSTART:${stamp(b.start)}`, `DTEND:${stamp(b.end)}`, `SUMMARY:${esc(`${b.court}, ${club.name} (${b.code})`)}`, `LOCATION:${esc([b.location, b.address].filter(Boolean).join(", "))}`,
+      "END:VEVENT", "END:VCALENDAR", ""].join("\r\n"));
   });
 
   app.get("/my/places", async (c) => {

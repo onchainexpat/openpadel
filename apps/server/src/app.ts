@@ -90,7 +90,7 @@ export function makeApp(deps: AppDeps) {
   app.get("/health", (c) => c.json({ ok: true, version: VERSION }));
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
-  app.get("/club", async (c) => c.json(await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language"]).executeTakeFirstOrThrow()));
+  app.get("/club", async (c) => c.json(await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings"]).executeTakeFirstOrThrow()));
 
   // ---- The MCP door: OAuth, then tools generated from the registry ----
   const publicUrl = (deps.publicUrl ?? "http://127.0.0.1:8790").replace(/\/$/, "");

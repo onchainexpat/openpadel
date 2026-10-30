@@ -34,7 +34,7 @@ export function t(lang: Lang, key: Key, params: Params = {}): string {
     const v = params[k];
     if (v === undefined) return `{${k}}`;
     return typeof v === "object" ? v[lang] : String(v);
-  });
+  }).replace(/([ap]\.\s?m\.)\./g, "$1");   // a sentence ending on a Spanish time ("9:00 a.m.") keeps one full stop
 }
 
 export function both(key: Key, params: Params = {}): Text {

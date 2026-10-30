@@ -4,7 +4,7 @@ import { api, ApiError, t } from "./state.ts";
 
 export type Pending = { runId: string; status: "planned" | "awaiting_approval"; summary: string };
 
-export function usePreview(onDone: () => void) {
+export function usePreview(onDone: (result?: any) => void) {
   const [pending, setPending] = useState<Pending | null>(null), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
   useEffect(() => { if (!note) return; const id = setTimeout(() => setNote(null), 5000); return () => clearTimeout(id); }, [note]);
   const preview = async (action: string, input: unknown) => {
@@ -17,7 +17,7 @@ export function usePreview(onDone: () => void) {
   };
   const confirm = async () => {
     if (!pending) return;
-    try { await api(`/runs/${pending.runId}/apply`, {}, { "idempotency-key": pending.runId }); setPending(null); setNote(t("ui.done")); onDone(); }
+    try { const r = await api<{ result?: unknown }>(`/runs/${pending.runId}/apply`, {}, { "idempotency-key": pending.runId }); setPending(null); setNote(t("ui.done")); onDone(r.result); }
     catch (e) { setError(e instanceof ApiError ? e.message : String(e)); setPending(null); }
   };
   // Docked at the bottom of the screen: on a phone the button that asked for it may be far down the page.
