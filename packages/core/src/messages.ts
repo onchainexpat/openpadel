@@ -515,6 +515,37 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     ];
     return drafts;
   },
+  // ---- Programs over time: dates moved or cancelled, a minimum not reached, a place open to anyone ----
+  async "dates.changed"(_c, p: { program_id: string; name: string; lines: Text; people: string[] }) {
+    return p.people.map((to) => ({ to, kind: "dates_changed", params: { name: p.name, lines: p.lines }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
+  },
+  async "dates.cancelled"({ tz }, p: { program_id: string; name: string; starts: string[]; entire: boolean; reason: "club" | "below_minimum"; people: { person_id: string; status: string; cents: number; paid: number }[] }) {
+    const first = p.starts.length ? new Date(p.starts[0]!) : null;
+    const dates: Text = { en: p.starts.map((s) => dateTime(new Date(s), "en", tz)).join("; "), es: p.starts.map((s) => dateTime(new Date(s), "es", tz)).join("; ") };
+    const kind = !p.entire ? "dates_cancelled" : p.reason === "below_minimum" ? "program_cancelled_minimum" : "program_cancelled";
+    return p.people.map((x) => ({ to: x.person_id, kind, params: { name: p.name, when: when(first, tz), dates,
+      refund: x.status === "waitlisted" ? both("msg.cancel_was_waiting") : refundLine(x.cents >= x.paid ? "full" : "partial", x.cents, x.paid) }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
+  },
+  async "program.min_cancelled"({ db, tz }, p: { program_id: string; name: string; starts_at: string | null; booked: number; min: number }) {
+    return (await desk(db)).map((to) => ({ to, kind: "program_min_cancelled_staff", params: { name: p.name, when: when(p.starts_at ? new Date(p.starts_at) : null, tz), booked: p.booked, min: p.min },
+      purpose: "staff" as const, essential: true, email: true, link: `/programs/${p.program_id}` }));
+  },
+  async "program.min_short"({ db, tz }, p: { program_id: string; name: string; starts_at: string | null; decide_at: string | null; booked: number; min: number }) {
+    return (await desk(db)).map((to) => ({ to, kind: "program_min_short", params: { name: p.name, when: when(p.starts_at ? new Date(p.starts_at) : null, tz), booked: p.booked, min: p.min, missing: p.min - p.booked,
+      decide: when(p.decide_at ? new Date(p.decide_at) : null, tz) }, purpose: "staff" as const, essential: false, email: true, link: `/programs/${p.program_id}`, staleAt: p.decide_at ? new Date(p.decide_at) : null }));
+  },
+  async "program.place_open"({ tz }, p: { program_id: string; name: string; starts_at: string | null; people: string[] }) {
+    const start = p.starts_at ? new Date(p.starts_at) : null;
+    return p.people.map((to) => ({ to, kind: "place_open", params: { name: p.name, when: when(start, tz) }, purpose: "account" as const, essential: false, email: true, link: "/", staleAt: start }));
+  },
+  // An edit to a program's dates undone: the people told about it hear it's back as it was.
+  async "action.undone"({ db }, p: { run_id: string }) {
+    const run = await db.selectFrom("action_run").select(["action", "plan"]).where("id", "=", p.run_id).executeTakeFirst();
+    if (run?.action !== "series.edit") return [];
+    const d = (run.plan as { details?: { name: string; back: Text; people: string[]; changed: unknown[] } }).details;
+    if (!d?.changed?.length) return [];
+    return d.people.map((to) => ({ to, kind: "dates_restored", params: { name: d.name, lines: d.back }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
+  },
   async "refund.failed"({ db }, p: { refund_id: string }) {
     const r = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("person", "person.id", "payment.person_id")
       .select(["refund.amount_cents", "refund.failure", "refund.enrolment_id", "person.display_name"]).where("refund.id", "=", p.refund_id).executeTakeFirstOrThrow();

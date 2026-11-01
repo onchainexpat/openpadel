@@ -15,7 +15,8 @@ collected here.
 | Staff: name, email and role (manager, front desk, coach, accountant) | `club.yaml` | Owner |
 | A domain the club owns (or can buy), and who controls its DNS | The app's address and email | Owner |
 | Brand colour and logo | The apps | Website, owner approves |
-| Clinic, social and Americano prices, and the cancellation rule (how many hours before a refund stops) | Programs, once set up | Owner |
+| Clinic, social and Americano prices, the cancellation rule (how many hours before a refund stops), and any minimum to run | Programs, once set up | Owner |
+| For programs with a minimum: how many hours before the first date it's decided (24 to start), and how long before that the front desk hears one is short (24) | Settings | Owner |
 | Opening hours for each location, and the days it's closed | Settings, Opening hours (step 5c) | Website or Google listing, owner checks |
 | Court prices: by day, time of day and season, and the sales tax rate if any | Settings, Prices (step 5c) | Owner |
 | Booking rules: how far ahead, how many at once, the free cancellation window, the lengths offered, and the deadline for "pay my part" (unpaid shares go on the organiser's card then, and an open match that isn't full is cancelled with everyone paid back) | Settings, Booking rules (step 5c) | Owner |

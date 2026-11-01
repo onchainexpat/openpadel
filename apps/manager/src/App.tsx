@@ -4,7 +4,6 @@ import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club
 import { Schedule } from "./Schedule.tsx";
 import { Changes } from "./Changes.tsx";
 import { Programs } from "./Programs.tsx";
-import { Program } from "./Program.tsx";
 import { Night } from "./Night.tsx";
 import { Level } from "./Level.tsx";
 import { People } from "./People.tsx";
@@ -16,6 +15,7 @@ import { Levels } from "./Levels.tsx";
 import { SessionLevels } from "./SessionLevels.tsx";
 // Set-up pages, opened now and then, loaded when they are.
 const Settings = lazy(() => import("./Settings.tsx").then((m) => m.Settings));
+const Program = lazy(() => import("./Program.tsx").then((m) => m.Program));
 const Coaches = lazy(() => import("./Coaches.tsx").then((m) => m.Coaches));
 const Reports = lazy(() => import("./Reports.tsx").then((m) => m.Reports));
 const Payments = lazy(() => import("./Payments.tsx").then((m) => m.Payments));

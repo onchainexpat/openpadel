@@ -21,7 +21,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
 
   app.get("/open-programs", async (c) => {
     const pid = await forWhom(c);
-    const rows = await db.selectFrom("program").select(["id", "name", "kind", "format", "capacity", "price_cents", "member_price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window"])
+    const rows = await db.selectFrom("program").select(["id", "name", "kind", "format", "capacity", "price_cents", "member_price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window", "min_players"])
       .select((eb) => [
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
         eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first_start"),
@@ -31,6 +31,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
           .whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "waitlisted").where("waitlist_offer.outcome", "is", null).where("waitlist_offer.expires_at", ">", new Date()).as("offered"),
         eb.selectFrom("waitlist_offer").innerJoin("enrolment", "enrolment.id", "waitlist_offer.enrolment_id").select("waitlist_offer.expires_at")
           .whereRef("enrolment.program_id", "=", "program.id").where("enrolment.person_id", "=", pid).where("enrolment.status", "=", "waitlisted").where("waitlist_offer.outcome", "is", null).where("waitlist_offer.expires_at", ">", new Date()).limit(1).as("my_offer_until"),
+        // Asked to hear when a place opens (a full program), and not told yet.
+        eb.selectFrom("program_watch").select("program_watch.id").whereRef("program_watch.program_id", "=", "program.id").where("program_watch.person_id", "=", pid)
+          .where("program_watch.told_at", "is", null).where("program_watch.ended_at", "is", null).limit(1).as("my_watch"),
       ]).where("status", "=", "published").where("visibility", "in", ["public", "members"]).execute();
     // My own price for each (a member price, or an included session); without a membership, what members pay.
     const now = new Date(), mine = await programPrices(db, rows, pid, now), members = await membersFrom(db, rows);

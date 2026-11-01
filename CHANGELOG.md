@@ -166,6 +166,25 @@ The first version a club can run on its own (court bookings included), or for it
   take it.
 - Taking someone off and refunding are separate decisions; passing a place to a sub (who pays their
   own price: a member price, or one of their included sessions); comped places.
+- Dates added once a week for as many weeks as wanted, at the same club time across clock changes.
+  A program's dates are changed (time, length, courts, coach) or cancelled as this one, this one and
+  the ones after it, or every date still to come; the preview lists each date as it was and will be,
+  what's in the way (a booking, a block or another program on the court, the coach teaching, in a
+  lesson or away) and who's signed up, and they're told. Another program at the same time for the
+  same players is a warning, not a block. Undoing a change puts the dates back if the courts are
+  still free, and tells the players. Places are for the whole program, so more of them go to the
+  waitlist first.
+- Cancelling dates: one date of a course paid once gives back that date's share of what each paid;
+  cancelling every date cancels the program and gives everything back (or staff choose all or
+  nothing, with a reason). A whole program can be cancelled from its page.
+- Before publishing, staff see the card exactly as members will, each date with its courts and coach,
+  and anything in the way; publishing waits until nothing is.
+- A minimum to run: a program short of it at its decision time (24 hours before its first date, or
+  its own) is cancelled and everyone gets their money back and is told. Front desk hears once before
+  that (24 hours, set in Settings) how many it still needs, to push it. Members see "needs 2 more to
+  run" on the card.
+- "Tell me when a place opens" on a full program: the waitlist is offered places first; once a place
+  is open to anyone, everyone watching hears once. A watch ends when they sign up.
 - Americano rounds with fair teams, scores and re-pairing.
 - Levels from results: members see theirs, how many rated games it rests on and each change;
   staff can set a level or a coach's floor, always with a reason.

@@ -6,3 +6,4 @@ export { Profile } from "./Profile.tsx";
 export { AccountData } from "./AccountData.tsx";
 export { Inbox, InboxLink } from "./Inbox.tsx";
 export { usePreview, dollars } from "./Preview.tsx";
+export { ProgramCard, placesLeft, type ProgramCardData } from "./ProgramCard.tsx";

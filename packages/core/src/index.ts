@@ -6,6 +6,8 @@ export * from "./permissions.ts";
 export * from "./actions.ts";
 export * from "./club.ts";
 export * from "./programs.ts";
+export * from "./program_clashes.ts";
+export * from "./programming.ts";
 export * from "./bookings.ts";
 export * from "./prices.ts";
 export * from "./booking_pay.ts";

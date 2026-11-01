@@ -1,22 +1,34 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, lang, t, shortTime } from "@kumi/ui";
-import { usePreview, dollars } from "@kumi/ui";
+import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
 
 type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; paid_by: string; paid_cents: number; level: string | null; price_basis: string;
   comp_note: string | null; left_how: string | null; left_reason: string | null; refund_outcome: string | null; refund_cents: number | null; offer_expires_at: string | null };
-type Data = { program: any; coaches: { id: string; name: string }[]; sessions: { id: string; starts_at: string; ends_at: string; status: string; courts: string[]; has_draw: boolean; coach_id: string | null }[]; roster: Person[] };
+type Data = { program: any; decide_hours: number; coaches: { id: string; name: string }[]; sessions: { id: string; starts_at: string; ends_at: string; status: string; courts: string[]; has_draw: boolean; coach_id: string | null }[]; roster: Person[] };
 type Court = { id: string; name: string };
+type Preview = { card: ProgramCardData; dates: { id: string; starts_at: string; ends_at: string; courts: string[]; coach: string | null }[]; blocks: string[]; warnings: string[] };
+type Scope = "this" | "following" | "all";
+/** A change to dates: which ones, and only the fields given change. */
+type DateEdit = { session: string; scope: Scope; when: string; time: string; minutes: string; courts: string[]; coach: string; capacity: string };
+type DateCancel = { session: string; scope: Scope; refund: "rule" | "full" | "none"; note: string };
 
 export function Program({ id }: { id: string }) {
   const [d, setD] = useState<Data | null>(null), [courts, setCourts] = useState<Court[]>([]);
   const [removing, setRemoving] = useState<Person | null>(null), [reason, setReason] = useState("late_cancel");
   const [override, setOverride] = useState(false), [outcome, setOutcome] = useState("full"), [amount, setAmount] = useState(0), [why, setWhy] = useState("");
-  const [date, setDate] = useState({ starts: "", ends: "", courts: [] as string[], coach: "" });
+  const [date, setDate] = useState({ starts: "", ends: "", courts: [] as string[], coach: "", weeks: 1 });
+  const [edit, setEdit] = useState<DateEdit | null>(null), [cancelling, setCancelling] = useState<DateCancel | null>(null);
+  const [ending, setEnding] = useState<{ refund: "rule" | "full" | "none"; note: string } | null>(null);
+  const [minimum, setMinimum] = useState<{ min: string; hours: string } | null>(null), [look, setLook] = useState<Preview | null>(null);
   const [pricing, setPricing] = useState<{ price: string; member: string } | null>(null);
   const [adding, setAdding] = useState(false), [search, setSearch] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]), [compNote, setCompNote] = useState("");
-  const load = () => api<Data>(`/staff/programs/${id}`).then((x) => { setD(x); api<Court[]>(`/staff/courts?location_id=${x.program.location_id}`).then(setCourts); });
-  const { preview, sheet } = usePreview(() => { setRemoving(null); setAdding(false); setPricing(null); load(); });
+  const load = () => api<Data>(`/staff/programs/${id}`).then((x) => {
+    setD(x); api<Court[]>(`/staff/courts?location_id=${x.program.location_id}`).then(setCourts);
+    // A draft: the card as members will see it, its dates, and anything in the way, before publishing.
+    if (x.program.status === "draft") api<Preview>(`/staff/programs/${id}/preview`).then(setLook); else setLook(null);
+  });
+  const { preview, sheet } = usePreview(() => { setRemoving(null); setAdding(false); setPricing(null); setEdit(null); setCancelling(null); setEnding(null); setMinimum(null); load(); });
   useEffect(() => { load(); }, [id]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const p = d.program, money = (c: number) => dollars(c, lang.value);
@@ -27,7 +39,20 @@ export function Program({ id }: { id: string }) {
     e.preventDefault();
     preview("enrolment.remove", { enrolment_id: removing!.id, reason, ...(override ? { refund: { outcome, cents: Math.round(amount * 100), note: why } } : {}) });
   };
-  const addDate = (e: Event) => { e.preventDefault(); preview("session.add", { program_id: id, starts_at: new Date(date.starts).toISOString(), ends_at: new Date(date.ends).toISOString(), court_ids: date.courts, ...(date.coach ? { coach_id: date.coach } : {}) }); };
+  const addDate = (e: Event) => { e.preventDefault(); preview("session.add", { program_id: id, starts_at: new Date(date.starts).toISOString(), ends_at: new Date(date.ends).toISOString(), court_ids: date.courts,
+    ...(date.coach ? { coach_id: date.coach } : {}), ...(date.weeks > 1 ? { weeks: date.weeks } : {}) }); };
+  const editDates = (e: Event) => {
+    e.preventDefault();
+    const x = edit!;
+    preview("series.edit", { session_id: x.session, scope: x.scope, ...(x.scope === "this" && x.when ? { starts_at: new Date(x.when).toISOString() } : x.time ? { start_time: x.time } : {}),
+      ...(x.minutes ? { minutes: Number(x.minutes) } : {}), ...(x.courts.length ? { court_ids: x.courts } : {}), ...(x.coach === "" ? {} : { coach_id: x.coach === "none" ? null : x.coach }),
+      ...(x.capacity ? { capacity: Number(x.capacity) } : {}) });
+  };
+  const scopePick = (value: Scope, onPick: (v: Scope) => void) => <label>{t("ui.scope")}<select value={value} onChange={(e) => onPick(e.currentTarget.value as Scope)}>
+    {(["this", "following", "all"] as const).map((k) => <option value={k}>{t(`ui.scope_${k}` as Key)}</option>)}</select></label>;
+  const refundPick = (value: string, onPick: (v: "rule" | "full" | "none") => void) => <label>{t("ui.dates_refund_choice")}<select value={value} onChange={(e) => onPick(e.currentTarget.value as "rule" | "full" | "none")}>
+    <option value="rule">{t("ui.refund_rule_dates")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option></select></label>;
+  const upcoming = (s: { starts_at: string; status: string }) => s.status !== "cancelled" && new Date(s.starts_at) > new Date();
   // Who runs a date: one of the coaches, or nobody named.
   const coachPick = (value: string, onPick: (v: string) => void) => <select aria-label={t("ui.coach")} value={value} onChange={(e) => onPick(e.currentTarget.value)}>
     <option value="">{t("ui.no_coach")}</option>{d.coaches.map((c) => <option value={c.id}>{c.name}</option>)}</select>;
@@ -45,20 +70,56 @@ export function Program({ id }: { id: string }) {
         {d.roster.some((r) => r.status !== "cancelled") && <p class="meta">{t("ui.member_price_note")}</p>}
         <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setPricing(null)}>{t("ui.cancel")}</button>
       </form>}
-      {p.status === "draft" && <button class="primary" onClick={() => preview("program.publish", { program_id: id })}>{t("ui.publish")}</button>}
+      {p.status !== "cancelled" && <p class="meta">{p.min_players ? t("ui.min_to_run", { min: p.min_players, hours: t("count.hours", { count: p.decide_hours ?? d.decide_hours }) }) : t("ui.no_min")}
+        {p.min_decided_at && p.status === "published" ? ` · ${t("ui.min_decided_runs")}` : ""}{" "}
+        {!minimum && <button class="small" onClick={() => setMinimum({ min: p.min_players ? String(p.min_players) : "", hours: p.decide_hours ? String(p.decide_hours) : "" })}>{t("ui.change")}</button>}</p>}
+      {minimum && <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("program.set_minimum", { program_id: id, min_players: minimum.min.trim() ? Number(minimum.min) : null, decide_hours: minimum.hours.trim() ? Number(minimum.hours) : null }); }}>
+        <label>{t("ui.min_players")}<input type="number" min="1" max={p.capacity} value={minimum.min} onInput={(e) => setMinimum({ ...minimum, min: e.currentTarget.value })} /></label>
+        <label>{t("ui.decide_hours")}<input type="number" min="1" max="336" value={minimum.hours} onInput={(e) => setMinimum({ ...minimum, hours: e.currentTarget.value })} /></label>
+        <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setMinimum(null)}>{t("ui.cancel")}</button>
+      </form>}
+      {look && <section class="card">
+        <h2>{t("ui.members_will_see")}</h2>
+        <ul class="changes"><ProgramCard p={look.card} /></ul>
+        {look.dates.length > 0 && <ul class="plain">{look.dates.map((x) => <li class="meta">{when(x.starts_at)} · {x.courts.join(", ")}{x.coach ? ` · ${x.coach}` : ""}</li>)}</ul>}
+        {look.blocks.length > 0 && <div class="error"><strong>{t("ui.publish_blocked")}</strong> {look.blocks.join(" ")}</div>}
+        {look.warnings.length > 0 && <p class="meta">{t("ui.worth_knowing")} {look.warnings.join(" ")}</p>}
+        <button class="primary" disabled={look.blocks.length > 0} onClick={() => preview("program.publish", { program_id: id })}>{t("ui.publish")}</button>
+      </section>}
       {sheet}
 
       <section class="card">
         <h2>{t("ui.dates")}</h2>
-        {d.sessions.map((s) => <p>{when(s.starts_at)} · {s.courts.join(", ")} {p.format && <a href={`/sessions/${s.id}`}>{t("ui.open_night")}</a>}
+        {d.sessions.map((s) => <p>{when(s.starts_at)}{s.courts.length ? ` · ${s.courts.join(", ")}` : ""} {p.format && <a href={`/sessions/${s.id}`}>{t("ui.open_night")}</a>}
           {s.status !== "cancelled" && <> <a href={`/roster/session/${s.id}`}>{t("ui.students")}</a></>}
           {s.status !== "cancelled" && new Date(s.starts_at) <= new Date() && <> <a href={`/sessions/${s.id}/levels`}>{t("ui.set_levels")}</a></>}
-          {s.status !== "cancelled" && d.coaches.length > 0 && <> {coachPick(s.coach_id ?? "", (v) => preview("session.set_coach", { session_id: s.id, coach_id: v || null }))}</>}</p>)}
+          {s.status !== "cancelled" && d.coaches.length > 0 && <> {coachPick(s.coach_id ?? "", (v) => preview("session.set_coach", { session_id: s.id, coach_id: v || null }))}</>}
+          {s.status === "cancelled" && <span class="meta"> · {t("ui.status_cancelled")}</span>}
+          {upcoming(s) && p.status !== "cancelled" && <> <button class="small" onClick={() => { setCancelling(null); setEdit({ session: s.id, scope: "this", when: "", time: "", minutes: "", courts: [], coach: "", capacity: "" }); }}>{t("ui.change_date")}</button>
+            {" "}<button class="small" onClick={() => { setEdit(null); setCancelling({ session: s.id, scope: "this", refund: "rule", note: "" }); }}>{t("ui.cancel_date")}</button></>}</p>)}
+        {edit && <form class="card sheet" onSubmit={editDates}>
+          {scopePick(edit.scope, (v) => setEdit({ ...edit, scope: v }))}
+          {edit.scope === "this" && <label>{t("ui.new_date_time")}<input type="datetime-local" value={edit.when} onInput={(e) => setEdit({ ...edit, when: e.currentTarget.value })} /></label>}
+          {!(edit.scope === "this" && edit.when) && <label>{t("ui.start_time")}<input type="time" value={edit.time} onInput={(e) => setEdit({ ...edit, time: e.currentTarget.value })} /></label>}
+          <label>{t("ui.length_minutes")}<input type="number" min="15" max="720" step="15" value={edit.minutes} onInput={(e) => setEdit({ ...edit, minutes: e.currentTarget.value })} /></label>
+          <fieldset><legend>{t("ui.courts_keep")}</legend>{courts.map((c) => <label class="check"><input type="checkbox" checked={edit.courts.includes(c.id)} onChange={(e) => setEdit({ ...edit, courts: e.currentTarget.checked ? [...edit.courts, c.id] : edit.courts.filter((x) => x !== c.id) })} /> {c.name}</label>)}</fieldset>
+          {d.coaches.length > 0 && <label>{t("ui.coach")}<select value={edit.coach} onChange={(e) => setEdit({ ...edit, coach: e.currentTarget.value })}>
+            <option value="">{t("ui.coach_keep")}</option><option value="none">{t("ui.no_coach")}</option>{d.coaches.map((c) => <option value={c.id}>{c.name}</option>)}</select></label>}
+          <label>{t("ui.places_all")}<input type="number" min="1" value={edit.capacity} placeholder={String(p.capacity)} onInput={(e) => setEdit({ ...edit, capacity: e.currentTarget.value })} /></label>
+          <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setEdit(null)}>{t("ui.cancel")}</button>
+        </form>}
+        {cancelling && <form class="card sheet" onSubmit={(e) => { e.preventDefault(); preview("series.cancel", { session_id: cancelling.session, scope: cancelling.scope, refund: cancelling.refund, ...(cancelling.note.trim() ? { note: cancelling.note.trim() } : {}) }); }}>
+          {scopePick(cancelling.scope, (v) => setCancelling({ ...cancelling, scope: v }))}
+          {refundPick(cancelling.refund, (v) => setCancelling({ ...cancelling, refund: v }))}
+          <label>{t("ui.note")}<input value={cancelling.note} onInput={(e) => setCancelling({ ...cancelling, note: e.currentTarget.value })} /></label>
+          <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setCancelling(null)}>{t("ui.cancel")}</button>
+        </form>}
         {!adding ? <button onClick={() => setAdding(true)}>{t("ui.add_date")}</button> : <form onSubmit={addDate}>
           <label>{t("ui.starts")}<input type="datetime-local" required value={date.starts} onInput={(e) => setDate({ ...date, starts: e.currentTarget.value })} /></label>
           <label>{t("ui.ends")}<input type="datetime-local" required value={date.ends} onInput={(e) => setDate({ ...date, ends: e.currentTarget.value })} /></label>
           <fieldset><legend>{t("ui.courts")}</legend>{courts.map((c) => <label class="check"><input type="checkbox" checked={date.courts.includes(c.id)} onChange={(e) => setDate({ ...date, courts: e.currentTarget.checked ? [...date.courts, c.id] : date.courts.filter((x) => x !== c.id) })} /> {c.name}</label>)}</fieldset>
           {d.coaches.length > 0 && <label>{t("ui.coach")}{coachPick(date.coach, (v) => setDate({ ...date, coach: v }))}</label>}
+          <label>{t("ui.weeks")}<input type="number" min="1" max="52" value={date.weeks} onInput={(e) => setDate({ ...date, weeks: Math.max(1, Math.min(52, Number(e.currentTarget.value) || 1)) })} /></label>
           <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setAdding(false)}>{t("ui.cancel")}</button>
         </form>}
       </section>
@@ -89,6 +150,15 @@ export function Program({ id }: { id: string }) {
         <ul class="plain">{found.map((f) => <li><button class="small" disabled={!compNote.trim()} onClick={() => preview("enrolment.comp", { program_id: id, person_id: f.id, note: compNote })}>{f.display_name}</button></li>)}</ul>
         {gone.length > 0 && <><h2>{t("ui.gone")}</h2><ul class="plain">{gone.map((r) => <li class="meta">{r.display_name} · {r.left_reason ? t(`reason.${r.left_reason}` as Key) : ""} · {r.refund_outcome ? t(`ui.outcome_${r.refund_outcome}` as Key) : ""}{r.refund_cents ? ` ${money(r.refund_cents)}` : ""}</li>)}</ul></>}
       </section>
+
+      {p.status !== "cancelled" && <section class="card">
+        {!ending ? <button onClick={() => setEnding({ refund: "rule", note: "" })}>{t("ui.cancel_program")}</button>
+          : <form onSubmit={(e) => { e.preventDefault(); preview("program.cancel", { program_id: id, refund: ending.refund, ...(ending.note.trim() ? { note: ending.note.trim() } : {}) }); }}>
+            {refundPick(ending.refund, (v) => setEnding({ ...ending, refund: v }))}
+            <label>{t("ui.note")}<input value={ending.note} onInput={(e) => setEnding({ ...ending, note: e.currentTarget.value })} /></label>
+            <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setEnding(null)}>{t("ui.cancel")}</button>
+          </form>}
+      </section>}
     </main>
   );
 }

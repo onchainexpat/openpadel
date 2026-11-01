@@ -10,6 +10,7 @@ import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { isClubBlock } from "./playtomic.ts";
 import { checkSessionCoach, coachBusy } from "./lessons.ts";
+import { clashList, dateClashes, weekly } from "./program_clashes.ts";
 import { afterBookingPayment } from "./booking_pay.ts";
 import { afterMembershipPayment } from "./memberships.ts";
 import { quietUntil } from "./messages.ts";
@@ -34,8 +35,8 @@ const when = (at: Date, tz: string): Text => ({ en: dateTime(at, "en", tz), es: 
 async function personName(db: Db | Trx, id: string): Promise<string> {
   return (await readRow(db, "person", id, "thing.person")).row.display_name;
 }
-async function clubTz(db: Db | Trx): Promise<string> { return (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone; }
-async function firstStart(db: Db | Trx, programId: string, sessionId?: string | null): Promise<Date | null> {
+export async function clubTz(db: Db | Trx): Promise<string> { return (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone; }
+export async function firstStart(db: Db | Trx, programId: string, sessionId?: string | null): Promise<Date | null> {
   const r = await db.selectFrom("session").select((eb) => eb.fn.min("starts_at").as("s")).where("program_id", "=", programId).where("status", "!=", "cancelled")
     .$if(Boolean(sessionId), (q) => q.where("id", "=", sessionId!)).executeTakeFirst();
   return (r?.s as Date | null) ?? null;
@@ -44,7 +45,7 @@ async function firstStart(db: Db | Trx, programId: string, sessionId?: string | 
 const holdsOffer = (eb: ExpressionBuilder<DB, "enrolment">, now: Date) => eb.exists(eb.selectFrom("waitlist_offer").select("waitlist_offer.id")
   .whereRef("waitlist_offer.enrolment_id", "=", "enrolment.id").where("waitlist_offer.outcome", "is", null).where("waitlist_offer.expires_at", ">", now));
 /** Places taken: everyone booked, plus places held for someone on the waitlist by an open offer. */
-async function takenCount(db: Db | Trx, programId: string, now: Date): Promise<number> {
+export async function takenCount(db: Db | Trx, programId: string, now: Date): Promise<number> {
   const r = await db.selectFrom("enrolment").select((eb) => eb.fn.countAll<string>().as("n")).where("program_id", "=", programId)
     .where((eb) => eb.or([eb("status", "=", "booked"), eb.and([eb("status", "=", "waitlisted"), holdsOffer(eb, now)])])).executeTakeFirstOrThrow();
   return Number(r.n);
@@ -57,7 +58,7 @@ async function nextWaitlisted(db: Db | Trx, programId: string, now: Date, skip: 
 const openOffer = (db: Db | Trx, enrolmentId: string, now: Date) => db.selectFrom("waitlist_offer").selectAll()
   .where("enrolment_id", "=", enrolmentId).where("outcome", "is", null).where("expires_at", ">", now).executeTakeFirst();
 /** No new offers once the event has started. */
-const started = async (db: Db | Trx, programId: string, now: Date) => { const s = await firstStart(db, programId); return s !== null && s <= now; };
+export const started = async (db: Db | Trx, programId: string, now: Date) => { const s = await firstStart(db, programId); return s !== null && s <= now; };
 
 export type RefundOutcome = "none" | "credit" | "partial" | "full";
 export interface Refund { outcome: RefundOutcome; cents: number; text: Text; changed: boolean }
@@ -94,7 +95,7 @@ async function offerText(db: Db | Trx, programId: string, freesPlace: boolean, n
   const next = await nextWaitlisted(db, programId, now);
   return next ? both("plan.offer_next", { person: await personName(db, next.person_id) }) : { en: "", es: "" };
 }
-const join2 = (a: Text, b: Text): Text => ({ en: a.en + b.en, es: a.es + b.es });
+export const join2 = (a: Text, b: Text): Text => ({ en: a.en + b.en, es: a.es + b.es });
 
 // ---- Courts and programs ----
 export const courtCreate = defineAction({
@@ -146,28 +147,61 @@ export const programCreate = defineAction({
     level_min: z.optional(z.number()), level_max: z.optional(z.number()),
     refund_window_hours: z.optional(z.number().check(z.int(), z.minimum(0))), refund_inside_window: z.optional(z.enum(["none", "credit", "full"])),
     rated: z.optional(z.boolean().check(z.describe("Whether results change levels. Friendlies never do."))),
+    min_players: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.describe("The fewest players it runs with. Short of it at the decision time, it's cancelled and everyone is paid back.")))),
+    decide_hours: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(336), z.describe("How many hours before the first date the minimum is decided. Empty: the club's default.")))),
   }),
   async plan(ctx, i) {
     await readRow(ctx.db, "location", i.location_id, "thing.location");
     if (i.member_price_cents != null && i.member_price_cents > i.price_cents) throw new KumiError("error.member_price_higher");
-    const summary = both("plan.program.create", { name: i.name, kind: both(`kind.${i.kind}` as Key), capacity: i.capacity, price: usd(i.price_cents) });
-    return { title: both("action.program.create"), summary: i.member_price_cents == null ? summary : join2(summary, both("plan.program.member_price", { amount: usd(i.member_price_cents) })),
-      reads: [], locationId: i.location_id, undo: { kind: "reversible" } };
+    if (i.min_players != null && i.min_players > i.capacity) throw new KumiError("error.min_over_capacity", { capacity: i.capacity });
+    let summary = both("plan.program.create", { name: i.name, kind: both(`kind.${i.kind}` as Key), capacity: i.capacity, price: usd(i.price_cents) });
+    if (i.member_price_cents != null) summary = join2(summary, both("plan.program.member_price", { amount: usd(i.member_price_cents) }));
+    if (i.min_players != null) summary = join2(summary, both("plan.program.min_line", { min: i.min_players, hours: both("count.hours", { count: i.decide_hours ?? (await ctx.db.selectFrom("club").select("program_decide_hours").executeTakeFirstOrThrow()).program_decide_hours }) }));
+    return { title: both("action.program.create"), summary, reads: [], locationId: i.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const id = uuidv7();
     await ctx.insert("program", { id, location_id: i.location_id, kind: i.kind, format: i.format ?? null, name: i.name, capacity: i.capacity, price_cents: i.price_cents, member_price_cents: i.member_price_cents ?? null,
-      level_min: i.level_min ?? null, level_max: i.level_max ?? null, refund_window_hours: i.refund_window_hours ?? 24, refund_inside_window: i.refund_inside_window ?? "none", rated: i.rated ?? false });
+      level_min: i.level_min ?? null, level_max: i.level_max ?? null, refund_window_hours: i.refund_window_hours ?? 24, refund_inside_window: i.refund_inside_window ?? "none", rated: i.rated ?? false,
+      min_players: i.min_players ?? null, decide_hours: i.decide_hours ?? null });
     return { program_id: id };
   },
 });
+
+/** A program's dates still to come, each with its courts and coach, as staff see them before publishing. */
+export async function programDates(db: Db | Trx, programId: string, now: Date) {
+  const rows = await db.selectFrom("session").leftJoin("person", "person.id", "session.coach_id").select(["session.id", "session.starts_at", "session.ends_at", "session.coach_id", "person.display_name as coach"])
+    .where("session.program_id", "=", programId).where("session.status", "!=", "cancelled").where("session.starts_at", ">", now).orderBy("session.starts_at").execute();
+  const courts = rows.length ? await db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id").select(["court_time.session_id", "court.id", "court.name"])
+    .where("court_time.session_id", "in", rows.map((r) => r.id)).where("court_time.active", "=", true).orderBy("court.name").execute() : [];
+  return rows.map((r) => { const mine = courts.filter((c) => c.session_id === r.id); return { ...r, court_ids: mine.map((c) => c.id), courts: mine.map((c) => c.name) }; });
+}
+
+/** What publishing would put in front of members, and anything in the way of its dates. */
+export async function publishCheck(db: Db | Trx, programId: string, now: Date) {
+  const p = await db.selectFrom("program").selectAll().where("id", "=", programId).executeTakeFirstOrThrow();
+  const tz = await clubTz(db), dates = await programDates(db, programId, now);
+  const clashes = await dateClashes(db, { programId, locationId: p.location_id, levelMin: p.level_min, levelMax: p.level_max, now, tz,
+    slots: dates.map((d) => ({ start: new Date(d.starts_at), end: new Date(d.ends_at), courtIds: d.court_ids, coachId: d.coach_id })), skipSessions: dates.map((d) => d.id) });
+  return { program: p, tz, dates, blocks: clashes.filter((c) => c.blocks), warnings: clashes.filter((c) => !c.blocks) };
+}
 
 export const programPublish = defineAction({
   name: "program.publish", version: 1,
   input: z.object({ program_id: z.uuid() }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
-    return { title: both("action.program.publish"), summary: both("plan.program.publish", { name: row.name }), reads: [read], locationId: row.location_id, undo: { kind: "compensating" } };
+    if (row.status !== "draft") throw new KumiError("error.not_draft");
+    const c = await publishCheck(ctx.db, i.program_id, ctx.now);
+    if (c.blocks.length) throw new KumiError("error.dates_clash", { list: clashList(c.blocks) });
+    // Exactly what members will see: the price (and members' price), the places, the minimum, then each date.
+    let summary = join2(both("plan.program.publish", { name: row.name }), both("plan.program.publish_card", { kind: both(`kind.${row.kind}` as Key), price: usd(row.price_cents), capacity: row.capacity }));
+    if (row.member_price_cents !== null) summary = join2(summary, both("plan.program.member_price", { amount: usd(row.member_price_cents) }));
+    if (row.min_players !== null) summary = join2(summary, both("plan.program.min_line", { min: row.min_players, hours: both("count.hours", { count: row.decide_hours ?? (await ctx.db.selectFrom("club").select("program_decide_hours").executeTakeFirstOrThrow()).program_decide_hours }) }));
+    summary = join2(summary, c.dates.length ? both("plan.program.publish_dates", { count: c.dates.length }) : both("plan.program.no_dates"));
+    for (const d of c.dates) summary = join2(summary, both(d.coach ? "plan.program.date_line_coach" : "plan.program.date_line", { when: when(new Date(d.starts_at), c.tz), courts: d.courts.join(", "), coach: d.coach ?? "" }));
+    if (c.warnings.length) summary = join2(summary, both("plan.dates_warnings", { list: clashList(c.warnings) }));
+    return { title: both("action.program.publish"), summary, reads: [read], locationId: row.location_id, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) { await ctx.update("program", i.program_id, { status: "published" }); await ctx.emit("program.published", { program_id: i.program_id }); return null; },
 });
@@ -201,37 +235,54 @@ async function courtTimeUnder(db: Db | Trx, i: { court_ids: string[]; starts_at:
 export const sessionAdd = defineAction({
   name: "session.add", version: 1,
   input: z.object({ program_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), ends_at: z.iso.datetime({ offset: true }), court_ids: z.array(z.uuid()).check(z.minLength(1)),
-    coach_id: z.optional(z.uuid().check(z.describe("The coach who runs it: someone with the coach role, with no lesson then."))) }),
+    coach_id: z.optional(z.uuid().check(z.describe("The coach who runs it: someone with the coach role, with no lesson then."))),
+    weeks: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(52), z.describe("How many dates, one a week at the same club time (1: just this one)."))) }),
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     const courts = await ctx.db.selectFrom("court").select(["id", "name", "location_id"]).where("id", "in", i.court_ids).where("archived_at", "is", null).execute();
     if (courts.length !== new Set(i.court_ids).size || courts.some((c) => c.location_id !== p.location_id)) throw new KumiError("error.not_found", { thing: both("thing.court") }, 404);
-    if ((await courtTimeUnder(ctx.db, i)).some((c) => !c.absorb)) throw new KumiError("error.court_taken");
-    const coach = i.coach_id ? await checkSessionCoach(ctx, i.coach_id, new Date(i.starts_at), new Date(i.ends_at)) : null;
-    const names = courts.map((c) => c.name).join(", "), summary = both("plan.session.add", { name: p.name, when: when(new Date(i.starts_at), await clubTz(ctx.db)), courts: names });
-    return { title: both("action.session.add"), summary: coach ? join2(summary, both("plan.session.add_coach", { coach })) : summary, reads: [read], locationId: p.location_id, undo: { kind: "reversible" } };
+    const tz = await clubTz(ctx.db), dates = weekly(new Date(i.starts_at), new Date(i.ends_at), i.weeks ?? 1, tz);
+    for (const d of dates) if ((await courtTimeUnder(ctx.db, { court_ids: i.court_ids, starts_at: d.start.toISOString(), ends_at: d.end.toISOString() })).some((c) => !c.absorb)) throw new KumiError("error.court_taken");
+    let coach: string | null = null;
+    for (const d of dates) if (i.coach_id) coach = await checkSessionCoach(ctx, i.coach_id, d.start, d.end);
+    // The coach away then blocks it; another program at the same time for the same players is worth a word.
+    const clashes = await dateClashes(ctx.db, { programId: p.id, locationId: p.location_id, levelMin: p.level_min, levelMax: p.level_max, now: ctx.now, tz, skipSessions: [],
+      slots: dates.map((d) => ({ start: d.start, end: d.end, courtIds: [], coachId: i.coach_id ?? null })) });
+    const off = clashes.filter((c) => c.kind === "coach_off"), warnings = clashes.filter((c) => !c.blocks);
+    if (off.length) throw new KumiError("error.dates_clash", { list: clashList(off) });
+    const names = courts.map((c) => c.name).join(", ");
+    let summary = dates.length === 1 ? both("plan.session.add", { name: p.name, when: when(dates[0]!.start, tz), courts: names })
+      : both("plan.session.add_weekly", { name: p.name, count: dates.length, first: when(dates[0]!.start, tz), last: when(dates[dates.length - 1]!.start, tz), courts: names });
+    if (coach) summary = join2(summary, both("plan.session.add_coach", { coach }));
+    if (warnings.length) summary = join2(summary, both("plan.dates_warnings", { list: clashList(warnings) }));
+    return { title: both("action.session.add"), summary, reads: [read], locationId: p.location_id, undo: { kind: "reversible" }, details: { dates: dates.map((d) => ({ start: d.start.toISOString(), end: d.end.toISOString() })) } };
   },
-  async apply(ctx, i) {
+  async apply(ctx, i, plan) {
     // The coach first (one booking of a coach at a time), then the courts, in court-id order (spikes/booking_race.md).
+    const dates = (plan.details as { dates: { start: string; end: string }[] }).dates;
     if (i.coach_id) {
       await ctx.trx.selectFrom("person").select("id").where("id", "=", i.coach_id).forUpdate().execute();
-      if ((await coachBusy(ctx.trx, i.coach_id, new Date(i.starts_at), new Date(i.ends_at), ctx.now)).length) throw new KumiError("error.changed");
+      for (const d of dates) if ((await coachBusy(ctx.trx, i.coach_id, new Date(d.start), new Date(d.end), ctx.now)).length) throw new KumiError("error.changed");
     }
     for (const id of [...i.court_ids].sort()) await ctx.trx.selectFrom("court").select("id").where("id", "=", id).forUpdate().execute();
-    const under = await courtTimeUnder(ctx.trx, i);
-    if (under.some((c) => !c.absorb)) throw new KumiError("error.court_taken");
-    // The club already blocked these courts in Playtomic for this event: the event takes over the hold.
-    for (const c of under) await ctx.update("court_time", c.id, { active: false });
-    const sessionId = uuidv7(), held = new Map<string, string>();
-    await ctx.insert("session", { id: sessionId, program_id: i.program_id, starts_at: new Date(i.starts_at), ends_at: new Date(i.ends_at), coach_id: i.coach_id ?? null });
-    try {
-      for (const court of i.court_ids) {
-        const id = uuidv7(); held.set(court, id);
-        await ctx.insert("court_time", { id, court_id: court, during: sql`tstzrange(${new Date(i.starts_at)}, ${new Date(i.ends_at)})`, kind: "session", session_id: sessionId });
-      }
-    } catch (e: any) { if (e?.code === "23P01") throw new KumiError("error.court_taken"); throw e; }
-    for (const c of under) await ctx.update("mirror_booking", c.ref!, { status: "covered", court_time_id: null, clash_id: held.get(c.court_id)! });
-    return { session_id: sessionId };
+    const ids: string[] = [];
+    for (const d of dates) {
+      const under = await courtTimeUnder(ctx.trx, { court_ids: i.court_ids, starts_at: d.start, ends_at: d.end });
+      if (under.some((c) => !c.absorb)) throw new KumiError("error.court_taken");
+      // The club already blocked these courts in Playtomic for this event: the event takes over the hold.
+      for (const c of under) await ctx.update("court_time", c.id, { active: false });
+      const sessionId = uuidv7(), held = new Map<string, string>();
+      await ctx.insert("session", { id: sessionId, program_id: i.program_id, starts_at: new Date(d.start), ends_at: new Date(d.end), coach_id: i.coach_id ?? null });
+      try {
+        for (const court of i.court_ids) {
+          const id = uuidv7(); held.set(court, id);
+          await ctx.insert("court_time", { id, court_id: court, during: sql`tstzrange(${new Date(d.start)}, ${new Date(d.end)})`, kind: "session", session_id: sessionId });
+        }
+      } catch (e: any) { if (e?.code === "23P01") throw new KumiError("error.court_taken"); throw e; }
+      for (const c of under) await ctx.update("mirror_booking", c.ref!, { status: "covered", court_time_id: null, clash_id: held.get(c.court_id)! });
+      ids.push(sessionId);
+    }
+    return { session_id: ids[0], session_ids: ids };
   },
 });
 
@@ -267,6 +318,9 @@ export const enrolmentJoin = defineAction({
     const id = uuidv7();
     await ctx.insert("enrolment", { id, program_id: i.program_id, person_id: i.person_id, status: planned.status, waitlist_position: planned.position ?? null, ...priced(price) });
     await ctx.emit(planned.status === "booked" ? "enrolment.booked" : "enrolment.waitlisted", { enrolment_id: id });
+    // Signed up (or on the waitlist) now: a watch on the program has done its job.
+    for (const w of await ctx.trx.selectFrom("program_watch").select("id").where("program_id", "=", i.program_id).where("person_id", "=", i.person_id).where("told_at", "is", null).where("ended_at", "is", null).execute())
+      await ctx.update("program_watch", w.id, { ended_at: ctx.now });
     const pay = planned.status === "booked" ? await requestPayment(ctx, id, i.person_id, price.cents) : null;
     return { enrolment_id: id, status: planned.status, ...(pay ?? {}) };
   },
@@ -297,7 +351,7 @@ async function goingPlan(ctx: PlanCtx, enrolmentId: string, reason: string, refu
   return { e, p, person, refund: { ...refund, text: refundText }, back: Boolean(back), read, offer: await offerText(ctx.db, e.program_id, freesPlace, ctx.now) };
 }
 
-async function freePlace(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], programId: string, skip: string[] = []) {
+export async function freePlace(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], programId: string, skip: string[] = []) {
   if (await started(ctx.trx, programId, ctx.now)) return null;
   const next = await nextWaitlisted(ctx.trx, programId, ctx.now, skip);
   if (!next) return null;
@@ -308,6 +362,25 @@ async function freePlace(ctx: Parameters<NonNullable<Parameters<typeof defineAct
   return offerId;
 }
 
+/** A place free to anyone (nobody on the waitlist took it): everyone watching the program hears it once. */
+export async function tellWatchers(ctx: ApplyContext, programId: string): Promise<number> {
+  const p = await ctx.trx.selectFrom("program").select(["name", "capacity", "status"]).where("id", "=", programId).executeTakeFirstOrThrow();
+  if (p.status !== "published" || await started(ctx.trx, programId, ctx.now) || (await takenCount(ctx.trx, programId, ctx.now)) >= p.capacity) return 0;
+  const watches = await ctx.trx.selectFrom("program_watch").select(["id", "person_id"]).where("program_id", "=", programId).where("told_at", "is", null).where("ended_at", "is", null).orderBy("created_at").execute();
+  if (!watches.length) return 0;
+  for (const w of watches) await ctx.update("program_watch", w.id, { told_at: ctx.now });
+  const start = await firstStart(ctx.trx, programId);
+  await ctx.emit("program.place_open", { program_id: programId, name: p.name, starts_at: start?.toISOString() ?? null, people: watches.map((w) => w.person_id) });
+  return watches.length;
+}
+/** A place came free: offered to the next on the waitlist, or, with nobody waiting, open to anyone (and
+ *  whoever is watching hears it). */
+export async function placeFreed(ctx: ApplyContext, programId: string, skip: string[] = []): Promise<string | null> {
+  const offer = await freePlace(ctx, programId, skip);
+  if (!offer) await tellWatchers(ctx, programId);
+  return offer;
+}
+
 /** Someone on the waitlist leaves while holding an offer: the offer is declined, and the place passes on. */
 async function declineOffer(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], enrolmentId: string) {
   const offer = await openOffer(ctx.trx, enrolmentId, ctx.now);
@@ -315,7 +388,7 @@ async function declineOffer(ctx: Parameters<NonNullable<Parameters<typeof define
   return Boolean(offer);
 }
 
-const leaving = (refund: Refund, how: string, reason: string, ruleVersion: number, note?: string) => ({
+export const leaving = (refund: Refund, how: string, reason: string, ruleVersion: number, note?: string) => ({
   status: "cancelled", left_how: how, left_reason: reason, refund_outcome: refund.outcome, refund_cents: refund.cents,
   refund_rule_version: ruleVersion, refund_changed_by_staff: refund.changed, refund_note: note ?? null,
 });
@@ -335,7 +408,7 @@ export const enrolmentLeave = defineAction({
     await ctx.update("enrolment", e.id, { ...leaving(refund, "left", "late_cancel", p.refund_rule_version), left_at: ctx.now, included_back: back });
     await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: refund.outcome, refund_cents: refund.cents });
     await startRefund(ctx, e.id, e.person_id, refund);
-    if (e.status === "booked" || await declineOffer(ctx, e.id)) await freePlace(ctx, e.program_id);
+    if (e.status === "booked" || await declineOffer(ctx, e.id)) await placeFreed(ctx, e.program_id);
     return { refund_outcome: refund.outcome, refund_cents: refund.cents };
   },
 });
@@ -358,7 +431,7 @@ export const enrolmentRemove = defineAction({
     await ctx.update("enrolment", e.id, { ...leaving(refund, i.reason === "no_show" ? "no_show" : "removed", i.reason, p.refund_rule_version, i.refund?.note), left_at: ctx.now, included_back: back });
     await ctx.emit("enrolment.removed", { enrolment_id: e.id, reason: i.reason, refund_outcome: refund.outcome, refund_cents: refund.cents });
     await startRefund(ctx, e.id, e.person_id, refund);
-    const offer = e.status === "booked" || await declineOffer(ctx, e.id) ? await freePlace(ctx, e.program_id) : null;
+    const offer = e.status === "booked" || await declineOffer(ctx, e.id) ? await placeFreed(ctx, e.program_id) : null;
     return { refund_outcome: refund.outcome, refund_cents: refund.cents, offer_id: offer };
   },
 });
@@ -482,6 +555,7 @@ export const waitlistExpireOffers = defineAction({
       const { capacity } = await ctx.trx.selectFrom("program").select("capacity").where("id", "=", programId).executeTakeFirstOrThrow();
       // Nobody else waiting: the place is open to anyone, rather than going straight back to who just missed it.
       while ((await takenCount(ctx.trx, programId, ctx.now)) < capacity && await freePlace(ctx, programId, missed)) offered++;
+      await tellWatchers(ctx, programId);   // a place still free once the waitlist has had its turn
     }
     return { expired: due.length, offered };
   },
@@ -495,7 +569,7 @@ export async function expireOffers(db: Db, now = new Date()) {
 }
 
 // ---- Money for rosters ----
-type ApplyContext = Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0];
+export type ApplyContext = Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0];
 
 /** What was actually paid for a place: payments that went through, less refunds on their way or sent. */
 export async function paidFor(db: Db | Trx, enrolmentId: string): Promise<number> {
@@ -611,7 +685,7 @@ export async function reconcilePayments(db: Db, now = new Date(), limit = 50) {
 }
 
 /** Start a refund: club credit at once; a card refund through the outbox, after this change commits. */
-async function startRefund(ctx: ApplyContext, enrolmentId: string, personId: string, refund: Refund, status: "pending" | "waiting_for_sub" = "pending") {
+export async function startRefund(ctx: ApplyContext, enrolmentId: string, personId: string, refund: Refund, status: "pending" | "waiting_for_sub" = "pending") {
   if (refund.cents <= 0 || refund.outcome === "none") return;
   const pay = await ctx.trx.selectFrom("payment").selectAll().where("enrolment_id", "=", enrolmentId).where("status", "=", "succeeded").orderBy("created_at", "desc").executeTakeFirst();
   if (!pay) return;

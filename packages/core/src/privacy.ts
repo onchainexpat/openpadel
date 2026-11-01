@@ -192,6 +192,9 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     .select(["attendance.came", "attendance.marked_at", "program.name as program", "session.starts_at", "booking.code as lesson"]).where("attendance.person_id", "=", personId).where("attendance.came", "is not", null)
     .orderBy("attendance.marked_at").execute();
   const feeds = await db.selectFrom("calendar_feed").select(["created_at", "revoked_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
+  // Programs they asked to hear about when a place opened.
+  const watches = await db.selectFrom("program_watch").innerJoin("program", "program.id", "program_watch.program_id").select(["program.name", "program_watch.created_at", "program_watch.told_at", "program_watch.ended_at"])
+    .where("program_watch.person_id", "=", personId).orderBy("program_watch.created_at").execute();
   // The club's tags on them; and, for staff, the groups, templates and messages to members they made.
   const tagged = await db.selectFrom("person_tag").innerJoin("tag", "tag.id", "person_tag.tag_id").select(["tag.name", "person_tag.created_at", "person_tag.removed_at"])
     .where("person_tag.person_id", "=", personId).orderBy("person_tag.created_at").execute();
@@ -228,6 +231,7 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     asked_for: asked, coach_profile: coach ?? null,
     attendance: attended.map((a) => ({ came: a.came, marked_at: iso(a.marked_at), program: a.program, starts_at: iso(a.starts_at), lesson: a.lesson })),
     calendar_links: feeds.map((f) => ({ created_at: iso(f.created_at), stopped_at: iso(f.revoked_at) })),
+    place_watches: watches.map((w) => ({ program: w.name, asked_at: iso(w.created_at), told_at: iso(w.told_at), stopped_at: iso(w.ended_at) })),
     tags: tagged.map((x) => ({ tag: x.name, added_at: iso(x.created_at), removed_at: iso(x.removed_at) })),
     ...(groupsMade.length || templatesMade.length || broadcastsSent.length ? { made_for_the_club: {
       groups: groupsMade.map((g) => ({ name: g.name, made_at: iso(g.created_at), in_use: g.active })),
@@ -350,6 +354,7 @@ async function theirIds(db: Trx, personId: string): Promise<string[]> {
   add(await db.selectFrom("place_offer").select("id").where((w) => w.or([w("to_person_id", "=", personId), w("taken_by", "=", personId)])).execute());
   add(await db.selectFrom("attendance").select("id").where("person_id", "=", personId).execute());
   add(await db.selectFrom("person_tag").select("id").where("person_id", "=", personId).execute());
+  add(await db.selectFrom("program_watch").select("id").where("person_id", "=", personId).execute());
   const threads = await db.selectFrom("question").select("id").where((w) => w.or([w("asked_by", "=", personId), w("person_id", "=", personId)])).execute();
   add(threads);
   if (threads.length) add(await db.selectFrom("question_message").select("id").where("question_id", "in", threads.map((t) => t.id)).execute());
@@ -382,6 +387,7 @@ async function erasePerson(ctx: ApplyCtx, personId: string): Promise<number> {
   await db.deleteFrom("passkey").where("person_id", "=", personId).execute();
   await db.deleteFrom("push_subscription").where("person_id", "=", personId).execute();
   await db.deleteFrom("calendar_feed").where("person_id", "=", personId).execute();
+  await db.deleteFrom("program_watch").where("person_id", "=", personId).execute();
   const grants = await db.selectFrom("oauth_grant").select("id").where("person_id", "=", personId).execute();
   if (grants.length) {
     await db.updateTable("oauth_grant").set({ revoked_at: ctx.now }).where("person_id", "=", personId).where("revoked_at", "is", null).execute();

@@ -238,6 +238,26 @@ start). The email service has its own daily limit (Resend's free plan: 100 a day
 club's own messages (sign-in codes, confirmations, receipts) need room. On a paid email plan, raise it.
 Settings can also send owners and managers a copy of every message; the sender always gets one.
 
+### Programs: weekly dates, changes and a minimum to run
+
+Add a program's dates on its page; "Dates, one a week" adds that many at the same club time, across
+the clock changes. Each date still to come can be changed or cancelled: just it, it and the ones after
+it, or every date still to come. The preview lists each date as it was and as it will be, anything in
+the way (a booking, a block or another program on the court, or the coach teaching, in a lesson or
+away), and who's signed up; they're told when it's confirmed. Places are for the whole program, so a
+change to places is for all its dates, and new places go to the waitlist first. Cancelling one date of
+a course paid once gives each player that date's share back; cancelling every date cancels the program
+and gives everything back. Staff can choose all of it or nothing instead, with a reason.
+
+A draft shows the card exactly as members will see it, with each date, before it's published.
+
+A program can need a minimum to run. At its decision time (Settings: 24 hours before its first date to
+start, or the program's own), a program short of it is cancelled, everyone gets their money back, and
+everyone is told; the front desk hears once before that (Settings: 24 hours earlier) how many it still
+needs, which a message to members can help with. On a full program, members can ask to hear when a
+place opens: the waitlist is offered places first, and once a place is open to anyone, everyone
+watching hears once.
+
 ### Members' data: a copy, and deleting an account
 
 Nothing to set up. Each member has a "Your data" box in Profile: one button downloads a JSON file of

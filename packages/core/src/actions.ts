@@ -65,6 +65,7 @@ const ENTITIES = {
   mirror_booking: { table: "mirror_booking", key: "ref", retire: null },
   enrolment: { table: "enrolment", key: "id", retire: { status: "cancelled" } },
   waitlist_offer: { table: "waitlist_offer", key: "id", retire: { outcome: "expired" } },
+  program_watch: { table: "program_watch", key: "id", retire: { ended_at: "now" } },
   payment: { table: "payment", key: "id", retire: null },
   refund: { table: "refund", key: "id", retire: null },
   draw: { table: "draw", key: "session_id", retire: { status: "void" } },
@@ -363,16 +364,22 @@ export const undoAction = defineAction({
   },
   async apply(ctx, input) {
     const changes = await ctx.trx.selectFrom("entity_change").selectAll().where("action_run_id", "=", input.run_id).orderBy("id", "desc").execute();
-    for (const c of changes) {
-      const entity = c.entity as Entity;
-      if (c.op === "update") {
-        const before = c.before as Record<string, unknown>;
-        await ctx.update(entity, c.entity_id, Object.fromEntries(Object.entries(before).filter(([k]) => !UNDO_FIELDS_SKIP.has(k) && k !== ENTITIES[entity].key)));
-      } else {
-        const retire = ENTITIES[entity].retire;
-        if (!retire) throw new KumiError("error.cannot_undo", { reason: both("reason.cannot_retire") });
-        await ctx.update(entity, c.entity_id, Object.fromEntries(Object.entries(retire).map(([k, v]) => [k, v === "now" ? ctx.now : v])));
+    try {
+      for (const c of changes) {
+        const entity = c.entity as Entity;
+        if (c.op === "update") {
+          const before = c.before as Record<string, unknown>;
+          await ctx.update(entity, c.entity_id, Object.fromEntries(Object.entries(before).filter(([k]) => !UNDO_FIELDS_SKIP.has(k) && k !== ENTITIES[entity].key)));
+        } else {
+          const retire = ENTITIES[entity].retire;
+          if (!retire) throw new KumiError("error.cannot_undo", { reason: both("reason.cannot_retire") });
+          await ctx.update(entity, c.entity_id, Object.fromEntries(Object.entries(retire).map(([k, v]) => [k, v === "now" ? ctx.now : v])));
+        }
       }
+    } catch (e: any) {
+      // Putting court time back where something else now stands (a moved date's old courts were taken since).
+      if (e?.code === "23P01") throw new KumiError("error.cannot_undo", { reason: both("reason.court_taken_since") });
+      throw e;
     }
     await ctx.trx.updateTable("action_run").set({ status: "undone" }).where("id", "=", input.run_id).execute();
     await ctx.emit("action.undone", { run_id: input.run_id });

@@ -1,13 +1,8 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, me, t, shortTime, usePreview } from "@kumi/ui";
+import { api, lang, me, t, shortTime, usePreview, ProgramCard, placesLeft, type ProgramCardData } from "@kumi/ui";
 import { ForWhom } from "./ForWhom.tsx";
 
-type P = { id: string; name: string; capacity: number; booked: number; price_cents: number; rated: boolean; level_min: string | null; level_max: string | null; refund_window_hours: number; first_start: string | null; my_status: string | null; offered: number; my_offer_until: string | null;
-  my_price_cents: number; my_basis: "full" | "member" | "included"; included: { n: number; of: number } | null; members_cents: number | null };
-/** The price as this person pays it: an included session, their member price, or the price (and what members pay). */
-const priceLine = (p: P) => p.my_basis === "included" ? (p.included ? t("ui.your_included", { n: p.included.n, of: p.included.of }) : t("ui.included_in_yours"))
-  : p.my_basis === "member" ? t("ui.your_member_price", { amount: dollars(p.my_price_cents, lang.value) })
-  : dollars(p.price_cents, lang.value) + (p.members_cents !== null ? ` (${t("ui.members_price", { amount: dollars(p.members_cents, lang.value) })})` : "");
+type P = ProgramCardData & { my_status: string | null; my_offer_until: string | null; my_watch: string | null };
 
 export function WhatsOn() {
   const [rows, setRows] = useState<P[] | null>(null), [who, setWho] = useState(me.value!.person.id);
@@ -15,27 +10,25 @@ export function WhatsOn() {
   const load = () => api<P[]>(who === me.value!.person.id ? "/open-programs" : `/open-programs?for=${who}`).then(setRows);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value, who]);
-  const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "long", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso)) : "");
   return (
     <main>
       <h1>{t("ui.nav_whats_on")}</h1>
       {sheet}
       <ForWhom value={who} onChange={setWho} />
       {rows?.length === 0 && <p>{t("ui.nothing_on")}</p>}
-      <ul class="changes">{(rows ?? []).map((p) => {
-        const left = p.capacity - p.booked - p.offered;
-        return (
-          <li class="card" key={p.id}>
-            <div class="summary">{p.name}</div>
-            <div class="meta">{when(p.first_start)} · {priceLine(p)}{p.level_min && p.level_max ? ` · ${t("ui.level_band", { min: p.level_min, max: p.level_max })}` : ""}</div>
-            <div class="meta">{t(p.rated ? "ui.rated_label" : "ui.friendly_label")} · {t("ui.refund_rule", { hours: p.refund_window_hours })}</div>
-            <div class="meta">{left > 0 ? t("ui.places_left", { count: left }) : t("ui.full_waitlist")}</div>
-            {p.my_offer_until ? <p class="note">{t("ui.offer_ends", { time: shortTime(p.my_offer_until) })} · <a href="/places">{t("ui.take_place")}</a></p>
-              : p.my_status ? <p class="note">{p.my_status === "booked" ? t("ui.youre_in") : t("ui.waitlist")}</p>
-              : <button class="primary" onClick={() => preview("enrolment.join", { program_id: p.id, person_id: who })}>{t("ui.join")}</button>}
-          </li>
-        );
-      })}</ul>
+      <ul class="changes">{(rows ?? []).map((p) => (
+        <ProgramCard key={p.id} p={p}>
+          {p.my_offer_until ? <p class="note">{t("ui.offer_ends", { time: shortTime(p.my_offer_until) })} · <a href="/places">{t("ui.take_place")}</a></p>
+            : p.my_status ? <p class="note">{p.my_status === "booked" ? t("ui.youre_in") : t("ui.waitlist")}</p>
+            : <>
+              <button class="primary" onClick={() => preview("enrolment.join", { program_id: p.id, person_id: who })}>{t("ui.join")}</button>
+              {/* Full: besides the waitlist, one message when a place is free to anyone. */}
+              {placesLeft(p) <= 0 && (p.my_watch
+                ? <p class="note">{t("ui.watching")} <button class="small" onClick={() => preview("program.unwatch", { watch_id: p.my_watch })}>{t("ui.stop_watching")}</button></p>
+                : <> <button onClick={() => preview("program.watch", { program_id: p.id, person_id: who })}>{t("ui.watch_place")}</button></>)}
+            </>}
+        </ProgramCard>
+      ))}</ul>
     </main>
   );
 }

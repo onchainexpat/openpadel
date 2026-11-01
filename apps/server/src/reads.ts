@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters } from "@kumi/core";
+import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -135,7 +135,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "question_alert_hours", "broadcast_daily_cap", "broadcast_copy_managers"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "question_alert_hours", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
     const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
     const policy = await currentPolicy(db), plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
@@ -335,10 +335,28 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("enrolment.program_id", "=", id).orderBy("enrolment.status").orderBy("enrolment.waitlist_position").orderBy("enrolment.created_at").execute();
     const offers = await db.selectFrom("waitlist_offer").select(["enrolment_id", "expires_at"]).where("outcome", "is", null).where("expires_at", ">", new Date())
       .where("enrolment_id", "in", roster.length ? roster.map((r) => r.id) : ["00000000-0000-0000-0000-000000000000"]).execute();
+    const club = await db.selectFrom("club").select("program_decide_hours").executeTakeFirstOrThrow();
     return c.json({
-      program, coaches,
+      program, coaches, decide_hours: club.program_decide_hours,
       sessions: sessions.map((s) => ({ ...s, courts: courts.filter((x) => x.session_id === s.id).map((x) => x.name), has_draw: draws.some((d) => d.session_id === s.id) })),
       roster: await Promise.all(roster.map(async (r) => ({ ...r, paid_cents: await paidFor(db, r.id), offer_expires_at: offers.find((o) => o.enrolment_id === r.id)?.expires_at ?? null }))),
+    });
+  });
+
+  // A program as members would see it on What's On (as someone without a membership: its price, and what members
+  // pay), each date still to come with its courts and coach, and what's in the way of any. For a draft, before publishing.
+  app.get("/staff/programs/:id/preview", async (c) => {
+    const id = c.req.param("id"), l = lang(c), now = new Date();
+    if (!(await db.selectFrom("program").select("id").where("id", "=", id).executeTakeFirst())) throw new KumiError("error.not_found", { thing: { en: "program", es: "el programa" } }, 404);
+    const x = await publishCheck(db, id, now), p = x.program;
+    const booked = Number((await db.selectFrom("enrolment").select((eb) => eb.fn.countAll<string>().as("n")).where("program_id", "=", id).where("status", "=", "booked").executeTakeFirstOrThrow()).n);
+    const members = await membersFrom(db, [p]);
+    return c.json({
+      card: { id: p.id, name: p.name, kind: p.kind, capacity: p.capacity, booked, offered: 0, price_cents: p.price_cents, rated: p.rated, level_min: p.level_min, level_max: p.level_max,
+        refund_window_hours: p.refund_window_hours, first_start: x.dates[0]?.starts_at ?? null, min_players: p.min_players, my_status: null, my_offer_until: null, my_watch: null,
+        my_price_cents: p.price_cents, my_basis: "full", included: null, members_cents: members.get(p.id) ?? null },
+      dates: x.dates.map((d) => ({ id: d.id, starts_at: d.starts_at, ends_at: d.ends_at, courts: d.courts, coach: d.coach })),
+      blocks: x.blocks.map((b) => b.text[l]), warnings: x.warnings.map((w) => w.text[l]),
     });
   });
 
