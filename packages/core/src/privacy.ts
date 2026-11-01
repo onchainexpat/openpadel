@@ -16,6 +16,7 @@ import { juniorsOf, managersOf, nameList, withManagers } from "./households.ts";
 import { decide } from "./permissions.ts";
 import { paymentsWhat } from "./kids.ts";
 import { QUIET } from "./messages.ts";
+import { excerpt } from "./questions.ts";
 
 /** How long the file can be fetched after the download was confirmed. */
 export const EXPORT_MINUTES = 15;
@@ -191,6 +192,17 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     .select(["attendance.came", "attendance.marked_at", "program.name as program", "session.starts_at", "booking.code as lesson"]).where("attendance.person_id", "=", personId).where("attendance.came", "is not", null)
     .orderBy("attendance.marked_at").execute();
   const feeds = await db.selectFrom("calendar_feed").select(["created_at", "revoked_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
+  // Questions they asked the club, or that were asked about them, with every message in each.
+  const threads = await db.selectFrom("question").select(["id", "status", "created_at", "closed_at", "asked_by", "person_id"])
+    .where((w) => w.or([w("asked_by", "=", personId), w("person_id", "=", personId)])).orderBy("created_at").execute();
+  const questions = [];
+  for (const q of threads) {
+    const msgs = await db.selectFrom("question_message").leftJoin("person", "person.id", "question_message.author_id").select(["question_message.side", "question_message.body", "question_message.created_at", "person.display_name"])
+      .where("question_id", "=", q.id).orderBy("question_message.created_at").orderBy("question_message.id").execute();
+    questions.push({ status: q.status, asked_at: iso(q.created_at), closed_at: iso(q.closed_at), asked_by: q.asked_by === personId ? "you" : await name(q.asked_by),
+      about: q.person_id === personId ? "you" : await name(q.person_id),
+      messages: msgs.map((m) => ({ from: m.side === "club" ? "the club (common questions)" : m.display_name, side: m.side, at: iso(m.created_at), text: m.body })) });
+  }
 
   return {
     profile: { name: p.display_name, given_name: p.given_name, family_name: p.family_name, email: p.email, phone: p.phone, birth_year: p.birth_year, language: p.locale, status: p.status,
@@ -210,6 +222,7 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     asked_for: asked, coach_profile: coach ?? null,
     attendance: attended.map((a) => ({ came: a.came, marked_at: iso(a.marked_at), program: a.program, starts_at: iso(a.starts_at), lesson: a.lesson })),
     calendar_links: feeds.map((f) => ({ created_at: iso(f.created_at), stopped_at: iso(f.revoked_at) })),
+    questions,
   };
 }
 
@@ -283,10 +296,12 @@ export const privacyErase = defineAction({
 // ---- Deleting one person ----
 /** How to take a person's name, email and phone out of text, keeping everything else. A name goes only
  *  where it stands as a whole word, and becomes "Former member" in the text's own language. */
-interface Scrub { emails: string[]; phones: string[]; names: string[] }
+interface Scrub { emails: string[]; phones: string[]; names: string[]; texts?: string[] }
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function scrubString(s: string, x: Scrub, lang: Lang | null, names: boolean): string {
   let out = s;
+  // Their own words (what they asked the club), wherever they were copied: the whole text, or its first words.
+  for (const w of x.texts ?? []) out = out.split(w).join(REMOVED);
   for (const e of x.emails) out = out.replace(new RegExp(escape(e), "gi"), REMOVED);
   for (const p of x.phones) out = out.split(p).join(REMOVED);
   if (names) for (const n of x.names) out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escape(n)}(?![\\p{L}\\p{N}])`, "giu"), formerMember[lang ?? "en"]);
@@ -322,6 +337,9 @@ async function theirIds(db: Trx, personId: string): Promise<string[]> {
   add(await db.selectFrom("household_member").select("id").where("person_id", "=", personId).execute());
   add(await db.selectFrom("place_offer").select("id").where((w) => w.or([w("to_person_id", "=", personId), w("taken_by", "=", personId)])).execute());
   add(await db.selectFrom("attendance").select("id").where("person_id", "=", personId).execute());
+  const threads = await db.selectFrom("question").select("id").where((w) => w.or([w("asked_by", "=", personId), w("person_id", "=", personId)])).execute();
+  add(threads);
+  if (threads.length) add(await db.selectFrom("question_message").select("id").where("question_id", "in", threads.map((t) => t.id)).execute());
   return [...ids];
 }
 
@@ -337,6 +355,11 @@ async function erasePerson(ctx: ApplyCtx, personId: string): Promise<number> {
   const x: Scrub = { emails: [...new Set([p.email, ...identities.filter((v) => v.value.includes("@")).map((v) => v.value)].filter((v): v is string => Boolean(v)).map((v) => v.toLowerCase()))],
     phones: [...new Set([p.phone, ...identities.filter((v) => !v.value.includes("@")).map((v) => v.value)].filter((v): v is string => Boolean(v)))], names };
   const ids = await theirIds(db, personId);
+  // What they wrote to the club (and what was written in their name about a junior): long enough to be theirs alone.
+  const threads = (await db.selectFrom("question").select("id").where((w) => w.or([w("asked_by", "=", personId), w("person_id", "=", personId)])).execute()).map((q) => q.id);
+  const said = await db.selectFrom("question_message").select(["id", "body"]).where("side", "=", "member")
+    .where((w) => w.or([w("author_id", "=", personId), ...(threads.length ? [w("question_id", "in", threads)] : [])])).execute();
+  x.texts = [...new Set(said.flatMap((m) => [m.body, excerpt(m.body), excerpt(m.body, 120), excerpt(m.body, 200)]).filter((w) => w.length >= 12))].sort((a, b) => b.length - a.length);
 
   // Whatever lets someone sign in as them, reach them or recognise them.
   for (const r of await db.selectFrom("person_role").select("id").where("person_id", "=", personId).where("active", "=", true).execute()) await ctx.update("person_role", r.id, { active: false });
@@ -373,6 +396,14 @@ async function erasePerson(ctx: ApplyCtx, personId: string): Promise<number> {
   await db.updateTable("result_answer").set({ note: null }).where("person_id", "=", personId).execute();
   await db.updateTable("level_review").set({ note: null }).where("person_id", "=", personId).execute();
   await sql`UPDATE missing_feature SET asked = ${REMOVED} WHERE person_id = ${personId}`.execute(db);
+  // Their questions: their words go, the staff's answers lose their name; anything still open is closed.
+  if (said.length) await db.updateTable("question_message").set({ body: REMOVED }).where("id", "in", said.map((m) => m.id)).execute();
+  if (threads.length) {
+    for (const m of await db.selectFrom("question_message").select(["id", "body"]).where("question_id", "in", threads).where("side", "!=", "member").execute())
+      await db.updateTable("question_message").set({ body: scrubString(m.body, x, null, true) }).where("id", "=", m.id).execute();
+    for (const q of await db.selectFrom("question").select("id").where("id", "in", threads).where("status", "!=", "closed").execute())
+      await ctx.update("question", q.id, { status: "closed", waiting_since: null, closed_at: ctx.now });
+  }
   const coach = await db.selectFrom("coach").select(["photo_id"]).where("person_id", "=", personId).executeTakeFirst();
   if (coach) {
     await ctx.update("coach", personId, { bio: null, photo_id: null, active: false });
@@ -386,7 +417,7 @@ async function erasePerson(ctx: ApplyCtx, personId: string): Promise<number> {
 
   // The scrub: their name, email and phone out of the history. Email and phone go wherever they appear;
   // the name goes only from rows that carry one of their ids.
-  const needles = anyOf([...x.emails, ...x.phones, ...x.names]);
+  const needles = anyOf([...x.emails, ...x.phones, ...x.names, ...(x.texts ?? [])]);
   if (!needles.length) return 0;
   const related = (text: string) => ids.some((id) => text.includes(id));
   let n = 0;

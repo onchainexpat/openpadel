@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText } from "@kumi/core";
+import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -135,7 +135,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "question_alert_hours"]).executeTakeFirstOrThrow();
     const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
     const policy = await currentPolicy(db), plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
@@ -380,6 +380,40 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       linked: refs.map((r) => ({ resource_id: r.external_id, name: ptNames.get(r.external_id) ?? r.external_id, court_id: r.entity_id, court: courts.get(r.entity_id) ?? "" })),
       conflicts: conflicts.map((r) => ({ ref: r.ref, court: courts.get(r.court_id) ?? "", kind: kind(r.booking_type), starts_at: r.starts_at, ends_at: r.ends_at, event: r.event, session_id: r.session_id })),
     });
+  });
+  // ---- Members' questions and the club's facts (front desk and up) ----
+  const deskOnly = async (c: Context<any>) => { if (!deskUp(await rolesOf(me(c)!.id))) throw new KumiError("error.staff_only", {}, 403); };
+  // Waiting first (the longest wait at the top), or answered or closed, newest first.
+  app.get("/staff/questions", async (c) => {
+    await deskOnly(c);
+    const view = c.req.query("view") ?? "waiting";
+    const status = view === "answered" ? ["answered" as const] : view === "closed" ? ["closed" as const] : ["open" as const];
+    const rows = await questionList(db, { status, limit: 100 });
+    if (view === "waiting") rows.sort((a, b) => new Date(a.waiting_since ?? a.created_at).getTime() - new Date(b.waiting_since ?? b.created_at).getTime());
+    return c.json({ view, questions: rows.map(({ asked_by: _a, person_id: _p, ...r }) => ({ ...r, about: r.about === r.asker ? null : r.about })) });
+  });
+  app.get("/staff/questions/count", async (c) => {
+    if (!deskUp(await rolesOf(me(c)!.id))) return c.json({ waiting: 0 });
+    const r = await db.selectFrom("question").select((eb) => eb.fn.countAll<string>().as("n")).where("status", "=", "open").executeTakeFirstOrThrow();
+    return c.json({ waiting: Number(r.n) });
+  });
+  // One thread, with who's asking: their membership and level, and for a junior, who manages them.
+  app.get("/staff/questions/:id", async (c) => {
+    await deskOnly(c);
+    const id = c.req.param("id");
+    if (!/^[0-9a-f-]{36}$/.test(id)) throw new KumiError("error.not_found", { thing: { en: "question", es: "la pregunta" } }, 404);
+    const q = await questionThread(db, id), now = new Date();
+    const plan = await memberPlan(db, q.person_id, now), level = await levelOf(db, q.person_id);
+    const parents = q.junior ? (await db.selectFrom("person").select("display_name").where("id", "in", [...await managersOf(db, q.person_id), "00000000-0000-0000-0000-000000000000"]).execute()).map((p) => p.display_name) : [];
+    const desk = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").innerJoin("person", "person.id", "person_role.person_id")
+      .select(["person.id", "person.display_name"]).distinct().where("role.key", "in", ["owner", "manager", "front_desk"]).where("person_role.active", "=", true).orderBy("person.display_name").execute();
+    return c.json({ ...q, membership: plan?.name ?? null, level: level === null ? null : level.toFixed(2), parents, desk: desk.map((d) => ({ id: d.id, name: d.display_name })),
+      messages: q.messages.map((m) => ({ id: m.id, side: m.side, body: m.body, at: m.created_at, author: m.author, fact_id: m.fact_id })) });
+  });
+  app.get("/staff/facts", async (c) => {
+    await deskOnly(c);
+    const rows = await searchFacts(db, "", { all: true });
+    return c.json(rows.map((f) => ({ id: f.id, topic: f.topic, question_en: f.question_en, answer_en: f.answer_en, question_es: f.question_es, answer_es: f.answer_es, active: f.active, public: f.public })));
   });
   return app;
 }

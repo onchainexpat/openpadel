@@ -4,7 +4,7 @@
 // the club and its events. Nothing about members is shown; "Join the club" goes to the app's sign-up.
 import { Hono, type Context } from "hono";
 import { isLang, money, t, type Key, type Lang } from "@kumi/i18n";
-import { coachPhoto, lessonCoaches, localDate, membersFrom, planCounts, ruleWhen, type Db } from "@kumi/core";
+import { coachPhoto, factIn, lessonCoaches, localDate, membersFrom, planCounts, ruleWhen, searchFacts, type Db } from "@kumi/core";
 
 /** Every value from the database goes through this before it reaches the page. */
 const h = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -97,16 +97,20 @@ ${list ? `<h3>${h(t(l, "ui.prices_title"))}</h3><ul>${list}</ul>` : ""}</section
       const langs = x.languages.map((g) => t(l, `ui.lang_${g}` as Key)).join(", ");
       return `<div class="coach">${x.photo_id ? `<img src="/public/photos/${h(x.photo_id)}" alt="${h(x.name)}" loading="lazy">` : ""}<div><strong>${h(x.name)}</strong>${x.bio ? `<br>${h(x.bio)}` : ""}<br><span class="meta">${h([levels, langs, rates ? t(l, "pub.private_lessons", { rates }) : ""].filter(Boolean).join(" · "))}</span></div></div>`;
     }).join("")}</section>` : "";
+    // The club's common questions it marked public, in the page's language, with FAQ markup for search engines.
+    const faq = (await searchFacts(db, "", { publicOnly: true })).map((f) => factIn(f, l));
+    const faqHtml = faq.length ? `<section><h2>${h(t(l, "pub.faq"))}</h2>${faq.map((f) => `<h3>${h(f.question)}</h3><p>${h(f.answer).replace(/\n/g, "<br>")}</p>`).join("")}</section>` : "";
+    const faqLd = faq.length ? [{ "@context": "https://schema.org", "@type": "FAQPage", inLanguage: l, mainEntity: faq.map((f) => ({ "@type": "Question", name: f.question, acceptedAnswer: { "@type": "Answer", text: f.answer } })) }] : [];
     const eventsHtml = `<section><h2>${h(t(l, "pub.coming_up"))}</h2>${coming.length ? `<ul>${coming.map((e) => `<li><a href="/public/events/${h(e.id)}${l === "es" ? "?lang=es" : ""}">${h(e.name)}</a><br><span class="meta">${eventLine(l, e)}</span></li>`).join("")}</ul>` : `<p class="meta">${h(t(l, "pub.no_events"))}</p>`}</section>`;
     const join = cl.sign_up_open ? t(l, "pub.join") : t(l, "pub.sign_in");
     const body = `<header><h1>${h(cl.name)}</h1>${cl.about ? `<p>${h(cl.about)}</p>` : ""}<p><a class="button" href="/">${h(join)}</a> <a href="/public?lang=${l === "es" ? "en" : "es"}">${l === "es" ? "English" : "Español"}</a></p></header>
-${where}${plansHtml}${coachesHtml}${eventsHtml}<footer>${h(t(l, "pub.footer"))}</footer>`;
+${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}<footer>${h(t(l, "pub.footer"))}</footer>`;
     const clubLd = { "@context": "https://schema.org", "@type": "SportsActivityLocation", name: cl.name, url: `${base}/public`, ...(cl.about ? { description: cl.about } : {}),
       ...(locations[0]?.address ? { address: locations[0].address } : {}),
       openingHoursSpecification: hours.filter((x) => x.location_id === locations[0]?.id && x.opens).map((x) => ({ "@type": "OpeningHoursSpecification",
         dayOfWeek: `https://schema.org/${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][x.weekday]}`, opens: t5(x.opens), closes: t5(x.closes) === "24:00" ? "23:59" : t5(x.closes) })) };
     return html(c, page({ lang: l, title: cl.name, description: cl.about ?? t(l, "pub.description", { club: cl.name }), canonical: `${base}/public${l === "es" ? "?lang=es" : ""}`,
-      other: `${base}/public${l === "es" ? "" : "?lang=es"}`, brand: cl.brand_colour, body, jsonLd: [clubLd, ...coming.map((e) => eventLd(e, cl.name, cl.currency))] }));
+      other: `${base}/public${l === "es" ? "" : "?lang=es"}`, brand: cl.brand_colour, body, jsonLd: [clubLd, ...coming.map((e) => eventLd(e, cl.name, cl.currency)), ...faqLd] }));
   });
 
   app.get("/public/events/:id", async (c) => {

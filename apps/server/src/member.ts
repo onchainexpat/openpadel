@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { icsCalendar, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck } from "@kumi/core";
+import { icsCalendar, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -459,6 +459,32 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const events = await db.selectFrom("rating_event").select(["at", "kind", "level_after", "explanation"]).where("person_id", "=", pid).orderBy("id", "desc").limit(30).execute();
     return c.json({ rating: rating ?? null, events: events.map((e) => ({ at: e.at, kind: e.kind, level_after: e.level_after, explanation: (e.explanation as Record<string, string>)[l] ?? "" })),
       ...await levelOptions(db, pid, new Date()) });
+  });
+
+  // ---- Asking the club ----
+  // The club's common questions, the switched-on ones, in the member's language: best match first, or all by topic.
+  app.get("/my/facts", async (c) => {
+    who(c);
+    const l = lang(c), facts = await searchFacts(db, c.req.query("q") ?? "", { limit: 50 });
+    return c.json(facts.map((f) => ({ id: f.id, topic: f.topic, ...factIn(f, l) })));
+  });
+  /** A thread a member may read: one they asked, or one about them or a junior they manage. */
+  const myThread = async (pid: string, id: string) => {
+    const q = /^[0-9a-f-]{36}$/.test(id) ? await db.selectFrom("question").select(["asked_by", "person_id"]).where("id", "=", id).executeTakeFirst() : undefined;
+    if (!q || !(q.asked_by === pid || q.person_id === pid || await manages(db, pid, q.person_id))) throw new KumiError("error.not_found", { thing: { en: "question", es: "la pregunta" } }, 404);
+  };
+  app.get("/my/questions", async (c) => {
+    const pid = who(c), mine = (await meAndJuniors(pid)).map((p) => p.id);
+    return c.json((await questionList(db, { mine, askedBy: pid, limit: 50 })).map((q) => ({ id: q.id, status: q.status, first: q.first, created_at: q.created_at, last_side: q.last_side, last_at: q.last_at,
+      about: q.person_id === pid ? null : q.about, asked_by_me: q.asked_by === pid })));
+  });
+  app.get("/my/questions/:id", async (c) => {
+    const pid = who(c), id = c.req.param("id");
+    await myThread(pid, id);
+    const q = await questionThread(db, id);
+    // Staff answer as the club: a member sees who answered by name, but nothing else about them.
+    return c.json({ id: q.id, status: q.status, created_at: q.created_at, about: q.person_id === pid ? null : q.about, asked_by_me: q.asked_by === pid,
+      messages: q.messages.map((m) => ({ id: m.id, side: m.side, body: m.body, at: m.created_at, author: m.side === "club" ? null : m.author, fact: Boolean(m.fact_id) })) });
   });
 
   // Development only: save a stand-in card for a membership joined before its plan starts.

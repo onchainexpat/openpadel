@@ -366,6 +366,20 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: p.person_id, kind: p.outcome === "keep" ? "level_review_kept" : "level_review_changed", purpose: "account" as const, essential: false, email: true, link: "/level",
       params: { before: p.before ?? both("plan.level.no_level"), after: p.after ?? both("plan.level.no_level"), level: p.after ?? both("plan.level.no_level"), note } }];
   },
+  // ---- Asking the club ----
+  async "question.answered"(_c, p: { question_id: string; to: string; by: string; question: string; answer: string }) {
+    return [{ to: p.to, kind: "question_answered", params: { by: p.by, question: p.question, answer: p.answer }, purpose: "account" as const, essential: false, email: true, link: `/ask/${p.question_id}` }];
+  },
+  async "question.club_answered"(_c, p: { question_id: string; to: string; question: string; fact: Text; answer: Text }) {
+    return [{ to: p.to, kind: "question_club_answered", params: { question: p.question, fact: p.fact, answer: p.answer }, purpose: "account" as const, essential: false, email: true, link: `/ask/${p.question_id}` }];
+  },
+  async "question.unanswered"({ db, tz }, p: { question_id: string; person: string; asked_at: string; hours: number; question: string; assigned_to: string | null }) {
+    const params = { person: p.person, when: when(new Date(p.asked_at), tz), question: p.question, hours: both("count.hours", { count: p.hours }) };
+    return (await desk(db)).map((to) => ({ to, kind: "question_unanswered_staff", params, purpose: "staff" as const, essential: false, email: true, link: `/questions/${p.question_id}` }));
+  },
+  async "question.assigned"(_c, p: { question_id: string; to: string; by: string; person: string; question: string }) {
+    return [{ to: p.to, kind: "question_assigned_staff", params: { by: p.by, person: p.person, question: p.question }, purpose: "staff" as const, essential: false, email: false, link: `/questions/${p.question_id}` }];
+  },
   async "attendance.no_show"(_c, p: { people: string[]; what: Text; when: Text; by: string }) {
     return p.people.map((to) => ({ to, kind: "attendance_no_show", params: { what: p.what, when: p.when, by: p.by }, purpose: "account" as const, essential: false, email: true, link: "/places" }));
   },

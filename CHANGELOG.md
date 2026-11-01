@@ -187,6 +187,18 @@ The first version a club can run on its own (court bookings included), or for it
   ("Exmiembro" in Spanish), so the books and other players' levels still add up. Juniors only they
   manage go with them. The owner can do either for a member who asks (a manager asks the owner), and
   the club is told each time.
+- Asking the club: the club's own answers ("club facts", in each of its languages) show in the app as
+  Common questions, searched by plain words, before a member asks; the ones the club marks public are
+  on its public page too, with FAQ markup. What a member still asks (or a parent, about a junior) is a
+  thread on the staff app's Questions page, the longest wait first, with the member's membership and
+  level beside it. Front desk and up answer it (the member hears in the app, by push and by email), give
+  it to someone, close it, or turn an answer into a club fact. A question that waits past the club's
+  setting (2 hours to start, counted only in opening hours; 0 turns it off) is told to front desk once.
+  Five new questions a day each. A place for a decision model is ready: given the question and the
+  facts, it sends one fact word for word or hands the question to the staff; every decision is kept,
+  and a member's "That didn't answer it" goes to the staff and is kept on the decision. Until one is
+  set up, every question goes to the staff. Questions are in the member's data file, and deleting the
+  account takes their words out of the history too.
 - Staff start on the page their role uses: owners and managers on Changes, coaches on their schedule,
   front desk on Courts, the accountant on Reports.
 
@@ -206,7 +218,7 @@ The first version a club can run on its own (court bookings included), or for it
 - One-server install script or Docker Compose, HTTPS, nightly backups, tested restore.
 - English and US Spanish throughout. Security: rate limits, no cross-site changes, strict headers.
 - Light apps: each app downloads only its own wording, in the person's language, and set-up pages load
-  when opened. The members' app needs about 115 kB of JavaScript before its first screen (under its
+  when opened. The members' app needs about 116 kB of JavaScript before its first screen (under its
   200 kB budget, which the build now checks); the staff app about 130 kB.
 
 **When updating:** nothing; this is the first release.

@@ -1,5 +1,5 @@
-import { LocationProvider, Router, Route, lazy } from "preact-iso";
-import { useEffect } from "preact/hooks";
+import { LocationProvider, Router, Route, lazy, useLocation } from "preact-iso";
+import { useEffect, useState } from "preact/hooks";
 import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, Profile } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Changes } from "./Changes.tsx";
@@ -23,6 +23,23 @@ const Mirror = lazy(() => import("./Mirror.tsx").then((m) => m.Mirror));
 // A coach's lists, opened from the schedule.
 const Roster = lazy(() => import("./Roster.tsx").then((m) => m.Roster));
 const Students = lazy(() => import("./Students.tsx").then((m) => m.Students));
+// Members' questions and the club's facts.
+const Questions = lazy(() => import("./Questions.tsx").then((m) => m.Questions));
+const QuestionPage = lazy(() => import("./Questions.tsx").then((m) => m.QuestionPage));
+const Facts = lazy(() => import("./Questions.tsx").then((m) => m.Facts));
+
+/** The Questions link, with how many wait for an answer. */
+function QuestionsLink() {
+  const [n, setN] = useState(0), { path } = useLocation();
+  // Again on each page change, so answering one shows straight away.
+  useEffect(() => {
+    const load = () => api<{ waiting: number }>("/staff/questions/count").then((r) => setN(r.waiting)).catch(() => {});
+    void load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, [path]);
+  return <a href="/questions">{t("ui.nav_questions")}{n > 0 && <span class="badge warn">{n}</span>}</a>;
+}
 
 export function App() {
   useEffect(() => {
@@ -48,7 +65,7 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}<a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/memberships">{t("ui.nav_memberships")}</a>{(coach || desk) && <a href="/coaches">{t("ui.nav_coaches")}</a>}<a href="/courts">{t("ui.courts")}</a><a href="/scores">{t("ui.nav_scores")}</a><a href="/levels">{t("ui.nav_levels")}</a><a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink />{changes && <a href="/">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}<a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/memberships">{t("ui.nav_memberships")}</a>{(coach || desk) && <a href="/coaches">{t("ui.nav_coaches")}</a>}<a href="/courts">{t("ui.courts")}</a><a href="/scores">{t("ui.nav_scores")}</a><a href="/levels">{t("ui.nav_levels")}</a>{desk && <QuestionsLink />}<a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink />{changes && <a href="/">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
         <Route path="/" component={home} />
@@ -73,6 +90,9 @@ export function App() {
         <Route path="/schedule" component={Schedule} />
         <Route path="/roster/:kind/:id" component={Roster} />
         <Route path="/students" component={Students} />
+        <Route path="/questions" component={Questions} />
+        <Route path="/questions/:id" component={QuestionPage} />
+        <Route path="/facts" component={Facts} />
       </Router>
     </LocationProvider>
   );

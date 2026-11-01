@@ -16,6 +16,8 @@ const Lessons = lazy(() => import("./Lessons.tsx").then((m) => m.Lessons));
 const Family = lazy(() => import("./Family.tsx").then((m) => m.Family));
 const FamilyJoin = lazy(() => import("./Family.tsx").then((m) => m.FamilyJoin));
 const Waiver = lazy(() => import("./Family.tsx").then((m) => m.Waiver));
+const Ask = lazy(() => import("./Ask.tsx").then((m) => m.Ask));
+const AskThread = lazy(() => import("./Ask.tsx").then((m) => m.AskThread));
 
 export function App() {
   useEffect(() => {
@@ -37,7 +39,7 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav><a href="/">{t("ui.nav_whats_on")}</a>{club.value?.court_bookings && <><a href="/play">{t("ui.nav_play")}</a><a href="/book">{t("ui.nav_book")}</a></>}{club.value?.lessons && <a href="/lessons">{t("ui.nav_lessons")}</a>}<a href="/places">{t("ui.nav_my")}</a>{club.value?.memberships && <a href="/membership">{t("ui.nav_membership")}</a>}<a href="/level">{t("ui.nav_level")}</a><a href="/family">{t("ui.nav_family")}</a><InboxLink /><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav><a href="/">{t("ui.nav_whats_on")}</a>{club.value?.court_bookings && <><a href="/play">{t("ui.nav_play")}</a><a href="/book">{t("ui.nav_book")}</a></>}{club.value?.lessons && <a href="/lessons">{t("ui.nav_lessons")}</a>}<a href="/places">{t("ui.nav_my")}</a>{club.value?.memberships && <a href="/membership">{t("ui.nav_membership")}</a>}<a href="/level">{t("ui.nav_level")}</a><a href="/family">{t("ui.nav_family")}</a><a href="/ask">{t("ui.nav_ask")}</a><InboxLink /><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       {waiverDue.value && <p class="note banner" role="status">{t("ui.waiver_banner")} <a href="/waiver">{t("ui.waiver_read")}</a></p>}
       <Router>
@@ -57,6 +59,8 @@ export function App() {
         <Route path="/family" component={Family} />
         <Route path="/family/join/:code" component={FamilyJoin} />
         <Route path="/waiver" component={Waiver} />
+        <Route path="/ask" component={Ask} />
+        <Route path="/ask/:id" component={AskThread} />
         <Route path="/profile" component={Profile} />
       </Router>
     </LocationProvider>

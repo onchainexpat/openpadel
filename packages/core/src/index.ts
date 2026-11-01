@@ -31,6 +31,7 @@ export * from "./level_tools.ts";
 export * from "./lessons.ts";
 export * from "./ical.ts";
 export * from "./coach_tools.ts";
+export * from "./questions.ts";
 export * from "./privacy.ts";
 export * from "./playtomic.ts";
 export * from "./stripe.ts";

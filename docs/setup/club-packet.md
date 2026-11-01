@@ -25,6 +25,7 @@ collected here.
 | Each coach who gives private lessons: a photo, a few lines about them, the levels and languages they teach, a rate for each lesson length (court included), and the hours they give lessons each week | Coaches (step 5f); each coach can keep their own | The coach, owner approves |
 | The club's waiver text, if players must accept one (a lawyer's wording, not Kumi's) | Settings, Waiver (step 5g) | Owner |
 | A few lines about the club, for its public page | Settings (step 5e) | Website, owner approves |
+| The questions members ask most, with the club's answers (parking, door code, what juniors bring, cancelling), and which may go on the public page | Questions, Club facts (step 5h) | Front desk, owner approves |
 | Is the club on Playtomic, and on which plan? | Whether to connect it (its API needs the Champion or Master plan) | Owner |
 
 **Not collected here, ever:** bank accounts, card numbers, Social Security or tax ID numbers, ID

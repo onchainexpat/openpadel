@@ -97,6 +97,9 @@ const ENTITIES = {
   family_card: { table: "family_card", key: "id", retire: { status: "removed" } },
   kid_request: { table: "kid_request", key: "id", retire: { status: "withdrawn" } },
   attendance: { table: "attendance", key: "id", retire: null },
+  club_fact: { table: "club_fact", key: "id", retire: { active: false } },
+  question: { table: "question", key: "id", retire: { status: "closed" } },
+  question_message: { table: "question_message", key: "id", retire: null },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 

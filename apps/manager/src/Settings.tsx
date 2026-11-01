@@ -11,7 +11,7 @@ type Price = { id: string; name: string; court_ids: string[] | null; weekdays: n
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null };
+type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number };
 type Plan = { id: string; name: string };
 type S = { club: ClubRow; policy: Policy; plans: Plan[]; locations: Loc[]; waiver: { version_no: number; body: string } | null };
 type Preview = (action: string, input: unknown) => Promise<void>;
@@ -92,6 +92,7 @@ function ClubForm({ c, send }: { c: ClubRow; send: Preview }) {
       <label class="check"><input type="checkbox" checked={f.public_page} onChange={(e) => set("public_page", e.currentTarget.checked)} /> {t("ui.public_page_on")}</label>
       {c.public_page && <p class="meta"><a href="/public" target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
       <label>{t("ui.about_club")}<textarea maxLength={600} rows={3} value={f.about ?? ""} onInput={(e) => set("about", e.currentTarget.value)} /></label>
+      <label>{t("ui.question_alert_hours")}<input type="number" min="0" max="72" step="1" value={String(f.question_alert_hours)} onChange={(e) => set("question_alert_hours", Math.max(0, Math.min(72, Math.round(Number(e.currentTarget.value) || 0))))} /></label>
       <label>{t("ui.tax_rate")}<input inputMode="decimal" value={String(f.tax_rate_bp / 100)} onChange={(e) => set("tax_rate_bp", Math.round(Number(e.currentTarget.value.replace(",", ".")) * 100) || 0)} /></label>
       <button class="primary">{t("ui.preview")}</button>
     </form>
