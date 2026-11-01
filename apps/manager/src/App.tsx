@@ -27,6 +27,11 @@ const Students = lazy(() => import("./Students.tsx").then((m) => m.Students));
 const Questions = lazy(() => import("./Questions.tsx").then((m) => m.Questions));
 const QuestionPage = lazy(() => import("./Questions.tsx").then((m) => m.QuestionPage));
 const Facts = lazy(() => import("./Questions.tsx").then((m) => m.Facts));
+// Writing to members: messages, groups and templates.
+const Messages = lazy(() => import("./Messages.tsx").then((m) => m.Messages));
+const Compose = lazy(() => import("./Messages.tsx").then((m) => m.Compose));
+const Groups = lazy(() => import("./Messages.tsx").then((m) => m.Groups));
+const Templates = lazy(() => import("./Messages.tsx").then((m) => m.Templates));
 
 /** The Questions link, with how many wait for an answer. */
 function QuestionsLink() {
@@ -65,7 +70,7 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}<a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/memberships">{t("ui.nav_memberships")}</a>{(coach || desk) && <a href="/coaches">{t("ui.nav_coaches")}</a>}<a href="/courts">{t("ui.courts")}</a><a href="/scores">{t("ui.nav_scores")}</a><a href="/levels">{t("ui.nav_levels")}</a>{desk && <QuestionsLink />}<a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink />{changes && <a href="/">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}<a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/memberships">{t("ui.nav_memberships")}</a>{(coach || desk) && <a href="/coaches">{t("ui.nav_coaches")}</a>}<a href="/courts">{t("ui.courts")}</a><a href="/scores">{t("ui.nav_scores")}</a><a href="/levels">{t("ui.nav_levels")}</a>{desk && <QuestionsLink />}{desk && <a href="/messages">{t("ui.nav_messages")}</a>}<a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink />{changes && <a href="/">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
         <Route path="/" component={home} />
@@ -93,6 +98,10 @@ export function App() {
         <Route path="/questions" component={Questions} />
         <Route path="/questions/:id" component={QuestionPage} />
         <Route path="/facts" component={Facts} />
+        <Route path="/messages" component={Messages} />
+        <Route path="/messages/new" component={Compose} />
+        <Route path="/groups" component={Groups} />
+        <Route path="/templates" component={Templates} />
       </Router>
     </LocationProvider>
   );

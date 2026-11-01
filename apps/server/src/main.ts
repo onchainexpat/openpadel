@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { alertUnanswered, clubStripeAccount, combine, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { alertUnanswered, sendBroadcasts, clubStripeAccount, combine, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 
@@ -49,7 +49,11 @@ const jobs = async () => {
   try {
     const sent = await processOutbox(db, handlers);
     if (sent.delivered || sent.failed) console.log(`outbox: ${sent.delivered} delivered, ${sent.failed} to retry`);
-    const mail = await sendEmails(db, mailer);
+    // Scheduled broadcasts whose time has come: their messages are written for whoever matches now.
+    const bc = await sendBroadcasts(db);
+    if (bc.sent) console.log(`broadcasts: ${bc.sent} sent`);
+    // A club news email's unsubscribe link: a page on this server, no sign-in (unsubscribe.ts).
+    const mail = await sendEmails(db, mailer, new Date(), 50, { unsubscribeUrl: (token) => `${publicUrl}/unsubscribe/${token}` });
     // Push services want a contact for whoever sends: the club's address on the web, or the owner's email.
     const push = await sendPushes(db, { subject: pushContact });
     if (push.sent || push.failed) console.log(`push: ${push.sent} sent, ${push.dropped} dropped, ${push.failed} to retry`);

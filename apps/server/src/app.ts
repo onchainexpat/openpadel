@@ -18,6 +18,7 @@ import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
 import { readRoutes } from "./reads.ts";
 import { calendarRoutes } from "./calendar.ts";
+import { broadcastRoutes } from "./broadcasts.ts";
 import { publicRoutes } from "./public.ts";
 import { memberRoutes } from "./member.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
@@ -42,10 +43,11 @@ export function makeApp(deps: AppDeps) {
   app.use("*", bodyLimit({ maxSize: 3 * 1024 * 1024, onError: () => { throw new KumiError("error.too_big", {}, 413); } }));
   // A change must come from the club's own pages: refuse what the browser marks as from another site,
   // and form-style posts (which another site could make) except on the agent sign-in pages, which are
-  // forms. Stripe's webhook and the agent endpoint use signatures and tokens, not the session cookie.
+  // forms. Stripe's webhook and the agent endpoint use signatures and tokens, not the session cookie, and
+  // so does a club news email's unsubscribe link (its key does that one thing; mail apps post to it).
   app.use("*", async (c, next) => {
     const path = c.req.path, m = c.req.method;
-    if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && !path.startsWith("/webhooks/") && !path.startsWith("/mcp")) {
+    if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && !path.startsWith("/webhooks/") && !path.startsWith("/mcp") && !path.startsWith("/unsubscribe/")) {
       const site = c.req.header("sec-fetch-site");
       if (site && site !== "same-origin" && site !== "none") throw new KumiError("error.cross_site", {}, 403);
       const type = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
@@ -121,6 +123,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", calendarRoutes(db, (c) => c.get("me")));
+  app.route("/", broadcastRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", publicRoutes(db, (c) => c.get("lang"), publicUrl));
   app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false, now }));
   app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe));

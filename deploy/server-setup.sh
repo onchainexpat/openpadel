@@ -86,7 +86,7 @@ SH
 chmod 755 /usr/local/bin/kumi
 
 # The API answers on these paths; everything else is one of the two apps.
-api='/auth/* /me /me/* /my/* /club /actions /actions/* /runs /runs/* /changes /changes/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /health /open-programs /payments/* /webhooks/* /manifest/* /availability /booking-options /quote /bookings/* /membership-plans /open-matches /matches/* /public /public/* /calendar/*'
+api='/auth/* /me /me/* /my/* /club /actions /actions/* /runs /runs/* /changes /changes/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /health /open-programs /payments/* /webhooks/* /manifest/* /availability /booking-options /quote /bookings/* /membership-plans /open-matches /matches/* /public /public/* /calendar/* /unsubscribe/*'
 # The apps' own security headers (the API sets its own): scripts only from here and Stripe (its card
 # form), never framed by another site, and HTTPS remembered for a year.
 csp="default-src 'self'; script-src 'self' https://js.stripe.com https://*.js.stripe.com; frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com; connect-src 'self' https://api.stripe.com; img-src 'self' data: https://*.stripe.com; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"

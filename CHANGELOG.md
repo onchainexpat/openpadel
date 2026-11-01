@@ -199,6 +199,26 @@ The first version a club can run on its own (court bookings included), or for it
   and a member's "That didn't answer it" goes to the staff and is kept on the decision. Until one is
   set up, every question goes to the staff. Questions are in the member's data file, and deleting the
   account takes their words out of the history too.
+- Messages to members, for front desk and up: write once, in each of the club's languages ({first_name}
+  and {club} filled in for each person), to a group, now or at a set time. A group is a set of filters
+  (membership and plan, level, the club's own tags, played lately or not, adults or juniors, language,
+  in a program, a booking or place on a date, when they joined), saved with a name or built on the spot,
+  and means whoever matches when it's used; a live count shows who that is. Club news goes only to people
+  who said yes to it, and the preview says how many are left out. A service notice (a court closed, a
+  clinic moved) needs no yes, so it only goes to people with a booking or place on a date or in a program;
+  one about something within a day goes at once, even in quiet hours. Juniors are reached through their
+  parents ("For Mia: ..."); a kid with a login of their own hears it themselves, and their parents get a
+  copy of service notices. The app's copy is there at once; email waits out quiet hours for club news and
+  is spread over days under the club's daily cap (80 to start, in Settings), so the club's own messages
+  keep room. The sender gets a copy (owners and managers too, if the club wants). The Messages page lists
+  what went, to which group, and what came of it by channel; a message can be called off before it goes,
+  and email still waiting can be stopped. Templates keep words to start from.
+- Club news emails carry one-click unsubscribe (RFC 8058, and a link at the foot): it stops club news by
+  email with no sign-in, and nothing else. Members turn club news on or off in Profile too.
+- Tags: the club's own words for members ("league A"), put on a member's page. The People list searches by
+  name, email or phone and narrows to a tag or a saved group. Tags, and the groups, templates and messages
+  a staff member made, are in the data file; deleting an account takes the tags off and kills the old
+  unsubscribe link.
 - Staff start on the page their role uses: owners and managers on Changes, coaches on their schedule,
   front desk on Courts, the accountant on Reports.
 

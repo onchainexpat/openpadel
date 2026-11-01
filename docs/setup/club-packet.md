@@ -26,6 +26,8 @@ collected here.
 | The club's waiver text, if players must accept one (a lawyer's wording, not Kumi's) | Settings, Waiver (step 5g) | Owner |
 | A few lines about the club, for its public page | Settings (step 5e) | Website, owner approves |
 | The questions members ask most, with the club's answers (parking, door code, what juniors bring, cancelling), and which may go on the public page | Questions, Club facts (step 5h) | Front desk, owner approves |
+| How many emails for messages to members may go out a day (80 to start; more on a paid email plan), and whether owners and managers get a copy of each | Settings (step 5i) | Owner |
+| The club's tags for members, if any (league teams, beginner cohorts) | Messages, Groups (step 5i) | Front desk |
 | Is the club on Playtomic, and on which plan? | Whether to connect it (its API needs the Champion or Master plan) | Owner |
 
 **Not collected here, ever:** bank accounts, card numbers, Social Security or tax ID numbers, ID

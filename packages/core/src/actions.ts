@@ -100,8 +100,22 @@ const ENTITIES = {
   club_fact: { table: "club_fact", key: "id", retire: { active: false } },
   question: { table: "question", key: "id", retire: { status: "closed" } },
   question_message: { table: "question_message", key: "id", retire: null },
+  tag: { table: "tag", key: "id", retire: { active: false } },
+  person_tag: { table: "person_tag", key: "id", retire: { removed_at: "now" } },
+  segment: { table: "segment", key: "id", retire: { active: false } },
+  message_template: { table: "message_template", key: "id", retire: { active: false } },
+  broadcast: { table: "broadcast", key: "id", retire: { status: "cancelled" } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
+/** Columns that are keys to something (a club news email's unsubscribe link): never copied into the change log. */
+const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"] };
+const unkept = (entity: Entity, row: unknown) => {
+  const drop = KEYS_NOT_KEPT[entity];
+  if (!drop || !row || typeof row !== "object") return row;
+  const copy = { ...(row as Record<string, unknown>) };
+  for (const k of drop) delete copy[k];
+  return copy;
+};
 
 const registry = new Map<string, ActionDef<any>>();
 export function defineAction<S extends z.ZodMiniObject>(def: ActionDef<S>): ActionDef<S> {
@@ -267,7 +281,7 @@ export async function approve(db: Db, runId: string, approver: Actor, opts: { no
 
 function applyCtx(trx: Trx, actor: Actor, now: Date, runId: string): ApplyCtx {
   const record = (entity: Entity, id: string, op: "insert" | "update", before: unknown, after: unknown) =>
-    trx.insertInto("entity_change").values({ action_run_id: runId, entity, entity_id: id, op, before: before === null ? null : JSON.stringify(before), after: JSON.stringify(after) }).execute();
+    trx.insertInto("entity_change").values({ action_run_id: runId, entity, entity_id: id, op, before: before === null ? null : JSON.stringify(unkept(entity, before)), after: JSON.stringify(unkept(entity, after)) }).execute();
   return {
     db: trx, trx, actor, now, runId,
     async insert(entity, row) {

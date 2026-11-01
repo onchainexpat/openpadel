@@ -61,6 +61,7 @@ export const clubUpdate = defineAction({
     court_bookings: z.optional(z.boolean()), tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
     public_page: z.optional(z.boolean()), about: z.optional(z.nullable(z.string().check(z.maxLength(600)))),
     question_alert_hours: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(72))),
+    broadcast_daily_cap: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(100000))), broadcast_copy_managers: z.optional(z.boolean()),
   }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "club", "singleton");

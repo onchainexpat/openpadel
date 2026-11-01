@@ -18,16 +18,19 @@ type P = {
   kid: { email: string | null; rules: string; spent_cents: number } | null;
   covered_by: { membership_id: string; payer_id: string; payer: string; plan: string } | null; also_covers: string[];
   redacted_at: string | null;
+  tags: { id: string; name: string }[];
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;
 
 export function Person({ id }: { id: string }) {
   const [p, setP] = useState<P | null>(null), [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [role, setRole] = useState<string>("front_desk"), [where, setWhere] = useState(""), [jName, setJName] = useState(""), [jYear, setJYear] = useState("");
+  // Tags: the club's own words for a member ("league A"); a new one is made by typing it.
+  const [tags, setTags] = useState<{ id: string; name: string }[] | null>(null), [newTag, setNewTag] = useState("");
   const { route } = useLocation();
-  const load = () => api<P>(`/staff/people/${id}`).then(setP);
+  const load = () => api<P>(`/staff/people/${id}`).then((x) => { setP(x); setNewTag(""); });
   const { preview, sheet } = usePreview(load);
-  useEffect(() => { load(); api<{ id: string; name: string }[]>("/staff/locations").then(setLocations); }, [id]);
+  useEffect(() => { load(); api<{ id: string; name: string }[]>("/staff/locations").then(setLocations); api<{ id: string; name: string }[]>("/staff/tags").then(setTags).catch(() => setTags(null)); }, [id]);
   if (!p) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
   const date = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
@@ -46,6 +49,17 @@ export function Person({ id }: { id: string }) {
         {!p.junior && <p class="meta">{t("ui.club_news_email")}: {news ? t(news.granted ? "ui.consent_yes" : "ui.consent_no") : t("ui.consent_unknown")}</p>}
         <p><a href={`/people/${p.id}/level`}>{t("ui.see_level")}</a></p>
       </section>
+
+      {tags && <section class="card">
+        <h2>{t("ui.tags_title")}</h2>
+        {p.tags.length ? <p class="chips">{p.tags.map((x) => <span class="chip">{x.name} <button class="link" aria-label={t("ui.untag", { tag: x.name })} onClick={() => preview("person.untag", { person_id: p.id, tag_id: x.id })}>×</button></span>)}</p>
+          : <p class="meta">{t("ui.no_person_tags")}</p>}
+        <form class="card-form" onSubmit={(e) => { e.preventDefault(); const known = tags.find((x) => x.name.toLowerCase() === newTag.trim().toLowerCase()); preview("person.tag", known ? { person_id: p.id, tag_id: known.id } : { person_id: p.id, name: newTag.trim() }); }}>
+          <label>{t("ui.add_tag")}<input list="club-tags" required maxLength={40} value={newTag} onInput={(e) => setNewTag(e.currentTarget.value)} /></label>
+          <datalist id="club-tags">{tags.filter((x) => !p.tags.some((y) => y.id === x.id)).map((x) => <option value={x.name} />)}</datalist>
+          <button>{t("ui.preview")}</button>
+        </form>
+      </section>}
 
       <section class="card">
         <h2>{t("ui.person_household")}</h2>

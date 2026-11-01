@@ -44,6 +44,33 @@ function PushToggle({ app }: { app: "member" | "staff" }) {
   );
 }
 
+/** Club news by email: the member's own yes or no, which every club news email's link can also turn off. */
+function ClubNews({ personId }: { personId: string }) {
+  const [on, setOn] = useState<boolean | null | undefined>(undefined), [pending, setPending] = useState<{ runId: string; summary: string } | null>(null), [error, setError] = useState<string | null>(null);
+  const load = () => api<{ granted: boolean | null }>("/my/club-news").then((r) => setOn(r.granted)).catch(() => setOn(undefined));
+  useEffect(() => { void load(); }, []);
+  const ask = async (granted: boolean) => {
+    setError(null);
+    try { const p = await api<{ run_id: string; summary: string }>("/actions/consent.club_news/plan", { person_id: personId, granted }); setPending({ runId: p.run_id, summary: p.summary }); }
+    catch (e) { setError(e instanceof ApiError ? e.message : String(e)); }
+  };
+  const confirm = async () => {
+    try { await api(`/runs/${pending!.runId}/apply`, {}, { "idempotency-key": pending!.runId }); setPending(null); await load(); }
+    catch (e) { setError(e instanceof ApiError ? e.message : String(e)); setPending(null); }
+  };
+  if (on === undefined) return null;
+  return (
+    <section class="card">
+      <h2>{t("ui.club_news_title")}</h2>
+      <p class="meta">{t(on ? "ui.club_news_on" : "ui.club_news_off", { club: club.value?.name ?? "" })}</p>
+      {!pending ? <button class={on ? "" : "primary"} onClick={() => ask(!on)}>{t(on ? "ui.club_news_turn_off" : "ui.club_news_turn_on")}</button> : (
+        <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>
+      )}
+      {error && <p class="error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
 export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
   const m = me.value!;
   const [name, setName] = useState(m.person.display_name), [locale, setLocale] = useState<Lang>(m.person.locale as Lang);
@@ -85,6 +112,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
         )}
       </form>
       <PushToggle app={app} />
+      {app === "member" && !m.kid && <ClubNews personId={m.person.id} />}
       <section class="card">
         <h2>{t("ui.passkeys")}</h2>
         <button onClick={addPasskey}>{t("ui.add_passkey")}</button>

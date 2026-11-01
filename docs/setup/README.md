@@ -35,6 +35,7 @@ take a few days.
 | 5d | Membership plans (optional) | Owner decides, staff app | 10 min | below |
 | 5f | Coaches and private lessons (optional) | Each coach, staff app | 10 min a coach | below |
 | 5h | Common questions: the club's answers to what members ask most | Front desk drafts, owner checks | 1 hour | below |
+| 5i | Messages to members: tags, groups and the daily email cap | Owner decides, front desk | 15 min | below |
 | 6 | Card payments, in test mode first | Owner copies keys, agent sets up | 30 min | [accounts/stripe.md](accounts/stripe.md) |
 | 7 | Playtomic, only if the club also uses it | Owner creates keys, agent sets up | 20 min | [accounts/playtomic.md](accounts/playtomic.md) |
 | 8 | Practice with the club's own staff | Everyone | a few days | below |
@@ -210,6 +211,32 @@ Later, "ask the club" can answer from the club facts by itself, word for word: a
 the fact that answers a question, or hands it to the staff. Every decision is kept, and a member who
 says "That didn't answer it" goes straight to the staff. Until a model is set up, every question goes
 to the staff.
+
+### Step 5i: messages to members (optional)
+
+Front desk and up write to members from Messages in the staff app. A message goes to a group: a set of
+filters (members on a plan, a level range, the club's own tags, who played lately or hasn't, adults or
+juniors, language, a program, a booking or place on a date, when they joined). Build one on the spot or
+save it under Groups with a name; a saved group means whoever matches when it's used, and the count
+beside the filters shows who that is now. Tags are the club's own words ("league A", "beginner 2025"),
+put on a member's page; Groups also lists them, to rename or stop using.
+
+There are two kinds of message, and the difference is the law as much as manners:
+
+- **Club news** (events, offers, what's new) goes only to people who said yes to club news, when they
+  joined or later in Profile. The preview says how many in the group are left out. Every club news email
+  has a one-click unsubscribe that works without signing in.
+- **A service notice** (a court closed, a clinic moved) needs no yes, because it's about the person's own
+  booking or place, so Kumi only lets it go to people with a booking or place on a date, or in a program.
+  Never use it for news or offers. One about something within a day goes straight away, even at night.
+
+Juniors are reached through their parents. Write each message in every club language; `{first_name}`
+and `{club}` are filled in for each person. Templates keep words to start from.
+
+Email for messages to members is spread over days under the club's daily limit (Settings: 80 a day to
+start). The email service has its own daily limit (Resend's free plan: 100 a day for everything), and the
+club's own messages (sign-in codes, confirmations, receipts) need room. On a paid email plan, raise it.
+Settings can also send owners and managers a copy of every message; the sender always gets one.
 
 ### Members' data: a copy, and deleting an account
 

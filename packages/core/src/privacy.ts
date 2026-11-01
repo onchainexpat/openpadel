@@ -192,6 +192,12 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     .select(["attendance.came", "attendance.marked_at", "program.name as program", "session.starts_at", "booking.code as lesson"]).where("attendance.person_id", "=", personId).where("attendance.came", "is not", null)
     .orderBy("attendance.marked_at").execute();
   const feeds = await db.selectFrom("calendar_feed").select(["created_at", "revoked_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
+  // The club's tags on them; and, for staff, the groups, templates and messages to members they made.
+  const tagged = await db.selectFrom("person_tag").innerJoin("tag", "tag.id", "person_tag.tag_id").select(["tag.name", "person_tag.created_at", "person_tag.removed_at"])
+    .where("person_tag.person_id", "=", personId).orderBy("person_tag.created_at").execute();
+  const groupsMade = await db.selectFrom("segment").select(["name", "created_at", "active"]).where("created_by", "=", personId).orderBy("created_at").execute();
+  const templatesMade = await db.selectFrom("message_template").select(["name", "created_at", "active"]).where("created_by", "=", personId).orderBy("created_at").execute();
+  const broadcastsSent = await db.selectFrom("broadcast").select(["purpose", "subject_en", "subject_es", "status", "send_at", "sent_at", "recipients"]).where("created_by", "=", personId).orderBy("created_at").execute();
   // Questions they asked the club, or that were asked about them, with every message in each.
   const threads = await db.selectFrom("question").select(["id", "status", "created_at", "closed_at", "asked_by", "person_id"])
     .where((w) => w.or([w("asked_by", "=", personId), w("person_id", "=", personId)])).orderBy("created_at").execute();
@@ -222,6 +228,12 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     asked_for: asked, coach_profile: coach ?? null,
     attendance: attended.map((a) => ({ came: a.came, marked_at: iso(a.marked_at), program: a.program, starts_at: iso(a.starts_at), lesson: a.lesson })),
     calendar_links: feeds.map((f) => ({ created_at: iso(f.created_at), stopped_at: iso(f.revoked_at) })),
+    tags: tagged.map((x) => ({ tag: x.name, added_at: iso(x.created_at), removed_at: iso(x.removed_at) })),
+    ...(groupsMade.length || templatesMade.length || broadcastsSent.length ? { made_for_the_club: {
+      groups: groupsMade.map((g) => ({ name: g.name, made_at: iso(g.created_at), in_use: g.active })),
+      templates: templatesMade.map((g) => ({ name: g.name, made_at: iso(g.created_at), in_use: g.active })),
+      messages_to_members: broadcastsSent.map((b) => ({ purpose: b.purpose, subject: (lang === "es" ? b.subject_es ?? b.subject_en : b.subject_en ?? b.subject_es) ?? "", status: b.status, send_at: iso(b.send_at), sent_at: iso(b.sent_at), people: b.recipients })),
+    } } : {}),
     questions,
   };
 }
@@ -337,6 +349,7 @@ async function theirIds(db: Trx, personId: string): Promise<string[]> {
   add(await db.selectFrom("household_member").select("id").where("person_id", "=", personId).execute());
   add(await db.selectFrom("place_offer").select("id").where((w) => w.or([w("to_person_id", "=", personId), w("taken_by", "=", personId)])).execute());
   add(await db.selectFrom("attendance").select("id").where("person_id", "=", personId).execute());
+  add(await db.selectFrom("person_tag").select("id").where("person_id", "=", personId).execute());
   const threads = await db.selectFrom("question").select("id").where((w) => w.or([w("asked_by", "=", personId), w("person_id", "=", personId)])).execute();
   add(threads);
   if (threads.length) add(await db.selectFrom("question_message").select("id").where("question_id", "in", threads.map((t) => t.id)).execute());
@@ -413,7 +426,9 @@ async function erasePerson(ctx: ApplyCtx, personId: string): Promise<number> {
   await db.updateTable("outbound_message").set({ subject: REMOVED, body: REMOVED, link: null }).where("person_id", "=", personId).execute();
   await db.updateTable("outbound_message").set({ status: "dropped", failure: "account deleted" }).where("person_id", "=", personId).where("status", "=", "waiting").execute();
   // A new friend code nobody has, so an old friend link leads nowhere.
-  await ctx.update("person", personId, { ...PERSON_FIELDS, friend_code: randomBytes(6).toString("hex"), status: "archived", own_login: false, redacted_at: ctx.now });
+  // The club's tags come off; a new news key, so an old unsubscribe link leads nowhere.
+  for (const pt of await db.selectFrom("person_tag").select("id").where("person_id", "=", personId).where("removed_at", "is", null).execute()) await ctx.update("person_tag", pt.id, { removed_at: ctx.now });
+  await ctx.update("person", personId, { ...PERSON_FIELDS, friend_code: randomBytes(6).toString("hex"), news_token: randomBytes(20).toString("hex"), status: "archived", own_login: false, redacted_at: ctx.now });
 
   // The scrub: their name, email and phone out of the history. Email and phone go wherever they appear;
   // the name goes only from rows that carry one of their ids.

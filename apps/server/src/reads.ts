@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf } from "@kumi/core";
+import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -135,7 +135,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "question_alert_hours"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "question_alert_hours", "broadcast_daily_cap", "broadcast_copy_managers"]).executeTakeFirstOrThrow();
     const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
     const policy = await currentPolicy(db), plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
@@ -235,16 +235,30 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/locations", async (c) => c.json(await db.selectFrom("location").select(["id", "name", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute()));
   app.get("/staff/courts", async (c) => c.json(await db.selectFrom("court").select(["id", "name", "location_id", "kind"]).where("archived_at", "is", null)
     .$if(Boolean(c.req.query("location_id")), (q) => q.where("location_id", "=", c.req.query("location_id")!)).orderBy("sort").orderBy("name").execute()));
-  // Search by name or email; role=staff for everyone with a staff role, or one role's key.
+  // Search by name, email or phone; role=staff for everyone with a staff role, or one role's key; tag_id for
+  // one of the club's tags, segment_id for whoever a saved group matches now. Each row has its tags.
   app.get("/staff/people", async (c) => {
-    const q = `%${(c.req.query("q") ?? "").trim()}%`, role = c.req.query("role"), limit = Math.min(Number(c.req.query("limit") ?? 20) || 20, 200);
+    const raw = (c.req.query("q") ?? "").trim(), q = `%${raw}%`, role = c.req.query("role"), limit = Math.min(Number(c.req.query("limit") ?? 20) || 20, 200);
+    const digits = raw.replace(/\D/g, ""), tagId = c.req.query("tag_id"), segmentId = c.req.query("segment_id");
+    const uuid = (v: string | undefined) => v && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
+    let within: string[] | null = null;
+    if (uuid(segmentId)) {
+      const seg = await db.selectFrom("segment").select("filters").where("id", "=", segmentId!).where("active", "=", true).executeTakeFirst();
+      within = seg ? (await segmentMembers(db, seg.filters as Filters, new Date())).map((p) => p.id) : [];
+    }
     const roles = (eb: any) => eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(sql<string[]>`array_agg(DISTINCT role.key)`.as("r"))
       .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true);
-    return c.json(await db.selectFrom("person").select(["id", "display_name", "email", "junior", "created_at"]).select((eb) => roles(eb).as("roles")).where("status", "!=", "archived")
-      .where((eb) => eb.or([eb("display_name", "ilike", q), eb("email", "ilike", q)]))
+    const tags = (eb: any) => eb.selectFrom("person_tag").innerJoin("tag", "tag.id", "person_tag.tag_id").select(sql<string[]>`array_agg(tag.name ORDER BY tag.name)`.as("t"))
+      .whereRef("person_tag.person_id", "=", "person.id").where("person_tag.removed_at", "is", null).where("tag.active", "=", true);
+    if (within && !within.length) return c.json([]);
+    return c.json(await db.selectFrom("person").select(["id", "display_name", "email", "junior", "created_at"]).select((eb) => [roles(eb).as("roles"), tags(eb).as("tags")]).where("status", "!=", "archived")
+      .where((eb) => eb.or([eb("display_name", "ilike", q), eb("email", "ilike", q), ...(digits.length >= 3 ? [eb(sql<string>`regexp_replace(coalesce(phone, ''), '\\D', '', 'g')`, "like", `%${digits}%`)] : [])]))
       .$if(Boolean(role), (qb) => qb.where((eb) => eb.exists(eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id")
         .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true)
         .where("role.key", role === "staff" ? "!=" : "=", role === "staff" ? "member" : role!))))
+      .$if(Boolean(uuid(tagId)), (qb) => qb.where((eb) => eb.exists(eb.selectFrom("person_tag").select("person_tag.id").whereRef("person_tag.person_id", "=", "person.id")
+        .where("person_tag.tag_id", "=", tagId!).where("person_tag.removed_at", "is", null))))
+      .$if(Boolean(within), (qb) => qb.where("id", "in", within!))
       .orderBy("display_name").limit(limit).execute());
   });
   app.get("/staff/people/:id", async (c) => {
@@ -272,6 +286,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .select(["person.id", "person.display_name", "person.birth_year", "household_member.role"]).where("household_member.household_id", "=", hh.household_id)
       .where("household_member.removed_at", "is", null).where("person.status", "=", "active").where("person.id", "!=", id).orderBy("household_member.created_at").execute() : [];
     const waiver = await waiverStatus(db, id);
+    const tags = await db.selectFrom("person_tag").innerJoin("tag", "tag.id", "person_tag.tag_id").select(["tag.id", "tag.name"]).where("person_tag.person_id", "=", id)
+      .where("person_tag.removed_at", "is", null).where("tag.active", "=", true).orderBy("tag.name").execute();
     const cover = membership ? null : await db.selectFrom("membership_member").innerJoin("membership", "membership.id", "membership_member.membership_id")
       .innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person as payer", "payer.id", "membership.person_id")
       .select(["membership.id as membership_id", "membership.person_id as payer_id", "payer.display_name as payer", "membership_plan.name as plan"]).where("membership_member.person_id", "=", id)
@@ -280,7 +296,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // A kid with a login of their own: the address they sign in with and the rules their parents set.
     const k = await kidOf(db, id);
     const kid = k ? { email: p.email, rules: rulesText(k)[lang(c)], spent_cents: await monthSpent(db, id, new Date()) } : null;
-    return c.json({ ...p, kid, roles, places, consent, plans, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
+    return c.json({ ...p, kid, roles, places, consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
       membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null } : null });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.

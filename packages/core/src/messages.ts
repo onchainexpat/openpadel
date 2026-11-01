@@ -13,8 +13,9 @@ import { gameView } from "./results.ts";
 import { hasPushDevice } from "./push.ts";
 import { managersOf } from "./households.ts";
 
-/** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout). */
-export interface Mail { to: string; subject: string; text: string; id?: string }
+/** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
+ *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
+export interface Mail { to: string; subject: string; text: string; id?: string; headers?: Record<string, string> }
 export interface Mailer { send(mail: Mail): Promise<void> }
 
 /** Quiet hours in the club's time, by default 9 pm to 8 am (messages.md). */
@@ -610,13 +611,16 @@ async function refused(db: Db | Trx, personId: string, channel: string, purpose:
 }
 
 /** Send the emails that are due. Ones gone stale are dropped, not sent late; a failure is tried again. */
-export async function sendEmails(db: Db, mailer: Mailer, now = new Date(), limit = 50): Promise<{ sent: number; dropped: number; failed: number }> {
+/** `unsubscribeUrl` turns a person's news key into the address of the page that stops club news; with it,
+ *  every club news email carries that link at the foot and in its headers, for mail apps' one-click button. */
+export async function sendEmails(db: Db, mailer: Mailer, now = new Date(), limit = 50, o: { unsubscribeUrl?: (token: string) => string } = {}): Promise<{ sent: number; dropped: number; failed: number }> {
   const out = { sent: 0, dropped: 0, failed: 0 };
+  let clubName: string | null = null;
   for (let i = 0; i < limit; i++) {
     const done = await db.transaction().execute(async (trx) => {
       const m = await trx.selectFrom("outbound_message").innerJoin("person", "person.id", "outbound_message.person_id")
         .select(["outbound_message.id", "outbound_message.person_id", "outbound_message.purpose", "outbound_message.essential", "outbound_message.subject", "outbound_message.body",
-          "outbound_message.stale_at", "outbound_message.attempts", "person.email"])
+          "outbound_message.stale_at", "outbound_message.attempts", "outbound_message.lang", "person.email", "person.news_token"])
         .where("outbound_message.status", "=", "waiting").where("outbound_message.channel", "=", "email").where("outbound_message.send_after", "<=", now)
         .orderBy("outbound_message.send_after").limit(1).forUpdate("outbound_message").skipLocked().executeTakeFirst();
       if (!m) return null;
@@ -627,8 +631,15 @@ export async function sendEmails(db: Db, mailer: Mailer, now = new Date(), limit
         await trx.updateTable("outbound_message").set({ status: "dropped", failure: why }).where("id", "=", m.id).execute();
         return "dropped" as const;
       }
+      let text = m.body, headers: Record<string, string> | undefined;
+      if (m.purpose === "club_news" && o.unsubscribeUrl) {
+        const url = o.unsubscribeUrl(m.news_token);
+        clubName ??= (await trx.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
+        text = `${m.body}\n\n--\n${t(m.lang === "es" ? "es" : "en", "msg.club_news_footer", { club: clubName, url })}`;
+        headers = { "List-Unsubscribe": `<${url}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" };
+      }
       try {
-        await mailer.send({ to: m.email!, subject: m.subject, text: m.body, id: m.id });
+        await mailer.send({ to: m.email!, subject: m.subject, text, id: m.id, ...(headers ? { headers } : {}) });
         await trx.updateTable("outbound_message").set({ status: "sent", sent_at: now, attempts: sql`attempts + 1` }).where("id", "=", m.id).execute();
         return "sent" as const;
       } catch (e) {

@@ -29,7 +29,7 @@ export class ResendMailer implements Mailer {
     const headers: Record<string, string> = { authorization: `Bearer ${this.o.apiKey}`, "content-type": "application/json" };
     if (mail.id) headers["idempotency-key"] = `kumi:${mail.id}`;
     const r = await this.o.fetch(`${this.o.baseUrl}/emails`, { method: "POST", headers,
-      body: JSON.stringify({ from: this.o.from, to: [mail.to], subject: mail.subject, text: mail.text, ...(this.o.replyTo ? { reply_to: this.o.replyTo } : {}) }) });
+      body: JSON.stringify({ from: this.o.from, to: [mail.to], subject: mail.subject, text: mail.text, ...(this.o.replyTo ? { reply_to: this.o.replyTo } : {}), ...(mail.headers ? { headers: mail.headers } : {}) }) });
     if (!r.ok) {
       const d = await r.json().catch(() => ({})) as { message?: string; name?: string };
       throw new Error(`resend ${r.status}: ${d.message ?? d.name ?? "no detail"}`);

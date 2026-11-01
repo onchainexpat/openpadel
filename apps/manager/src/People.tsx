@@ -1,9 +1,10 @@
 // Everyone at the club: search them, see the staff, add someone, or import a member list.
 import { useEffect, useState } from "preact/hooks";
+import { useLocation } from "preact-iso";
 import type { Key, Lang } from "@kumi/i18n";
 import { api, lang, t, usePreview } from "@kumi/ui";
 
-type Row = { id: string; display_name: string; email: string | null; roles: string[] | null; junior?: boolean };
+type Row = { id: string; display_name: string; email: string | null; roles: string[] | null; junior?: boolean; tags?: string[] | null };
 type Csv = { rows: { display_name: string; email?: string }[]; problems: { line: number; text: string }[]; fatal?: string };
 /** The roles worth showing: "member" only when it's all they are. */
 export const roleNames = (roles: string[] | null) => {
@@ -12,12 +13,16 @@ export const roleNames = (roles: string[] | null) => {
 };
 
 export function People() {
+  const { query } = useLocation();
   const [q, setQ] = useState(""), [staffOnly, setStaffOnly] = useState(false), [rows, setRows] = useState<Row[] | null>(null);
+  // The club's tags and saved groups (front desk and up): narrow the list to one of them.
+  const [tag, setTag] = useState(""), [segment, setSegment] = useState(String(query.segment ?? "")), [lists, setLists] = useState<{ tags: { id: string; name: string }[]; segments: { id: string; name: string }[] } | null>(null);
   const [adding, setAdding] = useState(false), [f, setF] = useState({ display_name: "", email: "", locale: lang.value as Lang });
   const [csv, setCsv] = useState<Csv | null>(null), [importing, setImporting] = useState(false);
-  const load = () => api<Row[]>(`/staff/people?limit=100&q=${encodeURIComponent(q)}${staffOnly ? "&role=staff" : ""}`).then(setRows);
+  const load = () => api<Row[]>(`/staff/people?limit=100&q=${encodeURIComponent(q)}${staffOnly ? "&role=staff" : ""}${tag ? `&tag_id=${tag}` : ""}${segment ? `&segment_id=${segment}` : ""}`).then(setRows);
   const { preview, sheet } = usePreview(() => { load(); setAdding(false); setImporting(false); setCsv(null); setF({ display_name: "", email: "", locale: lang.value as Lang }); });
-  useEffect(() => { const id = setTimeout(load, 200); return () => clearTimeout(id); }, [q, staffOnly]);
+  useEffect(() => { const id = setTimeout(load, 200); return () => clearTimeout(id); }, [q, staffOnly, tag, segment]);
+  useEffect(() => { api<{ tags: { id: string; name: string }[]; segments: { id: string; name: string }[] }>("/staff/broadcast-options").then(setLists).catch(() => {}); }, []);
 
   const add = (e: Event) => { e.preventDefault(); preview("person.create", { display_name: f.display_name, email: f.email || undefined, locale: f.locale }); };
   const pick = async (e: Event) => {
@@ -31,9 +36,13 @@ export function People() {
       <section class="card">
         <label>{t("ui.search_people")}<input type="search" value={q} onInput={(e) => setQ(e.currentTarget.value)} /></label>
         <label class="check"><input type="checkbox" checked={staffOnly} onChange={(e) => setStaffOnly(e.currentTarget.checked)} /> {t("ui.staff_only")}</label>
+        {lists && lists.tags.length > 0 && <label>{t("ui.filter_tag")}<select value={tag} onChange={(e) => setTag(e.currentTarget.value)}><option value="">{t("ui.any_tag")}</option>
+          {lists.tags.map((x) => <option value={x.id}>{x.name}</option>)}</select></label>}
+        {lists && lists.segments.length > 0 && <label>{t("ui.filter_group")}<select value={segment} onChange={(e) => setSegment(e.currentTarget.value)}><option value="">{t("ui.any_group")}</option>
+          {lists.segments.map((x) => <option value={x.id}>{x.name}</option>)}</select></label>}
         {rows === null ? <p>{t("ui.loading")}</p> : rows.length === 0 ? <p class="meta">{t("ui.no_people")}</p> : (
           <ul class="plain">{rows.map((r) => (
-            <li class="row"><a href={`/people/${r.id}`}>{r.display_name}</a><span class="meta">{[r.email, r.junior ? t("ui.junior_tag") : roleNames(r.roles)].filter(Boolean).join(" · ")}</span></li>
+            <li class="row"><a href={`/people/${r.id}`}>{r.display_name}</a><span class="meta">{[r.email, r.junior ? t("ui.junior_tag") : roleNames(r.roles), ...(r.tags ?? [])].filter(Boolean).join(" · ")}</span></li>
           ))}</ul>
         )}
       </section>
