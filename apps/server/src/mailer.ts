@@ -1,6 +1,6 @@
 // Email goes through a Mailer. In development it is kept in memory and logged. With a Resend key it
 // goes from the club's own domain, and outside production only to the test addresses listed, so a
-// practice run never reaches a real member (messages.md, "Rules learned at Foundry" 5).
+// practice run never reaches a real member.
 import type { Mail, Mailer } from "@kumi/core";
 export type { Mail, Mailer };
 
