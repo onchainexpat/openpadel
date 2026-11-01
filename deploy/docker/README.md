@@ -24,21 +24,43 @@ docker compose exec kumi kumi doctor
 - **Sign-in codes**, until email is set up: `docker compose logs kumi | grep '\[mail'`.
 - **Logs:** `docker compose logs -f kumi`.
 
+## Keys
+
+`.env` needs two keys, each 32 random bytes (`head -c 32 /dev/urandom | base64`): `KUMI_SECRET_KEY` seals
+the secrets Kumi keeps in its database (the server won't start without it), and `KUMI_BACKUP_KEY` seals the
+offsite copies. Keep a copy of both away from this machine, in a password manager. `update.sh` makes
+`KUMI_SECRET_KEY` for a setup from before it existed.
+
 ## Backups
-Every night at 3:17 UTC the database is saved to `./backups/kumi-DATE.dump` and kept 14 days. Copy
-them off the machine too. To restore one:
+Every night at 3:17 (the machine's time) the `backup` service runs `kumi backup`: the database and a
+manifest of every table's rows go to `./backups/kumi-DATE.dump` and `.json`, kept 14 days, and, once offsite
+backups are set up in `.env` ([docs/setup/accounts/offsite-backups.md](../../docs/setup/accounts/offsite-backups.md)),
+a sealed copy goes to the club's own storage. On the 1st of each month it also runs `kumi restore-test`,
+which restores the newest backup into a scratch database and checks every table against its manifest. The
+owner and managers hear once if any of it starts failing.
+
+```bash
+docker compose exec backup kumi backup          # tonight's backup now
+docker compose exec backup kumi offsite         # what's kept offsite
+docker compose exec backup kumi restore-test    # the monthly check, now
+```
+
+To restore one (everything since that backup is lost):
 ```bash
 docker compose stop kumi
-docker compose exec backup pg_restore --clean --if-exists --no-owner -h db -U kumi -d kumi /backups/kumi-DATE.dump
+docker compose exec backup kumi restore /var/backups/kumi/kumi-DATE.dump --yes   # or offsite:latest
 docker compose start kumi && docker compose exec kumi kumi doctor
 ```
 
 ## Updating
 Read the release's notes in [`CHANGELOG.md`](../../CHANGELOG.md) first, then:
 ```bash
-docker compose exec backup sh -c 'pg_dump -Fc -h db -U kumi -d kumi -f /backups/before-update.dump'
-git pull && docker compose up -d --build
-docker compose exec kumi kumi doctor
+deploy/docker/update.sh v0.2.0          # a release tag, or a branch
 ```
-Database changes apply when the server starts. If something's wrong, go back to the previous
-release (`git checkout v0.x.y && docker compose up -d --build`) and restore `before-update.dump`.
+It builds the new release's images beside the running ones (tagged by commit), takes a snapshot of the
+database (`./backups/update-<old>-to-<new>-<time>.dump`), switches, and checks the server answers as the new
+release. If it doesn't, the old images and the snapshot go back. To go back later (everything since the
+update is lost):
+```bash
+deploy/docker/update.sh rollback --yes
+```

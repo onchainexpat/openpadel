@@ -1,16 +1,29 @@
 import { serve } from "@hono/node-server";
-import { alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, combine, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, combine, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
+
+// The server's key for the secrets it keeps (authenticators, the push key, the vault: sealed.ts). Production
+// refuses to start without one; elsewhere secrets are kept as they are, and it says so.
+const production = process.env.NODE_ENV === "production";
+if (!process.env.KUMI_SECRET_KEY?.trim()) {
+  if (production) { console.error("KUMI_SECRET_KEY isn't set: make one (head -c 32 /dev/urandom | base64) and put it in the server's settings"); process.exit(1); }
+  console.warn("no KUMI_SECRET_KEY: secrets are kept unsealed (fine for development, never for a club)");
+}
+try { setSecretKeys({ current: process.env.KUMI_SECRET_KEY, previous: process.env.KUMI_SECRET_KEY_PREVIOUS }); }
+catch (e) { console.error(`KUMI_SECRET_KEY: ${(e as Error).message}`); process.exit(1); }
 
 const db = connect();
 const applied = await migrate(db);
 if (applied.length) console.log(`migrations applied: ${applied.join(", ")}`);
 const newTopics = await registerMessageTopics(db);   // before any event is handled: see message_topic
 if (newTopics.length) console.log(`messages: now telling people about ${newTopics.join(", ")}`);
+// Seal what isn't sealed yet (a server from before the key) and move what's under the previous key to this one.
+const sealed = await resealAll(db);
+if (sealed.sealed || sealed.resealed) console.log(`secrets: ${sealed.sealed} sealed, ${sealed.resealed} moved to the current key`);
+if (sealed.unreadable) console.error(`secrets: ${sealed.unreadable} sealed under a key this server doesn't have (set KUMI_SECRET_KEY_PREVIOUS to the old key)`);
 const port = Number(process.env.PORT ?? 8790);
 const publicUrl = process.env.KUMI_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
-const production = process.env.NODE_ENV === "production";
 
 // Card payments go through Stripe when a key is set (from the environment, never the database or the
 // code); otherwise the stand-in. Self-hosted, the key is the club's own. Hosted (KUMI_STRIPE_CONNECT=1),
@@ -87,6 +100,7 @@ const jobs = async () => {
     if (mr.renewed || mr.failed || mr.ended) console.log(`membership renewals: ${mr.renewed} renewed, ${mr.failed} card declined (tried again later), ${mr.ended} ended`);
     const p = await reconcilePayments(db);
     if (p.settled) console.log(`payments: ${p.settled} settled by checking with the provider`);
+    await tidyVaultUploads(db);
     const fc = await tidyFamilyCards(db);
     if (fc.saved) console.log(`family cards: ${fc.saved} saved (found by checking with the provider)`);
     // While the club is still setting up its Stripe account, ask Stripe whether it's ready (a webhook says so too).

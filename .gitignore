@@ -154,3 +154,7 @@ club.yaml
 # Docker: the club's files and backups
 config/
 backups/
+
+# Docker updates: the release's commit (shown by /health) and what update.sh keeps to go back
+REVISION
+.kumi-release

@@ -48,6 +48,13 @@ PORT=8790
 DATABASE_URL=postgresql://kumi@/kumi?host=/var/run/postgresql
 KUMI_PUBLIC_URL=https://staff.$KUMI_HOST
 KUMI_CLUB_FILE=/etc/kumi/club.yaml
+# The server's key for the secrets it keeps (sealed.ts), and the key offsite backups are sealed with. Never
+# printed. Keep a copy of KUMI_BACKUP_KEY away from this server (a password manager): without it, the offsite
+# copies can't be opened, and it's lost with the server.
+KUMI_SECRET_KEY=$(head -c 32 /dev/urandom | base64)
+KUMI_BACKUP_KEY=$(head -c 32 /dev/urandom | base64)
+# Offsite backups (docs/setup/accounts/offsite-backups.md):
+# KUMI_OFFSITE_ENDPOINT=  KUMI_OFFSITE_BUCKET=  KUMI_OFFSITE_ACCESS_KEY_ID=  KUMI_OFFSITE_SECRET_ACCESS_KEY=  KUMI_OFFSITE_REGION=auto
 # KUMI_RESEND_API_KEY=  KUMI_MAIL_FROM=  KUMI_MAIL_TEST_TO=
 # KUMI_STRIPE_SECRET_KEY=  KUMI_STRIPE_PUBLISHABLE_KEY=  KUMI_STRIPE_WEBHOOK_SECRET=  KUMI_STRIPE_CONNECT=
 # KUMI_PLAYTOMIC_CLIENT_ID=  KUMI_PLAYTOMIC_SECRET=  KUMI_PLAYTOMIC_TENANT_ID=
@@ -77,16 +84,9 @@ PrivateTmp=true
 WantedBy=multi-user.target
 UNIT
 
-# The kumi command (kumi setup, kumi doctor) runs as the kumi user with the server's settings.
-cat > /usr/local/bin/kumi <<'SH'
-#!/bin/sh
-cd /opt/kumi/app || exit 1
-exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
-SH
-chmod 755 /usr/local/bin/kumi
 
 # The API answers on these paths; everything else is one of the two apps.
-api='/auth/* /me /me/* /my/* /club /actions /actions/* /runs /runs/* /changes /changes/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /health /open-programs /payments/* /webhooks/* /manifest/* /availability /booking-options /quote /bookings/* /membership-plans /open-matches /matches/* /public /public/* /calendar/* /unsubscribe/*'
+api='/auth/* /me /me/* /my/* /club /actions /actions/* /runs /runs/* /changes /changes/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /health /health/* /open-programs /payments/* /webhooks/* /manifest/* /availability /booking-options /quote /bookings/* /membership-plans /open-matches /matches/* /public /public/* /calendar/* /unsubscribe/*'
 # The apps' own security headers (the API sets its own): scripts only from here and Stripe (its card
 # form), never framed by another site, and HTTPS remembered for a year.
 csp="default-src 'self'; script-src 'self' https://js.stripe.com https://*.js.stripe.com; frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com; connect-src 'self' https://api.stripe.com; img-src 'self' data: https://*.stripe.com; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
@@ -120,15 +120,42 @@ usermod -aG kumi caddy
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl reload caddy || systemctl restart caddy
 
-# Nightly backup at 3:17 (off the hour), kept 14 days.
+# Releases are kept side by side (release.sh); /opt/kumi/app links to the running one.
+install -d -o kumi -g kumi /opt/kumi/releases
+# --- system files (the same in server-setup.sh and release.sh) ---
+cat > /usr/local/bin/kumi <<'SH'
+#!/bin/sh
+# The kumi command, as the kumi user with the server's settings. Updating, going back and restoring stop and
+# start the server, so those run as root (sudo kumi ...).
+root() { [ "$(id -u)" = 0 ] || { echo "kumi $1 needs root: sudo kumi $1 ..." >&2; exit 1; }; }
+case "${1:-}" in
+  update)
+    root update; shift; f="${1:?usage: kumi update <release.tar>}"; t=$(mktemp -d)
+    tar -xOf "$f" deploy/release.sh > "$t/release.sh" || { echo "kumi: $f isn't a Kumi release" >&2; exit 1; }
+    bash "$t/release.sh" update "$@"; rc=$?; rm -rf "$t"; exit $rc;;
+  rollback|releases)
+    root "$1"; [ "$1" = releases ] && set -- status; exec bash /opt/kumi/app/deploy/release.sh "$@";;
+  restore)
+    root restore; systemctl stop kumi
+    cd /opt/kumi/app && sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
+    rc=$?; systemctl start kumi; exit $rc;;
+esac
+cd /opt/kumi/app || exit 1
+exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
+SH
+chmod 755 /usr/local/bin/kumi
+# Nightly backup at 3:17 (off the hour): the dump and its manifest, kept 14 days, and the offsite copy if set up.
 install -d -m 750 -o kumi -g kumi /var/backups/kumi
 cat > /etc/systemd/system/kumi-backup.service <<'UNIT'
 [Unit]
-Description=Kumi database backup
+Description=Kumi database backup (and its offsite copy)
+After=postgresql.service
 [Service]
 Type=oneshot
 User=kumi
-ExecStart=/bin/sh -c 'pg_dump -Fc -d kumi -f /var/backups/kumi/kumi-$(date +%%F).dump && find /var/backups/kumi -name "kumi-*.dump" -mtime +14 -delete'
+WorkingDirectory=/opt/kumi/app
+EnvironmentFile=/etc/kumi/kumi.env
+ExecStart=/usr/local/bin/node apps/server/src/cli.ts backup
 UNIT
 cat > /etc/systemd/system/kumi-backup.timer <<'UNIT'
 [Unit]
@@ -139,7 +166,30 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
+# Once a month: restore the newest backup into a scratch database and check it.
+cat > /etc/systemd/system/kumi-restore-test.service <<'UNIT'
+[Unit]
+Description=Kumi restore test
+After=postgresql.service
+[Service]
+Type=oneshot
+User=kumi
+WorkingDirectory=/opt/kumi/app
+EnvironmentFile=/etc/kumi/kumi.env
+ExecStart=/usr/local/bin/node apps/server/src/cli.ts restore-test
+UNIT
+cat > /etc/systemd/system/kumi-restore-test.timer <<'UNIT'
+[Unit]
+Description=Kumi restore test, monthly
+[Timer]
+OnCalendar=*-*-01 04:17:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'kumi_restore_test'" | grep -q 1 || sudo -u postgres createdb -O kumi kumi_restore_test
 systemctl daemon-reload
-systemctl enable --now kumi-backup.timer
+systemctl enable --now kumi-backup.timer kumi-restore-test.timer
+# --- end system files ---
 systemctl enable kumi
 echo "set up. Ship the code: deploy/ship.sh root@<this server>"

@@ -9,6 +9,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { matchStep, newRecoveryCode, RECOVERY_CODES } from "./totp.ts";
+import { openText } from "./sealed.ts";
 
 export type TwoFactorRule = "owner_manager" | "all_staff" | "off";
 export const SETUP_MINUTES = 15;
@@ -44,7 +45,7 @@ export async function hasSecondFactor(db: Db | Trx, personId: string): Promise<b
 export async function useAuthenticatorCode(db: Db, personId: string, code: string, now: Date): Promise<boolean> {
   const f = await activeFactor(db, personId);
   if (!f) return false;
-  const step = matchStep(f.secret, code, now, Number(f.last_step));
+  const step = matchStep(openText(f.secret), code, now, Number(f.last_step));
   if (step === null) return false;
   // Only one request can move the step forward: a second use of the same code finds it already there.
   const moved = await db.updateTable("staff_factor").set({ last_step: String(step) }).where("person_id", "=", personId).where("last_step", "<", String(step)).executeTakeFirst();
@@ -93,13 +94,14 @@ export const factorAdd = defineAction({
     const ch = await ctx.db.selectFrom("auth_challenge").selectAll().where("id", "=", i.challenge_id).where("kind", "=", "totp_setup").where("person_id", "=", i.person_id)
       .where("consumed_at", "is", null).where("expires_at", ">", ctx.now).executeTakeFirst();
     if (!ch) throw new KumiError("error.factor_setup_expired");
-    if (matchStep(ch.code_hash, i.code, ctx.now) === null) throw new KumiError("error.bad_factor_code", {}, 401);
+    if (matchStep(openText(ch.code_hash), i.code, ctx.now) === null) throw new KumiError("error.bad_factor_code", {}, 401);
     return { title: both("action.person.factor_add"), summary: both("plan.person.factor_add"), reads: [read], ownerIds: [i.person_id], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
     const ch = await ctx.trx.updateTable("auth_challenge").set({ consumed_at: ctx.now }).where("id", "=", i.challenge_id).where("consumed_at", "is", null).returningAll().executeTakeFirst();
     if (!ch) throw new KumiError("error.factor_setup_expired");
-    const step = matchStep(ch.code_hash, i.code, ctx.now)!;
+    const step = matchStep(openText(ch.code_hash), i.code, ctx.now)!;
+    // The secret stays sealed as the set-up kept it (server key, sealed.ts).
     // One row per person: setting up again after removing reuses it.
     const old = await ctx.trx.selectFrom("staff_factor").select("person_id").where("person_id", "=", i.person_id).executeTakeFirst();
     if (old) await ctx.update("staff_factor", i.person_id, { secret: ch.code_hash, confirmed_at: ctx.now, last_step: String(step), removed_at: null });

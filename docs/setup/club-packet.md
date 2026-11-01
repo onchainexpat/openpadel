@@ -31,7 +31,11 @@ collected here.
 | How many emails for messages to members may go out a day (80 to start; more on a paid email plan), and whether owners and managers get a copy of each | Settings (step 5i) | Owner |
 | The club's tags for members, if any (league teams, beginner cohorts) | Messages, Groups (step 5i) | Front desk |
 | Is the club on Playtomic, and on which plan? | Whether to connect it (its API needs the Champion or Master plan) | Owner |
+| Where offsite backups go: Cloudflare R2 or Backblaze B2, and who creates the account (the owner, with a key for one bucket) | Offsite backups (step 5j) | Owner |
+| Where the owner keeps the server's two keys (a password manager), away from the server | Restoring after losing the server (step 5j) | Owner |
 
 **Not collected here, ever:** bank accounts, card numbers, Social Security or tax ID numbers, ID
 documents, passwords and API keys. Stripe asks the owner for its business and bank details on its
-own pages. Keys go into the server's settings file, typed in by the owner.
+own pages. Keys go into the server's settings file, typed in by the owner. The club's own keys and
+documents (a supplier login, the alarm code, the insurance certificate) go in the owner's vault in the
+staff app, never here or in a chat.

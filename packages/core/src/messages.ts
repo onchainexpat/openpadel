@@ -398,6 +398,11 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const params = { person: p.person, when: when(new Date(p.asked_at), tz), question: p.question, hours: both("count.hours", { count: p.hours }) };
     return (await desk(db)).map((to) => ({ to, kind: "question_unanswered_staff", params, purpose: "staff" as const, essential: false, email: true, link: `/questions/${p.question_id}` }));
   },
+  // The server's own jobs: the owner and managers hear once when the backup, its offsite copy or the restore test starts failing.
+  async "ops.failed"({ db }, p: { job: "backup" | "offsite" | "restore_test"; error: string }) {
+    const params = { job: both(`ops.job_${p.job}`), error: p.error };
+    return (await managers(db)).map((to) => ({ to, kind: "ops_failed_staff", params, purpose: "staff" as const, essential: true, email: true, link: "/" }));
+  },
   async "question.assigned"(_c, p: { question_id: string; to: string; by: string; person: string; question: string }) {
     return [{ to: p.to, kind: "question_assigned_staff", params: { by: p.by, person: p.person, question: p.question }, purpose: "staff" as const, essential: false, email: false, link: `/questions/${p.question_id}` }];
   },

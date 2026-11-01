@@ -286,10 +286,33 @@ The first version a club can run on its own (court bookings included), or for it
 - Setting up from `club.yaml` (`kumi setup plan`, `kumi setup apply`), member import, and
   `kumi doctor`; guides an owner's AI agent can follow (`docs/setup`).
 - One-server install script or Docker Compose, HTTPS, nightly backups, tested restore.
+- The server's own key (`KUMI_SECRET_KEY`, made at install, never printed) seals the secrets Kumi keeps:
+  staff authenticators, the push signing key and the vault. Production won't start without it; a server
+  from before gets one on its next update and seals what it has as it starts. `kumi rotate-key` moves
+  everything to a new key.
+- The vault, for the owner only (Settings): the club's keys (a supplier login, the alarm code) and small
+  documents (insurance, the lease), sealed. A secret is never shown again, only its last four characters;
+  documents are PDFs or pictures up to 2 MB, downloaded by the owner, and each download is kept. Neither
+  an action nor the change log ever holds what's inside.
+- Updates that can be undone: `deploy/ship.sh` installs the new release beside the running one, takes a
+  snapshot of the database, switches and checks it answers as the new release; if it doesn't, the old
+  release and the snapshot go back by themselves. `sudo kumi rollback --yes` goes back later (losing what
+  happened since). The last 3 releases and snapshots are kept. With Docker, `deploy/docker/update.sh`
+  does the same with images tagged by release.
+- Backups with a manifest: each night's dump comes with every table's row count, from the same snapshot.
+  Offsite copies go to the club's own S3-compatible storage (Cloudflare R2, Backblaze B2, S3, Spaces),
+  sealed with a backup key of their own; 30 daily and 12 monthly are kept. Once a month the newest is
+  restored into a scratch database and checked against its manifest. If the backup, its offsite copy or
+  the check starts failing, the owner and managers are told once. `kumi restore` restores a local or
+  offsite backup.
+- `/health/deep` (on the server itself, or for an owner or manager): the database, the outbox, the last
+  backup, offsite copy and restore test, and disk space. `/health` now names the release's commit.
 - English and US Spanish throughout. Security: rate limits, no cross-site changes, strict headers,
   two-step sign-in for staff, bot protection.
 - Light apps: each app downloads only its own wording, in the person's language, and set-up pages load
   when opened. The members' app needs about 124 kB of JavaScript before its first screen (under its
   200 kB budget, which the build now checks); the staff app about 150 kB.
 
-**When updating:** nothing; this is the first release.
+**When updating:** nothing; this is the first release. (A server set up from a test build before it gets
+`KUMI_SECRET_KEY` added to `/etc/kumi/kumi.env` by its first update; with Docker, `deploy/docker/update.sh`
+adds it to `.env`.)

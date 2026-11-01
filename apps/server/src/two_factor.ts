@@ -3,7 +3,7 @@
 // shows its key as a QR code and as text, and ends with ten recovery codes, shown once.
 import { Hono, type Context } from "hono";
 import { both, t, type Lang } from "@kumi/i18n";
-import { activeFactor, KumiError, makeRecoveryCodes, needsTwoFactor, newSecret, otpauthUri, qrSvg, recoveryLeft, run, SETUP_MINUTES, useAuthenticatorCode, useRecoveryCode, uuidv7, type Actor, type Db } from "@kumi/core";
+import { activeFactor, KumiError, makeRecoveryCodes, needsTwoFactor, newSecret, otpauthUri, qrSvg, recoveryLeft, run, sealText, SETUP_MINUTES, useAuthenticatorCode, useRecoveryCode, uuidv7, type Actor, type Db } from "@kumi/core";
 import { FRESH_MINUTES } from "./passkeys.ts";
 import { RateLimiter } from "./limits.ts";
 import type { Mailer } from "./mailer.ts";
@@ -37,7 +37,7 @@ export function twoFactorRoutes(deps: TwoFactorDeps) {
     const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", me.id).executeTakeFirstOrThrow();
     const club = (await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
     const secret = newSecret(), id = uuidv7(now.getTime()), uri = otpauthUri(secret, club, person.email ?? person.display_name);
-    await db.insertInto("auth_challenge").values({ id, kind: "totp_setup", person_id: me.id, target: "totp_setup", code_hash: secret, expires_at: new Date(now.getTime() + SETUP_MINUTES * 60_000), consumed_at: null }).execute();
+    await db.insertInto("auth_challenge").values({ id, kind: "totp_setup", person_id: me.id, target: "totp_setup", code_hash: sealText(secret), expires_at: new Date(now.getTime() + SETUP_MINUTES * 60_000), consumed_at: null }).execute();
     return c.json({ challenge_id: id, key: grouped(secret), uri, qr: `data:image/svg+xml;base64,${Buffer.from(qrSvg(uri)).toString("base64")}` });
   });
 

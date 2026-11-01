@@ -45,3 +45,6 @@ export * from "./totp.ts";
 export * from "./qr.ts";
 export * from "./two_factor.ts";
 export * from "./roles.ts";
+export * from "./sealed.ts";
+export * from "./vault.ts";
+export * from "./ops.ts";

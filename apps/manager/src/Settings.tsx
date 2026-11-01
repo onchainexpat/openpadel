@@ -2,7 +2,7 @@
 // and courts. Every change goes through the preview, like everything else; only what changed is sent.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, club as clubSignal, lang, t, usePreview, type Club } from "@kumi/ui";
+import { api, club as clubSignal, lang, me, t, usePreview, type Club } from "@kumi/ui";
 
 type Court = { id: string; location_id: string; name: string; kind: string; bookable: boolean; sort: number };
 type Hours = { weekday: number; opens: string | null; closes: string | null };
@@ -68,6 +68,7 @@ function SignInCard({ rule, send }: { rule: ClubRow["two_factor"]; send: Preview
       <p class="meta">{t("ui.two_factor_hint")}</p>
       <button class="primary" disabled={v === rule || v === "off"} onClick={() => send("club.update", { two_factor: v })}>{t("ui.preview")}</button>
       <p><a href="/roles">{t("ui.roles_link")}</a></p>
+      {me.value?.roles.some((r) => r.key === "owner") && <p><a href="/vault">{t("ui.vault_link")}</a></p>}
     </section>
   );
 }

@@ -22,6 +22,14 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
    plan. Change the club only through `kumi` and the apps, never in the database directly.
 6. **Nothing reaches real members or real money during setup.** Keep practice mode on, use test
    Stripe keys, and only turn either off when the owner says so in their own words.
+7. **Offsite backups before go-live** ([docs/setup/accounts/offsite-backups.md](docs/setup/accounts/offsite-backups.md)):
+   the owner creates the storage and its key; you run `kumi backup`, `kumi offsite` and
+   `kumi restore-test` until `kumi doctor` shows `offsite` and `restore_test` as `ok`. Ask the owner to
+   keep `KUMI_BACKUP_KEY` and `KUMI_SECRET_KEY` in a password manager, looking at them in their own
+   terminal; you never read them.
+8. **Updates go through `deploy/ship.sh`** (or `deploy/docker/update.sh`), which snapshot the database and
+   put everything back by themselves if the new release doesn't come up. `sudo kumi rollback --yes` loses
+   what happened since the update: only with the owner's say-so, in their own words.
 
 ## Changing Kumi's code
 

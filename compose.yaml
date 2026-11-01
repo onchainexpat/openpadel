@@ -13,6 +13,7 @@ services:
     restart: unless-stopped
 
   kumi:
+    image: kumi-server:${KUMI_TAG:-local}   # built here; deploy/docker/update.sh tags each release
     build: { context: ., target: server }
     env_file: .env
     environment:
@@ -25,6 +26,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: kumi-web:${KUMI_TAG:-local}
     build: { context: ., target: web }
     environment: { KUMI_HOST: "${KUMI_HOST}" }
     ports: ["${KUMI_HTTP_PORT:-80}:80", "${KUMI_HTTPS_PORT:-443}:443", "${KUMI_HTTPS_PORT:-443}:443/udp"]
@@ -32,13 +34,18 @@ services:
     depends_on: [kumi]
     restart: unless-stopped
 
-  # Every night at about 3:17 in the server's time, kept 14 days, in ./backups.
+  # Every night at about 3:17 in the server's time: the dump and its manifest in ./backups (kept 14 days), and
+  # the offsite copy if it's set up in .env. On the 1st of each month, the restore test too.
   backup:
-    image: postgres:17.9-alpine
-    environment: { PGPASSWORD: "${KUMI_DB_PASSWORD}" }
-    volumes: ["./backups:/backups"]
-    entrypoint: ["sh", "-c", "while true; do sleep $$(( ($$(date -d 03:17 +%s 2>/dev/null || date -D %H:%M -d 03:17 +%s) - $$(date +%s) + 86400) % 86400 )); pg_dump -Fc -h db -U kumi -d kumi -f /backups/kumi-$$(date +%F).dump && find /backups -name 'kumi-*.dump' -mtime +14 -delete; sleep 60; done"]
-    depends_on: { db: { condition: service_healthy } }
+    image: kumi-server:${KUMI_TAG:-local}
+    pull_policy: never                   # the server's own image, built for the kumi service
+    user: "0:0"                          # ./backups may be root's from before
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://kumi:${KUMI_DB_PASSWORD}@db/kumi
+    volumes: ["./backups:/var/backups/kumi"]
+    entrypoint: ["sh", "-c", "while true; do sleep $$(( ($$(date -d 03:17 +%s) - $$(date +%s) + 86400) % 86400 )); kumi backup; [ \"$$(date +%d)\" = 01 ] && kumi restore-test; sleep 60; done"]
+    depends_on: { db: { condition: service_healthy }, kumi: { condition: service_started } }
     restart: unless-stopped
 
 volumes: { db: {}, caddy-data: {}, caddy-config: {} }

@@ -18,12 +18,26 @@ test("every API route reaches the server through Caddy, and the apps' pages don'
   const paths = [...new Set(app.routes.map((r) => r.path.replace(/:[a-z_]+/g, "x")).filter((p) => p !== "/*" && !p.endsWith("/*")))];
   assert.ok(paths.length > 40);
   for (const p of paths) assert.ok(routed(p), `${p} isn't sent to the server by Caddy`);
-  for (const page of ["/membership", "/memberships", "/book", "/places", "/people", "/courts", "/settings", "/join/abc", "/play", "/match/abc", "/scores"]) assert.ok(!routed(page), `${page} is an app page`);
+  for (const page of ["/membership", "/memberships", "/book", "/places", "/people", "/courts", "/settings", "/join/abc", "/play", "/match/abc", "/scores", "/vault"]) assert.ok(!routed(page), `${page} is an app page`);
 });
 
 test("container images are pinned to exact versions", () => {
   for (const line of [...read("Dockerfile").matchAll(/^FROM (\S+)/gm), ...read("compose.yaml").matchAll(/image: (\S+)/g)].map((m) => m[1]!)) {
     if (!line.includes(":")) continue;   // a stage of this build, not an image
+    if (line.startsWith("kumi-")) continue;   // Kumi's own images, built here (update.sh tags each release)
     assert.match(line, /:\d+\.\d+(\.\d+)?(-[a-z0-9.-]+)?$/, `${line} should name an exact version`);
   }
+});
+
+test("a fresh server and an updated one get the same kumi command, backup and restore-test timers", () => {
+  const block = (text: string) => { const m = /# --- system files \(the same in server-setup\.sh and release\.sh\) ---\n([\s\S]*?)# --- end system files ---/.exec(text); assert.ok(m, "no system files block"); return m[1]!; };
+  const setup = block(read("deploy/server-setup.sh")), release = block(read("deploy/release.sh"));
+  assert.equal(setup, release);
+  for (const want of ["kumi-backup.timer", "kumi-restore-test.timer", "cli.ts backup", "cli.ts restore-test", "kumi_restore_test", "rollback|releases"]) assert.ok(setup.includes(want), want);
+});
+
+test("ship.sh hands the release to its own release.sh", () => {
+  const ship = read("deploy/ship.sh");
+  assert.match(ship, /tar -xOf .*deploy\/release\.sh/);
+  assert.match(ship, /release\.sh update /);
 });

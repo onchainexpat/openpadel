@@ -20,8 +20,9 @@ const Coaches = lazy(() => import("./Coaches.tsx").then((m) => m.Coaches));
 const Reports = lazy(() => import("./Reports.tsx").then((m) => m.Reports));
 const Payments = lazy(() => import("./Payments.tsx").then((m) => m.Payments));
 const Mirror = lazy(() => import("./Mirror.tsx").then((m) => m.Mirror));
-// The club's own roles, from Settings.
+// The club's own roles, and the owner's vault, from Settings.
 const Roles = lazy(() => import("./Roles.tsx").then((m) => m.Roles));
+const Vault = lazy(() => import("./Vault.tsx").then((m) => m.Vault));
 // A coach's lists, opened from the schedule.
 const Roster = lazy(() => import("./Roster.tsx").then((m) => m.Roster));
 const Students = lazy(() => import("./Students.tsx").then((m) => m.Students));
@@ -100,6 +101,7 @@ export function App() {
         <Route path="/inbox" component={Inbox} />
         <Route path="/settings" component={only("settings", Settings)} />
         <Route path="/roles" component={only("settings", Roles)} />
+        <Route path="/vault" component={only("settings", Vault)} />
         <Route path="/courts" component={only("bookings", Courts)} />
         <Route path="/reports" component={only("money", Reports)} />
         <Route path="/memberships" component={only("memberships", Memberships)} />

@@ -3,7 +3,8 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { readdirSync, statSync } from "node:fs";
 import { both, type Key, type Text } from "@kumi/i18n";
-import { pendingMigrations, type Db } from "@kumi/core";
+import { heartbeats, parseSecretKey, pendingMigrations, type Db } from "@kumi/core";
+import { s3FromEnv } from "./s3.ts";
 import { VERSION } from "./version.ts";
 
 export type CheckState = "ok" | "warn" | "fail" | "off";
@@ -74,5 +75,22 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   try { for (const f of readdirSync(dir)) if (/^kumi-.*\.dump$/.test(f)) newest = Math.max(newest ?? 0, statSync(`${dir}/${f}`).mtimeMs); } catch { /* no folder: no backups here */ }
   if (newest === null) add("backups", production ? "warn" : "off", "backups.none", { dir }, "docs/setup/accounts/server.md");
   else { const hours = Math.round((now.getTime() - newest) / 3600_000); add("backups", hours > 36 ? "warn" : "ok", hours > 36 ? "backups.old" : "backups.ok", { hours, dir }); }
+  // The server's key for the secrets it keeps (sealed.ts): production won't start without it.
+  if (!env.KUMI_SECRET_KEY?.trim()) add("secret_key", production ? "fail" : "warn", "secret_key.missing", {}, "deploy/README.md");
+  else { try { parseSecretKey(env.KUMI_SECRET_KEY); add("secret_key", "ok", "secret_key.ok"); } catch { add("secret_key", "fail", "secret_key.bad", {}, "deploy/README.md"); } }
+
+  // The offsite copy and the monthly restore test, as their last runs recorded them.
+  const hb = await heartbeats(db).catch(() => ({} as Awaited<ReturnType<typeof heartbeats>>));
+  const ago = (d: Date | null | undefined) => (d ? (now.getTime() - new Date(d).getTime()) / 3600_000 : null);
+  const off = hb.offsite, offDoc = "docs/setup/accounts/offsite-backups.md";
+  if (!s3FromEnv(env)) add("offsite", production ? "warn" : "off", "offsite.off", {}, offDoc);
+  else if (!env.KUMI_BACKUP_KEY?.trim()) add("offsite", "fail", "offsite.no_key", {}, offDoc);
+  else if (off?.last_error) add("offsite", "fail", "offsite.failing", { error: off.last_error }, offDoc);
+  else if (!off?.last_ok_at) add("offsite", "warn", "offsite.waiting", {}, offDoc);
+  else { const h = Math.round(ago(off.last_ok_at)!); add("offsite", h > 36 ? "warn" : "ok", h > 36 ? "offsite.old" : "offsite.ok", { hours: h }, h > 36 ? offDoc : undefined); }
+  const rt = hb.restore_test;
+  if (rt?.last_error) add("restore_test", "fail", "restore_test.failing", { error: rt.last_error }, "deploy/README.md");
+  else if (!rt?.last_ok_at) add("restore_test", production ? "warn" : "off", "restore_test.never", {}, "deploy/README.md");
+  else { const d = Math.round(ago(rt.last_ok_at)! / 24); add("restore_test", d > 40 ? "warn" : "ok", d > 40 ? "restore_test.old" : "restore_test.ok", { days: d }); }
   return checks;
 }

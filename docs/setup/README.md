@@ -36,6 +36,7 @@ take a few days.
 | 5f | Coaches and private lessons (optional) | Each coach, staff app | 10 min a coach | below |
 | 5h | Common questions: the club's answers to what members ask most | Front desk drafts, owner checks | 1 hour | below |
 | 5i | Messages to members: tags, groups and the daily email cap | Owner decides, front desk | 15 min | below |
+| 5j | Offsite backups, and the keys to keep | Owner creates the storage key, agent sets up | 20 min | [accounts/offsite-backups.md](accounts/offsite-backups.md) |
 | 6 | Card payments, in test mode first | Owner copies keys, agent sets up | 30 min | [accounts/stripe.md](accounts/stripe.md) |
 | 7 | Playtomic, only if the club also uses it | Owner creates keys, agent sets up | 20 min | [accounts/playtomic.md](accounts/playtomic.md) |
 | 8 | Practice with the club's own staff | Everyone | a few days | below |
@@ -254,6 +255,23 @@ start). The email service has its own daily limit (Resend's free plan: 100 a day
 club's own messages (sign-in codes, confirmations, receipts) need room. On a paid email plan, raise it.
 Settings can also send owners and managers a copy of every message; the sender always gets one.
 
+### Step 5j: offsite backups, and the keys to keep
+
+The server backs itself up every night, but those copies are on its own disk. Follow
+[accounts/offsite-backups.md](accounts/offsite-backups.md) to send each night's backup, sealed, to storage
+the club owns (Cloudflare R2 or Backblaze B2; both have a free allowance far above a club's needs). Then:
+
+- **Agent:** run `kumi backup`, `kumi offsite` and `kumi restore-test`; `kumi doctor` should show
+  `offsite` and `restore_test` as `ok`. The restore test runs by itself once a month from then on.
+- **Owner:** keep `KUMI_BACKUP_KEY` and `KUMI_SECRET_KEY` in a password manager. The agent never reads
+  them: the owner looks at them on the server in their own terminal
+  (`sudo grep -E '^KUMI_(BACKUP|SECRET)_KEY=' /etc/kumi/kumi.env`). Without the backup key, the offsite
+  copies can't be opened.
+
+The owner also has a **vault** in the staff app (Settings, then "The vault"): the club's keys and small
+documents (a supplier login, the alarm code, the insurance certificate, the lease), sealed with the
+server's key and seen only by the owner. Never paste those into a chat; the owner adds them there.
+
 ### Programs: weekly dates, changes and a minimum to run
 
 Add a program's dates on its page; "Dates, one a week" adds that many at the same club time, across
@@ -312,8 +330,8 @@ each. Then:
   of what was agreed), and the rows themselves, under "Former member". A membership that wouldn't
   charge again ends then, with nothing back for the rest of it.
 - **Elsewhere:** Kumi can't reach copies outside it. Stripe keeps its own payment records, emails
-  already delivered stay in inboxes, and backups keep the old data until they age out (the one-server
-  install keeps nightly backups for 14 days). Say so if a member asks.
+  already delivered stay in inboxes, and backups keep the old data until they age out (14 days on the
+  server; offsite, 30 daily copies and 12 monthly ones). Say so if a member asks.
 
 The same address can join again later as a new member, with nothing of the old account.
 
@@ -347,7 +365,8 @@ Only when the owner says so:
 
 1. Stripe: switch to live keys ([accounts/stripe.md](accounts/stripe.md), "Going live").
 2. Email: remove `KUMI_PRACTICE=1` from `/etc/kumi/kumi.env`.
-3. `systemctl restart kumi`, then `kumi doctor`: everything should be `ok`.
+3. `systemctl restart kumi`, then `kumi doctor`: everything should be `ok`, offsite backups and the
+   restore test included.
 4. Tell members where the app is. Kumi doesn't send that announcement for you.
 
 ## Commands, and where they run
@@ -360,4 +379,10 @@ agents) and `--lang=es` (for Spanish), and none of them prompts or prints a secr
 | `kumi setup plan [file]` | What setting the club up from the file would change. Changes nothing. |
 | `kumi setup apply [file]` | Makes those changes, through the same checked and audited actions the apps use. |
 | `kumi import members <file.csv> [--apply]` | Adds members from a spreadsheet; a preview unless `--apply`. Emails nobody. |
-| `kumi doctor` | Checks the database, the club, the address, email, payments, Playtomic and backups. |
+| `kumi doctor` | Checks the database, the club, the address, email, payments, Playtomic, backups, the offsite copy, the restore test and the server's key. |
+| `kumi backup` | Tonight's backup now: the dump and its manifest, and the offsite copy if it's set up. |
+| `kumi offsite` | What's kept offsite. |
+| `kumi restore-test` | Restores the newest backup into a scratch database and checks every table. |
+| `kumi rotate-key` | Seals every secret with `KUMI_SECRET_KEY` (the old key in `KUMI_SECRET_KEY_PREVIOUS`). |
+| `sudo kumi restore <file \| offsite:latest> --yes` | Replaces the database with a backup: stops the server, restores, starts it. Everything since is lost. |
+| `sudo kumi releases`, `sudo kumi rollback --yes` | Which release runs; going back to the previous one and its database (see `deploy/README.md`). |

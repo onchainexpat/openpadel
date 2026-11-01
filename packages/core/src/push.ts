@@ -6,15 +6,17 @@
 import type { Db } from "./db.ts";
 import { uuidv7 } from "./ids.ts";
 import { generateVapidKeys, isPushEndpoint, sendPush, type VapidKeys } from "./webpush.ts";
+import { openText, sealText } from "./sealed.ts";
 
-/** The club's push keys, made (once, whichever server process gets there first) the first time they're needed. */
+/** The club's push keys, made (once, whichever server process gets there first) the first time they're needed.
+ *  The private half is sealed with the server's key (sealed.ts). */
 export async function pushKeys(db: Db): Promise<VapidKeys> {
   const k = await db.selectFrom("push_key").select(["public_key", "private_key"]).executeTakeFirst();
-  if (k) return { publicKey: k.public_key, privateKey: k.private_key };
+  if (k) return { publicKey: k.public_key, privateKey: openText(k.private_key) };
   const fresh = generateVapidKeys();
-  await db.insertInto("push_key").values({ public_key: fresh.publicKey, private_key: fresh.privateKey }).onConflict((oc) => oc.column("singleton").doNothing()).execute();
+  await db.insertInto("push_key").values({ public_key: fresh.publicKey, private_key: sealText(fresh.privateKey) }).onConflict((oc) => oc.column("singleton").doNothing()).execute();
   const won = await db.selectFrom("push_key").select(["public_key", "private_key"]).executeTakeFirstOrThrow();
-  return { publicKey: won.public_key, privateKey: won.private_key };
+  return { publicKey: won.public_key, privateKey: openText(won.private_key) };
 }
 
 /** Turn notifications on for one device. The same device used by someone else since is theirs now. */

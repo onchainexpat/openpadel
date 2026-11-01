@@ -17,6 +17,8 @@ button.danger { border-color: var(--error); color: var(--error); } .sheet button
 button.link { border: 0; padding: 0; text-decoration: underline; }
 button.small { padding: 4px 10px; font-size: 14px; margin-top: 8px; }
 button:disabled { opacity: .6; }
+a.button { display: inline-block; padding: 4px 10px; font-size: 14px; border-radius: 8px; border: 1px solid var(--brand); color: var(--brand); text-decoration: none; }
+form.inline { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; } form.inline input { margin: 0; width: 10em; }
 .or { text-align: center; color: var(--muted); }
 .error { color: var(--error); } .note { color: var(--brand); }
 .meta { color: var(--muted); font-size: 14px; }

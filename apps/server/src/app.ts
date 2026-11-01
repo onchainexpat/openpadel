@@ -5,7 +5,9 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { secureHeaders } from "hono/secure-headers";
 import { bodyLimit } from "hono/body-limit";
 import { clientIp, RateLimiter } from "./limits.ts";
-import { VERSION } from "./version.ts";
+import { REVISION, VERSION } from "./version.ts";
+import { deepHealth, mayReadDeepHealth } from "./health.ts";
+import { vaultRoutes } from "./vault.ts";
 import { manifestRoutes } from "./manifest.ts";
 import * as z from "zod/mini";
 import { sql } from "kysely";
@@ -143,11 +145,19 @@ export function makeApp(deps: AppDeps) {
     return parsed.data;
   };
 
-  app.get("/health", (c) => c.json({ ok: true, version: VERSION }));
+  app.get("/health", (c) => c.json({ ok: true, version: VERSION, revision: REVISION }));
+  // The fuller picture (backups, outbox, disk): from the server itself, or for an owner or manager (health.ts).
+  app.get("/health/deep", async (c) => {
+    await mayReadDeepHealth(db, c, c.get("me")?.id ?? null);
+    const h = await deepHealth(db, { now: now() });
+    return c.json(h, h.ok ? 200 : 503);
+  });
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page"]).executeTakeFirst();
+    // Not set up yet (kumi setup apply): nothing to show, which isn't the server failing.
+    if (!club) throw new KumiError("error.club_not_set_up", {}, 404);
     // Whether there's a membership to join in the app.
     const plan = await db.selectFrom("membership_plan").select("id").where("active", "=", true).where("join_in_app", "=", true).executeTakeFirst();
     // Whether any coach takes lessons in the app.
@@ -161,6 +171,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
+  app.route("/", vaultRoutes(db, (c) => c.get("me"), now));
   app.route("/", calendarRoutes(db, (c) => c.get("me")));
   app.route("/", broadcastRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", publicRoutes(db, (c) => c.get("lang"), publicUrl));

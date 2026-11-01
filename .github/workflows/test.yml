@@ -18,10 +18,20 @@ jobs:
         options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       KUMI_TEST_ADMIN_URL: postgres://postgres@127.0.0.1:5432/postgres
+      KUMI_REQUIRE_PG_TOOLS: "1"   # the backup and restore tests must run here, not be skipped
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1   # v7.1.0
         with: { node-version: 24.22.0, cache: npm }
+      # pg_dump, pg_restore and psql 17 for the backup tests, from the database's own image (already pulled).
+      - name: Postgres 17 tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/pgbin"
+          for t in pg_dump pg_restore psql; do
+            printf '#!/bin/sh\nexec docker run --rm -i --network host -v /tmp:/tmp -u "$(id -u):$(id -g)" -e PGPASSWORD postgres:17.9-alpine %s "$@"\n' "$t" > "$RUNNER_TEMP/pgbin/$t"
+            chmod +x "$RUNNER_TEMP/pgbin/$t"
+          done
+          echo "KUMI_PG_BIN=$RUNNER_TEMP/pgbin" >> "$GITHUB_ENV"
       - run: npm ci --no-audit --no-fund
       - run: npm audit --audit-level=high
       - run: npm run typecheck

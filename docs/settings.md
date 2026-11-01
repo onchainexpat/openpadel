@@ -43,12 +43,33 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 | `KUMI_MIRROR_EVERY_MINUTES` | How often it reads. | `10` |
 | `KUMI_MIRROR_DAYS_AHEAD` | How far ahead it reads. | `30` |
 
+## Keys the server keeps
+
+| Setting | What it does | Default |
+|---|---|---|
+| `KUMI_SECRET_KEY` | 32 random bytes (`head -c 32 /dev/urandom \| base64`) that seal the secrets Kumi keeps in the database: authenticator secrets, the push signing key, the vault. Made by `server-setup.sh` (and by the first update on an older server), never printed. Production won't start without it. | not set: secrets kept unsealed, development only |
+| `KUMI_SECRET_KEY_PREVIOUS` | The key before, while changing it: values sealed under it still open, and `kumi rotate-key` (or the next start) moves them to the new one. Remove it after. | not set |
+| `KUMI_BACKUP_KEY` | 32 random bytes that seal the offsite copies. A key of its own, not the server's, so the backups still open after losing the server: keep a copy away from it (a password manager). | not set; `server-setup.sh` makes one |
+
+## Backups
+
+| Setting | What it does | Default |
+|---|---|---|
+| `KUMI_BACKUP_DIR` | Where the nightly dumps and their manifests go (kept 14 days), and where `kumi doctor` looks. | `/var/backups/kumi` |
+| `KUMI_OFFSITE_ENDPOINT` | The S3-compatible storage's address: `https://<account>.r2.cloudflarestorage.com` (R2), `https://s3.<region>.backblazeb2.com` (B2), `https://<region>.digitaloceanspaces.com`, or AWS's. With the next three, every night's backup also goes offsite, sealed. See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md). | not set: no offsite copy |
+| `KUMI_OFFSITE_BUCKET` | The bucket. | |
+| `KUMI_OFFSITE_ACCESS_KEY_ID`, `KUMI_OFFSITE_SECRET_ACCESS_KEY` | A key for that bucket only, allowed to read, write, list and delete. | |
+| `KUMI_OFFSITE_REGION` | The region the storage signs for: `auto` for R2, the bucket's region elsewhere (`us-west-004`, `us-east-1`). | `auto` |
+| `KUMI_OFFSITE_PREFIX` | The folder in the bucket. | `kumi/` |
+| `KUMI_OFFSITE_PATH_STYLE` | `0` for addresses like `bucket.endpoint` instead of `endpoint/bucket`. | path style |
+| `KUMI_RESTORE_TEST_DATABASE_URL` | The scratch database the monthly restore test fills and empties. | the live server's `kumi_restore_test` |
+| `KUMI_PG_BIN` | Where `pg_dump` and `pg_restore` 17 are. | `/usr/lib/postgresql/17/bin`, else the `PATH` |
+
 ## The kumi command
 
 | Setting | What it does | Default |
 |---|---|---|
 | `KUMI_CLUB_FILE` | The `club.yaml` that `kumi setup` reads when no file is named. | `club.yaml`; `/etc/kumi/club.yaml` on a server |
-| `KUMI_BACKUP_DIR` | Where `kumi doctor` looks for backups. | `/var/backups/kumi` |
 | `KUMI_LANG` | The command's language (`en` or `es`); `--lang=` overrides it. | from `LANG` |
 | `KUMI_CALLER_DIR` | Set by the server's `kumi` wrapper so relative paths work; not set by hand. | |
 
@@ -58,6 +79,7 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 |---|---|---|
 | `KUMI_HOST` | The members' app's host; staff use `staff.` in front of it. | required |
 | `KUMI_DB_PASSWORD` | The database password (`openssl rand -hex 24`). | required |
+| `KUMI_TAG` | Which built release the containers run; `deploy/docker/update.sh` sets it. | `local` |
 | `KUMI_HTTP_PORT`, `KUMI_HTTPS_PORT` | The ports Caddy is reached on. | `80`, `443` |
 
 ## Development and tests only

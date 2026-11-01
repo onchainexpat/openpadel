@@ -19,7 +19,15 @@ FROM build AS runtime-deps
 RUN npm prune --omit=dev --no-audit --no-fund --loglevel=error && rm -rf apps/member apps/manager
 
 FROM node:24.22.0-bookworm-slim AS server
-ENV NODE_ENV=production PORT=8790 KUMI_CLUB_FILE=/etc/kumi/club.yaml
+# pg_dump and pg_restore, for backups and the restore test: Postgres 17's own, from the PostgreSQL project's
+# repository (Debian's are older, and an older pg_dump refuses a newer server).
+RUN apt-get update -q && apt-get install -yq --no-install-recommends ca-certificates curl \
+ && install -d /usr/share/postgresql-common/pgdg \
+ && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+ && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update -q && apt-get install -yq --no-install-recommends postgresql-client-17 \
+ && apt-get purge -yq curl && apt-get autoremove -yq && rm -rf /var/lib/apt/lists/*
+ENV NODE_ENV=production PORT=8790 KUMI_CLUB_FILE=/etc/kumi/club.yaml KUMI_PG_BIN=/usr/lib/postgresql/17/bin
 WORKDIR /app
 COPY --from=runtime-deps --chown=node:node /app /app
 RUN printf '#!/bin/sh\nexec node /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/kumi && chmod 755 /usr/local/bin/kumi

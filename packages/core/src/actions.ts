@@ -110,6 +110,7 @@ const ENTITIES = {
   message_template: { table: "message_template", key: "id", retire: { active: false } },
   broadcast: { table: "broadcast", key: "id", retire: { status: "cancelled" } },
   staff_alert: { table: "staff_alert", key: "id", retire: null },
+  vault_item: { table: "vault_item", key: "id", retire: { active: false } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 /** Columns that are keys to something (a club news email's unsubscribe link, an authenticator's secret):

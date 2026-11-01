@@ -10,7 +10,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 
-export const ALERT_KINDS = ["match_late_cancel_staff", "question_unanswered_staff", "booking_balance_due_staff", "program_min_short", "program_min_cancelled_staff", "refund_failed"] as const;
+export const ALERT_KINDS = ["match_late_cancel_staff", "question_unanswered_staff", "booking_balance_due_staff", "program_min_short", "program_min_cancelled_staff", "refund_failed", "ops_failed_staff"] as const;
 /** How far back the list looks: older alerts have been dealt with one way or another. */
 export const ALERT_DAYS = 14;
 
