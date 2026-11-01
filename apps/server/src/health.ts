@@ -5,8 +5,9 @@
 import { statfsSync } from "node:fs";
 import type { Context } from "hono";
 import { sql } from "kysely";
-import { heartbeats, KumiError, type Db } from "@kumi/core";
+import { heartbeats, KumiError, MAX_ATTEMPTS, type Db } from "@kumi/core";
 import { newestLocalAge } from "./backups.ts";
+import { handledTopics } from "./outbox.ts";
 import { s3FromEnv } from "./s3.ts";
 import { REVISION, VERSION } from "./version.ts";
 
@@ -33,11 +34,16 @@ export async function deepHealth(db: Db, o: { env?: Env; now?: Date; backupDir?:
   catch (e) { database = { ok: false, ms: null, error: (e as Error).message.split("\n")[0] }; problems.push("database"); }
   if (!database.ok) return { ok: false, version: VERSION, revision: REVISION, database, problems };
 
-  const oldestEvent = (await sql<{ at: Date | null }>`SELECT min(created_at) AS at FROM event_outbox WHERE delivered_at IS NULL`.execute(db)).rows[0]?.at ?? null;
+  // Only events the worker picks up: one nobody handles (club.set_up, say) waits forever and is no sign of
+  // trouble. One it gave up on after every retry is, for a week.
+  const waiting = db.selectFrom("event_outbox").where("delivered_at", "is", null).where("topic", "in", handledTopics);
+  const oldestEvent = (await waiting.select((e) => e.fn.min("created_at").as("at")).where("attempts", "<", MAX_ATTEMPTS).executeTakeFirst())?.at ?? null;
+  const givenUp = Number((await waiting.select((e) => e.fn.countAll().as("n")).where("attempts", ">=", MAX_ATTEMPTS)
+    .where("created_at", ">", new Date(now.getTime() - 7 * 86_400_000)).executeTakeFirst())?.n ?? 0);
   const oldestMessage = (await sql<{ at: Date | null }>`SELECT min(send_after) AS at FROM outbound_message WHERE status = 'waiting' AND send_after <= ${now}`.execute(db)).rows[0]?.at ?? null;
-  const lag = (d: Date | null) => (d ? Math.round((now.getTime() - new Date(d).getTime()) / 1000) : 0);
-  const outbox = { events_behind_s: lag(oldestEvent), messages_behind_s: lag(oldestMessage) };
-  if (outbox.events_behind_s > 600 || outbox.messages_behind_s > 900) problems.push("outbox");
+  const lag = (d: Date | string | null) => (d ? Math.round((now.getTime() - new Date(d).getTime()) / 1000) : 0);
+  const outbox = { events_behind_s: lag(oldestEvent), events_given_up: givenUp, messages_behind_s: lag(oldestMessage) };
+  if (outbox.events_behind_s > 600 || givenUp > 0 || outbox.messages_behind_s > 900) problems.push("outbox");
 
   const hb = await heartbeats(db), hours = (d: Date | null | undefined) => (d ? Math.round((now.getTime() - new Date(d).getTime()) / 360_000) / 10 : null);
   const job = (name: "backup" | "offsite" | "restore_test") => {

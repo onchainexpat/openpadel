@@ -95,3 +95,19 @@ test("/health names the release; /health/deep is for this machine, or an owner o
   const proxied = await app.request("/health/deep", { headers: { "x-forwarded-for": "203.0.113.9" } }, local as any);
   assert.equal(proxied.status, 401);
 });
+
+test("/health/deep: an event nobody handles isn't the outbox falling behind; one given up on is", async () => {
+  const outbox = async () => (await (await get("/health/deep", "mia@example.test")).json() as any).outbox;
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000);
+  await db.updateTable("event_outbox").set({ delivered_at: new Date() }).where("delivered_at", "is", null).execute();
+  await db.insertInto("event_outbox").values({ topic: "club.set_up", payload: JSON.stringify({}), created_at: hoursAgo(50) }).execute();
+  assert.deepEqual(await outbox(), { events_behind_s: 0, events_given_up: 0, messages_behind_s: 0 });
+  const stuck = await db.insertInto("event_outbox").values({ topic: "refund.requested", payload: JSON.stringify({}), created_at: hoursAgo(2) }).returning("id").executeTakeFirstOrThrow();
+  const o = await outbox();
+  assert.ok(o.events_behind_s >= 7190 && o.events_behind_s < 7300, String(o.events_behind_s));
+  await db.updateTable("event_outbox").set({ attempts: 8 }).where("id", "=", stuck.id).execute();
+  assert.deepEqual(await outbox(), { events_behind_s: 0, events_given_up: 1, messages_behind_s: 0 });
+  await db.updateTable("event_outbox").set({ created_at: hoursAgo(8 * 24) }).where("id", "=", stuck.id).execute();
+  assert.equal((await outbox()).events_given_up, 0);   // a week on, it's no longer news
+  await db.deleteFrom("event_outbox").where("id", "=", stuck.id).execute();
+});

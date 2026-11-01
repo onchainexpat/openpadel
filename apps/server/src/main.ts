@@ -1,7 +1,8 @@
 import { serve } from "@hono/node-server";
-import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, combine, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, messageHandlers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, moneyHandlers, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
+import { handlers } from "./outbox.ts";
 
 // The server's key for the secrets it keeps (authenticators, the push key, the vault: sealed.ts). Production
 // refuses to start without one; elsewhere secrets are kept as they are, and it says so.
@@ -60,7 +61,6 @@ console.log(`kumi server on http://127.0.0.1:${port}`);
 
 // The jobs, every 30 seconds: refunds and messages leave through the outbox, and due emails go out;
 // waitlist offers that ran out pass on; card payments nobody told us about are checked with the provider.
-const handlers = combine(moneyHandlers, messageHandlers);
 const pushContact = process.env.KUMI_PUSH_CONTACT ?? (publicUrl.startsWith("https://") ? publicUrl : "mailto:owner@localhost");
 const jobs = async () => {
   try {
