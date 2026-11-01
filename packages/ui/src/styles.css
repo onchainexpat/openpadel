@@ -80,3 +80,12 @@ label.inline-number input { flex: none; width: 5.5em; margin: 0; }
 .thread .msg { padding: 8px 12px; border-radius: 8px; margin: 0 0 8px; border: 1px solid var(--line); }
 .thread .msg.staff, .thread .msg.club { background: color-mix(in srgb, var(--brand) 7%, var(--card)); }
 .thread .msg .meta { margin: 0; }
+/* The bot check's hidden field: off screen, never seen or tabbed to (bot.ts). */
+.trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+/* Two-step sign-in: the authenticator's QR code and the recovery codes. */
+.qr { display: block; width: 200px; height: 200px; margin: 8px 0; image-rendering: pixelated; }
+.codes { font-family: ui-monospace, monospace; font-size: 1.05rem; columns: 2; padding-left: 0; list-style-position: inside; }
+.key { font-family: ui-monospace, monospace; }
+/* The role editor: one area open at a time is enough to read. */
+details.area { border-top: 1px solid var(--line); padding: 8px 0; }
+details.area summary { cursor: pointer; font-weight: 600; }

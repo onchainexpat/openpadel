@@ -39,3 +39,7 @@ export * from "./privacy.ts";
 export * from "./playtomic.ts";
 export * from "./stripe.ts";
 export * from "./connect.ts";
+export * from "./totp.ts";
+export * from "./qr.ts";
+export * from "./two_factor.ts";
+export * from "./roles.ts";

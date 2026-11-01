@@ -251,13 +251,34 @@ The first version a club can run on its own (court bookings included), or for it
   arrives as a notification, encrypted for that device (Web Push, no third-party service of Kumi's
   own), with quiet hours and consent as for email. Staff alerts go to the staff app's devices.
 
+**Signing in and roles**
+- Two-step sign-in for staff: a passkey (both steps by itself), or the emailed code followed by a code from
+  an authenticator app. Setting one up shows a QR code and the key to type, then ten recovery codes, shown
+  once and kept only as slow hashes, each good once. Owners, managers and anyone with a role the club made
+  must use it (the default), or every staff role if the club says so in Settings; members can choose it
+  for themselves. Until the second step is given, nothing but finishing the sign-in answers. The owner can
+  start someone's second step over (a lost phone): their authenticator, recovery codes and passkeys go and
+  they're signed out everywhere; `kumi reset-sign-in <email>` does it on the server for an owner who is
+  locked out. Connecting an agent asks for the second step too.
+- Bot protection with no third party, on sign-up, sign-in codes and opening a card form: a field people
+  never see, and a small proof of work the page solves (a fraction of a second on a phone, harder for an
+  address that keeps failing). It's always on in production; staff at the desk and agents don't meet it.
+- Roles the club makes: a name and, area by area, what it can do (nothing, the person's own, or
+  everyone's, with or without approval). The preview says in plain words what it can and can't do. A
+  club's role only holds what a manager does without asking; anything else is the owner's. Nobody can
+  make or give a role that does more than they can. The built-in roles stay as they are and can be copied
+  as a start. Someone whose only staff role is the club's own sees only the areas it covers.
+- Fixed: grants like "person.passkey_*" (a family of actions) now apply, so front desk, coaches and
+  accountants can add and remove their own passkeys, as was meant.
+
 **Running it**
 - Setting up from `club.yaml` (`kumi setup plan`, `kumi setup apply`), member import, and
   `kumi doctor`; guides an owner's AI agent can follow (`docs/setup`).
 - One-server install script or Docker Compose, HTTPS, nightly backups, tested restore.
-- English and US Spanish throughout. Security: rate limits, no cross-site changes, strict headers.
+- English and US Spanish throughout. Security: rate limits, no cross-site changes, strict headers,
+  two-step sign-in for staff, bot protection.
 - Light apps: each app downloads only its own wording, in the person's language, and set-up pages load
-  when opened. The members' app needs about 116 kB of JavaScript before its first screen (under its
-  200 kB budget, which the build now checks); the staff app about 130 kB.
+  when opened. The members' app needs about 124 kB of JavaScript before its first screen (under its
+  200 kB budget, which the build now checks); the staff app about 150 kB.
 
 **When updating:** nothing; this is the first release.

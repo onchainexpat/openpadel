@@ -2,7 +2,7 @@
 // browser to Stripe and never touch Kumi. Kumi then checks with Stripe that the payment went through.
 // The same form saves a card without paying (a membership joined before its plan starts).
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, ApiError, dollars, lang, t } from "@kumi/ui";
+import { api, ApiError, dollars, lang, protectedPost, t } from "@kumi/ui";
 
 declare global { interface Window { Stripe?: (publishableKey: string, options?: object) => any } }
 
@@ -47,7 +47,9 @@ export function PaySheet({ paymentId, cardFor, familyCard, amountCents, name, on
     let gone = false;
     (async () => {
       try {
-        const it = await api<{ client_secret: string; publishable_key: string | null; stripe_account: string | null; card_id?: string; family?: "paid" | "parent"; cents?: number }>(urls.open, {});
+        type Opened = { client_secret: string; publishable_key: string | null; stripe_account: string | null; card_id?: string; family?: "paid" | "parent"; cents?: number };
+        // A card form for a payment passes the bot check first (the server's bot.ts); saving a card doesn't charge.
+        const it = setup ? await api<Opened>(urls.open, {}) : await protectedPost<Opened>(urls.open, {});
         if (it.family === "paid") { onPaid(); return; }
         if (it.family === "parent") { setNote(t("ui.kid_parent_pays")); return; }
         if (it.card_id) check.current = `/my/family/card/${it.card_id}/check`;

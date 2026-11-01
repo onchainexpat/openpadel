@@ -13,6 +13,7 @@ collected here.
 | Each location: name and street address | `club.yaml` | Website |
 | Each court: its name, and indoor, covered or outdoor | `club.yaml` | Website, photos or the owner |
 | Staff: name, email and role (manager, front desk, coach, accountant) | `club.yaml` | Owner |
+| Who signs in with two steps (owners, managers and the club's own roles, or every staff role), and any roles the club wants of its own (a name and what it can do) | Settings, Sign-in and roles | Owner |
 | A domain the club owns (or can buy), and who controls its DNS | The app's address and email | Owner |
 | Brand colour and logo | The apps | Website, owner approves |
 | Clinic, social and Americano prices, the cancellation rule (how many hours before a refund stops), and any minimum to run | Programs, once set up | Owner |

@@ -59,6 +59,12 @@ removing things is done in the staff app, where the preview shows what each chan
 The owner then signs in to the staff app with their email address. A code arrives by email (or,
 before email is set up, appears in the server log: `journalctl -u kumi | grep '\[mail'`).
 
+Owners and managers sign in with two steps. The first time, the staff app asks the owner to set up a
+second step: a passkey on their phone or computer (both steps at once), or an authenticator app (Google
+Authenticator, Microsoft Authenticator, 1Password and the like) with ten recovery codes to keep
+somewhere safe. If the owner ever loses all of them, an agent on the server runs
+`kumi reset-sign-in owner@theclub.com`, and the owner sets it up again at the next sign-in.
+
 ### Step 5b: members
 
 Members can join by themselves: they enter their email in the members' app, get a code, and give
@@ -257,6 +263,20 @@ everyone is told; the front desk hears once before that (Settings: 24 hours earl
 needs, which a message to members can help with. On a full program, members can ask to hear when a
 place opens: the waitlist is offered places first, and once a place is open to anyone, everyone
 watching hears once.
+
+### Signing in, roles and bots
+
+- **Two steps for staff.** Settings, "Sign-in and roles": owners, managers and the club's own roles (the
+  default), or every staff role. Each person sets up a passkey or an authenticator app the first time
+  they sign in after it applies to them; members can turn an authenticator on in Profile if they like.
+  The owner can start someone's second step over from their page in the staff app.
+- **The club's own roles.** Settings, then Roles: make one from nothing or copy a built-in one, and pick
+  what it can do, area by area. Give it to someone on their page. It holds only what a manager can do
+  without asking, and the people who have it see only those areas in the staff app.
+- **Bot protection** is on by itself: sign-up, sign-in codes and card forms ask the browser to solve a
+  small puzzle first, and a hidden field catches scripts that fill in everything. Nothing to set up. On a
+  practice machine, `KUMI_BOT_CHECK=0` turns it off for scripts that sign in over the API; production
+  refuses to start that way.
 
 ### Members' data: a copy, and deleting an account
 

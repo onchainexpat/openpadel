@@ -4,10 +4,11 @@
 //   kumi setup apply [club.yaml]   make those changes; run it again after editing the file
 //   kumi import members <file.csv> [--apply]   members from a spreadsheet (a preview unless --apply)
 //   kumi doctor                    is everything working? each check, and the next step when it isn't
+//   kumi reset-sign-in <email>     start someone's second sign-in step over (a lost phone; an owner locked out)
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { t, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { connect, migrate, plan, run } from "@kumi/core";
+import { connect, migrate, plan, run, runAsSystem } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 import { doctor, type Check } from "./doctor.ts";
 import { ClubFileError, ownerActor, readClubFile, setupClub } from "./setup.ts";
@@ -74,6 +75,17 @@ async function main(): Promise<number> {
       for (const c of checks) console.log(`${mark[c.state]}  ${say(c.text)}${c.doc && c.state !== "ok" ? `  (${c.doc})` : ""}`);
       console.log(t(lang, bad ? "cli.doctor_bad" : "cli.doctor_good", { count: bad }));
       return bad ? 1 : 0;
+    } finally { await db.destroy(); }
+  }
+  if (cmd === "reset-sign-in" && sub) {
+    const db = connect();
+    try {
+      const person = await db.selectFrom("person").select(["id", "display_name"]).where((eb) => eb(eb.fn("lower", ["email"]), "=", sub.trim().toLowerCase())).where("status", "!=", "archived").executeTakeFirst();
+      if (!person) { if (json) out({ ok: false }); else console.error(t(lang, "cli.no_person", { email: sub })); return 2; }
+      const r = await runAsSystem(db, "person.reset_sign_in", { person_id: person.id }, "cli");
+      if (json) { out({ ok: true, summary: say(r.plan.summary) }); return 0; }
+      console.log(say(r.plan.summary));
+      return 0;
     } finally { await db.destroy(); }
   }
   console.log(t(lang, "cli.usage"));

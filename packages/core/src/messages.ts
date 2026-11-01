@@ -568,6 +568,10 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     }
     return drafts;
   },
+  // Their second sign-in step was started over: they hear who did it, and what to do next time.
+  async "person.sign_in_reset"(_ctx, p: { person_id: string; by: string | null }) {
+    return [{ to: p.person_id, kind: "sign_in_reset", params: { by: p.by ? both("msg.sign_in_reset_by", { by: p.by }) : both("msg.sign_in_reset_kumi") }, purpose: "account" as const, essential: true, email: true, link: "/profile" }];
+  },
   // An account deleted: the club hears, without a name (it's gone), and who did it.
   async "privacy.erased"({ db, tz }, p: { self: boolean; by: string | null; juniors: number; at: string }) {
     const by = p.by ? (await db.selectFrom("person").select("display_name").where("id", "=", p.by).executeTakeFirst())?.display_name ?? "" : "";

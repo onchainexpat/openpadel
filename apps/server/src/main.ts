@@ -38,7 +38,11 @@ if (process.env.KUMI_RESEND_API_KEY) {
   mailer = practice ? new PracticeMailer(resend, testTo) : resend;
   console.log(`email: resend from ${from}${practice ? `, practice: only to ${testTo.filter(Boolean).length} test addresses` : ""}`);
 }
-serve({ fetch: makeApp({ db, mailer, publicUrl, secureCookies: production, production, stripe: stripeConfig }).fetch, port });
+// Bot protection on sign-up, sign-in codes and checkout. KUMI_BOT_CHECK=0 leaves it off on a practice
+// machine (scripts that sign in over the API); production refuses to start that way.
+const botCheck = process.env.KUMI_BOT_CHECK !== "0";
+if (!botCheck && production) { console.error("KUMI_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
+serve({ fetch: makeApp({ db, mailer, publicUrl, secureCookies: production, production, stripe: stripeConfig, botCheck }).fetch, port });
 console.log(`kumi server on http://127.0.0.1:${port}`);
 
 // The jobs, every 30 seconds: refunds and messages leave through the outbox, and due emails go out;

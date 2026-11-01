@@ -6,7 +6,7 @@ import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setCookie } from "hono/cookie";
 import { t, type Lang } from "@kumi/i18n";
-import { KumiError, uuidv7, type Db } from "@kumi/core";
+import { activeFactor, KumiError, useAuthenticatorCode, uuidv7, type Db } from "@kumi/core";
 import { startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 
@@ -28,7 +28,7 @@ function okRedirect(u: string): boolean {
   catch { return false; }
 }
 
-export interface OAuthDeps { db: Db; mailer: Mailer; publicUrl: string; secureCookies: boolean; fetchMetadata: FetchMetadata; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => { id: string; display_name: string } | null }
+export interface OAuthDeps { db: Db; mailer: Mailer; publicUrl: string; secureCookies: boolean; fetchMetadata: FetchMetadata; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => { id: string; display_name: string; token_hash: string; gate: "setup" | "verify" | null } | null }
 
 /** The pending consent screens: one per authorize request, for 10 minutes. */
 const pending = new Map<string, { at: number; params: AuthorizeParams; clientName: string }>();
@@ -93,6 +93,14 @@ export function oauthRoutes(deps: OAuthDeps) {
 ${c.req.query("sent") ? html`<label>${t(lang, "consent.code_label")}<input name="code" inputmode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code"></label><button class="primary">${t(lang, "consent.verify")}</button>`
   : html`<button class="primary">${t(lang, "consent.send_code")}</button>`}</form>`));
     }
+    // Signed in by emailed code, but this person signs in with two steps: the authenticator's code here, or
+    // (with only a passkey, or nothing set up yet) the club's app first.
+    if (me.gate) {
+      if (me.gate === "verify" && await activeFactor(deps.db, me.id)) return c.html(page(lang, t(lang, "consent.two_step_title"), html`
+<form method="post" action="/oauth/two-step"><input type="hidden" name="back" value="${c.req.url}">
+<label>${t(lang, "consent.two_step_label")}<input name="code" inputmode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code"></label><button class="primary">${t(lang, "consent.verify")}</button></form>`));
+      return c.html(page(lang, t(lang, "consent.two_step_title"), html`<p>${t(lang, "consent.two_step_in_app", { club: clubName })}</p>`));
+    }
     const id = b64url(randomBytes(16));
     pending.set(id, { at: Date.now(), clientName: client.name, params: { client_id: client.client_id, redirect_uri: q.redirect_uri, code_challenge: q.code_challenge, state: q.state, scope: SCOPE, resource } });
     const host = new URL(q.redirect_uri).host;
@@ -117,6 +125,16 @@ ${c.req.query("sent") ? html`<label>${t(lang, "consent.code_label")}<input name=
     if (!("token" in r)) throw new KumiError("error.no_account", {}, 404);
     setCookie(c, "kumi_session", r.token, { httpOnly: true, secure: deps.secureCookies, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
     u.searchParams.delete("sent"); u.searchParams.delete("email");
+    return c.redirect(`${u.pathname}${u.search}`, 303);
+  });
+
+  app.post("/oauth/two-step", async (c) => {
+    const f = await c.req.parseBody(), me = deps.me(c);
+    const u = new URL(String(f.back ?? ""), issuer);
+    if (u.origin !== new URL(issuer).origin || u.pathname !== "/oauth/authorize") throw new KumiError("error.oauth_request", {}, 400);
+    if (!me) throw new KumiError("error.signed_out", {}, 401);
+    if (!(await useAuthenticatorCode(deps.db, me.id, String(f.code ?? ""), deps.now()))) throw new KumiError("error.bad_factor_code", {}, 401);
+    await deps.db.updateTable("web_session").set({ second_factor: "totp" }).where("token_hash", "=", me.token_hash).execute();
     return c.redirect(`${u.pathname}${u.search}`, 303);
   });
 

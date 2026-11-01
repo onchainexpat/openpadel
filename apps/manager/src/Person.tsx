@@ -5,7 +5,7 @@ import { useLocation } from "preact-iso";
 import { AccountData, api, lang, me, t, usePreview } from "@kumi/ui";
 import { GiveMembership, MembershipButtons, membershipLine, type Plan } from "./Memberships.tsx";
 
-type Role = { key: string; location_id: string | null; location_name: string | null };
+type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
 type P = {
   id: string; display_name: string; email: string | null; locale: string; created_via: string; created_at: string;
   roles: Role[]; places: { id: string; status: string; program_id: string; name: string; first_start: string | null }[];
@@ -19,6 +19,7 @@ type P = {
   covered_by: { membership_id: string; payer_id: string; payer: string; plan: string } | null; also_covers: string[];
   redacted_at: string | null;
   tags: { id: string; name: string }[];
+  sign_in?: { authenticator: boolean; passkeys: number; recovery_left: number };
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;
 
@@ -27,10 +28,13 @@ export function Person({ id }: { id: string }) {
   const [role, setRole] = useState<string>("front_desk"), [where, setWhere] = useState(""), [jName, setJName] = useState(""), [jYear, setJYear] = useState("");
   // Tags: the club's own words for a member ("league A"); a new one is made by typing it.
   const [tags, setTags] = useState<{ id: string; name: string }[] | null>(null), [newTag, setNewTag] = useState("");
+  // The club's own roles, offered alongside the built-in ones.
+  const [custom, setCustom] = useState<{ key: string; name: string }[]>([]);
   const { route } = useLocation();
   const load = () => api<P>(`/staff/people/${id}`).then((x) => { setP(x); setNewTag(""); });
   const { preview, sheet } = usePreview(load);
-  useEffect(() => { load(); api<{ id: string; name: string }[]>("/staff/locations").then(setLocations); api<{ id: string; name: string }[]>("/staff/tags").then(setTags).catch(() => setTags(null)); }, [id]);
+  useEffect(() => { load(); api<{ id: string; name: string }[]>("/staff/locations").then(setLocations); api<{ id: string; name: string }[]>("/staff/tags").then(setTags).catch(() => setTags(null));
+    api<{ key: string; name: string; system: boolean }[]>("/staff/roles").then((r) => setCustom(r.filter((x) => !x.system))).catch(() => setCustom([])); }, [id]);
   if (!p) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
   const date = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
@@ -40,6 +44,8 @@ export function Person({ id }: { id: string }) {
   if (p.redacted_at) return <main><h1>{p.display_name}</h1><section class="card"><p>{t("ui.data_deleted_for")}</p></section></main>;
   // Owners (and managers, asking the owner) copy or delete someone's data when they ask.
   const privacy = (me.value?.roles ?? []).some((r) => r.key === "owner" || r.key === "manager");
+  // Only the owner starts someone's second sign-in step over (a lost phone), and never their own.
+  const owner = (me.value?.roles ?? []).some((r) => r.key === "owner") && me.value?.person.id !== p.id;
   return (
     <main>
       <h1>{p.display_name}</h1>
@@ -95,15 +101,21 @@ export function Person({ id }: { id: string }) {
         <h2>{t("ui.person_roles")}</h2>
         {staffRoles.length === 0 ? <p class="meta">{t("role.member")}</p> : (
           <ul class="plain">{staffRoles.map((r) => (
-            <li class="row"><span>{t(`role.${r.key}` as Key)}{r.location_name ? ` · ${r.location_name}` : ""}</span>
+            <li class="row"><span>{r.name ?? t(`role.${r.key}` as Key)}{r.location_name ? ` · ${r.location_name}` : ""}</span>
               <button class="small" onClick={() => preview("role.remove", { person_id: p.id, role: r.key, location_id: r.location_id ?? undefined })}>{t("ui.remove")}</button></li>
           ))}</ul>
         )}
         <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("role.assign", { person_id: p.id, role, location_id: where || undefined }); }}>
-          <label>{t("ui.add_role")}<select value={role} onChange={(e) => setRole(e.currentTarget.value)}>{STAFF_ROLES.map((k) => <option value={k}>{t(`role.${k}` as Key)}</option>)}</select></label>
+          <label>{t("ui.add_role")}<select value={role} onChange={(e) => setRole(e.currentTarget.value)}>{STAFF_ROLES.map((k) => <option value={k}>{t(`role.${k}` as Key)}</option>)}{custom.map((r) => <option value={r.key}>{r.name}</option>)}</select></label>
           <label>{t("ui.location")}<select value={where} onChange={(e) => setWhere(e.currentTarget.value)}><option value="">{t("ui.everywhere")}</option>{locations.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>
           <button>{t("ui.preview")}</button>
         </form>
+      </section>}
+
+      {owner && p.sign_in && (p.sign_in.authenticator || p.sign_in.passkeys > 0 || p.sign_in.recovery_left > 0) && <section class="card">
+        <h2>{t("ui.two_step_title")}</h2>
+        <p class="meta">{[p.sign_in.authenticator ? t("ui.authenticator_on") : t("ui.authenticator_off"), t("ui.person_passkeys", { count: p.sign_in.passkeys }), t("ui.recovery_left", { count: p.sign_in.recovery_left })].join(" · ")}</p>
+        <button onClick={() => preview("person.reset_sign_in", { person_id: p.id })}>{t("ui.reset_sign_in")}</button>
       </section>}
 
       <section class="card">

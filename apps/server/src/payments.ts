@@ -7,7 +7,8 @@ import { checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, Ku
 type Me = { id: string } | null;
 export interface StripeConfig { publishableKey?: string; webhookSecret?: string }
 
-export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Context<any>) => Actor, publicUrl: string, stripe: StripeConfig = {}) {
+/** `guard` runs before a card form opens (bot protection, app.ts). */
+export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Context<any>) => Actor, publicUrl: string, stripe: StripeConfig = {}, guard: (c: Context<any>) => Promise<void> = async () => {}) {
   const app = new Hono();
   /** The Stripe provider when it runs under Connect (the hosted service), else null. */
   const connect = () => { const p = paymentProvider(); return p instanceof StripeProvider && p.connect ? p : null; };
@@ -37,6 +38,7 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
       const f = await payWithFamilyCard(db, id, new Date());
       if (f) return c.json({ family: f.status, cents: f.cents });
     }
+    await guard(c);
     const r = await openPayment(db, id, pid);
     return c.json({ provider: r.provider, client_secret: r.clientSecret, publishable_key: r.provider === "stripe" ? stripe.publishableKey ?? null : null, stripe_account: r.account });
   });

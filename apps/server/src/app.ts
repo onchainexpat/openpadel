@@ -11,7 +11,9 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, type Actor, type Db } from "@kumi/core";
+import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, type Actor, type Db } from "@kumi/core";
+import { BotCheck } from "./bot.ts";
+import { twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, sessionPerson, signOut, startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
@@ -24,8 +26,11 @@ import { memberRoutes } from "./member.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import type { Mailer } from "./mailer.ts";
 
-export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata; production?: boolean; stripe?: StripeConfig }
-type Me = { id: string; display_name: string; locale: string; method: "email_code" | "passkey"; created_at: Date } | null;
+export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata; production?: boolean; stripe?: StripeConfig
+  /** Bot protection on sign-up, sign-in codes and checkout. On in production, always; tests and practice can leave it off. */
+  botCheck?: boolean }
+/** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
+type Me = { id: string; display_name: string; locale: string; method: "email_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
 const COOKIE = "kumi_session";
 const EmailStart = z.object({ email: z.email() });
@@ -61,6 +66,7 @@ export function makeApp(deps: AppDeps) {
     ["/auth/email/start", new RateLimiter(10, 15 * 60_000)], ["/oauth/sign-in", new RateLimiter(10, 15 * 60_000)],
     ["/auth/email/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/sign-up", new RateLimiter(10, 60 * 60_000)],
     ["/auth/passkey/sign-in/verify", new RateLimiter(30, 15 * 60_000)],
+    ["/auth/totp/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/recovery", new RateLimiter(20, 15 * 60_000)], ["/oauth/two-step", new RateLimiter(10, 15 * 60_000)],
   ]);
   app.use("*", async (c, next) => {
     const l = c.req.method === "POST" ? limits.get(c.req.path) : undefined, ip = l ? ipOf(c) : null;
@@ -69,9 +75,25 @@ export function makeApp(deps: AppDeps) {
   });
 
   app.use("*", async (c, next) => {
-    const me = await sessionPerson(db, getCookie(c, COOKIE), now());
+    const s = await sessionPerson(db, getCookie(c, COOKIE), now());
+    let me: Me = null;
+    if (s) {
+      // A passkey is both steps; an emailed code then an authenticator or recovery code is too.
+      const method = s.method === "passkey" ? "passkey" : s.second_factor ? "two_factor" : "email_code";
+      let gate: "setup" | "verify" | null = null;
+      if (method === "email_code" && await needsTwoFactor(db, s.id)) gate = (await hasSecondFactor(db, s.id)) ? "verify" : "setup";
+      me = { id: s.id, display_name: s.display_name, locale: s.locale, method, created_at: s.created_at, token_hash: s.token_hash, gate };
+    }
     c.set("me", me);
     c.set("lang", me && isLang(me.locale) ? me.locale : pickLang(c.req.header("accept-language")));
+    await next();
+  });
+  // Someone who must sign in with two steps and hasn't given the second yet can only finish signing in (or
+  // set the second step up): nothing else answers, so no staff page or action works on half a sign-in.
+  app.use("*", async (c, next) => {
+    const me = c.get("me"), path = c.req.path;
+    if (me?.gate && !(path === "/me" || path === "/club" || path === "/health" || path.startsWith("/auth/") || path.startsWith("/manifest/")
+      || path === "/my/two-factor" || (path.startsWith("/oauth/") && path !== "/oauth/decide"))) throw new KumiError("error.two_step_needed", {}, 403);
     await next();
   });
 
@@ -93,6 +115,19 @@ export function makeApp(deps: AppDeps) {
     console.error(e);
     return c.json({ error: "internal", message: "Something went wrong." }, 500);
   });
+
+  // Bot protection: a challenge to solve before sign-up, sign-in codes and checkout (bot.ts).
+  if (deps.production && deps.botCheck === false) throw new Error("bot protection can't be switched off in production");
+  const bot = (deps.botCheck ?? deps.production ?? false) ? new BotCheck(() => now().getTime()) : null;
+  /** "ok", or "honeypot" (a script filled in the hidden field: answer as if all went well). Anything else is refused. */
+  const botGuard = async (c: Context<Env>): Promise<"ok" | "honeypot"> => {
+    if (!bot) return "ok";
+    const raw = await c.req.json().catch(() => ({})) as { pow?: { challenge?: unknown; counter?: unknown }; website?: unknown };
+    const v = bot.check(ipOf(c), raw.pow, raw.website);
+    if (v === "ok" || v === "honeypot") return v;
+    throw new KumiError("error.bot_check", {}, 400);
+  };
+  app.get("/auth/challenge", (c) => c.json(bot ? bot.issue(ipOf(c)) : { challenge: null, bits: 0 }));
 
   const actor = (c: Context<Env>): Actor => {
     const me = c.get("me");
@@ -121,12 +156,21 @@ export function makeApp(deps: AppDeps) {
   const publicUrl = (deps.publicUrl ?? "http://127.0.0.1:8790").replace(/\/$/, "");
   app.route("/", oauthRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, fetchMetadata: deps.fetchMetadata ?? defaultFetchMetadata, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
+  app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", calendarRoutes(db, (c) => c.get("me")));
   app.route("/", broadcastRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", publicRoutes(db, (c) => c.get("lang"), publicUrl));
   app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false, now }));
-  app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe));
+  // Checkout asks for the challenge too, except from staff (who are already signed in, at the desk).
+  const checkoutGuard = async (c: Context<Env>) => {
+    const me = c.get("me");
+    if (!bot || !me) return;
+    const staff = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
+      .where("person_role.person_id", "=", me.id).where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst();
+    if (!staff && (await botGuard(c)) !== "ok") throw new KumiError("error.bot_check", {}, 400);
+  };
+  app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe, checkoutGuard));
   app.all("/mcp", async (c) => {
     const who = await bearerPerson(db, c.req.header("authorization"), `${publicUrl}/mcp`, now());
     if (!who) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": `Bearer resource_metadata="${publicUrl}/.well-known/oauth-protected-resource/mcp", scope="kumi"` });
@@ -136,6 +180,7 @@ export function makeApp(deps: AppDeps) {
   // ---- Sign in by an emailed code ----
   app.post("/auth/email/start", async (c) => {
     const { email } = await body(c, EmailStart);
+    if ((await botGuard(c)) === "honeypot") return c.json({ sent: true });   // the same answer; nothing is sent
     await startEmailSignIn(db, mailer, email, c.get("lang"), now());
     return c.json({ sent: true });   // the same answer whether or not the email has an account
   });
@@ -148,6 +193,7 @@ export function makeApp(deps: AppDeps) {
   });
   app.post("/auth/sign-up", async (c) => {
     const b = await body(c, SignUp);
+    if ((await botGuard(c)) !== "ok") throw new KumiError("error.bot_check", {}, 400);
     const { token } = await completeSignUp(db, b.ticket, { display_name: b.display_name, locale: b.locale, club_news: b.club_news }, c.req.header("user-agent") ?? null, now());
     setCookie(c, COOKIE, token, { httpOnly: true, secure: deps.secureCookies ?? true, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
     return c.json({ signed_in: true });
@@ -161,10 +207,12 @@ export function makeApp(deps: AppDeps) {
   app.get("/me", async (c) => {
     const a = actor(c);
     const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id")
-      .select(["role.key", "person_role.location_id"]).where("person_role.person_id", "=", a.personId!).where("person_role.active", "=", true).execute();
+      .select(["role.key", "role.name", "person_role.location_id"]).where("person_role.person_id", "=", a.personId!).where("person_role.active", "=", true).where("role.active", "=", true).execute();
     const me = c.get("me")!;
     const kid = await kidOf(db, me.id);
-    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null });
+    // Someone whose only staff roles are ones the club made sees the areas those roles cover.
+    const areas = me.gate ? null : await customAreas(db, me.id);
+    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas });
   });
 
   // ---- Actions: one description each, the same one the MCP tools and forms use ----

@@ -10,7 +10,8 @@ import { uuidv7 } from "./ids.ts";
 import { decide, type Decision } from "./permissions.ts";
 
 /** How the person proved who they are: the strong-sign-in rule reads it. */
-export type AuthMethod = "email_code" | "passkey" | "oauth" | "system";
+/** "two_factor": an emailed code and then an authenticator or recovery code. */
+export type AuthMethod = "email_code" | "passkey" | "two_factor" | "oauth" | "system";
 export interface Actor { personId: string | null; agentId?: string | null; via: string; lang: Lang; auth?: AuthMethod }
 export type UndoKind = "reversible" | "compensating" | "none";
 export interface Read { entity: Entity; id: string; version: number }
@@ -55,7 +56,9 @@ const ENTITIES = {
   location: { table: "location", key: "id", retire: { archived_at: "now" } },
   person: { table: "person", key: "id", retire: { status: "archived" } },
   person_role: { table: "person_role", key: "id", retire: { active: false } },
-  role_grant: { table: "role_grant", key: "id", retire: null },
+  role: { table: "role", key: "id", retire: { active: false } },
+  role_grant: { table: "role_grant", key: "id", retire: { active: false } },
+  staff_factor: { table: "staff_factor", key: "person_id", retire: { removed_at: "now" } },
   staff_member: { table: "staff_member", key: "id", retire: { active: false } },
   passkey: { table: "passkey", key: "credential_id", retire: { revoked_at: "now" } },
   court: { table: "court", key: "id", retire: { archived_at: "now" } },
@@ -108,8 +111,9 @@ const ENTITIES = {
   broadcast: { table: "broadcast", key: "id", retire: { status: "cancelled" } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
-/** Columns that are keys to something (a club news email's unsubscribe link): never copied into the change log. */
-const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"] };
+/** Columns that are keys to something (a club news email's unsubscribe link, an authenticator's secret):
+ *  never copied into the change log. */
+const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"], staff_factor: ["secret"] };
 const unkept = (entity: Entity, row: unknown) => {
   const drop = KEYS_NOT_KEPT[entity];
   if (!drop || !row || typeof row !== "object") return row;
@@ -166,9 +170,9 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
   throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
 }
 
-/** Staff two-step sign-in, the simple way: a person with a passkey makes sensitive changes with it. */
+/** Sensitive changes: a person with a passkey makes them signed in with it, or with two steps. */
 async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor): Promise<void> {
-  if (!def.strongAuth || !actor.personId || actor.auth === "passkey" || actor.auth === "system") return;
+  if (!def.strongAuth || !actor.personId || actor.auth === "passkey" || actor.auth === "two_factor" || actor.auth === "system") return;
   const has = await db.selectFrom("passkey").select("credential_id").where("person_id", "=", actor.personId).where("revoked_at", "is", null).executeTakeFirst();
   if (has) throw new KumiError("error.need_passkey", {}, 403);
 }

@@ -4,13 +4,15 @@ import { both, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { KumiError } from "./errors.ts";
 import { withManagers } from "./households.ts";
+import { checkAssign, roleLabel } from "./roles.ts";
 import { uuidv7 } from "./ids.ts";
 
 const isTimeZone = (v: string) => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } };
 const timeZone = z.string().check(z.refine(isTimeZone, { message: "Not a time zone (use an IANA name such as America/Los_Angeles)" }));
 const lang = z.enum(["en", "es"]);
 export const ROLE_KEYS = ["owner", "manager", "front_desk", "coach", "accountant", "member"] as const;
-const roleKey = z.enum(ROLE_KEYS);
+// A built-in role (ROLE_KEYS) or one the club made (custom_...).
+const roleKey = z.string().check(z.minLength(1), z.maxLength(40));
 
 /** "the name and the time zone", in each language. */
 function fieldList(fields: string[]): Text {
@@ -19,10 +21,8 @@ function fieldList(fields: string[]): Text {
 }
 const changed = (row: Record<string, unknown>, input: Record<string, unknown>) =>
   Object.keys(input).filter((k) => input[k] !== undefined && JSON.stringify(row[k]) !== JSON.stringify(input[k]));
-const roleText = (key: string): Text => both(`role.${key}` as Key);
-
 async function roleId(ctx: PlanCtx, key: string): Promise<string> {
-  const r = await ctx.db.selectFrom("role").select("id").where("key", "=", key).executeTakeFirst();
+  const r = await ctx.db.selectFrom("role").select("id").where("key", "=", key).where("active", "=", true).executeTakeFirst();
   if (!r) throw new KumiError("error.not_found", { thing: both("thing.role") }, 404);
   return r.id;
 }
@@ -64,6 +64,8 @@ export const clubUpdate = defineAction({
     broadcast_daily_cap: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(100000))), broadcast_copy_managers: z.optional(z.boolean()),
     program_decide_hours: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(336), z.describe("A program's minimum is decided this many hours before its first date, unless it sets its own."))),
     program_heads_up_hours: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(336), z.describe("Staff hear this many hours before that decision if a program is short (0: no heads-up)."))),
+    // Who signs in with two steps. It can't be switched off here ('off' is for practice and test databases).
+    two_factor: z.optional(z.enum(["owner_manager", "all_staff"]).check(z.describe("Who signs in with two steps: owners, managers and the club's own roles (owner_manager), or every staff role (all_staff)."))),
   }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "club", "singleton");
@@ -191,8 +193,8 @@ export const roleAssign = defineAction({
   async plan(ctx, i) {
     const { row: person, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     if (person.junior) throw new KumiError("error.not_an_adult");   // a junior has no login, so no role
-    await roleId(ctx, i.role);
-    return { title: both("action.role.assign"), summary: both("plan.role.assign", { person: person.display_name, role: roleText(i.role), where: await whereText(ctx, i.location_id) }), reads: [read], locationId: i.location_id ?? null, undo: { kind: "reversible" } };
+    await checkAssign(ctx, await roleId(ctx, i.role));
+    return { title: both("action.role.assign"), summary: both("plan.role.assign", { person: person.display_name, role: await roleLabel(ctx.db, i.role), where: await whereText(ctx, i.location_id) }), reads: [read], locationId: i.location_id ?? null, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const id = uuidv7();
@@ -215,7 +217,7 @@ export const roleRemove = defineAction({
       const owners = await ctx.db.selectFrom("person_role").select((eb) => eb.fn.countAll<string>().as("n")).where("role_id", "=", rid).where("active", "=", true).executeTakeFirstOrThrow();
       if (Number(owners.n) <= 1) throw new KumiError("error.last_owner");   // a rule no setting can turn off
     }
-    return { title: both("action.role.remove"), summary: both("plan.role.remove", { person: person.display_name, role: roleText(i.role), where: await whereText(ctx, i.location_id) }), reads: [{ entity: "person_role", id: pr.id, version: pr.version }], locationId: i.location_id ?? null, undo: { kind: "reversible" }, details: { person_role_id: pr.id } };
+    return { title: both("action.role.remove"), summary: both("plan.role.remove", { person: person.display_name, role: await roleLabel(ctx.db, i.role), where: await whereText(ctx, i.location_id) }), reads: [{ entity: "person_role", id: pr.id, version: pr.version }], locationId: i.location_id ?? null, undo: { kind: "reversible" }, details: { person_role_id: pr.id } };
   },
   async apply(ctx, _i, p) {
     const id = (p.details as { person_role_id: string }).person_role_id;

@@ -14,7 +14,8 @@ const rank: Record<Mode, number> = { no: 0, ask: 1, allow: 2 };
 export function specificity(pattern: string, action: string): number {
   if (pattern === action) return 1000;
   if (pattern === "*") return 0;
-  if (pattern.endsWith(".*") && action.startsWith(pattern.slice(0, -1))) return pattern.length;
+  // "booking.*", and "person.passkey_*" (a family of actions): any action the pattern starts.
+  if (pattern.endsWith("*") && action.startsWith(pattern.slice(0, -1))) return pattern.length;
   return -1;
 }
 
@@ -23,6 +24,7 @@ interface GrantRow { role_id: string; location_id: string | null; pattern: strin
 async function grantsFor(db: Db | Trx, personId: string): Promise<GrantRow[]> {
   return db.selectFrom("person_role").innerJoin("role_grant", "role_grant.role_id", "person_role.role_id")
     .select(["person_role.role_id", "person_role.location_id", "role_grant.pattern", "role_grant.mode", "role_grant.rows_scope", "role_grant.time_scope"])
+    .innerJoin("role", "role.id", "person_role.role_id").where("role.active", "=", true).where("role_grant.active", "=", true)
     .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).execute() as Promise<GrantRow[]>;
 }
 
@@ -61,7 +63,7 @@ export async function decide(db: Db | Trx, action: string, s: Subject): Promise<
   // An agent gets the answer for the person it acts for, then its own cap: the lower wins.
   const agent = await db.selectFrom("agent").select(["capped_role_id"]).where("id", "=", s.agentId).executeTakeFirst();
   if (!agent?.capped_role_id) return { mode: "no", reason: "reason.agent_cap" };
-  const cap = await db.selectFrom("role_grant").select(["pattern", "mode"]).where("role_id", "=", agent.capped_role_id).execute();
+  const cap = await db.selectFrom("role_grant").select(["pattern", "mode"]).where("role_id", "=", agent.capped_role_id).where("active", "=", true).execute();
   const g = cap.filter((x) => specificity(x.pattern, action) >= 0).sort((a, b) => specificity(b.pattern, action) - specificity(a.pattern, action))[0];
   const capMode: Mode = g?.mode ?? "no";
   return rank[capMode] < rank[person.mode] ? { mode: capMode, reason: "reason.agent_cap" } : person;

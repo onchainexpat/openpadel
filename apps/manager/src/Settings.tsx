@@ -11,7 +11,7 @@ type Price = { id: string; name: string; court_ids: string[] | null; weekdays: n
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number };
+type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
 type S = { club: ClubRow; policy: Policy; plans: Plan[]; locations: Loc[]; waiver: { version_no: number; body: string } | null };
 type Preview = (action: string, input: unknown) => Promise<void>;
@@ -45,11 +45,30 @@ export function Settings() {
       <ClubForm key={JSON.stringify(s.club)} c={s.club} send={send} />
       <BookingRules key={JSON.stringify(s.policy)} p={s.policy} send={send} />
       <WaiverForm key={JSON.stringify(s.waiver)} w={s.waiver} send={send} />
+      <SignInCard key={s.club.two_factor} rule={s.club.two_factor} send={send} />
       {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} plans={s.plans} send={send} />)}
       <NewLocation tz={s.club.time_zone} send={send} />
       {note && <p class="note" role="status">{note}</p>}
       {sheet}
     </main>
+  );
+}
+
+/** Who signs in with two steps, and the roles the club makes. */
+function SignInCard({ rule, send }: { rule: ClubRow["two_factor"]; send: Preview }) {
+  const [v, setV] = useState(rule);
+  return (
+    <section class="card card-form">
+      <h2>{t("ui.sign_in_settings")}</h2>
+      <label>{t("ui.two_factor_rule")}<select value={v} onChange={(e) => setV(e.currentTarget.value as ClubRow["two_factor"])}>
+        <option value="owner_manager">{t("ui.two_factor_owner_manager")}</option>
+        <option value="all_staff">{t("ui.two_factor_all_staff")}</option>
+        {rule === "off" && <option value="off" disabled>{t("ui.two_factor_off")}</option>}
+      </select></label>
+      <p class="meta">{t("ui.two_factor_hint")}</p>
+      <button class="primary" disabled={v === rule || v === "off"} onClick={() => send("club.update", { two_factor: v })}>{t("ui.preview")}</button>
+      <p><a href="/roles">{t("ui.roles_link")}</a></p>
+    </section>
   );
 }
 

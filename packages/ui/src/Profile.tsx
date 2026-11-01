@@ -3,6 +3,10 @@ import { startRegistration } from "@simplewebauthn/browser";
 import type { Key, Lang } from "@kumi/i18n";
 import { api, ApiError, club, farewell, loadMe, me, t } from "./state.ts";
 import { AccountData } from "./AccountData.tsx";
+import { lazy } from "preact-iso";
+
+// Two-step sign-in, loaded when the profile opens.
+const TwoStepSettings = lazy(() => import("./TwoFactor.tsx").then((m) => m.TwoStepSettings));
 
 /** Notifications on this device: the browser's own permission, then a subscription the club's server pushes
  *  to. `app` says which app's messages it gets (staff alerts in the staff app, the rest in the members'). */
@@ -97,8 +101,8 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
     <main>
       <h1>{t("ui.profile_title")}</h1>
       <section class="card">
-        <p>{t("ui.roles", { roles: m.roles.map((r) => t(`role.${r.key}` as Key)).join(", ") })}</p>
-        <p class="meta">{t(m.signed_in_with === "passkey" ? "ui.signed_in_with_passkey" : "ui.signed_in_with_email_code")}</p>
+        <p>{t("ui.roles", { roles: m.roles.map((r) => r.name ?? t(`role.${r.key}` as Key)).join(", ") })}</p>
+        <p class="meta">{t(m.signed_in_with === "passkey" ? "ui.signed_in_with_passkey" : m.signed_in_with === "two_factor" ? "ui.signed_in_with_two_steps" : "ui.signed_in_with_email_code")}</p>
       </section>
       <form class="card" onSubmit={preview}>
         <label>{t("ui.display_name")}<input value={name} onInput={(e) => setName(e.currentTarget.value)} /></label>
@@ -117,6 +121,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
         <h2>{t("ui.passkeys")}</h2>
         <button onClick={addPasskey}>{t("ui.add_passkey")}</button>
       </section>
+      <TwoStepSettings />
       <AccountData personId={m.person.id} self kid={Boolean(m.kid)} onDeleted={() => { farewell.value = true; me.value = null; }} />
       {note && <p class="note" role="status">{note}</p>}
       {error && <p class="error" role="alert">{error}</p>}

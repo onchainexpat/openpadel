@@ -5,7 +5,8 @@
 import { Hono, type Context } from "hono";
 import * as z from "zod/mini";
 import { t, type Lang } from "@kumi/i18n";
-import { audience, broadcastCounts, describeFilters, filtersInput, KumiError, segmentMembers, unsubscribe, unsubscribeTarget, type Db, type Filters } from "@kumi/core";
+import { audience, broadcastCounts, customAreas, describeFilters, filtersInput, KumiError, segmentMembers, unsubscribe, unsubscribeTarget, type Db, type Filters } from "@kumi/core";
+import { readArea } from "./reads.ts";
 
 type Me = { id: string } | null;
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
@@ -17,7 +18,9 @@ export function broadcastRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: C
     if (!m) throw new KumiError("error.signed_out", {}, 401);
     const ok = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id")
       .where("person_role.person_id", "=", m.id).where("person_role.active", "=", true).where("role.key", "in", ["owner", "manager", "front_desk"]).executeTakeFirst();
-    if (!ok) throw new KumiError("error.staff_only", {}, 403);
+    // Or a role the club made that covers this page's area (the tags people are given, the messages sent).
+    const area = readArea(c.req.path);
+    if (!ok && !(area && (await customAreas(db, m.id))?.includes(area))) throw new KumiError("error.staff_only", {}, 403);
     return m.id;
   };
   const tagCounts = async () => {

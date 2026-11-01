@@ -2,7 +2,13 @@
 import { signal, computed, effect } from "@preact/signals";
 import { format, pickLang, type Catalog, type Key, type Lang, type Params } from "@kumi/i18n/format";
 
-export type Me = { person: { id: string; display_name: string; locale: string }; signed_in_with: "email_code" | "passkey"; lang: Lang; roles: { key: string; location_id: string | null }[];
+export type Me = { person: { id: string; display_name: string; locale: string }; signed_in_with: "email_code" | "passkey" | "two_factor"; lang: Lang;
+  /** A role the club made has its own name; the built-in ones are worded by key. */
+  roles: { key: string; name?: string | null; location_id: string | null }[];
+  /** This session still owes its second step ("verify"), or has none set up yet ("setup"): the apps show only that. */
+  gate?: "setup" | "verify" | null;
+  /** Someone whose only staff roles are the club's own: the areas those cover (null for everyone else). */
+  areas?: string[] | null;
   /** A junior with a login of their own: their parents' rules apply, and payments go on the family card. */
   kid?: { friends: boolean } | null };
 export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean };

@@ -4,18 +4,31 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck } from "@kumi/core";
+import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
+/** Which area a staff page's data belongs to (roles.ts AREAS), for roles the club made. Lists every area uses
+ *  (locations, courts) belong to none. */
+const READ_AREAS: [RegExp, string][] = [
+  [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
+  [/^\/staff\/(people|tags)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
+  [/^\/staff\/(reports|coach-earnings|payments)/, "money"], [/^\/staff\/(settings|roles)/, "settings"],
+  [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|quote|mirror)/, "bookings"],
+  [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
+];
+export const readArea = (path: string) => READ_AREAS.find(([re]) => re.test(path))?.[1] ?? null;
 export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang) {
   const app = new Hono();
   app.use("/staff/*", async (c, next) => {
     const m = me(c);
     if (!m) throw new KumiError("error.signed_out", {}, 401);
     const staff = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
-      .where("person_role.person_id", "=", m.id).where("person_role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst();
+      .where("person_role.person_id", "=", m.id).where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst();
     if (!staff) throw new KumiError("error.staff_only", {}, 403);
+    // Someone whose only staff roles are ones the club made reads only the areas those roles cover.
+    const areas = await customAreas(db, m.id), area = readArea(c.req.path);
+    if (areas && area && !areas.includes(area)) throw new KumiError("error.staff_only", {}, 403);
     await next();
   });
 
@@ -135,7 +148,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "question_alert_hours", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "two_factor", "question_alert_hours", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
     const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
     const policy = await currentPolicy(db), plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
@@ -246,8 +259,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       const seg = await db.selectFrom("segment").select("filters").where("id", "=", segmentId!).where("active", "=", true).executeTakeFirst();
       within = seg ? (await segmentMembers(db, seg.filters as Filters, new Date())).map((p) => p.id) : [];
     }
-    const roles = (eb: any) => eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(sql<string[]>`array_agg(DISTINCT role.key)`.as("r"))
-      .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true);
+    // Built-in roles by key (the screen words them); a role the club made by its name.
+    const roles = (eb: any) => eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(sql<string[]>`array_agg(DISTINCT CASE WHEN role.system THEN role.key ELSE coalesce(role.name, role.key) END)`.as("r"))
+      .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true).where("role.active", "=", true);
     const tags = (eb: any) => eb.selectFrom("person_tag").innerJoin("tag", "tag.id", "person_tag.tag_id").select(sql<string[]>`array_agg(tag.name ORDER BY tag.name)`.as("t"))
       .whereRef("person_tag.person_id", "=", "person.id").where("person_tag.removed_at", "is", null).where("tag.active", "=", true);
     if (within && !within.length) return c.json([]);
@@ -266,7 +280,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const p = await db.selectFrom("person").select(["id", "display_name", "email", "locale", "status", "created_via", "created_at", "junior", "birth_year", "redacted_at"]).where("id", "=", id).executeTakeFirst();
     if (!p) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
     const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").leftJoin("location", "location.id", "person_role.location_id")
-      .select(["role.key", "person_role.location_id", "location.name as location_name"]).where("person_role.person_id", "=", id).where("person_role.active", "=", true).orderBy("role.key").execute();
+      .select(["role.key", "role.name", "person_role.location_id", "location.name as location_name"]).where("person_role.person_id", "=", id).where("person_role.active", "=", true).where("role.active", "=", true).orderBy("role.key").execute();
+    // What they sign in with, for the owner's reset (never the secrets themselves).
+    const signIn = { authenticator: Boolean(await activeFactor(db, id)), recovery_left: await recoveryLeft(db, id),
+      passkeys: (await db.selectFrom("passkey").select("credential_id").where("person_id", "=", id).where("revoked_at", "is", null).execute()).length };
     const places = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id")
       .select(["enrolment.id", "enrolment.status", "enrolment.program_id", "program.name"])
       .select((eb) => eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").as("first_start"))
@@ -296,7 +313,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // A kid with a login of their own: the address they sign in with and the rules their parents set.
     const k = await kidOf(db, id);
     const kid = k ? { email: p.email, rules: rulesText(k)[lang(c)], spent_cents: await monthSpent(db, id, new Date()) } : null;
-    return c.json({ ...p, kid, roles, places, consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
+    return c.json({ ...p, kid, roles, sign_in: signIn, places, consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
       membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null } : null });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.
@@ -449,5 +466,15 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const rows = await searchFacts(db, "", { all: true });
     return c.json(rows.map((f) => ({ id: f.id, topic: f.topic, question_en: f.question_en, answer_en: f.answer_en, question_es: f.question_es, answer_es: f.answer_es, active: f.active, public: f.public })));
   });
+  // ---- Roles: the built-in ones and the club's own, what each may do, and how many hold it ----
+  app.get("/staff/roles", async (c) => {
+    const roles = await db.selectFrom("role").select(["key", "name", "system", "based_on"]).select((eb) => eb.selectFrom("person_role").select((x) => x.fn.countAll<string>().as("n"))
+      .whereRef("person_role.role_id", "=", "role.id").where("person_role.active", "=", true).as("holders")).where("active", "=", true).orderBy("system", "desc").orderBy("created_at").execute();
+    const l = lang(c);
+    return c.json(roles.map((r) => ({ key: r.key, name: r.system ? t(l, `role.${r.key}` as Key) : r.name, system: r.system, based_on: r.based_on, holders: Number(r.holders ?? 0) })));
+  });
+  app.get("/staff/roles/catalogue", async (c) => c.json(await roleCatalogue(db, lang(c))));
+  app.get("/staff/roles/:key/grants", async (c) => c.json(await roleGrantsView(db, c.req.param("key"))));
+
   return app;
 }

@@ -2,21 +2,25 @@ import { useState } from "preact/hooks";
 import { startAuthentication } from "@simplewebauthn/browser";
 import type { Lang } from "@kumi/i18n";
 import { api, ApiError, club, farewell, lang, loadMe, t } from "./state.ts";
+import { protectedPost } from "./pow.ts";
 
 export function SignIn() {
   const [email, setEmail] = useState(""), [code, setCode] = useState(""), [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
   // A new address: after the code, they give their name and say whether they want club news.
   const [ticket, setTicket] = useState<string | null>(null), [name, setName] = useState(""), [locale, setLocale] = useState<Lang>(lang.value), [news, setNews] = useState(false);
+  // A field people never see (or fill in): a script that fills every field gets nowhere (bot.ts).
+  const [website, setWebsite] = useState("");
+  const trap = <label class="trap" aria-hidden="true">Website<input tabIndex={-1} autocomplete="off" value={website} onInput={(e) => setWebsite(e.currentTarget.value)} /></label>;
   const attempt = async (f: () => Promise<void>) => { setBusy(true); setError(null); try { await f(); } catch (e) { setError(e instanceof ApiError ? e.message : String((e as Error).message)); } finally { setBusy(false); } };
 
-  const send = (e: Event) => { e.preventDefault(); attempt(async () => { await api("/auth/email/start", { email }); setSent(true); }); };
+  const send = (e: Event) => { e.preventDefault(); attempt(async () => { await protectedPost("/auth/email/start", { email }, website); setSent(true); }); };
   const verify = (e: Event) => { e.preventDefault(); attempt(async () => {
     const r = await api<{ signed_in?: boolean; sign_up?: boolean; ticket?: string }>("/auth/email/verify", { email, code });
     if (r.sign_up && r.ticket) { setTicket(r.ticket); return; }
     await loadMe();
   }); };
-  const join = (e: Event) => { e.preventDefault(); attempt(async () => { await api("/auth/sign-up", { ticket, display_name: name, locale, club_news: news }); lang.value = locale; await loadMe(); }); };
+  const join = (e: Event) => { e.preventDefault(); attempt(async () => { await protectedPost("/auth/sign-up", { ticket, display_name: name, locale, club_news: news }, website); lang.value = locale; await loadMe(); }); };
   const passkey = () => attempt(async () => {
     const o = await api<{ challenge_id: string; options: any }>("/auth/passkey/sign-in/options", {});
     const response = await startAuthentication({ optionsJSON: o.options });
@@ -36,6 +40,7 @@ export function SignIn() {
         </label>
         <label class="check"><input type="checkbox" checked={news} onChange={(e) => setNews(e.currentTarget.checked)} /> {t("ui.club_news_consent", { club: clubName })}</label>
         <p class="meta">{t("ui.account_emails_note")}</p>
+        {trap}
         <button class="primary" disabled={busy}>{t("ui.join_club")}</button>
       </form>
       {error && <p class="error" role="alert">{error}</p>}
@@ -49,6 +54,7 @@ export function SignIn() {
       {!sent ? (
         <form onSubmit={send}>
           <label>{t("ui.email")}<input type="email" required autocomplete="username webauthn" value={email} onInput={(e) => setEmail(e.currentTarget.value)} /></label>
+          {trap}
           <button class="primary" disabled={busy}>{t("ui.send_code")}</button>
         </form>
       ) : (

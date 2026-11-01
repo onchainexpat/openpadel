@@ -1,6 +1,6 @@
-import { LocationProvider, Router, Route, lazy } from "preact-iso";
+import { ErrorBoundary, LocationProvider, Router, Route, lazy } from "preact-iso";
 import { useEffect } from "preact/hooks";
-import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, Profile } from "@kumi/ui";
+import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, Profile, TwoFactor } from "@kumi/ui";
 import { WhatsOn } from "./WhatsOn.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
 import { MyLevel } from "./MyLevel.tsx";
@@ -25,15 +25,18 @@ export function App() {
     loadMe();
   }, []);
   useEffect(() => { document.documentElement.lang = lang.value; }, [lang.value]);
+  // Fully signed in: not while a session still owes its second step (nothing else answers until then).
+  const inside = Boolean(me.value && !me.value.gate);
   useEffect(() => {
-    if (!me.value) return;
+    if (!inside) return;
     void loadUnread();
     void loadFamily();
     const id = setInterval(loadUnread, 60_000);
     return () => clearInterval(id);
-  }, [Boolean(me.value)]);
+  }, [inside]);
   if (me.value === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
   if (me.value === null) return <SignIn />;
+  if (me.value.gate) return <ErrorBoundary><TwoFactor /></ErrorBoundary>;
   const signOut = async () => { await api("/auth/sign-out", {}); me.value = null; };
   return (
     <LocationProvider>

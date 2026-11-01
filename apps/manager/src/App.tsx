@@ -1,6 +1,6 @@
-import { LocationProvider, Router, Route, lazy, useLocation } from "preact-iso";
+import { ErrorBoundary, LocationProvider, Router, Route, lazy, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, Profile } from "@kumi/ui";
+import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, Profile, TwoFactor } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Changes } from "./Changes.tsx";
 import { Programs } from "./Programs.tsx";
@@ -20,6 +20,8 @@ const Coaches = lazy(() => import("./Coaches.tsx").then((m) => m.Coaches));
 const Reports = lazy(() => import("./Reports.tsx").then((m) => m.Reports));
 const Payments = lazy(() => import("./Payments.tsx").then((m) => m.Payments));
 const Mirror = lazy(() => import("./Mirror.tsx").then((m) => m.Mirror));
+// The club's own roles, from Settings.
+const Roles = lazy(() => import("./Roles.tsx").then((m) => m.Roles));
 // A coach's lists, opened from the schedule.
 const Roster = lazy(() => import("./Roster.tsx").then((m) => m.Roster));
 const Students = lazy(() => import("./Students.tsx").then((m) => m.Students));
@@ -32,6 +34,9 @@ const Messages = lazy(() => import("./Messages.tsx").then((m) => m.Messages));
 const Compose = lazy(() => import("./Messages.tsx").then((m) => m.Compose));
 const Groups = lazy(() => import("./Messages.tsx").then((m) => m.Groups));
 const Templates = lazy(() => import("./Messages.tsx").then((m) => m.Templates));
+
+/** For someone whose role (one the club made) doesn't cover a page. */
+function NotForRole() { return <main class="card"><p>{t("ui.not_for_your_role")}</p></main>; }
 
 /** The Questions link, with how many wait for an answer. */
 function QuestionsLink() {
@@ -52,56 +57,65 @@ export function App() {
     loadMe();
   }, []);
   useEffect(() => { document.documentElement.lang = lang.value; }, [lang.value]);
+  // Fully signed in: not while a session still owes its second step (nothing else answers until then).
+  const inside = Boolean(me.value && !me.value.gate);
   useEffect(() => {
-    if (!me.value) return;
+    if (!inside) return;
     void loadUnread();
     const id = setInterval(loadUnread, 60_000);
     return () => clearInterval(id);
-  }, [Boolean(me.value)]);
+  }, [inside]);
 
   if (me.value === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
   if (me.value === null) return <SignIn />;
+  if (me.value.gate) return <ErrorBoundary><TwoFactor /></ErrorBoundary>;
   const signOut = async () => { await api("/auth/sign-out", {}); me.value = null; };
   const roles = me.value.roles.map((r) => r.key), coach = roles.includes("coach"), desk = roles.some((r) => ["owner", "manager", "front_desk"].includes(r));
   // Changes is the owner's and managers' home; everyone else starts on the page their role uses most.
   const changes = roles.some((r) => r === "owner" || r === "manager");
-  const home = changes ? Changes : coach ? Schedule : desk ? Courts : roles.includes("accountant") ? Reports : Programs;
+  // Someone whose only staff roles are the club's own sees the areas those roles cover, and starts on the first.
+  const areas = me.value.areas ?? null, show = (area: string) => !areas || areas.includes(area);
+  const areaHome: Record<string, any> = { bookings: Courts, courts: Courts, programs: Programs, members: People, memberships: Memberships, levels: Levels, messages: Messages, money: Reports, coaches: Coaches, settings: Settings };
+  // A page outside those areas says so, rather than failing to load.
+  const only = (area: string, page: any) => (show(area) ? page : NotForRole);
+  const home = areas ? (areaHome[areas[0] ?? ""] ?? Profile) : changes ? Changes : coach ? Schedule : desk ? Courts : roles.includes("accountant") ? Reports : Programs;
   return (
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}<a href="/programs">{t("ui.nav_programs")}</a><a href="/people">{t("ui.nav_people")}</a><a href="/memberships">{t("ui.nav_memberships")}</a>{(coach || desk) && <a href="/coaches">{t("ui.nav_coaches")}</a>}<a href="/courts">{t("ui.courts")}</a><a href="/scores">{t("ui.nav_scores")}</a><a href="/levels">{t("ui.nav_levels")}</a>{desk && <QuestionsLink />}{desk && <a href="/messages">{t("ui.nav_messages")}</a>}<a href="/playtomic">{t("ui.nav_playtomic")}</a><a href="/payments">{t("ui.nav_payments")}</a><a href="/reports">{t("ui.nav_reports")}</a><a href="/settings">{t("ui.nav_settings")}</a><InboxLink />{changes && <a href="/">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}{show("programs") && <a href="/programs">{t("ui.nav_programs")}</a>}{show("members") && <a href="/people">{t("ui.nav_people")}</a>}{show("memberships") && <a href="/memberships">{t("ui.nav_memberships")}</a>}{(coach || desk || areas?.includes("coaches")) && <a href="/coaches">{t("ui.nav_coaches")}</a>}{show("bookings") && <a href="/courts">{t("ui.courts")}</a>}{show("levels") && <a href="/scores">{t("ui.nav_scores")}</a>}{show("levels") && <a href="/levels">{t("ui.nav_levels")}</a>}{(desk || areas?.includes("messages")) && <QuestionsLink />}{(desk || areas?.includes("messages")) && <a href="/messages">{t("ui.nav_messages")}</a>}{show("bookings") && <a href="/playtomic">{t("ui.nav_playtomic")}</a>}{show("money") && <a href="/payments">{t("ui.nav_payments")}</a>}{show("money") && <a href="/reports">{t("ui.nav_reports")}</a>}{show("settings") && <a href="/settings">{t("ui.nav_settings")}</a>}<InboxLink />{changes && <a href="/">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
         <Route path="/" component={home} />
         <Route path="/profile" component={() => <Profile app="staff" />} />
-        <Route path="/programs" component={Programs} />
-        <Route path="/programs/:id" component={Program} />
-        <Route path="/sessions/:id" component={Night} />
-        <Route path="/sessions/:id/levels" component={SessionLevels} />
-        <Route path="/people" component={People} />
-        <Route path="/people/:id" component={Person} />
-        <Route path="/people/:id/level" component={Level} />
-        <Route path="/playtomic" component={Mirror} />
-        <Route path="/payments" component={Payments} />
+        <Route path="/programs" component={only("programs", Programs)} />
+        <Route path="/programs/:id" component={only("programs", Program)} />
+        <Route path="/sessions/:id" component={only("programs", Night)} />
+        <Route path="/sessions/:id/levels" component={only("levels", SessionLevels)} />
+        <Route path="/people" component={only("members", People)} />
+        <Route path="/people/:id" component={only("members", Person)} />
+        <Route path="/people/:id/level" component={only("levels", Level)} />
+        <Route path="/playtomic" component={only("bookings", Mirror)} />
+        <Route path="/payments" component={only("money", Payments)} />
         <Route path="/inbox" component={Inbox} />
-        <Route path="/settings" component={Settings} />
-        <Route path="/courts" component={Courts} />
-        <Route path="/reports" component={Reports} />
-        <Route path="/memberships" component={Memberships} />
-        <Route path="/scores" component={Scores} />
-        <Route path="/levels" component={Levels} />
-        <Route path="/coaches" component={Coaches} />
+        <Route path="/settings" component={only("settings", Settings)} />
+        <Route path="/roles" component={only("settings", Roles)} />
+        <Route path="/courts" component={only("bookings", Courts)} />
+        <Route path="/reports" component={only("money", Reports)} />
+        <Route path="/memberships" component={only("memberships", Memberships)} />
+        <Route path="/scores" component={only("levels", Scores)} />
+        <Route path="/levels" component={only("levels", Levels)} />
+        <Route path="/coaches" component={only("coaches", Coaches)} />
         <Route path="/schedule" component={Schedule} />
         <Route path="/roster/:kind/:id" component={Roster} />
-        <Route path="/students" component={Students} />
-        <Route path="/questions" component={Questions} />
-        <Route path="/questions/:id" component={QuestionPage} />
-        <Route path="/facts" component={Facts} />
-        <Route path="/messages" component={Messages} />
-        <Route path="/messages/new" component={Compose} />
-        <Route path="/groups" component={Groups} />
-        <Route path="/templates" component={Templates} />
+        <Route path="/students" component={only("coaches", Students)} />
+        <Route path="/questions" component={only("messages", Questions)} />
+        <Route path="/questions/:id" component={only("messages", QuestionPage)} />
+        <Route path="/facts" component={only("messages", Facts)} />
+        <Route path="/messages" component={only("messages", Messages)} />
+        <Route path="/messages/new" component={only("messages", Compose)} />
+        <Route path="/groups" component={only("messages", Groups)} />
+        <Route path="/templates" component={only("messages", Templates)} />
       </Router>
     </LocationProvider>
   );

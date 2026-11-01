@@ -6,10 +6,12 @@ import { api, lang, t, usePreview } from "@kumi/ui";
 
 type Row = { id: string; display_name: string; email: string | null; roles: string[] | null; junior?: boolean; tags?: string[] | null };
 type Csv = { rows: { display_name: string; email?: string }[]; problems: { line: number; text: string }[]; fatal?: string };
+const BUILT_IN = ["owner", "manager", "front_desk", "coach", "accountant", "member"];
 /** The roles worth showing: "member" only when it's all they are. */
 export const roleNames = (roles: string[] | null) => {
   const staff = (roles ?? []).filter((r) => r !== "member");
-  return (staff.length ? staff : roles ?? []).map((r) => t(`role.${r}` as Key)).join(", ");
+  // A role the club made comes as its own name; the built-in ones as keys.
+  return (staff.length ? staff : roles ?? []).map((r) => (BUILT_IN.includes(r) ? t(`role.${r}` as Key) : r)).join(", ");
 };
 
 export function People() {
