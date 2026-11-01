@@ -179,6 +179,8 @@ systemctl enable --now kumi-backup.timer kumi-restore-test.timer
 update() {
   local tarball=${1:?usage: release.sh update <release.tar> [revision]} new=${2:-}
   [ -f "$tarball" ] || die "no file $tarball"
+  # From here on, nowhere in particular: the kumi user's commands can't see into root's temporary folders.
+  tarball=$(readlink -f "$tarball"); cd /
   [ -n "$new" ] || new=$(tar -xOf "$tarball" REVISION 2>/dev/null || true)
   [ -n "$new" ] || new=$(sha256sum "$tarball" | cut -c1-12)
   case "$new" in *[!A-Za-z0-9._-]*|"") die "a revision is letters, digits, dots and dashes: $new";; esac
@@ -223,6 +225,7 @@ update() {
 }
 
 rollback() {
+  cd /
   [ "${1:-}" = "--yes" ] || die "going back puts the previous release back AND the database as it was just before the last update.
 Everything since then (bookings, payments, sign-ups, changes) is lost. To go ahead: kumi rollback --yes"
   local prev snap cur
