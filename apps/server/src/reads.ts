@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft } from "@kumi/core";
+import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -14,7 +14,7 @@ const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
   [/^\/staff\/(people|tags)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
   [/^\/staff\/(reports|coach-earnings|payments)/, "money"], [/^\/staff\/(settings|roles)/, "settings"],
-  [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|quote|mirror)/, "bookings"],
+  [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|quote|mirror|alerts)/, "bookings"],
   [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
 ];
 export const readArea = (path: string) => READ_AREAS.find(([re]) => re.test(path))?.[1] ?? null;
@@ -222,12 +222,23 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const courts = await db.selectFrom("court").select(["id", "name", "kind"]).where("location_id", "=", loc.id).where("archived_at", "is", null).orderBy("sort").orderBy("name").execute();
     const items = (await occupied(db, courts.map((x) => x.id), dayStart, dayEnd, now)).filter((t) => localDate(new Date(t.start), loc.time_zone) === date || localDate(new Date(t.end), loc.time_zone) === date);
     const ids = (k: "booking_id" | "block_id" | "session_id") => [...new Set(items.map((t) => t[k]).filter((x): x is string => Boolean(x)))];
-    const bookings = ids("booking_id").length ? await db.selectFrom("booking").leftJoin("person", "person.id", "booking.organiser_id")
-      .select(["booking.id", "booking.code", "booking.status", "booking.price_cents", "booking.balance_cents", "person.display_name"])
+    const bookings = ids("booking_id").length ? await db.selectFrom("booking").leftJoin("person", "person.id", "booking.organiser_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
+      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.price_cents", "booking.balance_cents", "person.display_name", "coach.display_name as coach"])
       .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select((x) => x.fn.sum<string>("payment.amount_cents").as("c"))
         .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("paid_cents"))
+      // What has gone back, so "paid" on the Today view is what the club still holds.
+      .select((eb) => eb.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+        .select((x) => x.fn.sum<string>("refund.amount_cents").as("c")).whereRef("booking_player.booking_id", "=", "booking.id").where("refund.status", "!=", "failed").as("back_cents"))
       .select((eb) => eb.selectFrom("booking_player").select("guest_name").whereRef("booking_player.booking_id", "=", "booking.id").where("guest_name", "is not", null).limit(1).as("guest"))
       .where("booking.id", "in", ids("booking_id")).execute() : [];
+    // Who's playing in each, and what players said about running late (today's word, newest first).
+    const players = ids("booking_id").length ? await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id")
+      .select(["booking_player.booking_id", "booking_player.person_id", "person.display_name", "booking_player.guest_name"])
+      .where("booking_player.booking_id", "in", ids("booking_id")).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is", null).orderBy("booking_player.id").execute() : [];
+    const late = ids("booking_id").length ? await db.selectFrom("event_outbox").select(["payload", "created_at"]).where("topic", "=", "booking.running_late")
+      .where("created_at", ">=", dayStart).where(sql<boolean>`payload->>'booking_id' = ANY(${ids("booking_id")})`).orderBy("id", "desc").execute() : [];
+    const lateFor = (bookingId: string) => late.filter((e) => (e.payload as any).booking_id === bookingId).map((e) => ({ name: players.find((p) => p.person_id === (e.payload as any).person_id)?.display_name ?? "",
+      minutes: Number((e.payload as any).minutes), at: e.created_at }));
     const blocks = ids("block_id").length ? await db.selectFrom("court_block").select(["id", "reason", "note"]).where("id", "in", ids("block_id")).execute() : [];
     const sessions = ids("session_id").length ? await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.id", "program.id as program_id", "program.name"]).where("session.id", "in", ids("session_id")).execute() : [];
     const mirror = await db.selectFrom("mirror_booking").select(["court_time_id", "booking_type"]).where("court_time_id", "in", items.filter((t) => t.kind === "mirror").map((t) => t.id).concat(["00000000-0000-0000-0000-000000000000"])).execute();
@@ -236,15 +247,19 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .select(["booking_player.id", "booking_player.booking_id", "booking_player.fill_refund_percent", "person.display_name as name"])
       .where("booking_player.booking_id", "in", ids("booking_id")).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is not", null).orderBy("booking_player.leaving_at").execute() : [];
     const l = lang(c);
-    return c.json({ date, time_zone: loc.time_zone, open, courts: courts.map((ct) => ({ ...ct, items: items.filter((x) => x.court_id === ct.id).map((x) => {
+    return c.json({ date, time_zone: loc.time_zone, open, now: now.toISOString(), today: localDate(now, loc.time_zone), courts: courts.map((ct) => ({ ...ct, items: items.filter((x) => x.court_id === ct.id).map((x) => {
       const base = { start: x.start, end: x.end, kind: x.kind };
-      if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", price_cents: b?.price_cents ?? 0, paid_cents: Number(b?.paid_cents ?? 0), balance_cents: b?.balance_cents ?? 0,
+      if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", price_cents: b?.price_cents ?? 0,
+        paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0), balance_cents: b?.balance_cents ?? 0, booking_kind: b?.kind ?? "court", coach: b?.coach ?? null, status: b?.status,
+        players: players.filter((p) => p.booking_id === x.booking_id).map((p) => p.display_name ?? p.guest_name ?? ""), late: lateFor(x.booking_id),
         empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: e.name, open: e.fill_refund_percent !== null })) }; }
       if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
       if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, label: s?.name ?? "" }; }
       return { ...base, label: `Playtomic: ${(mirror.find((m) => m.court_time_id === x.id)?.booking_type ?? "").toLowerCase().replace(/_/g, " ")}` };
     }) })) });
   });
+  // The staff alerts this person was told about that nobody has handled yet, and the ones handled today.
+  app.get("/staff/alerts", async (c) => c.json(await staffAlerts(db, me(c)!.id, new Date())));
   app.get("/staff/locations", async (c) => c.json(await db.selectFrom("location").select(["id", "name", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute()));
   app.get("/staff/courts", async (c) => c.json(await db.selectFrom("court").select(["id", "name", "location_id", "kind"]).where("archived_at", "is", null)
     .$if(Boolean(c.req.query("location_id")), (q) => q.where("location_id", "=", c.req.query("location_id")!)).orderBy("sort").orderBy("name").execute()));

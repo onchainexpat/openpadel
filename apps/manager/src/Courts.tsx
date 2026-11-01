@@ -1,45 +1,93 @@
-// The courts on one day: what holds each court and the free time between, with booking at the desk,
-// blocking and cancelling. Times are the location's, whatever the device's clock says.
-import { useEffect, useState } from "preact/hooks";
+// The courts on one day, as the desk sees them: a column per court with the time down the side, what's on now
+// and next, and the alerts that need someone. Drag a booking (or a program date) to another time or court, or
+// drag its bottom edge to make it longer or shorter: every drop opens the preview before anything changes, and
+// the same changes are on buttons and keys for anyone not dragging. Times are the location's, whatever the
+// device's clock says.
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, dollars, lang, t, usePreview } from "@kumi/ui";
+import { api, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 
 type Empty = { id: string; name: string; open: boolean };
-type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; block_id?: string; session_id?: string; program_id?: string; label?: string;
-  empty_places?: Empty[] };
+type Late = { name: string; minutes: number; at: string };
+type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; balance_cents?: number; booking_kind?: string;
+  coach?: string | null; status?: string; players?: string[]; late?: Late[]; block_id?: string; session_id?: string; program_id?: string; label?: string; empty_places?: Empty[] };
 type Court = { id: string; name: string; kind: string; items: Item[] };
-type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; courts: Court[] };
+type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; courts: Court[] };
 type Loc = { id: string; name: string; time_zone: string };
-const HALF = 30 * 60_000;
+type Alert = { event_id: string; kind: string; subject: string; body: string; link: string | null; at: string };
+type Alerts = { open: Alert[]; handled: (Alert & { handled_at: string; handled_by: string })[] };
+type Preview = (action: string, input: unknown) => Promise<void>;
+/** Where a dragged (or keyed) item would go: a court, a start, and how long. */
+type Target = { court: string; start: number; minutes: number };
+const HALF = 30 * 60_000, SLOT = 44;   // one half hour is this many pixels tall
+const ms = (iso: string) => new Date(iso).getTime();
+const length = (it: Item) => Math.round((ms(it.end) - ms(it.start)) / 60_000);
+// One item, wherever it is now: picked stays picked after it moves to another court.
+const keyOf = (it: Item, court: string) => it.booking_id ?? it.session_id ?? it.block_id ?? `${court}|${it.start}`;
+const unpaid = (it: Item) => Math.max(0, (it.price_cents ?? 0) - (it.paid_cents ?? 0));
+const isBooking = (it: Item) => Boolean(it.booking_id) && it.kind === "booking";
 
 export function Courts() {
   const [locs, setLocs] = useState<Loc[]>([]), [loc, setLoc] = useState(""), [date, setDate] = useState(""), [g, setG] = useState<Grid | null>(null);
   const [form, setForm] = useState<{ court: Court; starts: string[] } | null>(null), [blocking, setBlocking] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null);
   const load = () => loc && api<Grid>(`/staff/grid?location_id=${loc}${date ? `&date=${date}` : ""}`).then((x) => { setG(x); if (!date) setDate(x.date); });
-  const { preview, sheet } = usePreview(() => { load(); setForm(null); setBlocking(false); });
-  useEffect(() => { api<Loc[]>("/staff/locations").then((l) => { setLocs(l); setLoc(l[0]?.id ?? ""); }); }, []);
+  const loadAlerts = () => api<Alerts>("/staff/alerts").then(setAlerts).catch(() => setAlerts(null));
+  const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); });
+  useEffect(() => { api<Loc[]>("/staff/locations").then((l) => { setLocs(l); setLoc(l[0]?.id ?? ""); }); void loadAlerts(); }, []);
   useEffect(() => { load(); }, [loc, date]);
+  // Today, what's on now moves on its own: look again every minute.
+  useEffect(() => {
+    if (!g || g.date !== g.today) return;
+    const id = setInterval(() => { load(); loadAlerts(); }, 60_000);
+    return () => clearInterval(id);
+  }, [g?.date, g?.today, loc]);
   if (!g) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
-  const clock = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: g.time_zone, hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  const clock = (iso: string | number) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: g.time_zone, hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  const today = g.date === g.today;
   // Every half hour the location is open, as instants: the same list for choosing a start or a block.
   const slots: string[] = [];
-  if (g.open) for (let s = new Date(g.open.opens).getTime(); s <= new Date(g.open.closes).getTime(); s += HALF) slots.push(new Date(s).toISOString());
+  if (g.open) for (let s = ms(g.open.opens); s <= ms(g.open.closes); s += HALF) slots.push(new Date(s).toISOString());
   const gaps = (c: Court) => {
     if (!g.open) return [];
     const out: { from: string; to: string }[] = [];
-    let cursor = new Date(g.open.opens).getTime();
-    for (const it of [...c.items].sort((a, b) => +new Date(a.start) - +new Date(b.start))) {
-      if (new Date(it.start).getTime() > cursor) out.push({ from: new Date(cursor).toISOString(), to: it.start });
-      cursor = Math.max(cursor, new Date(it.end).getTime());
+    let cursor = ms(g.open.opens);
+    for (const it of [...c.items].sort((a, b) => ms(a.start) - ms(b.start))) {
+      if (ms(it.start) > cursor) out.push({ from: new Date(cursor).toISOString(), to: it.start });
+      cursor = Math.max(cursor, ms(it.end));
     }
-    if (cursor < new Date(g.open.closes).getTime()) out.push({ from: new Date(cursor).toISOString(), to: g.open.closes });
-    return out.filter((x) => new Date(x.to).getTime() - new Date(x.from).getTime() >= HALF && new Date(x.to) > new Date());
+    if (cursor < ms(g.open.closes)) out.push({ from: new Date(cursor).toISOString(), to: g.open.closes });
+    return out.filter((x) => ms(x.to) - ms(x.from) >= HALF && new Date(x.to) > new Date());
   };
   const shift = (days: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days); setDate(d.toISOString().slice(0, 10)); };
+  const roles = (me.value?.roles ?? []).map((r) => r.key);
+  const seriesOk = roles.includes("owner") || roles.includes("manager") || (me.value?.can ?? []).includes("series.edit");
+  // What can be moved, and what made longer or shorter: a confirmed booking (moved before it starts, its length
+  // changed until it ends), and a program date before it starts, for those who edit programs.
+  const canMove = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.start) > Date.now() && mayDo("booking.move")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > Date.now());
+  const canResize = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.end) > Date.now() && mayDo("booking.extend")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > Date.now());
+  // A program date on more than one court keeps its courts when moved: only its time changes.
+  const courtsOf = (it: Item) => g.courts.filter((c) => c.items.some((x) => it.session_id && x.session_id === it.session_id)).length;
+  const drop = (it: Item, from: Court, to: Target) => {
+    const minutes = length(it), startsAt = new Date(to.start).toISOString();
+    if (it.booking_id) return to.minutes !== minutes ? preview("booking.extend", { booking_id: it.booking_id, minutes: to.minutes })
+      : preview("booking.move", { booking_id: it.booking_id, court_id: to.court, starts_at: startsAt });
+    if (it.session_id) return preview("series.edit", { session_id: it.session_id, scope: "this", ...(to.minutes !== minutes ? { minutes: to.minutes } : { starts_at: startsAt }),
+      ...(to.court !== from.id ? { court_ids: [to.court] } : {}) });
+  };
+  // Tapping free time books it at the desk, from that half hour.
+  const book = (c: Court, at: number) => {
+    if (!mayDo("booking.create")) return;
+    const gap = gaps(c).find((x) => ms(x.from) <= at && at < ms(x.to));
+    if (!gap) return;
+    const starts = slots.filter((s) => ms(s) >= Math.max(at, ms(gap.from)) && ms(s) + HALF <= ms(gap.to) && new Date(s) > new Date());
+    if (starts.length) setForm({ court: c, starts });
+  };
+  const sel = g.courts.flatMap((c) => c.items.map((it) => ({ it, c }))).find((x) => keyOf(x.it, x.c.id) === picked) ?? null;
 
   return (
-    <main>
+    <main class="today">
       <h1>{t("ui.courts")}</h1>
       <section class="card card-form">
         {locs.length > 1 && <label>{t("ui.location")}<select value={loc} onChange={(e) => { setLoc(e.currentTarget.value); setDate(""); }}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>}
@@ -47,35 +95,20 @@ export function Courts() {
           <button type="button" class="small" onClick={() => shift(-1)} aria-label={t("ui.day_before")}>‹</button>
           <input type="date" aria-label={t("ui.day")} value={date} onInput={(e) => setDate(e.currentTarget.value)} />
           <button type="button" class="small" onClick={() => shift(1)} aria-label={t("ui.day_after")}>›</button>
+          {!today && <button type="button" class="small" onClick={() => setDate(g.today)}>{t("ui.today_button")}</button>}
         </div>
         {!g.open && <p class="meta">{t("ui.closed_this_day")}</p>}
         {g.open && <p class="meta">{t("ui.open_from_to", { from: clock(g.open.opens), to: clock(g.open.closes) })}</p>}
       </section>
 
-      {g.courts.map((c) => (
-        <section class="card">
-          <h2>{c.name}</h2>
-          <ul class="plain">
-            {[...c.items.map((it) => ({ at: it.start, el: (<>
-              <li class="row"><span><strong>{clock(it.start)} - {clock(it.end)}</strong> {it.booking_id ? `${it.who} · ${it.code}` : it.kind === "hold" ? t("ui.being_paid") : it.label}
-                {it.booking_id && it.kind === "booking" && (it.price_cents ?? 0) > (it.paid_cents ?? 0) && <span class="meta"> · {t("ui.unpaid_amount", { amount: dollars((it.price_cents ?? 0) - (it.paid_cents ?? 0), lang.value) })}</span>}</span>
-                <span>
-                {it.booking_id && it.kind === "booking" && (it.price_cents ?? 0) > (it.paid_cents ?? 0) && <button class="small" onClick={() => preview("booking.record_payment", { booking_id: it.booking_id, cents: (it.price_cents ?? 0) - (it.paid_cents ?? 0), method: "cash" })}>{t("ui.record_cash")}</button>}{" "}
-                {it.booking_id && it.kind === "booking" && <button class="small" onClick={() => preview("booking.cancel", { booking_id: it.booking_id })}>{t("ui.cancel_booking")}</button>}
-                </span>
-                {it.block_id && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
-                {it.program_id && <a href={`/programs/${it.program_id}`}>{t("ui.open")}</a>}
-              </li>
-              {it.empty_places?.map((e) => <li><EmptyPlace e={e} preview={preview} /></li>)}
-            </>) })),
-            ...gaps(c).map((gap) => ({ at: gap.from, el: (
-              <li class="row"><span class="meta">{t("ui.free_from_to", { from: clock(gap.from), to: clock(gap.to) })}</span>
-                <button class="small" onClick={() => setForm({ court: c, starts: slots.filter((s) => s >= gap.from && new Date(s).getTime() + HALF <= new Date(gap.to).getTime() && new Date(s) > new Date()) })}>{t("ui.book_here")}</button>
-              </li>) }))].sort((a, b) => +new Date(a.at) - +new Date(b.at)).map((x) => x.el)}
-          </ul>
-        </section>
-      ))}
-      {g.open && <button onClick={() => setBlocking(!blocking)}>{t("ui.block_courts")}</button>}
+      {today && alerts && (alerts.open.length > 0 || alerts.handled.length > 0 || mayDo("alert.handle")) && <AlertList a={alerts} clock={clock} preview={preview} />}
+      {today && <NowNext g={g} clock={clock} />}
+      <TimeGrid g={g} clock={clock} picked={picked} onPick={(k) => setPicked(k === picked ? null : k)} canMove={canMove} canResize={canResize}
+        courtFixed={(it) => courtsOf(it) > 1} onDrop={drop} onFree={book} />
+      <p class="meta">{t("ui.today_hint")}</p>
+      {sel && <Details key={`${picked}|${sel.c.id}|${sel.it.start}|${sel.it.end}`} it={sel.it} court={sel.c} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove(sel.it)} canResize={canResize(sel.it)}
+        courtFixed={courtsOf(sel.it) > 1} onClose={() => setPicked(null)} />}
+      {g.open && mayDo("court.block") && <button onClick={() => setBlocking(!blocking)}>{t("ui.block_courts")}</button>}
       {form && <DeskBooking court={form.court} starts={form.starts} clock={clock} preview={preview} onClose={() => setForm(null)} />}
       {blocking && <BlockForm courts={g.courts} slots={slots} clock={clock} preview={preview} />}
       {sheet}
@@ -83,7 +116,205 @@ export function Courts() {
   );
 }
 
-function DeskBooking({ court, starts, clock, preview, onClose }: { court: Court; starts: string[]; clock: (s: string) => string; preview: (a: string, i: unknown) => Promise<void>; onClose: () => void }) {
+/** What needs someone: each staff alert once, until one of the staff marks it handled. */
+function AlertList({ a, clock, preview }: { a: Alerts; clock: (s: string) => string; preview: Preview }) {
+  return (
+    <section class="card alerts">
+      <h2>{t("ui.alerts_title")}{a.open.length > 0 && <span class="badge warn">{a.open.length}</span>}</h2>
+      {a.open.length === 0 ? <p class="meta">{t("ui.alerts_none")}</p> : (
+        <ul class="plain">{a.open.map((x) => (
+          <li><strong>{x.subject}</strong><p class="meta">{x.body}</p>
+            <div class="row"><span class="meta">{clock(x.at)}</span><span>{x.link && <a href={x.link}>{t("ui.open")}</a>}{" "}
+              {mayDo("alert.handle") && <button class="small" onClick={() => preview("alert.handle", { event_id: x.event_id, kind: x.kind })}>{t("ui.alert_handled_button")}</button>}</span></div>
+          </li>))}</ul>
+      )}
+      {a.handled.length > 0 && <details><summary class="meta">{t("count.alerts_handled", { count: a.handled.length })}</summary>
+        <ul class="plain">{a.handled.map((x) => <li class="meta">{t("ui.alert_handled_by", { subject: x.subject, name: x.handled_by, time: clock(x.handled_at) })}</li>)}</ul></details>}
+    </section>
+  );
+}
+
+/** Who and what an item is, in a few words: the organiser (and coach), a program's or a block's name. */
+const labelOf = (it: Item) => it.booking_id ? (it.kind === "hold" ? t("ui.being_paid") : [it.who, it.booking_kind === "lesson" && it.coach ? t("ui.lesson_with", { coach: it.coach }) : ""].filter(Boolean).join(" · "))
+  : it.label ?? "";
+
+/** On each court: what's on now, and what starts next, with money owed and any word about running late. */
+function NowNext({ g, clock }: { g: Grid; clock: (s: string) => string }) {
+  const now = Date.now();
+  return (
+    <section class="card">
+      <h2>{t("ui.now_next")}</h2>
+      <ul class="plain">{g.courts.map((c) => {
+        const live = c.items.filter((it) => it.kind !== "hold");
+        const cur = live.find((it) => ms(it.start) <= now && now < ms(it.end));
+        const next = live.filter((it) => ms(it.start) > now).sort((a, b) => ms(a.start) - ms(b.start))[0];
+        return (
+          <li><strong>{c.name}</strong>
+            <div>{cur ? t("ui.now_on", { who: labelOf(cur), until: clock(cur.end) }) : t("ui.now_free")}
+              {cur && isBooking(cur) && unpaid(cur) > 0 && <span class="badge warn">{t("ui.unpaid_amount", { amount: dollars(unpaid(cur), lang.value) })}</span>}</div>
+            {[cur, next].flatMap((it) => it?.late ?? []).map((l) => <div class="note">{t("ui.late_note", { name: l.name, minutes: l.minutes })}</div>)}
+            <div class="meta">{next ? t("ui.next_on", { who: labelOf(next), at: clock(next.start) }) : t("ui.next_none")}</div>
+          </li>
+        );
+      })}</ul>
+    </section>
+  );
+}
+
+/** The day as a grid: courts across, time down. Each booking can be dragged by its handle to another time or
+ *  court, or by its bottom edge to another length; arrow keys do the same on the one picked. */
+function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, onDrop, onFree }: { g: Grid; clock: (s: string | number) => string; picked: string | null;
+  onPick: (k: string) => void; canMove: (it: Item) => boolean; canResize: (it: Item) => boolean; courtFixed: (it: Item) => boolean; onDrop: (it: Item, from: Court, to: Target) => void;
+  onFree: (c: Court, at: number) => void }) {
+  const cols = useRef<(HTMLDivElement | null)[]>([]);
+  const [drag, setDrag] = useState<{ it: Item; from: Court; mode: "move" | "resize"; y0: number; orig: Target; to: Target; pointer: boolean } | null>(null);
+  // The hours shown: opening to closing, stretched to anything outside them that day.
+  const all = g.courts.flatMap((c) => c.items);
+  const first = Math.min(...[g.open ? ms(g.open.opens) : Infinity, ...all.map((it) => ms(it.start))]);
+  const last = Math.max(...[g.open ? ms(g.open.closes) : -Infinity, ...all.map((it) => ms(it.end))]);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last <= first) return null;
+  const from = Math.floor(first / HALF) * HALF, rows = Math.ceil((last - from) / HALF);
+  const y = (at: number) => ((at - from) / HALF) * SLOT;
+  const clampStart = (start: number, minutes: number) => Math.min(Math.max(start, from), from + rows * HALF - minutes * 60_000);
+
+  const begin = (e: PointerEvent, it: Item, c: Court, mode: "move" | "resize") => {
+    e.preventDefault(); e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    const orig = { court: c.id, start: ms(it.start), minutes: length(it) };
+    setDrag({ it, from: c, mode, y0: e.clientY, orig, to: orig, pointer: true });
+  };
+  const follow = (e: PointerEvent) => {
+    if (!drag?.pointer) return;
+    const steps = Math.round((e.clientY - drag.y0) / SLOT);
+    if (drag.mode === "resize") { setDrag({ ...drag, to: { ...drag.orig, minutes: Math.max(30, drag.orig.minutes + steps * 30) } }); return; }
+    let court = drag.orig.court;
+    if (!courtFixed(drag.it)) {
+      const i = cols.current.findIndex((el) => { if (!el) return false; const r = el.getBoundingClientRect(); return e.clientX >= r.left && e.clientX < r.right; });
+      if (i >= 0) court = g.courts[i]!.id;
+    }
+    setDrag({ ...drag, to: { court, minutes: drag.orig.minutes, start: clampStart(drag.orig.start + steps * HALF, drag.orig.minutes) } });
+  };
+  const finish = () => {
+    const d = drag;
+    setDrag(null);
+    if (d && (d.to.court !== d.orig.court || d.to.start !== d.orig.start || d.to.minutes !== d.orig.minutes)) onDrop(d.it, d.from, d.to);
+  };
+  // The same, from the keyboard, on the item picked: arrows move it, Shift with up or down changes its length.
+  const keys = (e: KeyboardEvent, it: Item, c: Court) => {
+    const move = canMove(it), resize = canResize(it);
+    if (!move && !resize) return;
+    const orig = { court: c.id, start: ms(it.start), minutes: length(it) };
+    const cur = drag && !drag.pointer && drag.it === it ? drag : { it, from: c, mode: "move" as const, y0: 0, orig, to: orig, pointer: false };
+    const at = g.courts.findIndex((x) => x.id === cur.to.court);
+    let to = cur.to, mode: "move" | "resize" = cur.mode;
+    if (e.key === "Escape") { setDrag(null); return; }
+    if (e.key === "Enter" && drag && !drag.pointer) { e.preventDefault(); finish(); return; }
+    if (e.shiftKey && resize && (e.key === "ArrowUp" || e.key === "ArrowDown")) { mode = "resize"; to = { ...cur.orig, minutes: Math.max(30, to.minutes + (e.key === "ArrowDown" ? 30 : -30)) }; }
+    else if (move && (e.key === "ArrowUp" || e.key === "ArrowDown")) { mode = "move"; to = { ...to, minutes: cur.orig.minutes, start: clampStart(to.start + (e.key === "ArrowDown" ? HALF : -HALF), cur.orig.minutes) }; }
+    else if (move && !courtFixed(it) && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { mode = "move"; to = { ...to, minutes: cur.orig.minutes, court: g.courts[Math.min(g.courts.length - 1, Math.max(0, at + (e.key === "ArrowRight" ? 1 : -1)))]!.id }; }
+    else return;
+    e.preventDefault();
+    setDrag({ ...cur, mode, to });
+  };
+  const nowLine = g.date === g.today ? Date.now() : null;
+
+  return (
+    <div class="tgrid" style={`--slot:${SLOT}px`}>
+      <div class="tg-times" aria-hidden="true">
+        <div class="tg-head" />
+        <div class="tg-body" style={`height:${rows * SLOT}px`}>
+          {Array.from({ length: rows }, (_, i) => (from + i * HALF) % 3600_000 === 0 || i === 0
+            ? <span class="tg-hour" style={`top:${i * SLOT}px`}>{clock(from + i * HALF)}</span> : null)}
+        </div>
+      </div>
+      {g.courts.map((c, ci) => (
+        <div class="tg-col">
+          <div class="tg-head">{c.name}</div>
+          <div class="tg-body tg-lines" ref={(el) => { cols.current[ci] = el; }} style={`height:${rows * SLOT}px`}
+            onClick={(e) => { if (e.target !== e.currentTarget) return; const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); onFree(c, from + Math.floor((e.clientY - r.top) / SLOT) * HALF); }}>
+            {nowLine !== null && nowLine >= from && nowLine <= from + rows * HALF && <div class="tg-now" style={`top:${y(nowLine)}px`} />}
+            {c.items.map((it) => {
+              const k = keyOf(it, c.id), top = y(ms(it.start)), h = Math.max(SLOT / 2, y(ms(it.end)) - top - 2);
+              const kind = it.booking_id ? (it.kind === "hold" ? "hold" : it.booking_kind === "lesson" ? "lesson" : "booking") : it.kind;
+              return (
+                <div class={`tg-item k-${kind}${picked === k ? " sel" : ""}${drag?.it === it ? " dragging" : ""}`} style={`top:${top}px;height:${h}px`}>
+                  <button type="button" class="tg-face" aria-pressed={picked === k} onClick={() => onPick(k)} onKeyDown={(e) => keys(e, it, c)}>
+                    <span class="tg-time">{clock(it.start)} - {clock(it.end)}</span>
+                    <span class="tg-who">{labelOf(it)}</span>
+                    {isBooking(it) && unpaid(it) > 0 && <span class="badge warn">{dollars(unpaid(it), lang.value)}</span>}
+                    {(it.late?.length ?? 0) > 0 && <span class="badge">{t("ui.late_note", { name: it.late![0]!.name, minutes: it.late![0]!.minutes })}</span>}
+                  </button>
+                  {canMove(it) && <span class="tg-grip" aria-hidden="true" title={t("ui.drag_handle")} onPointerDown={(e) => begin(e, it, c, "move")} onPointerMove={follow} onPointerUp={finish} onPointerCancel={() => setDrag(null)}>⠿</span>}
+                  {canResize(it) && <span class="tg-resize" aria-hidden="true" onPointerDown={(e) => begin(e, it, c, "resize")} onPointerMove={follow} onPointerUp={finish} onPointerCancel={() => setDrag(null)} />}
+                </div>
+              );
+            })}
+            {drag && drag.to.court === c.id && <div class="tg-ghost" style={`top:${y(drag.to.start)}px;height:${Math.max(SLOT / 2, (drag.to.minutes * 60_000 / HALF) * SLOT - 2)}px`}>
+              {clock(drag.to.start)} - {clock(drag.to.start + drag.to.minutes * 60_000)}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The item picked: who's playing, what's paid, and every change for it on buttons. */
+function Details({ it, court, g, clock, slots, preview, canMove, canResize, courtFixed, onClose }: { it: Item; court: Court; g: Grid; clock: (s: string | number) => string; slots: string[];
+  preview: Preview; canMove: boolean; canResize: boolean; courtFixed: boolean; onClose: () => void }) {
+  const [changing, setChanging] = useState(false), card = useRef<HTMLElement>(null);
+  // On a phone the grid is long: bring what was picked into view.
+  useEffect(() => { card.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, []);
+  return (
+    <section class="card" ref={card}>
+      <div class="row"><h2>{clock(it.start)} - {clock(it.end)} · {court.name}</h2><button class="small" onClick={onClose}>{t("ui.close")}</button></div>
+      <p>{labelOf(it)}{it.code ? ` · ${it.code}` : ""}</p>
+      {(it.players?.length ?? 0) > 0 && <p class="meta">{t("ui.today_players", { names: it.players!.join(", ") })}</p>}
+      {isBooking(it) && <p class="meta">{unpaid(it) > 0 ? t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) }) : t("ui.today_paid", { amount: dollars(it.paid_cents ?? 0, lang.value) })}</p>}
+      {it.late?.map((l) => <p class="note">{t("ui.late_note", { name: l.name, minutes: l.minutes })} · {clock(l.at)}</p>)}
+      <div class="chips">
+        {isBooking(it) && unpaid(it) > 0 && mayDo("booking.record_payment") && <button class="small" onClick={() => preview("booking.record_payment", { booking_id: it.booking_id, cents: unpaid(it), method: "cash" })}>{t("ui.record_cash")}</button>}
+        {(canMove || canResize) && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.move_or_resize")}</button>}
+        {isBooking(it) && mayDo("booking.cancel") && <button class="small" onClick={() => preview("booking.cancel", { booking_id: it.booking_id })}>{t("ui.cancel_booking")}</button>}
+        {it.block_id && mayDo("court.unblock") && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
+        {it.program_id && <a href={`/programs/${it.program_id}`}>{t("ui.open")}</a>}
+      </div>
+      {it.empty_places?.map((e) => <EmptyPlace e={e} preview={preview} />)}
+      {changing && <ChangeForm it={it} court={court} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove} canResize={canResize} courtFixed={courtFixed} />}
+    </section>
+  );
+}
+
+/** Moving or changing the length on buttons: a court, a start and a length, then the preview. */
+function ChangeForm({ it, court, g, clock, slots, preview, canMove, canResize, courtFixed }: { it: Item; court: Court; g: Grid; clock: (s: string | number) => string; slots: string[];
+  preview: Preview; canMove: boolean; canResize: boolean; courtFixed: boolean }) {
+  const was = length(it), [f, setF] = useState({ court: court.id, start: new Date(it.start).toISOString(), minutes: was, reprice: false, refund: "rule" }), [error, setError] = useState("");
+  const moved = f.court !== court.id || ms(f.start) !== ms(it.start), resized = f.minutes !== was;
+  const lengths = Array.from({ length: 16 }, (_, i) => (i + 1) * 30).filter((m) => !g.open || ms(f.start) + m * 60_000 <= ms(g.open.closes) || m === was);
+  const starts = slots.filter((s) => new Date(s) > new Date() && (!g.open || ms(s) + f.minutes * 60_000 <= ms(g.open.closes)));
+  const submit = (e: Event) => {
+    e.preventDefault(); setError("");
+    if (it.session_id) return void preview("series.edit", { session_id: it.session_id, scope: "this", ...(moved ? { starts_at: f.start } : {}), ...(resized ? { minutes: f.minutes } : {}),
+      ...(f.court !== court.id ? { court_ids: [f.court] } : {}) });
+    if (moved && resized) return setError(t("ui.change_one_thing"));
+    if (moved) return void preview("booking.move", { booking_id: it.booking_id, court_id: f.court, starts_at: f.start, reprice: f.reprice || undefined, refund: f.refund });
+    if (resized) return void preview("booking.extend", { booking_id: it.booking_id, minutes: f.minutes, refund: f.refund });
+  };
+  return (
+    <form class="card-form" onSubmit={submit}>
+      {canMove && !courtFixed && <label>{t("ui.court_label")}<select value={f.court} onChange={(e) => setF({ ...f, court: e.currentTarget.value })}>{g.courts.map((c) => <option value={c.id}>{c.name}</option>)}</select></label>}
+      {canMove && <label>{t("ui.starts")}<select value={f.start} onChange={(e) => setF({ ...f, start: e.currentTarget.value })}>
+        {!starts.includes(f.start) && <option value={f.start}>{clock(f.start)}</option>}{starts.map((s) => <option value={s}>{clock(s)}</option>)}</select></label>}
+      {canResize && <label>{t("ui.length")}<select value={f.minutes} onChange={(e) => setF({ ...f, minutes: Number(e.currentTarget.value) })}>{lengths.map((m) => <option value={m}>{t("ui.minutes", { count: m })}</option>)}</select></label>}
+      {isBooking(it) && it.booking_kind !== "lesson" && canMove && <label class="check"><input type="checkbox" checked={f.reprice} onChange={(e) => setF({ ...f, reprice: e.currentTarget.checked })} /> {t("ui.reprice")}</label>}
+      {isBooking(it) && <label>{t("ui.refund_if_less")}<select value={f.refund} onChange={(e) => setF({ ...f, refund: e.currentTarget.value })}>
+        <option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_all")}</option><option value="none">{t("ui.refund_nothing_more")}</option></select></label>}
+      {error && <p class="error" role="alert">{error}</p>}
+      <button class="primary" disabled={!moved && !resized}>{t("ui.preview")}</button>
+    </form>
+  );
+}
+
+function DeskBooking({ court, starts, clock, preview, onClose }: { court: Court; starts: string[]; clock: (s: string) => string; preview: Preview; onClose: () => void }) {
   const [f, setF] = useState({ start: starts[0] ?? "", minutes: 90, guest: "", price: "" }), [person, setPerson] = useState<{ id: string; display_name: string } | null>(null);
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string; email: string | null }[]>([]);
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
@@ -117,7 +348,7 @@ function DeskBooking({ court, starts, clock, preview, onClose }: { court: Court;
 
 /** A place a player gave up after the deadline: open it in the app, or give it to someone free. Leaving and
  *  refunding are separate: what the player gets back is the club's rule unless staff choose otherwise. */
-function EmptyPlace({ e, preview }: { e: Empty; preview: (a: string, i: unknown) => Promise<void> }) {
+function EmptyPlace({ e, preview }: { e: Empty; preview: Preview }) {
   const [refund, setRefund] = useState("rule"), [giving, setGiving] = useState(false);
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]);
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
@@ -137,7 +368,7 @@ function EmptyPlace({ e, preview }: { e: Empty; preview: (a: string, i: unknown)
   );
 }
 
-function BlockForm({ courts, slots, clock, preview }: { courts: Court[]; slots: string[]; clock: (s: string) => string; preview: (a: string, i: unknown) => Promise<void> }) {
+function BlockForm({ courts, slots, clock, preview }: { courts: Court[]; slots: string[]; clock: (s: string) => string; preview: Preview }) {
   const [ids, setIds] = useState<string[]>([]), [f, setF] = useState({ from: slots[0] ?? "", to: slots.at(-1) ?? "", reason: "maintenance", note: "" });
   return (
     <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("court.block", { court_ids: ids, starts_at: f.from, ends_at: f.to, reason: f.reason, note: f.note || undefined }); }}>

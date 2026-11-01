@@ -67,11 +67,11 @@ async function lessonCoach(db: Db | Trx, coachId: string) {
 
 /** What keeps a coach busy between `from` and `to`: their lessons (one being paid for counts until its hold
  *  runs out) and the sessions they run. */
-export async function coachBusy(db: Db | Trx, coachId: string, from: Date, to: Date, now: Date, skip: { sessionId?: string } = {}) {
+export async function coachBusy(db: Db | Trx, coachId: string, from: Date, to: Date, now: Date, skip: { sessionId?: string; bookingId?: string } = {}) {
   const lessons = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id")
     .select(["booking.id", sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
     .where("booking.coach_id", "=", coachId).where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true)
-    .where(sql<boolean>`court_time.during && tstzrange(${from}, ${to})`)
+    .where(sql<boolean>`court_time.during && tstzrange(${from}, ${to})`).$if(Boolean(skip.bookingId), (q) => q.where("booking.id", "!=", skip.bookingId!))
     .where((eb) => eb.or([eb("court_time.kind", "!=", "hold"), eb("court_time.hold_until", "is", null), eb("court_time.hold_until", ">", now)])).execute();
   const sessions = await db.selectFrom("session").select(["id", "starts_at as start", "ends_at as end"]).where("coach_id", "=", coachId).where("status", "!=", "cancelled")
     .where("starts_at", "<", to).where("ends_at", ">", from).$if(Boolean(skip.sessionId), (q) => q.where("id", "!=", skip.sessionId!)).execute();
@@ -86,6 +86,15 @@ async function coachDay(db: Db | Trx, coachId: string, day: string, tz: string) 
   return { stretches: rows.map((r) => ({ location_id: r.location_id, start: onDate(day, hhmm(r.starts), tz), end: onDate(day, hhmm(r.ends), tz) })), off };
 }
 const overlaps = (a: { start: Date; end: Date }, s: number, e: number) => new Date(a.start).getTime() < e && new Date(a.end).getTime() > s;
+
+/** Why a coach can't give a lesson from `start` to `end` at a location (outside their hours there, on time off,
+ *  or busy with something else), or null when they can. `bookingId`: the lesson being moved doesn't count. */
+export async function coachNotFree(db: Db | Trx, coachId: string, locationId: string, start: Date, end: Date, now: Date, bookingId?: string): Promise<"not_then" | "busy" | null> {
+  const tz = await clubTz(db), day = await coachDay(db, coachId, localDate(start, tz), tz);
+  if (!day.stretches.some((x) => x.location_id === locationId && x.start <= start && end <= x.end) || day.off.some((x) => overlaps(x, start.getTime(), end.getTime()))) return "not_then";
+  if ((await coachBusy(db, coachId, start, end, now, { bookingId })).length) return "busy";
+  return null;
+}
 
 /** Every start on a club date when the coach gives a lesson of `minutes`: inside their hours, not on time off,
  *  not busy, and with a court free at that location. Each comes with the courts free then. */

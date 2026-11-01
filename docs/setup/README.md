@@ -100,6 +100,16 @@ staff give it away free). The defaults are 100, 100 and 0. The front desk is tol
 empty after the deadline, and fills it from the Courts page; staff can choose a different refund there,
 case by case.
 
+The Courts page is the desk's day: a column per court with the time down the side, what's on now and
+next on each court (who's playing, what's owed, who said they're running late), and the alerts that need
+someone (a place left empty at the last minute, a question waiting, money owed, a program short of its
+minimum, a refund that failed). An alert stays until one of the staff marks it handled, and then it's gone
+for everyone. Staff move a booking by dragging its handle to another time or court, and change its length
+by dragging its bottom edge; the same is on buttons and the arrow keys. Every change shows its preview
+first, and the players are told. A move keeps the price paid unless staff tick "price it again"; more
+time is owed at the desk; less time gives back what the club's cancellation rule says (or all, or
+nothing, as staff choose). Money paid at the desk is given back at the desk.
+
 ### Step 5d: memberships (optional)
 
 If the club sells memberships, add its plans under Memberships in the staff app: a name, the price a

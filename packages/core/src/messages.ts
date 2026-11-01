@@ -97,6 +97,12 @@ async function bookingInfo(db: Db, bookingId: string) {
   const minutes = Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60_000);
   return { ...b, minutes, players, base: { court: b.court, location: b.location, when: when(new Date(b.start), b.time_zone), code: b.code, minutes, coach: b.coach ?? "" } };
 }
+/** What a change to a booking means for one player's money: more to pay at the desk (the organiser), or what goes back. */
+function changeMoney(personId: string, organiserId: string | null, p: { owed: number; refunds: Record<string, number> }): Text {
+  if (p.refunds[personId]) return both("msg.refund_card", { amount: amount(p.refunds[personId]!) });
+  if (p.owed > 0 && personId === organiserId) return both("msg.change_owed", { amount: amount(p.owed) });
+  return NOTHING;
+}
 /** A lesson's coach hears about it too, with who's coming. */
 function toCoach(b: Awaited<ReturnType<typeof bookingInfo>>, kind: string, o: { essential?: boolean; staleAt?: Date } = {}): Draft[] {
   if (!b.coach_id) return [];
@@ -158,6 +164,20 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     }
     // The coach, unless they called it off themselves.
     return [...drafts, ...(p.by && p.by === b.coach_id ? [] : toCoach(b, "coach_lesson_cancelled", { essential: true }))];
+  },
+  // Staff moved a booking or changed its length: everyone in it hears the new time, and what it means for money
+  // (more to pay at the desk, for the organiser; what goes back, for each player it goes back to).
+  async "booking.moved"({ db }, p: { booking_id: string; from: Text; to: Text; owed: number; refunds: Record<string, number> }) {
+    const b = await bookingInfo(db, p.booking_id), lesson = b.kind === "lesson";
+    const drafts: Draft[] = b.players.filter((pl) => pl.person_id).map((pl) => ({ to: pl.person_id!, kind: lesson ? "lesson_moved" : "booking_moved",
+      params: { ...b.base, from: p.from, to: p.to, money: changeMoney(pl.person_id!, b.organiser_id, p) }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
+    return [...drafts, ...toCoach(b, "coach_lesson_moved", { essential: true }).map((d) => ({ ...d, params: { ...d.params, from: p.from, to: p.to } }))];
+  },
+  async "booking.resized"({ db }, p: { booking_id: string; old: number; until: Text; owed: number; refunds: Record<string, number> }) {
+    const b = await bookingInfo(db, p.booking_id), lesson = b.kind === "lesson";
+    const drafts: Draft[] = b.players.filter((pl) => pl.person_id).map((pl) => ({ to: pl.person_id!, kind: lesson ? "lesson_resized" : "booking_resized",
+      params: { ...b.base, old: p.old, until: p.until, money: changeMoney(pl.person_id!, b.organiser_id, p) }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
+    return [...drafts, ...toCoach(b, "coach_lesson_resized", { essential: true }).map((d) => ({ ...d, params: { ...d.params, old: p.old, until: p.until } }))];
   },
   async "booking.lost"({ db }, p: { booking_id: string }) {
     const b = await bookingInfo(db, p.booking_id);

@@ -23,6 +23,15 @@ The first version a club can run on its own (court bookings included), or for it
   courts while the payment is going through, that court's part comes back and the rest stay booked.
 - Messages for confirmations, shares paid, cancellations, money owed, and a reminder before playing.
 - Occupancy and revenue by day, with a CSV export.
+- The Courts page is the desk's day: courts across and time down (sideways on a phone), what's on now
+  and next on each court with what's owed and who's running late, and the alerts that need someone,
+  each shown until one of the staff marks it handled, for everyone.
+- Staff move a booking to another time or court, or make it longer or shorter, by dragging it (or on
+  buttons, or with the arrow keys), always through the preview. A lesson moves only when its coach is
+  free then, and a program date moves through the same "this date" change as on its page. Moving keeps
+  the price paid unless staff ask for it to be priced again; added time is owed at the desk; time taken
+  off gives back by the club's cancellation rule, all of it or nothing, as staff choose. The players
+  (and a lesson's coach) are told.
 
 **Open matches**
 - A member booking a court and paying their part can open it to other players: a level band, rated
@@ -267,7 +276,9 @@ The first version a club can run on its own (court bookings included), or for it
   everyone's, with or without approval). The preview says in plain words what it can and can't do. A
   club's role only holds what a manager does without asking; anything else is the owner's. Nobody can
   make or give a role that does more than they can. The built-in roles stay as they are and can be copied
-  as a start. Someone whose only staff role is the club's own sees only the areas it covers.
+  as a start. Someone whose only staff role is the club's own sees only the areas it covers, and their
+  screens offer only the changes the role allows (no "Add a person" or "Import" on People without them)
+  and don't ask for lists the role can't read.
 - Fixed: grants like "person.passkey_*" (a family of actions) now apply, so front desk, coaches and
   accountants can add and remove their own passkeys, as was meant.
 

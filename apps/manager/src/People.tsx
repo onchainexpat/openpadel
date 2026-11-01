@@ -2,7 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
 import type { Key, Lang } from "@kumi/i18n";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { api, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 
 type Row = { id: string; display_name: string; email: string | null; roles: string[] | null; junior?: boolean; tags?: string[] | null };
 type Csv = { rows: { display_name: string; email?: string }[]; problems: { line: number; text: string }[]; fatal?: string };
@@ -24,7 +24,10 @@ export function People() {
   const load = () => api<Row[]>(`/staff/people?limit=100&q=${encodeURIComponent(q)}${staffOnly ? "&role=staff" : ""}${tag ? `&tag_id=${tag}` : ""}${segment ? `&segment_id=${segment}` : ""}`).then(setRows);
   const { preview, sheet } = usePreview(() => { load(); setAdding(false); setImporting(false); setCsv(null); setF({ display_name: "", email: "", locale: lang.value as Lang }); });
   useEffect(() => { const id = setTimeout(load, 200); return () => clearTimeout(id); }, [q, staffOnly, tag, segment]);
-  useEffect(() => { api<{ tags: { id: string; name: string }[]; segments: { id: string; name: string }[] }>("/staff/broadcast-options").then(setLists).catch(() => {}); }, []);
+  // Only for those who read the messages area: everyone else would be turned away.
+  const areas = me.value?.areas ?? null, desk = (me.value?.roles ?? []).some((r) => ["owner", "manager", "front_desk"].includes(r.key));
+  const messages = areas ? areas.includes("messages") : desk;
+  useEffect(() => { if (messages) api<{ tags: { id: string; name: string }[]; segments: { id: string; name: string }[] }>("/staff/broadcast-options").then(setLists).catch(() => {}); }, [messages]);
 
   const add = (e: Event) => { e.preventDefault(); preview("person.create", { display_name: f.display_name, email: f.email || undefined, locale: f.locale }); };
   const pick = async (e: Event) => {
@@ -49,7 +52,7 @@ export function People() {
         )}
       </section>
 
-      <button onClick={() => setAdding(!adding)}>{t("ui.add_person")}</button>
+      {mayDo("person.create") && <button onClick={() => setAdding(!adding)}>{t("ui.add_person")}</button>}
       {adding && (
         <form class="card card-form" onSubmit={add}>
           <label>{t("ui.name")}<input required maxLength={80} value={f.display_name} onInput={(e) => setF({ ...f, display_name: e.currentTarget.value })} /></label>
@@ -59,7 +62,7 @@ export function People() {
         </form>
       )}
 
-      <button onClick={() => setImporting(!importing)}>{t("ui.import_people")}</button>
+      {mayDo("person.import") && <button onClick={() => setImporting(!importing)}>{t("ui.import_people")}</button>}
       {importing && (
         <section class="card card-form">
           <p class="meta">{t("ui.import_help")}</p>

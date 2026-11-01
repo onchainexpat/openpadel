@@ -13,7 +13,7 @@ import { specificity, type Mode } from "./permissions.ts";
 
 /** The areas actions fall in, by the first part of their name. */
 export const AREAS: { key: string; prefixes: string[] }[] = [
-  { key: "bookings", prefixes: ["booking", "lesson"] },
+  { key: "bookings", prefixes: ["booking", "lesson", "alert"] },
   { key: "courts", prefixes: ["court", "hours", "location", "connector", "mirror"] },
   { key: "programs", prefixes: ["program", "session", "series", "enrolment", "waitlist", "draw", "attendance"] },
   { key: "members", prefixes: ["person", "household", "kid", "waiver", "tag", "privacy", "friend", "consent", "family_card"] },
@@ -214,4 +214,13 @@ export async function customAreas(db: Db | Trx, personId: string): Promise<strin
   for (const r of roles.filter((x) => !x.system))
     for (const g of await grantsOfRole(db, r.id)) if (g.mode !== "no") areas.add(areaOf(g.pattern));
   return AREAS.map((a) => a.key).filter((k) => areas.has(k));
+}
+
+/** Of `actions`, the ones the roles the club made give this person, on any rows (for their buttons; the member
+ *  role's own-scope grants, such as cancelling one's own booking, aren't staff work). */
+export async function customCan(db: Db | Trx, personId: string, actions: string[]): Promise<string[]> {
+  const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.id")
+    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true).where("role.system", "=", false).execute();
+  const grants = await Promise.all(roles.map((r) => grantsOfRole(db, r.id)));
+  return actions.filter((a) => grants.some((g) => roleAllows(g, a)));
 }

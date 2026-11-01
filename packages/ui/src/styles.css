@@ -89,3 +89,33 @@ label.inline-number input { flex: none; width: 5.5em; margin: 0; }
 /* The role editor: one area open at a time is enough to read. */
 details.area { border-top: 1px solid var(--line); padding: 8px 0; }
 details.area summary { cursor: pointer; font-weight: 600; }
+/* The Today view: wider than the other pages on a big screen, courts across and time down. On a phone the
+   courts scroll sideways and the times stay put. */
+body:has(main.today) #app { max-width: 1200px; }
+body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
+.tgrid { display: flex; overflow-x: auto; margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.tg-times { flex: none; width: 64px; position: sticky; left: 0; z-index: 3; background: var(--card); border-right: 1px solid var(--line); }
+.tg-col { flex: 1 0 150px; min-width: 150px; border-right: 1px solid var(--line); }
+.tg-col:last-child { border-right: 0; }
+.tg-head { height: 34px; line-height: 34px; padding: 0 8px; font-weight: 600; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tg-body { position: relative; }
+.tg-lines { background-image: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px calc(var(--slot) * 2)); cursor: copy; }
+.tg-hour { position: absolute; right: 6px; transform: translateY(-1px); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.tg-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--error); z-index: 2; pointer-events: none; }
+.tg-item { position: absolute; left: 3px; right: 3px; z-index: 1; }
+.tg-face { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; height: 100%; padding: 4px 22px 4px 6px; margin: 0; overflow: hidden; text-align: left;
+  font-size: 13px; line-height: 1.25; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-left: 4px solid var(--brand); border-radius: 6px; cursor: pointer; }
+.tg-face .badge { margin-left: 0; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.tg-time { font-weight: 600; } .tg-who { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.k-lesson .tg-face { border-left-color: #7a4fb3; } .k-session .tg-face { border-left-color: #b07a12; }
+.k-block .tg-face { border-left-color: var(--muted); background: repeating-linear-gradient(135deg, var(--bg) 0 8px, var(--line) 8px 10px); }
+.k-mirror .tg-face { border-left-color: var(--muted); border-style: dashed; } .k-hold .tg-face { opacity: .7; border-left-style: dotted; }
+.tg-item.sel .tg-face { outline: 2px solid var(--brand); outline-offset: 1px; }
+.tg-item.dragging { opacity: .45; }
+/* The handles take a finger without scrolling the page: the grip moves, the bottom edge changes the length. */
+.tg-grip { position: absolute; top: 2px; right: 2px; width: 20px; height: 22px; line-height: 22px; text-align: center; font-size: 14px; color: var(--muted); cursor: grab; touch-action: none; user-select: none; }
+.tg-resize { position: absolute; left: 0; right: 0; bottom: -3px; height: 10px; cursor: ns-resize; touch-action: none; }
+.tg-resize::after { content: ""; position: absolute; left: 40%; right: 40%; top: 4px; height: 2px; border-radius: 1px; background: var(--muted); }
+.tg-ghost { position: absolute; left: 3px; right: 3px; z-index: 4; padding: 4px 6px; font-size: 13px; font-weight: 600; color: var(--brand); border: 2px dashed var(--brand); border-radius: 6px;
+  background: color-mix(in srgb, var(--brand) 10%, transparent); pointer-events: none; }
+.alerts li strong { display: block; }

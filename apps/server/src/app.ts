@@ -11,7 +11,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, type Actor, type Db } from "@kumi/core";
+import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, type Actor, type Db } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, sessionPerson, signOut, startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
@@ -25,6 +25,9 @@ import { publicRoutes } from "./public.ts";
 import { memberRoutes } from "./member.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import type { Mailer } from "./mailer.ts";
+
+/** The changes a staff screen offers a button for, which /me reports for people with only the club's own roles. */
+const CLIENT_ACTIONS = ["person.create", "person.import", "booking.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "court.block", "court.unblock", "alert.handle", "series.edit"];
 
 export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata; production?: boolean; stripe?: StripeConfig
   /** Bot protection on sign-up, sign-in codes and checkout. On in production, always; tests and practice can leave it off. */
@@ -212,7 +215,9 @@ export function makeApp(deps: AppDeps) {
     const kid = await kidOf(db, me.id);
     // Someone whose only staff roles are ones the club made sees the areas those roles cover.
     const areas = me.gate ? null : await customAreas(db, me.id);
-    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas });
+    // For those people, which of the buttons that start a change their roles allow (the server checks again).
+    const can = areas ? await customCan(db, me.id, CLIENT_ACTIONS) : null;
+    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can });
   });
 
   // ---- Actions: one description each, the same one the MCP tools and forms use ----

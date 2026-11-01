@@ -9,11 +9,15 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   gate?: "setup" | "verify" | null;
   /** Someone whose only staff roles are the club's own: the areas those cover (null for everyone else). */
   areas?: string[] | null;
+  /** For those people: which of the staff screens' changes their roles allow (null: everyone else, as their role always has). */
+  can?: string[] | null;
   /** A junior with a login of their own: their parents' rules apply, and payments go on the family card. */
   kid?: { friends: boolean } | null };
 export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
+/** Whether to offer a button for a change: a role the club made may not allow it (the server decides either way). */
+export const mayDo = (action: string) => !me.value?.can || me.value.can.includes(action);
 /** The account was just deleted: the sign-in page says so. */
 export const farewell = signal(false);
 export const club = signal<Club | null>(null);
