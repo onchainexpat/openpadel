@@ -43,7 +43,7 @@ owner adds keys by typing them in (`sudoedit /etc/kumi/kumi.env`); after any cha
 `systemctl restart kumi`. Never commit this file or print it.
 
 ## Backups
-Every night at 3:17 the server saves the whole database to `/var/backups/kumi/kumi-DATE.dump` and
+Every night at 3:17 (the club's time) the server saves the whole database to `/var/backups/kumi/kumi-DATE.dump` and
 keeps 14 days. A backup on the same disk doesn't survive losing the server, so also copy them
 somewhere else, such as a storage bucket or the owner's computer:
 ```bash

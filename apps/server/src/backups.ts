@@ -12,7 +12,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, st
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { sql, type Kysely } from "kysely";
-import { connect, jobFailed, jobWorked, parseSecretKey, type Db } from "@kumi/core";
+import { atLocal, connect, heartbeat, jobFailed, jobWorked, localParts, parseSecretKey, type Db, type OpsJob } from "@kumi/core";
 import { S3Client, type S3Config } from "./s3.ts";
 
 export const LOCAL_DAYS = 14, OFFSITE_DAILY = 30, OFFSITE_MONTHLY = 12;
@@ -276,6 +276,52 @@ async function dropScratch(db: Db, url: string, created: boolean) {
   if (created) { await sql.raw(`DROP DATABASE IF EXISTS ${dbNameOf(url)} WITH (FORCE)`).execute(db); return; }
   const scratch = connect(url);
   try { await sql`DROP SCHEMA IF EXISTS public CASCADE`.execute(scratch); await sql`CREATE SCHEMA public`.execute(scratch); } finally { await scratch.destroy(); }
+}
+
+// ---- The server's own records across a restore ----
+type OpsRecord = { name: string; last_run_at: Date | null; last_ok_at: Date | null; last_error: string | null; details: unknown };
+/** The server's job records (when the backup, offsite copy and restore test last ran). They describe this server,
+ *  not the club's data, so `kumi restore` reads them first and writes them back after: otherwise doctor would
+ *  report the night the backup was made ("the restore test hasn't run yet"). */
+export async function readOpsRecords(url: string): Promise<OpsRecord[]> {
+  const db = connect(url);
+  try { return await db.selectFrom("ops_heartbeat").selectAll().execute(); } catch { return []; } finally { await db.destroy(); }
+}
+export async function writeOpsRecords(url: string, rows: OpsRecord[]): Promise<void> {
+  if (!rows.length) return;
+  const db = connect(url);
+  try {
+    for (const r of rows) {
+      const v = { last_run_at: r.last_run_at, last_ok_at: r.last_ok_at, last_error: r.last_error, details: JSON.stringify(r.details ?? {}) };
+      await db.insertInto("ops_heartbeat").values({ name: r.name, ...v }).onConflict((oc) => oc.column("name").doUpdateSet(v)).execute();
+    }
+  } catch { /* a backup from before these records existed: the server sets them again as its jobs run */ } finally { await db.destroy(); }
+}
+
+// ---- When they run ----
+/** The nightly backup at 3:17 and the restore test on the 1st at 4:17, both on the club's clock. The server's
+ *  timer (or the Docker backup service) ticks every hour; each tick asks whether its job is due. */
+export const SCHEDULE: Record<"backup" | "restore_test", { hour: number; monthDay?: number }> = { backup: { hour: 3 }, restore_test: { hour: 4, monthDay: 1 } };
+
+/** The latest time a job was meant to run, on the club's clock: today's (or this month's) slot once it has come,
+ *  otherwise the one before. A job is due when it hasn't run since then, so a server that was off at 3 AM catches
+ *  up at its next tick, and a backup someone ran by hand after the slot counts as that night's. */
+export function lastSlot(now: Date, tz: string, at: { hour: number; monthDay?: number }): Date {
+  const p = localParts(now, tz);
+  if (at.monthDay) {
+    const thisMonth = atLocal(p.y, p.m, at.monthDay, at.hour, tz);
+    return thisMonth <= now ? thisMonth : atLocal(p.m === 1 ? p.y - 1 : p.y, p.m === 1 ? 12 : p.m - 1, at.monthDay, at.hour, tz);
+  }
+  const today = atLocal(p.y, p.m, p.d, at.hour, tz);
+  return today <= now ? today : atLocal(p.y, p.m, p.d - 1, at.hour, tz);
+}
+
+/** Is the nightly backup (or the monthly restore test) due now? The club's time zone, or UTC before a club exists. */
+export async function scheduledDue(db: Db, job: "backup" | "restore_test", now = new Date()): Promise<{ due: boolean; tz: string; slot: Date }> {
+  const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
+  const slot = lastSlot(now, tz, SCHEDULE[job]);
+  const last = (await heartbeat(db, job as OpsJob))?.last_run_at ?? null;
+  return { due: !last || last < slot, tz, slot };
 }
 
 // ---- The nightly job ----

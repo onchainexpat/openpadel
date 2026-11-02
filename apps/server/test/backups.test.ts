@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { heartbeat, run, runAsSystem, type Actor, type Db } from "@kumi/core";
-import { compareCounts, makeBackup, nightlyBackup, openBackup, pgTool, restoreInto, restoreTest, scratchUrl, tidyLocal, type Manifest } from "../src/backups.ts";
+import { heartbeat, jobWorked, run, runAsSystem, type Actor, type Db } from "@kumi/core";
+import { compareCounts, lastSlot, makeBackup, readOpsRecords, writeOpsRecords, nightlyBackup, openBackup, pgTool, restoreInto, restoreTest, scheduledDue, scratchUrl, SCHEDULE, tidyLocal, type Manifest } from "../src/backups.ts";
 import { S3Client } from "../src/s3.ts";
 import { fakeS3, type FakeS3 } from "./fake_s3.ts";
 
@@ -119,4 +119,44 @@ test("the scratch database sits beside the live one, whatever form the URL takes
   assert.equal(scratchUrl("postgresql://kumi@/kumi?host=/var/run/postgresql", {}), "postgresql://kumi@/kumi_restore_test?host=/var/run/postgresql");
   assert.equal(scratchUrl("postgresql://kumi:p%40ss@db/kumi", {}), "postgresql://kumi:p%40ss@db/kumi_restore_test");
   assert.equal(scratchUrl("postgresql://kumi@db/kumi", { KUMI_RESTORE_TEST_DATABASE_URL: "postgresql://kumi@db/other" }), "postgresql://kumi@db/other");
+});
+
+test("the nightly and monthly slots are on the club's clock, whatever the server's is", () => {
+  const LA = "America/Los_Angeles";
+  // 4:17 AM in Portland is 12:17 UTC: tonight's slot was 3:00 AM there (11:00 UTC), not 3:00 UTC.
+  assert.equal(lastSlot(new Date("2026-11-30T12:17:00Z"), LA, SCHEDULE.backup).toISOString(), "2026-11-30T11:00:00.000Z");
+  // 2:17 AM there: tonight's hasn't come, so the last one was the night before.
+  assert.equal(lastSlot(new Date("2026-11-30T10:17:00Z"), LA, SCHEDULE.backup).toISOString(), "2026-11-29T11:00:00.000Z");
+  // Across the clock change: 3 AM is 10:00 UTC in summer time.
+  assert.equal(lastSlot(new Date("2026-07-04T10:17:00Z"), LA, SCHEDULE.backup).toISOString(), "2026-07-04T10:00:00.000Z");
+  // The restore test: the 1st at 4 AM; before it on New Year's Day, the one before is December's.
+  assert.equal(lastSlot(new Date("2026-12-15T00:00:00Z"), LA, SCHEDULE.restore_test).toISOString(), "2026-12-01T12:00:00.000Z");
+  assert.equal(lastSlot(new Date("2027-01-01T11:47:00Z"), LA, SCHEDULE.restore_test).toISOString(), "2026-12-01T12:00:00.000Z");
+  assert.equal(lastSlot(new Date("2027-01-01T12:47:00Z"), LA, SCHEDULE.restore_test).toISOString(), "2027-01-01T12:00:00.000Z");
+});
+
+test("each hourly tick runs a job only when it's due, and a missed night catches up", { skip }, async () => {
+  await jobWorked(db, "backup", {}, new Date("2026-11-30T11:17:00Z"));        // last night's, at 3:17 AM club time
+  assert.equal((await scheduledDue(db, "backup", new Date("2026-11-30T12:17:00Z"))).due, false);
+  assert.equal((await scheduledDue(db, "backup", new Date("2026-12-01T10:17:00Z"))).due, false);   // 2:17 AM: not yet
+  const d = await scheduledDue(db, "backup", new Date("2026-12-01T11:17:00Z"));
+  assert.deepEqual([d.due, d.tz], [true, "America/Los_Angeles"]);
+  // The server was off at 3 AM: its first tick afterwards, at 9:17 AM, catches up.
+  assert.equal((await scheduledDue(db, "backup", new Date("2026-12-01T17:17:00Z"))).due, true);
+  await jobWorked(db, "restore_test", {}, new Date("2026-11-01T12:47:00Z"));
+  assert.equal((await scheduledDue(db, "restore_test", new Date("2026-11-30T12:47:00Z"))).due, false);
+  assert.equal((await scheduledDue(db, "restore_test", new Date("2026-12-01T11:47:00Z"))).due, false);   // 3:47 AM on the 1st
+  assert.equal((await scheduledDue(db, "restore_test", new Date("2026-12-01T12:47:00Z"))).due, true);
+});
+
+test("a restore keeps the server's own job records, not the ones the backup remembered", { skip }, async () => {
+  await jobWorked(db, "restore_test", {}, new Date("2026-11-01T12:47:00Z"));
+  const made = await makeBackup(db, { url, dir, now: new Date("2026-11-30T11:17:00Z"), env, label: "ops-records" });
+  await jobWorked(db, "restore_test", { rows: 1 }, new Date("2026-12-01T12:47:00Z"));   // after the backup was made
+  const kept = await readOpsRecords(url);
+  await restoreInto(url, made.file);
+  assert.equal((await heartbeat(db, "restore_test"))!.last_ok_at!.toISOString(), "2026-11-01T12:47:00.000Z");   // what the dump had
+  await writeOpsRecords(url, kept);
+  const after = (await heartbeat(db, "restore_test"))!;
+  assert.deepEqual([after.last_ok_at!.toISOString(), after.details], ["2026-12-01T12:47:00.000Z", { rows: 1 }]);
 });

@@ -147,7 +147,9 @@ cd /opt/kumi/app || exit 1
 exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
 SH
 chmod 755 /usr/local/bin/kumi
-# Nightly backup at 3:17 (off the hour): the dump and its manifest, kept 14 days, and the offsite copy if set up.
+# Nightly backup at 3:17 on the club's clock (off the hour): the dump and its manifest, kept 14 days, and the
+# offsite copy if set up. The timer ticks hourly and `--scheduled` runs it only when it's due, so the time follows
+# the club's time zone, whatever the server's clock is, and a server that was off at 3:17 catches up.
 install -d -m 750 -o kumi -g kumi /var/backups/kumi
 cat > /etc/systemd/system/kumi-backup.service <<'UNIT'
 [Unit]
@@ -158,18 +160,18 @@ Type=oneshot
 User=kumi
 WorkingDirectory=/opt/kumi/app
 EnvironmentFile=/etc/kumi/kumi.env
-ExecStart=/usr/local/bin/node apps/server/src/cli.ts backup
+ExecStart=/usr/local/bin/node apps/server/src/cli.ts backup --scheduled
 UNIT
 cat > /etc/systemd/system/kumi-backup.timer <<'UNIT'
 [Unit]
-Description=Kumi database backup, nightly
+Description=Kumi database backup, nightly at 3:17 club time (checked hourly)
 [Timer]
-OnCalendar=*-*-* 03:17:00
+OnCalendar=*-*-* *:17:00
 Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
-# Once a month: restore the newest backup into a scratch database and check it.
+# Once a month, the 1st at 4:17 on the club's clock: restore the newest backup into a scratch database and check it.
 cat > /etc/systemd/system/kumi-restore-test.service <<'UNIT'
 [Unit]
 Description=Kumi restore test
@@ -179,20 +181,21 @@ Type=oneshot
 User=kumi
 WorkingDirectory=/opt/kumi/app
 EnvironmentFile=/etc/kumi/kumi.env
-ExecStart=/usr/local/bin/node apps/server/src/cli.ts restore-test
+ExecStart=/usr/local/bin/node apps/server/src/cli.ts restore-test --scheduled
 UNIT
 cat > /etc/systemd/system/kumi-restore-test.timer <<'UNIT'
 [Unit]
-Description=Kumi restore test, monthly
+Description=Kumi restore test, monthly on the 1st at 4:17 club time (checked hourly)
 [Timer]
-OnCalendar=*-*-01 04:17:00
+OnCalendar=*-*-* *:47:00
 Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
 sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'kumi_restore_test'" | grep -q 1 || sudo -u postgres createdb -O kumi kumi_restore_test
 systemctl daemon-reload
-systemctl enable --now kumi-backup.timer kumi-restore-test.timer
+systemctl enable kumi-backup.timer kumi-restore-test.timer
+systemctl restart kumi-backup.timer kumi-restore-test.timer   # a changed schedule takes effect now
 # --- end system files ---
 systemctl enable kumi
 echo "set up. Ship the code: deploy/ship.sh root@<this server>"

@@ -365,7 +365,12 @@ The first version a club can run on its own (court bookings included), or for it
   sealed with a backup key of their own; 30 daily and 12 monthly are kept. Once a month the newest is
   restored into a scratch database and checked against its manifest. If the backup, its offsite copy or
   the check starts failing, the owner and managers are told once. `kumi restore` restores a local or
-  offsite backup. Backup files and update snapshots can be read only by the server's own user.
+  offsite backup, and keeps the server's own record of its backups as it was (so doctor doesn't go back to
+  the night the backup was made). Backup files and update snapshots can be read only by the server's own user.
+- Backups run at 3:17 at night on the club's clock, and the restore test on the 1st at 4:17, whatever the
+  server's clock is (Docker's is UTC). The timer, or Docker's backup service, checks every hour; a server
+  that was off at 3:17 catches up at its next check. In Docker, doctor's hints name the backup service and
+  Docker's own guide.
 - Two addresses: the staff app's (`KUMI_PUBLIC_URL`) and the members' (`KUMI_MEMBER_URL`, which the
   install sets; without it, the staff address without its `staff.`). `kumi doctor` checks both answer.
 - `/health/deep` (on the server itself, or for an owner or manager): the database, the outbox, the last
@@ -376,7 +381,9 @@ The first version a club can run on its own (court bookings included), or for it
   when opened. The members' app needs about 124 kB of JavaScript before its first screen (under its
   200 kB budget, which the build now checks); the staff app about 150 kB.
 
-**When updating:** nothing; this is the first release. (A server set up from a test build before it gets
+**When updating:** nothing; this is the first release. An update rewrites the backup timers, so backups
+move to the club's 3:17 by themselves (with Docker, `deploy/docker/update.sh` starts the backup service
+again with the new schedule). (A server set up from a test build before it gets
 `KUMI_SECRET_KEY` added to `/etc/kumi/kumi.env` by its first update; with Docker, `deploy/docker/update.sh`
 adds it to `.env`. A Docker checkout from before `update.sh` existed runs the release's own copy:
 `git fetch && bash <(git show origin/main:deploy/docker/update.sh) main`.)

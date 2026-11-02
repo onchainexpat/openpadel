@@ -92,4 +92,9 @@ test("doctor: each check, and what's wrong in production", async () => {
   assert.deepEqual(asked, ["https://staff.club.example/health", "https://club.example/health"]);
   utimesSync(join(dir, "kumi-2026-10-29.dump"), new Date(Date.now() - 50 * 3600_000), new Date(Date.now() - 50 * 3600_000));
   assert.equal((await state({ NODE_ENV: "production" })).backups, "warn");   // two days without a backup
+  // In Docker there are no timers: the hint names the backup service, and the docs are Docker's own.
+  const checks = async (env: Record<string, string>) => Object.fromEntries((await doctor(db, { KUMI_BACKUP_DIR: dir, NODE_ENV: "production", ...env })).map((c) => [c.id, c]));
+  const one = await checks({}), dock = await checks({ KUMI_INSTALL: "docker" });
+  assert.match(one.backups!.text.en, /kumi-backup timer/); assert.match(dock.backups!.text.en, /docker compose logs backup/);
+  assert.equal(one.restore_test!.doc, "deploy/README.md"); assert.equal(dock.restore_test!.doc, "deploy/docker/README.md");
 });

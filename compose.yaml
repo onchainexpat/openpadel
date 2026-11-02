@@ -35,8 +35,9 @@ services:
     depends_on: [kumi]
     restart: unless-stopped
 
-  # Every night at about 3:17 in the server's time: the dump and its manifest in ./backups (kept 14 days), and
-  # the offsite copy if it's set up in .env. On the 1st of each month, the restore test too.
+  # Every night at 3:17 on the club's clock: the dump and its manifest in ./backups (kept 14 days), and the
+  # offsite copy if it's set up in .env. On the 1st of each month at 4:17, the restore test too. It wakes every
+  # hour and `--scheduled` runs each only when it's due, so the container's own clock (UTC) doesn't matter.
   backup:
     image: kumi-server:${KUMI_TAG:-local}
     pull_policy: never                   # the server's own image, built for the kumi service
@@ -45,7 +46,7 @@ services:
     environment:
       DATABASE_URL: postgresql://kumi:${KUMI_DB_PASSWORD}@db/kumi
     volumes: ["./backups:/var/backups/kumi"]
-    entrypoint: ["sh", "-c", "while true; do sleep $$(( ($$(date -d 03:17 +%s) - $$(date +%s) + 86400) % 86400 )); kumi backup; [ \"$$(date +%d)\" = 01 ] && kumi restore-test; sleep 60; done"]
+    entrypoint: ["sh", "-c", "while true; do sleep $$(( (1020 - $$(date +%s) % 3600 + 3600) % 3600 + 1 )); kumi backup --scheduled; kumi restore-test --scheduled; done"]
     depends_on: { db: { condition: service_healthy }, kumi: { condition: service_started } }
     restart: unless-stopped
 

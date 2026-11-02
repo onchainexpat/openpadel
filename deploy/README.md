@@ -59,13 +59,15 @@ Going back loses everything since the update (bookings, payments, sign-ups), whi
 
 ## Backups
 
-- **Every night at 3:17** (`kumi-backup.timer`): `kumi backup` dumps the database with a manifest of every
+- **Every night at 3:17 on the club's clock** (`kumi-backup.timer` checks every hour, and `kumi backup --scheduled`
+  runs only when it's due, so the club's time zone counts, not the server's; a server that was off then catches up
+  at its next check): `kumi backup` dumps the database with a manifest of every
   table's rows, both from one snapshot, to `/var/backups/kumi/kumi-<date>.dump` and `.json`, kept 14 days.
 - **Offsite**, once it's set up ([docs/setup/accounts/offsite-backups.md](../docs/setup/accounts/offsite-backups.md)):
   the same night's dump goes to the club's own S3-compatible storage (Cloudflare R2, Backblaze B2, AWS S3,
   DigitalOcean Spaces), sealed with `KUMI_BACKUP_KEY`. 30 daily and 12 monthly copies are kept. One upload
   is at most 512 MB, far above a club's database (a few MB).
-- **Once a month** (`kumi-restore-test.timer`, the 1st at 4:17): `kumi restore-test` restores the newest
+- **Once a month** (`kumi-restore-test.timer`, the 1st at 4:17 on the club's clock): `kumi restore-test` restores the newest
   backup (offsite if set up) into the `kumi_restore_test` database, checks every table and row against
   its manifest, and empties it again.
 - If the backup, its offsite copy or the restore test starts failing, the owner and managers are told

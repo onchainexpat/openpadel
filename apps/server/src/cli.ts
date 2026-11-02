@@ -6,16 +6,18 @@
 //   kumi doctor                    is everything working? each check, and the next step when it isn't
 //   kumi reset-sign-in <email>     start someone's second sign-in step over (a lost phone; an owner locked out)
 //   kumi backup [--label=<name>]   tonight's backup now: the dump and its manifest, and the offsite copy if set up
+//                                  (--scheduled: only when it's due, 3:17 on the club's clock; the hourly timer runs this)
 //   kumi offsite                   what's kept offsite
 //   kumi restore <file|offsite:latest|offsite:<key>> --yes   replace the database with a backup (server stopped)
 //   kumi restore-test              restore the newest backup into a scratch database and check it
+//                                  (--scheduled: only when it's due, the 1st at 4:17 on the club's clock)
 //   kumi rotate-key                seal every secret with KUMI_SECRET_KEY (the old one in KUMI_SECRET_KEY_PREVIOUS)
 //   (on a one-server install, as root: kumi update <release.tar>, kumi rollback --yes, kumi releases)
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { t, pickLang, type Lang, type Text } from "@kumi/i18n";
 import { connect, migrate, plan, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys } from "@kumi/core";
-import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, restoreInto, restoreTest } from "./backups.ts";
+import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, restoreInto, restoreTest, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
 import { readPeopleCsv } from "./csv.ts";
 import { doctor, type Check } from "./doctor.ts";
@@ -102,6 +104,10 @@ async function main(): Promise<number> {
   if (cmd === "backup") {
     const db = connect();
     try {
+      if (args.includes("--scheduled")) {
+        const d = await scheduledDue(db, "backup");
+        if (!d.due) { if (json) out({ ok: true, due: false, time_zone: d.tz }); return 0; }
+      }
       const label = flag("label");
       if (label && !/^[A-Za-z0-9._-]+$/.test(label)) { console.error(t(lang, "cli.bad_label")); return 2; }
       // A labelled dump (before an update, say) stays here: it isn't tonight's backup and doesn't go offsite.
@@ -143,7 +149,9 @@ async function main(): Promise<number> {
         }
         got = await fetchOffsite(s3, objectKey, key);
       } else got = readableDump(resolve(process.env.KUMI_CALLER_DIR ?? ".", source));
+      const kept = await readOpsRecords(dbUrl());
       try { await restoreInto(dbUrl(), got.file); } finally { got.cleanup(); }
+      await writeOpsRecords(dbUrl(), kept);
       if (json) out({ ok: true, source }); else console.log(t(lang, "cli.restore_done", { source }));
       return 0;
     } catch (e) {
@@ -154,6 +162,10 @@ async function main(): Promise<number> {
   if (cmd === "restore-test") {
     const db = connect();
     try {
+      if (args.includes("--scheduled")) {
+        const d = await scheduledDue(db, "restore_test");
+        if (!d.due) { if (json) out({ ok: true, due: false, time_zone: d.tz }); return 0; }
+      }
       const cfg = s3FromEnv(process.env);
       const r = await restoreTest(db, { liveUrl: dbUrl(), dir: backupDir, s3: cfg ? new S3Client(cfg) : null, key: backupKey(), prefix: offsitePrefix() });
       if (json) { out(r); return r.ok ? 0 : 1; }
