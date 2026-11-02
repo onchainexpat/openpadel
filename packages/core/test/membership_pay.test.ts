@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, declineReason, memberPlan, onDate, messageHandlers, moneyHandlers, openPayment, plan, processOutbox, renewMemberships, run, runAsSystem, setPaymentProvider, staffAlerts, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { checkPayment, closeUnfinishedPayments, declineReason, memberPlan, onDate, messageHandlers, moneyHandlers, openPayment, plan, processOutbox, renewMemberships, run, runAsSystem, setPaymentProvider, staffAlerts, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, monthly: string, annual: string, deskOnly: string;
 const stripe = new TestProvider();
@@ -210,4 +210,30 @@ test("a membership refund that doesn't go through: the managers hear which membe
   const [told] = await toOwner("refund_failed");
   assert.equal(told!.body, "The $800.00 refund to Gus for the Annual membership didn't go through (the card's bank turned it down). Look at it on Gus's page.");
   assert.equal(told!.link, `/people/${people.Gus}`);
+});
+
+test("a membership payment left unfinished for a day is called off: nothing starts, and the member is told once", async () => {
+  people.Gil = ((await run(db, "person.create", { display_name: "Gil", email: "gil@example.test" }, owner)).result as { person_id: string }).person_id;
+  const { payment_id } = await join("Gil", annual);
+  await openPayment(db, payment_id, people.Gil!);   // the card form opened; the bank's check was never finished
+  const ref = (await db.selectFrom("payment").select("provider_ref").where("id", "=", payment_id).executeTakeFirstOrThrow()).provider_ref!;
+  const gil = () => db.selectFrom("payment").select("status").where("id", "=", payment_id).executeTakeFirstOrThrow();
+  await closeUnfinishedPayments(db, new Date(Date.now() + 23 * 3600_000));
+  assert.equal((await gil()).status, "pending");   // less than a day: left alone
+  await closeUnfinishedPayments(db, new Date(Date.now() + 25 * 3600_000));
+  assert.equal((await gil()).status, "failed");
+  assert.equal((await stripe.getIntent(ref)).status, "failed");   // called off at the provider, so it can't go through later
+  assert.equal(await db.selectFrom("membership").select("id").where("person_id", "=", people.Gil!).executeTakeFirst(), undefined);
+  await processOutbox(db, messageHandlers);
+  const m = await email("Gil", "membership_payment_unfinished");
+  assert.equal(m.subject, "Your payment wasn't finished: Annual");
+  assert.match(m.body, /^Your payment of \$800\.00 for Annual wasn't finished .* so you weren't charged\. To try again, open Membership in the app\.$/);
+  await closeUnfinishedPayments(db, new Date(Date.now() + 26 * 3600_000));
+  await processOutbox(db, messageHandlers);
+  assert.equal((await db.selectFrom("outbound_message").select("id").where("person_id", "=", people.Gil!).where("kind", "=", "membership_payment_unfinished").where("channel", "=", "email").execute()).length, 1);
+  // Joining again starts a new payment, and paying it starts the membership.
+  const again = await join("Gil", annual);
+  assert.notEqual(again.payment_id, payment_id);
+  assert.equal(await pay(again.payment_id, "Gil"), "succeeded");
+  assert.equal((await membership("Gil")).status, "active");
 });

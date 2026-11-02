@@ -166,6 +166,9 @@ The first version a club can run on its own (court bookings included), or for it
 - Members join in the app and pay by card; Kumi renews from that card each period at the price they
   joined at, with no subscription fee at Stripe. A declined renewal is tried again twice over five
   days while the membership carries on, and the member can pay with another card meanwhile.
+- A membership payment left unfinished (the card form, or the bank's check, left open) is called off at
+  Stripe after a day, so it can't go through later unrecorded; nothing was started by it, and the member is
+  told once that they weren't charged and where to try again.
 - When a card payment or a refund doesn't go through, people are told why in plain words (the card was
   declined, it has expired, the payment was already refunded), never a code from Stripe; a reason that
   means nothing to a person isn't given at all.

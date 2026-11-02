@@ -549,7 +549,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: pay.person_id, kind: "paid", params: { name: e.name, when: when(e.start, tz), amount: amount(pay.amount_cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "payment.failed"({ db }, p: { payment_id: string }) {
-    const pay = await db.selectFrom("payment").select(["enrolment_id", "amount_cents", "person_id"]).where("id", "=", p.payment_id).executeTakeFirstOrThrow();
+    const pay = await db.selectFrom("payment").select(["enrolment_id", "amount_cents", "person_id", "membership_plan_id", "membership_id"]).where("id", "=", p.payment_id).executeTakeFirstOrThrow();
+    // A membership payment fails only when it was left unfinished and called off (closeUnfinishedPayments): nothing was charged.
+    if (!pay.enrolment_id && (pay.membership_plan_id || pay.membership_id)) {
+      const plan = pay.membership_plan_id ?? (await db.selectFrom("membership").select("plan_id").where("id", "=", pay.membership_id!).executeTakeFirst())?.plan_id;
+      const name = plan ? (await db.selectFrom("membership_plan").select("name").where("id", "=", plan).executeTakeFirst())?.name ?? "" : "";
+      return [{ to: pay.person_id, kind: "membership_payment_unfinished", params: { name, amount: amount(pay.amount_cents) }, purpose: "account", essential: true, email: true, link: "/membership" }];
+    }
     if (!pay.enrolment_id) return [];
     const e = await place(db, pay.enrolment_id);
     return [{ to: pay.person_id, kind: "payment_failed", params: { name: e.name, amount: amount(pay.amount_cents) }, purpose: "account", essential: true, email: true, link: "/places" }];

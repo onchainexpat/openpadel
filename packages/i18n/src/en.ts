@@ -716,6 +716,8 @@ export const en = {
   "msg.paid.body": "We have your {amount} for {name}, {when}. You're in.",
   "msg.payment_failed.subject": "Your payment didn't go through: {name}",
   "msg.payment_failed.body": "Your payment of {amount} for {name} didn't go through. You can try again with another card in the app.",
+  "msg.membership_payment_unfinished.subject": "Your payment wasn't finished: {name}",
+  "msg.membership_payment_unfinished.body": "Your payment of {amount} for {name} wasn't finished (the card form or your bank's check was left open), so you weren't charged. To try again, open Membership in the app.",
   "msg.waitlisted.subject": "On the waitlist: {name}",
   "msg.waitlisted.body": "You're number {position} on the waitlist for {name}. If a place opens up, we'll offer it to you.",
   "msg.offered.subject": "A place opened up: {name}",

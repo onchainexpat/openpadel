@@ -719,6 +719,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "msg.paid.body": "Recibimos tu pago de {amount} para {name}, {when}. Ya tienes tu lugar.",
   "msg.payment_failed.subject": "Tu pago no se procesó: {name}",
   "msg.payment_failed.body": "Tu pago de {amount} para {name} no se procesó. Puedes intentarlo con otra tarjeta en la app.",
+  "msg.membership_payment_unfinished.subject": "Tu pago no se terminó: {name}",
+  "msg.membership_payment_unfinished.body": "Tu pago de {amount} por {name} no se terminó (el formulario de la tarjeta o la verificación de tu banco quedaron abiertos), así que no se te cobró. Para intentarlo de nuevo, abre Membresía en la app.",
   "msg.waitlisted.subject": "En la lista de espera: {name}",
   "msg.waitlisted.body": "Estás en el lugar {position} de la lista de espera de {name}. Si se libera un lugar, te lo ofreceremos.",
   "msg.offered.subject": "Se liberó un lugar: {name}",

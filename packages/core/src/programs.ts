@@ -691,6 +691,25 @@ export async function reconcilePayments(db: Db, now = new Date(), limit = 50) {
   return { checked: rows.length, settled };
 }
 
+/** A membership payment left unfinished (the card form opened, or the bank's check started, and nobody came back)
+ *  holds nothing: a membership starts only once it's paid. After a day it's called off at the provider, so it can't
+ *  go through later unrecorded, and recorded as not paid; the member is told once, with where to try again.
+ *  Places, bookings and a kid's charges have their own deadlines and aren't touched here. */
+export const UNFINISHED_AFTER_MS = 24 * 3600_000;
+export async function closeUnfinishedPayments(db: Db, now = new Date(), limit = 20) {
+  const rows = await db.selectFrom("payment").select("id").where("status", "=", "pending").where("provider", "=", paymentProvider().name)
+    .where("provider_ref", "is not", null).where("created_at", "<", new Date(now.getTime() - UNFINISHED_AFTER_MS))
+    .where("enrolment_id", "is", null).where("booking_player_id", "is", null).where("parent_to_pay_at", "is", null).where("family_card_id", "is", null)
+    .where((eb) => eb.or([eb("membership_plan_id", "is not", null), eb("membership_id", "is not", null)]))
+    .orderBy("created_at").limit(limit).execute();
+  let closed = 0, paid = 0;
+  for (const r of rows) {
+    try { const s = await abandonPayment(db, r.id, "job:payments", now); if (s === "failed") closed++; else if (s === "succeeded") paid++; }
+    catch (e) { console.error(`payment ${r.id}:`, (e as Error).message); }   // tried again next time
+  }
+  return { checked: rows.length, closed, paid };
+}
+
 /** Start a refund: club credit at once; a card refund through the outbox, after this change commits. */
 export async function startRefund(ctx: ApplyContext, enrolmentId: string, personId: string, refund: Refund, status: "pending" | "waiting_for_sub" = "pending") {
   if (refund.cents <= 0 || refund.outcome === "none") return;
