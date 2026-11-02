@@ -46,7 +46,7 @@ function FilterForm({ value, onChange, o, purpose, countOnly }: { value: Filters
     {purpose && <p>{t("ui.f_reach", { people: t("count.people", { count: c.recipients }) })}</p>}
     {purpose === "club_news" && c.left_out > 0 && <p>{t("ui.f_left_out", { count: c.left_out })}</p>}
     {c.via_parents > 0 && <p>{t("ui.f_via_parents", { count: c.via_parents })}</p>}
-    {c.sample.length > 0 && <p class="meta">{t("ui.f_sample", { names: c.sample.join(", ") })}{c.matched > c.sample.length ? "…" : ""}</p>}
+    {c.sample.length > 0 && <p class="meta">{t("ui.f_sample", { names: c.sample.join(", ") })}{(purpose ? c.recipients : c.matched) > c.sample.length ? "…" : ""}</p>}
   </div>;
   // A saved group in the message form: who it means now, not its filters to change.
   if (countOnly) return <div class="card-form">{counted}</div>;

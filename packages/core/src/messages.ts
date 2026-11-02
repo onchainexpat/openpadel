@@ -16,6 +16,8 @@ import { managersOf } from "./households.ts";
 import { paymentWhat } from "./kids.ts";
 import { TEXT_KINDS, textable, textingOn } from "./texts.ts";
 import { receiptParams } from "./receipts.ts";
+import { roleLabel } from "./roles.ts";
+import { needsTwoFactor } from "./two_factor.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -56,6 +58,11 @@ type Ctx = { db: Db; tz: string };
 const amount = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const when = (d: Date | null, tz: string): Text => d ? { en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) } : { en: "", es: "" };
 const NOTHING: Text = { en: "", es: "" };
+
+/** The staff app's address (KUMI_PUBLIC_URL), for the email that tells someone they've been given a staff role:
+ *  emails carry no links of their own, so it's said in words. The server sets it as it starts. */
+let staffAddress: string | null = null;
+export function setStaffAddress(url: string | null) { staffAddress = url ? url.replace(/\/$/, "") : null; }
 
 /** The enrolment, its program and when it starts (its own date, or the program's first). */
 async function place(db: Db, enrolmentId: string) {
@@ -657,6 +664,18 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const r = await receiptParams(db, p.receipt_id);
     return r ? [{ to: r.view.person_id, kind: r.kind, params: r.params, purpose: "account" as const, essential: true, email: true, push: false, inbox: false, link: `/receipts/${p.receipt_id}` }] : [];
   },
+  // Someone given a staff role hears it once, with where to sign in; and once when it's taken away. Not the person
+  // who did it to themselves, and not the member role every account has.
+  async "role.assigned"({ db }, p: { person_id: string; role: string; location_id?: string | null; by?: string | null }) {
+    if (p.role === "member" || p.by === p.person_id) return [];
+    const params = { ...await roleParams(db, p), url: staffAddress ?? both("msg.staff_app"),
+      two_step: await needsTwoFactor(db, p.person_id) ? both("msg.staff_role_two_step") : NOTHING };
+    return [{ to: p.person_id, kind: "staff_role_given", params, purpose: "staff" as const, essential: true, email: true, push: false, link: "/" }];
+  },
+  async "role.removed"({ db }, p: { person_id: string; role: string; location_id?: string | null; by?: string | null }) {
+    if (p.role === "member" || p.by === p.person_id) return [];
+    return [{ to: p.person_id, kind: "staff_role_removed", params: await roleParams(db, p), purpose: "staff" as const, essential: true, email: true, push: false, link: "/" }];
+  },
   async "privacy.erased"({ db, tz }, p: { self: boolean; by: string | null; juniors: number; at: string }) {
     const by = p.by ? (await db.selectFrom("person").select("display_name").where("id", "=", p.by).executeTakeFirst())?.display_name ?? "" : "";
     const params = { when: when(new Date(p.at), tz), how: p.self ? both("msg.privacy_erased_self") : both("msg.privacy_erased_by", { by }),
@@ -664,6 +683,14 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return (await managers(db)).filter((to) => to !== p.by).map((to) => ({ to, kind: "privacy_erased_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/people" }));
   },
 };
+
+/** Who gave or took a role, which role, where, and the club's name: for the staff role messages. */
+async function roleParams(db: Db, p: { role: string; location_id?: string | null; by?: string | null }) {
+  const by = p.by ? (await db.selectFrom("person").select("display_name").where("id", "=", p.by).executeTakeFirst())?.display_name ?? null : null;
+  const loc = p.location_id ? (await db.selectFrom("location").select("name").where("id", "=", p.location_id).executeTakeFirst())?.name ?? null : null;
+  const club = (await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
+  return { club, role: await roleLabel(db, p.role), where: loc ? both("where.at", { location: loc }) : NOTHING, by: by ?? both("msg.the_club") };
+}
 
 /** A junior has no login: what's said to them goes to each adult who manages them, in that adult's language,
  *  saying whom it's about. An adult who'd get the same message anyway gets it once. A kid with a login of

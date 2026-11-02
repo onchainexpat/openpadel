@@ -313,6 +313,10 @@ The first version a club can run on its own (court bookings included), or for it
   with their own login says yes once a parent turns texts on. Twilio's delivery reports are checked
   against its signature; `kumi doctor` and `/health/deep` report texts. US carriers must approve the
   club's texting registration (in its own Twilio console) before real texts reach anyone.
+- Wording: a reason or note someone typed that ends its own sentence ("Fine for now.") no longer shows a
+  second full stop after it. A message's preview of who it reaches names only people it will reach (club
+  news never names someone left out for having said no). Creating an Americano (or another format) says so
+  in its preview. The waiver's text box in Settings has a label for screen readers.
 
 **Signing in and roles**
 - Signing in, or joining, by a code texted to a US or Canadian mobile number, when the club texts: "Use my
@@ -343,6 +347,11 @@ The first version a club can run on its own (court bookings included), or for it
   and don't ask for lists the role can't read.
 - Fixed: grants like "person.passkey_*" (a family of actions) now apply, so front desk, coaches and
   accountants can add and remove their own passkeys, as was meant.
+- Someone given a staff role (or another owner's) is emailed once, in their language: who gave it, the role and
+  where, and the staff app's address to sign in at, with a word about the second step when their role needs
+  it. Taking a role away tells them once too. Nobody hears about a role they gave themselves.
+- The staff app opens on the day on the courts for owners, managers and the desk (a coach on their schedule,
+  the accountant on reports); Changes, the audit log, has its own page and link.
 
 **Running it**
 - Setting up from `club.yaml` (`kumi setup plan`, `kumi setup apply`), member import, and

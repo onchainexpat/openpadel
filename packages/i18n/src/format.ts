@@ -39,11 +39,14 @@ export function format(catalog: Catalog, lang: Lang, key: Key, params: Params = 
   const m = catalog[key];
   if (m === undefined) return key;
   const raw = typeof m === "string" ? m : (m[plurals[lang].select(Number(params.count ?? 0)) as keyof Plural] ?? m.other);
-  return sayFormer(raw.replace(/\{(\w+)\}/g, (_, k: string) => {
+  // A value that ends its own sentence ("Fine for now.", a question) takes the place of the full stop after it, so a
+  // reason or a note someone typed never shows "..". A Spanish time ("9:00 a.m.") at a sentence's end is the same.
+  return sayFormer(raw.replace(/\{(\w+)\}(\.(?!\.))?/g, (_, k: string, stop: string | undefined) => {
     const v = params[k];
-    if (v === undefined) return `{${k}}`;
-    return typeof v === "object" ? v[lang] : String(v);
-  }).replace(/([ap]\.\s?m\.)\./g, "$1"), lang);   // a sentence ending on a Spanish time ("9:00 a.m.") keeps one full stop
+    if (v === undefined) return `{${k}}${stop ?? ""}`;
+    const s = typeof v === "object" ? v[lang] : String(v);
+    return stop && /[.!?…]$/.test(s.trimEnd()) ? s.trimEnd() : s + (stop ?? "");
+  }).replace(/([ap]\.\s?m\.)\./g, "$1"), lang);
 }
 
 export function money(cents: number, lang: Lang, currency = "USD"): string {

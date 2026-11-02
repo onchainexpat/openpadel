@@ -70,6 +70,8 @@ test("the live count: who a group means, who it would reach, and who's left out"
   assert.equal(c.json.recipients, 1);
   assert.equal(c.json.left_out, c.json.matched - 1);
   assert.equal(c.json.what, "everyone at the club");
+  assert.deepEqual(c.json.sample, ["Ann"]);   // a message's "for example" names only people it reaches
+  assert.ok((await req("/staff/segments/count", "Fay", { filters: {} })).json.sample.length > 1);   // a group on its own: who's in it
   const es = await req("/staff/segments/count", "Fay", { filters: { lang: "es" } }, { "accept-language": "es" });
   assert.equal(es.json.matched, 1);
   assert.equal((await req("/staff/segments/count", "Fay", { filters: { level_min: 9 } })).status, 400);

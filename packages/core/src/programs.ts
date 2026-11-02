@@ -154,7 +154,9 @@ export const programCreate = defineAction({
     await readRow(ctx.db, "location", i.location_id, "thing.location");
     if (i.member_price_cents != null && i.member_price_cents > i.price_cents) throw new KumiError("error.member_price_higher");
     if (i.min_players != null && i.min_players > i.capacity) throw new KumiError("error.min_over_capacity", { capacity: i.capacity });
-    let summary = both("plan.program.create", { name: i.name, kind: both(`kind.${i.kind}` as Key), capacity: i.capacity, price: usd(i.price_cents) });
+    // The format too, when there is one ("social, Americano"), so the preview says how the night is played.
+    const kind = i.format ? both("plan.program.kind_format", { kind: both(`kind.${i.kind}` as Key), format: both(`format.${i.format}` as Key) }) : both(`kind.${i.kind}` as Key);
+    let summary = both("plan.program.create", { name: i.name, kind, capacity: i.capacity, price: usd(i.price_cents) });
     if (i.member_price_cents != null) summary = join2(summary, both("plan.program.member_price", { amount: usd(i.member_price_cents) }));
     if (i.min_players != null) summary = join2(summary, both("plan.program.min_line", { min: i.min_players, hours: both("count.hours", { count: i.decide_hours ?? (await ctx.db.selectFrom("club").select("program_decide_hours").executeTakeFirstOrThrow()).program_decide_hours }) }));
     return { title: both("action.program.create"), summary, reads: [], locationId: i.location_id, undo: { kind: "reversible" } };

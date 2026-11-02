@@ -61,7 +61,10 @@ export function broadcastRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: C
     const b = z.safeParse(CountBody, await c.req.json().catch(() => ({})));
     if (!b.success) throw new KumiError("error.invalid_input", { details: z.prettifyError(b.error) }, 400);
     const a = await audience(db, b.data.filters, b.data.purpose ?? "club_news", new Date());
-    return c.json({ matched: a.matched, recipients: a.recipients.length, left_out: a.leftOut, via_parents: a.viaParents, sample: a.sample, what: (await describeFilters(db, b.data.filters))[lang(c)] });
+    // For a message, the names are of people it reaches (a club news "for example" never names someone left out);
+    // for a group on its own, of people in it.
+    const sample = b.data.purpose ? a.reachSample : a.sample;
+    return c.json({ matched: a.matched, recipients: a.recipients.length, left_out: a.leftOut, via_parents: a.viaParents, sample, what: (await describeFilters(db, b.data.filters))[lang(c)] });
   });
 
   app.get("/staff/templates", async (c) => { await desk(c); return c.json(await db.selectFrom("message_template").selectAll().where("active", "=", true).orderBy("name").execute()); });

@@ -81,7 +81,7 @@ function WaiverForm({ w, send }: { w: S["waiver"]; send: Preview }) {
       <h2>{t("ui.waiver_settings")}</h2>
       <p class="meta">{w ? t("ui.waiver_version", { version: w.version_no }) : t("ui.waiver_off")}</p>
       <p class="meta">{t("ui.waiver_settings_hint")}</p>
-      <textarea rows={8} maxLength={20000} value={body} onInput={(e) => setBody(e.currentTarget.value)} />
+      <textarea rows={8} maxLength={20000} value={body} aria-label={t("ui.waiver_settings")} onInput={(e) => setBody(e.currentTarget.value)} />
       <button class="primary" disabled={!body.trim() || body.trim() === (w?.body ?? "")} onClick={() => send("waiver.set", { body })}>{t("ui.waiver_save")}</button>{" "}
       {w && <button onClick={() => send("waiver.clear", {})}>{t("ui.waiver_stop")}</button>}
     </section>

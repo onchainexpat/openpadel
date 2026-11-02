@@ -112,8 +112,9 @@ async function newsYes(db: Db | Trx, ids: string[]): Promise<Set<string>> {
 
 export interface Recipient { person_id: string; name: string; first_name: string; lang: Lang; email: string | null; juniors: string[] }
 export type Purpose = "club_news" | "service";
-/** Who a broadcast reaches: juniors through their parents, club news only with a yes. `sample`: the first
- *  names in the group, for staff to see who's in it. */
+/** Who a broadcast reaches: juniors through their parents, club news only with a yes. `sample`: the first names
+ *  in the group, for staff to see who's in it; `reachSample`: the first of those it would actually reach, so a
+ *  message's preview never names someone who'll be left out. */
 export async function audience(db: Db | Trx, filters: Filters, purpose: Purpose, now: Date) {
   const club = await clubOf(db), members = await segmentMembers(db, filters, now);
   const direct = new Set<string>(), about = new Map<string, string[]>();
@@ -141,7 +142,7 @@ export async function audience(db: Db | Trx, filters: Filters, purpose: Purpose,
     recipients.push({ person_id: r.id, name: r.display_name, first_name: r.given_name?.trim() || r.display_name.trim().split(/\s+/)[0] || r.display_name,
       lang: pickLang(r.locale, pickLang(club.default_language)), email: r.email, juniors: direct.has(r.id) ? [] : about.get(r.id) ?? [] });
   }
-  return { matched: members.length, recipients, leftOut, viaParents, sample: members.slice(0, 8).map((m) => m.display_name) };
+  return { matched: members.length, recipients, leftOut, viaParents, sample: members.slice(0, 8).map((m) => m.display_name), reachSample: recipients.slice(0, 8).map((r) => r.name) };
 }
 
 /** When the thing a service notice is about starts: the date's first moment, or the program's next date. */

@@ -141,3 +141,9 @@ test("re-pairing when every round has been played is refused", async () => {
   for (const g of await games(t.sessionId)) await run(db, "game.score", { game_id: g.id, a: 12, b: 12 }, monica, await played(g.id));
   await rejects(plan(db, "draw.repair", { session_id: t.sessionId }, monica), "error.nothing_to_repair");
 });
+
+test("creating an Americano: the preview says it's an Americano", async () => {
+  const p = await plan(db, "program.create", { location_id: locationId, kind: "social", format: "americano", name: "Friday night", capacity: 8, price_cents: 1500 }, owner);
+  assert.equal(p.plan.summary.en, "Create Friday night (social, Americano), 8 places at $15.00.");
+  assert.equal(p.plan.summary.es, "Crear Friday night (social, Americano), con cupo para 8, a $15.00.");
+});

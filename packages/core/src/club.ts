@@ -232,7 +232,7 @@ export const roleAssign = defineAction({
   async apply(ctx, i) {
     const id = uuidv7();
     await ctx.insert("person_role", { id, person_id: i.person_id, role_id: await roleId(ctx, i.role), location_id: i.location_id ?? null });
-    await ctx.emit("role.assigned", { person_id: i.person_id, role: i.role });
+    await ctx.emit("role.assigned", { person_id: i.person_id, role: i.role, location_id: i.location_id ?? null, by: ctx.actor.personId ?? null });
     return { person_role_id: id };
   },
 });
@@ -252,9 +252,10 @@ export const roleRemove = defineAction({
     }
     return { title: both("action.role.remove"), summary: both("plan.role.remove", { person: person.display_name, role: await roleLabel(ctx.db, i.role), where: await whereText(ctx, i.location_id) }), reads: [{ entity: "person_role", id: pr.id, version: pr.version }], locationId: i.location_id ?? null, undo: { kind: "reversible" }, details: { person_role_id: pr.id } };
   },
-  async apply(ctx, _i, p) {
+  async apply(ctx, i, p) {
     const id = (p.details as { person_role_id: string }).person_role_id;
     await ctx.update("person_role", id, { active: false });
+    await ctx.emit("role.removed", { person_id: i.person_id, role: i.role, location_id: i.location_id ?? null, by: ctx.actor.personId ?? null });
     return null;
   },
 });
