@@ -144,3 +144,20 @@ test("taking over a place: the take link, the sub's own view, and a late leaver'
   const listed = (await get("/open-matches", "ben@example.test")).json.find((m: any) => m.id === r.booking_id);
   assert.deepEqual([listed.open, listed.spots_left], [true, 1]);
 });
+
+test("a court booked in full has its own page for its players: the booker names them or shares the players link", async () => {
+  const start = new Date(Date.now() + 3 * 86400_000); start.setUTCHours(15, 0, 0, 0);
+  const r = (await run(db, "booking.request", { court_id: court, starts_at: start.toISOString(), minutes: 90, pay: "whole", person_id: people.Hal },
+    { personId: people.Hal!, via: "test", lang: "en" })).result as { booking_id: string; payment_id: string };
+  await runAsSystem(db, "payment.settle", { payment_id: r.payment_id, outcome: "succeeded" }, "test");
+  const host = (await get(`/matches/${r.booking_id}`, "hal@example.test")).json;
+  assert.deepEqual([host.is_match, host.whole, host.can_name, host.can_rate, host.rated, host.spots_left, host.can], [false, true, true, true, false, 3, null]);
+  assert.ok(host.players_link);
+  assert.equal((await get(`/matches/${r.booking_id}`, "ann@example.test")).status, 404);   // not a player, no link
+  const inv = (await get(`/bookings/invite/${host.players_link}`, "ann@example.test")).json;
+  assert.deepEqual([inv.pay_mode, inv.share_cents, inv.open, inv.spots_left], ["whole", 0, true, 3]);
+  await run(db, "booking.join_players", { invite_code: host.players_link, person_id: people.Ann }, { personId: people.Ann!, via: "test", lang: "en" });
+  const ann = (await get(`/matches/${r.booking_id}`, "ann@example.test")).json;
+  assert.deepEqual([ann.me.added, ann.players_link, ann.can_name], [true, null, false]);
+  assert.deepEqual((await get("/my/players/find?q=an", "hal@example.test")).json, [{ id: people.Ann, display_name: "Ann", friend: false }]);   // they've played together
+});

@@ -44,7 +44,7 @@ export function fairTeams<T extends { person_id: string; mu: number | null; sigm
 async function bookingFacts(db: Db | Trx, bookingId: string) {
   const b = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id")
     .leftJoin("open_match", "open_match.booking_id", "booking.id")
-    .select(["booking.id", "booking.status", "booking.location_id", "court.id as court_id", "court.name as court", "location.time_zone", "open_match.rated", sql<Date>`lower(court_time.during)`.as("start")])
+    .select(["booking.id", "booking.status", "booking.location_id", "court.id as court_id", "court.name as court", "location.time_zone", sql<boolean>`coalesce(open_match.rated, booking.rated)`.as("rated"), sql<Date>`lower(court_time.during)`.as("start")])
     .where("booking.id", "=", bookingId).where("court_time.active", "=", true).executeTakeFirst();
   if (!b) throw new KumiError("error.not_found", { thing: both("thing.booking") }, 404);
   return { ...b, rated: Boolean(b.rated), when: { en: dateTime(new Date(b.start), "en", b.time_zone), es: dateTime(new Date(b.start), "es", b.time_zone) } as Text };

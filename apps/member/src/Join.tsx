@@ -3,12 +3,13 @@ import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
-type Invite = { id: string; open_match: boolean; kind: string; coach: string | null; code: string; court: string; location: string; time_zone: string; organiser: string | null; start: string; end: string; share_cents: number; spots_left: number; open: boolean };
+type Invite = { id: string; open_match: boolean; kind: string; pay_mode: string; coach: string | null; code: string; court: string; location: string; time_zone: string; organiser: string | null; start: string; end: string; share_cents: number; spots_left: number; open: boolean };
 
 export function Join({ code }: { code: string }) {
   const [inv, setInv] = useState<Invite | null>(null), [error, setError] = useState<string | null>(null), [paying, setPaying] = useState<string | null>(null), [done, setDone] = useState(false);
   const [provider, setProvider] = useState("test");
-  const { preview, sheet } = usePreview((r?: { payment_id?: string }) => { if (r?.payment_id) setPaying(r.payment_id); });
+  // A court booked in full has nothing to pay: joining it as a player is done once it's confirmed.
+  const { preview, sheet } = usePreview((r?: { payment_id?: string; booking_player_id?: string }) => { if (r?.payment_id) setPaying(r.payment_id); else if (r?.booking_player_id) setDone(true); });
   useEffect(() => {
     // An open match's link goes to the match's own page, where its level band applies.
     api<Invite>(`/bookings/invite/${encodeURIComponent(code)}`).then((x) => { if (x.open_match) location.replace(`/match/${x.id}?code=${encodeURIComponent(code)}`); else setInv(x); })
@@ -27,7 +28,10 @@ export function Join({ code }: { code: string }) {
       <section class="card">
         <h1>{inv.kind === "lesson" ? t("ui.join_lesson_title", { organiser: inv.organiser ?? "", coach: inv.coach ?? "" }) : t("ui.join_booking_title", { organiser: inv.organiser ?? "" })}</h1>
         <p>{inv.court}, {inv.location} · {when}</p>
-        {inv.open ? <>
+        {inv.open && inv.pay_mode === "whole" ? <>
+          <p>{t("ui.players_join_free", { organiser: inv.organiser ?? "" })}</p>
+          <button class="primary" onClick={() => preview("booking.join_players", { invite_code: code, person_id: me.value!.person.id })}>{t("ui.join_as_player")}</button>
+        </> : inv.open ? <>
           <p>{t("ui.your_part", { amount: dollars(inv.share_cents, lang.value) })}</p>
           <button class="primary" onClick={() => preview("booking.join", { invite_code: code, person_id: me.value!.person.id })}>{t("ui.join_and_pay", { amount: dollars(inv.share_cents, lang.value) })}</button>
         </> : <p class="meta">{t("error.invite_closed")}</p>}

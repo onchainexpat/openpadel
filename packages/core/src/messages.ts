@@ -246,6 +246,19 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const s = await seatInfo(db, p.booking_player_id);
     return s.person_id ? [{ to: s.person_id, kind: "match_place_dropped", params: { ...s.b.base, host: s.host }, purpose: "account", essential: false, email: false, link: "/play", staleAt: new Date(s.b.start) }] : [];
   },
+  // Players named on a court booked in full (booking_players.ts): added by the booker, the player hears; joined by
+  // the players link, the booker hears; taken off by the booker, the player hears.
+  async "booking.player_added"({ db }, p: { booking_player_id: string; by: string | null }) {
+    const s = await seatInfo(db, p.booking_player_id);
+    if (!s.person_id) return [];
+    if (p.by === s.person_id) return s.b.organiser_id ? [{ to: s.b.organiser_id, kind: "booking_player_joined", params: { ...s.b.base, person: s.name }, purpose: "account", essential: false, email: false,
+      link: `/match/${s.b.id}` }] : [];
+    return [{ to: s.person_id, kind: "booking_player_added", params: { ...s.b.base, booker: s.host }, purpose: "account", essential: false, email: true, link: `/match/${s.b.id}` }];
+  },
+  async "booking.player_removed"({ db }, p: { booking_player_id: string; by: string | null }) {
+    const s = await seatInfo(db, p.booking_player_id);
+    return s.person_id && p.by !== s.person_id ? [{ to: s.person_id, kind: "booking_player_removed", params: { ...s.b.base, booker: s.host }, purpose: "account", essential: false, email: false, link: "/places" }] : [];
+  },
   async "booking.player_left"({ db }, p: { booking_player_id: string; paid: boolean; late?: boolean; refunded?: number }) {
     const s = await seatInfo(db, p.booking_player_id);
     // Paid and past the deadline, the place stays empty; otherwise it's open again (and a paid player is paid back).

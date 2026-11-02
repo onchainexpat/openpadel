@@ -8,9 +8,11 @@ import { PaySheet } from "./Pay.tsx";
 export type Match = {
   id: string; court: string; location: string; time_zone: string; start: string; end: string; host: string | null; host_is_me: boolean; open: boolean; cancelled: boolean; rated: boolean; listed: boolean;
   level_min: string; level_max: string; outside_band: "ask" | "closed"; note: string | null; share_cents: number; spots_left: number; my_level: number | null;
-  players: { id?: string; name: string | null; level: number | null; host: boolean; paying: boolean; saved: boolean; leaving: boolean; no_show?: boolean; record?: Rec }[];
+  players: { id?: string; name: string | null; level: number | null; host: boolean; added?: boolean; paying: boolean; saved: boolean; leaving: boolean; no_show?: boolean; record?: Rec }[];
+  // Any other court booking shows here too: is_match is false, and a court booked in full has its players named.
+  is_match: boolean; whole: boolean; players_link: string | null; can_name: boolean; can_rate: boolean;
   can: "join" | "ask" | "closed" | null; started: boolean; late_window: boolean; no_show_window: boolean;
-  me: { pending_payment_id: string | null; held_until: string | null; leaving: boolean; saved: boolean; paid: boolean; sub: boolean; offer: { id: string; code: string; to_name: string | null } | null } | null;
+  me: { seat_id: string; added: boolean; pending_payment_id: string | null; held_until: string | null; leaving: boolean; saved: boolean; paid: boolean; sub: boolean; offer: { id: string; code: string; to_name: string | null } | null } | null;
   request: { id: string; status: string } | null;
   requests: { id: string; display_name: string; level: number | null; note: string | null; record: Rec }[]; invite_code: string | null;
   result: { id: string; status: string; sets: { a: number; b: number }[]; a: string[]; b: string[]; confirm_by: string | null; rated: boolean; my_side: "a" | "b" | null; can_confirm: boolean; can_dispute: boolean } | null;
@@ -28,11 +30,12 @@ const when = (m: Match, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFo
 function Facts({ m }: { m: Match }) {
   return <>
     <p><strong>{when(m, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</strong> · {m.court}, {m.location}</p>
-    <p class="meta">{t("ui.levels_band", { band: band(m) })} · {t(m.rated ? "ui.match_rated" : "ui.match_friendly")} · {t("ui.place_price", { amount: dollars(m.share_cents, lang.value) })}</p>
+    {m.is_match ? <p class="meta">{t("ui.levels_band", { band: band(m) })} · {t(m.rated ? "ui.match_rated" : "ui.match_friendly")} · {t("ui.place_price", { amount: dollars(m.share_cents, lang.value) })}</p>
+      : <p class="meta">{t(m.rated ? "ui.match_rated" : "ui.match_friendly")}</p>}
     <ul class="plain">{m.players.map((p) => <li>{p.name}{p.level !== null ? ` · ${p.level.toFixed(2)}` : ""}{p.host ? ` · ${t("ui.host")}` : ""}{p.paying ? ` · ${t("ui.paying")}` : ""}
       {p.saved ? ` · ${t("ui.place_saved_for")}` : ""}{p.leaving ? ` · ${t("ui.cant_make_it_tag")}` : ""}{p.no_show ? ` · ${t("ui.didnt_come")}` : ""}
       {recText(p.record) && <span class="meta"> · {recText(p.record)}</span>}</li>)}
-      {Array.from({ length: m.spots_left }, () => <li class="meta">{t("ui.open_place")}</li>)}</ul>
+      {Array.from({ length: m.spots_left }, () => <li class="meta">{t(m.is_match ? "ui.open_place" : "ui.player_not_named")}</li>)}</ul>
     {m.open && !m.cancelled && m.spots_left > 0 && new Date(m.full_by) > new Date() && <p class="meta">{t("ui.match_cutoff", { time: new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US",
       { timeZone: m.time_zone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(m.full_by)) })}</p>}
   </>;
@@ -79,7 +82,7 @@ export function MatchPage({ id }: { id: string }) {
   const copyTake = async () => { await navigator.clipboard?.writeText(`${location.origin}/take/${m.me!.offer!.code}`).catch(() => {}); setTakeCopied(true); };
   return (
     <main>
-      <h1>{m.host_is_me ? t("ui.your_match") : t("ui.match_by", { host: m.host ?? "" })}</h1>
+      <h1>{m.is_match ? (m.host_is_me ? t("ui.your_match") : t("ui.match_by", { host: m.host ?? "" })) : m.host_is_me ? t("ui.your_booking") : t("ui.booking_by", { host: m.host ?? "" })}</h1>
       {sheet}
       {paying && <PaySheet paymentId={paying} amountCents={m.share_cents} name={m.court} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); void load(); }} />}
       {paying && provider === "test" && import.meta.env.DEV && <p><button class="primary" onClick={async () => { await api(`/dev/payments/${paying}/settle`, {}); setPaying(null); void load(); }}>{t("ui.pay_test")}</button></p>}
@@ -102,7 +105,7 @@ export function MatchPage({ id }: { id: string }) {
         {m.me && m.late_window && !m.me.leaving && <div class="chips" role="group" aria-label={t("ui.running_late")}><span class="meta">{t("ui.running_late")}:</span>
           {[5, 10, 15, 20].map((n) => <button type="button" class="chip" onClick={() => preview("booking.running_late", { booking_id: m.id, person_id: pid, minutes: n })}>{t("ui.minutes", { count: n })}</button>)}</div>}
       </section>
-      {m.me && !m.cancelled && !m.host_is_me && !m.me.leaving && !m.me.sub && !m.started && <section class="card card-form">
+      {m.is_match && m.me && !m.cancelled && !m.host_is_me && !m.me.leaving && !m.me.sub && !m.started && <section class="card card-form">
         <h2>{t("ui.cant_make_it_title")}</h2>
         {m.me.offer ? <>
           <p>{m.me.offer.to_name ? t("ui.offer_open_friend", { name: m.me.offer.to_name }) : t("ui.offer_open_link")}</p>
@@ -117,8 +120,9 @@ export function MatchPage({ id }: { id: string }) {
         </>}
         <p><button onClick={() => preview("booking.leave", { booking_id: m.id, person_id: pid })}>{t("ui.cant_make_it")}</button></p>
       </section>}
+      {!m.is_match && <Players m={m} preview={preview} />}
       <Result m={m} preview={preview} />
-      {m.host_is_me && !m.cancelled && <section class="card">
+      {m.is_match && m.host_is_me && !m.cancelled && <section class="card">
         <h2>{t("ui.requests")}</h2>
         {m.requests.length === 0 ? <p class="meta">{t("ui.no_requests")}</p> : <ul class="plain">{m.requests.map((r) => (
           <li class="row"><span>{r.display_name} · {lv(r.level)}{recText(r.record) ? <span class="meta"> · {recText(r.record)}</span> : null}{r.note ? <><br /><span class="meta">{r.note}</span></> : null}</span>
@@ -142,6 +146,31 @@ export function MatchPage({ id }: { id: string }) {
           {p.no_show ? <span class="meta">{t("ui.didnt_come")}</span> : <button class="small" onClick={() => preview("booking.mark_no_show", { booking_player_id: p.id })}>{t("ui.mark_didnt_come")}</button>}</li>)}</ul>
       </section>}
     </main>
+  );
+}
+
+/** A court booked in full: the booker names who's playing (friends and members, by name) or shares the players
+ *  link, and says whether the game counts for levels; a named player can take themself off. Nobody pays. */
+function Players({ m, preview }: { m: Match; preview: (a: string, i: unknown) => Promise<void> }) {
+  const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string; friend: boolean }[]>([]), [copied, setCopied] = useState(false);
+  const find = async (v: string) => { setQ(v); setFound(v.trim().length > 1 ? await api(`/my/players/find?q=${encodeURIComponent(v)}`) : []); };
+  const share = async () => { await navigator.clipboard?.writeText(`${location.origin}/join/${m.players_link}`).catch(() => {}); setCopied(true); };
+  if (!m.whole && !m.can_rate) return null;
+  return (
+    <section class="card card-form">
+      <h2>{t("ui.players")}</h2>
+      {m.whole && <p class="meta">{t("ui.players_hint")}</p>}
+      {m.host_is_me && <ul class="plain">{m.players.filter((p) => p.added && p.id).map((p) => <li class="row"><span>{p.name}</span>
+        <button class="small" onClick={() => preview("booking.remove_player", { booking_player_id: p.id })}>{t("ui.take_off")}</button></li>)}</ul>}
+      {m.can_name && <>
+        <label>{t("ui.find_player")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>
+        {found.length > 0 && <ul class="plain">{found.map((f) => <li class="row"><span>{f.display_name}{f.friend ? <span class="meta"> · {t("ui.friend")}</span> : null}</span>
+          <button class="small" onClick={() => { setFound([]); setQ(""); void preview("booking.add_player", { booking_id: m.id, person_id: f.id }); }}>{t("ui.add")}</button></li>)}</ul>}
+        {m.players_link && <p><button onClick={share}>{copied ? t("ui.link_copied") : t("ui.copy_players_link")}</button></p>}
+      </>}
+      {m.can_rate && <label class="check"><input type="checkbox" checked={m.rated} onChange={() => preview("booking.set_rated", { booking_id: m.id, rated: !m.rated })} /> {t("ui.match_counts")}</label>}
+      {m.me?.added && !m.host_is_me && <p><button onClick={() => preview("booking.remove_player", { booking_player_id: m.me!.seat_id })}>{t("ui.take_me_off")}</button></p>}
+    </section>
   );
 }
 

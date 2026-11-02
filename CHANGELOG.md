@@ -72,6 +72,11 @@ The first version a club can run on its own (court bookings included), or for it
   they haven't played with or given their link to.
 
 **Results and levels**
+- Players on a court booked in full: the booker names the other players (people they know: friends, and
+  people they've played with), or shares the booking's players link and the others add themselves. Nobody
+  added pays anything, taking someone off moves no money, and a named player can take themselves off.
+  With four on it, any of them enters the score, and the booker chooses whether it counts for levels
+  (a friendly unless they say so), until the score is in.
 - After a booking or open match, one of the four enters the score (sets, and who played with whom);
   someone from the other side confirms or disputes it, and with no answer in 48 hours it counts as
   entered. A rated match moves levels once confirmed, each with a sentence on why; a friendly never

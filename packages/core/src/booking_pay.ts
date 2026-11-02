@@ -120,7 +120,7 @@ export const bookingRequest = defineAction({
     const court = await courtAndPlace(ctx.trx, i.court_id), code = await newCode(ctx.trx);
     const id = uuidv7(), players = i.players ?? 4, s = shares(q.total_cents, players);
     await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id, status: "held", source: "app", price_cents: q.total_cents, tax_cents: q.tax_cents,
-      quote: JSON.stringify(q), policy_id, pay_mode: i.pay, players, invite_code: i.pay === "split" ? randomBytes(9).toString("base64url") : null });
+      quote: JSON.stringify(q), policy_id, pay_mode: i.pay, players, invite_code: randomBytes(9).toString("base64url") });   // whole court: the players link (booking_players.ts)
     if (i.open) await ctx.insert("open_match", { booking_id: id, level_min: i.open.level_min.toFixed(2), level_max: i.open.level_max.toFixed(2), outside_band: i.open.outside_band ?? "ask",
       rated: i.open.rated ?? true, listed: i.open.listed ?? true, note: i.open.note ?? null, cutoff_at: cutoff_at ? new Date(cutoff_at) : null });
     const bp = uuidv7();
@@ -180,7 +180,7 @@ export const bookingRequestCourts = defineAction({
       const court = await courtAndPlace(ctx.trx, s.court_id), q = quotes[k]!, start = new Date(s.starts_at), end = new Date(start.getTime() + s.minutes * 60_000);
       const id = uuidv7(), code = await newCode(ctx.trx), bp = uuidv7(), payment = uuidv7();
       await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id, status: "held", source: "app", price_cents: q.total_cents, tax_cents: q.tax_cents,
-        quote: JSON.stringify(q), policy_id, pay_mode: "whole", players: 4, invite_code: null });
+        quote: JSON.stringify(q), policy_id, pay_mode: "whole", players: 4, invite_code: randomBytes(9).toString("base64url") });
       await ctx.insert("booking_player", { id: bp, booking_id: id, person_id: i.person_id, share_cents: q.total_cents });
       try {
         await ctx.insert("court_time", { id: uuidv7(), court_id: s.court_id, during: sql`tstzrange(${start}, ${end})`, kind: "hold", booking_id: id, hold_until: new Date(ctx.now.getTime() + HOLD_MINUTES * 60_000) });
