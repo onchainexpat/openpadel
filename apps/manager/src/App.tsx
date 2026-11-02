@@ -13,6 +13,9 @@ import { Memberships } from "./Memberships.tsx";
 import { Scores } from "./Scores.tsx";
 import { Levels } from "./Levels.tsx";
 import { SessionLevels } from "./SessionLevels.tsx";
+
+// What a coach with no other staff role sees (the server's COACH_READS): their schedule, programs, courts and levels.
+const COACH_SEES = ["bookings", "programs", "levels", "coaches"];
 // Set-up pages, opened now and then, loaded when they are.
 const Settings = lazy(() => import("./Settings.tsx").then((m) => m.Settings));
 const Program = lazy(() => import("./Program.tsx").then((m) => m.Program));
@@ -76,7 +79,10 @@ export function App() {
   // the audit log, is a page of its own for owners and managers), a coach's schedule, the accountant's reports.
   const changes = roles.some((r) => r === "owner" || r === "manager");
   // Someone whose only staff roles are the club's own sees the areas those roles cover, and starts on the first.
-  const areas = me.value.areas ?? null, show = (area: string) => !areas || areas.includes(area);
+  const areas = me.value.areas ?? null;
+  // A coach with no other staff role sees their own work only: the server answers the rest with "staff only".
+  const coachOnly = !areas && coach && roles.every((r) => r === "coach" || r === "member");
+  const show = (area: string) => (areas ? areas.includes(area) : !coachOnly || COACH_SEES.includes(area));
   const areaHome: Record<string, any> = { bookings: Courts, courts: Courts, programs: Programs, members: People, memberships: Memberships, levels: Levels, messages: Messages, money: Reports, coaches: Coaches, settings: Settings };
   // A page outside those areas says so, rather than failing to load.
   const only = (area: string, page: any) => (show(area) ? page : NotForRole);
@@ -85,7 +91,7 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}{show("programs") && <a href="/programs">{t("ui.nav_programs")}</a>}{show("members") && <a href="/people">{t("ui.nav_people")}</a>}{show("memberships") && <a href="/memberships">{t("ui.nav_memberships")}</a>}{(coach || desk || areas?.includes("coaches")) && <a href="/coaches">{t("ui.nav_coaches")}</a>}{show("bookings") && <a href="/courts">{t("ui.courts")}</a>}{show("levels") && <a href="/scores">{t("ui.nav_scores")}</a>}{show("levels") && <a href="/levels">{t("ui.nav_levels")}</a>}{(desk || areas?.includes("messages")) && <QuestionsLink />}{(desk || areas?.includes("messages")) && <a href="/messages">{t("ui.nav_messages")}</a>}{show("bookings") && <a href="/playtomic">{t("ui.nav_playtomic")}</a>}{show("money") && <a href="/payments">{t("ui.nav_payments")}</a>}{show("money") && <a href="/reports">{t("ui.nav_reports")}</a>}{show("settings") && <a href="/settings">{t("ui.nav_settings")}</a>}<InboxLink />{changes && <a href="/changes">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}{show("programs") && <a href="/programs">{t("ui.nav_programs")}</a>}{show("members") && <a href="/people">{t("ui.nav_people")}</a>}{show("memberships") && <a href="/memberships">{t("ui.nav_memberships")}</a>}{(coach || desk || areas?.includes("coaches")) && <a href="/coaches">{t("ui.nav_coaches")}</a>}{show("bookings") && <a href="/courts">{t("ui.courts")}</a>}{show("levels") && <a href="/scores">{t("ui.nav_scores")}</a>}{show("levels") && <a href="/levels">{t("ui.nav_levels")}</a>}{(desk || areas?.includes("messages")) && <QuestionsLink />}{(desk || areas?.includes("messages")) && <a href="/messages">{t("ui.nav_messages")}</a>}{show("bookings") && <a href="/playtomic">{t("ui.nav_playtomic")}</a>}{show("money") && <a href="/payments">{t("ui.nav_payments")}</a>}{(show("money") || coachOnly) && <a href="/reports">{t("ui.nav_reports")}</a>}{show("settings") && <a href="/settings">{t("ui.nav_settings")}</a>}<InboxLink />{changes && <a href="/changes">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Router>
         <Route path="/" component={home} />
@@ -96,7 +102,7 @@ export function App() {
         <Route path="/sessions/:id" component={only("programs", Night)} />
         <Route path="/sessions/:id/levels" component={only("levels", SessionLevels)} />
         <Route path="/people" component={only("members", People)} />
-        <Route path="/people/:id" component={only("members", Person)} />
+        <Route path="/people/:id" component={coachOnly ? Person : only("members", Person)} />
         <Route path="/people/:id/level" component={only("levels", Level)} />
         <Route path="/playtomic" component={only("bookings", Mirror)} />
         <Route path="/payments" component={only("money", Payments)} />
@@ -105,7 +111,7 @@ export function App() {
         <Route path="/roles" component={only("settings", Roles)} />
         <Route path="/vault" component={only("settings", Vault)} />
         <Route path="/courts" component={only("bookings", Courts)} />
-        <Route path="/reports" component={only("money", Reports)} />
+        <Route path="/reports" component={coachOnly ? Reports : only("money", Reports)} />
         <Route path="/memberships" component={only("memberships", Memberships)} />
         <Route path="/scores" component={only("levels", Scores)} />
         <Route path="/levels" component={only("levels", Levels)} />

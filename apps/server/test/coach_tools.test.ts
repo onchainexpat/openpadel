@@ -80,3 +80,11 @@ test("the calendar link: only a coach makes one; the feed needs no sign-in; a ne
   // A form post from another site can't make a new one.
   assert.equal((await app.request("/staff/calendar-link", { method: "POST", headers: { cookie: cookies.Kim!, "sec-fetch-site": "cross-site", "content-type": "application/json" }, body: "{}" })).status, 403);
 });
+
+test("a coach with no other staff role reads their own work, not the club's money, members or settings", async () => {
+  for (const path of ["/staff/reports", "/staff/payments", "/staff/people", `/staff/people/${people.Ann}`, "/staff/memberships", "/staff/questions", "/staff/settings"])
+    assert.equal((await req(path, "Kim")).status, 403, path);
+  for (const path of ["/staff/my-schedule", "/staff/students", "/staff/programs", "/staff/levels"]) assert.equal((await req(path, "Kim")).status, 200, path);
+  assert.equal((await req("/staff/people", "Fay")).status, 200);
+  assert.equal((await req("/staff/reports", "Fay")).status, 400);   // past the door; it only wants its dates
+});

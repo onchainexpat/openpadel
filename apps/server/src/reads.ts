@@ -11,6 +11,10 @@ import { readPeopleCsv } from "./csv.ts";
 type Me = { id: string; locale: string } | null;
 /** Which area a staff page's data belongs to (roles.ts AREAS), for roles the club made. Lists every area uses
  *  (locations, courts) belong to none. */
+/** The read areas a coach with no other staff role sees (the staff app shows them the same). */
+export const COACH_READS = ["bookings", "programs", "levels", "coaches"];
+/** And, outside those, the pages that answer a coach about themselves: their own earnings, and a question count of 0. */
+const COACH_ALSO = /^\/staff\/(coach-earnings(\.csv)?|questions\/count)$/;
 const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
   [/^\/staff\/(people|tags)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
@@ -30,8 +34,15 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // Someone whose only staff roles are ones the club made reads only the areas those roles cover.
     const areas = await customAreas(db, m.id), area = readArea(c.req.path);
     if (areas && area && !areas.includes(area)) throw new KumiError("error.staff_only", {}, 403);
+    // A coach (and nothing else on staff) reads their own work: no club money, no member list or contact details,
+    // no memberships, messages or settings (permissions.md). Their own students' pages stay open to them.
+    if (!areas && area && !COACH_READS.includes(area) && !COACH_ALSO.test(c.req.path) && await coachOnly(m.id)) {
+      const one = /^\/staff\/people\/([0-9a-f-]{36})$/.exec(c.req.path)?.[1];
+      if (!(one && area === "members" && (await coachStudents(db, m.id, new Date())).some((s) => s.person_id === one))) throw new KumiError("error.staff_only", {}, 403);
+    }
     await next();
   });
+  const coachOnly = async (id: string) => { const k = (await rolesOf(id)).filter((r) => r !== "member"); return k.length > 0 && k.every((r) => r === "coach"); };
 
   const rolesOf = async (id: string) => (await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
     .where("person_role.person_id", "=", id).where("person_role.active", "=", true).execute()).map((r) => r.key);
@@ -177,6 +188,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // Occupancy and revenue by day: court hours open, what used them (bookings, programs, Playtomic) and what
   // was blocked, and the money from the ledger (court and program revenue, net of refunds; club-wide).
   async function report(locationId: string, from: string, to: string) {
+    if (!/^[0-9a-f-]{36}$/i.test(locationId)) throw new KumiError("error.invalid_input", { details: "location_id, from and to (YYYY-MM-DD)" }, 400);
     const loc = await db.selectFrom("location").select(["id", "name", "time_zone"]).where("id", "=", locationId).executeTakeFirst();
     if (!loc || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) throw new KumiError("error.invalid_input", { details: "location_id, from and to (YYYY-MM-DD)" }, 400);
     const courts = await db.selectFrom("court").select("id").where("location_id", "=", loc.id).where("archived_at", "is", null).where("bookable", "=", true).execute();
