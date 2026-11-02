@@ -178,7 +178,9 @@ export function makeApp(deps: AppDeps) {
     // Whether any coach takes lessons in the app.
     const coach = await db.selectFrom("coach").select("person_id").where("active", "=", true).where("lessons", "=", true).where(sql<boolean>`rates <> '{}'::jsonb`).executeTakeFirst();
     // Whether the sign-in page offers a texted code: only when the club's texting account is set up.
-    return c.json({ ...club, memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null) });
+    // The members' address, for the staff app's links members open (the public page, a booking's players link).
+    return c.json({ ...club, memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null),
+      member_url: deps.memberUrl ?? memberUrl(publicUrl, {}) });
   });
 
   // ---- The MCP door: OAuth, then tools generated from the registry ----
@@ -257,6 +259,31 @@ export function makeApp(deps: AppDeps) {
   app.post("/my/email/verify", async (c) => {
     const a = actor(c), { code } = await body(c, CodeOnly);
     return c.json({ email: await verifyEmailAdd(db, a.personId!, code, now(), { mailer, undoUrl: (t) => `${members}/auth/email-undo/${t}` }) });
+  });
+  // Staff changing a member's email for them, at the desk: a code goes to the new address and the member reads
+  // it out, and the old address is told, with its link to put it back, as when members change it themselves.
+  // Staff signed in with a passkey or two steps, who look after members (owners, managers, front desk, or a
+  // role the club made covering members). A staff member's own email is theirs or the owner's to change.
+  const deskForEmail = async (c: Context<Env>, personId: string) => {
+    const a = actor(c);
+    if (a.auth !== "passkey" && a.auth !== "two_factor") throw new KumiError("error.need_passkey", {}, 403);
+    const keys = async (id: string) => (await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
+      .where("person_role.person_id", "=", id).where("person_role.active", "=", true).where("role.active", "=", true).execute()).map((r) => r.key);
+    const mine = await keys(a.personId!), areas = await customAreas(db, a.personId!);
+    if (areas ? !areas.includes("members") : !mine.some((k) => ["owner", "manager", "front_desk"].includes(k))) throw new KumiError("error.staff_only", {}, 403);
+    const p = await db.selectFrom("person").select(["locale"]).where("id", "=", personId).where("status", "!=", "archived").executeTakeFirst();
+    if (!p) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
+    if (personId === a.personId || ((await keys(personId)).some((k) => k !== "member") && !mine.includes("owner"))) throw new KumiError("error.staff_email_change", {}, 403);
+    return { a, lang: ((p.locale as Lang) ?? "en") as Lang };
+  };
+  app.post("/staff/people/:id/email/start", async (c) => {
+    const id = c.req.param("id"), { lang: l } = await deskForEmail(c, id), { email } = await body(c, EmailStart);
+    await startEmailAdd(db, mailer, id, email, l, now(), "two_factor");
+    return c.json({ sent: true });
+  });
+  app.post("/staff/people/:id/email/verify", async (c) => {
+    const id = c.req.param("id"), { a } = await deskForEmail(c, id), { code } = await body(c, CodeOnly);
+    return c.json({ email: await verifyEmailAdd(db, id, code, now(), { mailer, undoUrl: (t) => `${members}/auth/email-undo/${t}`, by: a.personId! }) });
   });
   // The old address's link. Opening it (or a mail scanner checking it) changes nothing: the button does.
   const undoPage = (l: Lang, club: string, body: string) => `<!doctype html><html lang="${l}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">

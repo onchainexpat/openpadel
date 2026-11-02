@@ -78,3 +78,43 @@ test("someone with a passkey changes their email only when signed in with it; an
   assert.equal((await post("/my/email/verify", { code: "123456" }, cookie)).status, 401);
   assert.equal((await db.selectFrom("person").select("email").where("id", "=", ann).executeTakeFirstOrThrow()).email, "ann@example.test");
 });
+
+test("staff change a member's email for them: signed in strongly, a code the member reads out, the old address told; never a staff member's unless the owner", async () => {
+  const strong = async (email: string) => { const c = await signIn(email); await db.updateTable("web_session").set({ second_factor: "totp" }).where("person_id", "=", (await db.selectFrom("person").select("id").where("email", "=", email).executeTakeFirstOrThrow()).id).execute(); return c; };
+  const lee = ((await run(db, "person.create", { display_name: "Lee Chen", email: "lee@example.test" }, owner)).result as { person_id: string }).person_id;
+  await run(db, "role.assign", { person_id: lee, role: "front_desk" }, owner);
+  const bo = ((await run(db, "person.create", { display_name: "Bo Park", email: "bo@example.test", locale: "es" }, owner)).result as { person_id: string }).person_id;
+  const weak = await signIn("lee@example.test");
+  assert.equal((await post(`/staff/people/${bo}/email/start`, { email: "bo.park@example.test" }, weak)).json.error, "error.need_passkey");
+  const desk = await strong("lee@example.test");
+  assert.deepEqual((await post(`/staff/people/${bo}/email/start`, { email: "bo.park@example.test" }, desk)).json, { sent: true });
+  assert.match(mailer.last("bo.park@example.test")!.subject, /Kestrel Padel/);   // in Bo's language
+  assert.equal((await post(`/staff/people/${bo}/email/verify`, { code: "000000" }, desk)).json.error, "error.bad_code");
+  assert.deepEqual((await post(`/staff/people/${bo}/email/verify`, { code: codeIn("bo.park@example.test") }, desk)).json, { email: "bo.park@example.test" });
+  assert.equal((await db.selectFrom("person").select("email").where("id", "=", bo).executeTakeFirstOrThrow()).email, "bo.park@example.test");
+  assert.match(mailer.last("bo@example.test")!.text, /\/auth\/email-undo\//);   // the old address is told, with its way back
+  const audit = await db.selectFrom("action_run").select(["via", "input"]).where("action", "=", "email.change").orderBy("created_at", "desc").executeTakeFirstOrThrow();
+  assert.deepEqual([audit.via, (audit.input as any).by], ["staff", lee]);
+  // A staff member's email is theirs or the owner's: the desk can't change the owner's, or its own here.
+  assert.equal((await post(`/staff/people/${owner.personId}/email/start`, { email: "x@example.test" }, desk)).json.error, "error.staff_email_change");
+  assert.equal((await post(`/staff/people/${lee}/email/start`, { email: "x@example.test" }, desk)).json.error, "error.staff_email_change");
+  // A member signed in strongly isn't staff.
+  const annCookie = await strong("ann.lee@example.test").catch(() => strong("ann@example.test"));
+  assert.equal((await post(`/staff/people/${bo}/email/start`, { email: "y@example.test" }, annCookie)).json.error, "error.staff_only");
+});
+
+test("the members' address comes with the club, for the staff app's links members open", async () => {
+  assert.equal(JSON.parse((await get("/club")).text).member_url, "https://kestrel.example");
+});
+
+test("the owner and managers see a member's connected assistants, to disconnect one; the desk doesn't", async () => {
+  const bo = (await db.selectFrom("person").select("id").where("display_name", "=", "Bo Park").executeTakeFirstOrThrow()).id;
+  await db.insertInto("oauth_client").values({ client_id: "kc_bo", kind: "registered", name: "Bo's Claude", redirect_uris: ["http://localhost/cb"], secret_hash: null, metadata: null }).execute();
+  const grant = uuidv7();
+  await db.insertInto("oauth_grant").values({ id: grant, person_id: bo, client_id: "kc_bo", scopes: ["kumi"], revoked_at: null }).execute();
+  const json = async (path: string, cookie: string) => { const r = await get(path, cookie); return { status: r.status, body: JSON.parse(r.text) }; };
+  const robin = await signIn("robin@example.test");
+  const seen = await json(`/staff/people/${bo}/assistants`, robin);
+  assert.deepEqual([seen.status, seen.body.map((a: any) => [a.id, a.name, a.weekly_cap_cents, a.spent_cents])], [200, [[grant, "Bo's Claude", 0, 0]]]);
+  assert.equal((await json(`/staff/people/${bo}/assistants`, await signIn("lee@example.test"))).status, 403);
+});

@@ -1,6 +1,6 @@
 // Occupancy and revenue by day for a location, with the same figures as a spreadsheet file.
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, me, t } from "@kumi/ui";
+import { api, dollars, lang, me, ReceiptSheet, t, type ReceiptView } from "@kumi/ui";
 
 type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number };
 type Receipt = { id: string; number: string; kind: "payment" | "refund"; when: string; paid_by: string; for: string | null; what: string; more: number; total_cents: number };
@@ -19,8 +19,10 @@ export function Reports() {
   const seesEarnings = (me.value?.roles ?? []).some((r) => ["owner", "manager", "accountant", "coach"].includes(r.key));
   useEffect(() => { if (seesEarnings && from && to) api<Earnings>(`/staff/coach-earnings?from=${from}&to=${to}`).then(setEarn).catch(() => setEarn(null)); }, [from, to]);
   // The club's receipts for the same dates (for whoever takes or sees the club's money: the server says who).
-  const [receipts, setReceipts] = useState<Receipt[] | null>(null);
-  useEffect(() => { if (from && to) api<Receipt[]>(`/staff/club-receipts?from=${from}&to=${to}`).then(setReceipts).catch(() => setReceipts(null)); }, [from, to, lang.value]);
+  const [receipts, setReceipts] = useState<Receipt[] | null>(null), [open, setOpen] = useState<ReceiptView | null>(null);
+  useEffect(() => { if (from && to) api<Receipt[]>(`/staff/club-receipts?from=${from}&to=${to}`).then(setReceipts).catch(() => setReceipts(null)); setOpen(null); }, [from, to, lang.value]);
+  // One opens as the printable receipt, the same as on the person's page.
+  const show = (id: string) => api<ReceiptView>(`/staff/receipts/${id}`).then(setOpen);
   const sum = (k: keyof Row) => (rows ?? []).reduce((n, r) => n + (r[k] as number), 0);
   const usable = sum("court_hours") - sum("blocked_hours"), used = sum("booked_hours") + sum("program_hours") + sum("playtomic_hours");
   const hrs = (n: number) => (Math.round(n * 10) / 10).toLocaleString(lang.value === "es" ? "es-US" : "en-US");
@@ -54,10 +56,12 @@ export function Reports() {
         <p class="meta">{t("ui.club_receipts_help")}</p>
         {!receipts.length ? <p class="meta">{t("ui.receipts_none")}</p> : <div class="table-scroll"><table>
           <thead><tr><th>{t("ui.col_receipt")}</th><th>{t("ui.day")}</th><th>{t("ui.col_paid_by")}</th><th>{t("ui.col_what")}</th><th>{t("ui.col_total")}</th></tr></thead>
-          <tbody>{receipts.map((r) => <tr><td>{r.number}</td><td>{r.when}</td><td>{r.paid_by}{r.for ? ` (${r.for})` : ""}</td><td>{r.what}{r.more ? ` +${r.more}` : ""}</td>
+          <tbody>{receipts.map((r) => <tr><td><button class="link" onClick={() => show(r.id)}>{r.number}</button></td><td>{r.when}</td><td>{r.paid_by}{r.for ? ` (${r.for})` : ""}</td><td>{r.what}{r.more ? ` +${r.more}` : ""}</td>
             <td>{r.kind === "refund" ? `-${dollars(r.total_cents, lang.value)}` : dollars(r.total_cents, lang.value)}</td></tr>)}</tbody>
         </table></div>}
         <p><a href={`/staff/club-receipts.csv?from=${from}&to=${to}`}>{t("ui.download_csv")}</a></p>
+        {open && <><ReceiptSheet r={open} /><p class="no-print"><button onClick={() => window.print()}>{t("ui.receipt_print")}</button>{" "}
+          <button class="secondary" onClick={() => setOpen(null)}>{t("ui.close")}</button></p></>}
       </section>}
     </main>
   );

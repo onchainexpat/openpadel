@@ -88,7 +88,8 @@ The first version a club can run on its own (court bookings included), or for it
   With four on it, any of them enters the score, and the booker chooses whether it counts for levels
   (a friendly unless they say so), until the score is in. The front desk names players on a member's
   court too, from the Courts page (anyone, found by name), and a court booked at the desk for a member
-  gets the players link like one booked in the app. A walk-in under a guest name has none.
+  gets the players link like one booked in the app. A walk-in under a guest name has none. The desk copies
+  a booking's players link from the Courts page; it opens at the members' address.
 - After a booking or open match, one of the four enters the score (sets, and who played with whom);
   someone from the other side confirms or disputes it, and with no answer in 48 hours it counts as
   entered. A rated match moves levels once confirmed, each with a sentence on why; a friendly never
@@ -174,8 +175,8 @@ The first version a club can run on its own (court bookings included), or for it
   receipt emails (docs/setup/accounts/stripe.md) so members don't get two.
 - All the club's receipts for any dates (up to a year) under Reports, for the same money people, with a
   spreadsheet file: refunds as negative amounts, so a column adds up to what came in, and a name that starts
-  like a formula kept as text. A member's data download includes their receipts (one a parent paid for them,
-  without the parent's card).
+  like a formula kept as text. Each opens as the printable receipt, as on a person's page. A member's data
+  download includes their receipts (one a parent paid for them, without the parent's card).
 
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.
@@ -324,6 +325,7 @@ The first version a club can run on its own (court bookings included), or for it
   front desk on Courts, the accountant on Reports.
 
 **The public page**
+- The staff app's "see the public page" opens it at the members' address.
 - Once switched on: the club's locations, hours, courts, prices, memberships and upcoming public
   events, as plain HTML that search engines and AI assistants read, with schema.org markup and a
   sitemap. "Join the club" goes to the app's sign-up (the interest list before opening). Its own address,
@@ -384,12 +386,17 @@ The first version a club can run on its own (court bookings included), or for it
   a link (good 14 days, once) that puts it back and signs everyone out, assistants too. With a passkey, the
   change needs the passkey or two steps. Adding or changing to an address another account uses answers the
   same as a free one; that address hears someone tried, and no working code is made (it used to say so).
+  Staff change it for a member at the desk the same way, from the person's page: signed in with a passkey or
+  two steps, they send the code to the new address and the member reads it out; the old address is told,
+  with its link back, and the change is kept with who made it. Owners, managers and front desk (or a role the
+  club made covering members) can; a staff member's email is theirs or the owner's to change.
 - A weekly spending limit for a person's own assistant (Claude, ChatGPT and others, through the club's MCP
   address): chosen when they connect it, nothing unless they pick $25, $50, $100 or $200. It counts what they
   themselves pay for what the assistant books this week (from Monday, the club's clock), less refunds of
   those; over it, the preview stops and says to do it in the app, and it's checked again on confirming, so
   two previews can't both squeeze in. Profile, Assistants shows each one's week, changes its limit (up to
-  $500) or disconnects it, which ends its tokens at once. Staff working for the club through an assistant
+  $500) or disconnects it, which ends its tokens at once. The owner and managers see a member's assistants on
+  their page and can disconnect one there. Staff working for the club through an assistant
   aren't limited. The assistant's "whoami" says what's left. Fixed: "whoami" itself failed on a query.
 - Bot protection with no third party, on sign-up, sign-in codes and opening a card form: a field people
   never see, and a small proof of work the page solves (a fraction of a second on a phone, harder for an

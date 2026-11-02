@@ -126,7 +126,7 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       <label class="check"><input type="checkbox" checked={f.sign_up_open} onChange={(e) => set("sign_up_open", e.currentTarget.checked)} /> {t("ui.sign_up_open")}</label>
       <label class="check"><input type="checkbox" checked={f.court_bookings} onChange={(e) => set("court_bookings", e.currentTarget.checked)} /> {t("ui.court_bookings_on")}</label>
       <label class="check"><input type="checkbox" checked={f.public_page} onChange={(e) => set("public_page", e.currentTarget.checked)} /> {t("ui.public_page_on")}</label>
-      {c.public_page && <p class="meta"><a href="/public" target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
+      {c.public_page && <p class="meta"><a href={`${clubSignal.value?.member_url ?? ""}/public`} target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
       <label>{t("ui.about_club")}<textarea maxLength={600} rows={3} value={f.about ?? ""} onInput={(e) => set("about", e.currentTarget.value)} /></label>
       <label>{t("ui.question_alert_hours")}<input type="number" min="0" max="72" step="1" value={String(f.question_alert_hours)} onChange={(e) => set("question_alert_hours", Math.max(0, Math.min(72, Math.round(Number(e.currentTarget.value) || 0))))} /></label>
       {/* Ask the club: on by default, and only does anything once the server has a decision model. */}

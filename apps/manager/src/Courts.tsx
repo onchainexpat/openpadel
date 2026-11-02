@@ -5,13 +5,13 @@
 // device's clock says.
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
+import { api, club, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
 type Seat = { id: string; name: string; booker: boolean };
 type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; balance_cents?: number; booking_kind?: string;
-  coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string; program_id?: string; label?: string; empty_places?: Empty[] };
+  coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; invite_code?: string | null; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string; program_id?: string; label?: string; empty_places?: Empty[] };
 // `open`: that court's own hours that day (they can differ from the location's); null when it's closed all day.
 type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
 type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; courts: Court[] };
@@ -313,13 +313,16 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
 /** The players on a member's court paid in full: the desk names them (anyone, by search), or takes one off. Nobody
  *  named pays, and taking someone off moves no money. */
 function Players({ it, preview }: { it: Item; preview: Preview }) {
-  const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]);
+  const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]), [copied, setCopied] = useState(false);
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
+  // The players link opens in the members' app, at the members' address.
+  const copy = async () => { await navigator.clipboard?.writeText(`${club.value?.member_url ?? location.origin}/join/${it.invite_code}`).catch(() => {}); setCopied(true); };
   return (
     <div class="card-form">
       <h3>{t("ui.players_title")}</h3>
       <ul class="plain">{(it.seats ?? []).map((p) => <li class="row"><span>{p.name}{p.booker ? ` · ${t("ui.booker")}` : ""}</span>
         {!p.booker && mayDo("booking.remove_player") && <button type="button" class="small" onClick={() => preview("booking.remove_player", { booking_player_id: p.id })}>{t("ui.remove")}</button>}</li>)}</ul>
+      {it.invite_code && (it.seats?.length ?? 0) < 4 && <p><button type="button" class="small" onClick={copy}>{copied ? t("ui.link_copied") : t("ui.copy_players_link")}</button></p>}
       {(it.seats?.length ?? 0) < 4 && <>
         <label>{t("ui.add_player")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>
         {found.length > 0 && <ul class="plain">{found.slice(0, 6).map((p) => <li class="row"><span>{p.display_name}</span>

@@ -177,7 +177,7 @@ export async function startEmailAdd(db: Db, mailer: Mailer, personId: string, em
   await mailer.send({ to: target, subject: t(lang, "auth.email_add_subject", { club: club.name, code }), text: t(lang, "auth.email_add_body", { club: club.name, code }) });
 }
 /** The code back: the address is theirs. A change tells the old address, with a link to put it back. */
-export async function verifyEmailAdd(db: Db, personId: string, code: string, now = new Date(), o?: { mailer: Mailer; undoUrl: (token: string) => string }): Promise<string> {
+export async function verifyEmailAdd(db: Db, personId: string, code: string, now = new Date(), o?: { mailer: Mailer; undoUrl: (token: string) => string; by?: string }): Promise<string> {
   const ch = await db.selectFrom("auth_challenge").selectAll().where("kind", "=", "email_add").where("person_id", "=", personId).where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
   if (!ch) throw new KumiError("error.bad_code", {}, 401);
   if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
@@ -189,8 +189,10 @@ export async function verifyEmailAdd(db: Db, personId: string, code: string, now
   }
   await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", ch.id).execute();
   const p = await db.selectFrom("person").select(["email", "display_name", "locale"]).where("id", "=", personId).executeTakeFirstOrThrow();
-  if (!p.email) { await runAsSystem(db, "email.add", { person_id: personId, email: ch.target }, "web", { now }); return ch.target; }
-  await runAsSystem(db, "email.change", { person_id: personId, email: ch.target }, "web", { now });
+  // Done by staff at the desk: who, kept with the change.
+  const by = o?.by ? { by: o.by } : {}, via = o?.by ? "staff" : "web";
+  if (!p.email) { await runAsSystem(db, "email.add", { person_id: personId, email: ch.target, ...by }, via, { now }); return ch.target; }
+  await runAsSystem(db, "email.change", { person_id: personId, email: ch.target, ...by }, via, { now });
   if (o) {
     const token = randomBytes(32).toString("base64url"), l = (p.locale as Lang) ?? "en";
     await db.insertInto("auth_challenge").values({ id: uuidv7(now.getTime()), kind: "email_undo", person_id: personId, target: p.email, code_hash: sha(token), expires_at: new Date(now.getTime() + UNDO_DAYS * 864e5), consumed_at: null }).execute();

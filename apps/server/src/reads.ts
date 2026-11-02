@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration } from "@kumi/core";
+import { assistantsOf, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { readPeopleCsv } from "./csv.ts";
 
@@ -238,7 +238,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const items = (await occupied(db, courts.map((x) => x.id), dayStart, dayEnd, now)).filter((t) => localDate(new Date(t.start), loc.time_zone) === date || localDate(new Date(t.end), loc.time_zone) === date);
     const ids = (k: "booking_id" | "block_id" | "session_id") => [...new Set(items.map((t) => t[k]).filter((x): x is string => Boolean(x)))];
     const bookings = ids("booking_id").length ? await db.selectFrom("booking").leftJoin("person", "person.id", "booking.organiser_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
-      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.organiser_id", "booking.price_cents", "booking.balance_cents", "person.display_name", "coach.display_name as coach"])
+      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.organiser_id", "booking.price_cents", "booking.balance_cents", "booking.invite_code", "person.display_name", "coach.display_name as coach"])
       .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select((x) => x.fn.sum<string>("payment.amount_cents").as("c"))
         .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("paid_cents"))
       // What has gone back, so "paid" on the Today view is what the club still holds.
@@ -269,6 +269,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         players: players.filter((p) => p.booking_id === x.booking_id).map((p) => p.display_name ?? p.guest_name ?? ""), late: lateFor(x.booking_id),
         // A member's court paid in full: the desk can name its players (booking_players.ts), and take them off.
         whole: b?.kind === "court" && b.pay_mode === "whole" && Boolean(b.organiser_id) && b.status === "confirmed",
+        invite_code: b?.kind === "court" && b.pay_mode === "whole" && b.status === "confirmed" ? b.invite_code : null,
         seats: players.filter((p) => p.booking_id === x.booking_id && p.person_id).map((p) => ({ id: p.id, name: p.display_name ?? "", booker: p.person_id === b?.organiser_id })),
         empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: e.name, open: e.fill_refund_percent !== null })) }; }
       if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, series: Boolean(k?.series_id), label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
@@ -437,6 +438,15 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     return c.json({ session: { ...session, when: dateTime(new Date(session.starts_at), lang(c), tz), started: new Date(session.starts_at) <= new Date() }, players, absent });
   });
 
+  // Someone's connected assistants, for the owner and managers: what each spent this week, to disconnect one.
+  app.get("/staff/people/:id/assistants", async (c) => {
+    const id = me(c)?.id;
+    if (!id) throw new KumiError("error.signed_out", {}, 401);
+    const keys = (await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
+      .where("person_role.person_id", "=", id).where("person_role.active", "=", true).where("role.active", "=", true).execute()).map((r) => r.key);
+    if (!keys.some((k) => k === "owner" || k === "manager")) throw new KumiError("error.staff_only", {}, 403);
+    return c.json(await assistantsOf(db, c.req.param("id"), new Date()));
+  });
   app.get("/staff/people/:id/level", async (c) => {
     const id = c.req.param("id"), l = lang(c);
     const person = await db.selectFrom("person").select(["id", "display_name"]).where("id", "=", id).executeTakeFirst();

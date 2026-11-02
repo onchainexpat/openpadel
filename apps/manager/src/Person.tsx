@@ -2,7 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
-import { AccountData, api, lang, me, ReceiptSheet, t, usePreview, type ReceiptView } from "@kumi/ui";
+import { AccountData, api, dollars, lang, me, ReceiptSheet, t, usePreview, type ReceiptView } from "@kumi/ui";
 import { GiveMembership, MembershipButtons, membershipLine, type Plan } from "./Memberships.tsx";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
@@ -128,6 +128,8 @@ export function Person({ id }: { id: string }) {
         )}
       </section>
       <PersonReceipts personId={p.id} preview={preview} />
+      {privacy && <PersonAssistants personId={p.id} preview={preview} key={`${p.id}-${String(sheet ? 1 : 0)}`} />}
+      {!p.junior && p.id !== me.value?.person.id && (staffRoles.length === 0 || owner) && <ChangeEmail personId={p.id} name={p.display_name} onDone={load} />}
       {privacy && <AccountData personId={p.id} self={p.id === me.value?.person.id} onDeleted={() => route("/people")} />}
       {sheet}
     </main>
@@ -153,6 +155,45 @@ function PersonReceipts({ personId, preview }: { personId: string; preview: (act
         ))}</ul>
       )}
       {open && <><ReceiptSheet r={open} /><p class="no-print"><button onClick={() => window.print()}>{t("ui.receipt_print")}</button></p></>}
+    </section>
+  );
+}
+
+type Assistant = { id: string; name: string; weekly_cap_cents: number; spent_cents: number; connected_at: string };
+/** Someone's connected assistants, for the owner and managers: what each spent this week, and disconnecting
+ *  one (its access ends at once). Hidden when there are none. */
+function PersonAssistants({ personId, preview }: { personId: string; preview: (action: string, input: unknown) => Promise<void> | void }) {
+  const [list, setList] = useState<Assistant[] | null>(null);
+  useEffect(() => { api<Assistant[]>(`/staff/people/${personId}/assistants`).then(setList).catch(() => setList(null)); }, [personId]);
+  if (!list?.length) return null;
+  return (
+    <section class="card">
+      <h2>{t("ui.assistants_title")}</h2>
+      <ul class="plain">{list.map((a) => <li class="row"><span><strong>{a.name}</strong><br /><span class="meta">{t("ui.assistant_connected", { when: new Date(a.connected_at).toLocaleDateString() })}. {t("ui.assistant_spent", { spent: dollars(a.spent_cents, lang.value), cap: dollars(a.weekly_cap_cents, lang.value) })}</span></span>
+        <button class="small" onClick={() => preview("assistant.disconnect", { grant_id: a.id })}>{t("ui.assistant_disconnect")}</button></li>)}</ul>
+    </section>
+  );
+}
+
+/** Changing a member's email for them at the desk: a code goes to the new address, the member reads it out,
+ *  and the old address is told (with its link to put it back). The server says who may. */
+function ChangeEmail({ personId, name, onDone }: { personId: string; name: string; onDone: () => void }) {
+  const [email, setEmail] = useState(""), [code, setCode] = useState(""), [sent, setSent] = useState(false), [error, setError] = useState(""), [open, setOpen] = useState(false);
+  const send = async (e: Event) => { e.preventDefault(); setError(""); try { await api(`/staff/people/${personId}/email/start`, { email }); setSent(true); } catch (x) { setError((x as Error).message); } };
+  const check = async (e: Event) => { e.preventDefault(); setError(""); try { await api(`/staff/people/${personId}/email/verify`, { code }); setOpen(false); setSent(false); setEmail(""); setCode(""); onDone(); } catch (x) { setError((x as Error).message); } };
+  if (!open) return <section class="card"><button class="small" onClick={() => setOpen(true)}>{t("ui.staff_change_email")}</button></section>;
+  return (
+    <section class="card">
+      <h2>{t("ui.staff_change_email")}</h2>
+      {!sent ? <form class="card-form" onSubmit={send}>
+        <label>{t("ui.staff_new_email")}<input type="email" required value={email} onInput={(e) => setEmail(e.currentTarget.value)} /></label>
+        <button>{t("ui.staff_send_code")}</button> <button type="button" class="secondary" onClick={() => setOpen(false)}>{t("ui.cancel")}</button>
+      </form> : <form class="card-form" onSubmit={check}>
+        <p class="meta">{t("ui.staff_email_code_sent", { name, email })}</p>
+        <label>{t("ui.code")}<input inputMode="numeric" autoComplete="one-time-code" required maxLength={8} value={code} onInput={(e) => setCode(e.currentTarget.value)} /></label>
+        <button>{t("ui.confirm")}</button>
+      </form>}
+      {error && <p class="error" role="alert">{error}</p>}
     </section>
   );
 }

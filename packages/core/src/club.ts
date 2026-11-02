@@ -203,7 +203,7 @@ export const personSignUp = defineAction({
  *  address the account already has is email.change. */
 export const emailAdd = defineAction({
   name: "email.add", version: 1, system: true, internal: true,
-  input: z.object({ person_id: z.uuid(), email: z.email() }),
+  input: z.object({ person_id: z.uuid(), email: z.email(), by: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const email = i.email.trim().toLowerCase();
@@ -224,7 +224,7 @@ export const emailAdd = defineAction({
  *  (auth.ts); the old address is told, with a link to put it back. Also how that link puts it back. */
 export const emailChange = defineAction({
   name: "email.change", version: 1, system: true, internal: true,
-  input: z.object({ person_id: z.uuid(), email: z.email() }),
+  input: z.object({ person_id: z.uuid(), email: z.email(), by: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const email = i.email.trim().toLowerCase();
