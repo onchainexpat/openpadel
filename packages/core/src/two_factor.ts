@@ -148,6 +148,33 @@ async function mustByRole(db: Db | Trx, personId: string): Promise<boolean> {
   return rule === "all_staff" ? roles.some((r) => r.key !== "member") : roles.some((r) => r.key === "owner" || r.key === "manager" || !r.system);
 }
 
+/** "This wasn't me" on an email change: whoever changed it may have given themselves a way back in first, so
+ *  every passkey, the authenticator and the recovery codes stop working, and a sign-in number confirmed from
+ *  `since` on is taken off (sessions and assistants are signed out by the caller). Kumi runs it; nobody else. */
+export const undoSignIn = defineAction({
+  name: "person.sign_in_undo", version: 1, system: true, internal: true,
+  input: z.object({ person_id: z.uuid(), since: z.iso.datetime() }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
+    return { title: both("action.person.sign_in_undo"), reads: [read], ownerIds: [i.person_id], undo: { kind: "none", note: both("reason.undo_final") },
+      summary: both("plan.person.sign_in_undo", { person: row.display_name }), details: { name: row.display_name } };
+  },
+  async apply(ctx, i) {
+    if (await activeFactor(ctx.trx, i.person_id)) await ctx.update("staff_factor", i.person_id, { removed_at: ctx.now });
+    await ctx.trx.updateTable("recovery_code").set({ used_at: ctx.now }).where("person_id", "=", i.person_id).where("used_at", "is", null).execute();
+    for (const p of await ctx.trx.selectFrom("passkey").select("credential_id").where("person_id", "=", i.person_id).where("revoked_at", "is", null).execute())
+      await ctx.update("passkey", p.credential_id, { revoked_at: ctx.now });
+    const phone = await ctx.trx.selectFrom("auth_identity").select(["id", "value"]).where("person_id", "=", i.person_id).where("kind", "=", "phone")
+      .where("verified_at", ">=", new Date(i.since)).executeTakeFirst();
+    if (phone) {
+      await ctx.trx.deleteFrom("auth_identity").where("id", "=", phone.id).execute();
+      const person = await ctx.trx.selectFrom("person").select("phone").where("id", "=", i.person_id).executeTakeFirstOrThrow();
+      if (person.phone === phone.value) await ctx.update("person", i.person_id, { phone: null });
+    }
+    return { phone_removed: Boolean(phone) };
+  },
+});
+
 /** The owner starts someone's second step over (a lost phone): their authenticator, recovery codes and
  *  passkeys go, they're signed out everywhere, and they set it up again at their next sign-in. Kumi's own
  *  command line can do it too, for an owner who is locked out. */

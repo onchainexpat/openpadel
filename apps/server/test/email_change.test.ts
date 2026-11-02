@@ -45,15 +45,19 @@ test("a member changes their email with a code to the new address; the old addre
   assert.equal((await db.selectFrom("auth_identity").select("value").where("person_id", "=", ann).where("kind", "=", "email").execute()).map((r) => r.value).join(), "ann.lee@example.test");
 });
 
-test("\"this wasn't me\": opening the link changes nothing; its button puts the old address back and signs everyone out, once", async () => {
+test("\"this wasn't me\": opening the link changes nothing; its button puts the old address back, signs everyone out and takes back every way in, once", async () => {
   const link = mailer.last("ann@example.test")!.text.match(/(\/auth\/email-undo\/\S+)$/)![1]!;
   const cookie = await signIn("ann.lee@example.test");
   await db.insertInto("oauth_client").values({ client_id: "kc_x", kind: "registered", name: "X", redirect_uris: ["http://localhost/cb"], secret_hash: null, metadata: null }).execute();
   const grant = uuidv7();
   await db.insertInto("oauth_grant").values({ id: grant, person_id: ann, client_id: "kc_x", scopes: ["kumi"], revoked_at: null }).execute();
+  // Whoever changed it gave themselves a passkey and a sign-in number first.
+  await db.insertInto("passkey").values({ credential_id: "their-key", person_id: ann, public_key: Buffer.from("x"), counter: "0", transports: null, name: "Laptop" }).execute();
+  await db.insertInto("auth_identity").values({ id: uuidv7(), person_id: ann, kind: "phone", value: "+15035550100", verified_at: new Date() }).execute();
+  await db.updateTable("person").set({ phone: "+15035550100" }).where("id", "=", ann).execute();
   const page = await get(link);
   assert.equal(page.status, 200);
-  assert.match(page.text, /Put ann@example\.test back on your account, and sign everyone out of it\?/);
+  assert.match(page.text, /Put ann@example\.test back on your account, sign everyone out of it, and turn off its passkeys and authenticator app\?/);
   assert.equal((await db.selectFrom("person").select("email").where("id", "=", ann).executeTakeFirstOrThrow()).email, "ann.lee@example.test", "opening it changed nothing");
   const done = await app.request(link, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "" });
   assert.equal(done.status, 200);
@@ -61,6 +65,9 @@ test("\"this wasn't me\": opening the link changes nothing; its button puts the 
   assert.equal((await db.selectFrom("person").select("email").where("id", "=", ann).executeTakeFirstOrThrow()).email, "ann@example.test");
   assert.equal((await post("/my/email/start", { email: "x@example.test" }, cookie)).status, 401, "signed out everywhere");
   assert.ok((await db.selectFrom("oauth_grant").select("revoked_at").where("id", "=", grant).executeTakeFirstOrThrow()).revoked_at, "assistants too");
+  assert.ok((await db.selectFrom("passkey").select("revoked_at").where("credential_id", "=", "their-key").executeTakeFirstOrThrow()).revoked_at, "their passkey no longer signs in");
+  assert.equal((await db.selectFrom("auth_identity").select("id").where("person_id", "=", ann).where("kind", "=", "phone").execute()).length, 0, "nor their number");
+  assert.equal((await db.selectFrom("person").select("phone").where("id", "=", ann).executeTakeFirstOrThrow()).phone, null);
   assert.equal(mailer.last("ann@example.test")!.subject, "Your email at Kestrel Padel is back");
   const again = await app.request(link, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "" });
   assert.equal(again.status, 404);

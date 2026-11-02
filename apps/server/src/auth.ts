@@ -209,16 +209,19 @@ export async function verifyEmailAdd(db: Db, personId: string, code: string, now
 /** The old address's link, for a change its owner didn't make: who it's for, if it still works. */
 export async function emailUndoTarget(db: Db, token: string, now = new Date()) {
   const ch = await db.selectFrom("auth_challenge").innerJoin("person", "person.id", "auth_challenge.person_id").select(["auth_challenge.id", "auth_challenge.target", "auth_challenge.consumed_at",
-    "auth_challenge.expires_at", "person.id as person_id", "person.locale", "person.email"]).where("auth_challenge.kind", "=", "email_undo").where("auth_challenge.code_hash", "=", sha(token)).executeTakeFirst();
+    "auth_challenge.expires_at", "auth_challenge.created_at", "person.id as person_id", "person.locale", "person.email"]).where("auth_challenge.kind", "=", "email_undo").where("auth_challenge.code_hash", "=", sha(token)).executeTakeFirst();
   if (!ch || ch.expires_at.getTime() < now.getTime()) return null;
   return { ...ch, lang: ((ch.locale as Lang) ?? "en") as Lang, club: (await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name };
 }
-/** "This wasn't me": the old address back, every session and connected assistant signed out, and any other
- *  address change waiting for its code called off. The old address is told it's done. */
+/** "This wasn't me": the old address back, every session and connected assistant signed out, any other
+ *  address change waiting for its code called off, and every way back in the changer could have made: the
+ *  passkeys, the authenticator and its recovery codes, and a sign-in number confirmed in the days before the
+ *  change or since. The old address is told it's done. */
 export async function undoEmailChange(db: Db, mailer: Mailer, token: string, now = new Date()): Promise<boolean> {
   const u = await emailUndoTarget(db, token, now);
   if (!u || u.consumed_at) return false;
   if (u.email?.toLowerCase() !== u.target.toLowerCase()) await runAsSystem(db, "email.change", { person_id: u.person_id, email: u.target }, "email_undo", { now });
+  await runAsSystem(db, "person.sign_in_undo", { person_id: u.person_id, since: new Date(u.created_at.getTime() - UNDO_DAYS * 864e5).toISOString() }, "email_undo", { now });
   await db.transaction().execute(async (trx) => {
     await trx.updateTable("auth_challenge").set({ consumed_at: now }).where("person_id", "=", u.person_id).where("kind", "in", ["email_add", "email_undo"]).where("consumed_at", "is", null).execute();
     await trx.updateTable("web_session").set({ revoked_at: now }).where("person_id", "=", u.person_id).where("revoked_at", "is", null).execute();
