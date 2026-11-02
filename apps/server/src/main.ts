@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, type Texter } from "@kumi/core";
+import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, extendBlockSeries, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -149,6 +149,9 @@ const jobs = async () => {
     // A receipt for each payment that went through and each refund sent (receipts.ts), with the card from the provider.
     const rc = await issueReceipts(db, { card: async (ref, account) => (await paymentProvider().cardOf?.(ref, account)) ?? null });
     if (rc.issued) console.log(`receipts: ${rc.issued} written`);
+    // Repeating court blocks are made a year ahead: as days pass, each gets its dates for the new days.
+    const bs = await extendBlockSeries(db);
+    if (bs.dates) console.log(`court blocks: ${bs.dates} more dates of repeating blocks made`);
     await tidyVaultUploads(db);
     const fc = await tidyFamilyCards(db);
     if (fc.saved) console.log(`family cards: ${fc.saved} saved (found by checking with the provider)`);

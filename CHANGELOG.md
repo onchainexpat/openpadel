@@ -23,6 +23,11 @@ The first version a club can run on its own (court bookings included), or for it
   courts while the payment is going through, that court's part comes back and the rest stay booked.
 - Messages for confirmations, shares paid, cancellations, money owed, and a reminder before playing.
 - Occupancy and revenue by day, with a CSV export.
+- Courts blocked every week ("Courts 1 and 2 every Tuesday 18:00 to 20:00, for the league"), from a
+  date until a date or with no end. Each date is an ordinary block, so nothing else can take the court
+  then. Bookings already in the way stay (the block leaves that court free that day) or are cancelled,
+  with their players told and what they get back chosen separately. Opening one date, ending from a
+  date, ending them all, and changing the times work for this date, this and the following ones, or all.
 - The Courts page is the desk's day: courts across and time down (sideways on a phone), what's on now
   and next on each court with what's owed and who's running late, and the alerts that need someone,
   each shown until one of the staff marks it handled, for everyone.

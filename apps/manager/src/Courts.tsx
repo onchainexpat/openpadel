@@ -10,7 +10,7 @@ import { api, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
 type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; balance_cents?: number; booking_kind?: string;
-  coach?: string | null; status?: string; players?: string[]; late?: Late[]; block_id?: string; session_id?: string; program_id?: string; label?: string; empty_places?: Empty[] };
+  coach?: string | null; status?: string; players?: string[]; late?: Late[]; block_id?: string; series?: boolean; session_id?: string; program_id?: string; label?: string; empty_places?: Empty[] };
 type Court = { id: string; name: string; kind: string; items: Item[] };
 type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; courts: Court[] };
 type Loc = { id: string; name: string; time_zone: string };
@@ -110,7 +110,7 @@ export function Courts() {
         courtFixed={courtsOf(sel.it) > 1} onClose={() => setPicked(null)} />}
       {g.open && mayDo("court.block") && <button onClick={() => setBlocking(!blocking)}>{t("ui.block_courts")}</button>}
       {form && <DeskBooking court={form.court} starts={form.starts} clock={clock} preview={preview} onClose={() => setForm(null)} />}
-      {blocking && <BlockForm courts={g.courts} slots={slots} clock={clock} preview={preview} />}
+      {blocking && <BlockForm courts={g.courts} g={g} slots={slots} clock={clock} preview={preview} />}
       {sheet}
     </main>
   );
@@ -137,7 +137,14 @@ function AlertList({ a, clock, preview }: { a: Alerts; clock: (s: string) => str
 
 /** Who and what an item is, in a few words: the organiser (and coach), a program's or a block's name. */
 const labelOf = (it: Item) => it.booking_id ? (it.kind === "hold" ? t("ui.being_paid") : [it.who, it.booking_kind === "lesson" && it.coach ? t("ui.lesson_with", { coach: it.coach }) : ""].filter(Boolean).join(" · "))
-  : it.label ?? "";
+  : [it.label ?? "", it.series ? t("ui.repeats_weekly") : ""].filter(Boolean).join(" · ");
+/** A clock time in the location's time zone, as a club writes it: "18:00", and "24:00" for midnight at the end of the day. */
+const clubTime = (iso: string, tz: string, end = false) => {
+  const s = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+  return end && s === "00:00" ? "24:00" : s;
+};
+const dayName = (w: number) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
+const WEEK = [1, 2, 3, 4, 5, 6, 0];
 
 /** On each court: what's on now, and what starts next, with money owed and any word about running late. */
 function NowNext({ g, clock }: { g: Grid; clock: (s: string) => string }) {
@@ -276,11 +283,18 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
         {isBooking(it) && unpaid(it) > 0 && mayDo("booking.record_payment") && <button class="small" onClick={() => preview("booking.record_payment", { booking_id: it.booking_id, cents: unpaid(it), method: "cash" })}>{t("ui.record_cash")}</button>}
         {(canMove || canResize) && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.move_or_resize")}</button>}
         {isBooking(it) && mayDo("booking.cancel") && <button class="small" onClick={() => preview("booking.cancel", { booking_id: it.booking_id })}>{t("ui.cancel_booking")}</button>}
-        {it.block_id && mayDo("court.unblock") && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
+        {it.block_id && !it.series && mayDo("court.unblock") && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
+        {it.block_id && it.series && mayDo("court.block_repeat_end") && <>
+          <button class="small" onClick={() => preview("court.block_repeat_end", { block_id: it.block_id, scope: "this" })}>{t("ui.open_this_date")}</button>
+          <button class="small" onClick={() => preview("court.block_repeat_end", { block_id: it.block_id, scope: "following" })}>{t("ui.end_from_here")}</button>
+          <button class="small" onClick={() => preview("court.block_repeat_end", { block_id: it.block_id, scope: "all" })}>{t("ui.end_series")}</button>
+        </>}
+        {it.block_id && it.series && mayDo("court.block_repeat_edit") && ms(it.start) > Date.now() && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.change_series")}</button>}
         {it.program_id && <a href={`/programs/${it.program_id}`}>{t("ui.open")}</a>}
       </div>
       {it.empty_places?.map((e) => <EmptyPlace e={e} preview={preview} />)}
-      {changing && <ChangeForm it={it} court={court} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove} canResize={canResize} courtFixed={courtFixed} />}
+      {changing && !it.series && <ChangeForm it={it} court={court} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove} canResize={canResize} courtFixed={courtFixed} />}
+      {changing && it.series && <SeriesChange it={it} g={g} slots={slots} clock={clock} preview={preview} />}
     </section>
   );
 }
@@ -369,17 +383,65 @@ function EmptyPlace({ e, preview }: { e: Empty; preview: Preview }) {
   );
 }
 
-function BlockForm({ courts, slots, clock, preview }: { courts: Court[]; slots: string[]; clock: (s: string) => string; preview: Preview }) {
+function BlockForm({ courts, g, slots, clock, preview }: { courts: Court[]; g: Grid; slots: string[]; clock: (s: string) => string; preview: Preview }) {
   const [ids, setIds] = useState<string[]>([]), [f, setF] = useState({ from: slots[0] ?? "", to: slots.at(-1) ?? "", reason: "maintenance", note: "" });
+  // Every week: on these weekdays from this date, until a date or with no end; bookings in the way stay, or are called off.
+  const [rep, setRep] = useState({ on: false, days: [new Date(`${g.date}T12:00:00Z`).getUTCDay()], until: "", way: "keep", refund: "full" });
+  const submit = (e: Event) => {
+    e.preventDefault();
+    if (!rep.on) return void preview("court.block", { court_ids: ids, starts_at: f.from, ends_at: f.to, reason: f.reason, note: f.note || undefined });
+    preview("court.block_repeat", { court_ids: ids, weekdays: rep.days, starts: clubTime(f.from, g.time_zone), ends: clubTime(f.to, g.time_zone, true), from_date: g.date,
+      ...(rep.until ? { until_date: rep.until } : {}), reason: f.reason, note: f.note || undefined, in_the_way: rep.way, ...(rep.way === "cancel" ? { refund: rep.refund } : {}) });
+  };
   return (
-    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("court.block", { court_ids: ids, starts_at: f.from, ends_at: f.to, reason: f.reason, note: f.note || undefined }); }}>
+    <form class="card card-form" onSubmit={submit}>
       <h2>{t("ui.block_courts")}</h2>
       {courts.map((c) => <label class="check"><input type="checkbox" checked={ids.includes(c.id)} onChange={(e) => setIds(e.currentTarget.checked ? [...ids, c.id] : ids.filter((x) => x !== c.id))} /> {c.name}</label>)}
       <label>{t("ui.from")}<select value={f.from} onChange={(e) => setF({ ...f, from: e.currentTarget.value })}>{slots.slice(0, -1).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
       <label>{t("ui.to")}<select value={f.to} onChange={(e) => setF({ ...f, to: e.currentTarget.value })}>{slots.slice(1).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
       <label>{t("ui.reason")}<select value={f.reason} onChange={(e) => setF({ ...f, reason: e.currentTarget.value })}>{["maintenance", "fault", "resurfacing", "event", "other"].map((r) => <option value={r}>{t(`block.${r}` as Key)}</option>)}</select></label>
       <label>{t("ui.block_note")}<input value={f.note} onInput={(e) => setF({ ...f, note: e.currentTarget.value })} /></label>
-      <button class="primary" disabled={!ids.length}>{t("ui.preview")}</button>
+      <label class="check"><input type="checkbox" checked={rep.on} onChange={(e) => setRep({ ...rep, on: e.currentTarget.checked })} /> {t("ui.block_every_week")}</label>
+      {rep.on && <>
+        <fieldset><legend>{t("ui.block_on_days")}</legend>
+          {WEEK.map((w) => <label class="check"><input type="checkbox" checked={rep.days.includes(w)} onChange={(e) => setRep({ ...rep, days: e.currentTarget.checked ? [...rep.days, w] : rep.days.filter((x) => x !== w) })} /> {dayName(w)}</label>)}
+        </fieldset>
+        <label>{t("ui.block_until")}<input type="date" min={g.date} value={rep.until} onInput={(e) => setRep({ ...rep, until: e.currentTarget.value })} /></label>
+        <InTheWay way={rep.way} refund={rep.refund} onChange={(way, refund) => setRep({ ...rep, way, refund })} />
+      </>}
+      <button class="primary" disabled={!ids.length || (rep.on && !rep.days.length)}>{t("ui.preview")}</button>
+    </form>
+  );
+}
+
+/** Bookings already where a repeating block goes: they stay (the block leaves that court then), or they're called off,
+ *  with what their players get back chosen separately. */
+function InTheWay({ way, refund, onChange }: { way: string; refund: string; onChange: (way: string, refund: string) => void }) {
+  return <>
+    <label>{t("ui.in_the_way")}<select value={way} onChange={(e) => onChange(e.currentTarget.value, refund)}>
+      <option value="keep">{t("ui.in_the_way_keep")}</option><option value="cancel">{t("ui.in_the_way_cancel")}</option></select></label>
+    {way === "cancel" && <label>{t("ui.in_the_way_refund")}<select value={refund} onChange={(e) => onChange(way, e.currentTarget.value)}>
+      <option value="full">{t("ui.refund_all")}</option><option value="rule">{t("ui.refund_by_rule")}</option><option value="none">{t("ui.refund_nothing_more")}</option></select></label>}
+  </>;
+}
+
+/** Changing a repeating block's times: this date, this and the following ones, or every date still to come. */
+function SeriesChange({ it, g, slots, clock, preview }: { it: Item; g: Grid; slots: string[]; clock: (s: string) => string; preview: Preview }) {
+  const near = (iso: string) => slots.find((s) => ms(s) === ms(iso)) ?? iso;
+  const [f, setF] = useState({ from: near(it.start), to: near(it.end), scope: "this", way: "keep", refund: "full" });
+  const submit = (e: Event) => {
+    e.preventDefault();
+    preview("court.block_repeat_edit", { block_id: it.block_id, scope: f.scope, starts: clubTime(f.from, g.time_zone), ends: clubTime(f.to, g.time_zone, true), in_the_way: f.way,
+      ...(f.way === "cancel" ? { refund: f.refund } : {}) });
+  };
+  return (
+    <form class="card-form" onSubmit={submit}>
+      <label>{t("ui.from")}<select value={f.from} onChange={(e) => setF({ ...f, from: e.currentTarget.value })}>{slots.slice(0, -1).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
+      <label>{t("ui.to")}<select value={f.to} onChange={(e) => setF({ ...f, to: e.currentTarget.value })}>{slots.slice(1).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
+      <label>{t("ui.scope")}<select value={f.scope} onChange={(e) => setF({ ...f, scope: e.currentTarget.value })}>
+        <option value="this">{t("ui.scope_this")}</option><option value="following">{t("ui.scope_following")}</option><option value="all">{t("ui.scope_all")}</option></select></label>
+      <InTheWay way={f.way} refund={f.refund} onChange={(way, refund) => setF({ ...f, way, refund })} />
+      <button class="primary">{t("ui.preview")}</button>
     </form>
   );
 }

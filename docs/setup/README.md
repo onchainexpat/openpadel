@@ -117,6 +117,14 @@ first, and the players are told. A move keeps the price paid unless staff tick "
 time is owed at the desk; less time gives back what the club's cancellation rule says (or all, or
 nothing, as staff choose). Money paid at the desk is given back at the desk.
 
+Staff block courts from the Courts page, once or every week: "Courts 1 and 2 every Tuesday 18:00 to
+20:00" from a date, until a date or with no end (its dates are made a year ahead, and on as the year
+moves). A booking already in the way stays, and the block leaves that court free that day, or staff
+cancel it: its players are told, and what they get back is chosen on its own (all of it by default,
+since the club called it off). A blocked date's buttons open just that date, end the block from that
+date, or end every date to come, and its times can be changed for that date, that date and the ones
+after it, or all of them.
+
 Every payment that goes through, and every refund, gets a numbered receipt for whoever paid, by email and
 in the members' app (Profile, then Receipts). Staff with the club's money see someone's receipts on their
 page and can send one again. Turn off Stripe's own receipt emails so members don't get two

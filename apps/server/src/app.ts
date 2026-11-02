@@ -32,7 +32,7 @@ import { receiptRoutes } from "./receipts.ts";
 import type { Mailer } from "./mailer.ts";
 
 /** The changes a staff screen offers a button for, which /me reports for people with only the club's own roles. */
-const CLIENT_ACTIONS = ["person.create", "person.import", "booking.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "court.block", "court.unblock", "alert.handle", "series.edit"];
+const CLIENT_ACTIONS = ["person.create", "person.import", "booking.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "court.block", "court.unblock", "court.block_repeat", "court.block_repeat_end", "court.block_repeat_edit", "alert.handle", "series.edit"];
 
 export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string;
   /** The members' app's address (addresses.ts), for the public page's own links; from publicUrl when not given. */

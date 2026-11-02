@@ -422,18 +422,23 @@ export const bookingCancel = defineAction({
       ownerIds: [...organisers, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };
   },
   async apply(ctx, i, plan) {
-    await ctx.update("booking", i.booking_id, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: i.reason ?? null });
-    for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", i.booking_id).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
-    for (const r of (plan.details as { refunds: { payment_id: string; cents: number }[] }).refunds) await refundPayment(ctx, r.payment_id, r.cents);
-    // Shares not paid yet can't be paid any more.
-    for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
-      .where("booking_player.booking_id", "=", i.booking_id).where("payment.status", "=", "pending").execute()) await ctx.update("payment", p.id, { status: "failed" });
-    await ctx.emit("booking.cancelled", { booking_id: i.booking_id, by: ctx.actor.personId });
+    await cancelBooking(ctx, i.booking_id, (plan.details as { refunds: { payment_id: string; cents: number }[] }).refunds, i.reason ?? null);
     return null;
   },
 });
+/** Call a booking off: its court time is free, the refunds chosen in the plan go back, shares not paid yet can't
+ *  be paid any more, and its players are told. Also for a repeating block that cancels bookings in its way. */
+export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: { payment_id: string; cents: number }[], reason: string | null) {
+  await ctx.update("booking", bookingId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: reason });
+  for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", bookingId).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
+  for (const r of refunds) await refundPayment(ctx, r.payment_id, r.cents);
+  // Shares not paid yet can't be paid any more.
+  for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
+    .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await ctx.update("payment", p.id, { status: "failed" });
+  await ctx.emit("booking.cancelled", { booking_id: bookingId, by: ctx.actor.personId });
+}
 /** Owners, managers and front desk: who may choose a refund other than the rule. */
-async function deskOrUp(db: Db | Trx, personId: string | null): Promise<boolean> {
+export async function deskOrUp(db: Db | Trx, personId: string | null): Promise<boolean> {
   if (!personId) return false;
   return Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id").where("person_role.person_id", "=", personId)
     .where("person_role.active", "=", true).where("role.key", "in", ["owner", "manager", "front_desk"]).executeTakeFirst());

@@ -115,3 +115,13 @@ test("several courts in one checkout: two bookings under My bookings, paid toget
   await as(`/dev/payments/${applied.payment_id}/settle`, {});
   assert.deepEqual((await as("/my/bookings")).json.map((b: any) => [b.status, b.paid_cents, b.group_cents]), [["confirmed", 4200, null], ["confirmed", 4200, null]]);
 });
+
+test("a weekly block on the day's grid: marked as repeating, on each of its dates", async () => {
+  const d = localDate(new Date(Date.now() + 3 * 86400_000), TZ), weekday = new Date(`${d}T12:00:00Z`).getUTCDay();
+  await run(db, "court.block_repeat", { court_ids: [c1], weekdays: [weekday], starts: "07:00", ends: "08:30", from_date: d, reason: "event", note: "League" }, owner);
+  const g = (await get(`/staff/grid?location_id=${loc}&date=${d}`)).json;
+  const item = g.courts.find((c: any) => c.id === c1).items.find((x: any) => x.block_id);
+  assert.equal(item.series, true); assert.equal(item.label, "an event: League");
+  const week = localDate(new Date(Date.now() + 10 * 86400_000), TZ);
+  assert.ok((await get(`/staff/grid?location_id=${loc}&date=${week}`)).json.courts.find((c: any) => c.id === c1).items.some((x: any) => x.series));
+});

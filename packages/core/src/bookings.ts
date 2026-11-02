@@ -17,10 +17,11 @@ const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 /** Bookings are in steps of half an hour, from half an hour to eight. Members choose 60, 90 or 120. */
 export const STEP_MINUTES = 30, MAX_MINUTES = 480, MEMBER_LENGTHS = [60, 90, 120] as const;
 
-async function locationTz(db: Db | Trx, locationId: string): Promise<string> {
+export async function locationTz(db: Db | Trx, locationId: string): Promise<string> {
   return (await readRow(db, "location", locationId, "thing.location")).row.time_zone;
 }
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : null);
+const dayOf = (date: string, lang: Lang) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }).format(new Date(`${date}T12:00:00Z`));
 
 /** When a location is open on a club date: its special day if it has one, otherwise its weekday. */
 export async function openingOn(db: Db | Trx, locationId: string, day: string): Promise<{ opens: Date; closes: Date } | null> {
@@ -126,16 +127,16 @@ export const hoursExceptionRemove = defineAction({
 
 // ---- Taking court time ----
 /** Lock the courts in id order, then free any checkout holds on them that have run out. */
-async function lockCourts(ctx: ApplyCtx, courtIds: string[]) {
+export async function lockCourts(ctx: ApplyCtx, courtIds: string[]) {
   for (const id of [...new Set(courtIds)].sort()) await ctx.trx.selectFrom("court").select("id").where("id", "=", id).forUpdate().execute();
   await ctx.trx.updateTable("court_time").set({ active: false }).where("court_id", "in", courtIds).where("kind", "=", "hold").where("active", "=", true).where("hold_until", "<=", ctx.now).execute();
 }
-const range = (start: Date, end: Date) => sql<string>`tstzrange(${start}, ${end})`;
-async function insertTime(ctx: ApplyCtx, rows: Record<string, unknown>[]) {
+export const range = (start: Date, end: Date) => sql<string>`tstzrange(${start}, ${end})`;
+export async function insertTime(ctx: ApplyCtx, rows: Record<string, unknown>[]) {
   try { for (const r of rows) await ctx.insert("court_time", r); }
   catch (e: any) { if (e?.code === "23P01") throw new KumiError("error.court_taken"); throw e; }
 }
-async function courtsAt(db: Db | Trx, courtIds: string[]) {
+export async function courtsAt(db: Db | Trx, courtIds: string[]) {
   const courts = await db.selectFrom("court").select(["id", "name", "location_id", "bookable", "archived_at"]).where("id", "in", courtIds).execute();
   if (courts.length !== new Set(courtIds).size || courts.some((c) => c.archived_at)) throw new KumiError("error.not_found", { thing: both("thing.court") }, 404);
   if (new Set(courts.map((c) => c.location_id)).size > 1) throw new KumiError("error.one_location");
@@ -172,11 +173,19 @@ export const courtUnblock = defineAction({
     const { row, read } = await readRow(ctx.db, "court_block", i.block_id, "thing.block");
     if (!row.active) throw new KumiError("error.not_found", { thing: both("thing.block") }, 404);
     const names = await ctx.db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id").select("court.name").where("block_id", "=", i.block_id).where("active", "=", true).execute();
-    return { title: both("action.court.unblock"), summary: both("plan.court.unblock", { courts: names.map((n) => n.name).join(", ") }), reads: [read], undo: { kind: "reversible" } };
+    const courts = names.map((n) => n.name).join(", ");
+    // One date of a repeating block: only that date opens (block_series.ts), and it's never made again.
+    const summary = row.series_id && row.on_date ? both("plan.court.block_repeat_end_this", { courts, date: { en: dayOf(row.on_date, "en"), es: dayOf(row.on_date, "es") } }) : both("plan.court.unblock", { courts });
+    return { title: both("action.court.unblock"), summary, reads: [read], undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     for (const t of await ctx.trx.selectFrom("court_time").select("id").where("block_id", "=", i.block_id).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
     await ctx.update("court_block", i.block_id, { active: false });
+    const b = await ctx.trx.selectFrom("court_block").select(["series_id", "on_date"]).where("id", "=", i.block_id).executeTakeFirstOrThrow();
+    if (b.series_id && b.on_date) {
+      const s = await ctx.trx.selectFrom("block_series").select("skip_dates").where("id", "=", b.series_id).executeTakeFirstOrThrow();
+      await ctx.update("block_series", b.series_id, { skip_dates: [...new Set([...s.skip_dates, b.on_date])].sort() });
+    }
     return null;
   },
 });
