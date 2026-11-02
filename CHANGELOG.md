@@ -548,9 +548,11 @@ The first version a club can run on its own (court bookings included), or for it
   backup, offsite copy and restore test, and disk space. `/health` now names the release's commit.
 - English and US Spanish throughout. Security: rate limits, no cross-site changes, strict headers,
   two-step sign-in for staff, bot protection.
-- Light apps: each app downloads only its own wording, in the person's language, and set-up pages load
-  when opened. The members' app needs about 124 kB of JavaScript before its first screen (under its
-  200 kB budget, which the build now checks); the staff app about 150 kB.
+- Light apps: each app downloads only its own wording, in the person's language. The staff app's first
+  screen carries only the courts day and a coach's schedule; every other page loads when opened, and the
+  pages in a person's menu are fetched quietly once their first page is up. The members' app needs about
+  131 kB of JavaScript before its first screen and the staff app about 148 kB, under budgets of 200 kB and
+  160 kB that the builds check.
 
 **When updating:** nothing; this is the first release. An update rewrites the backup timers, so backups
 move to the club's 3:17 by themselves (with Docker, `deploy/docker/update.sh` starts the backup service

@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, lazy } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, Profile, TwoFactor } from "@kumi/ui";
+import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, ProfilePage as Profile, TwoFactor } from "@kumi/ui";
 import { WhatsOn } from "./WhatsOn.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
 import { MyLevel } from "./MyLevel.tsx";
