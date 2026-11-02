@@ -5,7 +5,8 @@
 import { statfsSync } from "node:fs";
 import type { Context } from "hono";
 import { sql } from "kysely";
-import { answerCounts, heartbeats, KumiError, MAX_ATTEMPTS, textCounts, textingOn, type Db } from "@kumi/core";
+import { answerCounts, heartbeats, jobFailed, jobWorked, KumiError, MAX_ATTEMPTS, textCounts, textingOn, type Db } from "@kumi/core";
+import { both } from "@kumi/i18n";
 import { newestLocalAge } from "./backups.ts";
 import { handledTopics } from "./outbox.ts";
 import { s3FromEnv } from "./s3.ts";
@@ -73,6 +74,26 @@ export async function deepHealth(db: Db, o: { env?: Env; now?: Date; backupDir?:
   const disks = [disk(dir), disk(process.cwd())];
   if (disks.some((d) => d.free_mb !== null && d.total_mb !== null && d.free_mb < Math.max(1024, d.total_mb * 0.1))) problems.push("disk");
   return { ok: problems.length === 0, version: VERSION, revision: REVISION, database, outbox, backup, offsite, restore_test: restore, texts, answers, disks, problems };
+}
+
+/** What the server watches besides its own jobs, every few minutes: texts getting through, and ask the club's
+ *  model answering. The same rules as /health/deep. The owner and managers hear once when one starts failing and
+ *  once when it works again (ops.ts). It only counts as working again with enough to go on, or with no failures
+ *  left in the last day. */
+export async function watchHealth(db: Db, o: { texting: boolean; models: string[]; now?: Date }) {
+  const now = o.now ?? new Date();
+  if (o.texting) {
+    const t = await textCounts(db, now), total = t.sent + t.failed;
+    if (total >= 5 && t.failed / total > 0.2)
+      await jobFailed(db, "texts", `${t.failed} of ${total} texts failed in the last day`, now, both("ops.why_texts", { failed: t.failed, total }));
+    else if (total >= 5 || t.failed === 0) await jobWorked(db, "texts", { sent: t.sent, failed: t.failed }, now);
+  }
+  if (o.models.length) {
+    const a = await answerCounts(db, now);
+    if (a.total >= 5 && a.errors / a.total > 0.2)
+      await jobFailed(db, "answers", `${a.errors} of ${a.total} questions got no decision in the last day`, now, both("ops.why_answers", { errors: a.errors, total: a.total }));
+    else if (a.total >= 5 || a.errors === 0) await jobWorked(db, "answers", { total: a.total, errors: a.errors }, now);
+  }
 }
 
 /** Who may read /health/deep: this machine itself, or a signed-in owner or manager. */

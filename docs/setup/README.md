@@ -320,7 +320,9 @@ brand or campaign fees): add the business's details to club.yaml's `texting:` se
 `kumi texting plan` says what it would do and what's missing, and `kumi texting apply --yes` buys a toll-free
 number (about $2.15 a month), makes the Messaging Service and sends the verification. The server asks Twilio
 how the review is going every hour; the owner and managers hear once it's decided, and texts start by
-themselves when it's approved. A rejection is explained with its fix in `kumi texting status` and Settings;
+themselves when it's approved. After that it checks the number hourly: if Twilio withdraws the approval, the
+number leaves the account, or Twilio refuses texts because of the number, the owner and managers hear once (and
+once more when it's fixed). A rejection is explained with its fix in `kumi texting status` and Settings;
 correct club.yaml and run `kumi texting apply` again. [accounts/twilio.md](accounts/twilio.md) has the steps,
 and the local-number (A2P 10DLC) path for clubs that text a lot more.
 

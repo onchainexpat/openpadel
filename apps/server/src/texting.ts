@@ -12,7 +12,7 @@
 // one (or, once Twilio no longer allows editing, a new one, with --yes). Local numbers (A2P 10DLC) are for
 // clubs that text a lot more; they're registered in Twilio's console (docs/setup/accounts/twilio.md).
 import { both, t, type Key, type Lang, type Text } from "@kumi/i18n";
-import { runAsSystem, textingRegistration, textWords, type Db, type Rejection, type TextingRegistration, type TextingStatus } from "@kumi/core";
+import { numberFailures, runAsSystem, textingRegistration, textWords, type Db, type Rejection, type TextingRegistration, type TextingStatus } from "@kumi/core";
 import type { TextingDetails } from "./setup.ts";
 import { TwilioApi, TwilioApiError, type Form, type TollfreeVerification } from "./twilio_admin.ts";
 
@@ -175,6 +175,26 @@ export async function refreshTexting(db: Db, api: TwilioApi, now = new Date()): 
     && (reg.edit_expires_at?.toISOString() ?? null) === (got.edit_expires_at ? new Date(got.edit_expires_at).toISOString() : null);
   if (!same) await record(db, got);
   return STATUS[v.status] ?? "submitted";
+}
+
+/** Once approved, the club's number can still stop working: Twilio withdraws the approval, the number leaves the
+ *  account, or Twilio refuses texts because of the number itself. Checked hourly (main.ts); null while there's
+ *  no approved registration to check. */
+export async function checkTextingNumber(db: Db, api: TwilioApi, now = new Date()): Promise<{ ok: true } | { ok: false; error: string; words: Text } | null> {
+  const reg = await textingRegistration(db);
+  if (reg?.status !== "approved") return null;
+  if (reg.verification_sid) {
+    const v = await api.getVerification(reg.verification_sid);
+    if (v.status !== "TWILIO_APPROVED") {
+      await record(db, fromVerification(v, now));
+      return { ok: false, error: `the verification is ${v.status}`, words: both("ops.why_number_status", { status: v.status }) };
+    }
+  }
+  if (reg.phone_number && !(await api.findNumber(reg.phone_number)))
+    return { ok: false, error: `${reg.phone_number} isn't in the account`, words: both("ops.why_number_gone", { number: reg.phone_number }) };
+  const refused = await numberFailures(db, now);
+  if (refused) return { ok: false, error: `${refused} texts refused for the number`, words: both("ops.why_number_refused", { count: refused }) };
+  return { ok: true };
 }
 
 /** Where it stands, in words: the status, and for a rejection why and what to do. */

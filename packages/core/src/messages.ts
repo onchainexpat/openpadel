@@ -18,6 +18,7 @@ import { TEXT_KINDS, textable, textingOn } from "./texts.ts";
 import { receiptParams } from "./receipts.ts";
 import { roleLabel } from "./roles.ts";
 import { needsTwoFactor } from "./two_factor.ts";
+import type { OpsJob } from "./ops.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -428,9 +429,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return (await desk(db)).map((to) => ({ to, kind: "question_unanswered_staff", params, purpose: "staff" as const, essential: false, email: true, link: `/questions/${p.question_id}` }));
   },
   // The server's own jobs: the owner and managers hear once when the backup, its offsite copy or the restore test starts failing.
-  async "ops.failed"({ db }, p: { job: "backup" | "offsite" | "restore_test"; error: string }) {
-    const params = { job: both(`ops.job_${p.job}`), error: p.error };
+  async "ops.failed"({ db }, p: { job: OpsJob; error: string; words?: Text }) {
+    const params = { job: both(`ops.job_${p.job}`), error: p.words ?? p.error };
     return (await managers(db)).map((to) => ({ to, kind: "ops_failed_staff", params, purpose: "staff" as const, essential: true, email: true, link: "/" }));
+  },
+  // ...and once more when it works again.
+  async "ops.cleared"({ db }, p: { job: OpsJob }) {
+    return (await managers(db)).map((to) => ({ to, kind: "ops_cleared_staff", params: { job: both(`ops.job_${p.job}`) }, purpose: "staff" as const, essential: true, email: true, link: "/" }));
   },
   async "question.assigned"(_c, p: { question_id: string; to: string; by: string; person: string; question: string }) {
     return [{ to: p.to, kind: "question_assigned_staff", params: { by: p.by, person: p.person, question: p.question }, purpose: "staff" as const, essential: false, email: false, link: `/questions/${p.question_id}` }];

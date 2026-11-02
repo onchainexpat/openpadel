@@ -37,7 +37,7 @@ clock says) the `backup` service runs `kumi backup`: the database and a manifest
 backups are set up in `.env` ([docs/setup/accounts/offsite-backups.md](../../docs/setup/accounts/offsite-backups.md)),
 a sealed copy goes to the club's own storage. On the 1st of each month at 4:17 it also runs `kumi restore-test`,
 which restores the newest backup into a scratch database and checks every table against its manifest. The
-owner and managers hear once if any of it starts failing. The files hold every member's details, so only
+owner and managers hear once if any of it starts failing, and once more when it works again. The files hold every member's details, so only
 root can read them.
 
 ```bash

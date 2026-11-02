@@ -299,6 +299,17 @@ export async function textStatus(db: Db, r: { ref: string; status: string; error
 }
 
 /** Texts in the last day, for /health/deep and `kumi doctor`. */
+/** Twilio's refusals that are about the club's number itself, not the member's: not registered or verified any
+ *  more (30032 toll-free, 30034 10DLC), or not a number that can send (21212, 21606, 21659). */
+export const NUMBER_CODES = [21212, 21606, 21659, 30032, 30034];
+/** How many texts in the last day Twilio refused because of the club's number. */
+export async function numberFailures(db: Db, now = new Date()): Promise<number> {
+  const re = `(^|[^0-9])(${NUMBER_CODES.join("|")})([^0-9]|$)`;
+  const r = await sql<{ n: string }>`SELECT count(*) AS n FROM outbound_message WHERE channel = 'sms' AND status = 'failed'
+    AND created_at > ${new Date(now.getTime() - 86_400_000)} AND failure ~ ${re}`.execute(db);
+  return Number(r.rows[0]?.n ?? 0);
+}
+
 export async function textCounts(db: Db, now = new Date()) {
   const rows = await sql<{ status: string; n: string }>`SELECT status, count(*) AS n FROM outbound_message WHERE channel = 'sms' AND created_at > ${new Date(now.getTime() - 86_400_000)} GROUP BY status`.execute(db);
   const by = Object.fromEntries(rows.rows.map((r) => [r.status, Number(r.n)]));

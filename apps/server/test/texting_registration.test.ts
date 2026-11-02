@@ -7,12 +7,13 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { messageHandlers, processOutbox, registeredSender, runAsSystem, textingRegistration, type Db } from "@kumi/core";
-import { applyTexting, explainRejection, refreshTexting, textingNeeds, textingPlan, twilioProblem, volumeStep, type TextingDeps } from "../src/texting.ts";
+import { heartbeat, messageHandlers, processOutbox, registeredSender, runAsSystem, textingRegistration, type Db } from "@kumi/core";
+import { applyTexting, checkTextingNumber, explainRejection, refreshTexting, textingNeeds, textingPlan, twilioProblem, volumeStep, type TextingDeps } from "../src/texting.ts";
 import { TwilioApi, TwilioApiError } from "../src/twilio_admin.ts";
 import { doctor } from "../src/doctor.ts";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
+import { watchHealth } from "../src/health.ts";
 import type { TextingDetails } from "../src/setup.ts";
 
 const AC = `AC${"1".repeat(32)}`, TOKEN = "0123456789abcdef0123456789abcdef";
@@ -225,6 +226,57 @@ test("the review: asked about, recorded only when it moves; a rejection is expla
   const calls = tw.calls.length;
   assert.equal(await refreshTexting(db, api), "approved");   // decided: Twilio isn't asked again
   assert.equal(tw.calls.length, calls);
+});
+
+const sms = (status: "sent" | "failed", failure: string | null = null) => db.insertInto("outbound_message").values({ id: crypto.randomUUID(), event_id: null, person_id: owner, kind: "place_offered",
+  channel: "sms", purpose: "account", essential: false, lang: "en", subject: "", body: "Kestrel Padel: test", link: null, status, send_after: new Date(), stale_at: null, sent_at: null, read_at: null, failure }).execute();
+
+test("after approval the number is still checked: withdrawn, gone from the account, or refused for the number itself", async () => {
+  await fresh();
+  await db.deleteFrom("outbound_message").execute();
+  const tw = new FakeTwilio(), api = new TwilioApi(AC, TOKEN, tw.fetch);
+  assert.equal(await checkTextingNumber(db, api), null);   // nothing approved: nothing to check
+  await applyTexting(deps(tw), { yes: true });
+  tw.decide("TWILIO_APPROVED");
+  assert.equal(await refreshTexting(db, api), "approved");
+  assert.deepEqual(await checkTextingNumber(db, api), { ok: true });
+  await sms("failed", "30032: Toll-Free Number Has Not Been Verified");
+  await sms("failed", "21610: Attempt to send to unsubscribed recipient");   // the member's STOP: not the number's fault
+  const refused = await checkTextingNumber(db, api);
+  assert.equal(refused?.ok, false); assert.equal((refused as any).words.en, "Twilio refused texts because of the number itself (1 in the last day)");
+  await db.deleteFrom("outbound_message").execute();
+  const kept = tw.numbers.splice(0);
+  assert.match((await checkTextingNumber(db, api) as any).words.en, /^the number \+18885550100 isn't in the club's Twilio account any more$/);
+  tw.numbers.push(...kept);
+  tw.decide("TWILIO_REJECTED", { reasons: [{ reason: "Opt-in not shown", code: 30446 }], editable: false });
+  assert.equal((await checkTextingNumber(db, api) as any).words.en, "Twilio no longer shows its registration as approved (now TWILIO_REJECTED)");
+  assert.equal((await textingRegistration(db))!.status, "rejected");
+  assert.equal(await registeredSender(db), null);   // texts stop going from it
+});
+
+test("texts failing: staff hear once, and once more when they get through again (ask the club's model is watched the same way)", async () => {
+  await db.deleteFrom("outbound_message").execute(); await db.deleteFrom("ops_heartbeat").execute();
+  const NOW = new Date();
+  for (let i = 0; i < 4; i++) await sms("sent");
+  await sms("failed", "30003: Unreachable");
+  await watchHealth(db, { texting: true, models: [], now: NOW });   // 1 of 5: fine
+  assert.equal((await heartbeat(db, "texts"))!.last_error, null);
+  await sms("failed", "30003: Unreachable");
+  await watchHealth(db, { texting: true, models: [], now: NOW });   // 2 of 6: failing
+  await watchHealth(db, { texting: true, models: [], now: NOW });   // still failing: not said again
+  await processOutbox(db, messageHandlers);
+  const failed = await db.selectFrom("outbound_message").select(["subject", "body"]).where("person_id", "=", owner).where("kind", "=", "ops_failed_staff").where("channel", "=", "email").execute();
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0]!.subject, "Needs a look: texts to members failed");
+  assert.match(failed[0]!.body, /texts to members failed: 2 of 6 texts in the last day didn't go through\./);
+  for (let i = 0; i < 6; i++) await sms("sent");
+  await watchHealth(db, { texting: true, models: [], now: NOW });   // 2 of 12: working again
+  await watchHealth(db, { texting: true, models: [], now: NOW });
+  await processOutbox(db, messageHandlers);
+  const again = await db.selectFrom("outbound_message").select(["subject"]).where("person_id", "=", owner).where("kind", "=", "ops_cleared_staff").where("channel", "=", "email").execute();
+  assert.deepEqual(again.map((m) => m.subject), ["Working again: texts to members"]);
+  const alert = await db.selectFrom("staff_alert").select(["handled_by"]).where("kind", "=", "ops_failed_staff").execute();
+  assert.deepEqual(alert, [{ handled_by: null }]);   // closed by itself, with no one's name
 });
 
 test("a rejection Twilio won't let be edited: a new verification, only with --yes", async () => {

@@ -1,13 +1,14 @@
 import { serve } from "@hono/node-server";
-import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, extendBlockSeries, registeredSender, textingOn, TextError, type Texter } from "@kumi/core";
+import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, extendBlockSeries, registeredSender, textingOn, TextError, jobFailed, jobWorked, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 import { hasSender, PracticeTexter, TwilioTexter, twilioFromEnv, type TwilioConfig } from "./twilio.ts";
-import { refreshTexting } from "./texting.ts";
+import { checkTextingNumber, refreshTexting } from "./texting.ts";
+import { watchHealth } from "./health.ts";
 import { TwilioApi } from "./twilio_admin.ts";
 import { handlers } from "./outbox.ts";
-import { answererFromEnv } from "./answerer.ts";
+import { answererFromEnv, answerModels } from "./answerer.ts";
 
 // The server's key for the secrets it keeps (authenticators, the push key, the vault: sealed.ts). Production
 // refuses to start without one; elsewhere secrets are kept as they are, and it says so.
@@ -98,6 +99,7 @@ if (twilio) {
 }
 // The routes get one texter for good; it sends through whichever is set up, once one is.
 let textingNext = 0;   // when to ask Twilio about the texting registration again
+let watchNext = 0, numberNext = 0;     // when to look at texts and ask the club's answers again (every 5 minutes)
 const texter: Texter | null = twilio ? { send: (x) => { if (!sending) throw new TextError("no_sender", "texts aren't set up to send yet", false); return sending.send(x); } } : null;
 // Ask the club: with a decision model's key (KUMI_TYPESAFE_API_KEY for Jev, KUMI_ANTHROPIC_API_KEY for Claude
 // Haiku, or both), Kumi answers a new question from the club's facts, word for word, or hands it to the staff
@@ -178,6 +180,18 @@ const jobs = async () => {
         const mg = await registeredSender(db);
         if (mg) startTexts({ ...twilio, messagingServiceSid: mg });
       }
+    }
+    // Texts getting through and ask the club's model answering: staff hear once when either starts failing.
+    if (Date.now() >= watchNext) {
+      watchNext = Date.now() + 300_000;
+      await watchHealth(db, { texting: Boolean(texter) && textingOn(), models: answerModels(process.env) });
+    }
+    // Once approved, the club's texting number is checked hourly too (it can stop working after approval).
+    if (twilioApi && Date.now() >= numberNext) {
+      numberNext = Date.now() + 3600_000;
+      const n = await checkTextingNumber(db, twilioApi).catch((e) => { console.error("texts: checking the club's number:", (e as Error).message); return null; });
+      if (n?.ok) await jobWorked(db, "texting_number");
+      else if (n) await jobFailed(db, "texting_number", n.error, new Date(), n.words);
     }
     // While the club is still setting up its Stripe account, ask Stripe whether it's ready (a webhook says so too).
     if (stripe?.connect) {

@@ -430,9 +430,15 @@ The first version a club can run on its own (court bookings included), or for it
   Offsite copies go to the club's own S3-compatible storage (Cloudflare R2, Backblaze B2, S3, Spaces),
   sealed with a backup key of their own; 30 daily and 12 monthly are kept. Once a month the newest is
   restored into a scratch database and checked against its manifest. If the backup, its offsite copy or
-  the check starts failing, the owner and managers are told once. `kumi restore` restores a local or
+  the check starts failing, the owner and managers are told once, and once more when it works again (its alert
+  closes by itself). `kumi restore` restores a local or
   offsite backup, and keeps the server's own record of its backups as it was (so doctor doesn't go back to
   the night the backup was made). Backup files and update snapshots can be read only by the server's own user.
+- The server watches three more things the same way, telling the owner and managers once when one starts
+  failing and once when it works again: texts (more than a fifth of at least 5 in a day not getting through), ask
+  the club's model (more than a fifth of at least 5 questions in a day with no decision), and, once Twilio has
+  approved the club's texting number, the number itself (approval withdrawn, the number gone from the account,
+  or Twilio refusing texts because of it, checked hourly).
 - Backups run at 3:17 at night on the club's clock, and the restore test on the 1st at 4:17, whatever the
   server's clock is (Docker's is UTC). The timer, or Docker's backup service, checks every hour; a server
   that was off at 3:17 catches up at its next check. In Docker, doctor's hints name the backup service and

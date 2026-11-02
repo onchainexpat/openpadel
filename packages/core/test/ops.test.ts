@@ -34,3 +34,17 @@ test("a job that starts failing tells the owner and managers once, not every nig
   assert.equal(en.body, "On the club's server, the offsite copy of the backup failed: upload kumi/daily/kumi-2026-11-30.dump.enc: HTTP 403 AccessDenied: Access Denied. You're told once, not every time it fails again. Run kumi doctor on the server for the next step.");
   assert.equal(es.subject, "Hay que revisarlo: falló la copia externa de la copia de seguridad");
 });
+
+test("working again: staff hear once, and the failure's alert closes by itself", async () => {
+  const T = new Date(NOW.getTime() + 4 * 86400_000);
+  assert.deepEqual(await jobWorked(db, "offsite", {}, T), { told: true });
+  assert.deepEqual(await jobWorked(db, "offsite", {}, new Date(T.getTime() + 86400_000)), { told: false });   // said once
+  await processOutbox(db, messageHandlers);
+  const mail = await db.selectFrom("outbound_message").select(["subject", "body", "lang"]).where("kind", "=", "ops_cleared_staff").where("channel", "=", "email").execute();
+  assert.equal(mail.length, 4);   // owner and manager, after each of the two failures above
+  assert.equal(mail.find((m) => m.lang === "en")!.subject, "Working again: the offsite copy of the backup");
+  assert.equal(mail.find((m) => m.lang === "es")!.subject, "Vuelve a funcionar: la copia externa de la copia de seguridad");
+  const open = await db.selectFrom("event_outbox").leftJoin("staff_alert", (j) => j.onRef("staff_alert.event_id", "=", "event_outbox.id"))
+    .select(["staff_alert.handled_by", "staff_alert.handled_at"]).where("event_outbox.topic", "=", "ops.failed").execute();
+  assert.ok(open.length >= 2 && open.every((r) => r.handled_at && r.handled_by === null));
+});
