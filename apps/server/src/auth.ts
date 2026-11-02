@@ -7,9 +7,9 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { sql } from "kysely";
 import { t, type Lang } from "@kumi/i18n";
-import { countText, KumiError, runAsSystem, segments, textAllowed, textingOn, textWords, TextError, UNSUBSCRIBED, uuidv7, type Db, type Texter } from "@kumi/core";
+import { countText, KumiError, runAsSystem, segments, textAllowed, textingOn, textWords, TextError, UNSUBSCRIBED, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import type { Mailer } from "./mailer.ts";
-import { PER_CLUB, PER_NUMBER } from "./texts.ts";
+import { countCodes, lockCodes, PER_CLUB, PER_NUMBER } from "./texts.ts";
 
 export const CODE_MINUTES = 10, MAX_TRIES = 5, MAX_CODES_PER_HOUR = 5, SESSION_DAYS = 30, SIGN_UP_MINUTES = 30;
 /** Join codes to new addresses, club-wide, per hour: anyone can ask for one, so this caps how much mail a stranger can make the club send. */
@@ -95,7 +95,7 @@ async function startSession(db: Db, personId: string, userAgent: string | null, 
 // ---- By a texted code ----
 /** Who a number signs in: the account whose confirmed number it is, if that account may sign in at all (a
  *  junior only with a login of their own, which their parents gave). */
-async function personByPhone(db: Db, phone: string) {
+async function personByPhone(db: Db | Trx, phone: string) {
   return db.selectFrom("auth_identity").innerJoin("person", "person.id", "auth_identity.person_id").select(["person.id", "person.locale"])
     .where("auth_identity.kind", "=", "phone").where("auth_identity.value", "=", phone).where("auth_identity.verified_at", "is not", null)
     .where("person.status", "!=", "archived").where("person.redacted_at", "is", null).where("person.phone", "=", phone)
@@ -108,22 +108,26 @@ export const phoneSignInOn = (texter: Texter | null) => Boolean(texter) && texti
  *  number has an account; a number that can't take texts, or replied STOP, is told so, since that's about the
  *  number, not about an account. A sign-in code is an account text they asked for: it needs no yes to texts. */
 export async function startPhoneSignIn(db: Db, texter: Texter, phone: string, lang: Lang, now = new Date(), opts: { signUp?: boolean; memberUrl?: string } = {}): Promise<void> {
-  const hour = new Date(now.getTime() - 3600_000);
-  const count = async (target: string | null) => Number((await db.selectFrom("auth_challenge").select((eb) => eb.fn.countAll<string>().as("n"))
-    .where("kind", "in", ["phone_code", "phone_sign_in"]).where("created_at", ">", hour).$if(target !== null, (q) => q.where("target", "=", target!)).executeTakeFirstOrThrow()).n);
-  if (await count(phone) >= PER_NUMBER) throw new KumiError("error.too_many_codes", {}, 429);
-  if (await count(null) >= PER_CLUB) { console.warn(`sign-in by text: ${PER_CLUB} codes this hour already; not sending more until it calms down`); throw new KumiError("error.too_many_codes", {}, 429); }
-  // The club's texts paused past the monthly cap's ceiling (text_usage.ts): the same answer for every number.
   const club = await db.selectFrom("club").select(["name", "sign_up_open"]).executeTakeFirstOrThrow();
-  if (!(await textAllowed(db, "code", segments(textWords(club.name, t(lang, "sms.code", { code: "000000" }), lang, null, opts.memberUrl ?? "")), now)).ok) throw new KumiError("error.texts_paused", {}, 429);
-  const person = await personByPhone(db, phone);
-  // A number with no account, at a club that isn't taking sign-ups: nothing is sent, and the answer is the same.
-  if (!person && (!club.sign_up_open || opts.signUp === false)) return;
-  // Taken by someone the number can't sign in (a junior whose parents haven't given them a login): the same.
-  if (!person && await db.selectFrom("auth_identity").select("id").where("kind", "=", "phone").where("value", "=", phone).executeTakeFirst()) return;
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const id = uuidv7(now.getTime());
-  await db.insertInto("auth_challenge").values({ id, kind: "phone_sign_in", person_id: person?.id ?? null, target: phone, code_hash: codeHash(id, code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
+  // The club's texts paused past the monthly cap's ceiling (text_usage.ts): the same answer for every number.
+  if (!(await textAllowed(db, "code", segments(textWords(club.name, t(lang, "sms.code", { code: "000000" }), lang, null, opts.memberUrl ?? "")), now)).ok) throw new KumiError("error.texts_paused", {}, 429);
+  // Counted and written under one lock (shared with the profile's confirm-number codes), so codes asked for at
+  // the same moment can't all slip under the hourly limits. Only the transaction's own connection is used inside.
+  const person = await db.transaction().execute(async (trx) => {
+    await lockCodes(trx);
+    if (await countCodes(trx, now, { target: phone }) >= PER_NUMBER) throw new KumiError("error.too_many_codes", {}, 429);
+    if (await countCodes(trx, now) >= PER_CLUB) { console.warn(`sign-in by text: ${PER_CLUB} codes this hour already; not sending more until it calms down`); throw new KumiError("error.too_many_codes", {}, 429); }
+    const p = await personByPhone(trx, phone);
+    // A number with no account, at a club that isn't taking sign-ups: nothing is sent, and the answer is the same.
+    if (!p && (!club.sign_up_open || opts.signUp === false)) return false;
+    // Taken by someone the number can't sign in (a junior whose parents haven't given them a login): the same.
+    if (!p && await trx.selectFrom("auth_identity").select("id").where("kind", "=", "phone").where("value", "=", phone).executeTakeFirst()) return false;
+    await trx.insertInto("auth_challenge").values({ id, kind: "phone_sign_in", person_id: p?.id ?? null, target: phone, code_hash: codeHash(id, code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
+    return p ?? null;
+  });
+  if (person === false) return;
   const l = (person?.locale as Lang | undefined) ?? lang;
   const body = textWords(club.name, t(l, "sms.code", { code }), l, null, opts.memberUrl ?? "");
   try { if ((await texter.send({ to: phone, body })).ref) await countText(db, "code", segments(body), now); }

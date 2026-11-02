@@ -7,9 +7,10 @@
 import { createHash, randomInt } from "node:crypto";
 import { Hono, type Context } from "hono";
 import * as z from "zod/mini";
+import { sql } from "kysely";
 import { t, type Lang } from "@kumi/i18n";
 import { confirmedPhone, countText, keyword, KumiError, segments, textAllowed, runAsSystem, showPhone, startNumber, stopNumber, textingOn, textsAnswer, textStatus, textWords, TEXTS_FORM, TextError,
-  UNSUBSCRIBED, usPhone, uuidv7, type Db, type Texter } from "@kumi/core";
+  UNSUBSCRIBED, usPhone, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import { RateLimiter } from "./limits.ts";
 import { validSignature } from "./twilio.ts";
 import { sendUndoLink, tryCode } from "./auth.ts";
@@ -19,6 +20,14 @@ import type { Mailer } from "./mailer.ts";
 export const CODE_MINUTES = 10, MAX_TRIES = 5, PER_NUMBER = 3, PER_PERSON = 5, PER_CLUB = 30;
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 const codeHash = (challengeId: string, code: string) => sha(`${challengeId}:${code}`);
+/** Texted codes, sign-in and confirm-number alike, are counted and written one at a time (a transaction lock). */
+export const lockCodes = (trx: Trx) => sql`SELECT pg_advisory_xact_lock(hashtext('kumi:texted_codes'))`.execute(trx);
+/** Texted codes asked for this past hour: for a number, a person, or the whole club. */
+export async function countCodes(db: Db | Trx, now: Date, by: { target?: string; person_id?: string } = {}): Promise<number> {
+  const hour = new Date(now.getTime() - 3600_000);
+  return Number((await db.selectFrom("auth_challenge").select((eb) => eb.fn.countAll<string>().as("n")).where("kind", "in", ["phone_code", "phone_sign_in"]).where("created_at", ">", hour)
+    .$if(by.target !== undefined, (q) => q.where("target", "=", by.target!)).$if(by.person_id !== undefined, (q) => q.where("person_id", "=", by.person_id!)).executeTakeFirstOrThrow()).n);
+}
 
 type Me = { id: string; method: string; created_at: Date } | null;
 export interface TextDeps {
@@ -78,13 +87,14 @@ export function textRoutes(d: TextDeps) {
     if (!phone) throw new KumiError("error.phone_bad", {}, 400);
     // Another account's number gets the same answer as a free one (numbers can't be probed): a code nobody is sent.
     const taken = Boolean(await db.selectFrom("auth_identity").select("person_id").where("kind", "=", "phone").where("value", "=", phone).where("person_id", "!=", id).executeTakeFirst());
-    const hour = new Date(now.getTime() - 3600_000);
-    const count = async (f: "target" | "person_id" | null, v?: string) => Number((await db.selectFrom("auth_challenge").select((eb) => eb.fn.countAll<string>().as("n"))
-      .where("kind", "in", ["phone_code", "phone_sign_in"]).where("created_at", ">", hour).$if(f !== null, (q) => q.where(f!, "=", v!)).executeTakeFirstOrThrow()).n);
-    if (await count("target", phone) >= PER_NUMBER || await count("person_id", id) >= PER_PERSON) throw new KumiError("error.phone_too_many", {}, 429);
-    if (await count(null) >= PER_CLUB) { console.warn(`texts: ${PER_CLUB} codes this hour already; not sending more until it calms down`); throw new KumiError("error.phone_too_many", {}, 429); }
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0"), cid = uuidv7(now.getTime());
-    await db.insertInto("auth_challenge").values({ id: cid, kind: "phone_code", person_id: id, target: phone, code_hash: codeHash(cid, taken ? randomInt(0, 2 ** 47).toString(36) : code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
+    // Counted and written under one lock, shared with sign-in codes (auth.ts).
+    await db.transaction().execute(async (trx) => {
+      await lockCodes(trx);
+      if (await countCodes(trx, now, { target: phone }) >= PER_NUMBER || await countCodes(trx, now, { person_id: id }) >= PER_PERSON) throw new KumiError("error.phone_too_many", {}, 429);
+      if (await countCodes(trx, now) >= PER_CLUB) { console.warn(`texts: ${PER_CLUB} codes this hour already; not sending more until it calms down`); throw new KumiError("error.phone_too_many", {}, 429); }
+      await trx.insertInto("auth_challenge").values({ id: cid, kind: "phone_code", person_id: id, target: phone, code_hash: codeHash(cid, taken ? randomInt(0, 2 ** 47).toString(36) : code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
+    });
     if (taken) return c.json({ sent: true, phone: showPhone(phone) });
     const body = textWords(await clubName(), t(lang, "sms.code", { code }), lang, null, d.memberUrl), segs = segments(body);
     // Codes keep going past the monthly text cap, up to its ceiling (text_usage.ts).
@@ -127,6 +137,14 @@ export function textRoutes(d: TextDeps) {
   const twiml = (c: Context<any>, say?: string) => c.body(`<?xml version="1.0" encoding="UTF-8"?><Response>${say ? `<Message>${xml(say)}</Message>` : ""}</Response>`, 200, { "content-type": "text/xml" });
   // One answer a day to a number that writes anything else, so two machines can't text each other forever.
   const answered = new RateLimiter(1, 86_400_000);
+  // HELP and START are answered only for US and Canadian numbers, once a day each per number, and at most 60 an
+  // hour in all: a flood of them from abroad (or from many numbers) can't spend the club's texts.
+  const helpAnswered = new RateLimiter(1, 86_400_000), startAnswered = new RateLimiter(1, 86_400_000), keywordHour = new RateLimiter(60, 3_600_000);
+  const mayAnswer = (from: string, which: RateLimiter, now: Date) => {
+    const ok = usPhone(from) !== null && which.take(from, now.getTime()) && keywordHour.take("club", now.getTime());
+    if (!ok) console.log(`[text in] a keyword from ${from.slice(0, -4)}**** not answered (outside US and Canada, or answered already)`);
+    return ok;
+  };
 
   // A text to the club's number. STOP turns everything off (Twilio itself confirms it, so nothing more is
   // said), START turns texts back on, HELP says what these texts are; anything else is told once a day that
@@ -148,8 +166,11 @@ export function textRoutes(d: TextDeps) {
       return twiml(c, text);
     };
     if (word === "stop") { await stopNumber(db, from, said, now); return twiml(c); }
-    if (word === "start") return answer((await startNumber(db, from, now)).people ? say("sms.start_on", null) : say("sms.start_none", "/profile"), "code");
-    if (word === "help") return answer(say("sms.help", "/"), "code");
+    if (word === "start") {
+      const back = await startNumber(db, from, now);
+      return mayAnswer(from, startAnswered, now) ? answer(back.people ? say("sms.start_on", null) : say("sms.start_none", "/profile"), "code") : twiml(c);
+    }
+    if (word === "help") return mayAnswer(from, helpAnswered, now) ? answer(say("sms.help", "/"), "code") : twiml(c);
     if (!answered.take(from, now.getTime())) return twiml(c);
     return answer(word === "near_stop" ? say("sms.near_stop", null) : say("sms.not_read", "/"), "message");
   });
