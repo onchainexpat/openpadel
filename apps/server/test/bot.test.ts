@@ -32,7 +32,10 @@ test("the check itself: solved is fine; reused, late, wrong, forged, too easy or
   assert.equal(bot.check("2.2.2.2", { challenge: b.challenge, counter: solve(b.challenge, b.bits) }, "https://spam.example"), "honeypot");
   assert.equal(bot.check("3.3.3.3", undefined, ""), "missing");
   const c = bot.issue("3.3.3.3");
-  assert.equal(bot.check("3.3.3.3", { challenge: c.challenge.replace(/.$/, (x) => (x === "A" ? "B" : "A")), counter: 1 }, ""), "forged");
+  // One character of the signature changed: its first, since the last one's low bits are base64 padding, which
+  // decoding ignores (an "A" made a "B" there was sometimes the same signature, and the test failed now and then).
+  const [nonce, exp, bits, sig] = c.challenge.split(".") as [string, string, string, string];
+  assert.equal(bot.check("3.3.3.3", { challenge: `${nonce}.${exp}.${bits}.${sig[0] === "A" ? "B" : "A"}${sig.slice(1)}`, counter: 1 }, ""), "forged");
   // A counter that doesn't make enough zero bits (from another address: the forgery made this one's harder).
   const w = bot.issue("6.6.6.6");
   let wrong = 0;
