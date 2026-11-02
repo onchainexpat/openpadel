@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { extendBlockSeries, freeCourts, plan, run, runAsSystem, uuidv7, KumiError, type Actor, type Db } from "../src/index.ts";
+import { apply, extendBlockSeries, freeCourts, plan, run, runAsSystem, uuidv7, KumiError, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, desk: Actor, loc: string, c1: string, c2: string, c3: string, ann: string;
 const TZ = "America/Los_Angeles";
@@ -120,4 +120,16 @@ test("with no end date: made a year ahead, and the job makes each new date as th
   assert.deepEqual(await extendBlockSeries(db, new Date(NOW.getTime() + 7 * 86400_000)), { dates: 1 });
   assert.ok(await blockOn(c1, "2027-12-05"));
   assert.deepEqual(await extendBlockSeries(db, new Date(NOW.getTime() + 7 * 86400_000)), { dates: 0 });
+});
+
+test("a booking made between the preview and the confirm stays: the block leaves that court that day", async () => {
+  const p = await plan(db, "court.block_repeat", { court_ids: [c2, c3], weekdays: [4], starts: "13:00", ends: "14:00", from_date: "2027-01-07", until_date: "2027-01-14", reason: "event" }, owner, opts);
+  assert.match(p.plan.summary.en, /2 dates/);
+  // A moment later someone books Court 2 for the first Thursday, before the staff confirm.
+  const walkIn = ((await run(db, "booking.create", { court_id: c2, starts_at: at("2027-01-07", "13:00"), minutes: 60, guest_name: "Pat (walk-in)" }, owner, opts)).result as any).booking_id;
+  const r = await apply(db, p.runId, owner, opts) as { series_id: string; dates: number };
+  assert.equal(r.dates, 2);
+  assert.equal(await blockOn(c2, "2027-01-07"), undefined);   // the booking keeps Court 2 that day
+  assert.ok(await blockOn(c3, "2027-01-07")); assert.ok(await blockOn(c2, "2027-01-14"));
+  assert.equal((await db.selectFrom("booking").select("status").where("id", "=", walkIn).executeTakeFirstOrThrow()).status, "confirmed");
 });

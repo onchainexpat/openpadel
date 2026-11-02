@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { run, runAsSystem, type Actor, type Db } from "@kumi/core";
+import { localDate, onDate, run, runAsSystem, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
@@ -82,9 +82,22 @@ test("the calendar link: only a coach makes one; the feed needs no sign-in; a ne
 });
 
 test("a coach with no other staff role reads their own work, not the club's money, members or settings", async () => {
-  for (const path of ["/staff/reports", "/staff/payments", "/staff/people", `/staff/people/${people.Ann}`, "/staff/memberships", "/staff/questions", "/staff/settings"])
+  for (const path of ["/staff/reports", "/staff/payments", "/staff/people", `/staff/people/${people.Lou}`, "/staff/memberships", "/staff/questions", "/staff/settings"])
     assert.equal((await req(path, "Kim")).status, 403, path);
+  assert.equal((await req(`/staff/people/${people.Ann}`, "Kim")).status, 200);   // Ann is booked into Kim's clinic: one of Kim's players
   for (const path of ["/staff/my-schedule", "/staff/students", "/staff/programs", "/staff/levels"]) assert.equal((await req(path, "Kim")).status, 200, path);
   assert.equal((await req("/staff/people", "Fay")).status, 200);
   assert.equal((await req("/staff/reports", "Fay")).status, 400);   // past the door; it only wants its dates
+});
+
+test("the courts day for a coach: their own lessons in full, anyone else's booking only as booked", async () => {
+  const loc = (await db.selectFrom("location").select("id").executeTakeFirstOrThrow()).id, court = (await db.selectFrom("court").select("id").executeTakeFirstOrThrow()).id;
+  const d = localDate(new Date(Date.now() + 3 * 864e5), TZ);
+  await run(db, "hours.set", { location_id: loc, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "07:00", closes: "22:00" })) }, owner);
+  await run(db, "booking.create", { court_id: court, starts_at: onDate(d, "10:00", TZ).toISOString(), minutes: 60, person_id: people.Ann, price_cents: 4000 }, owner);
+  const item = async (who: string) => (await req(`/staff/grid?location_id=${loc}&date=${d}`, who)).json.courts[0].items.find((x: any) => x.kind === "booking");
+  const desk = await item("Fay"), coach = await item("Kim");
+  assert.equal(desk.who, "Ann"); assert.ok(desk.code && desk.booking_id);
+  assert.deepEqual(Object.keys(coach).sort(), ["end", "kind", "label", "start"]);
+  assert.equal(coach.label, "Booked");
 });

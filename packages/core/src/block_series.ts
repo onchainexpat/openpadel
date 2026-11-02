@@ -86,13 +86,23 @@ async function layout(ctx: PlanCtx, o: { courtIds: string[]; dates: string[]; st
   return { make, cancels, texts, refundCents, organisers };
 }
 
-/** Make the dates: a block for each, holding its courts. The database refuses one that lands on something new. */
-async function makeDates(ctx: ApplyCtx, seriesId: string, reason: string, note: string | null, make: ToMake[]) {
+/** Make the dates: a block for each, holding its courts. The courts are locked first (every caller does), so what's
+ *  on them now is all there is: something taken since the preview (a member booking that slot a moment before)
+ *  stays, and the block leaves that court out that day, as the preview said a booking in the way would. Returns
+ *  how many dates were made. */
+async function makeDates(ctx: ApplyCtx, seriesId: string, reason: string, note: string | null, make: ToMake[]): Promise<number> {
+  let made = 0;
   for (const m of make) {
+    const start = new Date(m.start), end = new Date(m.end);
+    const busy = await occupied(ctx.trx, m.courtIds, start, end, ctx.now);
+    const courts = m.courtIds.filter((c) => !busy.some((b) => b.court_id === c));
+    if (!courts.length) continue;
     const blockId = uuidv7();
     await ctx.insert("court_block", { id: blockId, reason, note, series_id: seriesId, on_date: m.date });
-    await insertTime(ctx, m.courtIds.map((court) => ({ id: uuidv7(), court_id: court, during: range(new Date(m.start), new Date(m.end)), kind: "block", block_id: blockId })));
+    await insertTime(ctx, courts.map((court) => ({ id: uuidv7(), court_id: court, during: range(start, end), kind: "block", block_id: blockId })));
+    made++;
   }
+  return made;
 }
 /** Take dates off the courts: their blocks and court time end. */
 async function openDates(ctx: ApplyCtx, blockIds: string[]) {
@@ -138,9 +148,9 @@ export const courtBlockRepeat = defineAction({
     const id = uuidv7();
     await ctx.insert("block_series", { id, location_id: d.location_id, court_ids: i.court_ids, weekdays: d.weekdays, starts: i.starts, ends: i.ends, from_date: i.from_date,
       until_date: i.until_date ?? null, made_until: d.made_until, reason: i.reason, note: i.note ?? null });
-    await makeDates(ctx, id, i.reason, i.note ?? null, d.make);
+    const dates = await makeDates(ctx, id, i.reason, i.note ?? null, d.make);
     await ctx.emit("court.blocked", { series_id: id });
-    return { series_id: id, dates: d.make.length };
+    return { series_id: id, dates };
   },
 });
 
@@ -256,9 +266,9 @@ export const blockSeriesExtend = defineAction({
     const d = plan.details as { make: ToMake[]; made_until: string };
     if (!s.active || s.made_until >= d.made_until) return { dates: 0 };
     await lockCourts(ctx, s.court_ids);
-    await makeDates(ctx, s.id, s.reason, s.note, d.make);
+    const dates = await makeDates(ctx, s.id, s.reason, s.note, d.make);
     await ctx.update("block_series", s.id, { made_until: d.made_until });
-    return { dates: d.make.length };
+    return { dates };
   },
 });
 

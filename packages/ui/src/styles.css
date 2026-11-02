@@ -119,6 +119,9 @@ body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
 .tg-grip { position: absolute; top: 2px; right: 2px; width: 20px; height: 22px; line-height: 22px; text-align: center; font-size: 14px; color: var(--muted); cursor: grab; touch-action: none; user-select: none; }
 .tg-resize { position: absolute; left: 0; right: 0; bottom: -3px; height: 10px; cursor: ns-resize; touch-action: none; }
 .tg-resize::after { content: ""; position: absolute; left: 40%; right: 40%; top: 4px; height: 2px; border-radius: 1px; background: var(--muted); }
+/* Fingers need about 44px to land on: the grip and the bottom edge reach that far without looking any bigger. */
+.tg-grip::before { content: ""; position: absolute; top: -2px; right: -2px; width: 44px; height: 44px; }
+@media (pointer: coarse) { .tg-resize::before { content: ""; position: absolute; left: 0; right: 0; top: -17px; height: 44px; } }
 .tg-ghost { position: absolute; left: 3px; right: 3px; z-index: 4; padding: 4px 6px; font-size: 13px; font-weight: 600; color: var(--brand); border: 2px dashed var(--brand); border-radius: 6px;
   background: color-mix(in srgb, var(--brand) 10%, transparent); pointer-events: none; }
 .alerts li strong { display: block; }

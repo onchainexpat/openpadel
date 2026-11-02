@@ -45,15 +45,19 @@ The first version a club can run on its own (court bookings included), or for it
   then. Bookings already in the way stay (the block leaves that court free that day) or are cancelled,
   with their players told and what they get back chosen separately. Opening one date, ending from a
   date, ending them all, and changing the times work for this date, this and the following ones, or all.
+  A booking made between the preview and the confirm stays too: the block leaves that court that day
+  instead of failing.
 - The Courts page is the desk's day: courts across and time down (sideways on a phone), what's on now
   and next on each court with what's owed and who's running late, and the alerts that need someone,
-  each shown until one of the staff marks it handled, for everyone.
+  each shown until one of the staff marks it handled, for everyone. The date shows its weekday. A coach
+  (with no other staff role) sees their own lessons in full and anyone else's booking only as "Booked".
 - Staff move a booking to another time or court, or make it longer or shorter, by dragging it (or on
   buttons, or with the arrow keys), always through the preview. A lesson moves only when its coach is
   free then, and a program date moves through the same "this date" change as on its page. Moving keeps
   the price paid unless staff ask for it to be priced again; added time is owed at the desk; time taken
   off gives back by the club's cancellation rule, all of it or nothing, as staff choose. The players
-  (and a lesson's coach) are told.
+  (and a lesson's coach) are told. On a phone or tablet, the drag handle and the bottom edge take a
+  fingertip (about 44 pixels) without looking bigger.
 
 **Open matches**
 - A member booking a court and paying their part can open it to other players: a level band, rated
@@ -146,7 +150,8 @@ The first version a club can run on its own (court bookings included), or for it
   counts in the player's no-show record, the same one hosts see in open matches, and the player is
   told. Setting a clinic's levels leaves out whoever didn't come.
 - My students: everyone a coach worked with in the last 90 days, with their level now and the last
-  time. Front desk and up open any coach's from the Coaches page.
+  time, then whoever is booked into their sessions and lessons in the next 30 days, with when they're
+  next. Front desk and up open any coach's from the Coaches page.
 
 **Families, juniors and the waiver**
 - A parent adds their children under Family in the app: a name and a birth year, nothing more, and no

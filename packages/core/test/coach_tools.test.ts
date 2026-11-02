@@ -114,6 +114,10 @@ test("my students: who a coach worked with in 90 days, less whoever didn't come"
   const s = await coachStudents(db, people.Kim!, new Date(LESSON.getTime() + 2 * 3600_000));
   assert.deepEqual(s.map((x) => [x.name, x.times, x.last_kind, x.junior, x.level]), [["Ann", 1, "session", false, "3.20"], ["Mia Hale", 1, "session", true, null]]);
   assert.deepEqual(await coachStudents(db, people.Lou!, new Date(LESSON.getTime() + 2 * 3600_000)), []);
+  // A day before the first session, the list isn't empty: who's booked in, with when they're next.
+  const before = await coachStudents(db, people.Kim!, new Date(START.getTime() - 86400_000));
+  assert.deepEqual(before.map((x) => [x.name, x.times, x.last_at, x.next_kind, x.next_at?.toISOString()]),
+    [["Ann", 0, null, "session", START.toISOString()], ["Mia Hale", 0, null, "session", START.toISOString()]]);
 });
 
 test("the calendar link: Kim's lessons and dates in UTC, juniors by first name, cancelled ones kept as cancelled, a new link ends the old", async () => {

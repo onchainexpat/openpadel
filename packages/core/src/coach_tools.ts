@@ -16,7 +16,7 @@ import { icsCalendar, type IcsEvent } from "./ical.ts";
 /** Attendance can be marked from the start until this many hours after (like an open match's no-shows). */
 export const ATTENDANCE_HOURS = 48;
 /** "My students": the people a coach worked with in this many days. */
-export const STUDENT_DAYS = 90;
+export const STUDENT_DAYS = 90, STUDENT_AHEAD_DAYS = 30;
 /** What a calendar link covers: this far back, and this far ahead. */
 const FEED_BACK_DAYS = 90, FEED_AHEAD_DAYS = 180;
 
@@ -147,15 +147,16 @@ export const attendanceMark = defineAction({
   },
 });
 
-/** The people a coach worked with in the last STUDENT_DAYS days (whoever was marked as not coming left out),
- *  each with their level now, how many times, and the last time. */
+/** The people a coach worked with in the last STUDENT_DAYS days (whoever was marked as not coming left out), and
+ *  those booked into their sessions and lessons in the next STUDENT_AHEAD_DAYS, so a new coach's list isn't empty
+ *  before the first lesson: each with their level now, how many times so far, the last time and the next. */
 export async function coachStudents(db: Db | Trx, coachId: string, now: Date) {
-  const since = new Date(now.getTime() - STUDENT_DAYS * 86400_000);
+  const since = new Date(now.getTime() - STUDENT_DAYS * 86400_000), until = new Date(now.getTime() + STUDENT_AHEAD_DAYS * 86400_000);
   const dates = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").innerJoin("enrolment", "enrolment.program_id", "program.id")
     .innerJoin("person", "person.id", "enrolment.person_id")
     .leftJoin("attendance", (j) => j.onRef("attendance.session_id", "=", "session.id").onRef("attendance.person_id", "=", "enrolment.person_id"))
     .select(["person.id as person_id", "person.display_name", "person.junior", "session.id", "session.starts_at as at", "program.name"])
-    .where("session.coach_id", "=", coachId).where("session.status", "!=", "cancelled").where("session.starts_at", ">=", since).where("session.starts_at", "<=", now)
+    .where("session.coach_id", "=", coachId).where("session.status", "!=", "cancelled").where("session.starts_at", ">=", since).where("session.starts_at", "<=", until)
     .where("enrolment.status", "in", ["booked", "attended"]).where((w) => w.or([w("enrolment.session_id", "is", null), w("enrolment.session_id", "=", w.ref("session.id"))]))
     .where((w) => w.or([w("attendance.came", "is", null), w("attendance.came", "=", true)])).where("person.redacted_at", "is", null).execute();
   const lessons = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("booking_player", "booking_player.booking_id", "booking.id")
@@ -163,21 +164,26 @@ export async function coachStudents(db: Db | Trx, coachId: string, now: Date) {
     .leftJoin("attendance", (j) => j.onRef("attendance.booking_id", "=", "booking.id").onRef("attendance.person_id", "=", "booking_player.person_id"))
     .select(["person.id as person_id", "person.display_name", "person.junior", "booking.id", sql<Date>`lower(court_time.during)`.as("at")])
     .where("booking.kind", "=", "lesson").where("booking.coach_id", "=", coachId).where("booking.status", "in", ["confirmed", "completed"]).where("court_time.active", "=", true)
-    .where(sql<boolean>`lower(court_time.during) >= ${since}`).where(sql<boolean>`lower(court_time.during) <= ${now}`)
+    .where(sql<boolean>`lower(court_time.during) >= ${since}`).where(sql<boolean>`lower(court_time.during) <= ${until}`)
     .where("booking_player.removed_at", "is", null).where("booking_player.replaces", "is", null)
     .where((w) => w.or([w("attendance.came", "is", null), w("attendance.came", "=", true)])).where("person.redacted_at", "is", null).execute();
-  const by = new Map<string, { person_id: string; name: string; junior: boolean; times: number; last_at: Date; last_kind: CoachItemKind; last_name: string | null }>();
-  const add = (person_id: string, name: string, junior: boolean, at: Date, kind: CoachItemKind, what: string | null) => {
-    const x = by.get(person_id);
-    if (!x) by.set(person_id, { person_id, name, junior, times: 1, last_at: new Date(at), last_kind: kind, last_name: what });
-    else { x.times++; if (new Date(at) > x.last_at) Object.assign(x, { last_at: new Date(at), last_kind: kind, last_name: what }); }
+  type Student = { person_id: string; name: string; junior: boolean; times: number; last_at: Date | null; last_kind: CoachItemKind | null; last_name: string | null;
+    next_at: Date | null; next_kind: CoachItemKind | null; next_name: string | null };
+  const by = new Map<string, Student>();
+  const add = (person_id: string, name: string, junior: boolean, when: Date, kind: CoachItemKind, what: string | null) => {
+    const at = new Date(when);
+    let x = by.get(person_id);
+    if (!x) by.set(person_id, x = { person_id, name, junior, times: 0, last_at: null, last_kind: null, last_name: null, next_at: null, next_kind: null, next_name: null });
+    if (at <= now) { x.times++; if (!x.last_at || at > x.last_at) Object.assign(x, { last_at: at, last_kind: kind, last_name: what }); }
+    else if (!x.next_at || at < x.next_at) Object.assign(x, { next_at: at, next_kind: kind, next_name: what });
   };
   for (const d of dates) add(d.person_id, d.display_name, d.junior, d.at, "session", d.name);
   for (const l of lessons) add(l.person_id, l.display_name, l.junior, l.at, "lesson", null);
   const ids = [...by.keys()];
   const levels = await db.selectFrom("rating").select(["person_id", "level", "provisional"]).where("person_id", "in", ids.length ? ids : [NONE]).where("sport", "=", "padel").execute();
   return [...by.values()].map((x) => { const r = levels.find((l) => l.person_id === x.person_id); return { ...x, level: r ? Number(r.level).toFixed(2) : null, provisional: r?.provisional ?? null }; })
-    .sort((a, b) => b.last_at.getTime() - a.last_at.getTime() || a.name.localeCompare(b.name));
+    // Those coached lately first (newest first), then those only booked in so far (soonest first).
+    .sort((a, b) => (a.last_at && b.last_at ? b.last_at.getTime() - a.last_at.getTime() : a.last_at ? -1 : b.last_at ? 1 : a.next_at!.getTime() - b.next_at!.getTime()) || a.name.localeCompare(b.name));
 }
 
 // ---- The calendar link ----

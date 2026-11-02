@@ -96,6 +96,7 @@ export function Courts() {
         <div class="court-row">
           <button type="button" class="small" onClick={() => shift(-1)} aria-label={t("ui.day_before")}>‹</button>
           <input type="date" aria-label={t("ui.day")} value={date} onInput={(e) => setDate(e.currentTarget.value)} />
+          {date && <span class="meta">{new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`))}</span>}
           <button type="button" class="small" onClick={() => shift(1)} aria-label={t("ui.day_after")}>›</button>
           {!today && <button type="button" class="small" onClick={() => setDate(g.today)}>{t("ui.today_button")}</button>}
         </div>
