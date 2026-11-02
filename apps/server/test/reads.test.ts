@@ -6,6 +6,8 @@ import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
 let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor, programId: string, sessionId: string, players: string[] = [];
+/** A time after the round's night has started: scores are only taken for rounds that have been played. */
+const played = async (gameId: string) => ({ now: new Date((await db.selectFrom("game").innerJoin("session", "session.id", "game.session_id").select("session.starts_at").where("game.id", "=", gameId).executeTakeFirstOrThrow()).starts_at.getTime() + 3 * 3600_000) });
 const mailer = new MemoryMailer();
 const as = (id: string): Actor => ({ personId: id, via: "test", lang: "en" });
 const cookies = new Map<string, string>();
@@ -44,7 +46,7 @@ before(async () => {
   }
   await run(db, "draw.generate", { session_id: sessionId, rounds: 2 }, owner);
   const first = await db.selectFrom("game").select("id").where("session_id", "=", sessionId).where("round", "=", 1).execute();
-  for (const g of first) await run(db, "game.score", { game_id: g.id, a: 14, b: 10 }, owner);
+  for (const g of first) await run(db, "game.score", { game_id: g.id, a: 14, b: 10 }, owner, await played(g.id));
 });
 after(async () => drop());
 

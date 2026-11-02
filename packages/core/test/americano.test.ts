@@ -46,6 +46,8 @@ test("the same seed always gives the same rounds", () => {
 
 // ---- The actions, on a real roster ----
 let db: Db, drop: () => Promise<void>, owner: Actor, monica: Actor, locationId: string;
+/** A time after the round's night has started: scores are only taken for rounds that have been played. */
+const played = async (gameId: string) => ({ now: new Date((await db.selectFrom("game").innerJoin("session", "session.id", "game.session_id").select("session.starts_at").where("game.id", "=", gameId).executeTakeFirstOrThrow()).starts_at.getTime() + 3 * 3600_000) });
 const as = (personId: string): Actor => ({ personId, via: "test", lang: "en" });
 let n = 0;
 async function person(name: string, level?: number) {
@@ -101,8 +103,9 @@ test("scores must add up to the night's points, then the standings follow", asyn
   const t = await night(8, 8);
   await run(db, "draw.generate", { session_id: t.sessionId, rounds: 2, points_per_game: 24 }, monica);
   const [g1] = await games(t.sessionId);
-  await rejects(plan(db, "game.score", { game_id: g1!.id, a: 20, b: 6 }, monica), "error.score_total");
-  await run(db, "game.score", { game_id: g1!.id, a: 15, b: 9 }, monica);
+  await rejects(plan(db, "game.score", { game_id: g1!.id, a: 15, b: 9 }, monica), "error.not_played_yet");   // days before the night: levels mustn't move yet
+  await rejects(plan(db, "game.score", { game_id: g1!.id, a: 20, b: 6 }, monica, await played(g1!.id)), "error.score_total");
+  await run(db, "game.score", { game_id: g1!.id, a: 15, b: 9 }, monica, await played(g1!.id));
   const table = await standings(db, t.sessionId);
   const winners = (await sidesOf(g1!.id)).filter((s) => s.side === "a").map((s) => s.person_id).sort();
   assert.deepEqual(table.slice(0, 2).map((r) => r.person_id).sort(), winners);
@@ -113,7 +116,7 @@ test("Monica's Americano: a late drop after round 2, the rest re-paired, played 
   const t = await night(8, 9);   // 8 places, one on the waitlist
   await run(db, "draw.generate", { session_id: t.sessionId, rounds: 4 }, monica);
   const before = await games(t.sessionId);
-  for (const g of before.filter((x) => x.round! <= 2)) await run(db, "game.score", { game_id: g.id, a: 13, b: 11 }, monica);
+  for (const g of before.filter((x) => x.round! <= 2)) await run(db, "game.score", { game_id: g.id, a: 13, b: 11 }, monica, await played(g.id));
   const dropped = t.players[0]!, waiting = t.players[8]!;
   await run(db, "enrolment.remove", { enrolment_id: dropped.enrolment, reason: "late_cancel" }, monica);
   await run(db, "enrolment.accept_offer", { enrolment_id: waiting.enrolment }, as(waiting.person));
@@ -135,6 +138,6 @@ test("Monica's Americano: a late drop after round 2, the rest re-paired, played 
 test("re-pairing when every round has been played is refused", async () => {
   const t = await night(4, 4);
   await run(db, "draw.generate", { session_id: t.sessionId, rounds: 1 }, monica);
-  for (const g of await games(t.sessionId)) await run(db, "game.score", { game_id: g.id, a: 12, b: 12 }, monica);
+  for (const g of await games(t.sessionId)) await run(db, "game.score", { game_id: g.id, a: 12, b: 12 }, monica, await played(g.id));
   await rejects(plan(db, "draw.repair", { session_id: t.sessionId }, monica), "error.nothing_to_repair");
 });

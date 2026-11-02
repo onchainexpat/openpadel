@@ -37,6 +37,8 @@ test("the shown level: provisional players see the estimate, others move 30% of 
 
 // ---- In the database ----
 let db: Db, drop: () => Promise<void>, owner: Actor, monica: Actor, desk: Actor, locationId: string;
+/** A time after the round's night has started: scores are only taken for rounds that have been played. */
+const played = async (gameId: string) => ({ now: new Date((await db.selectFrom("game").innerJoin("session", "session.id", "game.session_id").select("session.starts_at").where("game.id", "=", gameId).executeTakeFirstOrThrow()).starts_at.getTime() + 3 * 3600_000) });
 const as = (personId: string, lang: "en" | "es" = "en"): Actor => ({ personId, via: "test", lang });
 let n = 0;
 async function person(name: string, role = "member", level?: number) {
@@ -75,7 +77,7 @@ after(async () => drop());
 test("a rated game moves four levels, each with a sentence on why, in both languages", async () => {
   const t = await americano([["Ana", 3], ["Ben", 3], ["Cy", 3.5], ["Dee", 3.5], ["Eve", 2.5], ["Fay", 4], ["Gus", 3], ["Hal", 3]]);
   const g = t.games[0]!;
-  await run(db, "game.score", { game_id: g.id, a: 16, b: 8 }, monica);
+  await run(db, "game.score", { game_id: g.id, a: 16, b: 8 }, monica, await played(g.id));
   const events = await db.selectFrom("rating_event").selectAll().where("game_id", "=", g.id).execute();
   assert.equal(events.length, 4);
   const winner = events.find((e) => Number(e.level_after) > Number(e.level_before))!;
@@ -86,7 +88,7 @@ test("a rated game moves four levels, each with a sentence on why, in both langu
 test("friendlies never move a level", async () => {
   const t = await americano([["Ivy", 3], ["Jo", 3], ["Kai", 3], ["Lu", 3]], false);
   const before = await rating(t.people[0]!);
-  for (const g of t.games) await run(db, "game.score", { game_id: g.id, a: 20, b: 4 }, monica);
+  for (const g of t.games) await run(db, "game.score", { game_id: g.id, a: 20, b: 4 }, monica, await played(g.id));
   assert.equal((await rating(t.people[0]!))!.level, before!.level);
   assert.equal(await db.selectFrom("rating_event").select("id").where("game_id", "in", t.games.map((g) => g.id)).executeTakeFirst(), undefined);
 });
@@ -108,13 +110,13 @@ test("staff change a level with a reason; the front desk has to ask", async () =
 test("a coach's floor holds, however the results go", async () => {
   const t = await americano([["Ray", 3], ["Sol", 3], ["Tia", 3], ["Uma", 3]]);
   for (const id of t.people) await run(db, "level.set_floor", { person_id: id, floor: 2.95, reason: "Assessed in clinic" }, monica);
-  for (const g of t.games) await run(db, "game.score", { game_id: g.id, a: 0, b: 24 }, monica);
+  for (const g of t.games) await run(db, "game.score", { game_id: g.id, a: 0, b: 24 }, monica, await played(g.id));
   for (const id of t.people) assert.ok(Number((await rating(id))!.level) >= 2.95);
 });
 
 test("replaying every event reproduces the ratings exactly, including after a corrected score", async () => {
   const t = await americano([["Vi", 3], ["Wes", 3.5], ["Xan", 2.5], ["Yu", 4], ["Zed", 3], ["Abe", 3], ["Bo", 3.5], ["Cal", 2.5]]);
-  for (const g of t.games) await run(db, "game.score", { game_id: g.id, a: 15, b: 9 }, monica);
+  for (const g of t.games) await run(db, "game.score", { game_id: g.id, a: 15, b: 9 }, monica, await played(g.id));
   await run(db, "level.set", { person_id: t.people[0]!, level: 3.2, reason: "Coach review" }, monica);
   const check = async () => {
     const replayed = await replay(db);
@@ -127,7 +129,7 @@ test("replaying every event reproduces the ratings exactly, including after a co
   };
   await check();
   const before = (await rating(t.people[1]!))!.mu;
-  await run(db, "game.score", { game_id: t.games[0]!.id, a: 4, b: 20 }, monica);   // the score was entered the wrong way round
+  await run(db, "game.score", { game_id: t.games[0]!.id, a: 4, b: 20 }, monica, await played(t.games[0]!.id));   // the score was entered the wrong way round
   await check();
   const sidesOfFirst = await db.selectFrom("game_side").select("person_id").where("game_id", "=", t.games[0]!.id).execute();
   if (sidesOfFirst.some((s) => s.person_id === t.people[1])) assert.notEqual((await rating(t.people[1]!))!.mu, before);

@@ -113,6 +113,9 @@ export const gameScore = defineAction({
   async plan(ctx, i) {
     const { row: g, read } = await readRow(ctx.db, "game", i.game_id, "thing.session");
     if (g.status === "void") throw new KumiError("error.no_draw");
+    // A score is for a round that has been played: a rated night would otherwise move levels days early.
+    const s = g.session_id ? await ctx.db.selectFrom("session").select("starts_at").where("id", "=", g.session_id).executeTakeFirst() : undefined;
+    if (s && ctx.now.getTime() < s.starts_at.getTime()) throw new KumiError("error.not_played_yet");
     const d = g.session_id ? await ctx.db.selectFrom("draw").select("points_per_game").where("session_id", "=", g.session_id).executeTakeFirst() : undefined;
     if (d && i.a + i.b !== d.points_per_game) throw new KumiError("error.score_total", { points: d.points_per_game }, 400);
     const court = g.court_id ? (await readRow(ctx.db, "court", g.court_id, "thing.court")).row.name : "";
