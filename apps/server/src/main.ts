@@ -8,6 +8,7 @@ import { checkTextingNumber, refreshTexting } from "./texting.ts";
 import { watchHealth } from "./health.ts";
 import { TwilioApi } from "./twilio_admin.ts";
 import { handlers } from "./outbox.ts";
+import { tidySignIns } from "./oauth.ts";
 import { answererFromEnv, answerModels } from "./answerer.ts";
 import { setTranslator, translatorFromEnv } from "./translate.ts";
 
@@ -100,7 +101,7 @@ if (twilio) {
 }
 // The routes get one texter for good; it sends through whichever is set up, once one is.
 let textingNext = 0;   // when to ask Twilio about the texting registration again
-let watchNext = 0, numberNext = 0;     // when to look at texts and ask the club's answers again (every 5 minutes)
+let watchNext = 0, numberNext = 0, tidyNext = 0;     // when to look at texts and ask the club's answers again (every 5 minutes)
 const texter: Texter | null = twilio ? { send: (x) => { if (!sending) throw new TextError("no_sender", "texts aren't set up to send yet", false); return sending.send(x); } } : null;
 // Ask the club: with a decision model's key (KUMI_TYPESAFE_API_KEY for Jev, KUMI_ANTHROPIC_API_KEY for Claude
 // Haiku, or both), Kumi answers a new question from the club's facts, word for word, or hands it to the staff
@@ -172,6 +173,11 @@ const jobs = async () => {
     const bs = await extendBlockSeries(db);
     if (bs.dates) console.log(`court blocks: ${bs.dates} more dates of repeating blocks made`);
     await tidyVaultUploads(db);
+    if (Date.now() >= tidyNext) {   // sign-in leftovers, hourly
+      tidyNext = Date.now() + 3600_000;
+      const ts = await tidySignIns(db);
+      if (ts.challenges || ts.clients) console.log(`sign-in: ${ts.challenges} old codes and ${ts.clients} assistants never connected tidied`);
+    }
     const fc = await tidyFamilyCards(db);
     if (fc.saved) console.log(`family cards: ${fc.saved} saved (found by checking with the provider)`);
     await registerWallets().catch((e) => console.error("payments: registering the members' domain for Apple Pay and Google Pay:", (e as Error).message));

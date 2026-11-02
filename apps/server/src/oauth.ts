@@ -6,12 +6,12 @@ import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setCookie } from "hono/cookie";
 import { money, t, type Lang } from "@kumi/i18n";
-import { activeFactor, KumiError, usPhone, useAuthenticatorCode, uuidv7, type Db, type Texter } from "@kumi/core";
+import { activeFactor, KumiError, usPhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 import { RateLimiter } from "./limits.ts";
 
-export const ACCESS_SECONDS = 3600, REFRESH_DAYS = 30, CODE_SECONDS = 300, SCOPE = "kumi";
+export const ACCESS_SECONDS = 3600, REFRESH_DAYS = 30, CODE_SECONDS = 300, SCOPE = "kumi", REGISTER_BYTES = 16_384, UNUSED_CLIENT_DAYS = 7;
 /** What a person can let an assistant spend for them a week, chosen as they connect it ($0 unless they pick more;
  *  any amount up to $500 later, in the app). */
 export const CAP_CHOICES = [0, 2500, 5000, 10000, 20000];
@@ -88,14 +88,20 @@ export function oauthRoutes(deps: OAuthDeps) {
     token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"], scopes_supported: [SCOPE], client_id_metadata_document_supported: true,
   }));
 
+  // Anyone may register (RFC 7591), so it's kept small: a few kilobytes asked, and only what's used is kept.
   app.post("/oauth/register", async (c) => {
-    const b = await c.req.json().catch(() => ({})) as any;
+    const raw = await c.req.text().catch(() => "");
+    if (raw.length > REGISTER_BYTES) return c.json({ error: "invalid_client_metadata", error_description: "too large" }, 413);
+    let b: any = {};
+    try { b = JSON.parse(raw || "{}"); } catch { b = {}; }
     const uris: string[] = Array.isArray(b.redirect_uris) ? b.redirect_uris : [];
-    if (!uris.length || !uris.every(okRedirect)) return c.json({ error: "invalid_redirect_uri" }, 400);
+    if (!uris.length || uris.length > 10 || !uris.every((u) => typeof u === "string" && u.length <= 2000 && okRedirect(u))) return c.json({ error: "invalid_redirect_uri" }, 400);
     const method = ["none", "client_secret_basic", "client_secret_post"].includes(b.token_endpoint_auth_method) ? b.token_endpoint_auth_method : "client_secret_basic";
     const clientId = `kc_${b64url(randomBytes(12))}`, secret = method === "none" ? null : b64url(randomBytes(24));
-    await deps.db.insertInto("oauth_client").values({ client_id: clientId, kind: "registered", name: typeof b.client_name === "string" ? b.client_name.slice(0, 80) : null, redirect_uris: uris, auth_method: method, secret_hash: secret ? sha(secret) : null, metadata: JSON.stringify(b) }).execute();
-    return c.json({ client_id: clientId, client_id_issued_at: Math.floor(deps.now().getTime() / 1000), redirect_uris: uris, token_endpoint_auth_method: method, grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], client_name: b.client_name, ...(secret ? { client_secret: secret, client_secret_expires_at: 0 } : {}) }, 201);
+    const name = typeof b.client_name === "string" ? b.client_name.slice(0, 80) : null;
+    const kept = { client_name: name, ...(typeof b.client_uri === "string" ? { client_uri: b.client_uri.slice(0, 500) } : {}), ...(typeof b.software_id === "string" ? { software_id: b.software_id.slice(0, 100) } : {}) };
+    await deps.db.insertInto("oauth_client").values({ client_id: clientId, kind: "registered", name, redirect_uris: uris, auth_method: method, secret_hash: secret ? sha(secret) : null, metadata: JSON.stringify(kept) }).execute();
+    return c.json({ client_id: clientId, client_id_issued_at: Math.floor(deps.now().getTime() / 1000), redirect_uris: uris, token_endpoint_auth_method: method, grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], client_name: name ?? undefined, ...(secret ? { client_secret: secret, client_secret_expires_at: 0 } : {}) }, 201);
   });
 
   // The consent page. Not signed in: sign in by an emailed code first, on the same page, or a texted one when
@@ -214,9 +220,9 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     if (!client) return err("invalid_client");
     if (client.secret_hash && (!secret || sha(secret) !== client.secret_hash)) return err("invalid_client");
     const now = deps.now();
-    const issue = async (grantId: string, family: string, resource: string) => {
+    const issue = async (grantId: string, family: string, resource: string, q: Db | Trx = deps.db) => {
       const access = b64url(randomBytes(32)), refresh = b64url(randomBytes(32));
-      await deps.db.insertInto("oauth_token").values([
+      await q.insertInto("oauth_token").values([
         { token_hash: sha(access), kind: "access", grant_id: grantId, family, resource, expires_at: new Date(now.getTime() + ACCESS_SECONDS * 1000), used_at: null, revoked_at: null },
         { token_hash: sha(refresh), kind: "refresh", grant_id: grantId, family, resource, expires_at: new Date(now.getTime() + REFRESH_DAYS * 864e5), used_at: null, revoked_at: null },
       ]).execute();
@@ -230,19 +236,27 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
       if (f.redirect_uri && f.redirect_uri !== row.redirect_uri) return err("invalid_grant", "redirect_uri mismatch");
       if (f.resource && f.resource !== row.resource) return err("invalid_target");
       if (b64url(createHash("sha256").update(String(f.code_verifier ?? "")).digest()) !== row.code_challenge) return err("invalid_grant", "PKCE check failed");
-      await deps.db.updateTable("oauth_code").set({ consumed_at: now }).where("code_hash", "=", row.code_hash).execute();
+      // Used up in one step: of two redemptions at once, only one gets tokens.
+      const used = await deps.db.updateTable("oauth_code").set({ consumed_at: now }).where("code_hash", "=", row.code_hash).where("consumed_at", "is", null).returning("code_hash").executeTakeFirst();
+      if (!used) return err("invalid_grant");
       return issue(row.grant_id, uuidv7(), row.resource);
     }
     if (f.grant_type === "refresh_token") {
       const row = await deps.db.selectFrom("oauth_token").innerJoin("oauth_grant", "oauth_grant.id", "oauth_token.grant_id").selectAll("oauth_token").select(["oauth_grant.client_id", "oauth_grant.revoked_at as grant_revoked"])
         .where("oauth_token.token_hash", "=", sha(String(f.refresh_token ?? ""))).where("oauth_token.kind", "=", "refresh").executeTakeFirst();
       if (!row || row.revoked_at || row.grant_revoked || row.expires_at < now || row.client_id !== client.client_id) return err("invalid_grant");
-      if (row.used_at) {   // a stolen or replayed refresh token: end the whole chain
-        await deps.db.updateTable("oauth_token").set({ revoked_at: now }).where("family", "=", row.family).execute();
-        return err("invalid_grant", "refresh token reused");
-      }
-      await deps.db.updateTable("oauth_token").set({ used_at: now }).where("token_hash", "=", row.token_hash).execute();
-      return issue(row.grant_id, row.family, row.resource);
+      // One refresh of a token at a time (its row locked): a stolen or replayed one, or a second made at the same
+      // moment, finds it used and ends the whole chain, the tokens the first one just got included.
+      return deps.db.transaction().execute(async (trx) => {
+        const t = await trx.selectFrom("oauth_token").select(["used_at", "revoked_at"]).where("token_hash", "=", row.token_hash).forUpdate().executeTakeFirst();
+        if (!t || t.revoked_at) return err("invalid_grant");
+        if (t.used_at) {
+          await trx.updateTable("oauth_token").set({ revoked_at: now }).where("family", "=", row.family).execute();
+          return err("invalid_grant", "refresh token reused");
+        }
+        await trx.updateTable("oauth_token").set({ used_at: now }).where("token_hash", "=", row.token_hash).execute();
+        return issue(row.grant_id, row.family, row.resource, trx);
+      });
     }
     return c.json({ error: "unsupported_grant_type" }, 400);
   });
@@ -259,4 +273,14 @@ export async function bearerPerson(db: Db, header: string | undefined, resources
     .where("oauth_token.token_hash", "=", sha(header.slice(7))).where("oauth_token.kind", "=", "access").where("oauth_token.revoked_at", "is", null)
     .where("oauth_grant.revoked_at", "is", null).where("oauth_token.expires_at", ">", now).where("person.status", "!=", "archived").executeTakeFirst();
   return r && resources.includes(r.resource) ? r : null;
+}
+
+/** What sign-in leaves behind, tidied: codes and passkey challenges a day past their end, and assistants that
+ *  registered (or were looked up) a week ago and were never connected. Rows still counted by the hourly limits
+ *  are hours old at most, so nothing a limit needs goes. */
+export async function tidySignIns(db: Db, now = new Date()): Promise<{ challenges: number; clients: number }> {
+  const challenges = await db.deleteFrom("auth_challenge").where("expires_at", "<", new Date(now.getTime() - 864e5)).executeTakeFirst();
+  const clients = await db.deleteFrom("oauth_client").where("created_at", "<", new Date(now.getTime() - UNUSED_CLIENT_DAYS * 864e5))
+    .where(({ not, exists, selectFrom }) => not(exists(selectFrom("oauth_grant").select("oauth_grant.id").whereRef("oauth_grant.client_id", "=", "oauth_client.client_id")))).executeTakeFirst();
+  return { challenges: Number(challenges.numDeletedRows), clients: Number(clients.numDeletedRows) };
 }

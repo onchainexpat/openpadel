@@ -78,3 +78,39 @@ test("the apps can be installed: a manifest in the club's name and color, and ic
   assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.equal(png.readUInt32BE(16), 192); assert.equal(png.readUInt32BE(20), 192);
 });
+
+test("tries at one code made at once can't get past five, and of two right ones at once only one signs in", async () => {
+  const { startEmailSignIn, verifyEmailCode } = await import("../src/auth.ts");
+  await startEmailSignIn(db, mailer, "robin@example.test", "en");
+  const real = mailer.last("robin@example.test")!.text.match(/\b(\d{6})\b/)![1]!;
+  const guesses = Array.from({ length: 40 }, (_, i) => String((Number(real) + 1 + i) % 1e6).padStart(6, "0"));
+  await Promise.allSettled(guesses.map((g) => verifyEmailCode(db, "robin@example.test", g, null)));
+  const ch = await db.selectFrom("auth_challenge").select(["attempts", "consumed_at"]).where("kind", "=", "email_code").where("target", "=", "robin@example.test").orderBy("created_at", "desc").executeTakeFirstOrThrow();
+  assert.equal(ch.attempts, 5, "five compared, no more");
+  await assert.rejects(verifyEmailCode(db, "robin@example.test", real, null), /too_many_attempts|Too many/);
+  await db.deleteFrom("auth_challenge").where("target", "=", "robin@example.test").execute();
+  await startEmailSignIn(db, mailer, "robin@example.test", "en");
+  const code = mailer.last("robin@example.test")!.text.match(/\b(\d{6})\b/)![1]!;
+  const both = await Promise.allSettled([verifyEmailCode(db, "robin@example.test", code, null), verifyEmailCode(db, "robin@example.test", code, null)]);
+  assert.equal(both.filter((r) => r.status === "fulfilled").length, 1);
+});
+
+test("registering an assistant: a few an hour from one address, a few kilobytes, and only what's used is kept; unused ones are tidied", async () => {
+  ip = "203.0.113.40";
+  const reg = (body: unknown) => post("/oauth/register", body);
+  const big = await reg({ redirect_uris: ["https://a.example/cb"], client_name: "A", junk: "x".repeat(20_000) });
+  assert.equal(big.status, 413);
+  const ok = await reg({ redirect_uris: ["https://a.example/cb"], client_name: "A".repeat(200), logo: "y".repeat(3000) });
+  assert.equal(ok.status, 201);
+  const id = ((await ok.json()) as any).client_id as string;
+  const row = await db.selectFrom("oauth_client").select(["name", "metadata"]).where("client_id", "=", id).executeTakeFirstOrThrow();
+  assert.equal(row.name, "A".repeat(80));
+  assert.deepEqual(row.metadata, { client_name: "A".repeat(80) });
+  for (let i = 0; i < 8; i++) assert.equal((await reg({ redirect_uris: ["https://a.example/cb"] })).status, 201);
+  assert.equal((await reg({ redirect_uris: ["https://a.example/cb"] })).status, 429, "the eleventh in an hour, counting the refused one");
+  const { tidySignIns } = await import("../src/oauth.ts");
+  const later = new Date(Date.now() + 8 * 864e5);
+  const t = await tidySignIns(db, later);
+  assert.ok(t.clients >= 9 && t.challenges >= 1, JSON.stringify(t));
+  assert.equal(await db.selectFrom("oauth_client").select("client_id").where("client_id", "=", id).executeTakeFirst(), undefined);
+});

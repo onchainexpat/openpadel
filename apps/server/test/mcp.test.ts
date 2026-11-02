@@ -19,7 +19,7 @@ const reqMain = req;
 const form = (o: Record<string, string>) => ({ method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(o).toString() });
 
 /** The whole sign-in an assistant does: authorize, sign in on the consent page, allow, swap the code. */
-async function connect(email: string, clientId: string, redirect: string, opts: { sendVerifier?: string; resource?: string; cap?: string; askFor?: string; via?: { req: typeof req; base: string } } = {}) {
+async function connect(email: string, clientId: string, redirect: string, opts: { sendVerifier?: string; resource?: string; cap?: string; askFor?: string; via?: { req: typeof req; base: string }; twice?: boolean } = {}) {
   const req = opts.via?.req ?? reqMain, base = opts.via?.base ?? BASE;
   const verifier = b64(randomBytes(32)), challenge = b64(createHash("sha256").update(verifier).digest());
   const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", state: "s1", scope: "kumi", resource: opts.askFor ?? `${base}/mcp` });
@@ -35,7 +35,12 @@ async function connect(email: string, clientId: string, redirect: string, opts: 
   const r3 = await req("/oauth/decide", { ...form({ req: id, decision: "allow", ...(opts.cap !== undefined ? { cap: opts.cap } : {}) }), headers: { "content-type": "application/x-www-form-urlencoded", cookie } });
   const back = new URL(r3.headers.get("location")!);
   assert.equal(back.searchParams.get("state"), "s1"); assert.equal(back.searchParams.get("iss"), base);
-  const tok = await req("/oauth/token", form({ grant_type: "authorization_code", code: back.searchParams.get("code")!, code_verifier: opts.sendVerifier ?? verifier, client_id: clientId, redirect_uri: redirect, resource: opts.resource ?? opts.askFor ?? `${base}/mcp` }));
+  const swap = () => req("/oauth/token", form({ grant_type: "authorization_code", code: back.searchParams.get("code")!, code_verifier: opts.sendVerifier ?? verifier, client_id: clientId, redirect_uri: redirect, resource: opts.resource ?? opts.askFor ?? `${base}/mcp` }));
+  if (opts.twice) {   // the same code swapped twice at once
+    const both = await Promise.all([swap(), swap()]);
+    return { status: 0, body: null as any, consent, statuses: both.map((r) => r.status).sort() };
+  }
+  const tok = await swap();
   return { status: tok.status, body: await tok.json() as any, consent };
 }
 async function mcp(accessToken: string) {
@@ -133,6 +138,23 @@ test("PKCE, resource binding and refresh rotation; a reused refresh token ends t
   assert.equal(replay.status, 400);
   const after = await req("/mcp", { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${r1.access_token}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
   assert.equal(after.status, 401, "the whole family is revoked");
+});
+
+test("a code swapped twice at once gives tokens once; two refreshes at once end the chain", async () => {
+  await db.deleteFrom("auth_challenge").where("target", "=", OWNER).execute();   // these tests sign in more than five times an hour
+  const raced = await connect(OWNER, CLAUDE, "https://claude.ai/api/mcp/auth_callback", { twice: true });
+  assert.deepEqual(raced.statuses, [200, 400]);
+  const { body } = await connect(OWNER, CLAUDE, "https://claude.ai/api/mcp/auth_callback");
+  const refresh = () => req("/oauth/token", form({ grant_type: "refresh_token", refresh_token: body.refresh_token, client_id: CLAUDE }));
+  const both = await Promise.all([refresh(), refresh()]);
+  assert.ok(both.filter((r) => r.status === 200).length <= 1, "never two new chains");
+  for (const r of both.filter((x) => x.status === 200)) {
+    const won = await r.json() as any;
+    const after = await req("/mcp", { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${won.access_token}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+    assert.equal(after.status, 401, "a raced refresh counts as a reuse: the whole chain ends");
+  }
+  assert.equal((await refresh()).status, 400);
+  await db.deleteFrom("auth_challenge").where("target", "=", OWNER).execute();
 });
 
 test("redirect URIs must be https or localhost", async () => {

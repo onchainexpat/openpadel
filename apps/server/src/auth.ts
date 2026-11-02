@@ -17,6 +17,24 @@ export const JOIN_CODES_PER_HOUR = 30;
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 const codeHash = (challengeId: string, code: string) => sha(`${challengeId}:${code}`);
 
+/** One try at a code: counted before it's compared, so tries made at once can't get past MAX_TRIES, and a right
+ *  one is used up in the same single step, so of two at once only one gets in. `wrong` is what a wrong one says. */
+export async function tryCode(db: Db, ch: { id: string; expires_at: Date }, code: string, now: Date, wrong: "error.bad_code" | "error.bad_text_code"): Promise<void> {
+  if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
+  const taken = await db.updateTable("auth_challenge").set({ attempts: sql`attempts + 1` }).where("id", "=", ch.id).where("attempts", "<", MAX_TRIES)
+    .where("consumed_at", "is", null).returning(["attempts", "code_hash"]).executeTakeFirst();
+  if (!taken) {
+    const now_ = await db.selectFrom("auth_challenge").select(["attempts"]).where("id", "=", ch.id).executeTakeFirst();
+    throw (now_?.attempts ?? 0) >= MAX_TRIES ? new KumiError("error.too_many_attempts", {}, 429) : new KumiError(wrong, {}, 401);
+  }
+  if (taken.code_hash !== codeHash(ch.id, code.trim())) {
+    const exhausted = taken.attempts >= MAX_TRIES;
+    throw new KumiError(exhausted ? "error.too_many_attempts" : wrong, {}, exhausted ? 429 : 401);
+  }
+  const used = await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", ch.id).where("consumed_at", "is", null).returning("id").executeTakeFirst();
+  if (!used) throw new KumiError(wrong, {}, 401);
+}
+
 async function personByEmail(db: Db, email: string) {
   return db.selectFrom("person").select(["id", "locale", "display_name", "status"]).where(sql<boolean>`lower(email) = lower(${email})`).where("status", "!=", "archived").executeTakeFirst();
 }
@@ -48,13 +66,7 @@ export async function verifyEmailCode(db: Db, email: string, code: string, userA
   const ch = await db.selectFrom("auth_challenge").selectAll().where(sql<boolean>`lower(target) = lower(${email})`).where("kind", "=", "email_code")
     .where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
   if (!ch) throw new KumiError("error.bad_code", {}, 401);
-  if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
-  if (ch.attempts >= MAX_TRIES) throw new KumiError("error.too_many_attempts", {}, 429);
-  if (ch.code_hash !== codeHash(ch.id, code.trim())) {
-    await db.updateTable("auth_challenge").set({ attempts: sql`attempts + 1` }).where("id", "=", ch.id).execute();
-    const exhausted = ch.attempts + 1 >= MAX_TRIES;
-    throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_code", {}, exhausted ? 429 : 401);
-  }
+  await tryCode(db, ch, code, now, "error.bad_code");
   const person = await personByEmail(db, email);
   if (!person) {
     const club = await db.selectFrom("club").select("sign_up_open").executeTakeFirstOrThrow();
@@ -128,13 +140,7 @@ export async function verifyPhoneCode(db: Db, phone: string, code: string, userA
   const ch = await db.selectFrom("auth_challenge").selectAll().where("target", "=", phone).where("kind", "=", "phone_sign_in")
     .where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
   if (!ch) throw new KumiError("error.bad_text_code", {}, 401);
-  if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
-  if (ch.attempts >= MAX_TRIES) throw new KumiError("error.too_many_attempts", {}, 429);
-  if (ch.code_hash !== codeHash(ch.id, code.trim())) {
-    await db.updateTable("auth_challenge").set({ attempts: sql`attempts + 1` }).where("id", "=", ch.id).execute();
-    const exhausted = ch.attempts + 1 >= MAX_TRIES;
-    throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_text_code", {}, exhausted ? 429 : 401);
-  }
+  await tryCode(db, ch, code, now, "error.bad_text_code");
   const person = await personByPhone(db, phone);
   if (!person) {
     const club = await db.selectFrom("club").select("sign_up_open").executeTakeFirstOrThrow();
@@ -183,14 +189,7 @@ export async function startEmailAdd(db: Db, mailer: Mailer, personId: string, em
 export async function verifyEmailAdd(db: Db, personId: string, code: string, now = new Date(), o?: { mailer: Mailer; undoUrl: (token: string) => string; by?: string }): Promise<string> {
   const ch = await db.selectFrom("auth_challenge").selectAll().where("kind", "=", "email_add").where("person_id", "=", personId).where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
   if (!ch) throw new KumiError("error.bad_code", {}, 401);
-  if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
-  if (ch.attempts >= MAX_TRIES) throw new KumiError("error.too_many_attempts", {}, 429);
-  if (ch.code_hash !== codeHash(ch.id, code.trim())) {
-    await db.updateTable("auth_challenge").set({ attempts: sql`attempts + 1` }).where("id", "=", ch.id).execute();
-    const exhausted = ch.attempts + 1 >= MAX_TRIES;
-    throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_code", {}, exhausted ? 429 : 401);
-  }
-  await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", ch.id).execute();
+  await tryCode(db, ch, code, now, "error.bad_code");
   const p = await db.selectFrom("person").select(["email", "display_name", "locale"]).where("id", "=", personId).executeTakeFirstOrThrow();
   // Done by staff at the desk: who, kept with the change.
   const by = o?.by ? { by: o.by } : {}, via = o?.by ? "staff" : "web";

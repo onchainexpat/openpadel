@@ -7,13 +7,12 @@
 import { createHash, randomInt } from "node:crypto";
 import { Hono, type Context } from "hono";
 import * as z from "zod/mini";
-import { sql } from "kysely";
 import { t, type Lang } from "@kumi/i18n";
 import { confirmedPhone, countText, keyword, KumiError, segments, textAllowed, runAsSystem, showPhone, startNumber, stopNumber, textingOn, textsAnswer, textStatus, textWords, TEXTS_FORM, TextError,
   UNSUBSCRIBED, usPhone, uuidv7, type Db, type Texter } from "@kumi/core";
 import { RateLimiter } from "./limits.ts";
 import { validSignature } from "./twilio.ts";
-import { sendUndoLink } from "./auth.ts";
+import { sendUndoLink, tryCode } from "./auth.ts";
 import { mayAddSecondStep } from "./passkeys.ts";
 import type { Mailer } from "./mailer.ts";
 
@@ -108,14 +107,7 @@ export function textRoutes(d: TextDeps) {
     if (!parsed.success) throw new KumiError("error.bad_text_code", {}, 400);
     const ch = await db.selectFrom("auth_challenge").selectAll().where("kind", "=", "phone_code").where("person_id", "=", id).where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
     if (!ch) throw new KumiError("error.phone_no_code", {}, 400);
-    if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
-    if (ch.attempts >= MAX_TRIES) throw new KumiError("error.too_many_attempts", {}, 429);
-    if (ch.code_hash !== codeHash(ch.id, parsed.data.code.trim())) {
-      await db.updateTable("auth_challenge").set({ attempts: sql`attempts + 1` }).where("id", "=", ch.id).execute();
-      const exhausted = ch.attempts + 1 >= MAX_TRIES;
-      throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_text_code", {}, exhausted ? 429 : 401);
-    }
-    await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", ch.id).execute();
+    await tryCode(db, ch, parsed.data.code, now, "error.bad_text_code");
     const before = await confirmedPhone(db, id);
     await runAsSystem(db, "phone.confirm", { person_id: id, phone: ch.target }, "web", { now });
     if (before !== ch.target) await toldOfNewNumber(id, before, ch.target, d.lang(c), now);
