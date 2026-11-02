@@ -17,12 +17,15 @@ export class RateLimiter {
   }
 }
 
-/** The address a request came from. Behind Caddy on the same machine, Caddy's X-Forwarded-For says who
- *  it was (Caddy replaces any the client sent); from anywhere else the header isn't trusted. */
-export function clientIp(c: Context<any>): string | null {
+/** The address a request came from. Behind Caddy, Caddy's X-Forwarded-For says who it was (Caddy replaces
+ *  any the client sent, and the last entry is the one it adds). It's trusted from Caddy on the same machine,
+ *  and from any peer when KUMI_TRUST_PROXY=1: Docker's Caddy is another container, and the server's port is
+ *  reachable only from the compose network. From anywhere else the header isn't trusted. */
+export function clientIp(c: Context<any>, env: Record<string, string | undefined> = process.env): string | null {
   const remote: string | undefined = c.env?.incoming?.socket?.remoteAddress;
   if (!remote) return null;   // in-process requests (tests) have no address
   const local = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  const trusted = local || env.KUMI_TRUST_PROXY === "1";
   const forwarded = c.req.header("x-forwarded-for")?.split(",").map((s) => s.trim()).filter(Boolean).at(-1);
-  return local && forwarded ? forwarded : remote;
+  return trusted && forwarded ? forwarded : remote;
 }

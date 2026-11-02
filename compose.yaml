@@ -20,6 +20,7 @@ services:
       DATABASE_URL: postgresql://kumi:${KUMI_DB_PASSWORD}@db/kumi
       KUMI_PUBLIC_URL: https://staff.${KUMI_HOST:?set KUMI_HOST in .env}
       KUMI_MEMBER_URL: https://${KUMI_HOST}
+      KUMI_TRUST_PROXY: "1"              # Caddy (the web service) says who each visitor is; port 8790 isn't published
     volumes:
       - ./config:/etc/kumi:ro            # club.yaml and member lists for the kumi command
       - ./backups:/var/backups/kumi:ro   # so kumi doctor can see the backups

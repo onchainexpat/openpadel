@@ -15,6 +15,7 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 | `KUMI_PUBLIC_URL` | The staff app's address, such as `https://staff.app.yourclub.com`. Used for passkeys, agent sign-in and Stripe's return pages. | `http://127.0.0.1:8790` |
 | `KUMI_MEMBER_URL` | The members' app's address, such as `https://app.yourclub.com`. Links members are sent use it: a club news email's unsubscribe link, and the public page's own address for search engines. | `KUMI_PUBLIC_URL` without its `staff.`, or `KUMI_PUBLIC_URL` itself when it has none |
 | `KUMI_PRACTICE` | `1` keeps a production server in practice: real email only to `KUMI_MAIL_TEST_TO`, real texts only to `KUMI_SMS_TEST_TO`. Remove it to go live. | off |
+| `KUMI_TRUST_PROXY` | `1` believes the proxy's `X-Forwarded-For` from any address, so sign-in limits and the bot check count each visitor, not the proxy. Only for a server whose port is reachable through the proxy alone: Docker sets it, since Caddy is another container. Caddy on the same machine is always believed. | off |
 | `KUMI_BOT_CHECK` | `0` turns bot protection off on a practice machine (for scripts that sign in over the API). Production refuses to start with it off. | on |
 | `KUMI_PUSH_CONTACT` | Who push services can contact about this server's notifications: a `mailto:` address or an `https://` page. The keys that sign pushes are made by the server itself, the first time someone turns notifications on, and kept in the database. | `KUMI_PUBLIC_URL` when it's `https`, otherwise `mailto:owner@localhost` |
 

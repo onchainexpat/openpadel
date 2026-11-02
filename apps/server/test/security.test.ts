@@ -4,7 +4,7 @@ import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { runAsSystem, uuidv7, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
-import { RateLimiter } from "../src/limits.ts";
+import { clientIp, RateLimiter } from "../src/limits.ts";
 
 let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>;
 const mailer = new MemoryMailer();
@@ -24,6 +24,21 @@ test("the limiter counts tries in a window, per key", () => {
   assert.equal(l.take("a", 0), true); assert.equal(l.take("a", 10), true); assert.equal(l.take("a", 20), false);
   assert.equal(l.take("b", 20), true);
   assert.equal(l.take("a", 1015), true);   // the first try has left the window
+});
+
+test("the address behind a proxy: Caddy's last X-Forwarded-For entry, only from a trusted peer", () => {
+  const ctx = (remote: string, xff?: string) => ({ env: { incoming: { socket: { remoteAddress: remote } } }, req: { header: (n: string) => n === "x-forwarded-for" ? xff : undefined } }) as any;
+  // Caddy on the same machine: trusted.
+  assert.equal(clientIp(ctx("127.0.0.1", "198.51.100.66"), {}), "198.51.100.66");
+  // Docker: Caddy is another container. Without KUMI_TRUST_PROXY every visitor would be Caddy's address,
+  // so one person's tries would use up everyone's sign-in limits.
+  assert.equal(clientIp(ctx("172.18.0.4", "198.51.100.66"), {}), "172.18.0.4");
+  assert.equal(clientIp(ctx("172.18.0.4", "198.51.100.66"), { KUMI_TRUST_PROXY: "1" }), "198.51.100.66");
+  assert.equal(clientIp(ctx("172.18.0.4", "203.0.113.9"), { KUMI_TRUST_PROXY: "1" }), "203.0.113.9");
+  // The last entry is the one the proxy added; anything before it came from the client.
+  assert.equal(clientIp(ctx("172.18.0.4", "10.0.0.1, 198.51.100.66"), { KUMI_TRUST_PROXY: "1" }), "198.51.100.66");
+  // A direct visitor's own header is never believed.
+  assert.equal(clientIp(ctx("198.51.100.7", "10.0.0.1"), {}), "198.51.100.7");
 });
 
 test("one address can ask for 10 codes in 15 minutes, then waits", async () => {
