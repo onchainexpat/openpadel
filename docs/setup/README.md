@@ -345,6 +345,15 @@ watching hears once.
   small puzzle first, and a hidden field catches scripts that fill in everything. Nothing to set up. On a
   practice machine, `KUMI_BOT_CHECK=0` turns it off for scripts that sign in over the API; production
   refuses to start that way.
+- **Members' own assistants.** A member (or anyone) can connect Claude, ChatGPT or another assistant to
+  the club at `https://<the staff app's address>/mcp`. They sign in on the club's own page, then choose how
+  much it may spend for them each week: nothing (the default), $25, $50, $100 or $200. What counts is money
+  they themselves pay for what the assistant books (courts, shares, places, lessons, memberships, extra
+  time), this week from Monday on the club's clock, less what came back to the card. Over the limit, the
+  preview stops and says to do it in the app. In Profile, Assistants, they see what each spent this week,
+  change its limit (up to $500) or disconnect it. Staff working for the club through an assistant (a
+  refund, someone else's booking) aren't limited, since it isn't their own money; every change is still
+  previewed first, and an assistant never does more than the person could.
 
 ### Members' data: a copy, and deleting an account
 

@@ -6,13 +6,14 @@ import { sql } from "kysely";
 import { both, type Key, type Lang, type Params, type Text } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { checkAssistantSpend } from "./assistant_spend.ts";
 import { uuidv7 } from "./ids.ts";
 import { decide, type Decision } from "./permissions.ts";
 
 /** How the person proved who they are: the strong-sign-in rule reads it. */
 /** "two_factor": an emailed code and then an authenticator or recovery code. */
 export type AuthMethod = "email_code" | "phone_code" | "passkey" | "two_factor" | "oauth" | "system";
-export interface Actor { personId: string | null; agentId?: string | null; via: string; lang: Lang; auth?: AuthMethod }
+export interface Actor { personId: string | null; agentId?: string | null; via: string; lang: Lang; auth?: AuthMethod; /** The assistant connection acting (the MCP door), whose weekly cap applies. */ grantId?: string | null }
 export type UndoKind = "reversible" | "compensating" | "none";
 export interface Read { entity: Entity; id: string; version: number }
 export interface Plan {
@@ -113,6 +114,7 @@ const ENTITIES = {
   message_template: { table: "message_template", key: "id", retire: { active: false } },
   broadcast: { table: "broadcast", key: "id", retire: { status: "cancelled" } },
   staff_alert: { table: "staff_alert", key: "id", retire: null },
+  oauth_grant: { table: "oauth_grant", key: "id", retire: { revoked_at: "now" } },
   vault_item: { table: "vault_item", key: "id", retire: { active: false } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
@@ -217,6 +219,8 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     const instead = await planGate(db, name, input, actor, p, now);
     if (instead) return plan(db, instead.name, instead.input, actor, { now, internal: true });
   }
+  // An assistant can't plan past the weekly cap its person set for it (assistant_spend.ts).
+  if (actor.grantId && actor.personId) await checkAssistantSpend(db, actor.grantId, name, input, p, actor.personId, now);
   const status = d.mode === "ask" || p.secondPerson ? "awaiting_approval" : "planned";
   const expiresAt = new Date(now.getTime() + (status === "planned" ? PLAN_MINUTES * 60_000 : APPROVAL_DAYS * 864e5));
   const runId = uuidv7(now.getTime());
@@ -225,6 +229,7 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     location_id: p.locationId ?? null, input: JSON.stringify(input), plan: JSON.stringify(p), status, undo_kind: p.undo.kind,
     undo_note: p.undo.note ? JSON.stringify(p.undo.note) : null, read_versions: JSON.stringify(Object.fromEntries(p.reads.map((r) => [keyOf(r.entity, r.id), r.version]))),
     plan_expires_at: expiresAt, money_cents: String(p.moneyCents ?? 0), undo_of: (input as any)?.run_id && name === "action.undo" ? (input as any).run_id : null,
+    oauth_grant_id: actor.grantId ?? null,
   }).execute();
   return { runId, status, plan: p, expiresAt };
 }
@@ -257,11 +262,16 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
         const d = await decide(trx, run.action, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now });
         if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
       }
+      // Checked again as it happens, with the connection locked, so two confirms at once can't both fit.
+      if (run.oauth_grant_id && run.actor_person_id) {
+        await trx.selectFrom("oauth_grant").select("id").where("id", "=", run.oauth_grant_id).forUpdate().execute();
+        await checkAssistantSpend(trx, run.oauth_grant_id, run.action, run.input, p, run.actor_person_id, now, runId);
+      }
       for (const [k, v] of Object.entries(run.read_versions as Record<string, number>)) {
         const [entity, ...rest] = k.split(":");
         if ((await currentVersion(trx, entity as Entity, rest.join(":"))) !== v) throw new KumiError("error.changed");
       }
-      const runActor: Actor = { personId: run.actor_person_id, agentId: run.agent_id, via: run.via, lang: actor.lang };
+      const runActor: Actor = { personId: run.actor_person_id, agentId: run.agent_id, via: run.via, lang: actor.lang, grantId: run.oauth_grant_id };
       const ctx = applyCtx(trx, runActor, now, runId);
       const result = (await def.apply(ctx, run.input, p)) ?? null;
       await trx.updateTable("action_run").set({

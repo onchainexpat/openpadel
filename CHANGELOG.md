@@ -347,6 +347,13 @@ The first version a club can run on its own (court bookings included), or for it
   start someone's second step over (a lost phone): their authenticator, recovery codes and passkeys go and
   they're signed out everywhere; `kumi reset-sign-in <email>` does it on the server for an owner who is
   locked out. Connecting an agent asks for the second step too.
+- A weekly spending limit for a person's own assistant (Claude, ChatGPT and others, through the club's MCP
+  address): chosen when they connect it, nothing unless they pick $25, $50, $100 or $200. It counts what they
+  themselves pay for what the assistant books this week (from Monday, the club's clock), less refunds of
+  those; over it, the preview stops and says to do it in the app, and it's checked again on confirming, so
+  two previews can't both squeeze in. Profile, Assistants shows each one's week, changes its limit (up to
+  $500) or disconnects it, which ends its tokens at once. Staff working for the club through an assistant
+  aren't limited. The assistant's "whoami" says what's left. Fixed: "whoami" itself failed on a query.
 - Bot protection with no third party, on sign-up, sign-in codes and opening a card form: a field people
   never see, and a small proof of work the page solves (a fraction of a second on a phone, harder for an
   address that keeps failing). It's always on in production; staff at the desk and agents don't meet it.

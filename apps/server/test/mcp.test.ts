@@ -18,7 +18,7 @@ const req = (path: string, init: RequestInit = {}) => app.request(path.startsWit
 const form = (o: Record<string, string>) => ({ method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(o).toString() });
 
 /** The whole sign-in an assistant does: authorize, sign in on the consent page, allow, swap the code. */
-async function connect(email: string, clientId: string, redirect: string, opts: { sendVerifier?: string; resource?: string } = {}) {
+async function connect(email: string, clientId: string, redirect: string, opts: { sendVerifier?: string; resource?: string; cap?: string } = {}) {
   const verifier = b64(randomBytes(32)), challenge = b64(createHash("sha256").update(verifier).digest());
   const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", state: "s1", scope: "kumi", resource: `${BASE}/mcp` });
   const authorize = `/oauth/authorize?${q}`;
@@ -30,7 +30,7 @@ async function connect(email: string, clientId: string, redirect: string, opts: 
   const cookie = r2.headers.get("set-cookie")!.split(";")[0]!;
   const consent = await (await req(r2.headers.get("location")!, { headers: { cookie } })).text();
   const id = consent.match(/name="req" value="([^"]+)"/)![1]!;
-  const r3 = await req("/oauth/decide", { ...form({ req: id, decision: "allow" }), headers: { "content-type": "application/x-www-form-urlencoded", cookie } });
+  const r3 = await req("/oauth/decide", { ...form({ req: id, decision: "allow", ...(opts.cap !== undefined ? { cap: opts.cap } : {}) }), headers: { "content-type": "application/x-www-form-urlencoded", cookie } });
   const back = new URL(r3.headers.get("location")!);
   assert.equal(back.searchParams.get("state"), "s1"); assert.equal(back.searchParams.get("iss"), BASE);
   const tok = await req("/oauth/token", form({ grant_type: "authorization_code", code: back.searchParams.get("code")!, code_verifier: opts.sendVerifier ?? verifier, client_id: clientId, redirect_uri: redirect, resource: opts.resource ?? `${BASE}/mcp` }));
@@ -116,4 +116,23 @@ test("PKCE, resource binding and refresh rotation; a reused refresh token ends t
 test("redirect URIs must be https or localhost", async () => {
   const r = await req("/oauth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: ["http://evil.example/cb"] }) });
   assert.equal(r.status, 400);
+});
+
+test("connecting sets a weekly spending limit, $0 unless the person picks more; the assistant can read what's left", async () => {
+  const email = "cara@example.test", id = uuidv7();
+  await db.insertInto("person").values({ id, display_name: "Cara", email, locale: "en", created_via: "desk" }).execute();
+  const member = await db.selectFrom("role").select("id").where("key", "=", "member").executeTakeFirstOrThrow();
+  await db.insertInto("person_role").values({ id: uuidv7(), person_id: id, role_id: member.id, location_id: null }).execute();
+  const { body, consent } = await connect(email, CLAUDE, "https://claude.ai/api/mcp/auth_callback", { cap: "5000" });
+  assert.match(consent, /How much may it spend for you each week\?/);
+  assert.match(consent, /<option value="0">Nothing: anything that costs money, I&#39;ll do in the app<\/option>/);
+  const client = await mcp(body.access_token);
+  const me = textOf(await client.callTool({ name: "whoami", arguments: {} }));
+  assert.deepEqual(me.spending, { weekly_limit: "$50.00", spent_this_week: "$0.00", left: "$50.00" });
+  assert.deepEqual(me.roles.map((r: any) => r.key), ["member"]);   // whoami's own query works (it named an ambiguous column before)
+  await client.close();
+  const odd = await connect(email, CLAUDE, "https://claude.ai/api/mcp/auth_callback", { cap: "999999" });   // not one of the choices
+  const grants = await db.selectFrom("oauth_grant").select("weekly_cap_cents").where("person_id", "=", id).orderBy("created_at", "desc").execute();
+  assert.ok(odd.body.access_token);
+  assert.deepEqual(grants.map((g) => g.weekly_cap_cents), [0, 5000]);
 });

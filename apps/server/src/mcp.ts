@@ -5,15 +5,16 @@ import * as z from "zod/mini";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { both, en, isLang, type Key, type Lang, type Text } from "@kumi/i18n";
-import { actions, apply, mayEverDo, plan, KumiError, type Actor, type Db } from "@kumi/core";
+import { money } from "@kumi/i18n";
+import { actions, apply, mayEverDo, plan, weekSpent, KumiError, type Actor, type Db } from "@kumi/core";
 
 const toolBase = (action: string) => action.replace(/\./g, "_");
 const titleOf = (action: string): Text => (`action.${action}` in en ? both(`action.${action}` as Key) : { en: action, es: action });
 
-export async function mcpServerFor(db: Db, who: { id: string; display_name: string; locale: string; client_name: string | null }, now: () => Date): Promise<McpServer> {
+export async function mcpServerFor(db: Db, who: { id: string; display_name: string; locale: string; client_name: string | null; grant_id: string }, now: () => Date): Promise<McpServer> {
   const lang: Lang = isLang(who.locale) ? who.locale : "en";
-  const actor: Actor = { personId: who.id, via: `mcp:${who.client_name ?? "client"}`, lang, auth: "oauth" };
-  const server = new McpServer({ name: "kumi", version: "0.1.0" }, { instructions: `You act for ${who.display_name} at their padel club. Every change is two steps: call a *_preview tool, show the person the summary in their words, and only after they agree call the matching *_confirm tool with the run_id. Reply in ${lang === "es" ? "Spanish" : "English"}.` });
+  const actor: Actor = { personId: who.id, via: `mcp:${who.client_name ?? "client"}`, lang, auth: "oauth", grantId: who.grant_id };
+  const server = new McpServer({ name: "kumi", version: "0.1.0" }, { instructions: `You act for ${who.display_name} at their padel club. Every change is two steps: call a *_preview tool, show the person the summary in their words, and only after they agree call the matching *_confirm tool with the run_id. Anything that costs them money must fit the weekly limit they set for you (whoami says what's left); over it, the preview fails and they do it in the club's app. Reply in ${lang === "es" ? "Spanish" : "English"}.` });
   const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v) }] });
   const fail = (e: unknown) => {
     if (e instanceof KumiError) return { isError: true, content: [{ type: "text" as const, text: e.text[lang] }] };
@@ -22,8 +23,11 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
 
   server.registerTool("whoami", { title: lang === "es" ? "Quién soy" : "Who am I", description: "The signed-in person, their roles and the club.", annotations: { readOnlyHint: true } }, async () => {
     const club = await db.selectFrom("club").select(["name", "time_zone"]).executeTakeFirstOrThrow();
-    const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(["role.key", "person_role.location_id"]).where("person_id", "=", who.id).where("active", "=", true).execute();
-    return text({ person: who.display_name, language: lang, roles, club });
+    const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(["role.key", "person_role.location_id"]).where("person_role.person_id", "=", who.id).where("person_role.active", "=", true).execute();
+    const g = await db.selectFrom("oauth_grant").select("weekly_cap_cents").where("id", "=", who.grant_id).executeTakeFirstOrThrow();
+    const spent = await weekSpent(db, who.grant_id, now());
+    return text({ person: who.display_name, language: lang, roles, club,
+      spending: { weekly_limit: money(g.weekly_cap_cents, lang), spent_this_week: money(spent, lang), left: money(Math.max(0, g.weekly_cap_cents - spent), lang) } });
   });
 
   for (const a of actions()) {

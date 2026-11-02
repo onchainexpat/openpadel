@@ -5,12 +5,15 @@ import { createHash, randomBytes } from "node:crypto";
 import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setCookie } from "hono/cookie";
-import { t, type Lang } from "@kumi/i18n";
+import { money, t, type Lang } from "@kumi/i18n";
 import { activeFactor, KumiError, useAuthenticatorCode, uuidv7, type Db } from "@kumi/core";
 import { startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 
 export const ACCESS_SECONDS = 3600, REFRESH_DAYS = 30, CODE_SECONDS = 300, SCOPE = "kumi";
+/** What a person can let an assistant spend for them a week, chosen as they connect it ($0 unless they pick more;
+ *  any amount up to $500 later, in the app). */
+export const CAP_CHOICES = [0, 2500, 5000, 10000, 20000];
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 const b64url = (b: Buffer) => b.toString("base64url");
 export type FetchMetadata = (url: string) => Promise<unknown>;
@@ -107,6 +110,8 @@ ${c.req.query("sent") ? html`<label>${t(lang, "consent.code_label")}<input name=
     return c.html(page(lang, t(lang, "consent.title", { client: client.name, club: clubName }), html`
 <p>${t(lang, "consent.body", { client: client.name, host, club: clubName })}</p><p>${t(lang, "consent.signed_in_as", { name: me.display_name })}</p>
 <form method="post" action="/oauth/decide"><input type="hidden" name="req" value="${id}">
+<label>${t(lang, "consent.cap_label")}<select name="cap" style="font:inherit;padding:8px;width:100%;margin:6px 0 4px">${CAP_CHOICES.map((c) => html`<option value="${c}">${c ? money(c, lang) : t(lang, "consent.cap_none")}</option>`)}</select></label>
+<p style="font-size:14px;color:#55605c">${t(lang, "consent.cap_note")}</p>
 <button class="primary" name="decision" value="allow">${t(lang, "consent.allow")}</button> <button name="decision" value="deny">${t(lang, "consent.deny")}</button></form>`));
   });
 
@@ -149,7 +154,9 @@ ${c.req.query("sent") ? html`<label>${t(lang, "consent.code_label")}<input name=
     u.searchParams.set("iss", issuer);
     if (f.decision !== "allow") { u.searchParams.set("error", "access_denied"); return c.redirect(u.toString(), 302); }
     const grantId = uuidv7(), code = b64url(randomBytes(24));
-    await deps.db.insertInto("oauth_grant").values({ id: grantId, person_id: me.id, client_id: p.params.client_id, scopes: [p.params.scope], revoked_at: null }).execute();
+    const cap = Number(f.cap ?? 0);
+    await deps.db.insertInto("oauth_grant").values({ id: grantId, person_id: me.id, client_id: p.params.client_id, scopes: [p.params.scope], revoked_at: null,
+      weekly_cap_cents: CAP_CHOICES.includes(cap) ? cap : 0 }).execute();
     await deps.db.insertInto("oauth_code").values({ code_hash: sha(code), grant_id: grantId, redirect_uri: p.params.redirect_uri, code_challenge: p.params.code_challenge, resource: p.params.resource, expires_at: new Date(deps.now().getTime() + CODE_SECONDS * 1000), consumed_at: null }).execute();
     u.searchParams.set("code", code);
     return c.redirect(u.toString(), 302);
@@ -206,7 +213,7 @@ export async function bearerPerson(db: Db, header: string | undefined, resource:
   if (!header?.startsWith("Bearer ")) return null;
   const r = await db.selectFrom("oauth_token").innerJoin("oauth_grant", "oauth_grant.id", "oauth_token.grant_id").innerJoin("oauth_client", "oauth_client.client_id", "oauth_grant.client_id")
     .innerJoin("person", "person.id", "oauth_grant.person_id")
-    .select(["person.id", "person.display_name", "person.locale", "oauth_client.name as client_name", "oauth_token.resource"])
+    .select(["person.id", "person.display_name", "person.locale", "oauth_client.name as client_name", "oauth_token.resource", "oauth_grant.id as grant_id"])
     .where("oauth_token.token_hash", "=", sha(header.slice(7))).where("oauth_token.kind", "=", "access").where("oauth_token.revoked_at", "is", null)
     .where("oauth_grant.revoked_at", "is", null).where("oauth_token.expires_at", ">", now).where("person.status", "!=", "archived").executeTakeFirst();
   return r && r.resource === resource ? r : null;

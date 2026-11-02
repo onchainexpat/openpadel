@@ -27,6 +27,8 @@ export interface ActionRunTable {
   undo_kind: "reversible" | "compensating" | "none"; undo_note: Json | null; undo_of: string | null; undo_until: Date | null; parent_id: string | null;
   read_versions: Json; plan_expires_at: Date; money_cents: Generated<string>; idempotency_key: string | null; ai_cost_cents: Generated<number>;
   result: Json | null; error: Json | null; approved_by: string | null; created_at: Generated<Date>; applied_at: Date | null;
+  /** The assistant connection (MCP) that made it, for the person's weekly spending cap. */
+  oauth_grant_id: Generated<string | null>;
 }
 export interface EntityChangeTable { id: Generated<string>; action_run_id: string; entity: string; entity_id: string; op: "insert" | "update"; before: Json | null; after: Json; at: Generated<Date> }
 export interface EventOutboxTable { id: Generated<string>; action_run_id: string | null; topic: string; payload: Json; created_at: Generated<Date>; delivered_at: Date | null; attempts: Generated<number> }
@@ -56,7 +58,7 @@ export interface MessageTopicTable { topic: string; since: Generated<Date> }
 export interface ChannelConsentTable { id: string; person_id: string; channel: string; purpose: string; granted: boolean; source: string; form_version: string | null; evidence: Json | null; at: Generated<Date> }
 
 export interface OAuthClientTable { client_id: string; kind: "registered" | "published"; name: string | null; redirect_uris: string[]; auth_method: Generated<string>; secret_hash: string | null; metadata: Json | null; created_at: Generated<Date> }
-export interface OAuthGrantTable { id: string; person_id: string; client_id: string; scopes: string[]; weekly_cap_cents: Generated<number>; created_at: Generated<Date>; revoked_at: Date | null }
+export interface OAuthGrantTable { id: string; person_id: string; client_id: string; scopes: string[]; weekly_cap_cents: Generated<number>; created_at: Generated<Date>; revoked_at: Date | null; version: Generated<number> }
 export interface OAuthCodeTable { code_hash: string; grant_id: string; redirect_uri: string; code_challenge: string; resource: string; expires_at: Date; consumed_at: Date | null }
 export interface OAuthTokenTable { token_hash: string; kind: "access" | "refresh"; grant_id: string; family: string; resource: string; expires_at: Date; used_at: Date | null; revoked_at: Date | null; created_at: Generated<Date> }
 
