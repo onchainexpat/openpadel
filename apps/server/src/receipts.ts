@@ -64,8 +64,10 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
     await staffWithMoney(c);
     const { from, to } = range(c), l = lang(c), rows = await clubReceipts(db, from, to);
     const money = (cents: number, kind: string) => ((kind === "refund" ? -cents : cents) / 100).toFixed(2);
-    const head = ["receipt", "kind", "date", "paid by", "for", "what", "subtotal", "tax", "total", "method", "card"];
-    const lines = rows.slice().reverse().map((r) => [r.number, r.kind, r.local, r.paid_by, r.for ?? "", r.what[l] + (r.more ? ` (+${r.more})` : ""),
+    // What was bought in the reader's language, and in the other one: a club's own names can differ between them.
+    const other = l === "es" ? "en" : "es", more = (r: { more: number }) => (r.more ? ` (+${r.more})` : "");
+    const head = ["receipt", "kind", "date", "paid by", "for", "what", `what (${other})`, "subtotal", "tax", "total", "method", "card"];
+    const lines = rows.slice().reverse().map((r) => [r.number, r.kind, r.local, r.paid_by, r.for ?? "", r.what[l] + more(r), r.what[other] + more(r),
       money(r.subtotal_cents, r.kind), money(r.tax_cents, r.kind), money(r.total_cents, r.kind), r.method, r.card ?? ""].map(cell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-receipts-${from}-to-${to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");

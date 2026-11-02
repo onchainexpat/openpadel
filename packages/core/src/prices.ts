@@ -7,6 +7,7 @@ import { both, money, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, readRow } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { mergeTranslations, translationsInput } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, localParts } from "./clock.ts";
 import { memberPlan } from "./memberships.ts";
@@ -78,6 +79,7 @@ const ruleInput = {
   weekdays: z.optional(z.nullable(z.array(z.number().check(z.int(), z.minimum(0), z.maximum(6))))), starts: z.optional(z.nullable(clockTime)), ends: z.optional(z.nullable(clockTime)),
   valid_from: z.optional(z.nullable(clubDate)), valid_to: z.optional(z.nullable(clubDate)), cents_per_hour: z.number().check(z.int(), z.minimum(0)), priority: z.optional(z.number().check(z.int())),
   plan_ids: z.optional(z.nullable(z.array(z.uuid()))),   // a member price: only for these membership plans
+  translations: translationsInput("price_rule"),           // its name in the other language, for the public page
 };
 export const priceRuleSet = defineAction({
   name: "price.rule_set", version: 1,
@@ -92,8 +94,9 @@ export const priceRuleSet = defineAction({
     return { title: both("action.price.rule_set"), summary: both(plans.length ? "plan.price.rule_set_members" : "plan.price.rule_set", p), reads, locationId: i.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
-    const { rule_id, ...r } = i;
-    const row = { ...r, court_ids: r.court_ids?.length ? r.court_ids : null, weekdays: r.weekdays?.length && r.weekdays.length < 7 ? r.weekdays : null,
+    const { rule_id, translations, ...r } = i;
+    const old = rule_id ? (await ctx.trx.selectFrom("price_rule").select("translations").where("id", "=", rule_id).executeTakeFirst())?.translations : {};
+    const row = { ...r, translations: JSON.stringify(mergeTranslations(old, translations)), court_ids: r.court_ids?.length ? r.court_ids : null, weekdays: r.weekdays?.length && r.weekdays.length < 7 ? r.weekdays : null,
       starts: r.starts ?? null, ends: r.ends ?? null, valid_from: r.valid_from ?? null, valid_to: r.valid_to ?? null, priority: r.priority ?? 0, plan_ids: r.plan_ids?.length ? r.plan_ids : null };
     if (rule_id) { await ctx.update("price_rule", rule_id, row); return { rule_id }; }
     const id = uuidv7();

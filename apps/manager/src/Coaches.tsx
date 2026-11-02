@@ -3,9 +3,9 @@
 // the coach role on their page.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, dollars, lang, t, usePreview } from "@kumi/ui";
+import { api, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
 
-type Profile = { bio: string | null; level_min: string | null; level_max: string | null; languages: string[]; rates: Record<string, number>; photo: string | null; lessons: boolean; max_players: number };
+type Profile = { bio: string | null; translations?: unknown; level_min: string | null; level_max: string | null; languages: string[]; rates: Record<string, number>; photo: string | null; lessons: boolean; max_players: number };
 type Stretch = { location_id: string; weekday: number; starts: string; ends: string };
 type Coach = { id: string; name: string; profile: Profile | null; hours: Stretch[]; time_off: { id: string; note: string | null; from: string; to: string }[] };
 type Data = { can_edit_all: boolean; lengths: number[]; locations: { id: string; name: string }[]; coaches: Coach[] };
@@ -62,7 +62,7 @@ export function Coaches() {
 function CoachEdit({ c, d, preview }: { c: Coach; d: Data; preview: Preview }) {
   const p = c.profile;
   const lengths = [...new Set([...d.lengths, ...Object.keys(p?.rates ?? {}).map(Number)])].sort((a, b) => a - b);
-  const [f, setF] = useState({ bio: p?.bio ?? "", lmin: p?.level_min ?? "", lmax: p?.level_max ?? "", languages: p?.languages ?? ["en"], lessons: p?.lessons ?? true, players: p?.max_players ?? 4,
+  const [f, setF] = useState({ bio: p?.bio ?? "", bio_tr: savedIn(p?.translations, "bio"), lmin: p?.level_min ?? "", lmax: p?.level_max ?? "", languages: p?.languages ?? ["en"], lessons: p?.lessons ?? true, players: p?.max_players ?? 4,
     rates: Object.fromEntries(lengths.map((m) => [m, p?.rates[String(m)] !== undefined ? String(p.rates[String(m)]! / 100) : ""])) as Record<number, string> });
   const [loc, setLoc] = useState(d.locations[0]?.id ?? ""), [photoError, setPhotoError] = useState(false);
   const [hours, setHours] = useState<Stretch[]>(c.hours);
@@ -70,7 +70,8 @@ function CoachEdit({ c, d, preview }: { c: Coach; d: Data; preview: Preview }) {
   const save = (e: Event) => {
     e.preventDefault();
     preview("coach.set_profile", { person_id: c.id, bio: f.bio.trim() || null, level_min: f.lmin === "" ? null : Number(f.lmin), level_max: f.lmax === "" ? null : Number(f.lmax), languages: f.languages,
-      rates: lengths.filter((m) => f.rates[m]!.trim() !== "").map((m) => ({ minutes: m, cents: toCents(f.rates[m]!) })), lessons: f.lessons, max_players: f.players });
+      rates: lengths.filter((m) => f.rates[m]!.trim() !== "").map((m) => ({ minutes: m, cents: toCents(f.rates[m]!) })), lessons: f.lessons, max_players: f.players,
+      translations: translationsOf({ bio: f.bio_tr }) });
   };
   const photo = async (file: File | undefined) => {
     if (!file) return;
@@ -83,6 +84,7 @@ function CoachEdit({ c, d, preview }: { c: Coach; d: Data; preview: Preview }) {
     <div>
       <form class="card-form" onSubmit={save}>
         <label>{t("ui.coach_bio")}<textarea maxLength={600} value={f.bio} onInput={(e) => setF({ ...f, bio: e.currentTarget.value })} /></label>
+        <OtherLang value={f.bio_tr} onInput={(v) => setF({ ...f, bio_tr: v })} source={f.bio} multiline rows={3} maxLength={600} />
         <fieldset><legend>{t("ui.coach_levels_taught")}</legend><div class="court-row">
           <label>{t("ui.from")}<input type="number" min={0.5} max={7} step={0.25} value={f.lmin} onInput={(e) => setF({ ...f, lmin: e.currentTarget.value })} /></label>
           <label>{t("ui.to")}<input type="number" min={0.5} max={7} step={0.25} value={f.lmax} onInput={(e) => setF({ ...f, lmax: e.currentTarget.value })} /></label></div></fieldset>

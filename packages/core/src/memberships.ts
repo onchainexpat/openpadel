@@ -10,6 +10,7 @@ import { both, money, type Key, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { mergeTranslations, textOf, translationsInput } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts, onDate } from "./clock.ts";
 import { account, paymentProvider, post } from "./money.ts";
@@ -112,6 +113,8 @@ const planInput = {
   // A family plan: how many people from one household it covers (the payer included), and the price of each one more.
   family_size: z.optional(z.nullable(z.number().check(z.int(), z.minimum(2), z.maximum(12), z.describe("People covered, the payer included: a family plan")))),
   extra_person_cents: z.optional(z.nullable(z.number().check(z.int(), z.minimum(0), z.describe("Each person beyond family_size, each period; none: no more than family_size")))),
+  // The name and description in the other language (club_text.ts): { es: { name, description } }. Left out: kept as they are.
+  translations: translationsInput("membership_plan"),
 };
 export const planSet = defineAction({
   name: "membership.plan_set", version: 1,
@@ -135,8 +138,9 @@ export const planSet = defineAction({
       reads, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
-    const { plan_id, ...p } = i;
-    const row = { ...p, description: p.description ?? null, days_ahead: p.days_ahead ?? null, join_in_app: p.join_in_app ?? true, sort: p.sort ?? 0,
+    const { plan_id, translations, ...p } = i;
+    const old = plan_id ? (await ctx.trx.selectFrom("membership_plan").select("translations").where("id", "=", plan_id).executeTakeFirst())?.translations : {};
+    const row = { ...p, translations: JSON.stringify(mergeTranslations(old, translations)), description: p.description ?? null, days_ahead: p.days_ahead ?? null, join_in_app: p.join_in_app ?? true, sort: p.sort ?? 0,
       max_members: p.max_members ?? null, starts_on: p.starts_on ?? null, perks_before_start: p.perks_before_start ?? true, program_percent_off: p.program_percent_off ?? null, program_cents_off: p.program_cents_off ?? null,
       included_sessions: p.included_sessions ?? null, included_kinds: p.included_kinds ?? ["clinic", "social"],
       family_size: p.family_size ?? null, extra_person_cents: p.family_size ? p.extra_person_cents ?? null : null };
@@ -152,7 +156,7 @@ export const planRemove = defineAction({
   input: z.object({ plan_id: z.uuid() }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan");
-    return { title: both("action.membership.plan_remove"), summary: both("plan.membership.plan_remove", { name: row.name }), reads: [read], undo: { kind: "reversible" } };
+    return { title: both("action.membership.plan_remove"), summary: both("plan.membership.plan_remove", { name: textOf(row.name, row.translations, "name") }), reads: [read], undo: { kind: "reversible" } };
   },
   async apply(ctx, i) { await ctx.update("membership_plan", i.plan_id, { active: false }); return null; },
 });
@@ -164,12 +168,12 @@ export const membershipGrant = defineAction({
   async plan(ctx, i) {
     const { row: person } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const { row: plan, read } = await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan");
-    if (!plan.active) throw new KumiError("error.plan_not_offered", { name: plan.name });
+    if (!plan.active) throw new KumiError("error.plan_not_offered", { name: textOf(plan.name, plan.translations, "name") });
     if (await holds(ctx.db, i.person_id)) throw new KumiError("error.already_member", { name: person.display_name });
     const club = await ctx.db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow();
     if (i.until && i.until < localDate(ctx.now, club.time_zone)) throw new KumiError("error.in_the_past");
     return { title: both("action.membership.grant"), reads: [read], ownerIds: [i.person_id], undo: { kind: "reversible" },
-      summary: both(i.until ? "plan.membership.grant_until" : "plan.membership.grant", { person: person.display_name, name: plan.name, until: i.until ? dayText(i.until) : "" }) };
+      summary: both(i.until ? "plan.membership.grant_until" : "plan.membership.grant", { person: person.display_name, name: textOf(plan.name, plan.translations, "name"), until: i.until ? dayText(i.until) : "" }) };
   },
   async apply(ctx, i) {
     const club = await ctx.trx.selectFrom("club").select("time_zone").executeTakeFirstOrThrow();
@@ -191,8 +195,8 @@ export const membershipEnd = defineAction({
     const { row: m, read } = await readRow(ctx.db, "membership", i.membership_id, "thing.membership");
     if (m.status === "ended") throw new KumiError("error.membership_ended");
     const person = await ctx.db.selectFrom("person").select("display_name").where("id", "=", m.person_id).executeTakeFirstOrThrow();
-    const plan = await ctx.db.selectFrom("membership_plan").select("name").where("id", "=", m.plan_id).executeTakeFirstOrThrow();
-    return { title: both("action.membership.end"), summary: both("plan.membership.end", { person: person.display_name, name: plan.name }),
+    const plan = await ctx.db.selectFrom("membership_plan").select(["name", "translations"]).where("id", "=", m.plan_id).executeTakeFirstOrThrow();
+    return { title: both("action.membership.end"), summary: both("plan.membership.end", { person: person.display_name, name: textOf(plan.name, plan.translations, "name") }),
       reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
@@ -310,11 +314,11 @@ export const membershipJoin = defineAction({
   input: z.object({ plan_id: z.uuid(), person_id: z.uuid() }),
   async plan(ctx, i) {
     const { row: plan, read } = await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan");
-    if (!plan.active || !plan.join_in_app) throw new KumiError("error.plan_not_in_app", { name: plan.name });
+    if (!plan.active || !plan.join_in_app) throw new KumiError("error.plan_not_in_app", { name: textOf(plan.name, plan.translations, "name") });
     if (await holds(ctx.db, i.person_id)) throw new KumiError("error.already_a_member");
-    if (!await hasRoom(ctx.db, plan as { id: string; max_members: number | null })) throw new KumiError("error.plan_full", { name: plan.name });
+    if (!await hasRoom(ctx.db, plan as { id: string; max_members: number | null })) throw new KumiError("error.plan_full", { name: textOf(plan.name, plan.translations, "name") });
     const tz = await clubTz(ctx.db), presale = Boolean(plan.starts_on && plan.starts_on > localDate(ctx.now, tz));
-    const p = { name: plan.name, price: planPrice(plan.price_cents, plan.period), period: both(plan.period === "year" ? "plan.membership.every_year" : "plan.membership.every_month"),
+    const p = { name: textOf(plan.name, plan.translations, "name"), price: planPrice(plan.price_cents, plan.period), period: both(plan.period === "year" ? "plan.membership.every_year" : "plan.membership.every_month"),
       date: plan.starts_on ? dayText(plan.starts_on) : "" };
     const base = both(!plan.price_cents ? "plan.membership.join_free" : presale ? "plan.membership.join_presale" : "plan.membership.join", p);
     // A family plan: whom else it can cover, added afterwards from the Membership page.
@@ -324,12 +328,12 @@ export const membershipJoin = defineAction({
       reads: [read], ownerIds: [i.person_id], moneyCents: presale ? 0 : plan.price_cents, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
-    const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period", "max_members", "starts_on", "family_size", "extra_person_cents"]).where("id", "=", i.plan_id).forUpdate().executeTakeFirstOrThrow();
+    const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "translations", "price_cents", "period", "max_members", "starts_on", "family_size", "extra_person_cents"]).where("id", "=", i.plan_id).forUpdate().executeTakeFirstOrThrow();
     const tz = await clubTz(ctx.trx);
     if (plan.starts_on && plan.starts_on > localDate(ctx.now, tz)) {
       // Before the plan starts: a place now, the card saved next (the members' app opens the form), the
       // first charge on the start date. One place at a time, so the limit holds when many join at once.
-      if (!await hasRoom(ctx.trx, plan)) throw new KumiError("error.plan_full", { name: plan.name });
+      if (!await hasRoom(ctx.trx, plan)) throw new KumiError("error.plan_full", { name: textOf(plan.name, plan.translations, "name") });
       const id = uuidv7(), start = onDate(plan.starts_on, "00:00", tz);
       try {
         await ctx.insert("membership", { id, person_id: i.person_id, plan_id: plan.id, status: "upcoming", source: "app", started_at: start, current_period_end: start,
@@ -355,7 +359,7 @@ export const membershipJoin = defineAction({
 
 async function membershipRow(db: Db | Trx, id: string) {
   const { row, read } = await readRow(db, "membership", id, "thing.membership");
-  const plan = await db.selectFrom("membership_plan").select(["name", "price_cents", "period"]).where("id", "=", row.plan_id).executeTakeFirstOrThrow();
+  const plan = await db.selectFrom("membership_plan").select(["name", "translations", "price_cents", "period"]).where("id", "=", row.plan_id).executeTakeFirstOrThrow();
   const person = await db.selectFrom("person").select("display_name").where("id", "=", row.person_id).executeTakeFirstOrThrow();
   return { m: row as Record<string, any> & { current_period_end: Date; source: string }, read, plan, person: person.display_name as string };
 }
@@ -373,12 +377,12 @@ export const membershipCancel = defineAction({
     // before then (perks before the start) stay as they were: nothing is charged back.
     if (m.status === "upcoming") {
       const early = (await ctx.db.selectFrom("membership_plan").select("perks_before_start").where("id", "=", m.plan_id).executeTakeFirstOrThrow()).perks_before_start;
-      const s = both(own ? "plan.membership.release_own" : "plan.membership.release", { name: plan.name, person }), kept = both("plan.membership.perks_kept");
+      const s = both(own ? "plan.membership.release_own" : "plan.membership.release", { name: textOf(plan.name, plan.translations, "name"), person }), kept = both("plan.membership.perks_kept");
       const had = early && (Boolean(m.saved_method) || m.price_cents === 0);   // the perks were theirs already
       return { title: both("action.membership.cancel"), summary: had ? { en: `${s.en} ${kept.en}`, es: `${s.es} ${kept.es}` } : s,
         reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
     }
-    const p = { name: plan.name, person, until: dayText(endDay(m, await clubTz(ctx.db))) };
+    const p = { name: textOf(plan.name, plan.translations, "name"), person, until: dayText(endDay(m, await clubTz(ctx.db))) };
     return { title: both("action.membership.cancel"), summary: both(own ? "plan.membership.cancel_own" : "plan.membership.cancel", p),
       reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
   },
@@ -401,7 +405,7 @@ export const membershipResume = defineAction({
   async plan(ctx, i) {
     const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
     if (m.status === "ended" || !m.cancel_at_period_end) throw new KumiError("error.membership_not_cancelled");
-    const p = { name: plan.name, person, date: dayText(endDay(m, await clubTz(ctx.db))), price: { en: money(m.price_cents ?? plan.price_cents, "en"), es: money(m.price_cents ?? plan.price_cents, "es") } };
+    const p = { name: textOf(plan.name, plan.translations, "name"), person, date: dayText(endDay(m, await clubTz(ctx.db))), price: { en: money(m.price_cents ?? plan.price_cents, "en"), es: money(m.price_cents ?? plan.price_cents, "es") } };
     return { title: both("action.membership.resume"), summary: both(ctx.actor.personId === m.person_id ? "plan.membership.resume_own" : "plan.membership.resume", p),
       reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
   },
@@ -605,14 +609,14 @@ export const membershipAddPerson = defineAction({
   async plan(ctx, i) {
     const { m, read, plan, person: payer } = await membershipRow(ctx.db, i.membership_id);
     if (!["upcoming", "active", "past_due"].includes(m.status)) throw new KumiError("error.membership_not_live");
-    if (!m.family_size) throw new KumiError("error.not_family_plan", { name: plan.name });
+    if (!m.family_size) throw new KumiError("error.not_family_plan", { name: textOf(plan.name, plan.translations, "name") });
     const { row: who } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     // Only from the payer's household: the other parent, a grown-up child, or a junior.
     const mine = await householdOf(ctx.db, m.person_id), theirs = await householdOf(ctx.db, i.person_id);
     if (i.person_id === m.person_id || !mine || theirs?.household_id !== mine.household_id || who.status !== "active") throw new KumiError("error.not_in_family", { name: who.display_name });
     if (await holds(ctx.db, i.person_id)) throw new KumiError("error.already_member", { name: who.display_name });
     const people = 1 + (await coveredBy(ctx.db, m.id, ctx.now)).filter((x) => !x.ends_at).length, extra = people + 1 > m.family_size;
-    if (extra && m.extra_person_cents == null) throw new KumiError("error.family_full", { name: plan.name, count: m.family_size });
+    if (extra && m.extra_person_cents == null) throw new KumiError("error.family_full", { name: textOf(plan.name, plan.translations, "name"), count: m.family_size });
     const xc = m.extra_person_cents ?? 0, tz = await clubTz(ctx.db), p = { name: who.display_name, plan: plan.name, count: m.family_size, amount: usdText(xc) };
     // One more than the plan covers: charged now for this period (a plan that hasn't started yet: from its first charge).
     const total = usdText((m.price_cents ?? plan.price_cents) + Math.max(0, people + 1 - m.family_size) * xc);
@@ -687,7 +691,7 @@ export const membershipPause = defineAction({
     const shift = until.getTime() - ctx.now.getTime();
     const renews = m.current_period_end ? dayText(endDay({ current_period_end: new Date(m.current_period_end.getTime() + shift), source: m.source }, tz)) : null;
     return { title: both("action.membership.pause"), reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" },
-      summary: both(renews ? (m.source === "app" ? "plan.membership.pause_renews" : "plan.membership.pause_until") : "plan.membership.pause", { person, name: plan.name, date: dayText(i.until), renews: renews ?? "" }) };
+      summary: both(renews ? (m.source === "app" ? "plan.membership.pause_renews" : "plan.membership.pause_until") : "plan.membership.pause", { person, name: textOf(plan.name, plan.translations, "name"), date: dayText(i.until), renews: renews ?? "" }) };
   },
   async apply(ctx, i) {
     const m = await ctx.trx.selectFrom("membership").select(["current_period_end"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
@@ -707,7 +711,7 @@ export const membershipUnpause = defineAction({
   async plan(ctx, i) {
     const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
     if (!m.paused_until || m.paused_until <= ctx.now) throw new KumiError("error.membership_not_paused");
-    return { title: both("action.membership.unpause"), summary: both("plan.membership.unpause", { person, name: plan.name }), reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
+    return { title: both("action.membership.unpause"), summary: both("plan.membership.unpause", { person, name: textOf(plan.name, plan.translations, "name") }), reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const m = await ctx.trx.selectFrom("membership").select(["current_period_end", "paused_until"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();

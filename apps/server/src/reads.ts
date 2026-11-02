@@ -7,6 +7,7 @@ import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
 import { assistantsOf, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { readPeopleCsv } from "./csv.ts";
+import { translatorOn } from "./translate.ts";
 
 type Me = { id: string; locale: string } | null;
 /** Which area a staff page's data belongs to (roles.ts AREAS), for roles the club made. Lists every area uses
@@ -160,7 +161,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "two_factor", "question_alert_hours", "auto_answers", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "translations", "two_factor", "question_alert_hours", "auto_answers", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
     const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
     const policy = await currentPolicy(db), plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
@@ -178,7 +179,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const texting = { on: textingOn(), status: reg?.status ?? null, number: reg?.phone_number ?? null, said: reg ? textingStatusText(reg, lang(c), club.time_zone) : [], usage: await textUsage(db) };
     // Each court's own week: a weekday it has no hours of its own for is left out (it follows the location's).
     const courtWeek = (id: string) => own.filter((x) => x.court_id === id).sort((a, b) => a.weekday - b.weekday).map((x) => ({ weekday: x.weekday, opens: t5(x.opens), closes: t5(x.closes) }));
-    return c.json({ club, answerer: currentAnswerer().name, texting, policy, plans, waiver: waiver ? { version_no: waiver.version_no, body: waiver.body } : null, locations: locations.map((l) => ({ ...l,
+    return c.json({ club, answerer: currentAnswerer().name, texting, policy, plans, waiver: waiver ? { version_no: waiver.version_no, body: waiver.body, translations: waiver.translations } : null, drafts: translatorOn(), locations: locations.map((l) => ({ ...l,
       courts: courts.filter((x) => x.location_id === l.id).map((x) => ({ ...x, hours: courtWeek(x.id) })),
       prices: rules.filter((r) => r.location_id === l.id).map((r) => ({ ...r, starts: t5(r.starts), ends: t5(r.ends) })),
       hours: [0, 1, 2, 3, 4, 5, 6].map((w) => { const h = hours.find((x) => x.location_id === l.id && x.weekday === w); return { weekday: w, opens: t5(h?.opens ?? null), closes: t5(h?.closes ?? null) }; }),
@@ -380,7 +381,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .select(["membership.id", "membership.plan_id", "membership_plan.name", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end",
         "membership.cancel_at_period_end", "membership.price_cents", "membership.note", "membership.paused_until", sql<boolean>`membership.saved_method IS NOT NULL`.as("card_saved")])
       .where("membership.person_id", "=", id).where("membership.status", "in", ["upcoming", "active", "past_due"]).executeTakeFirst();
-    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "join_in_app", "max_members", "starts_on", "sort"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
+    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "translations", "price_cents", "period", "days_ahead", "join_in_app", "max_members", "starts_on", "sort"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const tz = await clubTz();
     // Their family (who manages a junior, and the juniors an adult manages), and the waiver.
     const hh = await householdOf(db, id);

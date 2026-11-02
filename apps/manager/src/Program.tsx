@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, lang, mayDo, t, shortTime } from "@kumi/ui";
+import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf } from "@kumi/ui";
 import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
 
 type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; paid_by: string; paid_cents: number; level: string | null; price_basis: string;
@@ -23,6 +23,8 @@ export function Program({ id }: { id: string }) {
   const [ending, setEnding] = useState<{ refund: "rule" | "full" | "none"; note: string } | null>(null);
   const [minimum, setMinimum] = useState<{ min: string; hours: string } | null>(null), [look, setLook] = useState<Preview | null>(null);
   const [pricing, setPricing] = useState<{ price: string; member: string } | null>(null);
+  // Its name, and its name in the club's other language.
+  const [naming, setNaming] = useState<{ name: string; tr: string } | null>(null);
   const [day, setDay] = useState<string | null>(null);   // signed up per date: whose roster is shown
   const [adding, setAdding] = useState(false), [search, setSearch] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]), [compNote, setCompNote] = useState("");
   const load = () => api<Data>(`/staff/programs/${id}`).then((x) => {
@@ -30,7 +32,7 @@ export function Program({ id }: { id: string }) {
     // A draft: the card as members will see it, its dates, and anything in the way, before publishing.
     if (x.program.status === "draft") api<Preview>(`/staff/programs/${id}/preview`).then(setLook); else setLook(null);
   });
-  const { preview, sheet } = usePreview(() => { setRemoving(null); setAdding(false); setPricing(null); setEdit(null); setCancelling(null); setEnding(null); setMinimum(null); load(); });
+  const { preview, sheet } = usePreview(() => { setRemoving(null); setAdding(false); setPricing(null); setNaming(null); setEdit(null); setCancelling(null); setEnding(null); setMinimum(null); load(); });
   useEffect(() => { load(); }, [id]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const p = d.program, money = (c: number) => dollars(c, lang.value);
@@ -67,7 +69,12 @@ export function Program({ id }: { id: string }) {
 
   return (
     <main>
-      <h1>{p.name}</h1>
+      <h1>{p.name} {!naming && <button class="small" onClick={() => setNaming({ name: p.name, tr: savedIn(p.translations, "name") })}>{t("ui.rename")}</button>}</h1>
+      {naming && <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("program.set_name", { program_id: id, name: naming.name.trim(), translations: translationsOf({ name: naming.tr }) }); }}>
+        <label>{t("ui.name")}<input required maxLength={120} value={naming.name} onInput={(e) => setNaming({ ...naming, name: e.currentTarget.value })} /></label>
+        <OtherLang value={naming.tr} onInput={(v) => setNaming({ ...naming, tr: v })} source={naming.name} maxLength={120} />
+        <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setNaming(null)}>{t("ui.cancel")}</button>
+      </form>}
       <p class="meta">{t(`kind.${p.kind}` as Key)} · {byDate ? t("ui.per_date_label") : t("ui.places_taken", { booked: booked.length, capacity: p.capacity })} · {money(p.price_cents)}{p.member_price_cents !== null ? ` (${t("ui.members_pay", { amount: money(p.member_price_cents) })})` : ""} · {t(`ui.status_${p.status}` as Key)}{" "}
         {!pricing && <button class="small" onClick={() => setPricing({ price: String(p.price_cents / 100), member: p.member_price_cents === null ? "" : String(p.member_price_cents / 100) })}>{t("ui.change_prices")}</button>}</p>
       {pricing && <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("program.set_prices", { program_id: id, price_cents: Math.round(Number(pricing.price.replace(",", ".")) * 100),

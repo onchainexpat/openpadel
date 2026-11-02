@@ -10,5 +10,6 @@ export { usePreview, dollars } from "./Preview.tsx";
 export { ProgramCard, placesLeft, type ProgramCardData } from "./ProgramCard.tsx";
 export { protectedPost, botProof } from "./pow.ts";
 export { ReceiptSheet, type ReceiptView } from "./Receipt.tsx";
+export { OtherLang, otherLang, savedIn, translationsOf } from "./OtherLang.tsx";
 /** The second step at sign-in, while a session owes it (me.gate): loaded only then. */
 export const TwoFactor = lazy(() => import("./TwoFactor.tsx").then((m) => m.TwoFactor));

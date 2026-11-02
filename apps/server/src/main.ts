@@ -9,6 +9,7 @@ import { watchHealth } from "./health.ts";
 import { TwilioApi } from "./twilio_admin.ts";
 import { handlers } from "./outbox.ts";
 import { answererFromEnv, answerModels } from "./answerer.ts";
+import { setTranslator, translatorFromEnv } from "./translate.ts";
 
 // The server's key for the secrets it keeps (authenticators, the push key, the vault: sealed.ts). Production
 // refuses to start without one; elsewhere secrets are kept as they are, and it says so.
@@ -106,6 +107,8 @@ const texter: Texter | null = twilio ? { send: (x) => { if (!sending) throw new 
 // (answerer.ts). The club can still switch it off in Settings. Without a key every question goes to the staff.
 const answerer = answererFromEnv(process.env);
 if (answerer) { setAnswerer(answerer); console.log(`ask the club: answered by ${answerer.name}`); }
+// Drafts of the club's own words in its other language, for staff to check (translate.ts): the same Anthropic key.
+setTranslator(translatorFromEnv(process.env));
 // Bot protection on sign-up, sign-in codes and checkout. KUMI_BOT_CHECK=0 leaves it off on a practice
 // machine (scripts that sign in over the API); production refuses to start that way.
 const botCheck = process.env.KUMI_BOT_CHECK !== "0";

@@ -22,6 +22,7 @@ import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
 import { readRoutes } from "./reads.ts";
 import { calendarRoutes } from "./calendar.ts";
+import { translateRoutes, translatorOn } from "./translate.ts";
 import { broadcastRoutes } from "./broadcasts.ts";
 import { publicRoutes } from "./public.ts";
 import { memberUrl } from "./addresses.ts";
@@ -179,7 +180,8 @@ export function makeApp(deps: AppDeps) {
     const coach = await db.selectFrom("coach").select("person_id").where("active", "=", true).where("lessons", "=", true).where(sql<boolean>`rates <> '{}'::jsonb`).executeTakeFirst();
     // Whether the sign-in page offers a texted code: only when the club's texting account is set up.
     // The members' address, for the staff app's links members open (the public page, a booking's players link).
-    return c.json({ ...club, memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null),
+    // Whether the staff forms offer a draft in the club's other language (translate.ts).
+    return c.json({ ...club, memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
       member_url: deps.memberUrl ?? memberUrl(publicUrl, {}) });
   });
 
@@ -192,6 +194,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", vaultRoutes(db, (c) => c.get("me"), now));
   app.route("/", calendarRoutes(db, (c) => c.get("me")));
+  app.route("/", translateRoutes(db, (c) => c.get("me"), { now }));
   app.route("/", broadcastRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", publicRoutes(db, (c) => c.get("lang"), deps.memberUrl ?? memberUrl(publicUrl, {})));
   app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false, now }));

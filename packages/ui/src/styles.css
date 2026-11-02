@@ -37,6 +37,7 @@ body:has(.dock:not(:empty)) main { padding-bottom: 45vh; }
 ul.plain { list-style: none; padding: 0; margin: 0 0 12px; } ul.plain li { padding: 6px 0; border-bottom: 1px solid var(--line); }
 li.row, div.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; } li.row button.small, div.row button.small { margin-top: 0; flex: none; }
 label.check { display: flex; gap: 8px; align-items: center; font-weight: 400; } label.check input { width: auto; margin: 0; }
+.other-lang { border-left: 2px solid var(--line); padding-left: 10px; margin: 0 0 12px; } .other-lang label { font-weight: 400; } .other-lang button { margin-top: 4px; }
 fieldset { border: 0; padding: 0; margin: 0 0 12px; } legend { font-weight: 600; }
 .game { padding: 8px 0; border-bottom: 1px solid var(--line); } .score { display: flex; gap: 8px; align-items: center; } .score input { width: 64px; display: inline-block; margin: 0; }
 .big { font-size: 40px; font-weight: 700; margin: 0; } table { width: 100%; border-collapse: collapse; } td { padding: 6px 4px; border-bottom: 1px solid var(--line); }

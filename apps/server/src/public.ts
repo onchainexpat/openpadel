@@ -5,7 +5,7 @@
 import { sql } from "kysely";
 import { Hono, type Context } from "hono";
 import { isLang, money, t, type Key, type Lang } from "@kumi/i18n";
-import { coachPhoto, factIn, lessonCoaches, localDate, membersFrom, planCounts, ruleWhen, searchFacts, TEXTS_FORM, type Db } from "@kumi/core";
+import { coachPhoto, factIn, inLang, lessonCoaches, trSql, localDate, membersFrom, planCounts, ruleWhen, searchFacts, TEXTS_FORM, type Db } from "@kumi/core";
 
 /** Every value from the database goes through this before it reaches the page. */
 const h = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -34,14 +34,14 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl:
   const app = new Hono();
   const base = memberUrl.replace(/\/$/, "");
   const pick = (c: Context<any>): Lang => { const q = c.req.query("lang"); return isLang(q) ? q : lang(c); };
-  const club = () => db.selectFrom("club").select(["name", "brand_colour", "time_zone", "currency", "public_page", "about", "sign_up_open"]).executeTakeFirstOrThrow();
+  const club = () => db.selectFrom("club").select(["name", "brand_colour", "time_zone", "currency", "public_page", "about", "translations", "sign_up_open"]).executeTakeFirstOrThrow();
   const off = (c: Context<any>) => c.text("Not found", 404);
   const html = (c: Context<any>, body: string) => { c.header("content-type", "text/html; charset=utf-8"); c.header("cache-control", "public, max-age=300"); return c.body(body); };
 
   /** Upcoming public events: published, open to anyone, with places and the first and last dates. */
-  async function events(where?: string) {
+  async function events(where: string | undefined, lang: Lang) {
     const rows = await db.selectFrom("program").innerJoin("location", "location.id", "program.location_id")
-      .select(["program.id", "program.name", "program.kind", "program.format", "program.capacity", "program.price_cents", "program.member_price_cents", "program.level_min", "program.level_max", "program.rated",
+      .select(["program.id", trSql("program", "name", lang).as("name"), "program.kind", "program.format", "program.capacity", "program.price_cents", "program.member_price_cents", "program.level_min", "program.level_max", "program.rated",
         "program.sign_up", "location.name as location", "location.address", "location.time_zone"])
       .select((eb) => [
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
@@ -87,16 +87,16 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl:
     const hours = await db.selectFrom("opening_hours").select(["location_id", "weekday", "opens", "closes"]).execute();
     const special = await db.selectFrom("hours_exception").select(["location_id", "on_date", "opens", "closes", "note"]).where("active", "=", true).where("on_date", ">=", today).orderBy("on_date").limit(20).execute();
     const prices = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
-    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "max_members", "starts_on",
+    const plans = await db.selectFrom("membership_plan").select(["id", trSql("membership_plan", "name", l).as("name"), trSql("membership_plan", "description", l).as("description"), "price_cents", "period", "days_ahead", "max_members", "starts_on",
       "program_percent_off", "program_cents_off", "included_sessions", "included_kinds"]).where("active", "=", true).where("join_in_app", "=", true).orderBy("sort").orderBy("price_cents").execute();
     const counts = await planCounts(db), planName = new Map(plans.map((p) => [p.id, p.name]));
-    const coming = (await events()).slice(0, 30);
+    const coming = (await events(undefined, l)).slice(0, 30);
     const t5 = (x: string | null) => (x ? x.slice(0, 5) : "");
     const where = locations.map((loc) => {
       const mine = courts.filter((x) => x.location_id === loc.id), kinds = [...new Set(mine.map((x) => x.kind))];
       const week = [1, 2, 3, 4, 5, 6, 0].map((w) => { const x = hours.find((y) => y.location_id === loc.id && y.weekday === w); return `<tr><td>${h(weekday(l, w))}</td><td>${x?.opens ? `${t5(x.opens)} - ${t5(x.closes)}` : h(t(l, "ui.closed"))}</td></tr>`; }).join("");
       const days = special.filter((x) => x.location_id === loc.id).map((x) => `<li>${h(fmt(l, "UTC", new Date(`${x.on_date}T12:00:00Z`), { weekday: "short", month: "short", day: "numeric" }))}: ${x.opens ? `${t5(x.opens)} - ${t5(x.closes)}` : h(t(l, "ui.closed"))}${x.note ? ` (${h(x.note)})` : ""}</li>`).join("");
-      const list = prices.filter((r) => r.location_id === loc.id).map((r) => `<li>${h(r.name)}: ${h(money(r.cents_per_hour, l))}${h(t(l, "ui.per_hour"))}, ${h(ruleWhen(r)[l])}${r.plan_ids ? ` <span class="meta">(${h(t(l, "pub.members_of", { plans: r.plan_ids.map((id) => planName.get(id)).filter(Boolean).join(", ") }))})</span>` : ""}</li>`).join("");
+      const list = prices.filter((r) => r.location_id === loc.id).map((r) => `<li>${h(inLang(r.name, r.translations, "name", l))}: ${h(money(r.cents_per_hour, l))}${h(t(l, "ui.per_hour"))}, ${h(ruleWhen(r)[l])}${r.plan_ids ? ` <span class="meta">(${h(t(l, "pub.members_of", { plans: r.plan_ids.map((id) => planName.get(id)).filter(Boolean).join(", ") }))})</span>` : ""}</li>`).join("");
       return `<section><h2>${h(loc.name)}</h2>${loc.address ? `<p>${h(loc.address)}</p>` : ""}<p class="meta">${h(t(l, "pub.courts", { count: mine.length }))}${kinds.length ? `: ${h(kinds.map((k) => t(l, `ui.kind_${k}` as Key)).join(", "))}` : ""}</p>
 <h3>${h(t(l, "ui.hours_title"))}</h3><table>${week}</table>${days ? `<p class="meta">${h(t(l, "ui.special_days"))}</p><ul>${days}</ul>` : ""}
 ${list ? `<h3>${h(t(l, "ui.prices_title"))}</h3><ul>${list}</ul>` : ""}</section>`;
@@ -106,7 +106,7 @@ ${list ? `<h3>${h(t(l, "ui.prices_title"))}</h3><ul>${list}</ul>` : ""}</section
       return `<li><strong>${h(p.name)}</strong>: ${h(t(l, p.period === "year" ? "ui.price_a_year" : "ui.price_a_month", { amount: money(p.price_cents, l) }))}${p.description ? `. ${h(p.description.replace(/\.$/, ""))}` : ""}${p.days_ahead ? `. ${h(t(l, "ui.perk_window", { count: p.days_ahead }))}` : ""}${p.program_percent_off ? `. ${h(t(l, "ui.perk_program_percent", { percent: p.program_percent_off }))}` : p.program_cents_off ? `. ${h(t(l, "ui.perk_program_cents", { amount: money(p.program_cents_off, l) }))}` : ""}${p.included_sessions ? `. ${h(t(l, "ui.perk_included", { count: p.included_sessions, period: t(l, `ui.period_${p.period}`), kinds: p.included_kinds.map((k) => t(l, `kind.${k}` as Key)).join(", ") }))}` : ""}${starts ? `. ${h(t(l, "ui.plan_starts_on", { date: fmt(l, "UTC", new Date(`${starts}T12:00:00Z`), { month: "long", day: "numeric", year: "numeric" }) }))}` : ""}${left !== null ? `. ${h(left ? t(l, "ui.places_left", { count: left }) : t(l, "ui.plan_full"))}` : ""}`.replace(/\.?$/, ".") + "</li>";
     }).join("")}</ul></section>` : "";
     // The coaches, with what members see in the app: never their contact details.
-    const coaches = (await lessonCoaches(db)).filter((x) => x.bio || (x.lessons && Object.keys(x.rates).length));
+    const coaches = (await lessonCoaches(db)).map((x) => ({ ...x, bio: inLang(x.bio, x.translations, "bio", l) })).filter((x) => x.bio || (x.lessons && Object.keys(x.rates).length));
     const coachesHtml = coaches.length ? `<section><h2>${h(t(l, "pub.coaches"))}</h2>${coaches.map((x) => {
       const rates = x.lessons ? Object.entries(x.rates).map(([m, c]) => [Number(m), c] as const).sort((a, b) => a[0] - b[0]).map(([m, c]) => t(l, "pub.lesson_rate", { minutes: t(l, "ui.minutes", { count: m }), price: money(c, l) })).join(", ") : "";
       const levels = x.level_min && x.level_max ? t(l, "pub.coach_levels", { min: x.level_min, max: x.level_max }) : "";
@@ -119,13 +119,14 @@ ${list ? `<h3>${h(t(l, "ui.prices_title"))}</h3><ul>${list}</ul>` : ""}</section
     const faqLd = faq.length ? [{ "@context": "https://schema.org", "@type": "FAQPage", inLanguage: l, mainEntity: faq.map((f) => ({ "@type": "Question", name: f.question, acceptedAnswer: { "@type": "Answer", text: f.answer } })) }] : [];
     const eventsHtml = `<section><h2>${h(t(l, "pub.coming_up"))}</h2>${coming.length ? `<ul>${coming.map((e) => `<li><a href="/public/events/${h(e.id)}${l === "es" ? "?lang=es" : ""}">${h(e.name)}</a><br><span class="meta">${eventLine(l, e)}</span></li>`).join("")}</ul>` : `<p class="meta">${h(t(l, "pub.no_events"))}</p>`}</section>`;
     const join = cl.sign_up_open ? t(l, "pub.join") : t(l, "pub.sign_in");
-    const body = `<header><h1>${h(cl.name)}</h1>${cl.about ? `<p>${h(cl.about)}</p>` : ""}<p><a class="button" href="/">${h(join)}</a> <a href="/public?lang=${l === "es" ? "en" : "es"}">${l === "es" ? "English" : "Español"}</a></p></header>
+    const about = inLang(cl.about, cl.translations, "about", l);
+    const body = `<header><h1>${h(cl.name)}</h1>${about ? `<p>${h(about)}</p>` : ""}<p><a class="button" href="/">${h(join)}</a> <a href="/public?lang=${l === "es" ? "en" : "es"}">${l === "es" ? "English" : "Español"}</a></p></header>
 ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}<footer>${h(t(l, "pub.footer"))}</footer>`;
-    const clubLd = { "@context": "https://schema.org", "@type": "SportsActivityLocation", name: cl.name, url: `${base}/public`, ...(cl.about ? { description: cl.about } : {}),
+    const clubLd = { "@context": "https://schema.org", "@type": "SportsActivityLocation", name: cl.name, url: `${base}/public`, ...(about ? { description: about } : {}),
       ...(locations[0]?.address ? { address: locations[0].address } : {}),
       openingHoursSpecification: hours.filter((x) => x.location_id === locations[0]?.id && x.opens).map((x) => ({ "@type": "OpeningHoursSpecification",
         dayOfWeek: `https://schema.org/${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][x.weekday]}`, opens: t5(x.opens), closes: t5(x.closes) === "24:00" ? "23:59" : t5(x.closes) })) };
-    return html(c, page({ lang: l, title: cl.name, description: cl.about ?? t(l, "pub.description", { club: cl.name }), canonical: `${base}/public${l === "es" ? "?lang=es" : ""}`,
+    return html(c, page({ lang: l, title: cl.name, description: about ?? t(l, "pub.description", { club: cl.name }), canonical: `${base}/public${l === "es" ? "?lang=es" : ""}`,
       other: `${base}/public${l === "es" ? "" : "?lang=es"}`, brand: cl.brand_colour, body, jsonLd: [clubLd, ...coming.map((e) => eventLd(e, cl.name, cl.currency)), ...faqLd] }));
   });
 
@@ -134,9 +135,9 @@ ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}<footer>${h(t(l, "pub.f
     if (!cl.public_page) return off(c);
     const id = c.req.param("id");
     if (!/^[0-9a-f-]{36}$/.test(id)) return off(c);
-    const [e] = await events(id);
-    if (!e) return off(c);
     const l = pick(c);
+    const [e] = await events(id, l);
+    if (!e) return off(c);
     const sessions = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id")
       .select(["session.starts_at", "session.ends_at", sql<number>`coalesce(session.capacity_override, program.capacity)`.as("capacity")])
       .select((eb) => eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.session_id", "=", "session.id").where("enrolment.status", "=", "booked").as("booked"))
@@ -185,7 +186,7 @@ ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}<footer>${h(t(l, "pub.f
   app.get("/public/sitemap.xml", async (c) => {
     const cl = await club();
     if (!cl.public_page) return off(c);
-    const urls = [`${base}/public`, ...(await events()).map((e) => `${base}/public/events/${e.id}`)];
+    const urls = [`${base}/public`, ...(await events(undefined, "en")).map((e) => `${base}/public/events/${e.id}`)];
     c.header("content-type", "application/xml; charset=utf-8");
     return c.body(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${h(u)}</loc></url>`).join("")}</urlset>\n`);
   });

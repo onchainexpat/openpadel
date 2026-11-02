@@ -2,22 +2,22 @@
 // and courts. Every change goes through the preview, like everything else; only what changed is sent.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, club as clubSignal, dollars, lang, me, t, usePreview, type Club } from "@kumi/ui";
+import { api, club as clubSignal, dollars, lang, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club } from "@kumi/ui";
 
 type Hours = { weekday: number; opens: string | null; closes: string | null };
 // A court's own hours: only the weekdays it has its own for (no times: closed); the rest follow the location.
 type Court = { id: string; location_id: string; name: string; kind: string; bookable: boolean; sort: number; hours: Hours[] };
 type Special = { id: string; court_id: string | null; on_date: string; opens: string | null; closes: string | null; note: string | null };
-type Price = { id: string; name: string; court_ids: string[] | null; weekdays: number[] | null; starts: string | null; ends: string | null; valid_from: string | null; valid_to: string | null; cents_per_hour: number; priority: number; plan_ids: string[] | null };
+type Price = { id: string; name: string; translations?: unknown; court_ids: string[] | null; weekdays: number[] | null; starts: string | null; ends: string | null; valid_from: string | null; valid_to: string | null; cents_per_hour: number; priority: number; plan_ids: string[] | null };
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
+type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
 type Usage = { cap: number; cents_per_segment: number; code_ceiling: number; share: number | null; paused: boolean; resets: string; current: Month; history: Month[] };
 type Texting = { on: boolean; status: string | null; number: string | null; said: string[]; usage: Usage | null };
-type S = { club: ClubRow; answerer: string; texting: Texting; policy: Policy; plans: Plan[]; locations: Loc[]; waiver: { version_no: number; body: string } | null };
+type S = { club: ClubRow; answerer: string; texting: Texting; policy: Policy; plans: Plan[]; locations: Loc[]; waiver: { version_no: number; body: string; translations?: unknown } | null };
 type Preview = (action: string, input: unknown) => Promise<void>;
 
 const KINDS = ["indoor", "covered_outdoor", "outdoor"] as const;
@@ -115,26 +115,28 @@ function SignInCard({ rule, send }: { rule: ClubRow["two_factor"]; send: Preview
 
 /** The club's waiver: one text, saved as a new version each time; members accept it before playing. */
 function WaiverForm({ w, send }: { w: S["waiver"]; send: Preview }) {
-  const [body, setBody] = useState(w?.body ?? "");
+  const [body, setBody] = useState(w?.body ?? ""), bodyTr0 = savedIn(w?.translations, "body"), [bodyTr, setBodyTr] = useState(bodyTr0);
   return (
     <section class="card card-form">
       <h2>{t("ui.waiver_settings")}</h2>
       <p class="meta">{w ? t("ui.waiver_version", { version: w.version_no }) : t("ui.waiver_off")}</p>
       <p class="meta">{t("ui.waiver_settings_hint")}</p>
       <textarea rows={8} maxLength={20000} value={body} aria-label={t("ui.waiver_settings")} onInput={(e) => setBody(e.currentTarget.value)} />
-      <button class="primary" disabled={!body.trim() || body.trim() === (w?.body ?? "")} onClick={() => send("waiver.set", { body })}>{t("ui.waiver_save")}</button>{" "}
+      <OtherLang value={bodyTr} onInput={setBodyTr} source={body} multiline rows={8} maxLength={20000} />
+      <button class="primary" disabled={!body.trim() || (body.trim() === (w?.body ?? "") && bodyTr.trim() === bodyTr0)} onClick={() => send("waiver.set", { body, translations: translationsOf({ body: bodyTr }) })}>{t("ui.waiver_save")}</button>{" "}
       {w && <button onClick={() => send("waiver.clear", {})}>{t("ui.waiver_stop")}</button>}
     </section>
   );
 }
 
 function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: Preview }) {
-  const start = { ...c, legal_name: c.legal_name ?? "", about: c.about ?? "" };
-  const [f, setF] = useState(start);
+  const { translations, ...rest } = c, aboutTr0 = savedIn(translations, "about");
+  const start = { ...rest, legal_name: c.legal_name ?? "", about: c.about ?? "" };
+  const [f, setF] = useState(start), [aboutTr, setAboutTr] = useState(aboutTr0);
   const set = (k: keyof ClubRow, v: unknown) => setF({ ...f, [k]: v });
   const toggleLang = (l: string, on: boolean) => set("languages", on ? [...new Set([...f.languages, l])].sort() : f.languages.filter((x) => x !== l));
   return (
-    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("club.update", diff(start, f)); }}>
+    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("club.update", { ...diff(start, f), ...(aboutTr.trim() !== aboutTr0 ? { translations: translationsOf({ about: aboutTr }) } : {}) }); }}>
       <h2>{t("ui.club_details")}</h2>
       <label>{t("ui.name")}<input required value={f.name} onInput={(e) => set("name", e.currentTarget.value)} /></label>
       <label>{t("ui.legal_name")}<input value={f.legal_name} onInput={(e) => set("legal_name", e.currentTarget.value)} /></label>
@@ -152,6 +154,7 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       <label class="check"><input type="checkbox" checked={f.public_page} onChange={(e) => set("public_page", e.currentTarget.checked)} /> {t("ui.public_page_on")}</label>
       {c.public_page && <p class="meta"><a href={`${clubSignal.value?.member_url ?? ""}/public`} target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
       <label>{t("ui.about_club")}<textarea maxLength={600} rows={3} value={f.about ?? ""} onInput={(e) => set("about", e.currentTarget.value)} /></label>
+      <OtherLang value={aboutTr} onInput={setAboutTr} source={f.about ?? ""} multiline rows={3} maxLength={600} />
       <label>{t("ui.question_alert_hours")}<input type="number" min="0" max="72" step="1" value={String(f.question_alert_hours)} onChange={(e) => set("question_alert_hours", Math.max(0, Math.min(72, Math.round(Number(e.currentTarget.value) || 0))))} /></label>
       {/* Ask the club: on by default, and only does anything once the server has a decision model. */}
       <label class="check"><input type="checkbox" checked={f.auto_answers} onChange={(e) => set("auto_answers", e.currentTarget.checked)} /> {t("ui.auto_answers")}</label>
@@ -238,10 +241,10 @@ const ALL_DAYS = [1, 2, 3, 4, 5, 6, 0];
 const usd = (cents: number) => new Intl.NumberFormat(lang.value === "es" ? "es-US" : "en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
 function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
-  const blank = { rule_id: "", name: "", dollars: "", days: [] as number[], allDay: true, starts: "17:00", ends: "22:00", valid_from: "", valid_to: "", courts: [] as string[], priority: 0, plans: [] as string[] };
+  const blank = { rule_id: "", name: "", dollars: "", days: [] as number[], allDay: true, starts: "17:00", ends: "22:00", valid_from: "", valid_to: "", courts: [] as string[], priority: 0, plans: [] as string[], name_tr: "" };
   const [f, setF] = useState(blank);
   const edit = (r: Price) => setF({ rule_id: r.id, name: r.name, dollars: String(r.cents_per_hour / 100), days: r.weekdays ?? [], allDay: !r.starts, starts: r.starts ?? "17:00", ends: r.ends ?? "22:00",
-    valid_from: r.valid_from ?? "", valid_to: r.valid_to ?? "", courts: r.court_ids ?? [], priority: r.priority, plans: r.plan_ids ?? [] });
+    valid_from: r.valid_from ?? "", valid_to: r.valid_to ?? "", courts: r.court_ids ?? [], priority: r.priority, plans: r.plan_ids ?? [], name_tr: savedIn(r.translations, "name") });
   const describe = (r: Price) => [r.weekdays?.length ? r.weekdays.map(dayName).join(", ") : t("ui.every_day"), r.starts && `${r.starts} - ${r.ends}`,
     (r.valid_from || r.valid_to) && `${r.valid_from ?? ""} - ${r.valid_to ?? ""}`, r.court_ids && l.courts.filter((c) => r.court_ids!.includes(c.id)).map((c) => c.name).join(", "),
     r.plan_ids && t("ui.members_of", { plans: plans.filter((p) => r.plan_ids!.includes(p.id)).map((p) => p.name).join(", ") })].filter(Boolean).join(" · ");
@@ -255,8 +258,10 @@ function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
           <span><button type="button" class="small" onClick={() => edit(r)}>{t("ui.change")}</button> <button type="button" class="small" onClick={() => send("price.rule_remove", { rule_id: r.id })}>{t("ui.remove")}</button></span></li>))}</ul>
       <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("price.rule_set", { ...(f.rule_id ? { rule_id: f.rule_id } : {}), location_id: l.id, name: f.name,
         cents_per_hour: Math.round(Number(f.dollars.replace(",", ".")) * 100), weekdays: f.days.length ? f.days : null, starts: f.allDay ? null : f.starts, ends: f.allDay ? null : closing(f.ends),
-        valid_from: f.valid_from || null, valid_to: f.valid_to || null, court_ids: f.courts.length ? f.courts : null, priority: Number(f.priority), plan_ids: f.plans.length ? f.plans : null }); }}>
+        valid_from: f.valid_from || null, valid_to: f.valid_to || null, court_ids: f.courts.length ? f.courts : null, priority: Number(f.priority), plan_ids: f.plans.length ? f.plans : null,
+        translations: translationsOf({ name: f.name_tr }) }); }}>
         <label>{f.rule_id ? t("ui.change_price") : t("ui.add_price")}<input required placeholder={t("ui.price_name_hint")} value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
+        <OtherLang value={f.name_tr} onInput={(v) => setF({ ...f, name_tr: v })} source={f.name} maxLength={60} />
         <label>{t("ui.dollars_per_hour")}<input required inputMode="decimal" value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
         <fieldset><legend>{t("ui.days_none_all")}</legend>{ALL_DAYS.map((w) => <label class="check inline"><input type="checkbox" checked={f.days.includes(w)} onChange={() => setF({ ...f, days: toggle(f.days, w) as number[] })} /> {dayName(w)}</label>)}</fieldset>
         <label class="check"><input type="checkbox" checked={f.allDay} onChange={(e) => setF({ ...f, allDay: e.currentTarget.checked })} /> {t("ui.all_day")}</label>

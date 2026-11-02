@@ -3,6 +3,7 @@ import * as z from "zod/mini";
 import { both, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { KumiError } from "./errors.ts";
+import { mergeTranslations, translationsInput } from "./club_text.ts";
 import { withManagers } from "./households.ts";
 import { checkAssign, roleLabel } from "./roles.ts";
 import { uuidv7 } from "./ids.ts";
@@ -61,6 +62,8 @@ export const clubUpdate = defineAction({
     brand_colour: z.optional(z.string().check(z.regex(/^#[0-9A-Fa-f]{6}$/))), sign_up_open: z.optional(z.boolean()),
     court_bookings: z.optional(z.boolean()), tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
     public_page: z.optional(z.boolean()), about: z.optional(z.nullable(z.string().check(z.maxLength(600)))),
+    // The public page's blurb in the other language: { es: { about } }.
+    translations: translationsInput("club"),
     question_alert_hours: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(72))),
     auto_answers: z.optional(z.boolean().check(z.describe("Kumi answers a new question from the club's facts by itself, when a decision model is set up on the server."))),
     broadcast_daily_cap: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(100000))), broadcast_copy_managers: z.optional(z.boolean()),
@@ -76,7 +79,12 @@ export const clubUpdate = defineAction({
     if (!langs.includes(i.default_language ?? row.default_language)) throw new KumiError("error.invalid_input", { details: "The default language must be one of the club's languages." }, 400);
     return { title: both("action.club.update"), summary: both("plan.club.update", { fields: fieldList(fields) }), reads: [read], undo: { kind: "reversible" }, details: { fields } };
   },
-  async apply(ctx, i) { await ctx.update("club", "singleton", Object.fromEntries(Object.entries(i).filter(([, v]) => v !== undefined))); await ctx.emit("club.updated", {}); return null; },
+  async apply(ctx, i) {
+    const { translations, ...rest } = i;
+    const patch: Record<string, unknown> = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+    if (translations) patch.translations = JSON.stringify(mergeTranslations((await ctx.trx.selectFrom("club").select("translations").executeTakeFirstOrThrow()).translations, translations));
+    await ctx.update("club", "singleton", patch); await ctx.emit("club.updated", {}); return null;
+  },
 });
 
 export const locationCreate = defineAction({

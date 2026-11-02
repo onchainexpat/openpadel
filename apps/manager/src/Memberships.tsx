@@ -2,9 +2,9 @@
 // and how far ahead its members book; member prices are court prices for chosen plans (Settings, Prices).
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, dollars, lang, t, usePreview } from "@kumi/ui";
+import { api, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
 
-export type Plan = { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; days_ahead: number | null; join_in_app?: boolean;
+export type Plan = { id: string; name: string; description: string | null; translations?: unknown; price_cents: number; period: "month" | "year"; days_ahead: number | null; join_in_app?: boolean;
   max_members?: number | null; starts_on?: string | null; perks_before_start?: boolean; sort: number; members: number;
   program_percent_off?: number | null; program_cents_off?: number | null; included_sessions?: number | null; included_kinds?: string[]; family_size?: number | null; extra_person_cents?: number | null };
 /** What a plan gives on programs, for its line in the list. */
@@ -80,13 +80,14 @@ export function Memberships() {
 
 function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
   const blank = { plan_id: "", name: "", dollars: "", period: "month" as "month" | "year", days_ahead: "", description: "", join_in_app: true, max_members: "", starts_on: "", perks_before_start: true,
-    discount: "none" as "none" | "percent" | "dollars", off: "", included: "", kinds: ["clinic", "social"], family: "", extra: "" };
+    discount: "none" as "none" | "percent" | "dollars", off: "", included: "", kinds: ["clinic", "social"], family: "", extra: "", name_tr: "", description_tr: "" };
   const [f, setF] = useState(blank);
   const edit = (p: Plan) => setF({ plan_id: p.id, name: p.name, dollars: String(p.price_cents / 100), period: p.period, days_ahead: p.days_ahead ? String(p.days_ahead) : "", description: p.description ?? "", join_in_app: p.join_in_app ?? true,
     max_members: p.max_members ? String(p.max_members) : "", starts_on: p.starts_on ?? "", perks_before_start: p.perks_before_start ?? true,
     discount: p.program_percent_off ? "percent" : p.program_cents_off ? "dollars" : "none", off: p.program_percent_off ? String(p.program_percent_off) : p.program_cents_off ? String(p.program_cents_off / 100) : "",
     included: p.included_sessions ? String(p.included_sessions) : "", kinds: p.included_kinds ?? ["clinic", "social"],
-    family: p.family_size ? String(p.family_size) : "", extra: p.extra_person_cents != null ? String(p.extra_person_cents / 100) : "" });
+    family: p.family_size ? String(p.family_size) : "", extra: p.extra_person_cents != null ? String(p.extra_person_cents / 100) : "",
+    name_tr: savedIn(p.translations, "name"), description_tr: savedIn(p.translations, "description") });
   return (
     <section class="card">
       <h2>{t("ui.plans")}</h2>
@@ -102,12 +103,15 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
         program_percent_off: f.discount === "percent" && f.off ? Math.round(Number(f.off)) : null,
         program_cents_off: f.discount === "dollars" && f.off ? Math.round(Number(f.off.replace(",", ".")) * 100) : null,
         included_sessions: f.included ? Number(f.included) : null, ...(f.kinds.length ? { included_kinds: f.kinds } : {}),
-        family_size: f.family ? Number(f.family) : null, extra_person_cents: f.family && f.extra !== "" ? Math.round(Number(f.extra.replace(",", ".")) * 100) : null }); }}>
+        family_size: f.family ? Number(f.family) : null, extra_person_cents: f.family && f.extra !== "" ? Math.round(Number(f.extra.replace(",", ".")) * 100) : null,
+        translations: translationsOf({ name: f.name_tr, description: f.description_tr }) }); }}>
         <label>{f.plan_id ? t("ui.change_plan") : t("ui.add_plan")}<input required maxLength={60} placeholder={t("ui.plan_name_hint")} value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
+        <OtherLang value={f.name_tr} onInput={(v) => setF({ ...f, name_tr: v })} source={f.name} maxLength={60} />
         <div class="court-row"><label>{t("ui.plan_dollars")}<input required inputMode="decimal" value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
           <label>{t("ui.plan_period")}<select value={f.period} onChange={(e) => setF({ ...f, period: e.currentTarget.value as "month" | "year" })}><option value="month">{t("ui.period_month")}</option><option value="year">{t("ui.period_year")}</option></select></label></div>
         <label>{t("ui.plan_days_ahead")}<input type="number" min={1} max={365} value={f.days_ahead} onInput={(e) => setF({ ...f, days_ahead: e.currentTarget.value })} /></label>
         <label>{t("ui.plan_description")}<input maxLength={300} value={f.description} onInput={(e) => setF({ ...f, description: e.currentTarget.value })} /></label>
+        <OtherLang value={f.description_tr} onInput={(v) => setF({ ...f, description_tr: v })} source={f.description} maxLength={300} />
         <div class="court-row"><label>{t("ui.plan_max_members")}<input type="number" min={1} value={f.max_members} onInput={(e) => setF({ ...f, max_members: e.currentTarget.value })} /></label>
           <label>{t("ui.plan_start_date")}<input type="date" value={f.starts_on} onInput={(e) => setF({ ...f, starts_on: e.currentTarget.value })} /></label></div>
         <p class="meta">{t("ui.presale_hint")}</p>

@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { clubNewsAnswer, icsCalendar, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan } from "@kumi/core";
+import { clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -20,8 +20,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   const meAndJuniors = async (pid: string) => [{ id: pid, display_name: null as string | null }, ...(await juniorsOf(db, pid)).map((j) => ({ id: j.id, display_name: j.display_name as string | null }))];
 
   app.get("/open-programs", async (c) => {
-    const pid = await forWhom(c);
-    const rows = await db.selectFrom("program").select(["id", "name", "kind", "format", "capacity", "price_cents", "member_price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window", "min_players", "sign_up"])
+    const pid = await forWhom(c), l = lang(c);
+    const rows = await db.selectFrom("program").select(["id", trSql("program", "name", l).as("name"), "kind", "format", "capacity", "price_cents", "member_price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window", "min_players", "sign_up"])
       .select((eb) => [
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
         eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first_start"),
@@ -129,7 +129,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     who(c);
     const p = await currentPolicy(db);
     return c.json({ coaches: (await lessonCoaches(db)).filter((x) => x.lessons && Object.keys(x.rates).length)
-      .map(({ photo_id, ...x }) => ({ ...x, photo: photo_id ? `/public/photos/${photo_id}` : null })),
+      .map(({ photo_id, translations, ...x }) => ({ ...x, bio: inLang(x.bio, translations, "bio", lang(c)), photo: photo_id ? `/public/photos/${photo_id}` : null })),
       time_zone: (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone, split_deadline_hours: p.split_deadline_hours, free_cancel_hours: p.free_cancel_hours, late_refund_percent: p.late_refund_percent });
   });
   // When a coach gives a lesson of a length on a club date: their hours, less time off and what they're doing, with a court free.
@@ -327,7 +327,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   app.get("/my/places", async (c) => {
     const pid = who(c);
     const rows = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id")
-      .select(["enrolment.id", "enrolment.status", "enrolment.waitlist_position", "enrolment.program_id", "enrolment.session_id", "program.name", "program.price_cents"])
+      .select(["enrolment.id", "enrolment.status", "enrolment.waitlist_position", "enrolment.program_id", "enrolment.session_id", trSql("program", "name", lang(c)).as("name"), "program.price_cents"])
       // A place on one date (signed up per date): that date; otherwise the program's first.
       .select((eb) => [sql<Date | null>`coalesce((SELECT starts_at FROM session WHERE session.id = enrolment.session_id), (SELECT min(starts_at) FROM session WHERE session.program_id = program.id))`.as("first_start"),
         eb.selectFrom("waitlist_offer").select("expires_at").whereRef("waitlist_offer.enrolment_id", "=", "enrolment.id").where("outcome", "is", null).where("expires_at", ">", new Date()).limit(1).as("offer_expires_at"),
@@ -372,7 +372,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const kid = Boolean(await kidOf(db, pid));
     const people = await Promise.all((await meAndJuniors(pid)).map(async (p) => ({ id: p.id, display_name: p.display_name, me: p.id === pid, by_parent: kid && p.id === pid,
       accepted_at: (await waiverStatus(db, p.id))?.accepted_at ?? null })));
-    return c.json({ waiver: { version_no: w.version_no, body: w.body }, people });
+    return c.json({ waiver: { version_no: w.version_no, body: inLang(w.body, w.translations, "body", lang(c)) }, people });
   });
 
   // ---- Kids with a login of their own ----
@@ -461,9 +461,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   // My membership, if I have one, and what it gives me; when it renews or runs until (a club date); and a
   // payment to make when a renewal didn't go through.
   app.get("/my/membership", async (c) => {
-    const pid = who(c), now = new Date();
+    const pid = who(c), now = new Date(), l = lang(c);
     const q = () => db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person as payer", "payer.id", "membership.person_id")
-      .select(["membership.id", "membership.person_id", "payer.display_name as payer", "membership_plan.name", "membership_plan.description", "membership_plan.price_cents as plan_price_cents", "membership_plan.period as plan_period",
+      .select(["membership.id", "membership.person_id", "payer.display_name as payer", trSql("membership_plan", "name", l).as("name"), trSql("membership_plan", "description", l).as("description"), "membership_plan.price_cents as plan_price_cents", "membership_plan.period as plan_period",
         "membership_plan.days_ahead", "membership.plan_id", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.price_cents",
         "membership.period", "membership.next_attempt_at", "membership.saved_method", "membership.paused_until", "membership.family_size", "membership.extra_person_cents"])
       .where("membership.status", "in", ["upcoming", "active", "past_due"]);
@@ -501,7 +501,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   // The plans a member can join here, with what each gives.
   app.get("/membership-plans", async (c) => {
     who(c);
-    const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "price_cents", "period", "days_ahead", "max_members", "starts_on",
+    const l = lang(c);
+    const plans = await db.selectFrom("membership_plan").select(["id", trSql("membership_plan", "name", l).as("name"), trSql("membership_plan", "description", l).as("description"), "price_cents", "period", "days_ahead", "max_members", "starts_on",
       "program_percent_off", "program_cents_off", "included_sessions", "included_kinds", "family_size", "extra_person_cents"]).where("active", "=", true).where("join_in_app", "=", true)
       .orderBy("sort").orderBy("price_cents").execute();
     const counts = await planCounts(db), today = localDate(new Date(), (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, lang, t } from "@kumi/ui";
+import { api, lang, OtherLang, t, translationsOf } from "@kumi/ui";
 import { usePreview, dollars } from "@kumi/ui";
 
 type Row = { id: string; name: string; kind: string; status: string; capacity: number; price_cents: number; member_price_cents: number | null; booked: number; waitlisted: number; first_start: string | null };
@@ -8,7 +8,7 @@ type Location = { id: string; name: string };
 
 export function Programs() {
   const [rows, setRows] = useState<Row[] | null>(null), [locations, setLocations] = useState<Location[]>([]), [open, setOpen] = useState(false);
-  const [f, setF] = useState({ location_id: "", kind: "social", format: "americano", name: "", capacity: 16, price: 25, member_price: "", rated: true, refund_window_hours: 24, min_players: "", per_date: false });
+  const [f, setF] = useState({ location_id: "", kind: "social", format: "americano", name: "", capacity: 16, price: 25, member_price: "", rated: true, refund_window_hours: 24, min_players: "", per_date: false, name_tr: "" });
   // Clinics and courses are for learning: their results don't change levels unless staff tick it (socials, leagues and tournaments do).
   const [ratedSet, setRatedSet] = useState(false), ratedFor = (kind: string) => kind !== "clinic" && kind !== "course";
   const load = () => api<Row[]>("/staff/programs").then(setRows);
@@ -17,7 +17,7 @@ export function Programs() {
   const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)) : "");
   const create = (e: Event) => { e.preventDefault(); preview("program.create", { location_id: f.location_id, kind: f.kind, format: f.format || undefined, name: f.name, capacity: Number(f.capacity), price_cents: Math.round(Number(f.price) * 100),
     ...(f.member_price.trim() ? { member_price_cents: Math.round(Number(f.member_price.replace(",", ".")) * 100) } : {}), rated: f.rated, refund_window_hours: Number(f.refund_window_hours), ...(f.min_players.trim() ? { min_players: Number(f.min_players) } : {}),
-    ...(f.per_date && (f.kind === "clinic" || f.kind === "social") ? { sign_up: "per_session" } : {}) }); };
+    ...(f.per_date && (f.kind === "clinic" || f.kind === "social") ? { sign_up: "per_session" } : {}), translations: translationsOf({ name: f.name_tr }) }); };
 
   return (
     <main>
@@ -27,6 +27,7 @@ export function Programs() {
         <form class="card" onSubmit={create}>
           <label>{t("ui.location")}<select value={f.location_id} onChange={(e) => setF({ ...f, location_id: e.currentTarget.value })}>{locations.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>
           <label>{t("ui.name")}<input required value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
+          <OtherLang value={f.name_tr} onInput={(v) => setF({ ...f, name_tr: v })} source={f.name} maxLength={120} />
           <label>{t("ui.kind")}<select value={f.kind} onChange={(e) => setF({ ...f, kind: e.currentTarget.value, rated: ratedSet ? f.rated : ratedFor(e.currentTarget.value) })}>{["social", "clinic", "course", "tournament", "league"].map((k) => <option value={k}>{t(`kind.${k}` as Key)}</option>)}</select></label>
           <label>{t("ui.format")}<select value={f.format} onChange={(e) => setF({ ...f, format: e.currentTarget.value })}><option value="">{t("ui.format_none")}</option><option value="americano">{t("ui.format_americano")}</option></select></label>
           <label>{t("ui.capacity")}<input type="number" min="1" value={f.capacity} onInput={(e) => setF({ ...f, capacity: Number(e.currentTarget.value) })} /></label>

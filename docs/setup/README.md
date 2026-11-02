@@ -13,7 +13,10 @@ is planned but not offered yet.
 ## What you end up with
 
 - The members' app at your address, for example `https://app.yourclub.com`, and the staff app at
-  `https://staff.app.yourclub.com`. Both work on a phone or a computer, in English and Spanish.
+  `https://staff.app.yourclub.com`. Both work on a phone or a computer, in English and Spanish. What the club
+  writes itself (plans, programs, the waiver, the public page's blurb, coaches' bios) can be written in both
+  languages too: under each field, an optional one for the other language, with a draft offered when the
+  server has an Anthropic key (step 5h).
 - Court bookings members make and pay for in the app (the whole court, or their own part), and staff
   manage at the desk; clinics, socials and Americanos with waitlists and refunds.
 - Email from your own domain, card payments into your own Stripe account, nightly backups.
@@ -264,6 +267,12 @@ person. Only the question's words and the facts go to the model: no names or det
 member can tap "That didn't answer it" or "Ask a person", and the question goes to the staff at once. Staff
 see on the Questions page which fact Kumi sent and how sure it was, and a staff answer always wins. Every
 decision is kept. Settings has a switch to stop it; without a model, every question goes to the staff.
+
+The same Anthropic key offers drafts in the club's other language. Under each text the club writes itself (a
+plan's name and description, a program's name, the waiver, the public page's blurb, a coach's bio, a price's
+name) there's an optional field for the other language; "Offer a draft" fills it from the club's own words.
+Read it and change what needs changing before saving: nothing is saved without a person. Members read their
+language's version, and the club's own words where there isn't one.
 
 ### Step 5i: messages to members (optional)
 

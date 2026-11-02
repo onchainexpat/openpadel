@@ -13,6 +13,7 @@ import { gameView } from "./results.ts";
 import { hasPushDevice } from "./push.ts";
 import { declineReason, refundReason } from "./declines.ts";
 import { managersOf } from "./households.ts";
+import { textOf } from "./club_text.ts";
 import { paymentWhat } from "./kids.ts";
 import { TEXT_KINDS, textable, textingOn } from "./texts.ts";
 import { receiptParams } from "./receipts.ts";
@@ -84,11 +85,13 @@ export function setStaffAddress(url: string | null) { staffAddress = url ? url.r
 /** The enrolment, its program and when it starts (its own date, or the program's first). */
 async function place(db: Db, enrolmentId: string) {
   const e = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id")
-    .select(["enrolment.id", "enrolment.person_id", "enrolment.program_id", "enrolment.session_id", "enrolment.price_cents", "enrolment.waitlist_position", "enrolment.left_reason", "program.name"])
+    .select(["enrolment.id", "enrolment.person_id", "enrolment.program_id", "enrolment.session_id", "enrolment.price_cents", "enrolment.waitlist_position", "enrolment.left_reason", "program.name", "program.translations"])
     .where("enrolment.id", "=", enrolmentId).executeTakeFirstOrThrow();
   const s = await db.selectFrom("session").select((eb) => eb.fn.min("starts_at").as("s")).where("program_id", "=", e.program_id).where("status", "!=", "cancelled")
     .$if(Boolean(e.session_id), (q) => q.where("id", "=", e.session_id!)).executeTakeFirst();
-  return { ...e, start: (s?.s as Date | null) ?? null };
+  const { translations, ...rest } = e;
+  // The program's name in each reader's language, when the club wrote one.
+  return { ...rest, name: textOf(e.name, translations, "name"), start: (s?.s as Date | null) ?? null };
 }
 async function paidFor(db: Db, enrolmentId: string): Promise<number> {
   const r = await db.selectFrom("payment").select((eb) => eb.fn.sum<string>("amount_cents").as("c")).where("enrolment_id", "=", enrolmentId).where("status", "=", "succeeded").executeTakeFirst();
@@ -145,10 +148,13 @@ function toCoach(b: Awaited<ReturnType<typeof bookingInfo>>, kind: string, o: { 
 
 /** A membership and its plan. */
 async function membershipInfo(db: Db, membershipId: string) {
-  return db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .select(["membership.person_id", "membership.plan_id", "membership.current_period_end", "membership.source", "membership.price_cents", "membership.end_reason", "membership_plan.name", "membership_plan.days_ahead",
+  const m = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
+    .select(["membership.person_id", "membership.plan_id", "membership.current_period_end", "membership.source", "membership.price_cents", "membership.end_reason", "membership_plan.name", "membership_plan.translations", "membership_plan.days_ahead",
       "membership_plan.period", "membership_plan.program_percent_off", "membership_plan.program_cents_off", "membership_plan.included_sessions", "membership_plan.included_kinds"])
     .where("membership.id", "=", membershipId).executeTakeFirstOrThrow();
+  // The plan's name in each reader's language, when the club wrote one.
+  const { translations, ...rest } = m;
+  return { ...rest, name: textOf(m.name, translations, "name") };
 }
 
 /** One player's seat in a booking: who they are, the booking, and its host's name. */
@@ -376,15 +382,15 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   // ---- Family memberships: the person added or taken off hears it (a junior's parents already know) ----
   async "membership.person_added"({ db }, p: { membership_id: string; person_id: string }) {
     const r = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person as payer", "payer.id", "membership.person_id")
-      .select(["membership_plan.name as plan", "payer.display_name as payer"]).where("membership.id", "=", p.membership_id).executeTakeFirstOrThrow();
+      .select(["membership_plan.name as plan", "membership_plan.translations", "payer.display_name as payer"]).where("membership.id", "=", p.membership_id).executeTakeFirstOrThrow();
     if ((await db.selectFrom("person").select("junior").where("id", "=", p.person_id).executeTakeFirst())?.junior) return [];
-    return [{ to: p.person_id, kind: "membership_person_added", params: { plan: r.plan, payer: r.payer }, purpose: "account", essential: false, email: true, link: "/membership" }];
+    return [{ to: p.person_id, kind: "membership_person_added", params: { plan: textOf(r.plan, r.translations, "name"), payer: r.payer }, purpose: "account", essential: false, email: true, link: "/membership" }];
   },
   async "membership.person_removed"({ db, tz }, p: { membership_id: string; person_id: string; until: string }) {
     const r = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person as payer", "payer.id", "membership.person_id")
-      .select(["membership_plan.name as plan", "payer.display_name as payer"]).where("membership.id", "=", p.membership_id).executeTakeFirstOrThrow();
+      .select(["membership_plan.name as plan", "membership_plan.translations", "payer.display_name as payer"]).where("membership.id", "=", p.membership_id).executeTakeFirstOrThrow();
     if ((await db.selectFrom("person").select("junior").where("id", "=", p.person_id).executeTakeFirst())?.junior) return [];
-    return [{ to: p.person_id, kind: "membership_person_removed", params: { plan: r.plan, payer: r.payer, date: dayText(endDay({ current_period_end: new Date(p.until), source: "app" }, tz)) },
+    return [{ to: p.person_id, kind: "membership_person_removed", params: { plan: textOf(r.plan, r.translations, "name"), payer: r.payer, date: dayText(endDay({ current_period_end: new Date(p.until), source: "app" }, tz)) },
       purpose: "account", essential: false, email: true, link: "/membership" }];
   },
   async "friend.added"({ db }, p: { person_id: string; friend_id: string; mutual: boolean }) {
@@ -612,7 +618,8 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     // A membership payment fails only when it was left unfinished and called off (closeUnfinishedPayments): nothing was charged.
     if (!pay.enrolment_id && (pay.membership_plan_id || pay.membership_id)) {
       const plan = pay.membership_plan_id ?? (await db.selectFrom("membership").select("plan_id").where("id", "=", pay.membership_id!).executeTakeFirst())?.plan_id;
-      const name = plan ? (await db.selectFrom("membership_plan").select("name").where("id", "=", plan).executeTakeFirst())?.name ?? "" : "";
+      const row = plan ? await db.selectFrom("membership_plan").select(["name", "translations"]).where("id", "=", plan).executeTakeFirst() : null;
+      const name = row ? textOf(row.name, row.translations, "name") : "";
       return [{ to: pay.person_id, kind: "membership_payment_unfinished", params: { name, amount: amount(pay.amount_cents) }, purpose: "account", essential: true, email: true, link: "/membership" }];
     }
     if (!pay.enrolment_id) return [];
@@ -654,25 +661,25 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return drafts;
   },
   // ---- Programs over time: dates moved or cancelled, a minimum not reached, a place open to anyone ----
-  async "dates.changed"(_c, p: { program_id: string; name: string; lines: Text; people: string[] }) {
+  async "dates.changed"(_c, p: { program_id: string; name: string | Text; lines: Text; people: string[] }) {
     return p.people.map((to) => ({ to, kind: "dates_changed", params: { name: p.name, lines: p.lines }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
   },
-  async "dates.cancelled"({ tz }, p: { program_id: string; name: string; starts: string[]; entire: boolean; reason: "club" | "below_minimum"; people: { person_id: string; status: string; cents: number; paid: number }[] }) {
+  async "dates.cancelled"({ tz }, p: { program_id: string; name: string | Text; starts: string[]; entire: boolean; reason: "club" | "below_minimum"; people: { person_id: string; status: string; cents: number; paid: number }[] }) {
     const first = p.starts.length ? new Date(p.starts[0]!) : null;
     const dates: Text = { en: p.starts.map((s) => dateTime(new Date(s), "en", tz)).join("; "), es: p.starts.map((s) => dateTime(new Date(s), "es", tz)).join("; ") };
     const kind = !p.entire ? "dates_cancelled" : p.reason === "below_minimum" ? "program_cancelled_minimum" : "program_cancelled";
     return p.people.map((x) => ({ to: x.person_id, kind, params: { name: p.name, when: when(first, tz), dates,
       refund: x.status === "waitlisted" ? both("msg.cancel_was_waiting") : refundLine(x.cents >= x.paid ? "full" : "partial", x.cents, x.paid) }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
   },
-  async "program.min_cancelled"({ db, tz }, p: { program_id: string; name: string; starts_at: string | null; booked: number; min: number }) {
+  async "program.min_cancelled"({ db, tz }, p: { program_id: string; name: string | Text; starts_at: string | null; booked: number; min: number }) {
     return (await desk(db)).map((to) => ({ to, kind: "program_min_cancelled_staff", params: { name: p.name, when: when(p.starts_at ? new Date(p.starts_at) : null, tz), booked: p.booked, min: p.min },
       purpose: "staff" as const, essential: true, email: true, link: `/programs/${p.program_id}` }));
   },
-  async "program.min_short"({ db, tz }, p: { program_id: string; name: string; starts_at: string | null; decide_at: string | null; booked: number; min: number }) {
+  async "program.min_short"({ db, tz }, p: { program_id: string; name: string | Text; starts_at: string | null; decide_at: string | null; booked: number; min: number }) {
     return (await desk(db)).map((to) => ({ to, kind: "program_min_short", params: { name: p.name, when: when(p.starts_at ? new Date(p.starts_at) : null, tz), booked: p.booked, min: p.min, missing: p.min - p.booked,
       decide: when(p.decide_at ? new Date(p.decide_at) : null, tz) }, purpose: "staff" as const, essential: false, email: true, link: `/programs/${p.program_id}`, staleAt: p.decide_at ? new Date(p.decide_at) : null }));
   },
-  async "program.place_open"({ tz }, p: { program_id: string; name: string; starts_at: string | null; people: string[] }) {
+  async "program.place_open"({ tz }, p: { program_id: string; name: string | Text; starts_at: string | null; people: string[] }) {
     const start = p.starts_at ? new Date(p.starts_at) : null;
     return p.people.map((to) => ({ to, kind: "place_open", params: { name: p.name, when: when(start, tz) }, purpose: "account" as const, essential: false, email: true, link: "/", staleAt: start }));
   },

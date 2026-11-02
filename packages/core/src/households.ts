@@ -13,6 +13,7 @@ import { both, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { mergeTranslations, translationsInput } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { localParts } from "./clock.ts";
 
@@ -269,7 +270,7 @@ export const householdGiveLogin = defineAction({
 
 // ---- The club's waiver ----
 export async function currentWaiver(db: Db | Trx) {
-  return (await db.selectFrom("waiver").select(["id", "version_no", "body", "created_at"]).where("active", "=", true).executeTakeFirst()) ?? null;
+  return (await db.selectFrom("waiver").select(["id", "version_no", "body", "translations", "created_at"]).where("active", "=", true).executeTakeFirst()) ?? null;
 }
 /** When the person accepted the current waiver, and who for them; null when there's no waiver. */
 export async function waiverStatus(db: Db | Trx, personId: string) {
@@ -295,7 +296,8 @@ export async function requireWaiver(ctx: PlanCtx, personId: string) {
 
 export const waiverSet = defineAction({
   name: "waiver.set", version: 1,
-  input: z.object({ body: z.string().check(z.trim(), z.minLength(20), z.maxLength(20_000)) }),
+  // The waiver in the club's default language, and in the other one: { es: { body } }. Either way, a new version.
+  input: z.object({ body: z.string().check(z.trim(), z.minLength(20), z.maxLength(20_000)), translations: translationsInput("waiver") }),
   async plan(ctx) {
     const cur = await currentWaiver(ctx.db);
     const next = Number((await ctx.db.selectFrom("waiver").select(sql<string>`coalesce(max(version_no), 0)`.as("n")).executeTakeFirstOrThrow()).n) + 1;
@@ -306,7 +308,7 @@ export const waiverSet = defineAction({
     const cur = await currentWaiver(ctx.trx);
     if (cur) await ctx.update("waiver", cur.id, { active: false });
     const id = uuidv7();
-    try { await ctx.insert("waiver", { id, version_no: (plan.details as { version_no: number }).version_no, body: i.body, created_by: ctx.actor.personId }); }
+    try { await ctx.insert("waiver", { id, version_no: (plan.details as { version_no: number }).version_no, body: i.body, translations: JSON.stringify(mergeTranslations({}, i.translations)), created_by: ctx.actor.personId }); }
     catch (e: any) { if (e?.code === "23505") throw new KumiError("error.changed"); throw e; }
     return { waiver_id: id };
   },
@@ -342,7 +344,8 @@ export const waiverAccept = defineAction({
   async apply(ctx, i) {
     const w = await currentWaiver(ctx.trx);
     if (!w) throw new KumiError("error.changed");
-    try { await ctx.insert("waiver_acceptance", { id: uuidv7(), waiver_id: w.id, person_id: i.person_id, accepted_by: ctx.actor.personId, accepted_at: ctx.now }); }
+    // Which language it was read in: the version in the reader's language when the club wrote one.
+    try { await ctx.insert("waiver_acceptance", { id: uuidv7(), waiver_id: w.id, person_id: i.person_id, accepted_by: ctx.actor.personId, accepted_at: ctx.now, lang: ctx.actor.lang }); }
     catch (e: any) { if (e?.code === "23505") throw new KumiError("error.changed"); throw e; }
     return { version_no: w.version_no };
   },

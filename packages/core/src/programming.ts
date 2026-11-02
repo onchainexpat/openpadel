@@ -10,6 +10,7 @@ import { both, dateTime, money, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type PlanCtx, type Read } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { textOf } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { paymentProvider } from "./money.ts";
 import { localDate, onDate } from "./clock.ts";
@@ -35,7 +36,7 @@ async function scopeDates(db: Db | Trx, programId: string, chosen: { id: string;
 async function chosenDate(ctx: PlanCtx, sessionId: string) {
   const { row: s, read } = await readRow(ctx.db, "session", sessionId, "thing.session");
   const { row: p, read: pRead } = await readRow(ctx.db, "program", s.program_id, "thing.program");
-  if (p.status === "cancelled") throw new KumiError("error.program_cancelled", { name: p.name });
+  if (p.status === "cancelled") throw new KumiError("error.program_cancelled", { name: textOf(p.name, p.translations, "name") });
   if (s.status === "cancelled") throw new KumiError("error.date_cancelled");
   if (new Date(s.starts_at) <= ctx.now) throw new KumiError("error.date_started");
   return { s, p, read, pRead };
@@ -122,8 +123,8 @@ export const seriesEdit = defineAction({
     // A line per date changed: what it was, and what it will be (and the reverse, should it be undone).
     const lines = changed.map((a) => { const b = before.find((x) => x.id === a.id)!; return both("plan.series.date", { was: when(new Date(b.starts_at), tz), now: describe(a.start, a.end, a.court_ids, a.coach_id) }); });
     const back = changed.map((a) => { const b = before.find((x) => x.id === a.id)!; return both("plan.series.back", { now: describe(new Date(b.starts_at), new Date(b.ends_at), b.court_ids, b.coach_id) }); });
-    let summary = both(`plan.series.edit_${i.scope}` as Key, { name: p.name, count: changed.length });
-    if (moves && !changed.length) summary = both("plan.series.no_date_change", { name: p.name });
+    let summary = both(`plan.series.edit_${i.scope}` as Key, { name: textOf(p.name, p.translations, "name"), count: changed.length });
+    if (moves && !changed.length) summary = both("plan.series.no_date_change", { name: textOf(p.name, p.translations, "name") });
     summary = join2(summary, joinAll(lines));
     const placesMoved = placesChange.filter((d) => d.was !== i.capacity);
     if (byDate && placesMoved.length) summary = join2(summary, both("plan.series.capacity_dates", { count: placesMoved.length, to: i.capacity! }));
@@ -133,11 +134,11 @@ export const seriesEdit = defineAction({
     if (!changed.length && (byDate ? !placesMoved.length : i.capacity === undefined || i.capacity === p.capacity)) throw new KumiError("error.nothing_changed");
     const reads: Read[] = [read, pRead, ...before.filter((b) => b.id !== s.id).map((b) => ({ entity: "session" as const, id: b.id, version: b.version }))];
     return { title: both("action.series.edit"), summary, reads, locationId: p.location_id, undo: { kind: "compensating" },
-      details: { program_id: p.id, name: p.name, places_dates: placesChange.map((d) => d.id), changed: changed.map((a) => ({ id: a.id, start: a.start.toISOString(), end: a.end.toISOString(), court_ids: a.court_ids, coach_id: a.coach_id })),
+      details: { program_id: p.id, name: textOf(p.name, p.translations, "name"), places_dates: placesChange.map((d) => d.id), changed: changed.map((a) => ({ id: a.id, start: a.start.toISOString(), end: a.end.toISOString(), court_ids: a.court_ids, coach_id: a.coach_id })),
         lines: joinAll(lines), back: joinAll(back), people: [...new Set(roster.booked.map((b) => b.person_id))], first_before: before[0] ? new Date(before[0].starts_at).toISOString() : null } };
   },
   async apply(ctx, i, plan) {
-    const d = plan.details as { program_id: string; name: string; changed: { id: string; start: string; end: string; court_ids: string[]; coach_id: string | null }[]; lines: Text; back: Text; people: string[] };
+    const d = plan.details as { program_id: string; name: string | Text; changed: { id: string; start: string; end: string; court_ids: string[]; coach_id: string | null }[]; lines: Text; back: Text; people: string[] };
     // The coach first, then the courts in id order (spikes/booking_race.md), as when a date is added.
     const coaches = [...new Set(d.changed.map((c) => c.coach_id).filter((x): x is string => Boolean(x)))].sort();
     for (const c of coaches) await ctx.trx.selectFrom("person").select("id").where("id", "=", c).forUpdate().execute();
@@ -257,7 +258,7 @@ async function cancelDates(ctx: ApplyContext, programId: string, sessionIds: str
       await ctx.update("program_watch", w.id, { ended_at: ctx.now });
     await ctx.update("program", programId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: reason, ...(reason === "below_minimum" ? { min_decided_at: ctx.now } : {}) });
   }
-  await ctx.emit("dates.cancelled", { program_id: programId, name: p.name, starts: dates.map((d) => new Date(d.starts_at).toISOString()), entire: c.entire, reason,
+  await ctx.emit("dates.cancelled", { program_id: programId, name: textOf(p.name, p.translations, "name"), starts: dates.map((d) => new Date(d.starts_at).toISOString()), entire: c.entire, reason,
     people: c.people.map((g) => ({ person_id: g.person_id, status: g.status, cents: g.cents, paid: g.paid })) });
 }
 
@@ -287,7 +288,7 @@ export const seriesCancel = defineAction({
     const { s, p } = await chosenDate(ctx, i.session_id);
     const dates = await scopeDates(ctx.db, p.id, { id: s.id, starts_at: new Date(s.starts_at) }, i.scope, ctx.now);
     const ids = dates.map((d) => d.id), c0 = await cancelling(ctx.db, p.id, ids, "rule");
-    const head = both(c0.entire ? "plan.series.cancel_program" : `plan.series.cancel_${i.scope}` as Key, { name: p.name, count: ids.length });
+    const head = both(c0.entire ? "plan.series.cancel_program" : `plan.series.cancel_${i.scope}` as Key, { name: textOf(p.name, p.translations, "name"), count: ids.length });
     const x = await cancelPlan(ctx, p, ids, i.refund ?? "rule", i.note, head);
     return { title: both("action.series.cancel"), summary: x.summary, reads: x.reads, locationId: p.location_id, moneyCents: x.c.total, undo: x.undo, details: { ids, c: x.c } };
   },
@@ -305,11 +306,11 @@ export const programCancel = defineAction({
   input: z.object({ program_id: z.uuid(), refund: refundChoice, note: z.optional(z.string().check(z.maxLength(300))) }),
   async plan(ctx, i) {
     const { row: p } = await readRow(ctx.db, "program", i.program_id, "thing.program");
-    if (p.status === "cancelled") throw new KumiError("error.program_cancelled", { name: p.name });
+    if (p.status === "cancelled") throw new KumiError("error.program_cancelled", { name: textOf(p.name, p.translations, "name") });
     const ran = await ctx.db.selectFrom("session").select("id").where("program_id", "=", p.id).where("status", "!=", "cancelled").where("starts_at", "<=", ctx.now).executeTakeFirst();
     const ids = (await ctx.db.selectFrom("session").select("id").where("program_id", "=", p.id).where("status", "!=", "cancelled").where("starts_at", ">", ctx.now).execute()).map((x) => x.id);
     if (ran && !ids.length) throw new KumiError("error.program_ran");
-    const head = both(ran ? "plan.series.cancel_rest" : "plan.series.cancel_program", { name: p.name, count: ids.length });
+    const head = both(ran ? "plan.series.cancel_rest" : "plan.series.cancel_program", { name: textOf(p.name, p.translations, "name"), count: ids.length });
     const x = await cancelPlan(ctx, p, ids, i.refund ?? "rule", i.note, head);
     return { title: both("action.program.cancel"), summary: x.summary, reads: x.reads, locationId: p.location_id, moneyCents: x.c.total, undo: x.undo, details: { ids, c: x.c } };
   },
@@ -331,10 +332,10 @@ export const programSetMinimum = defineAction({
     decide_hours: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(336), z.describe("Hours before the first date it's decided. Null: the club's default.")))) }),
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
-    if (p.status === "cancelled") throw new KumiError("error.program_cancelled", { name: p.name });
+    if (p.status === "cancelled") throw new KumiError("error.program_cancelled", { name: textOf(p.name, p.translations, "name") });
     if (i.min_players !== null && i.min_players > p.capacity) throw new KumiError("error.min_over_capacity", { capacity: p.capacity });
     const hours = await decideHours(ctx.db, { decide_hours: i.decide_hours === undefined ? p.decide_hours : i.decide_hours });
-    const summary = i.min_players === null ? both("plan.program.no_minimum", { name: p.name }) : both(perDate(p) ? "plan.program.minimum_date" : "plan.program.minimum", { name: p.name, min: i.min_players, hours: both("count.hours", { count: hours }) });
+    const summary = i.min_players === null ? both("plan.program.no_minimum", { name: textOf(p.name, p.translations, "name") }) : both(perDate(p) ? "plan.program.minimum_date" : "plan.program.minimum", { name: textOf(p.name, p.translations, "name"), min: i.min_players, hours: both("count.hours", { count: hours }) });
     return { title: both("action.program.set_minimum"), summary, reads: [read], locationId: p.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
@@ -357,7 +358,7 @@ export const programDecide = defineAction({
   input: z.object({ program_id: z.uuid(), session_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
-    return { title: both("action.program.decide"), summary: both("plan.program.decide", { name: row.name }), reads: [read], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.program.decide"), summary: both("plan.program.decide", { name: textOf(row.name, row.translations, "name") }), reads: [read], undo: { kind: "none", note: both("reason.undo_final") } };
   },
   async apply(ctx, i) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();
@@ -369,7 +370,7 @@ export const programDecide = defineAction({
       await ctx.update("session", s.id, { min_decided_at: ctx.now });
       if (booked >= p.min_players) return { runs: true, booked };
       await cancelDates(ctx, p.id, [s.id], await cancelling(ctx.trx, p.id, [s.id], "rule"), "below_minimum", null);
-      await ctx.emit("program.min_cancelled", { program_id: p.id, name: p.name, starts_at: new Date(s.starts_at).toISOString(), booked, min: p.min_players });
+      await ctx.emit("program.min_cancelled", { program_id: p.id, name: textOf(p.name, p.translations, "name"), starts_at: new Date(s.starts_at).toISOString(), booked, min: p.min_players });
       return { runs: false, booked };
     }
     if (p.min_decided_at) return { already: true };
@@ -378,7 +379,7 @@ export const programDecide = defineAction({
     const start = await firstStart(ctx.trx, p.id);
     const ids = (await ctx.trx.selectFrom("session").select("id").where("program_id", "=", p.id).where("status", "!=", "cancelled").execute()).map((s) => s.id);
     await cancelDates(ctx, p.id, ids, await cancelling(ctx.trx, p.id, ids, "rule"), "below_minimum", null);
-    await ctx.emit("program.min_cancelled", { program_id: p.id, name: p.name, starts_at: start?.toISOString() ?? null, booked, min: p.min_players });
+    await ctx.emit("program.min_cancelled", { program_id: p.id, name: textOf(p.name, p.translations, "name"), starts_at: start?.toISOString() ?? null, booked, min: p.min_players });
     return { runs: false, booked };
   },
 });
@@ -395,7 +396,7 @@ export const programMinHeadsUp = defineAction({
   input: z.object({ program_id: z.uuid(), session_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
-    return { title: both("action.program.min_heads_up"), summary: both("plan.program.min_heads_up", { name: row.name }), reads: [read], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.program.min_heads_up"), summary: both("plan.program.min_heads_up", { name: textOf(row.name, row.translations, "name") }), reads: [read], undo: { kind: "none", note: both("reason.undo_final") } };
   },
   async apply(ctx, i) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();
@@ -414,7 +415,7 @@ export const programMinHeadsUp = defineAction({
     const booked = await bookedOn(ctx.trx, p.id, sid);
     if (booked >= p.min_players) return { short: false };
     const decideAt = start ? new Date(start.getTime() - (await decideHours(ctx.trx, p)) * 3600_000) : null;
-    await ctx.emit("program.min_short", { program_id: p.id, name: p.name, starts_at: start?.toISOString() ?? null, decide_at: decideAt?.toISOString() ?? null, booked, min: p.min_players });
+    await ctx.emit("program.min_short", { program_id: p.id, name: textOf(p.name, p.translations, "name"), starts_at: start?.toISOString() ?? null, decide_at: decideAt?.toISOString() ?? null, booked, min: p.min_players });
     return { short: true, missing: p.min_players - booked };
   },
 });
@@ -468,7 +469,7 @@ export const programWatch = defineAction({
       .where(sql<boolean>`session_id IS NOT DISTINCT FROM ${sid}`).executeTakeFirst())
       throw new KumiError("error.already_watching");
     const onDate = date ? both("plan.enrolment.on_date", { when: when(new Date(date.starts_at), await clubTz(ctx.db)) }) : { en: "", es: "" };
-    return { title: both("action.program.watch"), summary: join2(both("plan.program.watch", { person, name: p.name }), onDate), reads: [read], locationId: p.location_id,
+    return { title: both("action.program.watch"), summary: join2(both("plan.program.watch", { person, name: textOf(p.name, p.translations, "name") }), onDate), reads: [read], locationId: p.location_id,
       ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
@@ -486,7 +487,7 @@ export const programUnwatch = defineAction({
     const { row: w, read } = await readRow(ctx.db, "program_watch", i.watch_id, "thing.program");
     if (w.told_at || w.ended_at) throw new KumiError("error.not_watching");
     const { row: p } = await readRow(ctx.db, "program", w.program_id, "thing.program");
-    return { title: both("action.program.unwatch"), summary: both("plan.program.unwatch", { person: (await names(ctx.db, [w.person_id])).get(w.person_id) ?? "", name: p.name }), reads: [read],
+    return { title: both("action.program.unwatch"), summary: both("plan.program.unwatch", { person: (await names(ctx.db, [w.person_id])).get(w.person_id) ?? "", name: textOf(p.name, p.translations, "name") }), reads: [read],
       locationId: p.location_id, ownerIds: await withManagers(ctx.db, [w.person_id]), undo: { kind: "reversible" } };
   },
   async apply(ctx, i) { await ctx.update("program_watch", i.watch_id, { ended_at: ctx.now }); return null; },

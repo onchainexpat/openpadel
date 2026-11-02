@@ -12,6 +12,7 @@ import * as z from "zod/mini";
 import { both, money, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, runAsSystem } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
+import { textOf } from "./club_text.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 
@@ -47,19 +48,21 @@ async function lineOf(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: 
     }
   }
   if (p.enrolment_id) {
-    const e = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").select(["program.id", "program.name", "program.location_id", "enrolment.session_id"])
+    const e = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").select(["program.id", "program.name", "program.translations", "program.location_id", "enrolment.session_id"])
       .where("enrolment.id", "=", p.enrolment_id).executeTakeFirst();
     if (e) {
       const s = await db.selectFrom("session").select((eb) => eb.fn.min("starts_at").as("s")).where("program_id", "=", e.id).where("status", "!=", "cancelled")
         .$if(Boolean(e.session_id), (q) => q.where("id", "=", e.session_id!)).executeTakeFirst();
-      const what = s?.s ? both("receipt.line_program", { name: e.name, when: whenText(new Date(s.s as Date), tz) }) : both("receipt.line_program_only", { name: e.name });
+      // Each language's receipt names the program in that language, when the club wrote one.
+      const name = textOf(e.name, e.translations, "name");
+      const what = s?.s ? both("receipt.line_program", { name, when: whenText(new Date(s.s as Date), tz) }) : both("receipt.line_program_only", { name });
       return { what, cents: p.amount_cents, tax: 0, locationId: e.location_id };
     }
   }
   const planId = p.membership_plan_id ?? (p.membership_id ? (await db.selectFrom("membership").select("plan_id").where("id", "=", p.membership_id).executeTakeFirst())?.plan_id : null);
   if (planId) {
-    const plan = await db.selectFrom("membership_plan").select("name").where("id", "=", planId).executeTakeFirstOrThrow();
-    return { what: both(p.membership_member_id ? "receipt.line_membership_extra" : "receipt.line_membership", { name: plan.name }), cents: p.amount_cents, tax: 0, locationId: null };
+    const plan = await db.selectFrom("membership_plan").select(["name", "translations"]).where("id", "=", planId).executeTakeFirstOrThrow();
+    return { what: both(p.membership_member_id ? "receipt.line_membership_extra" : "receipt.line_membership", { name: textOf(plan.name, plan.translations, "name") }), cents: p.amount_cents, tax: 0, locationId: null };
   }
   return { what: both("receipt.line_other"), cents: p.amount_cents, tax: 0, locationId: null };
 }

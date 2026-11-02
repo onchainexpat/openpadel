@@ -14,6 +14,7 @@ import { both, dateTime, money, pickLang, type Key, type Text } from "@kumi/i18n
 import { apply as applyRun, defineAction, dryPlan, plan as planRun, readRow, run, runAsSystem, setPlanGate, type Actor } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { textOf } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localParts } from "./clock.ts";
 import { paymentProvider } from "./money.ts";
@@ -118,11 +119,12 @@ export async function paymentWhat(db: Db | Trx, pay: { person_id: string; bookin
     return both(b.kind === "lesson" ? "kid.what_lesson" : b.organiser_id === pay.person_id ? "kid.what_court" : "kid.what_place", p);
   }
   if (pay.enrolment_id) {
-    const e = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").select(["program.name", "program.id", "enrolment.session_id"]).where("enrolment.id", "=", pay.enrolment_id).executeTakeFirst();
+    const e = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").select(["program.name", "program.translations", "program.id", "enrolment.session_id"]).where("enrolment.id", "=", pay.enrolment_id).executeTakeFirst();
     if (!e) return both("kid.what_other");
     const s = await db.selectFrom("session").select((eb) => eb.fn.min("starts_at").as("s")).where("program_id", "=", e.id).where("status", "!=", "cancelled")
       .$if(Boolean(e.session_id), (q) => q.where("id", "=", e.session_id!)).executeTakeFirst();
-    return s?.s ? both("kid.what_program", { name: e.name, when: when(new Date(s.s as Date), await clubTz(db)) }) : both("kid.what_program_only", { name: e.name });
+    const name = textOf(e.name, e.translations, "name");
+    return s?.s ? both("kid.what_program", { name, when: when(new Date(s.s as Date), await clubTz(db)) }) : both("kid.what_program_only", { name });
   }
   return both("kid.what_other");
 }

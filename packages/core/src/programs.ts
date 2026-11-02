@@ -6,6 +6,7 @@ import { both, dateTime, money, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type PlanCtx } from "./actions.ts";
 import type { DB, Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { mergeTranslations, textOf, translationsInput } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { isClubBlock } from "./playtomic.ts";
@@ -181,6 +182,7 @@ export const programCreate = defineAction({
     rated: z.optional(z.boolean().check(z.describe("Whether results change levels. Friendlies never do. Default: no for clinics and courses, yes for the rest."))),
     min_players: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.describe("The fewest players it runs with. Short of it at the decision time, it's cancelled and everyone is paid back.")))),
     decide_hours: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(336), z.describe("How many hours before the first date the minimum is decided. Empty: the club's default.")))),
+    translations: translationsInput("program"),
     sign_up: z.optional(z.enum(["whole_program", "per_session"]).check(z.describe("whole_program (default): one place covers every date. per_session: each date has its own places, roster, waitlist and minimum, and people sign up for the dates they want (clinics and socials)."))),
   }),
   async plan(ctx, i) {
@@ -203,7 +205,7 @@ export const programCreate = defineAction({
     const id = uuidv7();
     await ctx.insert("program", { id, location_id: i.location_id, kind: i.kind, format: i.format ?? null, name: i.name, capacity: i.capacity, price_cents: i.price_cents, member_price_cents: i.member_price_cents ?? null,
       level_min: i.level_min ?? null, level_max: i.level_max ?? null, refund_window_hours: i.refund_window_hours ?? 24, refund_inside_window: i.refund_inside_window ?? "none", rated: i.rated ?? ratedByDefault(i.kind),
-      min_players: i.min_players ?? null, decide_hours: i.decide_hours ?? null, sign_up: i.sign_up ?? "whole_program" });
+      min_players: i.min_players ?? null, decide_hours: i.decide_hours ?? null, sign_up: i.sign_up ?? "whole_program", translations: JSON.stringify(mergeTranslations({}, i.translations)) });
     return { program_id: id };
   },
 });
@@ -235,7 +237,7 @@ export const programPublish = defineAction({
     const c = await publishCheck(ctx.db, i.program_id, ctx.now);
     if (c.blocks.length) throw new KumiError("error.dates_clash", { list: clashList(c.blocks) });
     // Exactly what members will see: the price (and members' price), the places, the minimum, then each date.
-    let summary = join2(both("plan.program.publish", { name: row.name }), both("plan.program.publish_card", { kind: both(`kind.${row.kind}` as Key), price: usd(row.price_cents), capacity: row.capacity }));
+    let summary = join2(both("plan.program.publish", { name: textOf(row.name, row.translations, "name") }), both("plan.program.publish_card", { kind: both(`kind.${row.kind}` as Key), price: usd(row.price_cents), capacity: row.capacity }));
     if (row.member_price_cents !== null) summary = join2(summary, both("plan.program.member_price", { amount: usd(row.member_price_cents) }));
     if (row.min_players !== null) summary = join2(summary, both("plan.program.min_line", { min: row.min_players, hours: both("count.hours", { count: row.decide_hours ?? (await ctx.db.selectFrom("club").select("program_decide_hours").executeTakeFirstOrThrow()).program_decide_hours }) }));
     summary = join2(summary, c.dates.length ? both("plan.program.publish_dates", { count: c.dates.length }) : both("plan.program.no_dates"));
@@ -257,7 +259,7 @@ export const programSetPrices = defineAction({
     if (i.member_price_cents !== null && i.member_price_cents > i.price_cents) throw new KumiError("error.member_price_higher");
     const taken = Number((await ctx.db.selectFrom("enrolment").select((eb) => eb.fn.countAll<string>().as("n")).where("program_id", "=", i.program_id).where("status", "in", ["booked", "waitlisted", "attended"]).executeTakeFirstOrThrow()).n);
     const member = i.member_price_cents === null ? both("plan.program.member_discount") : both("plan.program.member_price", { amount: usd(i.member_price_cents) });
-    const summary = join2(both("plan.program.set_prices", { name: row.name, price: usd(i.price_cents) }), member);
+    const summary = join2(both("plan.program.set_prices", { name: textOf(row.name, row.translations, "name"), price: usd(i.price_cents) }), member);
     return { title: both("action.program.set_prices"), summary: taken ? join2(summary, both("plan.program.prices_kept", { count: taken })) : summary, reads: [read], locationId: row.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) { await ctx.update("program", i.program_id, { price_cents: i.price_cents, member_price_cents: i.member_price_cents }); return null; },
@@ -273,13 +275,30 @@ export const programSetSignUp = defineAction({
     if (row.sign_up === i.sign_up) throw new KumiError("error.nothing_changed");
     if (i.sign_up === "per_session" && row.kind !== "clinic" && row.kind !== "social") throw new KumiError("error.per_date_kinds");
     if (await ctx.db.selectFrom("enrolment").select("id").where("program_id", "=", row.id).executeTakeFirst()) throw new KumiError("error.sign_up_fixed");
-    return { title: both("action.program.set_sign_up"), summary: both(i.sign_up === "per_session" ? "plan.program.set_per_date" : "plan.program.set_whole", { name: row.name }), reads: [read], locationId: row.location_id, undo: { kind: "reversible" } };
+    return { title: both("action.program.set_sign_up"), summary: both(i.sign_up === "per_session" ? "plan.program.set_per_date" : "plan.program.set_whole", { name: textOf(row.name, row.translations, "name") }), reads: [read], locationId: row.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     // Checked again under the program's lock, the one every sign-up takes.
     await ctx.trx.selectFrom("program").select("id").where("id", "=", i.program_id).forUpdate().execute();
     if (await ctx.trx.selectFrom("enrolment").select("id").where("program_id", "=", i.program_id).executeTakeFirst()) throw new KumiError("error.sign_up_fixed");
     await ctx.update("program", i.program_id, { sign_up: i.sign_up });
+    return null;
+  },
+});
+
+/** A program's name, and its name in the other language. Its places, dates and people stay as they are; members
+ *  see the new name from now on (receipts and messages already sent keep the name they had). */
+export const programSetName = defineAction({
+  name: "program.set_name", version: 1,
+  input: z.object({ program_id: z.uuid(), name: z.string().check(z.trim(), z.minLength(1), z.maxLength(120)), translations: translationsInput("program") }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
+    const to = textOf(i.name, mergeTranslations(row.translations, i.translations), "name");
+    return { title: both("action.program.set_name"), summary: both("plan.program.set_name", { name: textOf(row.name, row.translations, "name"), to }), reads: [read], locationId: row.location_id, undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    const row = await ctx.trx.selectFrom("program").select("translations").where("id", "=", i.program_id).executeTakeFirstOrThrow();
+    await ctx.update("program", i.program_id, { name: i.name, translations: JSON.stringify(mergeTranslations(row.translations, i.translations)) });
     return null;
   },
 });
@@ -312,8 +331,8 @@ export const sessionAdd = defineAction({
     const off = clashes.filter((c) => c.kind === "coach_off"), warnings = clashes.filter((c) => !c.blocks);
     if (off.length) throw new KumiError("error.dates_clash", { list: clashList(off) });
     const names = courts.map((c) => c.name).join(", ");
-    let summary = dates.length === 1 ? both("plan.session.add", { name: p.name, when: when(dates[0]!.start, tz), courts: names })
-      : both("plan.session.add_weekly", { name: p.name, count: dates.length, first: when(dates[0]!.start, tz), last: when(dates[dates.length - 1]!.start, tz), courts: names });
+    let summary = dates.length === 1 ? both("plan.session.add", { name: textOf(p.name, p.translations, "name"), when: when(dates[0]!.start, tz), courts: names })
+      : both("plan.session.add_weekly", { name: textOf(p.name, p.translations, "name"), count: dates.length, first: when(dates[0]!.start, tz), last: when(dates[dates.length - 1]!.start, tz), courts: names });
     if (coach) summary = join2(summary, both("plan.session.add_coach", { coach }));
     if (warnings.length) summary = join2(summary, both("plan.dates_warnings", { list: clashList(warnings) }));
     return { title: both("action.session.add"), summary, reads: [read], locationId: p.location_id, undo: { kind: "reversible" }, details: { dates: dates.map((d) => ({ start: d.start.toISOString(), end: d.end.toISOString() })) } };
@@ -367,9 +386,9 @@ export const enrolmentJoin = defineAction({
     const onDate = date ? both("plan.enrolment.on_date", { when: when(new Date(date.starts_at), await clubTz(ctx.db)) }) : { en: "", es: "" };
     if (full) {
       const pos = await nextPosition(ctx.db, i.program_id, sid);
-      return { title: both("action.enrolment.join"), summary: join2(both("plan.enrolment.waitlist", { person, name: p.name, position: pos }), onDate), reads: [read], locationId: p.location_id, ownerIds: owners, undo: { kind: "compensating" }, details: { status: "waitlisted", position: pos, price } };
+      return { title: both("action.enrolment.join"), summary: join2(both("plan.enrolment.waitlist", { person, name: textOf(p.name, p.translations, "name"), position: pos }), onDate), reads: [read], locationId: p.location_id, ownerIds: owners, undo: { kind: "compensating" }, details: { status: "waitlisted", position: pos, price } };
     }
-    return { title: both("action.enrolment.join"), summary: join2(both("plan.enrolment.join", { person, name: p.name, price: priceWords(price) }), onDate), reads: [read], locationId: p.location_id, ownerIds: owners, undo: { kind: "compensating" }, moneyCents: price.cents, details: { status: "booked", price } };
+    return { title: both("action.enrolment.join"), summary: join2(both("plan.enrolment.join", { person, name: textOf(p.name, p.translations, "name"), price: priceWords(price) }), onDate), reads: [read], locationId: p.location_id, ownerIds: owners, undo: { kind: "compensating" }, moneyCents: price.cents, details: { status: "booked", price } };
   },
   async apply(ctx, i, plan) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();   // one join at a time per program
@@ -419,7 +438,7 @@ export const enrolmentJoinDates = defineAction({
     await requireWaiver(ctx, i.person_id);
     const each = await datesPriced(ctx.db, p, i.person_id, dates.map((d) => d.id), ctx.now);
     const total = each.reduce((n, x) => n + (x.status === "booked" ? x.price.cents : 0), 0);
-    let summary = both("plan.enrolment.join_dates", { person, name: p.name, count: dates.length });
+    let summary = both("plan.enrolment.join_dates", { person, name: textOf(p.name, p.translations, "name"), count: dates.length });
     for (const [k, x] of each.entries()) summary = join2(summary, x.status === "booked"
       ? both("plan.enrolment.date_line", { when: when(new Date(dates[k]!.starts_at), tz), price: priceWords(x.price) })
       : both("plan.enrolment.date_line_waitlist", { when: when(new Date(dates[k]!.starts_at), tz), position: x.position! }));
@@ -509,14 +528,14 @@ export async function freePlace(ctx: Parameters<NonNullable<Parameters<typeof de
 
 /** A place free to anyone (nobody on the waitlist took it): everyone watching the program (or that date) hears it once. */
 export async function tellWatchers(ctx: ApplyContext, programId: string, sessionId: string | null = null): Promise<number> {
-  const p = await ctx.trx.selectFrom("program").select(["name", "capacity", "status"]).where("id", "=", programId).executeTakeFirstOrThrow();
+  const p = await ctx.trx.selectFrom("program").select(["name", "translations", "capacity", "status"]).where("id", "=", programId).executeTakeFirstOrThrow();
   if (p.status !== "published" || await started(ctx.trx, programId, ctx.now, sessionId) || (await takenCount(ctx.trx, programId, ctx.now, sessionId)) >= await placesOf(ctx.trx, programId, sessionId)) return 0;
   const watches = await ctx.trx.selectFrom("program_watch").select(["id", "person_id"]).where("program_id", "=", programId).where("told_at", "is", null).where("ended_at", "is", null)
     .where(sql<boolean>`session_id IS NOT DISTINCT FROM ${sessionId}`).orderBy("created_at").execute();
   if (!watches.length) return 0;
   for (const w of watches) await ctx.update("program_watch", w.id, { told_at: ctx.now });
   const start = await firstStart(ctx.trx, programId, sessionId);
-  await ctx.emit("program.place_open", { program_id: programId, name: p.name, starts_at: start?.toISOString() ?? null, people: watches.map((w) => w.person_id) });
+  await ctx.emit("program.place_open", { program_id: programId, name: textOf(p.name, p.translations, "name"), starts_at: start?.toISOString() ?? null, people: watches.map((w) => w.person_id) });
   return watches.length;
 }
 /** A place came free: offered to the next on the waitlist, or, with nobody waiting, open to anyone (and
@@ -603,7 +622,7 @@ export const enrolmentTransfer = defineAction({
     // The sub pays their own price, as if they signed up: a member price, or one of their included sessions.
     const price = i.pay === "gift" ? null : await programPrice(ctx.db, e.program_id, i.to_person_id, ctx.now);
     const money = !price ? both("transfer.gift", { sub, person }) : both(price.cents > 0 ? "transfer.sub_pays" : "transfer.sub_free", { sub, person, price: priceWords(price) });
-    return { title: both("action.enrolment.transfer"), summary: both("plan.enrolment.transfer", { person, name: p.name, sub, money }), reads: [read], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [e.person_id]),
+    return { title: both("action.enrolment.transfer"), summary: both("plan.enrolment.transfer", { person, name: textOf(p.name, p.translations, "name"), sub, money }), reads: [read], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [e.person_id]),
       undo: { kind: "compensating" }, details: { price } };
   },
   async apply(ctx, i, plan) {
@@ -644,7 +663,7 @@ export const enrolmentComp = defineAction({
     const held = waiting && await openOffer(ctx.db, waiting.id, ctx.now) ? 1 : 0;
     if ((await takenCount(ctx.db, i.program_id, ctx.now, sid)) - held >= await placesOf(ctx.db, i.program_id, sid)) throw new KumiError("error.program_full");
     const onDate = date ? both("plan.enrolment.on_date", { when: when(new Date(date.starts_at), await clubTz(ctx.db)) }) : { en: "", es: "" };
-    return { title: both("action.enrolment.comp"), summary: join2(both("plan.enrolment.comp", { person, name: p.name }), onDate), reads: [read], locationId: p.location_id, undo: { kind: "compensating" } };
+    return { title: both("action.enrolment.comp"), summary: join2(both("plan.enrolment.comp", { person, name: textOf(p.name, p.translations, "name") }), onDate), reads: [read], locationId: p.location_id, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
     await ctx.trx.selectFrom("program").select("id").where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();
@@ -674,7 +693,7 @@ export const enrolmentAcceptOffer = defineAction({
     // Kept at the price it was put on the waitlist at, unless an included session is free now.
     const now = await programPrice(ctx.db, e.program_id, e.person_id, ctx.now);
     const price: ProgramPrice = now.basis === "included" ? now : { cents: e.price_cents, full: p.price_cents, basis: e.price_basis, included: null };
-    return { title: both("action.enrolment.accept_offer"), summary: both("plan.enrolment.accept_offer", { person: await personName(ctx.db, e.person_id), name: p.name, price: priceWords(price) }),
+    return { title: both("action.enrolment.accept_offer"), summary: both("plan.enrolment.accept_offer", { person: await personName(ctx.db, e.person_id), name: textOf(p.name, p.translations, "name"), price: priceWords(price) }),
       reads: [read, { entity: "waitlist_offer", id: offer.id, version: offer.version }], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [e.person_id]), moneyCents: price.cents, undo: { kind: "compensating" }, details: { offer_id: offer.id, price } };
   },
   async apply(ctx, i, plan) {

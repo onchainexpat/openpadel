@@ -29,6 +29,7 @@ export * from "./money.ts";
 export * from "./outbox.ts";
 export * from "./messages.ts";
 export * from "./texts.ts";
+export * from "./club_text.ts";
 export * from "./declines.ts";
 export * from "./americano.ts";
 export * from "./games.ts";

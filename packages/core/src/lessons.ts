@@ -11,6 +11,7 @@ import { both, dateTime, money, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { mergeTranslations, translationsInput } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, onDate, weekdayOf } from "./clock.ts";
 import { freeCourts, occupied } from "./bookings.ts";
@@ -120,7 +121,7 @@ export async function lessonTimes(db: Db | Trx, i: { coachId: string; date: stri
 /** Coaches members can book, with what they show: never contact details. */
 export async function lessonCoaches(db: Db | Trx) {
   const rows = await db.selectFrom("coach").innerJoin("person", "person.id", "coach.person_id")
-    .select(["coach.person_id as id", "person.display_name as name", "coach.bio", "coach.level_min", "coach.level_max", "coach.languages", "coach.rates", "coach.photo_id", "coach.lessons", "coach.max_players"])
+    .select(["coach.person_id as id", "person.display_name as name", "coach.bio", "coach.translations", "coach.level_min", "coach.level_max", "coach.languages", "coach.rates", "coach.photo_id", "coach.lessons", "coach.max_players"])
     .where("coach.active", "=", true).where("person.status", "!=", "archived")
     .where((eb) => eb.exists(eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id")
       .whereRef("person_role.person_id", "=", "coach.person_id").where("person_role.active", "=", true).where("role.key", "=", "coach")))
@@ -136,7 +137,8 @@ export const coachSetProfile = defineAction({
   name: "coach.set_profile", version: 1,
   input: z.object({ person_id: z.uuid(), bio: z.nullable(z.string().check(z.maxLength(600))), level_min: levelInput, level_max: levelInput,
     languages: z.array(z.enum(["en", "es"])).check(z.minLength(1), z.maxLength(2)), rates: ratesInput,
-    lessons: z.boolean().check(z.describe("Whether members can book private lessons with this coach in the app.")), max_players: z.number().check(z.int(), z.minimum(1), z.maximum(4)) }),
+    lessons: z.boolean().check(z.describe("Whether members can book private lessons with this coach in the app.")), max_players: z.number().check(z.int(), z.minimum(1), z.maximum(4)),
+    translations: translationsInput("coach") }),
   async plan(ctx, i) {
     const name = await nameOf(ctx.db, i.person_id);
     if (!(await isCoach(ctx.db, i.person_id))) throw new KumiError("error.not_a_coach", { name });
@@ -151,8 +153,9 @@ export const coachSetProfile = defineAction({
   async apply(ctx, i) {
     const row = { bio: i.bio?.trim() || null, level_min: i.level_min === null ? null : i.level_min.toFixed(2), level_max: i.level_max === null ? null : i.level_max.toFixed(2), languages: i.languages,
       rates: JSON.stringify(Object.fromEntries(i.rates.map((r) => [String(r.minutes), r.cents]))), lessons: i.lessons, max_players: i.max_players, active: true };
-    const existing = await ctx.trx.selectFrom("coach").select("person_id").where("person_id", "=", i.person_id).executeTakeFirst();
-    if (existing) await ctx.update("coach", i.person_id, row); else await ctx.insert("coach", { person_id: i.person_id, ...row });
+    const existing = await ctx.trx.selectFrom("coach").select(["person_id", "translations"]).where("person_id", "=", i.person_id).executeTakeFirst();
+    const translations = JSON.stringify(mergeTranslations(existing?.translations, i.translations));
+    if (existing) await ctx.update("coach", i.person_id, { ...row, translations }); else await ctx.insert("coach", { person_id: i.person_id, ...row, translations });
     return null;
   },
 });

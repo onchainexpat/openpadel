@@ -141,7 +141,7 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     .where((w) => w.or([w("booking_player.person_id", "=", personId), w("place_offer.to_person_id", "=", personId), w("place_offer.taken_by", "=", personId)])).orderBy("place_offer.created_at").execute();
 
   const enrolments = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").leftJoin("session", "session.id", "enrolment.session_id")
-    .select(["program.name", "program.kind", "session.starts_at", "enrolment.status", "enrolment.price_cents", "enrolment.price_basis", "enrolment.paid_by", "enrolment.created_at",
+    .select(["program.name", "program.translations as name_in_other_languages", "program.kind", "session.starts_at", "enrolment.status", "enrolment.price_cents", "enrolment.price_basis", "enrolment.paid_by", "enrolment.created_at",
       "enrolment.left_at", "enrolment.left_how", "enrolment.refund_cents", "enrolment.refund_outcome"]).where("enrolment.person_id", "=", personId).orderBy("enrolment.created_at").execute();
 
   const pays = await db.selectFrom("payment").select(["id", "created_at", "amount_cents", "method", "status", "booking_player_id", "enrolment_id", "membership_id", "person_id"]).where("person_id", "=", personId).orderBy("created_at").execute();
@@ -152,10 +152,10 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     payments.push({ at: iso(x.created_at), for: say(what), amount_cents: x.amount_cents, method: x.method, status: x.status, refunds: refunds.map((r) => ({ ...r, created_at: iso(r.created_at) })) });
   }
   const memberships = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .select(["membership_plan.name as plan", "membership.status", "membership.period", "membership.price_cents", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end",
+    .select(["membership_plan.name as plan", "membership_plan.translations as plan_in_other_languages", "membership.status", "membership.period", "membership.price_cents", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end",
       "membership.ended_at", "membership.end_reason", "membership.paused_from", "membership.paused_until", "membership.created_at"]).where("membership.person_id", "=", personId).orderBy("membership.created_at").execute();
   const covered = await db.selectFrom("membership_member").innerJoin("membership", "membership.id", "membership_member.membership_id").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .leftJoin("person as payer", "payer.id", "membership.person_id").select(["membership_plan.name as plan", "payer.display_name as paid_by", "membership_member.created_at", "membership_member.ends_at", "membership_member.extra"])
+    .leftJoin("person as payer", "payer.id", "membership.person_id").select(["membership_plan.name as plan", "membership_plan.translations as plan_in_other_languages", "payer.display_name as paid_by", "membership_member.created_at", "membership_member.ends_at", "membership_member.extra"])
     .where("membership_member.person_id", "=", personId).where("membership.person_id", "!=", personId).execute();
 
   const rating = await db.selectFrom("rating").select(["level", "rated_games", "provisional", "floor", "floor_reason", "self_adjust_used"]).where("person_id", "=", personId).executeTakeFirst();
@@ -194,15 +194,15 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
   const kidRequests = await db.selectFrom("kid_request").select(["created_at", "kind", "reason", "cents", "what", "status", "decided_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
   const devices = await db.selectFrom("push_subscription").select(["app", "endpoint", "user_agent", "created_at", "last_ok_at", "revoked_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
   const asked = (await sql<{ asked: string; at: Date }>`SELECT asked, at FROM missing_feature WHERE person_id = ${personId} ORDER BY at`.execute(db)).rows;
-  const coach = await db.selectFrom("coach").select(["bio", "level_min", "level_max", "languages", "rates", "lessons", "active"]).where("person_id", "=", personId).executeTakeFirst();
+  const coach = await db.selectFrom("coach").select(["bio", "translations as bio_in_other_languages", "level_min", "level_max", "languages", "rates", "lessons", "active"]).where("person_id", "=", personId).executeTakeFirst();
   // Whether they came, as their coaches marked it; and a calendar link of theirs (the address itself is a key, so not shown).
   const attended = await db.selectFrom("attendance").leftJoin("session", "session.id", "attendance.session_id").leftJoin("program", "program.id", "session.program_id")
     .leftJoin("booking", "booking.id", "attendance.booking_id")
-    .select(["attendance.came", "attendance.marked_at", "program.name as program", "session.starts_at", "booking.code as lesson"]).where("attendance.person_id", "=", personId).where("attendance.came", "is not", null)
+    .select(["attendance.came", "attendance.marked_at", "program.name as program", "program.translations as program_in_other_languages", "session.starts_at", "booking.code as lesson"]).where("attendance.person_id", "=", personId).where("attendance.came", "is not", null)
     .orderBy("attendance.marked_at").execute();
   const feeds = await db.selectFrom("calendar_feed").select(["created_at", "revoked_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
   // Programs they asked to hear about when a place opened.
-  const watches = await db.selectFrom("program_watch").innerJoin("program", "program.id", "program_watch.program_id").select(["program.name", "program_watch.created_at", "program_watch.told_at", "program_watch.ended_at"])
+  const watches = await db.selectFrom("program_watch").innerJoin("program", "program.id", "program_watch.program_id").select(["program.name", "program.translations as name_in_other_languages", "program_watch.created_at", "program_watch.told_at", "program_watch.ended_at"])
     .where("program_watch.person_id", "=", personId).orderBy("program_watch.created_at").execute();
   // The club's tags on them; and, for staff, the groups, templates and messages to members they made.
   const tagged = await db.selectFrom("person_tag").innerJoin("tag", "tag.id", "person_tag.tag_id").select(["tag.name", "person_tag.created_at", "person_tag.removed_at"])
@@ -441,7 +441,7 @@ async function erasePerson(ctx: ApplyCtx, personId: string): Promise<number> {
   }
   const coach = await db.selectFrom("coach").select(["photo_id"]).where("person_id", "=", personId).executeTakeFirst();
   if (coach) {
-    await ctx.update("coach", personId, { bio: null, photo_id: null, active: false });
+    await ctx.update("coach", personId, { bio: null, translations: JSON.stringify({}), photo_id: null, active: false });
     if (coach.photo_id) await db.deleteFrom("photo").where("id", "=", coach.photo_id).execute();
   }
   // Messages to them: kept as a record that something was sent, without the words; anything not sent yet isn't.

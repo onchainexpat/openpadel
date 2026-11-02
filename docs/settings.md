@@ -44,7 +44,7 @@ the club's own settings, changed by the owner or a manager in the staff app (Set
 | Setting | What it does | Default |
 |---|---|---|
 | `KUMI_TYPESAFE_API_KEY` | TypeSafe's Jev answers a member's new question from the club's facts, word for word, or hands it to the staff (`docs/setup/accounts/ask-the-club.md`). | not set |
-| `KUMI_ANTHROPIC_API_KEY` | Claude Haiku makes the same decision: when Jev fails or is slow, or on its own without a TypeSafe key. | not set |
+| `KUMI_ANTHROPIC_API_KEY` | Claude Haiku makes the same decision: when Jev fails or is slow, or on its own without a TypeSafe key. It also writes the drafts staff can ask for of the club's own words in its other language. | not set |
 
 With neither, every question goes to the staff. The club can switch answering off in Settings either way.
 

@@ -370,6 +370,18 @@ The first version a club can run on its own (court bookings included), or for it
 - Staff start on the page their role uses: owners and managers on Changes, coaches on their schedule,
   front desk on Courts, the accountant on Reports.
 
+**The club's own words in both languages**
+- A plan's name and description, a program's name, the waiver, the public page's blurb, a coach's bio and a
+  price's name each have an optional version in the club's other language, under the field in the staff app.
+  A member reads their language's version, and the club's own words where there isn't one: on the members'
+  app, the public page, previews, messages, texts and receipts (a receipt names the program or plan in each
+  language). Court and location names stay as written.
+- Programs can be renamed (`program.set_name`), with their name in the other language.
+- With an Anthropic key in the settings, "Offer a draft" fills the other-language field from the club's own
+  words through Claude Haiku. A person reads it and saves it; nothing is saved by itself. Staff only, 40 an hour each.
+- Accepting the waiver records which language it was read in. The data download and the club's receipts file
+  keep both versions.
+
 **The public page**
 - The staff app's "see the public page" opens it at the members' address.
 - Once switched on: the club's locations, hours, courts, prices, memberships and upcoming public
