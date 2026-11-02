@@ -124,6 +124,31 @@ function Texts({ personId }: { personId: string }) {
   );
 }
 
+/** An email for an account that joined by phone: a code to the address, then it's theirs (auth.ts). Asked
+ *  for, never required: receipts and messages also wait in the app. */
+function AddEmail() {
+  const [email, setEmail] = useState(""), [code, setCode] = useState(""), [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  const run = (f: () => Promise<void>) => async (e: Event) => { e.preventDefault(); setBusy(true); setError(null); try { await f(); } catch (x) { setError(x instanceof ApiError ? x.message : (x as Error).message); } finally { setBusy(false); } };
+  const send = run(async () => { await api("/my/email/start", { email }); setSent(true); });
+  const confirm = run(async () => { await api("/my/email/verify", { code }); await loadMe(); });
+  return (
+    <section class="card" id="email">
+      <h2>{t("ui.email_title")}</h2>
+      <p class="meta">{t("ui.email_none")}</p>
+      {!sent ? <form onSubmit={send}>
+        <label>{t("ui.email")}<input type="email" required autocomplete="email" value={email} onInput={(e) => setEmail(e.currentTarget.value)} /></label>
+        <button class="primary" disabled={busy}>{t("ui.email_add")}</button>
+      </form> : <form onSubmit={confirm}>
+        <p>{t("ui.email_code_sent", { email })}</p>
+        <label>{t("ui.code")}<input inputMode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code" value={code} onInput={(e) => setCode(e.currentTarget.value)} /></label>
+        <button class="primary" disabled={busy}>{t("ui.confirm")}</button>
+      </form>}
+      {error && <p class="error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
 export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
   const m = me.value!;
   const [name, setName] = useState(m.person.display_name), [locale, setLocale] = useState<Lang>(m.person.locale as Lang);
@@ -151,7 +176,8 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
       <h1>{t("ui.profile_title")}</h1>
       <section class="card">
         <p>{t("ui.roles", { roles: m.roles.map((r) => r.name ?? t(`role.${r.key}` as Key)).join(", ") })}</p>
-        <p class="meta">{t(m.signed_in_with === "passkey" ? "ui.signed_in_with_passkey" : m.signed_in_with === "two_factor" ? "ui.signed_in_with_two_steps" : "ui.signed_in_with_email_code")}</p>
+        <p class="meta">{t(m.signed_in_with === "passkey" ? "ui.signed_in_with_passkey" : m.signed_in_with === "two_factor" ? "ui.signed_in_with_two_steps"
+          : m.signed_in_with === "phone_code" ? "ui.signed_in_with_phone_code" : "ui.signed_in_with_email_code")}</p>
       </section>
       <form class="card" onSubmit={preview}>
         <label>{t("ui.display_name")}<input value={name} onInput={(e) => setName(e.currentTarget.value)} /></label>
@@ -164,6 +190,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
           <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>
         )}
       </form>
+      {app === "member" && m.has_email === false && <AddEmail />}
       <PushToggle app={app} />
       {app === "member" && !m.kid && <ClubNews personId={m.person.id} />}
       {app === "member" && <Texts personId={m.person.id} />}

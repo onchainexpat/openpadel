@@ -8,7 +8,7 @@ import { FRESH_MINUTES } from "./passkeys.ts";
 import { RateLimiter } from "./limits.ts";
 import type { Mailer } from "./mailer.ts";
 
-export type SessionMe = { id: string; display_name: string; locale: string; method: "email_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
+export type SessionMe = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
 export interface TwoFactorDeps { db: Db; mailer: Mailer; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => SessionMe }
 
 /** "JBSW Y3DP EHPK 3PXP ...": the key, for typing into an app by hand. */
@@ -33,7 +33,7 @@ export function twoFactorRoutes(deps: TwoFactorDeps) {
     const me = signedIn(c), now = deps.now();
     if (await activeFactor(db, me.id)) throw new KumiError("error.factor_exists", {}, 409);
     // Like adding a passkey: right after signing in, or from a session that's already two-step.
-    if (me.method === "email_code" && now.getTime() - me.created_at.getTime() > FRESH_MINUTES * 60_000) throw new KumiError("error.recent_sign_in", {}, 403);
+    if ((me.method === "email_code" || me.method === "phone_code") && now.getTime() - me.created_at.getTime() > FRESH_MINUTES * 60_000) throw new KumiError("error.recent_sign_in", {}, 403);
     const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", me.id).executeTakeFirstOrThrow();
     const club = (await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
     const secret = newSecret(), id = uuidv7(now.getTime()), uri = otpauthUri(secret, club, person.email ?? person.display_name);
@@ -46,7 +46,7 @@ export function twoFactorRoutes(deps: TwoFactorDeps) {
     if (!tries.take(me.id, deps.now().getTime())) throw new KumiError("error.too_many_attempts", {}, 429);
     await run(db, "person.factor_add", { person_id: me.id, challenge_id: String(b.challenge_id ?? ""), code: String(b.code ?? "") }, actor(c, me), { internal: true, now: deps.now() });
     // The emailed code and now the app's: this session has both steps.
-    if (me.method === "email_code") await markSession(me, "totp");
+    if (me.method === "email_code" || me.method === "phone_code") await markSession(me, "totp");
     const codes = await makeRecoveryCodes(db, me.id, deps.now());
     await notify(me.id, "mail.authenticator_added_subject", "mail.authenticator_added_body");
     return c.json({ added: true, codes });
@@ -56,7 +56,7 @@ export function twoFactorRoutes(deps: TwoFactorDeps) {
     const me = signedIn(c), b = await c.req.json().catch(() => ({})) as { code?: string };
     if (!tries.take(me.id, deps.now().getTime())) throw new KumiError("error.too_many_attempts", {}, 429);
     if (!(await useAuthenticatorCode(db, me.id, String(b.code ?? ""), deps.now()))) throw new KumiError("error.bad_factor_code", {}, 401);
-    if (me.method === "email_code") await markSession(me, "totp");
+    if (me.method === "email_code" || me.method === "phone_code") await markSession(me, "totp");
     return c.json({ signed_in: true });
   });
 
@@ -64,7 +64,7 @@ export function twoFactorRoutes(deps: TwoFactorDeps) {
     const me = signedIn(c), b = await c.req.json().catch(() => ({})) as { code?: string };
     if (!tries.take(me.id, deps.now().getTime())) throw new KumiError("error.too_many_attempts", {}, 429);
     if (!(await useRecoveryCode(db, me.id, String(b.code ?? ""), deps.now()))) throw new KumiError("error.bad_recovery_code", {}, 401);
-    if (me.method === "email_code") await markSession(me, "recovery");
+    if (me.method === "email_code" || me.method === "phone_code") await markSession(me, "recovery");
     const left = await recoveryLeft(db, me.id);
     await notify(me.id, "mail.recovery_used_subject", "mail.recovery_used_body", { left });
     return c.json({ signed_in: true, left });
@@ -74,7 +74,7 @@ export function twoFactorRoutes(deps: TwoFactorDeps) {
     const me = signedIn(c);
     const passkeys = (await db.selectFrom("passkey").select("credential_id").where("person_id", "=", me.id).where("revoked_at", "is", null).execute()).length;
     return c.json({ required: await needsTwoFactor(db, me.id), authenticator: Boolean(await activeFactor(db, me.id)), passkeys,
-      recovery_left: await recoveryLeft(db, me.id), two_step_now: me.method !== "email_code" });
+      recovery_left: await recoveryLeft(db, me.id), two_step_now: me.method !== "email_code" && me.method !== "phone_code" });
   });
 
   app.post("/my/two-factor/codes", async (c) => {

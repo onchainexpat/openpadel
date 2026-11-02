@@ -11,7 +11,7 @@ import type { Mailer } from "./mailer.ts";
 
 export const FRESH_MINUTES = 15, CHALLENGE_MINUTES = 5;
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
-type Session = { id: string; display_name: string; locale: string; method: "email_code" | "passkey" | "two_factor"; created_at: Date } | null;
+type Session = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date } | null;
 export interface PasskeyDeps { db: Db; mailer: Mailer; publicUrl: string; secureCookies: boolean; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => Session }
 
 export function passkeyRoutes(deps: PasskeyDeps) {
@@ -33,7 +33,7 @@ export function passkeyRoutes(deps: PasskeyDeps) {
   app.post("/auth/passkey/add/options", async (c) => {
     const me = deps.me(c);
     if (!me) throw new KumiError("error.signed_out", {}, 401);
-    if (me.method === "email_code" && deps.now().getTime() - me.created_at.getTime() > FRESH_MINUTES * 60_000) throw new KumiError("error.recent_sign_in", {}, 403);
+    if ((me.method === "email_code" || me.method === "phone_code") && deps.now().getTime() - me.created_at.getTime() > FRESH_MINUTES * 60_000) throw new KumiError("error.recent_sign_in", {}, 403);
     const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", me.id).executeTakeFirstOrThrow();
     const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
     const existing = await db.selectFrom("passkey").select(["credential_id", "transports"]).where("person_id", "=", me.id).where("revoked_at", "is", null).execute();

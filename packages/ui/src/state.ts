@@ -2,7 +2,9 @@
 import { signal, computed, effect } from "@preact/signals";
 import { format, pickLang, type Catalog, type Key, type Lang, type Params } from "@kumi/i18n/format";
 
-export type Me = { person: { id: string; display_name: string; locale: string }; signed_in_with: "email_code" | "passkey" | "two_factor"; lang: Lang;
+export type Me = { person: { id: string; display_name: string; locale: string }; signed_in_with: "email_code" | "phone_code" | "passkey" | "two_factor"; lang: Lang;
+  /** False for an account that joined by phone and hasn't added an email: the members' app asks for one, never requires it. */
+  has_email?: boolean;
   /** A role the club made has its own name; the built-in ones are worded by key. */
   roles: { key: string; name?: string | null; location_id: string | null }[];
   /** This session still owes its second step ("verify"), or has none set up yet ("setup"): the apps show only that. */
@@ -13,7 +15,7 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   can?: string[] | null;
   /** A junior with a login of their own: their parents' rules apply, and payments go on the family card. */
   kid?: { friends: boolean } | null };
-export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean };
+export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean; phone_sign_in?: boolean };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
 /** Whether to offer a button for a change: a role the club made may not allow it (the server decides either way). */

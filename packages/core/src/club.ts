@@ -6,6 +6,7 @@ import { KumiError } from "./errors.ts";
 import { withManagers } from "./households.ts";
 import { checkAssign, roleLabel } from "./roles.ts";
 import { uuidv7 } from "./ids.ts";
+import { showPhone } from "./texts.ts";
 
 const isTimeZone = (v: string) => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } };
 const timeZone = z.string().check(z.refine(isTimeZone, { message: "Not a time zone (use an IANA name such as America/Los_Angeles)" }));
@@ -165,26 +166,57 @@ async function newPeople(ctx: PlanCtx, rows: { display_name: string; email?: str
   return { add, skipped };
 }
 
-/** Someone joins by themselves, after proving their email address. Their answer about club news is kept
- *  as consent evidence; emails about their own sign-ups and payments need no consent. */
+/** Someone joins by themselves, after proving their email address or (by a texted code) their mobile number.
+ *  Their answer about club news is kept as consent evidence, when they were asked: someone who joined by phone
+ *  has no email to send news to, so they weren't. Messages about their own sign-ups and payments need no consent. */
 export const SIGN_UP_FORM = "sign-up-1";
 export const personSignUp = defineAction({
   name: "person.sign_up", version: 1, system: true, internal: true,
-  input: z.object({ email: z.email(), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: lang, club_news: z.boolean() }),
+  input: z.object({ email: z.optional(z.email()), phone: z.optional(z.string().check(z.regex(/^\+1\d{10}$/))), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: lang,
+    club_news: z.boolean() }),
   async plan(ctx, i) {
-    const email = i.email.trim().toLowerCase();
+    if (Boolean(i.email) === Boolean(i.phone)) throw new KumiError("error.invalid_input", { details: "an email or a phone number, not both" });
+    const name = i.display_name.trim();
+    if (i.phone) {
+      if (await ctx.db.selectFrom("auth_identity").select("id").where("kind", "=", "phone").where("value", "=", i.phone).executeTakeFirst()
+        || await ctx.db.selectFrom("person").select("id").where("phone", "=", i.phone).executeTakeFirst()) throw new KumiError("error.phone_taken");
+      return { title: both("action.person.sign_up"), summary: both("plan.person.sign_up_phone", { name, phone: showPhone(i.phone) }), reads: [], undo: { kind: "none" } };
+    }
+    const email = i.email!.trim().toLowerCase();
     if (await ctx.db.selectFrom("person").select("id").where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).executeTakeFirst()) throw new KumiError("error.duplicate_email");
-    return { title: both("action.person.sign_up"), summary: both("plan.person.sign_up", { name: i.display_name.trim(), email }), reads: [], undo: { kind: "none" } };
+    return { title: both("action.person.sign_up"), summary: both("plan.person.sign_up", { name, email }), reads: [], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
-    const id = uuidv7(), email = i.email.trim().toLowerCase();
-    await ctx.insert("person", { id, display_name: i.display_name.trim(), email, locale: i.locale, created_via: "signup" });
-    await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: id, kind: "email", value: email, verified_at: ctx.now }).execute();
+    const id = uuidv7(), email = i.email ? i.email.trim().toLowerCase() : null;
+    await ctx.insert("person", { id, display_name: i.display_name.trim(), email, phone: i.phone ?? null, locale: i.locale, created_via: "signup" });
+    await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: id, kind: email ? "email" : "phone", value: email ?? i.phone!, verified_at: ctx.now }).execute();
     const member = await ctx.trx.selectFrom("role").select("id").where("key", "=", "member").executeTakeFirstOrThrow();
     await ctx.insert("person_role", { id: uuidv7(), person_id: id, role_id: member.id, location_id: null });
-    await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: id, channel: "email", purpose: "club_news", granted: i.club_news, source: "sign_up", form_version: SIGN_UP_FORM, evidence: JSON.stringify({ at: ctx.now.toISOString() }) }).execute();
+    if (email) await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: id, channel: "email", purpose: "club_news", granted: i.club_news, source: "sign_up", form_version: SIGN_UP_FORM, evidence: JSON.stringify({ at: ctx.now.toISOString() }) }).execute();
     await ctx.emit("person.signed_up", { person_id: id });
     return { person_id: id };
+  },
+});
+
+/** An email address, proven with a code, for an account that has none (someone who joined by phone): their
+ *  receipts and messages can go there, and it's a second way to sign in if they lose the phone. Changing an
+ *  address the account already has isn't this: the staff do that. */
+export const emailAdd = defineAction({
+  name: "email.add", version: 1, system: true, internal: true,
+  input: z.object({ person_id: z.uuid(), email: z.email() }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
+    const email = i.email.trim().toLowerCase();
+    if (row.email) throw new KumiError("error.email_already_set");
+    if (await ctx.db.selectFrom("person").select("id").where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).executeTakeFirst()
+      || await ctx.db.selectFrom("auth_identity").select("id").where("kind", "=", "email").where((eb) => eb(eb.fn("lower", ["value"]), "=", email)).executeTakeFirst()) throw new KumiError("error.duplicate_email");
+    return { title: both("action.email.add"), summary: both("plan.email.add", { email }), reads: [read], ownerIds: [i.person_id], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    const email = i.email.trim().toLowerCase();
+    await ctx.update("person", i.person_id, { email });
+    await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: i.person_id, kind: "email", value: email, verified_at: ctx.now }).execute();
+    return null;
   },
 });
 

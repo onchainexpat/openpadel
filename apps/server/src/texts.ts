@@ -1,7 +1,8 @@
 // Texts in the members' app and from Twilio (texts.ts in core has the rules). A member confirms their number
 // with a texted code, then says yes in the app. Codes are guarded like sign-in codes, and more, since each one
 // costs the club and a script could aim them at premium numbers (SMS pumping): the bot check, US and Canadian
-// numbers only, and at most 3 codes a number, 5 a person and 30 for the whole club in an hour.
+// numbers only, and at most 3 codes a number, 5 a person and 30 for the whole club in an hour (sign-in codes by
+// text count too: auth.ts).
 // Twilio posts texts to the club's number and its delivery reports here, signed with the auth token.
 import { createHash, randomInt } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -62,7 +63,7 @@ export function textRoutes(d: TextDeps) {
     if (other) throw new KumiError("error.phone_taken", {}, 409);
     const hour = new Date(now.getTime() - 3600_000);
     const count = async (f: "target" | "person_id" | null, v?: string) => Number((await db.selectFrom("auth_challenge").select((eb) => eb.fn.countAll<string>().as("n"))
-      .where("kind", "=", "phone_code").where("created_at", ">", hour).$if(f !== null, (q) => q.where(f!, "=", v!)).executeTakeFirstOrThrow()).n);
+      .where("kind", "in", ["phone_code", "phone_sign_in"]).where("created_at", ">", hour).$if(f !== null, (q) => q.where(f!, "=", v!)).executeTakeFirstOrThrow()).n);
     if (await count("target", phone) >= PER_NUMBER || await count("person_id", id) >= PER_PERSON) throw new KumiError("error.phone_too_many", {}, 429);
     if (await count(null) >= PER_CLUB) { console.warn(`texts: ${PER_CLUB} codes this hour already; not sending more until it calms down`); throw new KumiError("error.phone_too_many", {}, 429); }
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0"), cid = uuidv7(now.getTime());

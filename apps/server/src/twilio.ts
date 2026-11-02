@@ -50,7 +50,8 @@ export class TwilioTexter implements Texter {
   }
 }
 
-/** Practice: only the club's test numbers get texts; the rest are held and logged, never sent. */
+/** Practice: only the club's test numbers get texts; the rest are held and logged, never sent (whole, so a
+ *  sign-in code held in practice can be read from the log, as an emailed one can). */
 export class PracticeTexter implements Texter {
   held: TextOut[] = [];
   private readonly inner: Texter;
@@ -59,7 +60,7 @@ export class PracticeTexter implements Texter {
   async send(text: TextOut) {
     if (this.allowed.has(text.to)) return this.inner.send(text);
     this.held.push(text);
-    console.log(`[text held, practice] to ${text.to.slice(0, -4)}****: ${text.body.slice(0, 60)}`);
+    console.log(`[text held, practice] to ${text.to.slice(0, -4)}****: ${text.body.slice(0, 200)}`);
     return { ref: null };
   }
 }

@@ -295,6 +295,11 @@ message to that member off at once.
 verification): until then, real texts don't reach anyone. That registration is the club's to do in its own
 Twilio console for now; [accounts/twilio.md](accounts/twilio.md) says how, and what to put in the settings.
 
+Once texts are set up, members can also sign in, or join, with a code texted to their mobile number instead
+of an email ("Use my mobile number instead" on the sign-in page). Someone who joins that way needs no email;
+the app asks for one afterwards, for receipts by email and to sign in if they lose the phone. In practice
+mode the code is in the server's log (`journalctl -u kumi | grep 'text held'`), as an emailed one is.
+
 ### Programs: weekly dates, changes and a minimum to run
 
 Add a program's dates on its page; "Dates, one a week" adds that many at the same club time, across

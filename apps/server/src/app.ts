@@ -13,10 +13,10 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, type Actor, type Db, type Texter } from "@kumi/core";
+import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { twoFactorRoutes } from "./two_factor.ts";
-import { completeSignUp, sessionPerson, signOut, startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
+import { completeSignUp, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, verifyEmailAdd, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
@@ -41,11 +41,14 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   /** Texts, when the club's Twilio account is set up (twilio.ts): what sends them, and the token Twilio signs its posts with. */
   texts?: { texter: Texter; authToken: string | null } }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
-type Me = { id: string; display_name: string; locale: string; method: "email_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
+type Me = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
 const COOKIE = "kumi_session";
 const EmailStart = z.object({ email: z.email() });
 const EmailVerify = z.object({ email: z.email(), code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
+const PhoneStart = z.object({ phone: z.string().check(z.maxLength(40)) });
+const PhoneVerify = z.object({ phone: z.string().check(z.maxLength(40)), code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
+const CodeOnly = z.object({ code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
 const SignUp = z.object({ ticket: z.string().check(z.minLength(20)), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: z.enum(["en", "es"]), club_news: z.boolean() });
 
 export function makeApp(deps: AppDeps) {
@@ -76,6 +79,8 @@ export function makeApp(deps: AppDeps) {
   const limits = new Map<string, RateLimiter>([
     ["/auth/email/start", new RateLimiter(10, 15 * 60_000)], ["/oauth/sign-in", new RateLimiter(10, 15 * 60_000)],
     ["/auth/email/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/sign-up", new RateLimiter(10, 60 * 60_000)],
+    ["/auth/phone/start", new RateLimiter(10, 15 * 60_000)], ["/auth/phone/verify", new RateLimiter(20, 15 * 60_000)],
+    ["/my/email/start", new RateLimiter(10, 60 * 60_000)], ["/my/email/verify", new RateLimiter(20, 15 * 60_000)],
     ["/auth/passkey/sign-in/verify", new RateLimiter(30, 15 * 60_000)], ["/my/phone/start", new RateLimiter(10, 60 * 60_000)], ["/my/phone/verify", new RateLimiter(20, 15 * 60_000)],
     ["/auth/totp/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/recovery", new RateLimiter(20, 15 * 60_000)], ["/oauth/two-step", new RateLimiter(10, 15 * 60_000)],
   ]);
@@ -89,10 +94,10 @@ export function makeApp(deps: AppDeps) {
     const s = await sessionPerson(db, getCookie(c, COOKIE), now());
     let me: Me = null;
     if (s) {
-      // A passkey is both steps; an emailed code then an authenticator or recovery code is too.
-      const method = s.method === "passkey" ? "passkey" : s.second_factor ? "two_factor" : "email_code";
+      // A passkey is both steps; an emailed or texted code then an authenticator or recovery code is too.
+      const method = s.method === "passkey" ? "passkey" : s.second_factor ? "two_factor" : s.method === "phone_code" ? "phone_code" : "email_code";
       let gate: "setup" | "verify" | null = null;
-      if (method === "email_code" && await needsTwoFactor(db, s.id)) gate = (await hasSecondFactor(db, s.id)) ? "verify" : "setup";
+      if ((method === "email_code" || method === "phone_code") && await needsTwoFactor(db, s.id)) gate = (await hasSecondFactor(db, s.id)) ? "verify" : "setup";
       me = { id: s.id, display_name: s.display_name, locale: s.locale, method, created_at: s.created_at, token_hash: s.token_hash, gate };
     }
     c.set("me", me);
@@ -168,7 +173,8 @@ export function makeApp(deps: AppDeps) {
     const plan = await db.selectFrom("membership_plan").select("id").where("active", "=", true).where("join_in_app", "=", true).executeTakeFirst();
     // Whether any coach takes lessons in the app.
     const coach = await db.selectFrom("coach").select("person_id").where("active", "=", true).where("lessons", "=", true).where(sql<boolean>`rates <> '{}'::jsonb`).executeTakeFirst();
-    return c.json({ ...club, memberships: Boolean(plan), lessons: Boolean(coach) });
+    // Whether the sign-in page offers a texted code: only when the club's texting account is set up.
+    return c.json({ ...club, memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null) });
   });
 
   // ---- The MCP door: OAuth, then tools generated from the registry ----
@@ -214,6 +220,38 @@ export function makeApp(deps: AppDeps) {
     setCookie(c, COOKIE, r.token, { httpOnly: true, secure: deps.secureCookies ?? true, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
     return c.json({ signed_in: true });
   });
+  // ---- Sign in (or join) by a texted code, when the club texts ----
+  const texter = () => { const tx = deps.texts?.texter ?? null; if (!phoneSignInOn(tx)) throw new KumiError("error.phone_sign_in_off", {}, 409); return tx!; };
+  const phoneOf = (raw: string) => { const p = usPhone(raw); if (!p) throw new KumiError("error.phone_bad", {}, 400); return p; };
+  app.post("/auth/phone/start", async (c) => {
+    const tx = texter();
+    const parsed = z.safeParse(PhoneStart, await c.req.json().catch(() => ({})));
+    if (!parsed.success) throw new KumiError("error.phone_bad", {}, 400);
+    const phone = phoneOf(parsed.data.phone);
+    if ((await botGuard(c)) === "honeypot") return c.json({ sent: true });   // the same answer; nothing is sent
+    await startPhoneSignIn(db, tx, phone, c.get("lang"), now(), { memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}) });
+    return c.json({ sent: true });   // the same answer whether or not the number has an account
+  });
+  app.post("/auth/phone/verify", async (c) => {
+    texter();
+    const parsed = z.safeParse(PhoneVerify, await c.req.json().catch(() => ({})));
+    if (!parsed.success) throw new KumiError("error.bad_code", {}, 400);
+    const r = await verifyPhoneCode(db, phoneOf(parsed.data.phone), parsed.data.code, c.req.header("user-agent") ?? null, now());
+    if ("signUpTicket" in r) return c.json({ sign_up: true, ticket: r.signUpTicket, by: "phone" });
+    setCookie(c, COOKIE, r.token, { httpOnly: true, secure: deps.secureCookies ?? true, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
+    return c.json({ signed_in: true });
+  });
+  // ---- An email for an account that joined by phone ----
+  app.post("/my/email/start", async (c) => {
+    const a = actor(c), { email } = await body(c, EmailStart);
+    await startEmailAdd(db, mailer, a.personId!, email, c.get("lang"), now());
+    return c.json({ sent: true });
+  });
+  app.post("/my/email/verify", async (c) => {
+    const a = actor(c), { code } = await body(c, CodeOnly);
+    return c.json({ email: await verifyEmailAdd(db, a.personId!, code, now()) });
+  });
+
   app.post("/auth/sign-up", async (c) => {
     const b = await body(c, SignUp);
     if ((await botGuard(c)) !== "ok") throw new KumiError("error.bot_check", {}, 400);
@@ -237,7 +275,10 @@ export function makeApp(deps: AppDeps) {
     const areas = me.gate ? null : await customAreas(db, me.id);
     // For those people, which of the buttons that start a change their roles allow (the server checks again).
     const can = areas ? await customCan(db, me.id, CLIENT_ACTIONS) : null;
-    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can });
+    // An account with no email (it joined by phone): the apps ask, never require, for one.
+    const email = (await db.selectFrom("person").select("email").where("id", "=", me.id).executeTakeFirst())?.email ?? null;
+    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can,
+      has_email: Boolean(email) });
   });
 
   // ---- Actions: one description each, the same one the MCP tools and forms use ----

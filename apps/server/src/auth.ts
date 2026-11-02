@@ -1,12 +1,15 @@
-// Sign-in by an emailed code, then a session cookie. No passwords anywhere.
-// Codes are hashed, live 10 minutes, allow 5 tries, and at most 5 are sent per address an hour.
-// A new address gets a code to join instead (unless the club has closed sign-up); after the code, a
-// sign-up ticket lets them give their name and their email-consent answer, and then they're in.
+// Sign-in by an emailed code, or a texted one, then a session cookie. No passwords anywhere.
+// Codes are hashed, live 10 minutes, allow 5 tries, and at most 5 are sent per address an hour (3 per number:
+// texts.ts's limits, shared with confirming a number on the profile, since each text costs the club).
+// A new address or number gets a code to join instead (unless the club has closed sign-up); after the code, a
+// sign-up ticket lets them give their name (and, with an email, their club-news answer), and then they're in.
+// Every answer is the same whether or not the address or number has an account, so neither can be probed.
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { sql } from "kysely";
 import { t, type Lang } from "@kumi/i18n";
-import { KumiError, runAsSystem, uuidv7, type Db } from "@kumi/core";
+import { KumiError, runAsSystem, textingOn, textWords, TextError, UNSUBSCRIBED, uuidv7, type Db, type Texter } from "@kumi/core";
 import type { Mailer } from "./mailer.ts";
+import { PER_CLUB, PER_NUMBER } from "./texts.ts";
 
 export const CODE_MINUTES = 10, MAX_TRIES = 5, MAX_CODES_PER_HOUR = 5, SESSION_DAYS = 30, SIGN_UP_MINUTES = 30;
 /** Join codes to new addresses, club-wide, per hour: anyone can ask for one, so this caps how much mail a stranger can make the club send. */
@@ -67,23 +70,120 @@ export async function verifyEmailCode(db: Db, email: string, code: string, userA
   return { token: await startSession(db, person.id, userAgent, now, ch.id), personId: person.id };
 }
 
-async function startSession(db: Db, personId: string, userAgent: string | null, now: Date, challengeId: string): Promise<string> {
+async function startSession(db: Db, personId: string, userAgent: string | null, now: Date, challengeId: string, method: "email_code" | "phone_code" = "email_code"): Promise<string> {
   const token = randomBytes(32).toString("base64url");
   await db.transaction().execute(async (trx) => {
     await trx.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", challengeId).execute();
-    await trx.insertInto("web_session").values({ token_hash: sha(token), person_id: personId, expires_at: new Date(now.getTime() + SESSION_DAYS * 864e5), last_seen_at: now, user_agent: userAgent, revoked_at: null }).execute();
-    await trx.updateTable("auth_identity").set({ verified_at: now }).where("person_id", "=", personId).where("kind", "=", "email").where("verified_at", "is", null).execute();
+    await trx.insertInto("web_session").values({ token_hash: sha(token), person_id: personId, expires_at: new Date(now.getTime() + SESSION_DAYS * 864e5), last_seen_at: now, user_agent: userAgent, revoked_at: null, method }).execute();
+    if (method === "email_code") await trx.updateTable("auth_identity").set({ verified_at: now }).where("person_id", "=", personId).where("kind", "=", "email").where("verified_at", "is", null).execute();
   });
   return token;
 }
 
-/** The last step of joining: their name, language and club-news answer, with the ticket from the code. */
+// ---- By a texted code ----
+/** Who a number signs in: the account whose confirmed number it is, if that account may sign in at all (a
+ *  junior only with a login of their own, which their parents gave). */
+async function personByPhone(db: Db, phone: string) {
+  return db.selectFrom("auth_identity").innerJoin("person", "person.id", "auth_identity.person_id").select(["person.id", "person.locale"])
+    .where("auth_identity.kind", "=", "phone").where("auth_identity.value", "=", phone).where("auth_identity.verified_at", "is not", null)
+    .where("person.status", "!=", "archived").where("person.redacted_at", "is", null).where("person.phone", "=", phone)
+    .where((eb) => eb.or([eb("person.junior", "=", false), eb("person.own_login", "=", true)])).executeTakeFirst();
+}
+/** Whether this server can text sign-in codes: the club's Twilio account is set up. */
+export const phoneSignInOn = (texter: Texter | null) => Boolean(texter) && textingOn();
+
+/** A code by text to a US or Canadian number (already checked by usPhone). The same answer whether or not the
+ *  number has an account; a number that can't take texts, or replied STOP, is told so, since that's about the
+ *  number, not about an account. A sign-in code is an account text they asked for: it needs no yes to texts. */
+export async function startPhoneSignIn(db: Db, texter: Texter, phone: string, lang: Lang, now = new Date(), opts: { signUp?: boolean; memberUrl?: string } = {}): Promise<void> {
+  const hour = new Date(now.getTime() - 3600_000);
+  const count = async (target: string | null) => Number((await db.selectFrom("auth_challenge").select((eb) => eb.fn.countAll<string>().as("n"))
+    .where("kind", "in", ["phone_code", "phone_sign_in"]).where("created_at", ">", hour).$if(target !== null, (q) => q.where("target", "=", target!)).executeTakeFirstOrThrow()).n);
+  if (await count(phone) >= PER_NUMBER) throw new KumiError("error.too_many_codes", {}, 429);
+  if (await count(null) >= PER_CLUB) { console.warn(`sign-in by text: ${PER_CLUB} codes this hour already; not sending more until it calms down`); throw new KumiError("error.too_many_codes", {}, 429); }
+  const person = await personByPhone(db, phone);
+  const club = await db.selectFrom("club").select(["name", "sign_up_open"]).executeTakeFirstOrThrow();
+  // A number with no account, at a club that isn't taking sign-ups: nothing is sent, and the answer is the same.
+  if (!person && (!club.sign_up_open || opts.signUp === false)) return;
+  // Taken by someone the number can't sign in (a junior whose parents haven't given them a login): the same.
+  if (!person && await db.selectFrom("auth_identity").select("id").where("kind", "=", "phone").where("value", "=", phone).executeTakeFirst()) return;
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  const id = uuidv7(now.getTime());
+  await db.insertInto("auth_challenge").values({ id, kind: "phone_sign_in", person_id: person?.id ?? null, target: phone, code_hash: codeHash(id, code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
+  const l = (person?.locale as Lang | undefined) ?? lang;
+  try { await texter.send({ to: phone, body: textWords(club.name, t(l, "sms.code", { code }), l, null, opts.memberUrl ?? "") }); }
+  catch (e) {
+    await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", id).execute();
+    if (e instanceof TextError && e.code === UNSUBSCRIBED) throw new KumiError("error.phone_stopped", {}, 409);
+    if (e instanceof TextError && e.permanent) throw new KumiError("error.phone_cant_text", {}, 400);
+    throw e;
+  }
+}
+
+/** The texted code back: signed in, or (a number new here) a ticket to finish joining. */
+export async function verifyPhoneCode(db: Db, phone: string, code: string, userAgent: string | null, now = new Date(), opts: { signUp?: boolean } = {}): Promise<{ token: string; personId: string } | { signUpTicket: string }> {
+  const ch = await db.selectFrom("auth_challenge").selectAll().where("target", "=", phone).where("kind", "=", "phone_sign_in")
+    .where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
+  if (!ch) throw new KumiError("error.bad_code", {}, 401);
+  if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
+  if (ch.attempts >= MAX_TRIES) throw new KumiError("error.too_many_attempts", {}, 429);
+  if (ch.code_hash !== codeHash(ch.id, code.trim())) {
+    await db.updateTable("auth_challenge").set({ attempts: sql`attempts + 1` }).where("id", "=", ch.id).execute();
+    const exhausted = ch.attempts + 1 >= MAX_TRIES;
+    throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_code", {}, exhausted ? 429 : 401);
+  }
+  const person = await personByPhone(db, phone);
+  if (!person) {
+    const club = await db.selectFrom("club").select("sign_up_open").executeTakeFirstOrThrow();
+    if (!club.sign_up_open || opts.signUp === false) throw new KumiError("error.no_account", {}, 404);
+    const ticket = randomBytes(32).toString("base64url");
+    await db.transaction().execute(async (trx) => {
+      await trx.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", ch.id).execute();
+      await trx.insertInto("auth_challenge").values({ id: uuidv7(now.getTime()), kind: "sign_up", target: phone, code_hash: sha(ticket), expires_at: new Date(now.getTime() + SIGN_UP_MINUTES * 60_000), consumed_at: null }).execute();
+    });
+    return { signUpTicket: ticket };
+  }
+  return { token: await startSession(db, person.id, userAgent, now, ch.id, "phone_code"), personId: person.id };
+}
+
+// ---- An email for an account that joined by phone ----
+/** A code to the address they typed, to add it to their account (club.ts, email.add). Signed in, so an address
+ *  someone else already uses is said plainly. */
+export async function startEmailAdd(db: Db, mailer: Mailer, personId: string, email: string, lang: Lang, now = new Date()): Promise<void> {
+  const p = await db.selectFrom("person").select(["email"]).where("id", "=", personId).executeTakeFirstOrThrow();
+  if (p.email) throw new KumiError("error.email_already_set", {}, 409);
+  if (await personByEmail(db, email)) throw new KumiError("error.duplicate_email", {}, 409);
+  const recent = await db.selectFrom("auth_challenge").select((eb) => eb.fn.countAll<string>().as("n")).where("kind", "=", "email_add")
+    .where((eb) => eb.or([eb(sql`lower(target)`, "=", email.toLowerCase()), eb("person_id", "=", personId)])).where("created_at", ">", new Date(now.getTime() - 3600_000)).executeTakeFirstOrThrow();
+  if (Number(recent.n) >= MAX_CODES_PER_HOUR) throw new KumiError("error.too_many_codes", {}, 429);
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0"), id = uuidv7(now.getTime());
+  await db.insertInto("auth_challenge").values({ id, kind: "email_add", person_id: personId, target: email.trim().toLowerCase(), code_hash: codeHash(id, code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
+  const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
+  await mailer.send({ to: email, subject: t(lang, "auth.email_add_subject", { club: club.name, code }), text: t(lang, "auth.email_add_body", { club: club.name, code }) });
+}
+export async function verifyEmailAdd(db: Db, personId: string, code: string, now = new Date()): Promise<string> {
+  const ch = await db.selectFrom("auth_challenge").selectAll().where("kind", "=", "email_add").where("person_id", "=", personId).where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
+  if (!ch) throw new KumiError("error.bad_code", {}, 401);
+  if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
+  if (ch.attempts >= MAX_TRIES) throw new KumiError("error.too_many_attempts", {}, 429);
+  if (ch.code_hash !== codeHash(ch.id, code.trim())) {
+    await db.updateTable("auth_challenge").set({ attempts: sql`attempts + 1` }).where("id", "=", ch.id).execute();
+    const exhausted = ch.attempts + 1 >= MAX_TRIES;
+    throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_code", {}, exhausted ? 429 : 401);
+  }
+  await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", ch.id).execute();
+  await runAsSystem(db, "email.add", { person_id: personId, email: ch.target }, "web", { now });
+  return ch.target;
+}
+
+/** The last step of joining: their name, language and (with an email) club-news answer, with the ticket from the code. */
 export async function completeSignUp(db: Db, ticket: string, input: { display_name: string; locale: Lang; club_news: boolean }, userAgent: string | null, now = new Date()): Promise<{ token: string; personId: string }> {
   const ch = await db.selectFrom("auth_challenge").selectAll().where("kind", "=", "sign_up").where("code_hash", "=", sha(ticket)).where("consumed_at", "is", null).executeTakeFirst();
   if (!ch || ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.sign_up_expired", {}, 401);
-  const r = await runAsSystem(db, "person.sign_up", { email: ch.target, ...input }, "sign_up", { now });
+  const byPhone = /^\+1\d{10}$/.test(ch.target);
+  const r = await runAsSystem(db, "person.sign_up", { ...(byPhone ? { phone: ch.target, club_news: false } : { email: ch.target, club_news: input.club_news }), display_name: input.display_name, locale: input.locale }, "sign_up", { now });
   const personId = (r.result as { person_id: string }).person_id;
-  return { token: await startSession(db, personId, userAgent, now, ch.id), personId };
+  return { token: await startSession(db, personId, userAgent, now, ch.id, byPhone ? "phone_code" : "email_code"), personId };
 }
 
 export async function sessionPerson(db: Db, token: string | undefined, now = new Date()) {

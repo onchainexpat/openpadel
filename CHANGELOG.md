@@ -291,6 +291,14 @@ The first version a club can run on its own (court bookings included), or for it
   club's texting registration (in its own Twilio console) before real texts reach anyone.
 
 **Signing in and roles**
+- Signing in, or joining, by a code texted to a US or Canadian mobile number, when the club texts: "Use my
+  mobile number instead" on the sign-in page. A new number joins with a name and language, and no email is
+  needed; the app then asks (never requires) for one, confirmed by a code, for receipts by email and to sign
+  in if the phone is lost. A number belongs to one account. The answer is the same whether or not a number
+  has an account; codes live 10 minutes, take five tries, and count with the profile's number codes (three a
+  number and 30 for the club an hour, plus the bot check). A sign-in code needs no yes to texts: it's a text
+  the person asked for. Staff can sign in this way too, and still owe their second step; a junior only once
+  their parents have given them a login. In practice mode the code is in the server's log, as an emailed one is.
 - Two-step sign-in for staff: a passkey (both steps by itself), or the emailed code followed by a code from
   an authenticator app. Setting one up shows a QR code and the key to type, then ten recovery codes, shown
   once and kept only as slow hashes, each good once. Owners, managers and anyone with a role the club made

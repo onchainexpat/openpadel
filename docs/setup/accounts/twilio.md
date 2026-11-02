@@ -24,8 +24,9 @@ its own Twilio console for now.
    as the club's own. Phone Numbers, then Buy a number, with SMS.
 3. **Owner: register it.** Toll-free: Messaging, then Regulatory compliance, then Toll-free verification.
    Local: Messaging, then Regulatory compliance, then A2P 10DLC (a brand for the club, then a campaign).
-   Describe the use as account notifications to the club's own members, who opt in in the club's app, and
-   use this as the sample opt-in: "Yes, Your Club may text me about my bookings and places. Message and
+   Describe the use as account notifications to the club's own members, who opt in in the club's app, plus
+   one-time codes for signing in that a person asks for on the club's sign-in page, and use this as the
+   sample opt-in: "Yes, Your Club may text me about my bookings and places. Message and
    data rates may apply. Reply STOP to stop, HELP for help." The club's website and privacy policy must be
    live first.
 4. **Owner: make a Messaging Service** (Messaging, then Services), add the number to it, and in its

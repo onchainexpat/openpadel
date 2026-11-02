@@ -1,5 +1,5 @@
 import { ErrorBoundary, LocationProvider, Router, Route, lazy } from "preact-iso";
-import { useEffect } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, SignIn, Profile, TwoFactor } from "@kumi/ui";
 import { WhatsOn } from "./WhatsOn.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
@@ -18,6 +18,14 @@ const FamilyJoin = lazy(() => import("./Family.tsx").then((m) => m.FamilyJoin));
 const Waiver = lazy(() => import("./Family.tsx").then((m) => m.Waiver));
 const Ask = lazy(() => import("./Ask.tsx").then((m) => m.Ask));
 const AskThread = lazy(() => import("./Ask.tsx").then((m) => m.AskThread));
+
+/** Someone who joined by phone is asked to add an email, until they add one or say "not now" on this device. */
+function EmailBanner() {
+  const [later, setLater] = useState(() => { try { return localStorage.getItem("kumi.email_later") === "1"; } catch { return false; } });
+  if (me.value?.has_email !== false || later) return null;
+  const notNow = () => { try { localStorage.setItem("kumi.email_later", "1"); } catch { /* private window: it asks again next time */ } setLater(true); };
+  return <p class="note banner" role="status">{t("ui.email_banner")} <a href="/profile#email">{t("ui.email_banner_add")}</a> <button class="link" onClick={notNow}>{t("ui.email_banner_later")}</button></p>;
+}
 
 export function App() {
   useEffect(() => {
@@ -45,6 +53,7 @@ export function App() {
         <nav><a href="/">{t("ui.nav_whats_on")}</a>{club.value?.court_bookings && <><a href="/play">{t("ui.nav_play")}</a><a href="/book">{t("ui.nav_book")}</a></>}{club.value?.lessons && <a href="/lessons">{t("ui.nav_lessons")}</a>}<a href="/places">{t("ui.nav_my")}</a>{club.value?.memberships && <a href="/membership">{t("ui.nav_membership")}</a>}<a href="/level">{t("ui.nav_level")}</a><a href="/family">{t("ui.nav_family")}</a><a href="/ask">{t("ui.nav_ask")}</a><InboxLink /><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       {waiverDue.value && <p class="note banner" role="status">{t("ui.waiver_banner")} <a href="/waiver">{t("ui.waiver_read")}</a></p>}
+      <EmailBanner />
       <Router>
         <Route path="/" component={WhatsOn} />
         <Route path="/places" component={MyPlaces} />

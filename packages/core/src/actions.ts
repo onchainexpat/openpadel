@@ -11,7 +11,7 @@ import { decide, type Decision } from "./permissions.ts";
 
 /** How the person proved who they are: the strong-sign-in rule reads it. */
 /** "two_factor": an emailed code and then an authenticator or recovery code. */
-export type AuthMethod = "email_code" | "passkey" | "two_factor" | "oauth" | "system";
+export type AuthMethod = "email_code" | "phone_code" | "passkey" | "two_factor" | "oauth" | "system";
 export interface Actor { personId: string | null; agentId?: string | null; via: string; lang: Lang; auth?: AuthMethod }
 export type UndoKind = "reversible" | "compensating" | "none";
 export interface Read { entity: Entity; id: string; version: number }
