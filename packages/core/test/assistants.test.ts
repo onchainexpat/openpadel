@@ -143,6 +143,15 @@ test("the person's own say stays in the app: waivers, their own level, their dat
   assert.equal(inAppOwner.status, "planned");
 });
 
+test("a parent's say over their children stays in the app too: a junior's login and rules, and who else is in the family", async () => {
+  const pat = await newPerson("Pat"), g = await connect(pat, 0), inApp = "error.assistant_in_app";
+  const mia = ((await run(db, "household.add_junior", { person_id: pat, display_name: "Mia", birth_year: 2011 }, web(pat), { now: NOW })).result as { person_id: string }).person_id;
+  await rejects(plan(db, "kid.give_login", { person_id: mia, email: "stranger@example.test" }, bot(pat, g), { now: NOW }), inApp);
+  await rejects(plan(db, "kid.set_rules", { person_id: mia, monthly_limit_cents: 100000 }, bot(pat, g), { now: NOW }), inApp);
+  await rejects(plan(db, "household.invite", { person_id: pat }, bot(pat, g), { now: NOW }), inApp);
+  await rejects(plan(db, "household.remove_junior", { person_id: mia }, bot(pat, g), { now: NOW }), inApp);
+});
+
 test("disconnecting ends it at once: its tokens stop working, and a preview it made can't be confirmed", async () => {
   const p = await book(bot(ann, grant), ann, "2026-12-09", "18:00");
   await db.insertInto("oauth_token").values({ token_hash: "h1", kind: "access", grant_id: grant, family: uuidv7(), resource: "x", expires_at: new Date(NOW.getTime() + 3600_000), used_at: null, revoked_at: null }).execute();

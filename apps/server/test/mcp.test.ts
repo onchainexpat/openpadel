@@ -101,7 +101,8 @@ test("a registered client; a member sees only their own tools, in Spanish, and c
   assert.equal(p.summary, "Cambiar tu nombre visible en tu perfil.");
   // Only the player's tools, and only what an assistant may do: the person's own say stays in the app.
   const names = tools.map((t) => t.name);
-  for (const appOnly of ["waiver_accept_preview", "level_self_adjust_preview", "privacy_export_preview", "family_card_remove_preview", "family_card_start_preview", "assistant_set_cap_preview"])
+  for (const appOnly of ["waiver_accept_preview", "level_self_adjust_preview", "privacy_export_preview", "family_card_remove_preview", "family_card_start_preview", "assistant_set_cap_preview",
+    "kid_give_login_preview", "kid_set_rules_preview", "kid_approve_request_preview", "household_invite_preview", "household_accept_invite_preview", "household_give_login_preview"])
     assert.ok(!names.includes(appOnly), appOnly);
   assert.ok(names.includes("booking_request_preview") && names.includes("level_request_review_preview"));
   assert.match(tools.find((t) => t.name === "consent_texts_preview")!.description!, /Only to turn it off: saying yes is done in the club's app\.$/);
