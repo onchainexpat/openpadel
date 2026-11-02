@@ -74,12 +74,14 @@ test("a founding offer: places left and the start date, then saving the card for
   assert.deepEqual([offer.places_left, offer.starts_on], [10, start]);
   const id = ((await run(db, "membership.join", { plan_id: founding, person_id: bea }, { personId: bea, via: "test", lang: "en" })).result as any).membership_id;
   const post = async (path: string, who: string) => { const r = await app.request(path, { method: "POST", headers: { cookie: cookies[who]!, "content-type": "application/json" }, body: "{}" }); return { status: r.status, json: await r.json() as any }; };
+  const before = (await get("/my/membership", "bea@example.test")).json.membership;
   assert.match((await post(`/my/memberships/${id}/card`, "bea@example.test")).json.client_secret, /^seti_test_/);
   assert.equal((await post(`/my/memberships/${id}/card`, "ann@example.test")).status, 404);   // not Ann's
   assert.equal((await post(`/my/memberships/${id}/card/check`, "bea@example.test")).json.status, "pending");
   assert.equal((await post(`/dev/memberships/${id}/card`, "bea@example.test")).json.status, "succeeded");   // the stand-in card form
+  assert.equal(before.perks_now, false);   // no card yet: nothing applies
   const m = (await get("/my/membership", "bea@example.test")).json.membership;
-  assert.deepEqual([m.status, m.starts_on, m.card_saved], ["upcoming", start, true]);
+  assert.deepEqual([m.status, m.starts_on, m.card_saved, m.perks_now], ["upcoming", start, true, true]);   // the app says the perks apply already
   assert.equal((await get("/membership-plans", "ann@example.test")).json.find((o: any) => o.name === "Founding").places_left, 9);
 });
 

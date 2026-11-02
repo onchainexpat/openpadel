@@ -238,7 +238,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const items = (await occupied(db, courts.map((x) => x.id), dayStart, dayEnd, now)).filter((t) => localDate(new Date(t.start), loc.time_zone) === date || localDate(new Date(t.end), loc.time_zone) === date);
     const ids = (k: "booking_id" | "block_id" | "session_id") => [...new Set(items.map((t) => t[k]).filter((x): x is string => Boolean(x)))];
     const bookings = ids("booking_id").length ? await db.selectFrom("booking").leftJoin("person", "person.id", "booking.organiser_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
-      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.price_cents", "booking.balance_cents", "person.display_name", "coach.display_name as coach"])
+      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.organiser_id", "booking.price_cents", "booking.balance_cents", "person.display_name", "coach.display_name as coach"])
       .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select((x) => x.fn.sum<string>("payment.amount_cents").as("c"))
         .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("paid_cents"))
       // What has gone back, so "paid" on the Today view is what the club still holds.
@@ -248,7 +248,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("booking.id", "in", ids("booking_id")).execute() : [];
     // Who's playing in each, and what players said about running late (today's word, newest first).
     const players = ids("booking_id").length ? await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id")
-      .select(["booking_player.booking_id", "booking_player.person_id", "person.display_name", "booking_player.guest_name"])
+      .select(["booking_player.id", "booking_player.booking_id", "booking_player.person_id", "person.display_name", "booking_player.guest_name"])
       .where("booking_player.booking_id", "in", ids("booking_id")).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is", null).orderBy("booking_player.id").execute() : [];
     const late = ids("booking_id").length ? await db.selectFrom("event_outbox").select(["payload", "created_at"]).where("topic", "=", "booking.running_late")
       .where("created_at", ">=", dayStart).where(sql<boolean>`payload->>'booking_id' = ANY(${ids("booking_id")})`).orderBy("id", "desc").execute() : [];
@@ -267,6 +267,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", price_cents: b?.price_cents ?? 0,
         paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0), balance_cents: b?.balance_cents ?? 0, booking_kind: b?.kind ?? "court", coach: b?.coach ?? null, status: b?.status,
         players: players.filter((p) => p.booking_id === x.booking_id).map((p) => p.display_name ?? p.guest_name ?? ""), late: lateFor(x.booking_id),
+        // A member's court paid in full: the desk can name its players (booking_players.ts), and take them off.
+        whole: b?.kind === "court" && b.pay_mode === "whole" && Boolean(b.organiser_id) && b.status === "confirmed",
+        seats: players.filter((p) => p.booking_id === x.booking_id && p.person_id).map((p) => ({ id: p.id, name: p.display_name ?? "", booker: p.person_id === b?.organiser_id })),
         empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: e.name, open: e.fill_refund_percent !== null })) }; }
       if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, series: Boolean(k?.series_id), label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
       if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, label: s?.name ?? "" }; }

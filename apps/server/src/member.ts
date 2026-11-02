@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { clubNewsAnswer, icsCalendar, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf } from "@kumi/core";
+import { clubNewsAnswer, icsCalendar, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -458,6 +458,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       price_cents: await periodCents(db, m, plan_price_cents, now), period: m.period ?? plan_period, member_prices: prices, ...programTerms(perks ?? (await planTerms(m.plan_id))),
       included_used: perks?.included_sessions ? perks.used : null,
       starts_on: m.status === "upcoming" ? localDate(m.started_at, tz) : null, card_saved: Boolean(saved_method),
+      // A founding member before the start: the plan's prices and discounts may apply already (memberPlan says when).
+      perks_now: m.status === "upcoming" && (await memberPlan(db, pid, now))?.membership_id === m.id,
       paused_until: paused_until && paused_until > now ? localDate(new Date(paused_until.getTime() - 1), tz) : null,
       ends_on: current_period_end ? endDay({ current_period_end, source: m.source }, tz) : null, retry_on: next_attempt_at ? localDate(next_attempt_at, tz) : null,
       pay_now: owed ? { payment_id: owed.id, cents: owed.amount_cents } : null } });

@@ -136,3 +136,13 @@ test("a court's own hours: on the day's grid and in settings", async () => {
   assert.deepEqual((await get("/staff/settings")).json.locations[0].courts.find((c: any) => c.id === c2).hours, [{ weekday, opens: "10:00", closes: "16:00" }]);
   assert.deepEqual((await get("/staff/settings")).json.locations[0].courts.find((c: any) => c.id === c1).hours, []);
 });
+
+test("a member's court paid in full on the grid: the desk sees its players and can name more", async () => {
+  const d = localDate(new Date(Date.now() + 6 * 86400_000), TZ);
+  const bo = ((await run(db, "person.create", { display_name: "Bo", email: "bo@example.test" }, owner)).result as any).person_id;
+  const free = (await get(`/availability?location_id=${loc}&date=${d}&minutes=60`)).json;
+  await run(db, "booking.create", { court_id: c1, starts_at: free.courts.find((c: any) => c.id === c1).starts[2], minutes: 60, person_id: bo }, owner);
+  const item = (await get(`/staff/grid?location_id=${loc}&date=${d}`)).json.courts.find((c: any) => c.id === c1).items.find((x: any) => x.booking_id);
+  assert.equal(item.whole, true);
+  assert.deepEqual(item.seats.map((s: any) => [s.name, s.booker]), [["Bo", true]]);
+});

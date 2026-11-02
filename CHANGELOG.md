@@ -86,7 +86,9 @@ The first version a club can run on its own (court bookings included), or for it
   people they've played with), or shares the booking's players link and the others add themselves. Nobody
   added pays anything, taking someone off moves no money, and a named player can take themselves off.
   With four on it, any of them enters the score, and the booker chooses whether it counts for levels
-  (a friendly unless they say so), until the score is in.
+  (a friendly unless they say so), until the score is in. The front desk names players on a member's
+  court too, from the Courts page (anyone, found by name), and a court booked at the desk for a member
+  gets the players link like one booked in the app. A walk-in under a guest name has none.
 - After a booking or open match, one of the four enters the score (sets, and who played with whom);
   someone from the other side confirms or disputes it, and with no answer in 48 hours it counts as
   entered. A rated match moves levels once confirmed, each with a sentence on why; a friendly never
@@ -201,7 +203,8 @@ The first version a club can run on its own (court bookings included), or for it
   saves the card without charging it; the first charge is on the start date.
 - Founding members get the plan's member prices, program discounts and booking window from the day
   their card is saved, not the start date (a plan setting, on by default; included sessions still
-  start with the membership). Giving up the place before the start keeps what was already paid.
+  start with the membership). Giving up the place before the start keeps what was already paid. Their
+  Membership page says the perks apply already.
 - The desk gives and ends memberships (with an end date or without), and can stop or restart a
   renewal. Messages for joining, renewals, declined cards, cancelling and ending.
 - Family plans: a plan covers up to so many people from one household on the payer's card, and
@@ -250,8 +253,8 @@ The first version a club can run on its own (court bookings included), or for it
   is open to anyone, everyone watching hears once. A watch ends when they sign up.
 - Americano rounds with fair teams, scores and re-pairing.
 - A new program's results change levels by default for socials, leagues and tournaments, and not for
-  clinics and courses (they're for learning); staff can tick or untick it. Programs already made keep
-  what they have.
+  clinics and courses (they're for learning); staff can tick or untick it, and the preview says which.
+  Programs already made keep what they have.
 - Levels from results: members see theirs, how many rated games it rests on and each change;
   staff can set a level or a coach's floor, always with a reason.
 

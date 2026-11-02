@@ -100,7 +100,7 @@ on; leave it off while the club books courts in Playtomic. Paying for whole cour
 several the same day in one card payment (each counts toward "how many at once"); each is still its
 own booking, cancelled on its own. Whoever books a whole court names the other players (or shares the booking's
 players link): nobody added pays, and with four on it the score can be entered and, if the booker says
-so, count for levels.
+so, count for levels. The front desk can name players on a member's court from the Courts page.
 
 Before the deadline, a player who can't make a match gets their money back straight away. After it,
 what they get back is the club's choice, set in the same place: a percent for when their own sub takes

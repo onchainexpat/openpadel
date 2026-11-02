@@ -144,6 +144,6 @@ test("re-pairing when every round has been played is refused", async () => {
 
 test("creating an Americano: the preview says it's an Americano", async () => {
   const p = await plan(db, "program.create", { location_id: locationId, kind: "social", format: "americano", name: "Friday night", capacity: 8, price_cents: 1500 }, owner);
-  assert.equal(p.plan.summary.en, "Create Friday night (social, Americano), 8 places at $15.00.");
-  assert.equal(p.plan.summary.es, "Crear Friday night (social, Americano), con cupo para 8, a $15.00.");
+  assert.equal(p.plan.summary.en, "Create Friday night (social, Americano), 8 places at $15.00. Its results change the players' levels.");
+  assert.equal(p.plan.summary.es, "Crear Friday night (social, Americano), con cupo para 8, a $15.00. Sus resultados cambian los niveles de los jugadores.");
 });

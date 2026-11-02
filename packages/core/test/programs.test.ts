@@ -252,4 +252,8 @@ test("results change levels by default for socials, leagues and tournaments, not
   };
   assert.deepEqual([await rated("clinic"), await rated("course"), await rated("social"), await rated("league"), await rated("tournament")], [false, false, true, true, true]);
   assert.deepEqual([await rated("clinic", { rated: true }), await rated("social", { rated: false })], [true, false]);
+  // The preview says which, so staff see it before creating.
+  const said = async (input: Record<string, unknown>) => (await plan(db, "program.create", { location_id: locationId, name: "Preview", capacity: 4, price_cents: 0, ...input }, owner)).plan.summary.en;
+  assert.match(await said({ kind: "clinic" }), /Its results don't change levels\.$/);
+  assert.match(await said({ kind: "clinic", rated: true }), /Its results change the players' levels\.$/);
 });

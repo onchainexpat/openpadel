@@ -12,6 +12,7 @@ import { uuidv7 } from "./ids.ts";
 import { ENTER_DAYS } from "./results.ts";
 import { notJunior, withManagers } from "./households.ts";
 import { friendsOf } from "./friends.ts";
+import { deskOrUp } from "./booking_pay.ts";
 
 const when = (d: Date, tz: string): Text => ({ en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) });
 
@@ -60,10 +61,15 @@ export const bookingAddPlayer = defineAction({
     if (b.on.includes(i.person_id)) throw new KumiError("error.already_in_booking");
     if (b.on.length >= b.players) throw new KumiError("error.booking_full");
     await notJunior(ctx.db, i.person_id);
-    // Only someone the booker knows (a host can't put a stranger's name on a booking); anyone else uses the link.
-    const f = await friendsOf(ctx.db, b.organiser_id!);
-    if (![...f.friends, ...f.added_you, ...f.you_added, ...f.played_with].some((p) => p.id === i.person_id)) throw new KumiError("error.not_known_player");
-    return { title: both("action.booking.add_player"), summary: both("plan.booking.add_player", { person, court: b.court, when: b.when }), reads: [], locationId: b.location_id,
+    // The front desk and up name anyone (they know the members, and add them at the desk). A booker only names someone
+    // they know (a host can't put a stranger's name on a booking); anyone else uses the link.
+    const staff = await deskOrUp(ctx.db, ctx.actor.personId) && ctx.actor.personId !== b.organiser_id;
+    if (!staff) {
+      const f = await friendsOf(ctx.db, b.organiser_id!);
+      if (![...f.friends, ...f.added_you, ...f.you_added, ...f.played_with].some((p) => p.id === i.person_id)) throw new KumiError("error.not_known_player");
+    }
+    const summary = staff ? both("plan.booking.add_player_staff", { person, booker: b.booker ?? "", court: b.court, when: b.when }) : both("plan.booking.add_player", { person, court: b.court, when: b.when });
+    return { title: both("action.booking.add_player"), summary, reads: [], locationId: b.location_id,
       ownerIds: await withManagers(ctx.db, [b.organiser_id]), undo: { kind: "reversible" } };
   },
   async apply(ctx, i) { return { booking_player_id: await seat(ctx, i.booking_id, i.person_id, ctx.actor.personId) }; },
@@ -97,8 +103,9 @@ export const bookingRemovePlayer = defineAction({
     if (p.removed_at || !p.person_id || p.person_id === b.organiser_id || p.share_cents) throw new KumiError("error.not_in_match");
     if (await scored(ctx.db, b.id)) throw new KumiError("error.players_scored");
     const self = ctx.actor.personId === p.person_id || (await withManagers(ctx.db, [p.person_id])).includes(ctx.actor.personId ?? "");
+    const booker = (await withManagers(ctx.db, [b.organiser_id])).includes(ctx.actor.personId ?? "");
     const summary = self ? both("plan.booking.remove_me", { booker: b.booker ?? "", court: b.court, when: b.when })
-      : both("plan.booking.remove_player", { person: await someone(ctx.db, p.person_id), court: b.court, when: b.when });
+      : both(booker ? "plan.booking.remove_player" : "plan.booking.remove_player_staff", { person: await someone(ctx.db, p.person_id), booker: b.booker ?? "", court: b.court, when: b.when });
     return { title: both("action.booking.remove_player"), summary, reads: [read], locationId: b.location_id, undo: { kind: "reversible" },
       ownerIds: await withManagers(ctx.db, [b.organiser_id, p.person_id]) };
   },

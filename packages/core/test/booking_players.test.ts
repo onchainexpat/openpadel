@@ -113,3 +113,19 @@ test("the booker makes it count for levels; with four named, the score is entere
   await rejects(plan(db, "booking.remove_player", { booking_player_id: andy.id }, as("Hal"), { now: AFTER }), "error.players_scored");
   await rejects(plan(db, "booking.set_rated", { booking_id: booking, rated: false }, as("Hal"), { now: AFTER }), "error.players_scored");
 });
+
+test("the front desk names anyone on a member's court (no friends needed), and a desk booking for a member gets its link", async () => {
+  const lee = ((await run(db, "person.create", { display_name: "Lee", email: "lee@example.test" }, owner, { now: NOW })).result as { person_id: string }).person_id;
+  await run(db, "role.assign", { person_id: lee, role: "front_desk" }, owner, { now: NOW });
+  const desk: Actor = { personId: lee, via: "test", lang: "en" };
+  const d = await run(db, "booking.create", { court_id: court, starts_at: new Date("2026-12-03T10:00:00-08:00").toISOString(), minutes: 90, person_id: people.Hal }, desk, { now: NOW });
+  const id = (d.result as any).booking_id;
+  assert.match((await db.selectFrom("booking").select("invite_code").where("id", "=", id).executeTakeFirstOrThrow()).invite_code ?? "", /^[\w-]{12}$/);
+  const add = await run(db, "booking.add_player", { booking_id: id, person_id: people.Andy }, desk, { now: NOW });   // Hal has never played with Andy
+  assert.equal(add.plan.summary.en, "Add Andy as a player on Hal's booking on Court 1, Thu, Dec 3, 10:00 AM. There's nothing for them to pay. They're told, and they can enter the score after the game.");
+  const off = await run(db, "booking.remove_player", { booking_player_id: (add.result as any).booking_player_id }, desk, { now: NOW });
+  assert.equal(off.plan.summary.en, "Take Andy off Hal's booking on Court 1, Thu, Dec 3, 10:00 AM. Nothing is paid or refunded, and they're told.");
+  // A walk-in under a guest name has no link: no member owns it, and a guest can't be in a scored game.
+  const w = await run(db, "booking.create", { court_id: court, starts_at: new Date("2026-12-03T12:00:00-08:00").toISOString(), minutes: 60, guest_name: "Walk-in" }, desk, { now: NOW });
+  assert.equal((await db.selectFrom("booking").select("invite_code").where("id", "=", (w.result as any).booking_id).executeTakeFirstOrThrow()).invite_code, null);
+});

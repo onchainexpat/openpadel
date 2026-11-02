@@ -2,6 +2,7 @@
 // and which courts are free. Bookings and blocks are court_time rows, so the database itself refuses two
 // things on one court at once; each write also locks its courts first, in id order, which keeps a rush on
 // one slot from stalling or deadlocking (spikes/booking_race.md).
+import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, dateTime, money, type Key, type Lang, type Text } from "@kumi/i18n";
@@ -302,8 +303,10 @@ export const bookingCreate = defineAction({
     const q = await quote(ctx.trx, { courtId: i.court_id, start, minutes: i.minutes, personId: i.person_id, at: ctx.now }), policy = await currentPolicy(ctx.trx);
     const price = i.price_cents ?? q.total_cents, tax = i.price_cents === undefined ? q.tax_cents : Math.round(price * q.tax_bp / (10_000 + q.tax_bp));
     const id = uuidv7(), code = await newCode(ctx.trx, club.name);
+    // Booked for a member: the court is theirs in full, and it gets the players link (booking_players.ts) like one they
+    // book in the app. A walk-in under a guest name has none: no member owns it, and a guest can't be in a scored game.
     await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id ?? null, status: "confirmed", source: "desk", price_cents: price, tax_cents: tax,
-      quote: JSON.stringify(q), policy_id: policy.id, note: i.note ?? null });
+      quote: JSON.stringify(q), policy_id: policy.id, note: i.note ?? null, invite_code: i.person_id ? randomBytes(9).toString("base64url") : null });
     await ctx.insert("booking_player", { id: uuidv7(), booking_id: id, person_id: i.person_id ?? null, guest_name: i.person_id ? null : i.guest_name!, share_cents: price });
     await insertTime(ctx, [{ id: uuidv7(), court_id: i.court_id, during: range(start, end), kind: "booking", booking_id: id }]);
     await ctx.emit("booking.created", { booking_id: id });

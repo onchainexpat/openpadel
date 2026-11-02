@@ -10,7 +10,7 @@ type Perks = { days_ahead: number | null; member_prices: boolean; period: "month
   included_sessions: number | null; included_kinds: string[]; included_used?: number | null };
 type Family = { size: number; extra_cents: number | null; payer: string; covered: { person_id: string; display_name: string; until: string | null }[]; can_add: { id: string; display_name: string }[] };
 type Mine = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; status: string; source: string; cancel_at_period_end: boolean;
-  ends_on: string | null; retry_on: string | null; pay_now: { payment_id: string; cents: number } | null; starts_on: string | null; card_saved: boolean; paused_until: string | null;
+  ends_on: string | null; retry_on: string | null; pay_now: { payment_id: string; cents: number } | null; starts_on: string | null; card_saved: boolean; perks_now: boolean; paused_until: string | null;
   mine: boolean; covered_by: string | null; family: Family | null };
 type Offer = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; places_left: number | null; starts_on: string | null;
   family_size: number | null; extra_person_cents: number | null };
@@ -86,6 +86,7 @@ export function Membership() {
           {mine.description && <p>{mine.description}</p>}
           <PerkList p={mine} />
           {mine.paused_until && <p class="note">{t("ui.membership_paused_until", { date: clubDay(mine.paused_until) })}</p>}
+          {mine.status === "upcoming" && mine.perks_now && <p class="note">{t("ui.perks_already", { date: clubDay(mine.starts_on!) })}</p>}
           {mine.mine && mine.status === "upcoming" && <>
             <p>{mine.card_saved ? t("ui.place_saved", { date: clubDay(mine.starts_on!), amount: dollars(mine.price_cents, lang.value) })
               : t("ui.place_needs_card", { date: clubDay(mine.starts_on!) })}</p>
