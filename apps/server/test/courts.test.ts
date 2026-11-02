@@ -126,6 +126,27 @@ test("a weekly block on the day's grid: marked as repeating, on each of its date
   assert.ok((await get(`/staff/grid?location_id=${loc}&date=${week}`)).json.courts.find((c: any) => c.id === c1).items.some((x: any) => x.series));
 });
 
+test("the repeating blocks list: each pattern with its next dates, changed from a date on and ended from the list", async () => {
+  const d = localDate(new Date(Date.now() + 3 * 86400_000), TZ), weekday = new Date(`${d}T12:00:00Z`).getUTCDay();
+  const list = (await get(`/staff/block-series?location_id=${loc}`)).json;
+  const s = list.find((x: any) => x.note === "League");
+  assert.deepEqual([s.courts.map((c: any) => c.name), s.weekdays, s.starts, s.ends, s.from_date, s.until_date, s.reason], [["Court 1"], [weekday], "07:00", "08:30", d, null, "event"]);
+  assert.equal(s.dates[0].date, d); assert.equal(s.dates.length, 12); assert.ok(s.left >= 50, String(s.left));
+  // From the second date on: a new end date and note; the first date keeps the old pattern.
+  const until = s.dates[3].date;
+  await run(db, "court.block_repeat_edit", { block_id: s.dates[1].block_id, scope: "following", until_date: until, note: "League, second half" }, owner);
+  const after = (await get(`/staff/block-series?location_id=${loc}`)).json;
+  const first = after.find((x: any) => x.note === "League"), second = after.find((x: any) => x.note === "League, second half");
+  const dayBefore = new Date(`${s.dates[1].date}T12:00:00Z`); dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+  assert.equal(first.until_date, dayBefore.toISOString().slice(0, 10)); assert.deepEqual(first.dates.map((x: any) => x.date), [s.dates[0].date]);
+  assert.deepEqual([second.from_date, second.until_date, second.left], [s.dates[1].date, until, 3]);
+  // Ending every date still to come takes both off the list.
+  await run(db, "court.block_repeat_end", { block_id: second.dates[0].block_id, scope: "all" }, owner);
+  await run(db, "court.block_repeat_end", { block_id: first.dates[0].block_id, scope: "all" }, owner);
+  assert.deepEqual((await get(`/staff/block-series?location_id=${loc}`)).json.filter((x: any) => x.note?.startsWith("League")), []);
+  assert.equal((await get(`/staff/block-series?location_id=nope`)).status, 404);
+});
+
 test("a court's own hours: on the day's grid and in settings", async () => {
   const d = localDate(new Date(Date.now() + 5 * 86400_000), TZ), weekday = new Date(`${d}T12:00:00Z`).getUTCDay();
   const c2 = (await db.selectFrom("court").select("id").where("name", "=", "Court 2").executeTakeFirstOrThrow()).id;

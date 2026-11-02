@@ -272,6 +272,21 @@ export const blockSeriesExtend = defineAction({
   },
 });
 
+/** A location's repeating blocks with dates still to come, for the staff's list: the pattern, and its next dates
+ *  (each date's block, which a change or an end starts from). */
+export async function blockSeriesAt(db: Db, locationId: string, now: Date, show = 12) {
+  const rows = await db.selectFrom("block_series").selectAll().where("location_id", "=", locationId).where("active", "=", true).orderBy("from_date").orderBy("starts").execute();
+  const names = new Map((await db.selectFrom("court").select(["id", "name"]).where("location_id", "=", locationId).execute()).map((c) => [c.id, c.name as string]));
+  const out = [];
+  for (const s of rows) {
+    const ahead = await datesAhead(db, s.id, null, now);
+    if (!ahead.length) continue;
+    out.push({ id: s.id, courts: s.court_ids.map((id) => ({ id, name: names.get(id) ?? "" })), weekdays: s.weekdays, starts: hhmm(s.starts), ends: hhmm(s.ends), from_date: s.from_date,
+      until_date: s.until_date, reason: s.reason, note: s.note, left: ahead.length, dates: ahead.slice(0, show).map((a) => ({ block_id: a.id, date: a.on_date! })) });
+  }
+  return out;
+}
+
 /** Every series whose year ahead has moved on: its new dates. */
 export async function extendBlockSeries(db: Db, now = new Date()) {
   const rows = await db.selectFrom("block_series").innerJoin("location", "location.id", "block_series.location_id")

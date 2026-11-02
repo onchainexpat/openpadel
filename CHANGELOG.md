@@ -47,6 +47,10 @@ The first version a club can run on its own (court bookings included), or for it
   date, ending them all, and changing the times work for this date, this and the following ones, or all.
   A booking made between the preview and the confirm stays too: the block leaves that court that day
   instead of failing.
+- The Courts page lists every repeating block with dates still to come: its courts, days, times, dates,
+  reason and next date. From the list, staff change its courts, days, times, end date, reason or note
+  for one date, from a date on, or for every date still to come, or end it, with the same preview of the
+  bookings in the way.
 - The Courts page is the desk's day: courts across and time down (sideways on a phone), what's on now
   and next on each court with what's owed and who's running late, and the alerts that need someone,
   each shown until one of the staff marks it handled, for everyone. The date shows its weekday. A coach

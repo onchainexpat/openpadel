@@ -125,7 +125,8 @@ moves). A booking already in the way stays, and the block leaves that court free
 cancel it: its players are told, and what they get back is chosen on its own (all of it by default,
 since the club called it off). A blocked date's buttons open just that date, end the block from that
 date, or end every date to come, and its times can be changed for that date, that date and the ones
-after it, or all of them.
+after it, or all of them. Under the grid, "Repeating blocks" lists each one with its next date: change its
+courts, days, times, end date, reason or note there (for one date, from a date on, or all of it), or end it.
 
 Every payment that goes through, and every refund, gets a numbered receipt for whoever paid, by email and
 in the members' app (Profile, then Receipts). Staff with the club's money see someone's receipts on their

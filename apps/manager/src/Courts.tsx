@@ -32,10 +32,10 @@ const isBooking = (it: Item) => Boolean(it.booking_id) && it.kind === "booking";
 export function Courts() {
   const [locs, setLocs] = useState<Loc[]>([]), [loc, setLoc] = useState(""), [date, setDate] = useState(""), [g, setG] = useState<Grid | null>(null);
   const [form, setForm] = useState<{ court: Court; starts: string[] } | null>(null), [blocking, setBlocking] = useState(false);
-  const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null);
+  const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null), [done, setDone] = useState(0);
   const load = () => loc && api<Grid>(`/staff/grid?location_id=${loc}${date ? `&date=${date}` : ""}`).then((x) => { setG(x); if (!date) setDate(x.date); });
   const loadAlerts = () => api<Alerts>("/staff/alerts").then(setAlerts).catch(() => setAlerts(null));
-  const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); });
+  const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); setDone((n) => n + 1); });
   useEffect(() => { api<Loc[]>("/staff/locations").then((l) => { setLocs(l); setLoc(l[0]?.id ?? ""); }); void loadAlerts(); }, []);
   useEffect(() => { load(); }, [loc, date]);
   // Today, what's on now moves on its own: look again every minute.
@@ -114,6 +114,7 @@ export function Courts() {
       {g.open && mayDo("court.block") && <button onClick={() => setBlocking(!blocking)}>{t("ui.block_courts")}</button>}
       {form && <DeskBooking court={form.court} starts={form.starts} clock={clock} preview={preview} onClose={() => setForm(null)} />}
       {blocking && <BlockForm courts={g.courts} g={g} slots={slots} clock={clock} preview={preview} />}
+      {(mayDo("court.block_repeat_edit") || mayDo("court.block_repeat_end")) && <SeriesList loc={loc} courts={g.courts} stamp={done} preview={preview} />}
       {sheet}
     </main>
   );
@@ -476,6 +477,77 @@ function SeriesChange({ it, g, slots, clock, preview }: { it: Item; g: Grid; slo
         <option value="this">{t("ui.scope_this")}</option><option value="following">{t("ui.scope_following")}</option><option value="all">{t("ui.scope_all")}</option></select></label>
       <InTheWay way={f.way} refund={f.refund} onChange={(way, refund) => setF({ ...f, way, refund })} />
       <button class="primary">{t("ui.preview")}</button>
+    </form>
+  );
+}
+
+type Series = { id: string; courts: { id: string; name: string }[]; weekdays: number[]; starts: string; ends: string; from_date: string; until_date: string | null; reason: string;
+  note: string | null; left: number; dates: { block_id: string; date: string }[] };
+const shortDay = (date: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
+/** Every half hour of a day as a club writes it, "00:00" to "24:00". */
+const HALVES = Array.from({ length: 49 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
+
+/** The location's repeating blocks: each pattern and its next date, to change (one date, from a date, or every date
+ *  still to come) or end, without finding a date of it on the grid first. */
+function SeriesList({ loc, courts, stamp, preview }: { loc: string; courts: Court[]; stamp: number; preview: Preview }) {
+  const [list, setList] = useState<Series[] | null>(null), [open, setOpen] = useState<string | null>(null);
+  useEffect(() => { if (loc) api<Series[]>(`/staff/block-series?location_id=${loc}`).then(setList).catch(() => setList(null)); }, [loc, stamp]);
+  if (!list) return null;
+  return (
+    <section class="card">
+      <h2>{t("ui.repeating_blocks")}</h2>
+      {list.length === 0 ? <p class="meta">{t("ui.repeating_blocks_none")}</p> : <ul class="plain">{list.map((s) => (
+        <li>
+          <div class="row"><div><strong>{s.courts.map((c) => c.name).join(", ")}</strong> · {WEEK.filter((w) => s.weekdays.includes(w)).map(dayName).join(", ")} · {s.starts} - {s.ends}
+            <p class="meta">{t(`block.${s.reason}` as Key)}{s.note ? `: ${s.note}` : ""} · {s.until_date ? t("ui.series_span", { from: shortDay(s.from_date), until: shortDay(s.until_date) })
+              : t("ui.series_span_open", { from: shortDay(s.from_date) })} · {t("ui.series_next", { date: shortDay(s.dates[0]!.date) })} · {t("count.series_dates_left", { count: s.left })}</p></div>
+            <button class="small" onClick={() => setOpen(open === s.id ? null : s.id)}>{t(open === s.id ? "ui.close" : "ui.change")}</button></div>
+          {open === s.id && <SeriesEdit key={s.id} s={s} courts={courts} preview={preview} />}
+        </li>))}</ul>}
+    </section>
+  );
+}
+
+/** Changing a repeating block from the list: its courts, days, times, end date, reason and note, for one date, from a
+ *  date on, or every date still to come; or ending it. Only what changed is sent, and the preview names any booking
+ *  in the way, as when it was made. */
+function SeriesEdit({ s, courts, preview }: { s: Series; courts: Court[]; preview: Preview }) {
+  const [f, setF] = useState({ block: s.dates[0]!.block_id, scope: "following", courts: s.courts.map((c) => c.id), days: s.weekdays, starts: s.starts, ends: s.ends,
+    noEnd: !s.until_date, until: s.until_date ?? "", reason: s.reason, note: s.note ?? "", way: "keep", refund: "full" });
+  const same = (a: (string | number)[], b: (string | number)[]) => [...a].sort().join() === [...b].sort().join();
+  const one = f.scope === "this", until = f.noEnd ? null : f.until || null, note = f.note.trim() || null;
+  // A weekday or an end date is the pattern's, so it only changes from a date on (or for all of it).
+  const change = {
+    ...(same(f.courts, s.courts.map((c) => c.id)) ? {} : { court_ids: f.courts }),
+    ...(!one && !same(f.days, s.weekdays) ? { weekdays: f.days } : {}),
+    ...(f.starts !== s.starts ? { starts: f.starts } : {}), ...(f.ends !== s.ends ? { ends: f.ends } : {}),
+    ...(!one && until !== s.until_date ? { until_date: until } : {}),
+    ...(f.reason !== s.reason ? { reason: f.reason } : {}), ...(note !== s.note ? { note } : {}),
+  };
+  const submit = (e: Event) => { e.preventDefault(); void preview("court.block_repeat_edit", { block_id: f.block, scope: f.scope, ...change, in_the_way: f.way, ...(f.way === "cancel" ? { refund: f.refund } : {}) }); };
+  const end = (scope: string) => preview("court.block_repeat_end", { block_id: f.block, scope });
+  const starts = (v: string) => setF({ ...f, starts: v, ends: f.ends > v ? f.ends : HALVES[HALVES.indexOf(v) + 1]! });
+  return (
+    <form class="card-form" onSubmit={submit}>
+      <label>{t("ui.series_date")}<select value={f.block} onChange={(e) => setF({ ...f, block: e.currentTarget.value })}>{s.dates.map((d) => <option value={d.block_id}>{shortDay(d.date)}</option>)}</select></label>
+      <label>{t("ui.scope")}<select value={f.scope} onChange={(e) => setF({ ...f, scope: e.currentTarget.value })}>
+        <option value="this">{t("ui.scope_this")}</option><option value="following">{t("ui.scope_following")}</option><option value="all">{t("ui.scope_all")}</option></select></label>
+      <fieldset><legend>{t("ui.courts")}</legend>{courts.map((c) => <label class="check"><input type="checkbox" checked={f.courts.includes(c.id)}
+        onChange={(e) => setF({ ...f, courts: e.currentTarget.checked ? [...f.courts, c.id] : f.courts.filter((x) => x !== c.id) })} /> {c.name}</label>)}</fieldset>
+      {!one && <fieldset><legend>{t("ui.block_on_days")}</legend>{WEEK.map((w) => <label class="check"><input type="checkbox" checked={f.days.includes(w)}
+        onChange={(e) => setF({ ...f, days: e.currentTarget.checked ? [...f.days, w] : f.days.filter((x) => x !== w) })} /> {dayName(w)}</label>)}</fieldset>}
+      <label>{t("ui.from")}<select value={f.starts} onChange={(e) => starts(e.currentTarget.value)}>{HALVES.slice(0, -1).map((h) => <option value={h}>{h}</option>)}</select></label>
+      <label>{t("ui.to")}<select value={f.ends} onChange={(e) => setF({ ...f, ends: e.currentTarget.value })}>{HALVES.filter((h) => h > f.starts).map((h) => <option value={h}>{h}</option>)}</select></label>
+      {!one && <><label class="check"><input type="checkbox" checked={f.noEnd} onChange={(e) => setF({ ...f, noEnd: e.currentTarget.checked })} /> {t("ui.series_no_end")}</label>
+        {!f.noEnd && <label>{t("ui.series_until")}<input type="date" min={s.dates[0]!.date} value={f.until} onInput={(e) => setF({ ...f, until: e.currentTarget.value })} /></label>}</>}
+      <label>{t("ui.reason")}<select value={f.reason} onChange={(e) => setF({ ...f, reason: e.currentTarget.value })}>{["maintenance", "fault", "resurfacing", "event", "other"].map((r) => <option value={r}>{t(`block.${r}` as Key)}</option>)}</select></label>
+      <label>{t("ui.block_note")}<input value={f.note} onInput={(e) => setF({ ...f, note: e.currentTarget.value })} /></label>
+      <InTheWay way={f.way} refund={f.refund} onChange={(way, refund) => setF({ ...f, way, refund })} />
+      {mayDo("court.block_repeat_edit") && <button class="primary" disabled={!Object.keys(change).length || !f.courts.length || (!one && !f.days.length) || (!one && !f.noEnd && !f.until)}>{t("ui.preview")}</button>}
+      {mayDo("court.block_repeat_end") && <div class="chips">
+        <button type="button" class="small" onClick={() => end("this")}>{t("ui.open_this_date")}</button>
+        <button type="button" class="small" onClick={() => end("following")}>{t("ui.end_from_here")}</button>
+        <button type="button" class="small" onClick={() => end("all")}>{t("ui.end_series")}</button></div>}
     </form>
   );
 }
