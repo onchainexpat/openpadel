@@ -3,9 +3,9 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { readdirSync, statSync } from "node:fs";
 import { both, type Key, type Text } from "@kumi/i18n";
-import { answerCounts, clubStripeAccount, heartbeats, parseSecretKey, pendingMigrations, StripeProvider, textCounts, type Db } from "@kumi/core";
+import { answerCounts, clubStripeAccount, heartbeats, parseSecretKey, pendingMigrations, StripeProvider, textCounts, textingRegistration, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
-import { checkTwilio, twilioFromEnv } from "./twilio.ts";
+import { checkTwilio, hasSender, twilioFromEnv } from "./twilio.ts";
 import { answerModels, checkAnswerKeys } from "./answerer.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { VERSION } from "./version.ts";
@@ -70,9 +70,14 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   const twDoc = "docs/setup/accounts/twilio.md";
   let tw: ReturnType<typeof twilioFromEnv> = null, twErr: string | null = null;
   try { tw = twilioFromEnv(env); } catch (e) { twErr = (e as Error).message; }
-  if (twErr) add("texts", "fail", twErr.includes("who they're from") ? "texts.half" : "texts.bad", { error: twErr }, twDoc);
+  // Keys without a sender: the registration `kumi texting` runs gives one once Twilio approves it.
+  const reg = tw && !hasSender(tw) ? await textingRegistration(db).catch(() => null) : null;
+  if (twErr) add("texts", "fail", "texts.bad", { error: twErr }, twDoc);
   else if (!tw) add("texts", "off", "texts.off", {}, twDoc);
-  else {
+  else if (!hasSender(tw) && reg?.status !== "approved") {
+    if (!reg) add("texts", "warn", "texts.no_sender", {}, twDoc);
+    else add("texts", reg.status === "rejected" ? "fail" : "warn", `texts.reg_${reg.status}`, { number: reg.phone_number ?? "" }, twDoc);
+  } else {
     const answer = await checkTwilio(tw, deps.fetch);
     const sent = await textCounts(db, now), total = sent.sent + sent.failed;
     if (typeof answer === "object") add("texts", "fail", "texts.refused", { error: answer.error }, twDoc);

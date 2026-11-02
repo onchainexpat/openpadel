@@ -1,6 +1,7 @@
-// The club's own Twilio account, for texts (texts.ts). Its settings come from the environment, never the
-// database or the code: KUMI_TWILIO_ACCOUNT_SID and KUMI_TWILIO_AUTH_TOKEN, and who texts are from, a
-// Messaging Service (KUMI_TWILIO_MESSAGING_SERVICE_SID, Twilio's advice) or one number (KUMI_TWILIO_FROM).
+// The club's own Twilio account, for texts (texts.ts). Its keys come from the environment, never the database
+// or the code: KUMI_TWILIO_ACCOUNT_SID and KUMI_TWILIO_AUTH_TOKEN. Who texts are from: a Messaging Service
+// (KUMI_TWILIO_MESSAGING_SERVICE_SID, Twilio's advice) or one number (KUMI_TWILIO_FROM); without either, the
+// Messaging Service `kumi texting` registered, once Twilio approves it (texting.ts). No sender, no texts.
 // Everything Twilio posts back (texts to the club's number, delivery reports) is signed with the auth token,
 // and anything unsigned or signed wrong is refused.
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -10,7 +11,8 @@ type Env = Record<string, string | undefined>;
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 export interface TwilioConfig { accountSid: string; authToken: string; messagingServiceSid?: string; from?: string }
 
-/** The settings, or null when texts aren't set up; an error when they're set up wrong. */
+/** The settings, or null when texts aren't set up; an error when they're set up wrong. Who texts are from may
+ *  be missing: the registration (texting.ts) gives it once approved. */
 export function twilioFromEnv(env: Env): TwilioConfig | null {
   const accountSid = env.KUMI_TWILIO_ACCOUNT_SID?.trim(), authToken = env.KUMI_TWILIO_AUTH_TOKEN?.trim();
   const messagingServiceSid = env.KUMI_TWILIO_MESSAGING_SERVICE_SID?.trim() || undefined, from = env.KUMI_TWILIO_FROM?.trim() || undefined;
@@ -18,7 +20,6 @@ export function twilioFromEnv(env: Env): TwilioConfig | null {
   if (!accountSid || !authToken) throw new Error("KUMI_TWILIO_ACCOUNT_SID and KUMI_TWILIO_AUTH_TOKEN go together");
   if (!/^AC[0-9a-f]{32}$/.test(accountSid)) throw new Error("KUMI_TWILIO_ACCOUNT_SID should look like AC followed by 32 letters and digits");
   if (!/^[0-9a-f]{32}$/.test(authToken)) throw new Error("KUMI_TWILIO_AUTH_TOKEN should be 32 letters and digits");
-  if (!messagingServiceSid && !from) throw new Error("texts need who they're from: KUMI_TWILIO_MESSAGING_SERVICE_SID (or KUMI_TWILIO_FROM, one number)");
   if (messagingServiceSid && !/^MG[0-9a-f]{32}$/.test(messagingServiceSid)) throw new Error("KUMI_TWILIO_MESSAGING_SERVICE_SID should look like MG followed by 32 letters and digits");
   if (from && !/^\+\d{8,15}$/.test(from)) throw new Error("KUMI_TWILIO_FROM should be a number like +15035550123");
   return { accountSid, authToken, ...(messagingServiceSid ? { messagingServiceSid } : {}), ...(from ? { from } : {}) };
@@ -28,11 +29,17 @@ export function twilioFromEnv(env: Env): TwilioConfig | null {
 // account can't text it. Anything else (a 5xx, the network, a rate limit) may pass.
 const FINAL = new Set(["21211", "21214", "21217", "21219", "21265", "21408", "21410", "21606", "21608", "21610", "21612", "21614", "21659", "21660", "21661", "21703", "30004", "30005", "30006", "30007"]);
 
-/** Sends through Twilio's Messages API. */
+/** Whether the settings say who texts are from. */
+export const hasSender = (cfg: TwilioConfig) => Boolean(cfg.messagingServiceSid || cfg.from);
+
+/** Sends through Twilio's Messages API, from the Messaging Service or the one number. */
 export class TwilioTexter implements Texter {
   private readonly cfg: TwilioConfig;
   private readonly fetch: Fetch;
-  constructor(cfg: TwilioConfig, fetchFn: Fetch = fetch) { this.cfg = cfg; this.fetch = fetchFn; }
+  constructor(cfg: TwilioConfig, fetchFn: Fetch = fetch) {
+    if (!hasSender(cfg)) throw new Error("texts need who they're from: a Messaging Service or a number");
+    this.cfg = cfg; this.fetch = fetchFn;
+  }
   async send(text: TextOut): Promise<{ ref: string | null }> {
     const form = new URLSearchParams({ To: text.to, Body: text.body });
     if (this.cfg.messagingServiceSid) form.set("MessagingServiceSid", this.cfg.messagingServiceSid); else form.set("From", this.cfg.from!);

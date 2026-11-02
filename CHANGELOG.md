@@ -329,7 +329,19 @@ The first version a club can run on its own (court bookings included), or for it
   pumping (the bot check, no Caribbean or premium numbers, limits per number, person and club). A kid
   with their own login says yes once a parent turns texts on. Twilio's delivery reports are checked
   against its signature; `kumi doctor` and `/health/deep` report texts. US carriers must approve the
-  club's texting registration (in its own Twilio console) before real texts reach anyone.
+  club's texting registration before real texts reach anyone.
+- `kumi texting plan | apply | status` registers the club's texting with US carriers through its own Twilio
+  account, toll-free: it buys a toll-free number (only with `--yes`: it's on the club's bill) or uses one
+  the club has, makes a Messaging Service sending replies and delivery reports to the server, and sends the
+  toll-free verification with the business's details from club.yaml's new `texting:` section and Kumi's own
+  description, sample texts and opt-in. Members' consent is shown to the carriers' reviewers on a new page,
+  `/public/texts` on the members' address, with the exact words members tick. Each step is recorded, so
+  running it again carries on where it stopped. The server asks Twilio how the review is going every hour;
+  the owner and managers get one message when it's decided, Settings shows where it stands, and texts start
+  by themselves when it's approved, from that Messaging Service (a sender named in the settings file still
+  wins). A rejection comes with each reason and its fix; `apply` sends the corrected verification while
+  Twilio allows edits, and a new one (with `--yes`) after. Local numbers (A2P 10DLC) stay in Twilio's
+  console. The Twilio keys alone no longer stop the server from starting: without a sender, texts are off.
 - Wording: a reason or note someone typed that ends its own sentence ("Fine for now.") no longer shows a
   second full stop after it. A message's preview of who it reaches names only people it will reach (club
   news never names someone left out for having said no). Creating an Americano (or another format) says so

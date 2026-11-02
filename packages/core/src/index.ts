@@ -55,3 +55,4 @@ export * from "./ops.ts";
 export * from "./receipts.ts";
 export * from "./assistant_spend.ts";
 export * from "./assistants.ts";
+export * from "./texting_registration.ts";

@@ -1,9 +1,11 @@
 import { serve } from "@hono/node-server";
-import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, extendBlockSeries, type Texter } from "@kumi/core";
+import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, extendBlockSeries, registeredSender, textingOn, TextError, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
-import { PracticeTexter, TwilioTexter, twilioFromEnv } from "./twilio.ts";
+import { hasSender, PracticeTexter, TwilioTexter, twilioFromEnv, type TwilioConfig } from "./twilio.ts";
+import { refreshTexting } from "./texting.ts";
+import { TwilioApi } from "./twilio_admin.ts";
 import { handlers } from "./outbox.ts";
 import { answererFromEnv } from "./answerer.ts";
 
@@ -76,15 +78,27 @@ if (process.env.KUMI_RESEND_API_KEY) {
 }
 // Texts: through the club's own Twilio account when it's set up (twilio.ts). In practice, like email, only the
 // club's test numbers (KUMI_SMS_TEST_TO, comma-separated) get them; the rest are held and logged.
+// Who texts are from: the settings file's sender, or else the Messaging Service `kumi texting` registered, from
+// the moment Twilio approves it (texting.ts asks every hour while the review runs).
 let twilio: ReturnType<typeof twilioFromEnv> = null;
 try { twilio = twilioFromEnv(process.env); } catch (e) { console.error(`texts: ${(e as Error).message}`); process.exit(1); }
-let texter: Texter | null = null;
-if (twilio) {
+let sending: Texter | null = null;
+const startTexts = (cfg: TwilioConfig) => {
   const practice = !production || process.env.KUMI_PRACTICE === "1", testTo = (process.env.KUMI_SMS_TEST_TO ?? "").split(",");
-  texter = practice ? new PracticeTexter(new TwilioTexter(twilio), testTo) : new TwilioTexter(twilio);
+  sending = practice ? new PracticeTexter(new TwilioTexter(cfg), testTo) : new TwilioTexter(cfg);
   setTexting(true);
-  console.log(`texts: twilio${practice ? `, practice: only to ${testTo.filter((n) => n.trim()).length} test numbers` : ""}`);
+  console.log(`texts: twilio${cfg.messagingServiceSid && !process.env.KUMI_TWILIO_MESSAGING_SERVICE_SID ? ", from the registered Messaging Service" : ""}${practice ? `, practice: only to ${testTo.filter((n) => n.trim()).length} test numbers` : ""}`);
+};
+const twilioApi = twilio ? new TwilioApi(twilio.accountSid, twilio.authToken) : null;
+if (twilio) {
+  const registered = hasSender(twilio) ? null : await registeredSender(db);
+  if (hasSender(twilio)) startTexts(twilio);
+  else if (registered) startTexts({ ...twilio, messagingServiceSid: registered });
+  else console.log("texts: the Twilio account is set, but no sender yet; texts are off until `kumi texting` is approved");
 }
+// The routes get one texter for good; it sends through whichever is set up, once one is.
+let textingNext = 0;   // when to ask Twilio about the texting registration again
+const texter: Texter | null = twilio ? { send: (x) => { if (!sending) throw new TextError("no_sender", "texts aren't set up to send yet", false); return sending.send(x); } } : null;
 // Ask the club: with a decision model's key (KUMI_TYPESAFE_API_KEY for Jev, KUMI_ANTHROPIC_API_KEY for Claude
 // Haiku, or both), Kumi answers a new question from the club's facts, word for word, or hands it to the staff
 // (answerer.ts). The club can still switch it off in Settings. Without a key every question goes to the staff.
@@ -115,7 +129,7 @@ const jobs = async () => {
     if (push.sent || push.failed) console.log(`push: ${push.sent} sent, ${push.dropped} dropped, ${push.failed} to retry`);
     if (mail.sent || mail.dropped || mail.failed) console.log(`email: ${mail.sent} sent, ${mail.dropped} dropped, ${mail.failed} to retry`);
     // Texts, with Twilio's delivery reports coming back to this server; with texts switched off, none wait.
-    if (texter) {
+    if (texter && textingOn()) {
       const tx = await sendTexts(db, texter, { memberUrl: membersUrl, ...(publicUrl.startsWith("https://") ? { statusCallback: `${publicUrl.replace(/\/$/, "")}/webhooks/twilio/status` } : {}) });
       if (tx.sent || tx.dropped || tx.failed) console.log(`texts: ${tx.sent} sent, ${tx.dropped} dropped, ${tx.failed} failed or to retry`);
     } else if (await dropWaitingTexts(db)) console.log("texts: switched off, so the ones waiting were dropped");
@@ -156,6 +170,15 @@ const jobs = async () => {
     const fc = await tidyFamilyCards(db);
     if (fc.saved) console.log(`family cards: ${fc.saved} saved (found by checking with the provider)`);
     await registerWallets().catch((e) => console.error("payments: registering the members' domain for Apple Pay and Google Pay:", (e as Error).message));
+    // The texting registration under review: asked about hourly; texts start when it's approved (if nothing else is set).
+    if (twilioApi && Date.now() >= textingNext) {
+      textingNext = Date.now() + 3600_000;
+      const status = await refreshTexting(db, twilioApi).catch((e) => { console.error("texts: asking Twilio about the registration:", (e as Error).message); return null; });
+      if (status === "approved" && !sending && twilio) {
+        const mg = await registeredSender(db);
+        if (mg) startTexts({ ...twilio, messagingServiceSid: mg });
+      }
+    }
     // While the club is still setting up its Stripe account, ask Stripe whether it's ready (a webhook says so too).
     if (stripe?.connect) {
       const club = await db.selectFrom("club").select(["stripe_account_id", "stripe_charges_enabled"]).executeTakeFirstOrThrow();

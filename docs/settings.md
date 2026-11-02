@@ -32,7 +32,7 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 | Setting | What it does | Default |
 |---|---|---|
 | `KUMI_TWILIO_ACCOUNT_SID`, `KUMI_TWILIO_AUTH_TOKEN` | The club's own Twilio account (`docs/setup/accounts/twilio.md`). With them, members can choose texts in the app. The token also checks what Twilio posts to `/webhooks/twilio/sms` and `/webhooks/twilio/status`. | not set |
-| `KUMI_TWILIO_MESSAGING_SERVICE_SID` | Who texts are from: the Messaging Service with the club's registered number (`MG...`). | not set |
+| `KUMI_TWILIO_MESSAGING_SERVICE_SID` | Who texts are from: the Messaging Service with the club's registered number (`MG...`). Not needed after `kumi texting` registers one: texts go from it once Twilio approves. | the one `kumi texting` registered, once approved |
 | `KUMI_TWILIO_FROM` | Or one number instead (`+15035550123`). | not set |
 | `KUMI_SMS_TEST_TO` | Comma-separated numbers that get real texts in practice mode (`+15035550123`). | none |
 

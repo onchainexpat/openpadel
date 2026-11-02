@@ -12,16 +12,22 @@
 //   kumi restore-test              restore the newest backup into a scratch database and check it
 //                                  (--scheduled: only when it's due, the 1st at 4:17 on the club's clock)
 //   kumi rotate-key                seal every secret with KUMI_SECRET_KEY (the old one in KUMI_SECRET_KEY_PREVIOUS)
+//   kumi texting plan|apply|status [club.yaml]   register the club's texting with US carriers through its own
+//                                  Twilio account, toll-free (texting.ts); apply --yes to buy a number or start over
 //   (on a one-server install, as root: kumi update <release.tar>, kumi rollback --yes, kumi releases)
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { t, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { connect, migrate, plan, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys } from "@kumi/core";
+import { connect, migrate, plan, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration } from "@kumi/core";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, restoreInto, restoreTest, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
 import { readPeopleCsv } from "./csv.ts";
 import { doctor, type Check } from "./doctor.ts";
 import { ClubFileError, ownerActor, readClubFile, setupClub } from "./setup.ts";
+import { applyTexting, refreshTexting, textingPlan, textingStatusText, twilioProblem, verificationForm, type TextingDeps, type TextingPlan } from "./texting.ts";
+import { twilioFromEnv } from "./twilio.ts";
+import { TwilioApi } from "./twilio_admin.ts";
+import { memberUrl } from "./addresses.ts";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
@@ -76,6 +82,62 @@ async function main(): Promise<number> {
       const added = (res as { result?: { added?: number } }).result?.added ?? 0;
       console.log(apply ? t(lang, "cli.imported", { people: t(lang, "count.people", { count: added }) }) : t(lang, "cli.import_hint", { file: rest[0] }));
       return 0;
+    } finally { await db.destroy(); }
+  }
+  if (cmd === "texting" && (sub === "plan" || sub === "apply" || sub === "status")) {
+    // Needs the club's live Twilio keys in the settings file; the business details come from club.yaml.
+    let tw;
+    try { tw = twilioFromEnv(process.env); } catch (e) { console.error((e as Error).message); return 2; }
+    if (!tw) { if (json) out({ ok: false, error: t(lang, "texting.no_twilio") }); else console.error(t(lang, "texting.no_twilio")); return 2; }
+    const path = resolve(process.env.KUMI_CALLER_DIR ?? ".", rest[0] ?? process.env.KUMI_CLUB_FILE ?? "club.yaml");
+    let file;
+    try { file = readClubFile(path); }
+    catch (e) {
+      if (!(e instanceof ClubFileError)) throw e;
+      if (json) out({ ok: false, file: path, problems: e.problems });
+      else { console.error(t(lang, "cli.file_problems", { file: path })); for (const p of e.problems) console.error(`  - ${p}`); }
+      return 2;
+    }
+    const db = connect();
+    try {
+      await migrate(db);
+      const club = await db.selectFrom("club").select(["name", "time_zone"]).executeTakeFirst();
+      if (!club) { console.error(t(lang, "doctor.club.missing")); return 2; }
+      const publicUrl = process.env.KUMI_PUBLIC_URL ?? "http://127.0.0.1:8790";
+      const deps: TextingDeps = { db, api: new TwilioApi(tw.accountSid, tw.authToken), club: club.name, details: file.texting, publicUrl, memberUrl: memberUrl(publicUrl) };
+      const show = (p: TextingPlan) => ({ needs: p.needs.map(say), steps: p.steps.map((s) => ({ step: s.id, text: say(s.text), ...(s.costs ? { costs: true } : {}) })),
+        status: p.registration?.status ?? null, number: p.registration?.phone_number ?? null, said: textingStatusText(p.registration, lang, club.time_zone) });
+      try {
+        if (sub === "status") {
+          await refreshTexting(db, deps.api);
+          const reg = await textingRegistration(db), lines = textingStatusText(reg, lang, club.time_zone);
+          if (json) out({ ok: true, status: reg?.status ?? null, number: reg?.phone_number ?? null, said: lines }); else for (const l of lines) console.log(l);
+          return 0;
+        }
+        if (sub === "plan") {
+          const p = await textingPlan(deps);
+          // What the verification would say, for the owner to read first (or to reuse for a local number's campaign).
+          const reg = p.registration, submission = file.texting && !p.needs.length ? (({ TollfreePhoneNumberSid: _n, ExternalReferenceId: _r, ...f }) => f)(
+            verificationForm(file.texting, { club: club.name, memberUrl: deps.memberUrl, numberSid: reg?.phone_number_sid ?? "", reference: reg?.id ?? "" })) : null;
+          if (json) { out({ ok: true, ...show(p), submission }); return 0; }
+          for (const l of show(p).said) console.log(l);
+          if (p.needs.length) { console.log(t(lang, "texting.needs_heading", { file: path })); for (const n of p.needs) console.log(`  - ${say(n)}`); }
+          const todo = p.steps.filter((s) => s.id !== "approved");
+          if (todo.length) { console.log(t(lang, "texting.plan_heading")); for (const s of todo) console.log(`  - ${say(s.text)}`); console.log(t(lang, "texting.apply_hint", { yes: p.steps.some((s) => s.costs || s.id === "restart") ? " --yes" : "" })); }
+          return 0;
+        }
+        const r = await applyTexting(deps, { yes: args.includes("--yes"), ...(flag("reason") ? { reason: flag("reason")! } : {}) });
+        if (json) { out({ ok: true, done: r.done.map(say), stopped: r.stopped, ...show(r.plan) }); return r.stopped ? 3 : 0; }
+        for (const d of r.done) console.log(`  - ${say(d)}`);
+        if (r.stopped === "needs_yes") console.log(t(lang, "texting.needs_yes"));
+        if (r.stopped === "needs") { console.log(t(lang, "texting.needs_heading", { file: path })); for (const n of r.plan.needs) console.log(`  - ${say(n)}`); }
+        for (const l of show(r.plan).said) console.log(l);
+        return r.stopped ? 3 : 0;
+      } catch (e) {
+        const why = say(twilioProblem(e));
+        if (json) out({ ok: false, error: why }); else console.error(why);
+        return 1;
+      }
     } finally { await db.destroy(); }
   }
   if (cmd === "doctor") {

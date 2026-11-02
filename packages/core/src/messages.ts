@@ -476,6 +476,12 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     }
     return drafts;
   },
+  // Twilio decided the club's texting registration (texting_registration.ts): the owner and managers hear once.
+  async "texting.reviewed"({ db }, p: { status: "approved" | "rejected"; number: string; reasons: { reason: string; code: number | null }[] }) {
+    const reasons = p.reasons.map((r) => (r.code ? `${r.reason} (${r.code})` : r.reason)).join("; ");
+    const kind = p.status === "approved" ? "texting_approved_staff" : "texting_rejected_staff";
+    return (await managers(db)).map((to) => ({ to, kind, params: { number: p.number, reasons }, purpose: "staff" as const, essential: false, email: true, link: "/settings" }));
+  },
   // The owner and managers hear of the first failed try only, not every try after it (money that went wrong).
   async "membership.payment_failed"({ db, tz }, p: { membership_id: string; cents: number; next_attempt_at: string; tries?: number; failure?: string | null }) {
     const m = await membershipInfo(db, p.membership_id), next = new Date(p.next_attempt_at);

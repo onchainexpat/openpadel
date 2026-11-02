@@ -13,7 +13,8 @@ type Policy = { version_no: number; days_ahead: number; max_active: number; free
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
 type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
-type S = { club: ClubRow; answerer: string; policy: Policy; plans: Plan[]; locations: Loc[]; waiver: { version_no: number; body: string } | null };
+type Texting = { on: boolean; status: string | null; number: string | null; said: string[] };
+type S = { club: ClubRow; answerer: string; texting: Texting; policy: Policy; plans: Plan[]; locations: Loc[]; waiver: { version_no: number; body: string } | null };
 type Preview = (action: string, input: unknown) => Promise<void>;
 
 const KINDS = ["indoor", "covered_outdoor", "outdoor"] as const;
@@ -45,12 +46,26 @@ export function Settings() {
       <ClubForm key={JSON.stringify(s.club)} c={s.club} answerer={s.answerer} send={send} />
       <BookingRules key={JSON.stringify(s.policy)} p={s.policy} send={send} />
       <WaiverForm key={JSON.stringify(s.waiver)} w={s.waiver} send={send} />
+      <TextingCard x={s.texting} />
       <SignInCard key={s.club.two_factor} rule={s.club.two_factor} send={send} />
       {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} plans={s.plans} send={send} />)}
       <NewLocation tz={s.club.time_zone} send={send} />
       {note && <p class="note" role="status">{note}</p>}
       {sheet}
     </main>
+  );
+}
+
+/** Texts: on or off, and where the club's registration with US carriers stands. Done from the server
+ *  (`kumi texting`), so this only shows it. */
+function TextingCard({ x }: { x: Texting }) {
+  return (
+    <section class="card">
+      <h2>{t("ui.texting_title")}</h2>
+      <p class="meta">{t(x.on ? "ui.texting_on" : "ui.texting_off")}</p>
+      {x.said.map((line) => <p class="meta">{line}</p>)}
+      {!x.on && <p class="meta">{t("ui.texting_how")}</p>}
+    </section>
   );
 }
 

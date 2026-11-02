@@ -4,7 +4,7 @@
 // the club and its events. Nothing about members is shown; "Join the club" goes to the app's sign-up.
 import { Hono, type Context } from "hono";
 import { isLang, money, t, type Key, type Lang } from "@kumi/i18n";
-import { coachPhoto, factIn, lessonCoaches, localDate, membersFrom, planCounts, ruleWhen, searchFacts, type Db } from "@kumi/core";
+import { coachPhoto, factIn, lessonCoaches, localDate, membersFrom, planCounts, ruleWhen, searchFacts, TEXTS_FORM, type Db } from "@kumi/core";
 
 /** Every value from the database goes through this before it reaches the page. */
 const h = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -142,6 +142,22 @@ ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}<footer>${h(t(l, "pub.f
     c.header("content-type", p.content_type); c.header("x-content-type-options", "nosniff"); c.header("cache-control", "public, max-age=86400, immutable");
     c.header("content-security-policy", "default-src 'none'"); c.header("content-disposition", "inline");
     return c.body(new Uint8Array(p.bytes));
+  });
+
+  // How members say yes to texts, with the exact words they tick: what the carriers' reviewers open when the club
+  // registers its texting (texting.ts), so it's there whether or not the club's public page is on. Nothing
+  // about any member; the form is shown, not working.
+  app.get("/public/texts", async (c) => {
+    const cl = await club(), l = pick(c);
+    const steps = (["pub.texts_step1", "pub.texts_step2", "pub.texts_step3"] as const).map((k) => `<li>${h(t(l, k))}</li>`).join("");
+    const what = (["pub.texts_what1", "pub.texts_what2", "pub.texts_what3"] as const).map((k) => `<li>${h(t(l, k))}</li>`).join("");
+    const body = `<header><h1>${h(t(l, "pub.texts_title", { club: cl.name }))}</h1><p class="meta">${h(t(l, "pub.texts_intro", { club: cl.name }))}</p></header>
+<section><h2>${h(t(l, "pub.texts_how"))}</h2><ol>${steps}</ol>
+<p><label><input type="checkbox" disabled> ${h(t(l, "ui.texts_consent", { club: cl.name }))}</label></p><p class="meta">${h(t(l, "pub.texts_version", { version: TEXTS_FORM }))}</p></section>
+<section><h2>${h(t(l, "pub.texts_what"))}</h2><ul>${what}</ul><p>${h(t(l, "pub.texts_never"))}</p></section>
+<section><p>${h(t(l, "pub.texts_stop"))}</p><p>${h(t(l, "pub.texts_privacy", { club: cl.name }))}</p></section><footer>${h(t(l, "pub.footer"))}</footer>`;
+    return html(c, page({ lang: l, title: t(l, "pub.texts_title", { club: cl.name }), description: t(l, "pub.texts_intro", { club: cl.name }), canonical: `${base}/public/texts${l === "es" ? "?lang=es" : ""}`,
+      other: `${base}/public/texts${l === "es" ? "" : "?lang=es"}`, brand: cl.brand_colour, body, jsonLd: [] }));
   });
 
   // For search engines: the public pages there are.

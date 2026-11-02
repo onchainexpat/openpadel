@@ -311,9 +311,15 @@ the club's own Twilio account, only to US and Canadian numbers, and only to memb
 number with a code and ticked the yes themselves (Profile, then Texts). STOP to the club's number turns every
 message to that member off at once.
 
-**US carriers must approve the club's texting first** (A2P 10DLC for a local number, or toll-free
-verification): until then, real texts don't reach anyone. That registration is the club's to do in its own
-Twilio console for now; [accounts/twilio.md](accounts/twilio.md) says how, and what to put in the settings.
+**US carriers must approve the club's texting first**: until then, real texts don't reach anyone. Kumi does
+the registration through the club's own Twilio account, toll-free (reviewed in about three business days, no
+brand or campaign fees): add the business's details to club.yaml's `texting:` section, then
+`kumi texting plan` says what it would do and what's missing, and `kumi texting apply --yes` buys a toll-free
+number (about $2.15 a month), makes the Messaging Service and sends the verification. The server asks Twilio
+how the review is going every hour; the owner and managers hear once it's decided, and texts start by
+themselves when it's approved. A rejection is explained with its fix in `kumi texting status` and Settings;
+correct club.yaml and run `kumi texting apply` again. [accounts/twilio.md](accounts/twilio.md) has the steps,
+and the local-number (A2P 10DLC) path for clubs that text a lot more.
 
 Once texts are set up, members can also sign in, or join, with a code texted to their mobile number instead
 of an email ("Use my mobile number instead" on the sign-in page). Someone who joins that way needs no email;

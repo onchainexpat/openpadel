@@ -10,11 +10,31 @@ import { run, runAsSystem, type Actor, type Db } from "@kumi/core";
 
 const name = z.string().check(z.minLength(1));
 const court = z.union([name, z.object({ name, kind: z.optional(z.enum(["indoor", "covered_outdoor", "outdoor"])) })]);
+// For registering texting with US carriers (`kumi texting`, texting.ts): the business as it's registered. Every
+// field is optional here; `kumi texting plan` says which are still missing. No keys: those stay in the settings file.
+export const TextingDetails = z.object({
+  number: z.optional(z.string().check(z.regex(/^\+1\d{10}$/))),
+  business_name: z.optional(name),
+  doing_business_as: z.optional(name),
+  business_type: z.optional(z.enum(["private_profit", "public_profit", "non_profit", "government", "sole_proprietor"])),
+  registration_number: z.optional(name),
+  website: z.optional(z.url()),
+  privacy_policy_url: z.optional(z.url()),
+  terms_url: z.optional(z.url()),
+  address: z.optional(z.object({ street: name, street2: z.optional(z.string()), city: name, state: name, postal_code: name, country: z.optional(z.enum(["US", "CA"])) })),
+  contact: z.optional(z.object({ first_name: name, last_name: name, email: z.email(), phone: z.string().check(z.regex(/^\+\d{8,15}$/)) })),
+  notification_email: z.optional(z.email()),
+  monthly_texts: z.optional(z.number().check(z.int(), z.minimum(1))),
+  opt_in_image_urls: z.optional(z.array(z.url())),
+  use_case_summary: z.optional(z.string().check(z.minLength(40), z.maxLength(1000))),
+});
+export type TextingDetails = z.infer<typeof TextingDetails>;
 export const ClubFile = z.object({
   club: z.object({ name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])) }),
   owner: z.object({ name, email: z.email() }),
   locations: z.optional(z.array(z.object({ name, address: z.optional(z.string()), time_zone: z.optional(name), courts: z.optional(z.array(court)) }))),
   staff: z.optional(z.array(z.object({ name, email: z.email(), role: z.enum(["owner", "manager", "front_desk", "coach", "accountant"]), location: z.optional(name) }))),
+  texting: z.optional(TextingDetails),
 });
 export type ClubFile = z.infer<typeof ClubFile>;
 

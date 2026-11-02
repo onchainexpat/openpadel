@@ -25,3 +25,20 @@ staff:                               # roles: manager, front_desk, coach, accoun
   - { name: Dana Ortiz, email: dana@kestrelpadel.example, role: manager }
   - { name: Sam Patel, email: sam@kestrelpadel.example, role: coach }
   - { name: Lee Chen, email: lee@kestrelpadel.example, role: front_desk, location: Eastside }
+
+# Texts (optional): the business as it's registered, for `kumi texting`, which registers the club's texting
+# with US carriers through its own Twilio account (docs/setup/accounts/twilio.md). The Twilio keys go in the
+# server's settings, never here. `kumi texting plan` says what's still missing.
+texting:
+  business_name: Kestrel Padel LLC                # the legal name, exactly as on the IRS letter for its EIN
+  doing_business_as: Kestrel Padel                # optional: the name members know
+  business_type: private_profit                   # private_profit, public_profit, non_profit, government or sole_proprietor
+  registration_number: "12-3456789"               # the EIN (a Canadian club: its business number); not for a sole proprietor
+  website: https://kestrelpadel.example           # live and public, about this club
+  privacy_policy_url: https://kestrelpadel.example/privacy   # should say mobile numbers aren't shared for marketing
+  # terms_url: https://kestrelpadel.example/terms
+  address: { street: 1200 SE Water Ave, city: Portland, state: OR, postal_code: "97214" }   # country: US (or CA)
+  contact: { first_name: Robin, last_name: Hale, email: robin@kestrelpadel.example, phone: "+15035550123" }
+  monthly_texts: 1000                             # about how many a month; a guess is fine
+  # number: "+18885550123"                        # a toll-free number the club already has in Twilio (else Kumi buys one)
+  # opt_in_image_urls: [https://kestrelpadel.example/texts-opt-in.png]   # screenshots of your own, besides Kumi's page

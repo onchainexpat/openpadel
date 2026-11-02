@@ -116,6 +116,7 @@ const ENTITIES = {
   broadcast: { table: "broadcast", key: "id", retire: { status: "cancelled" } },
   staff_alert: { table: "staff_alert", key: "id", retire: null },
   oauth_grant: { table: "oauth_grant", key: "id", retire: { revoked_at: "now" } },
+  texting_registration: { table: "texting_registration", key: "id", retire: null },
   vault_item: { table: "vault_item", key: "id", retire: { active: false } },
 } as const;
 export type Entity = keyof typeof ENTITIES;

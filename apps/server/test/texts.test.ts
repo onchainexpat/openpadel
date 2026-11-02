@@ -98,7 +98,9 @@ test("Twilio's delivery reports find the text they're about", async () => {
 
 test("Twilio's settings, its signature and the practice sender", async () => {
   assert.equal(twilioFromEnv({}), null);
-  assert.throws(() => twilioFromEnv({ KUMI_TWILIO_ACCOUNT_SID: `AC${"a".repeat(32)}`, KUMI_TWILIO_AUTH_TOKEN: TOKEN }), /who they're from/);
+  // Keys without a sender: allowed, since `kumi texting` registers one; texts stay off until there is one.
+  assert.deepEqual(twilioFromEnv({ KUMI_TWILIO_ACCOUNT_SID: `AC${"a".repeat(32)}`, KUMI_TWILIO_AUTH_TOKEN: TOKEN }), { accountSid: `AC${"a".repeat(32)}`, authToken: TOKEN });
+  assert.throws(() => new TwilioTexter({ accountSid: `AC${"a".repeat(32)}`, authToken: TOKEN }), /who they're from/);
   assert.throws(() => twilioFromEnv({ KUMI_TWILIO_ACCOUNT_SID: "AC123", KUMI_TWILIO_AUTH_TOKEN: TOKEN, KUMI_TWILIO_FROM: "+15035550000" }), /ACCOUNT_SID/);
   assert.deepEqual(twilioFromEnv({ KUMI_TWILIO_ACCOUNT_SID: `AC${"a".repeat(32)}`, KUMI_TWILIO_AUTH_TOKEN: TOKEN, KUMI_TWILIO_MESSAGING_SERVICE_SID: `MG${"b".repeat(32)}` }),
     { accountSid: `AC${"a".repeat(32)}`, authToken: TOKEN, messagingServiceSid: `MG${"b".repeat(32)}` });
