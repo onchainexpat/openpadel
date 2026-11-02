@@ -97,8 +97,11 @@ export function makeApp(deps: AppDeps) {
     ["/auth/totp/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/recovery", new RateLimiter(20, 15 * 60_000)], ["/oauth/two-step", new RateLimiter(10, 15 * 60_000)],
     ["/oauth/register", new RateLimiter(10, 60 * 60_000)], ["/auth/passkey/sign-in/options", new RateLimiter(60, 15 * 60_000)],
   ]);
+  // The consent page can make the server fetch a client's published identity from an address in the request, so
+  // it's limited too (a sign-in on it reloads it a few times; 30 in 15 minutes is plenty).
+  const getLimits = new Map<string, RateLimiter>([["/oauth/authorize", new RateLimiter(30, 15 * 60_000)]]);
   app.use("*", async (c, next) => {
-    const l = c.req.method === "POST" ? limits.get(c.req.path) : undefined, ip = l ? ipOf(c) : null;
+    const l = c.req.method === "POST" ? limits.get(c.req.path) : c.req.method === "GET" ? getLimits.get(c.req.path) : undefined, ip = l ? ipOf(c) : null;
     if (l && ip && !l.take(ip)) throw new KumiError("error.too_many_requests", {}, 429);
     await next();
   });

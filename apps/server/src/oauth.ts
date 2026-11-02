@@ -2,6 +2,10 @@
 // metadata document) and dynamic registration, PKCE S256, tokens bound to this club's MCP
 // address, refresh tokens that rotate, and a reused refresh token revokes its whole family.
 import { createHash, randomBytes } from "node:crypto";
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
+import { request as httpsRequest } from "node:https";
+import { BlockList, isIP } from "node:net";
+import type { Readable } from "node:stream";
 import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setCookie } from "hono/cookie";
@@ -19,13 +23,65 @@ const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 const b64url = (b: Buffer) => b.toString("base64url");
 export type FetchMetadata = (url: string) => Promise<unknown>;
 
-export const defaultFetchMetadata: FetchMetadata = async (url) => {
-  const r = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000), redirect: "error" });
-  if (!r.ok) throw new Error(`status ${r.status}`);
-  const text = await r.text();                    // fetch decodes gzip, deflate and brotli itself
-  if (text.length > 64 * 1024) throw new Error("too large");
-  return JSON.parse(text);
-};
+// A client's metadata document is fetched from an address anyone can name before signing in, so the fetch must
+// never reach this server's own network (loopback, private ranges, link-local and the cloud metadata address),
+// read only so much, and take only so long.
+const NOT_PUBLIC_V4 = new BlockList(), NOT_PUBLIC_V6 = new BlockList();
+for (const [a, n] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24],
+  ["192.168.0.0", 16], ["198.18.0.0", 15], ["224.0.0.0", 4], ["240.0.0.0", 4]] as const) NOT_PUBLIC_V4.addSubnet(a, n, "ipv4");
+for (const [a, n] of [["::", 127], ["fc00::", 7], ["fe80::", 10], ["ff00::", 8], ["64:ff9b::", 96]] as const) NOT_PUBLIC_V6.addSubnet(a, n, "ipv6");
+/** An IPv4 address written as IPv6 (::ffff:10.0.0.1, or ::ffff:a00:1 as URLs print it) is judged as the IPv4 one. */
+function mappedV4(a: string): string | null {
+  const m = /^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/i.exec(a);
+  if (!m) return null;
+  if (m[1]) return m[1];
+  const hi = parseInt(m[2]!, 16), lo = parseInt(m[3]!, 16);
+  return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+}
+export function publicAddress(address: string): boolean {
+  const f = isIP(address);
+  if (f === 4) return !NOT_PUBLIC_V4.check(address, "ipv4");
+  if (f !== 6) return false;
+  const v4 = mappedV4(address);
+  return v4 ? !NOT_PUBLIC_V4.check(v4, "ipv4") : !NOT_PUBLIC_V6.check(address, "ipv6");
+}
+type Resolve = (host: string, cb: (err: Error | null, addrs: LookupAddress[]) => void) => void;
+const resolveAll: Resolve = (host, cb) => dnsLookup(host, { all: true }, cb);
+/** A lookup for the connection itself that refuses any name with a non-public address among its answers: the
+ *  address checked is the one connected to, so a name can't answer one thing to the check and another to the
+ *  connection (DNS rebinding). */
+export function publicOnlyLookup(resolve: Resolve = resolveAll) {
+  return (host: string, opts: { all?: boolean }, cb: (...a: any[]) => void) => resolve(host, (err, addrs) => {
+    if (err) return cb(err);
+    if (!addrs.length || !addrs.every((a) => publicAddress(a.address))) return cb(Object.assign(new Error(`${host} isn't a public address`), { code: "ENOTPUBLIC" }));
+    return opts.all ? cb(null, addrs) : cb(null, addrs[0]!.address, addrs[0]!.family);
+  });
+}
+/** Read a response body, stopping (and failing) as soon as it's longer than `max` bytes. */
+export function readCapped(body: Readable, max: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const parts: Buffer[] = []; let n = 0;
+    body.on("data", (d: Buffer) => { n += d.length; if (n > max) { body.destroy(); reject(new Error("too large")); } else parts.push(d); });
+    body.on("end", () => resolve(Buffer.concat(parts)));
+    body.on("error", reject);
+  });
+}
+export const METADATA_MAX_BYTES = 64 * 1024;
+export const defaultFetchMetadata: FetchMetadata = (url) => new Promise((resolve, reject) => {
+  let u: URL;
+  try { u = new URL(url); } catch { return reject(new Error("not a URL")); }
+  if (u.protocol !== "https:") return reject(new Error("https only"));
+  const host = u.hostname.replace(/^\[|\]$/g, "");
+  if (isIP(host) && !publicAddress(host)) return reject(new Error(`${host} isn't a public address`));   // no lookup for a bare address
+  const req = httpsRequest(u, { method: "GET", headers: { accept: "application/json", "accept-encoding": "identity" }, lookup: publicOnlyLookup() as any }, (res) => {
+    if (res.statusCode !== 200) { res.resume(); return reject(new Error(`status ${res.statusCode}`)); }   // redirects aren't followed
+    if (Number(res.headers["content-length"] ?? 0) > METADATA_MAX_BYTES) { res.destroy(); return reject(new Error("too large")); }
+    readCapped(res, METADATA_MAX_BYTES).then((b) => { clearTimeout(timer); resolve(JSON.parse(b.toString("utf8"))); }).catch(reject);
+  });
+  const timer = setTimeout(() => req.destroy(new Error("took too long")), 5000);
+  req.on("error", (e) => { clearTimeout(timer); reject(e); });
+  req.end();
+});
 
 function okRedirect(u: string): boolean {
   try { const x = new URL(u); return x.protocol === "https:" || (x.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(x.hostname)); }
@@ -51,20 +107,32 @@ export function mcpResourceOf(resources: string[], requestUrl: string): string {
 }
 
 /** The pending consent screens: one per authorize request, for 10 minutes. */
-const pending = new Map<string, { at: number; params: AuthorizeParams; clientName: string }>();
+const pending = new Map<string, { at: number; params: AuthorizeParams; clientName: string; published?: Client }>();
+type Client = { client_id: string; name: string; redirect_uris: string[]; metadata?: unknown };
+/** Published identities fetched lately (per server), so the consent page's own reloads don't fetch again. Kept in
+ *  memory, a few hundred at most: a client is saved in the database only once someone allows it. */
+type Fetched = Map<string, { at: number; client: Client }>;
 interface AuthorizeParams { client_id: string; redirect_uri: string; code_challenge: string; state?: string; scope: string; resource: string }
 
-async function resolveClient(deps: OAuthDeps, clientId: string): Promise<{ client_id: string; name: string; redirect_uris: string[] }> {
+async function resolveClient(deps: OAuthDeps, fetched: Fetched, clientId: string): Promise<Client & { published: boolean }> {
   if (clientId.startsWith("https://")) {   // a published identity: the client id is its metadata document's URL
+    const known = fetched.get(clientId);
+    if (known && Date.now() - known.at < 600_000) return { ...known.client, published: true };
     const doc = await deps.fetchMetadata(clientId).catch(() => null) as any;
-    if (!doc || doc.client_id !== clientId || !Array.isArray(doc.redirect_uris)) throw new KumiError("error.oauth_client", {}, 400);
-    await deps.db.insertInto("oauth_client").values({ client_id: clientId, kind: "published", name: String(doc.client_name ?? new URL(clientId).host), redirect_uris: doc.redirect_uris, metadata: JSON.stringify(doc) })
-      .onConflict((oc) => oc.column("client_id").doUpdateSet({ name: String(doc.client_name ?? new URL(clientId).host), redirect_uris: doc.redirect_uris, metadata: JSON.stringify(doc) })).execute();
-    return { client_id: clientId, name: String(doc.client_name ?? new URL(clientId).host), redirect_uris: doc.redirect_uris };
+    if (!doc || doc.client_id !== clientId || !Array.isArray(doc.redirect_uris) || !doc.redirect_uris.every((u: unknown) => typeof u === "string")) throw new KumiError("error.oauth_client", {}, 400);
+    const client: Client = { client_id: clientId, name: String(doc.client_name ?? new URL(clientId).host).slice(0, 80), redirect_uris: doc.redirect_uris, metadata: doc };
+    fetched.set(clientId, { at: Date.now(), client });
+    if (fetched.size > 300) fetched.delete(fetched.keys().next().value!);
+    return { ...client, published: true };
   }
   const c = await deps.db.selectFrom("oauth_client").selectAll().where("client_id", "=", clientId).executeTakeFirst();
   if (!c) throw new KumiError("error.oauth_client", {}, 400);
-  return { client_id: c.client_id, name: c.name ?? "An app", redirect_uris: c.redirect_uris };
+  return { client_id: c.client_id, name: c.name ?? "An app", redirect_uris: c.redirect_uris, published: false };
+}
+/** A published client is saved when someone allows it (its grant refers to it), not when anyone names it. */
+async function saveClient(db: Db, c: Client) {
+  const v = { name: c.name, redirect_uris: c.redirect_uris, metadata: JSON.stringify(c.metadata ?? {}) };
+  await db.insertInto("oauth_client").values({ client_id: c.client_id, kind: "published", ...v }).onConflict((oc) => oc.column("client_id").doUpdateSet(v)).execute();
 }
 
 function page(lang: Lang, title: string, body: unknown) {
@@ -77,6 +145,7 @@ export function oauthRoutes(deps: OAuthDeps) {
   const app = new Hono();
   const issuer = deps.publicUrl, resources = mcpResources(deps.publicUrl, deps.memberUrl);
   const secondStep = deps.secondStepTries ?? new RateLimiter(5, 15 * 60_000);
+  const fetched: Fetched = new Map();
   const club = async () => (await deps.db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
 
   const prm = async (c: Context) => c.json({ resource: mcpResourceOf(resources, c.req.url), authorization_servers: [issuer], scopes_supported: [SCOPE], bearer_methods_supported: ["header"], resource_name: await club() });
@@ -112,7 +181,7 @@ export function oauthRoutes(deps: OAuthDeps) {
     const lang = deps.lang(c), q = c.req.query();
     if (q.response_type !== "code" || !q.client_id || !q.redirect_uri || !q.code_challenge || q.code_challenge_method !== "S256") throw new KumiError("error.oauth_request", {}, 400);
     if (q.resource && !resources.includes(q.resource)) throw new KumiError("error.oauth_request", {}, 400);
-    const client = await resolveClient(deps, q.client_id);
+    const client = await resolveClient(deps, fetched, q.client_id);
     if (!client.redirect_uris.includes(q.redirect_uri)) throw new KumiError("error.oauth_client", {}, 400);
     const clubName = await club(), me = deps.me(c);
     if (!me) {
@@ -136,7 +205,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
       return c.html(page(lang, t(lang, "consent.two_step_title"), html`<p>${t(lang, "consent.two_step_in_app", { club: clubName })}</p>`));
     }
     const id = b64url(randomBytes(16));
-    pending.set(id, { at: Date.now(), clientName: client.name, params: { client_id: client.client_id, redirect_uri: q.redirect_uri, code_challenge: q.code_challenge, state: q.state, scope: SCOPE, resource: q.resource || resources[0]! } });
+    pending.set(id, { at: Date.now(), clientName: client.name, published: client.published ? client : undefined, params: { client_id: client.client_id, redirect_uri: q.redirect_uri, code_challenge: q.code_challenge, state: q.state, scope: SCOPE, resource: q.resource || resources[0]! } });
     const host = new URL(q.redirect_uri).host;
     return c.html(page(lang, t(lang, "consent.title", { client: client.name, club: clubName }), html`
 <p>${t(lang, "consent.body", { client: client.name, host, club: clubName })}</p><p>${t(lang, "consent.signed_in_as", { name: me.display_name })}</p>
@@ -203,6 +272,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     if (f.decision !== "allow") { u.searchParams.set("error", "access_denied"); return c.redirect(u.toString(), 302); }
     const grantId = uuidv7(), code = b64url(randomBytes(24));
     const cap = Number(f.cap ?? 0);
+    if (p.published) await saveClient(deps.db, p.published);
     await deps.db.insertInto("oauth_grant").values({ id: grantId, person_id: me.id, client_id: p.params.client_id, scopes: [p.params.scope], revoked_at: null,
       weekly_cap_cents: CAP_CHOICES.includes(cap) ? cap : 0 }).execute();
     await deps.db.insertInto("oauth_code").values({ code_hash: sha(code), grant_id: grantId, redirect_uri: p.params.redirect_uri, code_challenge: p.params.code_challenge, resource: p.params.resource, expires_at: new Date(deps.now().getTime() + CODE_SECONDS * 1000), consumed_at: null }).execute();

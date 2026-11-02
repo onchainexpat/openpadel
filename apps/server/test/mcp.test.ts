@@ -233,3 +233,13 @@ test("an assistant reads what the person reads, can't raise its own limit or cha
   await assert.rejects(apply(db, p.run_id, person), (e: unknown) => e instanceof KumiError && e.code === "error.assistant_disconnected", "its preview died with it");
   await client.close();
 });
+
+test("a published identity is saved only once someone allows it, not whenever anyone names it", async () => {
+  const OTHER = "https://other-assistant.example.test/client.json";
+  const app3 = makeApp({ db, mailer, publicUrl: BASE, secureCookies: false, fetchMetadata: async (url) => ({ client_id: url, client_name: "Other", redirect_uris: ["https://other-assistant.example.test/cb"] }) });
+  const q = new URLSearchParams({ response_type: "code", client_id: OTHER, redirect_uri: "https://other-assistant.example.test/cb", code_challenge: "x".repeat(43), code_challenge_method: "S256" });
+  const r = await app3.request(`${BASE}/oauth/authorize?${q}`);
+  assert.equal(r.status, 200);   // the sign-in page, for someone not signed in
+  assert.equal((await db.selectFrom("oauth_client").select("client_id").where("client_id", "=", OTHER).execute()).length, 0);
+  assert.equal((await db.selectFrom("oauth_client").select("client_id").where("client_id", "=", CLAUDE).execute()).length, 1, "Claude, allowed above, is kept");
+});

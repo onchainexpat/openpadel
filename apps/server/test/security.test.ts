@@ -50,6 +50,14 @@ test("one address can ask for 10 codes in 15 minutes, then waits", async () => {
   assert.equal((await post("/auth/email/start", { email: "q@example.test" })).status, 200);
 });
 
+test("the assistant consent page is limited per address: it can make the server fetch from an address it names", async () => {
+  ip = "203.0.113.77";
+  for (let i = 0; i < 30; i++) assert.notEqual((await app.request("/oauth/authorize?response_type=code")).status, 429);
+  assert.equal((await app.request("/oauth/authorize?response_type=code")).status, 429);
+  ip = "203.0.113.78";
+  assert.notEqual((await app.request("/oauth/authorize?response_type=code")).status, 429);
+});
+
 test("join codes are capped club-wide each hour; the answer doesn't change", async () => {
   for (let i = 0; i < 31; i++) await db.insertInto("auth_challenge").values({ id: uuidv7(), kind: "email_code", target: `flood${i}@example.test`, code_hash: "x", expires_at: new Date(Date.now() + 600_000), consumed_at: null }).execute();
   ip = "203.0.113.12";
