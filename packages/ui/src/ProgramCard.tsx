@@ -5,7 +5,9 @@ import { lang, t } from "./state.ts";
 import { dollars } from "./Preview.tsx";
 
 export type ProgramCardData = { id: string; name: string; capacity: number; booked: number; offered: number; price_cents: number; rated: boolean; level_min: string | null; level_max: string | null;
-  refund_window_hours: number; first_start: string | null; min_players: number | null; my_price_cents: number; my_basis: "full" | "member" | "included"; included: { n: number; of: number } | null; members_cents: number | null };
+  refund_window_hours: number; first_start: string | null; min_players: number | null; my_price_cents: number; my_basis: "full" | "member" | "included"; included: { n: number; of: number } | null; members_cents: number | null;
+  /** Signed up per date: each date has its own places (shown with the dates, not here). */
+  per_date?: boolean };
 
 /** Places nobody holds (a waitlist offer holds one). */
 export const placesLeft = (p: ProgramCardData) => p.capacity - p.booked - p.offered;
@@ -23,7 +25,7 @@ export function ProgramCard({ p, children }: { p: ProgramCardData; children?: Co
       <div class="summary">{p.name}</div>
       <div class="meta">{when(p.first_start)} · {priceLine(p)}{p.level_min && p.level_max ? ` · ${t("ui.level_band", { min: p.level_min, max: p.level_max })}` : ""}</div>
       <div class="meta">{t(p.rated ? "ui.rated_label" : "ui.friendly_label")} · {t("ui.refund_rule", { hours: p.refund_window_hours })}</div>
-      <div class="meta">{left > 0 ? t("ui.places_left", { count: left }) : t("ui.full_waitlist")}{need > 0 ? ` · ${t("ui.needs_more", { count: need })}` : ""}</div>
+      <div class="meta">{p.per_date ? t("ui.per_date_note") : <>{left > 0 ? t("ui.places_left", { count: left }) : t("ui.full_waitlist")}{need > 0 ? ` · ${t("ui.needs_more", { count: need })}` : ""}</>}</div>
       {children}
     </li>
   );

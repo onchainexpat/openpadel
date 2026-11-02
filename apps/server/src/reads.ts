@@ -426,14 +426,16 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const roster = await db.selectFrom("enrolment").innerJoin("person", "person.id", "enrolment.person_id")
       .leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "enrolment.person_id").on("rating.sport", "=", "padel"))
       .select(["enrolment.id", "enrolment.person_id", "person.display_name", "enrolment.status", "enrolment.waitlist_position", "enrolment.paid_by", "enrolment.price_cents", "enrolment.price_basis",
-        "enrolment.left_how", "enrolment.left_reason", "enrolment.refund_outcome", "enrolment.refund_cents", "enrolment.comp_note", "rating.level"])
+        "enrolment.left_how", "enrolment.left_reason", "enrolment.refund_outcome", "enrolment.refund_cents", "enrolment.comp_note", "enrolment.session_id", "rating.level"])
       .where("enrolment.program_id", "=", id).orderBy("enrolment.status").orderBy("enrolment.waitlist_position").orderBy("enrolment.created_at").execute();
     const offers = await db.selectFrom("waitlist_offer").select(["enrolment_id", "expires_at"]).where("outcome", "is", null).where("expires_at", ">", new Date())
       .where("enrolment_id", "in", roster.length ? roster.map((r) => r.id) : ["00000000-0000-0000-0000-000000000000"]).execute();
     const club = await db.selectFrom("club").select("program_decide_hours").executeTakeFirstOrThrow();
     return c.json({
       program, coaches, decide_hours: club.program_decide_hours,
-      sessions: sessions.map((s) => ({ ...s, courts: courts.filter((x) => x.session_id === s.id).map((x) => x.name), has_draw: draws.some((d) => d.session_id === s.id) })),
+      // Signed up per date: each date's own places and how many have one.
+      sessions: sessions.map((s) => ({ ...s, courts: courts.filter((x) => x.session_id === s.id).map((x) => x.name), has_draw: draws.some((d) => d.session_id === s.id),
+        places: s.capacity_override ?? program.capacity, booked: roster.filter((r) => r.session_id === s.id && r.status === "booked").length })),
       roster: await Promise.all(roster.map(async (r) => ({ ...r, paid_cents: await paidFor(db, r.id), offer_expires_at: offers.find((o) => o.enrolment_id === r.id)?.expires_at ?? null }))),
     });
   });

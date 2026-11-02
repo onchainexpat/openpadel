@@ -2,6 +2,7 @@
 // prices, its memberships, and its upcoming public events, each on its own page. Plain HTML from the server,
 // so search engines and AI readers see all of it without running anything, with schema.org markup for
 // the club and its events. Nothing about members is shown; "Join the club" goes to the app's sign-up.
+import { sql } from "kysely";
 import { Hono, type Context } from "hono";
 import { isLang, money, t, type Key, type Lang } from "@kumi/i18n";
 import { coachPhoto, factIn, lessonCoaches, localDate, membersFrom, planCounts, ruleWhen, searchFacts, TEXTS_FORM, type Db } from "@kumi/core";
@@ -41,7 +42,7 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl:
   async function events(where?: string) {
     const rows = await db.selectFrom("program").innerJoin("location", "location.id", "program.location_id")
       .select(["program.id", "program.name", "program.kind", "program.format", "program.capacity", "program.price_cents", "program.member_price_cents", "program.level_min", "program.level_max", "program.rated",
-        "location.name as location", "location.address", "location.time_zone"])
+        "program.sign_up", "location.name as location", "location.address", "location.time_zone"])
       .select((eb) => [
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
         eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first"),
@@ -49,8 +50,22 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl:
       ])
       .where("program.status", "=", "published").where("program.visibility", "=", "public").$if(Boolean(where), (q) => q.where("program.id", "=", where!)).execute();
     const members = await membersFrom(db, rows);   // what members pay, when it's less
-    return rows.filter((r) => r.first && new Date(r.first as any) > new Date()).sort((a, b) => new Date(a.first as any).getTime() - new Date(b.first as any).getTime())
+    const now = new Date(), next = await nextDates(rows.filter((r) => r.sign_up === "per_session").map((r) => r.id), now);
+    // Signed up per date: listed from its next date, with that date's places (each date fills on its own).
+    return rows.map((r) => r.sign_up === "per_session" && next.has(r.id) ? { ...r, first: next.get(r.id)!.starts_at, booked: next.get(r.id)!.booked, capacity: next.get(r.id)!.capacity } : r)
+      .filter((r) => r.first && new Date(r.first as any) > now).sort((a, b) => new Date(a.first as any).getTime() - new Date(b.first as any).getTime())
       .map((r) => ({ ...r, first: new Date(r.first as any), last: new Date(r.last as any), left: Math.max(0, r.capacity - Number(r.booked ?? 0)), members_cents: members.get(r.id) ?? null }));
+  }
+  /** Each per-date program's next date still to come: when, its places and how many have one. */
+  async function nextDates(ids: string[], now: Date) {
+    const out = new Map<string, { starts_at: Date; capacity: number; booked: number }>();
+    if (!ids.length) return out;
+    const rows = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id")
+      .select(["session.program_id", "session.starts_at", sql<number>`coalesce(session.capacity_override, program.capacity)`.as("capacity")])
+      .select((eb) => eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.session_id", "=", "session.id").where("enrolment.status", "=", "booked").as("booked"))
+      .where("session.program_id", "in", ids).where("session.status", "!=", "cancelled").where("session.starts_at", ">", now).orderBy("session.starts_at").execute();
+    for (const r of rows) if (!out.has(r.program_id)) out.set(r.program_id, { starts_at: r.starts_at, capacity: Number(r.capacity), booked: Number(r.booked ?? 0) });
+    return out;
   }
   const eventLd = (e: Awaited<ReturnType<typeof events>>[number], clubName: string, currency: string) => ({
     "@context": "https://schema.org", "@type": "SportsEvent", name: e.name, sport: "Padel", startDate: e.first.toISOString(), endDate: e.last.toISOString(),

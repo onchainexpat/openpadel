@@ -8,7 +8,7 @@ type Location = { id: string; name: string };
 
 export function Programs() {
   const [rows, setRows] = useState<Row[] | null>(null), [locations, setLocations] = useState<Location[]>([]), [open, setOpen] = useState(false);
-  const [f, setF] = useState({ location_id: "", kind: "social", format: "americano", name: "", capacity: 16, price: 25, member_price: "", rated: true, refund_window_hours: 24, min_players: "" });
+  const [f, setF] = useState({ location_id: "", kind: "social", format: "americano", name: "", capacity: 16, price: 25, member_price: "", rated: true, refund_window_hours: 24, min_players: "", per_date: false });
   // Clinics and courses are for learning: their results don't change levels unless staff tick it (socials, leagues and tournaments do).
   const [ratedSet, setRatedSet] = useState(false), ratedFor = (kind: string) => kind !== "clinic" && kind !== "course";
   const load = () => api<Row[]>("/staff/programs").then(setRows);
@@ -16,7 +16,8 @@ export function Programs() {
   useEffect(() => { load(); api<Location[]>("/staff/locations").then((l) => { setLocations(l); setF((x) => ({ ...x, location_id: x.location_id || l[0]?.id || "" })); }); }, []);
   const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)) : "");
   const create = (e: Event) => { e.preventDefault(); preview("program.create", { location_id: f.location_id, kind: f.kind, format: f.format || undefined, name: f.name, capacity: Number(f.capacity), price_cents: Math.round(Number(f.price) * 100),
-    ...(f.member_price.trim() ? { member_price_cents: Math.round(Number(f.member_price.replace(",", ".")) * 100) } : {}), rated: f.rated, refund_window_hours: Number(f.refund_window_hours), ...(f.min_players.trim() ? { min_players: Number(f.min_players) } : {}) }); };
+    ...(f.member_price.trim() ? { member_price_cents: Math.round(Number(f.member_price.replace(",", ".")) * 100) } : {}), rated: f.rated, refund_window_hours: Number(f.refund_window_hours), ...(f.min_players.trim() ? { min_players: Number(f.min_players) } : {}),
+    ...(f.per_date && (f.kind === "clinic" || f.kind === "social") ? { sign_up: "per_session" } : {}) }); };
 
   return (
     <main>
@@ -34,6 +35,8 @@ export function Programs() {
           <label>{t("ui.refund_window")}<input type="number" min="0" value={f.refund_window_hours} onInput={(e) => setF({ ...f, refund_window_hours: Number(e.currentTarget.value) })} /></label>
           <label>{t("ui.min_players")}<input type="number" min="1" value={f.min_players} onInput={(e) => setF({ ...f, min_players: e.currentTarget.value })} /></label>
           <label class="check"><input type="checkbox" checked={f.rated} onChange={(e) => { setRatedSet(true); setF({ ...f, rated: e.currentTarget.checked }); }} /> {t("ui.rated")}</label>
+          {/* A weekly drop-in: people sign up for the dates they want, each with its own places (clinics and socials). */}
+          {(f.kind === "clinic" || f.kind === "social") && <label class="check"><input type="checkbox" checked={f.per_date} onChange={(e) => setF({ ...f, per_date: e.currentTarget.checked })} /> {t("ui.sign_up_per_date")}</label>}
           <button class="primary">{t("ui.preview")}</button>
         </form>
       )}

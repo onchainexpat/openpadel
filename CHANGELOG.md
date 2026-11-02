@@ -275,6 +275,19 @@ The first version a club can run on its own (court bookings included), or for it
 - "Tell me when a place opens" on a full program: the waitlist is offered places first; once a place
   is open to anyone, everyone watching hears once. A watch ends when they sign up.
 - Americano rounds with fair teams, scores and re-pairing.
+- Weekly drop-in clinics and socials signed up date by date (chosen when the program is made, and
+  changeable until anyone signs up): each date has its own places, roster, waitlist with timed offers,
+  "tell me when a place opens", minimum to run (decided before each date, so a short date is cancelled
+  alone), attendance and coach. Members tick the dates they want on What's On and pay for them in one
+  card payment, with one message; a full date goes on its own waitlist. Each date is priced as it would
+  be alone (the member price), and included sessions are used in date order while the period has any.
+  Leaving a date follows the club's cancel rule for that date, and frees that date's place only.
+  Cancelling a date gives everyone on it all of what they paid back (or staff choose nothing, with a
+  reason). Changing places for "this date", "this and following" or "all" sets each date's own places.
+  Staff see one date's roster at a time, and give a free place on a date. Receipts, My places, the
+  coach's students and the public page show the date. Courses, leagues and tournaments stay whole.
+- A place given up before it was paid calls off what was still owed for it; if its card form was
+  already open and the money arrives anyway, all of it goes back.
 - A new program's results change levels by default for socials, leagues and tournaments, and not for
   clinics and courses (they're for learning); staff can tick or untick it, and the preview says which.
   Programs already made keep what they have.

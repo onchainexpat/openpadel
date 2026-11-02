@@ -588,6 +588,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const e = await place(db, pay.enrolment_id);
     return [{ to: pay.person_id, kind: "paid", params: { name: e.name, when: when(e.start, tz), amount: amount(pay.amount_cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
+  // Several dates of a program paid together: one message for them all.
+  async "enrolment.dates_paid"({ db, tz }, p: { person_id: string; enrolment_ids: string[]; cents: number }) {
+    const places = await Promise.all(p.enrolment_ids.map((id) => place(db, id)));
+    places.sort((a, b) => (a.start?.getTime() ?? 0) - (b.start?.getTime() ?? 0));
+    const dates: Text = { en: places.map((x) => x.start ? dateTime(x.start, "en", tz) : "").join("; "), es: places.map((x) => x.start ? dateTime(x.start, "es", tz) : "").join("; ") };
+    return [{ to: p.person_id, kind: "dates_paid", params: { name: places[0]?.name ?? "", dates, amount: amount(p.cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
+  },
   async "payment.failed"({ db }, p: { payment_id: string }) {
     const pay = await db.selectFrom("payment").select(["enrolment_id", "amount_cents", "person_id", "membership_plan_id", "membership_id"]).where("id", "=", p.payment_id).executeTakeFirstOrThrow();
     // A membership payment fails only when it was left unfinished and called off (closeUnfinishedPayments): nothing was charged.

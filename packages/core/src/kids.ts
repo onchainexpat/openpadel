@@ -64,7 +64,7 @@ async function kindOf(db: Db | Trx, name: string, input: any): Promise<KidKind |
       return b && await openMatchOf(db, b.id) ? "open_matches" : "courts";
     }
     case "lesson.request": return "lessons";
-    case "enrolment.join": case "enrolment.accept_offer": return "programs";
+    case "enrolment.join": case "enrolment.join_dates": case "enrolment.accept_offer": return "programs";
   }
   return null;
 }

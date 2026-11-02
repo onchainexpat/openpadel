@@ -21,7 +21,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
 
   app.get("/open-programs", async (c) => {
     const pid = await forWhom(c);
-    const rows = await db.selectFrom("program").select(["id", "name", "kind", "format", "capacity", "price_cents", "member_price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window", "min_players"])
+    const rows = await db.selectFrom("program").select(["id", "name", "kind", "format", "capacity", "price_cents", "member_price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window", "min_players", "sign_up"])
       .select((eb) => [
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
         eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first_start"),
@@ -37,7 +37,14 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       ]).where("status", "=", "published").where("visibility", "in", ["public", "members"]).execute();
     // My own price for each (a member price, or an included session); without a membership, what members pay.
     const now = new Date(), mine = await programPrices(db, rows, pid, now), members = await membersFrom(db, rows);
-    return c.json(rows.filter((r) => !r.first_start || new Date(r.first_start as any) > now).map(({ member_price_cents, my_place_price, ...r }) => {
+    const byDate = await datesOpen(rows.filter((r) => r.sign_up === "per_session").map((r) => r.id), pid, now);
+    return c.json(rows.filter((r) => r.sign_up === "per_session" ? (byDate.get(r.id) ?? []).length > 0 : !r.first_start || new Date(r.first_start as any) > now).map(({ member_price_cents, my_place_price, sign_up, ...r }) => {
+      // Signed up per date: each date still to come with its own places, and where this person stands on it.
+      if (sign_up === "per_session") {
+        const dates = byDate.get(r.id)!, pr = mine.get(r.id)!;
+        return { ...r, first_start: dates[0]!.starts_at, booked: 0, offered: 0, my_status: null, my_offer_until: null, my_watch: null, per_date: true, dates,
+          my_price_cents: pr.cents, my_basis: pr.basis, included: pr.included ? { n: pr.included.n, of: pr.included.of } : null, members_cents: pr.basis === "full" ? members.get(r.id) ?? null : null };
+      }
       // With a place already: the price it was taken at, not today's.
       const [cents, basis] = my_place_price ? (my_place_price as string).split(":") : [];
       const pr = my_place_price ? { cents: Number(cents), basis: basis as "full", included: null } : mine.get(r.id)!;
@@ -47,6 +54,32 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       // Soonest first, by the actual time (not the date's text, which starts with the weekday); undated ones last.
       .sort((a, b) => (a.first_start ? new Date(a.first_start as any).getTime() : Infinity) - (b.first_start ? new Date(b.first_start as any).getTime() : Infinity)));
   });
+
+  /** The dates still to come of programs signed up per date: each one's places, and this person's place, offer or watch on it. */
+  async function datesOpen(programIds: string[], pid: string, now: Date) {
+    const out = new Map<string, { id: string; starts_at: Date; ends_at: Date; capacity: number; booked: number; offered: number; my_status: string | null; my_offer_until: Date | null; my_watch: string | null }[]>();
+    if (!programIds.length) return out;
+    const rows = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id")
+      .select(["session.id", "session.program_id", "session.starts_at", "session.ends_at", sql<number>`coalesce(session.capacity_override, program.capacity)`.as("capacity")])
+      .select((eb) => [
+        eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.session_id", "=", "session.id").where("enrolment.status", "=", "booked").as("booked"),
+        eb.selectFrom("waitlist_offer").innerJoin("enrolment", "enrolment.id", "waitlist_offer.enrolment_id").select((x) => x.fn.countAll<string>().as("n"))
+          .whereRef("enrolment.session_id", "=", "session.id").where("enrolment.status", "=", "waitlisted").where("waitlist_offer.outcome", "is", null).where("waitlist_offer.expires_at", ">", now).as("offered"),
+        eb.selectFrom("enrolment").select("status").whereRef("enrolment.session_id", "=", "session.id").where("enrolment.person_id", "=", pid).where("enrolment.status", "in", ["booked", "waitlisted"]).limit(1).as("my_status"),
+        eb.selectFrom("waitlist_offer").innerJoin("enrolment", "enrolment.id", "waitlist_offer.enrolment_id").select("waitlist_offer.expires_at")
+          .whereRef("enrolment.session_id", "=", "session.id").where("enrolment.person_id", "=", pid).where("enrolment.status", "=", "waitlisted").where("waitlist_offer.outcome", "is", null).where("waitlist_offer.expires_at", ">", now).limit(1).as("my_offer_until"),
+        eb.selectFrom("program_watch").select("program_watch.id").whereRef("program_watch.session_id", "=", "session.id").where("program_watch.person_id", "=", pid)
+          .where("program_watch.told_at", "is", null).where("program_watch.ended_at", "is", null).limit(1).as("my_watch"),
+      ])
+      .where("session.program_id", "in", programIds).where("session.status", "!=", "cancelled").where("session.starts_at", ">", now).orderBy("session.starts_at").execute();
+    for (const r of rows) {
+      const list = out.get(r.program_id) ?? [];
+      list.push({ id: r.id, starts_at: r.starts_at, ends_at: r.ends_at, capacity: Number(r.capacity), booked: Number(r.booked ?? 0), offered: Number(r.offered ?? 0),
+        my_status: (r.my_status as string | null) ?? null, my_offer_until: (r.my_offer_until as Date | null) ?? null, my_watch: (r.my_watch as string | null) ?? null });
+      out.set(r.program_id, list);
+    }
+    return out;
+  }
 
   // The in-app inbox: every message Kumi sent this person, newest first. Reading it marks it read
   // (the delivery log, like the outbox, is written by the messages code, not through an action).
@@ -294,8 +327,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   app.get("/my/places", async (c) => {
     const pid = who(c);
     const rows = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id")
-      .select(["enrolment.id", "enrolment.status", "enrolment.waitlist_position", "enrolment.program_id", "program.name", "program.price_cents"])
-      .select((eb) => [eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").as("first_start"),
+      .select(["enrolment.id", "enrolment.status", "enrolment.waitlist_position", "enrolment.program_id", "enrolment.session_id", "program.name", "program.price_cents"])
+      // A place on one date (signed up per date): that date; otherwise the program's first.
+      .select((eb) => [sql<Date | null>`coalesce((SELECT starts_at FROM session WHERE session.id = enrolment.session_id), (SELECT min(starts_at) FROM session WHERE session.program_id = program.id))`.as("first_start"),
         eb.selectFrom("waitlist_offer").select("expires_at").whereRef("waitlist_offer.enrolment_id", "=", "enrolment.id").where("outcome", "is", null).where("expires_at", ">", new Date()).limit(1).as("offer_expires_at"),
         eb.selectFrom("payment").select("id").whereRef("payment.enrolment_id", "=", "enrolment.id").where("status", "=", "pending").limit(1).as("pending_payment_id")])
       .select("enrolment.person_id")

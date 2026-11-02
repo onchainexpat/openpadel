@@ -345,6 +345,15 @@ and gives everything back. Staff can choose all of it or nothing instead, with a
 
 A draft shows the card exactly as members will see it, with each date, before it's published.
 
+A clinic or social can instead be signed up **date by date** ("Sign up date by date" when making it, or
+on its page until anyone has signed up): a weekly drop-in where people come when they can. Each date
+then has its own places, roster, waitlist, minimum and attendance. Members tick the dates they want on
+What's On and pay once for all of them; a full date puts them on that date's waitlist, or they can ask
+to hear when a place opens on it. Leaving a date follows the cancel rule for that date only. Changing
+places on its dates sets each date's own; cancelling a date gives everyone on it all they paid back. On
+the program's page, pick a date to see its roster, waitlist and who has a free place. A minimum is
+decided before each date, so a short date is cancelled on its own and the others go ahead.
+
 A program can need a minimum to run. At its decision time (Settings: 24 hours before its first date to
 start, or the program's own), a program short of it is cancelled, everyone gets their money back, and
 everyone is told; the front desk hears once before that (Settings: 24 hours earlier) how many it still

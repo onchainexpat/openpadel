@@ -94,3 +94,22 @@ test("the club's defaults for minimums are in Settings", async () => {
   assert.equal((await act("Robin", "club.update", { program_decide_hours: 48, program_heads_up_hours: 0 })).status, 200);
   assert.deepEqual(Object.values((await req("/staff/settings", "Robin")).json.club).slice(-2), [48, 0]);
 });
+
+test("a weekly drop-in signed up per date: What's On lists each date's places; members pick dates; staff see one date's roster", async () => {
+  const drop = ((await run(db, "program.create", { location_id: loc, kind: "clinic", name: "Drop-in", capacity: 1, price_cents: 0, sign_up: "per_session" }, owner)).result as any).program_id;
+  const ids = ((await run(db, "session.add", { program_id: drop, starts_at: day(8, 18).toISOString(), ends_at: day(8, 19).toISOString(), court_ids: [court], weeks: 2 }, owner)).result as any).session_ids as string[];
+  await run(db, "program.publish", { program_id: drop }, owner);
+  assert.equal((await act("Ann", "enrolment.join_dates", { program_id: drop, person_id: people.Ann, session_ids: [ids[0]] })).status, 200);
+  const card = (await req("/open-programs", "Ben")).json.find((p: any) => p.id === drop);
+  assert.equal(card.per_date, true);
+  assert.deepEqual(card.dates.map((x: any) => [x.id, x.capacity, x.booked, x.my_status]), [[ids[0], 1, 1, null], [ids[1], 1, 0, null]]);
+  // Ben takes the free date and goes on the waitlist for the full one, in one go.
+  assert.equal((await act("Ben", "enrolment.join_dates", { program_id: drop, person_id: people.Ben, session_ids: ids })).status, 200);
+  assert.deepEqual((await req("/open-programs", "Ben")).json.find((p: any) => p.id === drop).dates.map((x: any) => x.my_status), ["waitlisted", "booked"]);
+  const places = (await req("/my/places", "Ben")).json.filter((x: any) => x.program_id === drop);
+  const starts = await db.selectFrom("session").select(["id", "starts_at"]).where("program_id", "=", drop).execute();   // each place shows its own date
+  assert.deepEqual(places.map((x: any) => [x.session_id, new Date(x.first_start).getTime()]).sort(), starts.map((x) => [x.id, new Date(x.starts_at).getTime()]).sort());
+  const staff = (await req(`/staff/programs/${drop}`, "Robin")).json;
+  assert.deepEqual(staff.sessions.map((s: any) => [s.places, s.booked]), [[1, 1], [1, 1]]);
+  assert.deepEqual(staff.roster.filter((r: any) => r.session_id === ids[0]).map((r: any) => [r.display_name, r.status]), [["Ann", "booked"], ["Ben", "waitlisted"]]);
+});

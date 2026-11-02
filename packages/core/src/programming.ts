@@ -2,6 +2,8 @@
 // "tell me when a spot opens"). A program is one roster over its dates, so editing a series means its dates:
 // this one, this and the following ones, or all still to come. Dates that have started stay as they were.
 // A minimum is decided once, a set time before the first date; staff hear first if it's short.
+// A program signed up per date (programs.ts perDate) is a roster per date instead: its places, its minimum (decided
+// before each date) and the people a change reaches are that date's.
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { both, dateTime, money, type Key, type Text } from "@kumi/i18n";
@@ -14,7 +16,7 @@ import { localDate, onDate } from "./clock.ts";
 import { coachBusy, isCoach } from "./lessons.ts";
 import { withManagers } from "./households.ts";
 import { clashList, dateClashes } from "./program_clashes.ts";
-import { clubTz, firstStart, freePlace, join2, leaving, paidFor, startRefund, started, takenCount, tellWatchers, type ApplyContext, type Refund } from "./programs.ts";
+import { clubTz, firstStart, freePlace, join2, leaving, paidFor, perDate, placesOf, signUpDate, startRefund, started, takenCount, tellWatchers, type ApplyContext, type Refund } from "./programs.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const when = (at: Date, tz: string): Text => ({ en: dateTime(at, "en", tz), es: dateTime(at, "es", tz) });
@@ -52,14 +54,16 @@ async function names(db: Db | Trx, ids: string[]) {
 }
 
 /** Who has a place (booked), and how many are waiting, for a plan to say. */
-async function rosterOf(db: Db | Trx, programId: string) {
+async function rosterOf(db: Db | Trx, programId: string, sessionIds: string[] | null = null) {
   const rows = await db.selectFrom("enrolment").innerJoin("person", "person.id", "enrolment.person_id").select(["enrolment.id", "enrolment.person_id", "enrolment.status", "enrolment.price_basis", "person.display_name"])
-    .where("enrolment.program_id", "=", programId).where("enrolment.status", "in", ["booked", "waitlisted"]).orderBy("enrolment.created_at").execute();
+    .where("enrolment.program_id", "=", programId).where("enrolment.status", "in", ["booked", "waitlisted"])
+    .$if(sessionIds !== null, (q) => q.where("enrolment.session_id", "in", sessionIds!.length ? sessionIds! : ["00000000-0000-0000-0000-000000000000"])).orderBy("enrolment.created_at").execute();
   return { booked: rows.filter((r) => r.status === "booked"), waiting: rows.filter((r) => r.status === "waitlisted") };
 }
 function rosterLine(r: Awaited<ReturnType<typeof rosterOf>>): Text {
   if (!r.booked.length) return both("plan.series.nobody");
-  return both(r.waiting.length ? "plan.series.people_waiting" : "plan.series.people", { names: r.booked.map((b) => b.display_name).join(", "), count: r.booked.length, waiting: r.waiting.length });
+  const names = [...new Set(r.booked.map((b) => b.display_name))];
+  return both(r.waiting.length ? "plan.series.people_waiting" : "plan.series.people", { names: names.join(", "), count: names.length, waiting: r.waiting.length });
 }
 
 // ---- Editing dates ----
@@ -73,7 +77,7 @@ export const seriesEdit = defineAction({
     minutes: z.optional(z.number().check(z.int(), z.minimum(15), z.maximum(720), z.describe("How long each date runs."))),
     court_ids: z.optional(z.array(z.uuid()).check(z.minLength(1))),
     coach_id: z.optional(z.nullable(z.uuid().check(z.describe("Who runs them; null for nobody named.")))),
-    capacity: z.optional(z.number().check(z.int(), z.minimum(1), z.describe("Places in the program. Sign-up is for the whole program, so this is for all its dates."))),
+    capacity: z.optional(z.number().check(z.int(), z.minimum(1), z.describe("Places in the program, for all its dates. Signed up per date: the places on each date chosen (this, following, all)."))),
   }),
   async plan(ctx, i) {
     const { s, p, read, pRead } = await chosenDate(ctx, i.session_id);
@@ -104,11 +108,14 @@ export const seriesEdit = defineAction({
       slots: changed.map((a) => ({ start: a.start, end: a.end, courtIds: a.court_ids, coachId: a.coach_id })), skipSessions: before.map((b) => b.id) }) : [];
     const blocks = clashes.filter((c) => c.blocks), warnings = clashes.filter((c) => !c.blocks);
     if (blocks.length) throw new KumiError("error.dates_clash", { list: clashList(blocks) });
-    const roster = await rosterOf(ctx.db, p.id);
-    if (i.capacity !== undefined) {
+    const byDate = perDate(p), roster = await rosterOf(ctx.db, p.id, byDate ? changed.map((c) => c.id) : null);
+    if (i.capacity !== undefined && !byDate) {
       const holding = await takenCount(ctx.db, p.id, ctx.now);
       if (i.capacity < holding) throw new KumiError("error.capacity_below", { count: holding });
     }
+    // Per date: each date chosen gets that many places, and none can go below the places it has taken.
+    const placesChange = i.capacity !== undefined && byDate ? await Promise.all(before.map(async (b) => ({ id: b.id, start: new Date(b.starts_at), was: await placesOf(ctx.db, p.id, b.id), taken: await takenCount(ctx.db, p.id, ctx.now, b.id) }))) : [];
+    for (const d of placesChange) if (i.capacity! < d.taken) throw new KumiError("error.capacity_below_date", { when: when(d.start, tz), count: d.taken });
     const coaches = await names(ctx.db, [...new Set(after.map((a) => a.coach_id).filter((x): x is string => Boolean(x)))]);
     const describe = (start: Date, end: Date, courtIds: string[], coachId: string | null): Text => both(coachId ? "plan.series.as_coach" : "plan.series.as", {
       when: when(start, tz), minutes: Math.round((end.getTime() - start.getTime()) / 60_000), courts: courtIds.map((c) => courtNames.get(c) ?? "").join(", "), coach: coachId ? coaches.get(coachId) ?? "" : "" });
@@ -118,14 +125,16 @@ export const seriesEdit = defineAction({
     let summary = both(`plan.series.edit_${i.scope}` as Key, { name: p.name, count: changed.length });
     if (moves && !changed.length) summary = both("plan.series.no_date_change", { name: p.name });
     summary = join2(summary, joinAll(lines));
-    if (i.capacity !== undefined && i.capacity !== p.capacity) summary = join2(summary, both("plan.series.capacity", { from: p.capacity, to: i.capacity }));
+    const placesMoved = placesChange.filter((d) => d.was !== i.capacity);
+    if (byDate && placesMoved.length) summary = join2(summary, both("plan.series.capacity_dates", { count: placesMoved.length, to: i.capacity! }));
+    else if (!byDate && i.capacity !== undefined && i.capacity !== p.capacity) summary = join2(summary, both("plan.series.capacity", { from: p.capacity, to: i.capacity }));
     if (changed.length) summary = join2(summary, rosterLine(roster));
     if (warnings.length) summary = join2(summary, both("plan.dates_warnings", { list: clashList(warnings) }));
-    if (!changed.length && (i.capacity === undefined || i.capacity === p.capacity)) throw new KumiError("error.nothing_changed");
+    if (!changed.length && (byDate ? !placesMoved.length : i.capacity === undefined || i.capacity === p.capacity)) throw new KumiError("error.nothing_changed");
     const reads: Read[] = [read, pRead, ...before.filter((b) => b.id !== s.id).map((b) => ({ entity: "session" as const, id: b.id, version: b.version }))];
     return { title: both("action.series.edit"), summary, reads, locationId: p.location_id, undo: { kind: "compensating" },
-      details: { program_id: p.id, name: p.name, changed: changed.map((a) => ({ id: a.id, start: a.start.toISOString(), end: a.end.toISOString(), court_ids: a.court_ids, coach_id: a.coach_id })),
-        lines: joinAll(lines), back: joinAll(back), people: roster.booked.map((b) => b.person_id), first_before: before[0] ? new Date(before[0].starts_at).toISOString() : null } };
+      details: { program_id: p.id, name: p.name, places_dates: placesChange.map((d) => d.id), changed: changed.map((a) => ({ id: a.id, start: a.start.toISOString(), end: a.end.toISOString(), court_ids: a.court_ids, coach_id: a.coach_id })),
+        lines: joinAll(lines), back: joinAll(back), people: [...new Set(roster.booked.map((b) => b.person_id))], first_before: before[0] ? new Date(before[0].starts_at).toISOString() : null } };
   },
   async apply(ctx, i, plan) {
     const d = plan.details as { program_id: string; name: string; changed: { id: string; start: string; end: string; court_ids: string[]; coach_id: string | null }[]; lines: Text; back: Text; people: string[] };
@@ -145,10 +154,21 @@ export const seriesEdit = defineAction({
       await ctx.update("session", c.id, { starts_at: new Date(c.start), ends_at: new Date(c.end), coach_id: c.coach_id });
     }
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", d.program_id).forUpdate().executeTakeFirstOrThrow();
-    // A first date that moved is decided again (its minimum), unless it's been decided already.
+    // A first date that moved is decided again (its minimum), unless it's been decided already. Per date: each date moved.
     const first = await firstStart(ctx.trx, p.id), was = (plan.details as { first_before: string | null }).first_before;
-    if (!p.min_decided_at && p.min_heads_up_at && first && was && first.getTime() !== new Date(was).getTime()) await ctx.update("program", p.id, { min_heads_up_at: null });
-    if (i.capacity !== undefined && i.capacity !== p.capacity) {
+    if (!perDate(p) && !p.min_decided_at && p.min_heads_up_at && first && was && first.getTime() !== new Date(was).getTime()) await ctx.update("program", p.id, { min_heads_up_at: null });
+    if (perDate(p)) for (const c of d.changed) {
+      const s = await ctx.trx.selectFrom("session").select(["min_decided_at", "min_heads_up_at"]).where("id", "=", c.id).executeTakeFirstOrThrow();
+      if (!s.min_decided_at && s.min_heads_up_at) await ctx.update("session", c.id, { min_heads_up_at: null });
+    }
+    const placesDates = (plan.details as { places_dates?: string[] }).places_dates ?? [];
+    if (perDate(p) && i.capacity !== undefined) for (const sid of placesDates) {
+      await ctx.update("session", sid, { capacity_override: i.capacity === p.capacity ? null : i.capacity });
+      // More places on that date: its waitlist is offered them first; any still free, whoever is watching it hears.
+      while ((await takenCount(ctx.trx, p.id, ctx.now, sid)) < i.capacity && await freePlace(ctx, p.id, [], sid)) { /* one offer per free place */ }
+      await tellWatchers(ctx, p.id, sid);
+    }
+    if (!perDate(p) && i.capacity !== undefined && i.capacity !== p.capacity) {
       await ctx.update("program", p.id, { capacity: i.capacity });
       // More places: the waitlist is offered them first; any still free, whoever is watching hears.
       while ((await takenCount(ctx.trx, p.id, ctx.now)) < i.capacity && await freePlace(ctx, p.id)) { /* one offer per free place */ }
@@ -161,7 +181,7 @@ export const seriesEdit = defineAction({
 
 // ---- Cancelling dates ----
 type Choice = "rule" | "full" | "none";
-interface Going { enrolment_id: string; person_id: string; status: string; paid: number; cents: number; rule: number; outcome: Refund["outcome"]; back: boolean; reprice: number | null }
+interface Going { enrolment_id: string; person_id: string; status: string; paid: number; cents: number; rule: number; outcome: Refund["outcome"]; back: boolean; reprice: number | null; leaves?: boolean }
 
 /** What cancelling these dates means for each person. A program left with no dates at all is cancelled,
  *  and everyone gets back what they paid. Some dates of a course paid once: each person gets back those
@@ -169,6 +189,21 @@ interface Going { enrolment_id: string; person_id: string; status: string; paid:
 async function cancelling(db: Db | Trx, programId: string, sessionIds: string[], choice: Choice) {
   const live = await db.selectFrom("session").select("id").where("program_id", "=", programId).where("status", "!=", "cancelled").execute();
   const entire = live.every((l) => sessionIds.includes(l.id));
+  const program = await db.selectFrom("program").select("sign_up").where("id", "=", programId).executeTakeFirstOrThrow();
+  if (perDate(program)) {
+    // Signed up per date: only the people on these dates are touched, and each date was bought on its own, so the rule
+    // gives back all of what was paid for it (and an included session) unless staff choose otherwise.
+    const rows = await db.selectFrom("enrolment").select(["id", "person_id", "status", "price_basis"]).where("program_id", "=", programId).where("status", "in", ["booked", "waitlisted"])
+      .where("session_id", "in", sessionIds.length ? sessionIds : ["00000000-0000-0000-0000-000000000000"]).execute();
+    const people: Going[] = [];
+    for (const e of rows) {
+      const paid = e.status === "booked" ? await paidFor(db, e.id) : 0;
+      const cents = choice === "none" ? 0 : paid;
+      people.push({ enrolment_id: e.id, person_id: e.person_id, status: e.status, paid, cents, rule: paid, outcome: cents <= 0 ? "none" : "full",
+        back: e.price_basis === "included" && choice !== "none", reprice: null, leaves: true });
+    }
+    return { entire, people, total: people.reduce((n, x) => n + x.cents, 0) };
+  }
   const rows = await db.selectFrom("enrolment").select(["id", "person_id", "status", "price_basis", "price_cents"]).where("program_id", "=", programId).where("status", "in", ["booked", "waitlisted"]).execute();
   const people: Going[] = [];
   for (const e of rows) {
@@ -204,10 +239,16 @@ async function cancelDates(ctx: ApplyContext, programId: string, sessionIds: str
         if (g.reprice > 0) await ctx.insert("payment", { id: uuidv7(), person_id: g.person_id, amount_cents: g.reprice, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", enrolment_id: g.enrolment_id });
       }
     }
-    if (!c.entire) continue;
+    if (!c.entire && !g.leaves) continue;
     await ctx.update("enrolment", g.enrolment_id, { ...leaving(refund, "removed", "club", p.refund_rule_version, note ?? undefined), left_at: ctx.now, included_back: g.back });
     for (const o of await ctx.trx.selectFrom("waitlist_offer").select("id").where("enrolment_id", "=", g.enrolment_id).where("outcome", "is", null).execute()) await ctx.update("waitlist_offer", o.id, { outcome: "expired" });
+    // A place on a cancelled date that wasn't paid for yet can't be paid any more.
+    if (g.leaves && !c.entire) for (const pay of await ctx.trx.selectFrom("payment").select("id").where("enrolment_id", "=", g.enrolment_id).where("status", "=", "pending").where("provider_ref", "is", null).execute())
+      await ctx.update("payment", pay.id, { status: "failed" });
   }
+  // Per date: nobody needs telling when a place opens on a cancelled date.
+  if (perDate(p)) for (const w of await ctx.trx.selectFrom("program_watch").select("id").where("session_id", "in", sessionIds.length ? sessionIds : ["00000000-0000-0000-0000-000000000000"]).where("told_at", "is", null).where("ended_at", "is", null).execute())
+    await ctx.update("program_watch", w.id, { ended_at: ctx.now });
   if (c.entire) {
     // Places not paid for yet can't be paid any more; nobody needs telling when one opens.
     for (const pay of await ctx.trx.selectFrom("payment").innerJoin("enrolment", "enrolment.id", "payment.enrolment_id").select("payment.id")
@@ -293,7 +334,7 @@ export const programSetMinimum = defineAction({
     if (p.status === "cancelled") throw new KumiError("error.program_cancelled", { name: p.name });
     if (i.min_players !== null && i.min_players > p.capacity) throw new KumiError("error.min_over_capacity", { capacity: p.capacity });
     const hours = await decideHours(ctx.db, { decide_hours: i.decide_hours === undefined ? p.decide_hours : i.decide_hours });
-    const summary = i.min_players === null ? both("plan.program.no_minimum", { name: p.name }) : both("plan.program.minimum", { name: p.name, min: i.min_players, hours: both("count.hours", { count: hours }) });
+    const summary = i.min_players === null ? both("plan.program.no_minimum", { name: p.name }) : both(perDate(p) ? "plan.program.minimum_date" : "plan.program.minimum", { name: p.name, min: i.min_players, hours: both("count.hours", { count: hours }) });
     return { title: both("action.program.set_minimum"), summary, reads: [read], locationId: p.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
@@ -302,22 +343,37 @@ export const programSetMinimum = defineAction({
     // Not decided yet: the new minimum is looked at afresh (a heads-up about the old one no longer counts).
     if (!p.min_decided_at) patch.min_heads_up_at = null;
     await ctx.update("program", i.program_id, patch);
+    // Per date: each date not decided yet is looked at afresh too.
+    if (perDate(p)) for (const s of await ctx.trx.selectFrom("session").select("id").where("program_id", "=", p.id).where("min_decided_at", "is", null).where("min_heads_up_at", "is not", null).execute())
+      await ctx.update("session", s.id, { min_heads_up_at: null });
     return null;
   },
 });
 
-/** At the decision time: short of the minimum, the program is cancelled and everyone paid back; otherwise it runs. */
+/** At the decision time: short of the minimum, the program is cancelled and everyone paid back; otherwise it runs.
+ *  Signed up per date: one date is decided, and only it is cancelled when it's short. */
 export const programDecide = defineAction({
   name: "program.decide", version: 1, system: true, internal: true,
-  input: z.object({ program_id: z.uuid() }),
+  input: z.object({ program_id: z.uuid(), session_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     return { title: both("action.program.decide"), summary: both("plan.program.decide", { name: row.name }), reads: [read], undo: { kind: "none", note: both("reason.undo_final") } };
   },
   async apply(ctx, i) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();
-    if (p.min_decided_at || p.status !== "published" || p.min_players === null) return { already: true };
-    const booked = Number((await ctx.trx.selectFrom("enrolment").select((eb) => eb.fn.countAll<string>().as("n")).where("program_id", "=", p.id).where("status", "=", "booked").executeTakeFirstOrThrow()).n);
+    if (p.status !== "published" || p.min_players === null) return { already: true };
+    if (perDate(p)) {
+      const s = await ctx.trx.selectFrom("session").selectAll().where("id", "=", i.session_id ?? "00000000-0000-0000-0000-000000000000").where("program_id", "=", p.id).executeTakeFirst();
+      if (!s || s.min_decided_at || s.status === "cancelled") return { already: true };
+      const booked = await bookedOn(ctx.trx, p.id, s.id);
+      await ctx.update("session", s.id, { min_decided_at: ctx.now });
+      if (booked >= p.min_players) return { runs: true, booked };
+      await cancelDates(ctx, p.id, [s.id], await cancelling(ctx.trx, p.id, [s.id], "rule"), "below_minimum", null);
+      await ctx.emit("program.min_cancelled", { program_id: p.id, name: p.name, starts_at: new Date(s.starts_at).toISOString(), booked, min: p.min_players });
+      return { runs: false, booked };
+    }
+    if (p.min_decided_at) return { already: true };
+    const booked = await bookedOn(ctx.trx, p.id, null);
     if (booked >= p.min_players) { await ctx.update("program", p.id, { min_decided_at: ctx.now }); return { runs: true, booked }; }
     const start = await firstStart(ctx.trx, p.id);
     const ids = (await ctx.trx.selectFrom("session").select("id").where("program_id", "=", p.id).where("status", "!=", "cancelled").execute()).map((s) => s.id);
@@ -327,43 +383,67 @@ export const programDecide = defineAction({
   },
 });
 
+/** How many have a place: in the program, or on one date of it. */
+async function bookedOn(db: Db | Trx, programId: string, sessionId: string | null) {
+  return Number((await db.selectFrom("enrolment").select((eb) => eb.fn.countAll<string>().as("n")).where("program_id", "=", programId).where("status", "=", "booked")
+    .$if(Boolean(sessionId), (q) => q.where("session_id", "=", sessionId!)).executeTakeFirstOrThrow()).n);
+}
+
 /** Before the decision: staff hear once that it's short, and by how many, so they can push it. */
 export const programMinHeadsUp = defineAction({
   name: "program.min_heads_up", version: 1, system: true, internal: true,
-  input: z.object({ program_id: z.uuid() }),
+  input: z.object({ program_id: z.uuid(), session_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     return { title: both("action.program.min_heads_up"), summary: both("plan.program.min_heads_up", { name: row.name }), reads: [read], undo: { kind: "none", note: both("reason.undo_final") } };
   },
   async apply(ctx, i) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();
-    if (p.min_heads_up_at || p.min_decided_at || p.min_players === null) return { already: true };
-    const booked = Number((await ctx.trx.selectFrom("enrolment").select((eb) => eb.fn.countAll<string>().as("n")).where("program_id", "=", p.id).where("status", "=", "booked").executeTakeFirstOrThrow()).n);
-    await ctx.update("program", p.id, { min_heads_up_at: ctx.now });
+    if (p.min_players === null) return { already: true };
+    let start: Date | null, sid: string | null = null;
+    if (perDate(p)) {
+      const s = await ctx.trx.selectFrom("session").selectAll().where("id", "=", i.session_id ?? "00000000-0000-0000-0000-000000000000").where("program_id", "=", p.id).executeTakeFirst();
+      if (!s || s.min_heads_up_at || s.min_decided_at || s.status === "cancelled") return { already: true };
+      await ctx.update("session", s.id, { min_heads_up_at: ctx.now });
+      start = new Date(s.starts_at); sid = s.id;
+    } else {
+      if (p.min_heads_up_at || p.min_decided_at) return { already: true };
+      await ctx.update("program", p.id, { min_heads_up_at: ctx.now });
+      start = await firstStart(ctx.trx, p.id);
+    }
+    const booked = await bookedOn(ctx.trx, p.id, sid);
     if (booked >= p.min_players) return { short: false };
-    const start = await firstStart(ctx.trx, p.id), decideAt = start ? new Date(start.getTime() - (await decideHours(ctx.trx, p)) * 3600_000) : null;
+    const decideAt = start ? new Date(start.getTime() - (await decideHours(ctx.trx, p)) * 3600_000) : null;
     await ctx.emit("program.min_short", { program_id: p.id, name: p.name, starts_at: start?.toISOString() ?? null, decide_at: decideAt?.toISOString() ?? null, booked, min: p.min_players });
     return { short: true, missing: p.min_players - booked };
   },
 });
 
-/** The job: programs with a minimum, heads-up first, then the decision. Nothing due means no action run. */
+/** The job: programs with a minimum, heads-up first, then the decision (for one signed up per date, each date in
+ *  turn). Nothing due means no action run. */
 export async function decidePrograms(db: Db, now = new Date()) {
   const club = await db.selectFrom("club").select(["program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
   const rows = await db.selectFrom("program").select(["id", "min_players", "decide_hours", "min_heads_up_at"])
     .select((eb) => [
       eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first_start"),
       eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
-    ]).where("status", "=", "published").where("min_players", "is not", null).where("min_decided_at", "is", null).execute();
+    ]).where("status", "=", "published").where("min_players", "is not", null).where("min_decided_at", "is", null).where("sign_up", "=", "whole_program").execute();
+  // Each date of a program signed up per date, not decided yet, with its own count.
+  const dates = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id")
+    .select(["session.id as session_id", "session.starts_at as first_start", "session.min_heads_up_at", "program.id", "program.min_players", "program.decide_hours"])
+    .select((eb) => eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.session_id", "=", "session.id").where("enrolment.status", "=", "booked").as("booked"))
+    .where("program.status", "=", "published").where("program.min_players", "is not", null).where("program.sign_up", "=", "per_session")
+    .where("session.status", "!=", "cancelled").where("session.min_decided_at", "is", null).where("session.starts_at", ">", now).execute();
   let cancelled = 0, ran = 0, warned = 0;
-  for (const r of rows) {
+  for (const r of [...rows.map((x) => ({ ...x, session_id: null as string | null })), ...dates]) {
     if (!r.first_start || new Date(r.first_start as any) <= now) continue;
     const decideAt = new Date(new Date(r.first_start as any).getTime() - (r.decide_hours ?? club.program_decide_hours) * 3600_000);
+    const input = { program_id: r.id, ...(r.session_id ? { session_id: r.session_id } : {}) };
     if (now >= decideAt) {
-      const x = (await runAsSystem(db, "program.decide", { program_id: r.id }, "job:minimum", { now })).result as { runs?: boolean };
+      const x = (await runAsSystem(db, "program.decide", input, "job:minimum", { now })).result as { runs?: boolean };
       if (x.runs === false) cancelled++; else if (x.runs) ran++;
     } else if (club.program_heads_up_hours > 0 && !r.min_heads_up_at && Number(r.booked ?? 0) < r.min_players! && now.getTime() >= decideAt.getTime() - club.program_heads_up_hours * 3600_000) {
-      const x = (await runAsSystem(db, "program.min_heads_up", { program_id: r.id }, "job:minimum", { now })).result as { short?: boolean };
+      const x = (await runAsSystem(db, "program.min_heads_up", input, "job:minimum", { now })).result as { short?: boolean };
       if (x.short) warned++;
     }
   }
@@ -373,23 +453,27 @@ export async function decidePrograms(db: Db, now = new Date()) {
 // ---- Tell me when a place opens ----
 export const programWatch = defineAction({
   name: "program.watch", version: 1,
-  input: z.object({ program_id: z.uuid(), person_id: z.uuid() }),
+  input: z.object({ program_id: z.uuid(), person_id: z.uuid(), session_id: z.optional(z.uuid().check(z.describe("The date, for a program signed up per date."))) }),
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     if (p.status !== "published") throw new KumiError("error.not_published");
-    if (await started(ctx.db, p.id, ctx.now)) throw new KumiError("error.date_started");
+    const date = await signUpDate(ctx.db, p, i.session_id, ctx.now), sid = date?.id ?? null;
+    if (await started(ctx.db, p.id, ctx.now, sid)) throw new KumiError("error.date_started");
     const person = (await names(ctx.db, [i.person_id])).get(i.person_id) ?? "";
-    if (await ctx.db.selectFrom("enrolment").select("id").where("program_id", "=", p.id).where("person_id", "=", i.person_id).where("status", "in", ["booked", "waitlisted"]).executeTakeFirst())
+    if (await ctx.db.selectFrom("enrolment").select("id").where("program_id", "=", p.id).where("person_id", "=", i.person_id).where("status", "in", ["booked", "waitlisted"])
+      .$if(Boolean(sid), (q) => q.where("session_id", "=", sid!)).executeTakeFirst())
       throw new KumiError("error.already_signed_up", { person });
-    if ((await takenCount(ctx.db, p.id, ctx.now)) < p.capacity) throw new KumiError("error.places_open");
-    if (await ctx.db.selectFrom("program_watch").select("id").where("program_id", "=", p.id).where("person_id", "=", i.person_id).where("told_at", "is", null).where("ended_at", "is", null).executeTakeFirst())
+    if ((await takenCount(ctx.db, p.id, ctx.now, sid)) < await placesOf(ctx.db, p.id, sid)) throw new KumiError("error.places_open");
+    if (await ctx.db.selectFrom("program_watch").select("id").where("program_id", "=", p.id).where("person_id", "=", i.person_id).where("told_at", "is", null).where("ended_at", "is", null)
+      .where(sql<boolean>`session_id IS NOT DISTINCT FROM ${sid}`).executeTakeFirst())
       throw new KumiError("error.already_watching");
-    return { title: both("action.program.watch"), summary: both("plan.program.watch", { person, name: p.name }), reads: [read], locationId: p.location_id,
+    const onDate = date ? both("plan.enrolment.on_date", { when: when(new Date(date.starts_at), await clubTz(ctx.db)) }) : { en: "", es: "" };
+    return { title: both("action.program.watch"), summary: join2(both("plan.program.watch", { person, name: p.name }), onDate), reads: [read], locationId: p.location_id,
       ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const id = uuidv7();
-    try { await ctx.insert("program_watch", { id, program_id: i.program_id, person_id: i.person_id }); }
+    try { await ctx.insert("program_watch", { id, program_id: i.program_id, person_id: i.person_id, session_id: i.session_id ?? null }); }
     catch (e: any) { if (e?.code === "23505") throw new KumiError("error.already_watching"); throw e; }
     return { watch_id: id };
   },

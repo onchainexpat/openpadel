@@ -12,9 +12,11 @@ import { uuidv7 } from "./ids.ts";
 
 export const DEFAULT_LEVEL = MODEL.defaultLevel;
 
-async function sessionPlayers(db: Db | Trx, programId: string): Promise<Player[]> {
+/** Who plays the night: everyone with a place in the program, or (signed up per date) on that date. */
+async function sessionPlayers(db: Db | Trx, programId: string, sessionId: string): Promise<Player[]> {
   const rows = await db.selectFrom("enrolment").leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "enrolment.person_id").on("rating.sport", "=", "padel"))
-    .select(["enrolment.person_id", "rating.level", "rating.mu", "rating.sigma"]).where("enrolment.program_id", "=", programId).where("enrolment.status", "=", "booked").orderBy("enrolment.created_at").execute();
+    .select(["enrolment.person_id", "rating.level", "rating.mu", "rating.sigma"]).where("enrolment.program_id", "=", programId).where("enrolment.status", "=", "booked")
+    .where((eb) => eb.or([eb("enrolment.session_id", "is", null), eb("enrolment.session_id", "=", sessionId)])).orderBy("enrolment.created_at").execute();
   return rows.map((r) => ({ id: r.person_id, level: r.level === null ? DEFAULT_LEVEL : Number(r.level), mu: r.mu ?? undefined, sigma: r.sigma ?? undefined }));
 }
 async function sessionCourts(db: Db | Trx, sessionId: string): Promise<{ id: string; name: string }[]> {
@@ -66,7 +68,7 @@ export const drawGenerate = defineAction({
     const { row: s, read } = await readRow(ctx.db, "session", i.session_id, "thing.session");
     if (await ctx.db.selectFrom("draw").select("session_id").where("session_id", "=", i.session_id).where("status", "!=", "void").executeTakeFirst()) throw new KumiError("error.draw_exists");
     const { row: p } = await readRow(ctx.db, "program", s.program_id, "thing.program");
-    const players = await sessionPlayers(ctx.db, s.program_id), courts = await sessionCourts(ctx.db, s.id);
+    const players = await sessionPlayers(ctx.db, s.program_id, s.id), courts = await sessionCourts(ctx.db, s.id);
     if (players.length < 4) throw new KumiError("error.not_enough_players");
     const rounds = schedule(players, courts.map((c) => c.id), i.rounds, `${s.id}:0`);
     const sm = await summary(ctx, rounds, players.length, courts);
@@ -90,7 +92,7 @@ export const drawRepair = defineAction({
     const { row: p } = await readRow(ctx.db, "program", s.program_id, "thing.program");
     const { lastPlayed, history } = await played(ctx.db, i.session_id);
     if (lastPlayed >= d.rounds) throw new KumiError("error.nothing_to_repair");
-    const players = await sessionPlayers(ctx.db, s.program_id), courts = await sessionCourts(ctx.db, s.id);
+    const players = await sessionPlayers(ctx.db, s.program_id, s.id), courts = await sessionCourts(ctx.db, s.id);
     if (players.length < 4) throw new KumiError("error.not_enough_players");
     const rounds = schedule(players, courts.map((c) => c.id), d.rounds - lastPlayed, `${s.id}:${d.version}`, history);
     return { title: both("action.draw.repair"), summary: both("plan.draw.repair", { from: lastPlayed + 1, to: d.rounds, players: players.length, kept: lastPlayed }),

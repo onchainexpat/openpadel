@@ -11,7 +11,7 @@ import { atLocal, localParts } from "./clock.ts";
 
 /** Actions whose plan's money is what the person themselves pays, when it's for them. */
 const PAYS = new Set(["booking.request", "booking.request_courts", "booking.join", "booking.ask", "booking.take_place", "lesson.request",
-  "enrolment.join", "enrolment.accept_offer", "membership.join", "membership.add_person"]);
+  "enrolment.join", "enrolment.join_dates", "enrolment.accept_offer", "membership.join", "membership.add_person"]);
 /** Changes to a booking that can add to what its organiser owes. */
 const ADDS = new Set(["booking.extend", "booking.move"]);
 

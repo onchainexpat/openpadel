@@ -58,11 +58,13 @@ export async function programPerks(db: Db | Trx, personId: string, at: Date) {
 }
 export type ProgramPerks = NonNullable<Awaited<ReturnType<typeof programPerks>>>;
 
-/** Whether a program is a single session (a course of several dates, paid once, isn't). */
+/** Whether a program is a single session (a course of several dates, paid once, isn't). One signed up per date is:
+ *  each place is one date. */
 async function singleSessions(db: Db | Trx, ids: string[]): Promise<Set<string>> {
   if (!ids.length) return new Set();
   const rows = await db.selectFrom("session").select(["program_id", sql<string>`count(*)`.as("n")]).where("program_id", "in", ids).where("status", "!=", "cancelled").groupBy("program_id").execute();
-  const many = new Set(rows.filter((r) => Number(r.n) > 1).map((r) => r.program_id));
+  const perDate = new Set((await db.selectFrom("program").select("id").where("id", "in", ids).where("sign_up", "=", "per_session").execute()).map((r) => r.id));
+  const many = new Set(rows.filter((r) => Number(r.n) > 1 && !perDate.has(r.program_id)).map((r) => r.program_id));
   return new Set(ids.filter((id) => !many.has(id)));
 }
 
