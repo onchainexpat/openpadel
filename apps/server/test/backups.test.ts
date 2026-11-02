@@ -10,7 +10,7 @@ import { basename, join } from "node:path";
 import { sql } from "kysely";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { heartbeat, jobWorked, run, runAsSystem, type Actor, type Db } from "@kumi/core";
-import { compareCounts, isSameDatabase, lastSlot, makeBackup, newestLocal, RestoreFailed, RestoreRefused, safeRestore, offsiteLatest, readOpsRecords, writeOpsRecords, nightlyBackup, openBackup, pgTool, restoreInto, restoreTest, scheduledDue, scratchUrl, SCHEDULE, tidyLocal, type Manifest } from "../src/backups.ts";
+import { compareCounts, isSameDatabase, lastSlot, makeBackup, newestLocal, offsitePrunes, offsitePush, RestoreFailed, RestoreRefused, safeRestore, offsiteLatest, readOpsRecords, writeOpsRecords, nightlyBackup, openBackup, pgTool, restoreInto, restoreTest, scheduledDue, scratchUrl, SCHEDULE, tidyLocal, type Manifest } from "../src/backups.ts";
 import { S3Client } from "../src/s3.ts";
 import { fakeS3, type FakeS3 } from "./fake_s3.ts";
 
@@ -221,4 +221,23 @@ test("the restore test refuses a scratch database that is the live one, and leav
   assert.deepEqual(await db.selectFrom("person").select((e) => e.fn.countAll().as("n")).executeTakeFirstOrThrow(), people);
   assert.equal(await isSameDatabase(db, url), true);
   assert.equal(await isSameDatabase(db, ADMIN), false);
+});
+
+test("with KUMI_OFFSITE_PRUNE=0 Kumi never deletes offsite: the storage's own rules expire old copies", async () => {
+  const store = await fakeS3(creds);
+  const tmp = mkdtempSync(join(tmpdir(), "kumi-prune-"));
+  try {
+    const s3c = new S3Client({ endpoint: store.url, bucket: creds.bucket, accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey, region: creds.region, pathStyle: true });
+    // 35 days of daily copies, more than the 30 days Kumi keeps.
+    const days = Array.from({ length: 35 }, (_, i) => new Date(Date.UTC(2026, 8, 1 + i)).toISOString().slice(0, 10));
+    for (const d of days) await s3c.put(`p/daily/kumi-${d}T0317.dump.enc`, Buffer.from("old"));
+    const file = join(tmp, "kumi-2026-11-30T0317.dump"); writeFileSync(file, "dump");
+    const keep = await offsitePush(s3c, { file, manifestFile: null, key: KEY, prefix: "p/", now: NOW, tz: "America/Los_Angeles", prune: false });
+    assert.deepEqual(keep.dropped, []);
+    assert.equal([...store.objects.keys()].filter((k) => days.some((d) => k.includes(d))).length, 35);
+    assert.equal(offsitePrunes({ KUMI_OFFSITE_PRUNE: "0" }), false);
+    assert.equal(offsitePrunes({}), true);
+    const pruned = await offsitePush(s3c, { file, manifestFile: null, key: KEY, prefix: "p/", now: NOW, tz: "America/Los_Angeles" });
+    assert.equal(pruned.dropped.length, 6, "by default Kumi keeps the newest 30 days itself");
+  } finally { await store.close(); rmSync(tmp, { recursive: true, force: true }); }
 });

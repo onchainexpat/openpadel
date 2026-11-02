@@ -146,7 +146,11 @@ export const offsitePrefix = (env: Env = process.env) => { const p = (env.KUMI_O
 
 /** Upload a dump (and its manifest), sealed, as tonight's daily copy and, if this month has none yet, its monthly
  *  copy; then drop daily copies past OFFSITE_DAILY days and monthly ones past OFFSITE_MONTHLY months. */
-export async function offsitePush(s3: S3Client, o: { file: string; manifestFile: string | null; key: Buffer; prefix: string; now?: Date; tz?: string }) {
+/** Whether Kumi removes old offsite copies itself (the default), or leaves that to the storage's own lifecycle
+ *  rules (KUMI_OFFSITE_PRUNE=0): then the server's key needs no right to delete, so whoever takes the server
+ *  can't wipe the offsite copies with it. */
+export const offsitePrunes = (env: Env = process.env) => env.KUMI_OFFSITE_PRUNE?.trim() !== "0";
+export async function offsitePush(s3: S3Client, o: { file: string; manifestFile: string | null; key: Buffer; prefix: string; now?: Date; tz?: string; prune?: boolean }) {
   const now = o.now ?? new Date(), dump = readFileSync(o.file), stem = basename(o.file).replace(/\.dump$/, "");
   const sealedDump = sealBackup(dump, o.key), sealedManifest = o.manifestFile ? sealBackup(readFileSync(o.manifestFile), o.key) : null;
   const daily = `${o.prefix}daily/${stem}`;
@@ -161,7 +165,7 @@ export async function offsitePush(s3: S3Client, o: { file: string; manifestFile:
     if (sealedManifest) await s3.put(`${monthly}.json.enc`, sealedManifest);
     monthlyMade = true;
   }
-  const dropped = await offsiteRetention(s3, o.prefix);
+  const dropped = o.prune === false ? [] : await offsiteRetention(s3, o.prefix);
   return { key: `${daily}.dump.enc`, bytes: sealedDump.length, monthly: monthlyMade ? `${monthly}.dump.enc` : null, dropped };
 }
 
@@ -412,8 +416,9 @@ export async function nightlyBackup(db: Db, o: { url: string; dir: string; s3: S
     const key = backupKey(env);
     if (!key) throw new Error("KUMI_BACKUP_KEY isn't set, so nothing can go offsite");
     const s3 = new S3Client(o.s3, o.fetch ? { fetch: o.fetch } : {});
-    const r = await offsitePush(s3, { file: made.file, manifestFile: made.manifestFile, key, prefix: offsitePrefix(env), now, tz });
-    await jobWorked(db, "offsite", { key: r.key, bytes: r.bytes, monthly: r.monthly, dropped: r.dropped.length, bucket: o.s3.bucket }, now);
+    const prune = offsitePrunes(env);
+    const r = await offsitePush(s3, { file: made.file, manifestFile: made.manifestFile, key, prefix: offsitePrefix(env), now, tz, prune });
+    await jobWorked(db, "offsite", { key: r.key, bytes: r.bytes, monthly: r.monthly, dropped: r.dropped.length, bucket: o.s3.bucket, prune }, now);
     return { file: made.file, offsite: r };
   } catch (e) { await jobFailed(db, "offsite", (e as Error).message, now); throw e; }
 }

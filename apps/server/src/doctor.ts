@@ -5,6 +5,7 @@ import { readdirSync, statSync } from "node:fs";
 import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
 import { answerCounts, clubStripeAccount, heartbeats, NEAR_SHARE, parseSecretKey, pendingMigrations, StripeProvider, textCounts, textingRegistration, textUsage, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
+import { offsitePrunes } from "./backups.ts";
 import { checkTwilio, hasSender, twilioFromEnv } from "./twilio.ts";
 import { answerModels, checkAnswerKeys } from "./answerer.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
@@ -159,7 +160,10 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   else if (!env.KUMI_BACKUP_KEY?.trim()) add("offsite", "fail", "offsite.no_key", {}, offDoc);
   else if (off?.last_error) add("offsite", "fail", "offsite.failing", { error: off.last_error }, offDoc);
   else if (!off?.last_ok_at) add("offsite", "warn", "offsite.waiting", {}, offDoc);
-  else { const h = Math.round(ago(off.last_ok_at)!); add("offsite", h > 36 ? "warn" : "ok", h > 36 ? `offsite.old${d}` : "offsite.ok", { hours: h }, h > 36 ? offDoc : undefined); }
+  else {
+    const h = Math.round(ago(off.last_ok_at)!), keeps = offsitePrunes(env) ? "offsite.pruned_by_kumi" : "offsite.pruned_by_storage";
+    add("offsite", h > 36 ? "warn" : "ok", h > 36 ? `offsite.old${d}` : keeps, { hours: h }, h > 36 ? offDoc : undefined);
+  }
   const rt = hb.restore_test;
   if (rt?.last_error) add("restore_test", "fail", "restore_test.failing", { error: rt.last_error }, opsDoc);
   else if (!rt?.last_ok_at) add("restore_test", production ? "warn" : "off", "restore_test.never", {}, opsDoc);

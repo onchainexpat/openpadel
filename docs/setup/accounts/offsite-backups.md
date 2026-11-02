@@ -98,6 +98,42 @@ If `kumi backup` says `HTTP 403 SignatureDoesNotMatch` or `AccessDenied`, the ke
 wrong; `NoSuchBucket`, the bucket name or the endpoint. The error is said once to the owner and managers
 by email too, and again only after it has worked in between.
 
+## Optional: so a stolen server can't delete the offsite copies
+
+By default Kumi deletes copies past 30 days (and monthly ones past 12 months) itself, so the key on the
+server can delete. Someone who takes over the server could then delete the offsite copies too. To stop
+that, let the storage expire old copies on its own schedule, protect them from deletion, and tell Kumi
+not to delete anything:
+
+```
+KUMI_OFFSITE_PRUNE=0
+```
+
+Kumi never overwrites an offsite copy (every night's has its own name, and a month's copy is written once),
+so none of this gets in its way.
+
+**Cloudflare R2.** In the bucket's **Settings**:
+1. **Object Lifecycle Rules**, Add rule: prefix `kumi/daily/`, delete objects after **31 days**. A second
+   rule: prefix `kumi/monthly/`, delete after **366 days**.
+2. **Bucket lock rules**, Add rule: prefix `kumi/daily/`, retain for **30 days**; a second: prefix
+   `kumi/monthly/`, retain for **365 days**. Until then nothing can delete or overwrite a copy, a stolen key
+   included. R2's key types don't include one that can write but not delete (Kumi needs **Object Read &
+   Write**), so on R2 the bucket lock is what protects the copies.
+
+**Backblaze B2.**
+1. In the bucket's **Lifecycle Settings**, instead of "Keep only the last version", use custom rules:
+   prefix `kumi/daily/`, hide files **31 days** after uploading and delete them **7 days** after hiding; a
+   second rule for `kumi/monthly/` with **366** and **7**.
+2. Make the server's key without the right to delete. The web page's key types don't offer that, so the
+   owner uses B2's command-line tool:
+   ```bash
+   b2 key create --bucket yourclub-kumi-backups kumi-server listBuckets,listFiles,readFiles,writeFiles
+   ```
+   and puts that key in `/etc/kumi/kumi.env` in place of the old one.
+3. For more protection, turn on the bucket's Object Lock with a default retention of 30 days.
+
+`kumi doctor` says which way the server works.
+
 ## Restoring after losing the server
 
 1. Set up a new server with `server-setup.sh` and ship the code (see [server.md](server.md)).

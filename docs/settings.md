@@ -81,7 +81,8 @@ With neither, every question goes to the staff. The club can switch answering of
 | `KUMI_BACKUP_DIR` | Where the nightly dumps and their manifests go (kept 14 days), and where `kumi doctor` looks. | `/var/backups/kumi` |
 | `KUMI_OFFSITE_ENDPOINT` | The S3-compatible storage's address: `https://<account>.r2.cloudflarestorage.com` (R2), `https://s3.<region>.backblazeb2.com` (B2), `https://<region>.digitaloceanspaces.com`, or AWS's. With the next three, every night's backup also goes offsite, sealed. See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md). | not set: no offsite copy |
 | `KUMI_OFFSITE_BUCKET` | The bucket. | |
-| `KUMI_OFFSITE_ACCESS_KEY_ID`, `KUMI_OFFSITE_SECRET_ACCESS_KEY` | A key for that bucket only, allowed to read, write, list and delete. | |
+| `KUMI_OFFSITE_ACCESS_KEY_ID`, `KUMI_OFFSITE_SECRET_ACCESS_KEY` | A key for that bucket only, allowed to read, write and list, and to delete unless `KUMI_OFFSITE_PRUNE=0`. | |
+| `KUMI_OFFSITE_PRUNE` | `0`: Kumi never deletes offsite copies; the storage's own lifecycle rules expire them, and its key needs no right to delete (so a stolen server can't wipe them). See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md). | Kumi keeps 30 days and 12 months itself |
 | `KUMI_OFFSITE_REGION` | The region the storage signs for: `auto` for R2, the bucket's region elsewhere (`us-west-004`, `us-east-1`). | `auto` |
 | `KUMI_OFFSITE_PREFIX` | The folder in the bucket. | `kumi/` |
 | `KUMI_OFFSITE_PATH_STYLE` | `0` for addresses like `bucket.endpoint` instead of `endpoint/bucket`. | path style |
