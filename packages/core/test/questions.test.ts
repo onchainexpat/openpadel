@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { sql } from "kysely";
 import { freshDb } from "./helpers.ts";
-import { alertUnanswered, exportData, messageHandlers, openMinutes, plan, processOutbox, run, runAsSystem, searchFacts, setAnswerer, staffOnly, KumiError, type Actor, type Db } from "../src/index.ts";
+import { alertUnanswered, answerCounts, exportData, messageHandlers, openMinutes, plan, processOutbox, run, runAsSystem, searchFacts, setAnswerer, staffOnly, KumiError, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, parking: string, doorCode: string;
 const TZ = "America/Los_Angeles";
@@ -152,7 +152,7 @@ test("the answerer: a fact it picks goes word for word, \"that didn't answer it\
     assert.deepEqual([d.answerer, d.questions_version, d.outcome, d.fact_id, Number(d.confidence), d.detail], ["test_model", "q-7", "fact", parking, 0.93, { parking: 0.93 }]);
     await processOutbox(db, messageHandlers);
     assert.equal((await said(people.Ben!, "question_club_answered")).body,
-      "From the club's common questions, \"Where do I park?\":\n\nFree parking behind the club.\n\nIf that doesn't answer \"Is there parking for a van?\", tap \"That didn't answer it\" in the app and the staff will reply.");
+      "From the club's common questions, \"Where do I park?\":\n\nFree parking behind the club.\n\nIf that doesn't answer \"Is there parking for a van?\", tap \"That didn't answer it\" or \"Ask a person\" in the app and the staff will reply.");
 
     const n = await run(db, "question.not_answered", { question_id: id }, as("Ben"), { now: at("2026-12-07", "10:05") });
     assert.equal(n.plan.summary.en, "Tell the club that answer didn't help. Your question goes to the staff, who answer in the app.");
@@ -169,6 +169,61 @@ test("the answerer: a fact it picks goes word for word, \"that didn't answer it\
     setAnswerer({ name: "test_model", version: "q-7", timeoutMs: 20, decide: () => new Promise((ok) => setTimeout(() => ok({ outcome: "fact", factId: parking, confidence: 1 }), 500)) });
     const c = await run(db, "question.ask", { person_id: people.Ben, body: "Parking for a bus?" }, as("Ben"), { now: at("2026-12-07", "12:00") });
     assert.equal((c.result as any).answered_by, "staff");
+    assert.deepEqual((await db.selectFrom("answer_decision").select(["outcome", "detail"]).where("question_id", "=", (c.result as any).question_id).executeTakeFirstOrThrow()), { outcome: "staff", detail: { error: "timed out" } });
+  } finally { setAnswerer(staffOnly); }
+});
+
+test("ask the club: the question is saved before the model is asked, a staff answer wins, and the club can switch it off", async () => {
+  // The model sees the question's words and the facts in the asker's language: nothing about the person.
+  let seen: unknown = null, during: unknown = null;
+  setAnswerer({ name: "test_model", version: "q-8", async decide(q, facts) {
+    seen = { q, keys: Object.keys(facts[0]!).sort() };
+    during = (await db.selectFrom("question").innerJoin("question_message", "question_message.question_id", "question.id").select("question.status")
+      .where("question_message.body", "=", q.text).executeTakeFirst())?.status;
+    const f = facts.find((x) => x.topic === "parking");
+    return f ? { outcome: "fact", factId: f.id, confidence: 0.97, by: "jev" } : { outcome: "staff", confidence: 0.1 };
+  } });
+  try {
+    const p = await plan(db, "question.ask", { person_id: people.Ben, body: "¿Dónde estaciono la moto?" }, as("Ben", "es"), { now: at("2026-12-08", "10:00") });
+    assert.equal(p.plan.summary.en, "Ask the club: \"¿Dónde estaciono la moto?\". If one of the club's answers fits, you get it straight away; if not, the staff answer in the app, and you hear when they do.");
+    const a = await run(db, "question.ask", { person_id: people.Ben, body: "¿Dónde estaciono la moto?" }, as("Ben", "es"), { now: at("2026-12-08", "10:00") });
+    assert.equal((a.result as any).answered_by, "club");
+    assert.equal(during, "open");   // already saved, with the staff, while the model thought
+    assert.deepEqual((seen as any).keys, ["answer", "id", "question", "topic"]);
+    assert.equal((seen as any).q.text, "¿Dónde estaciono la moto?");
+    const d = await db.selectFrom("answer_decision").select(["answerer", "questions_version", "outcome"]).where("question_id", "=", (a.result as any).question_id).executeTakeFirstOrThrow();
+    assert.deepEqual(d, { answerer: "jev", questions_version: "q-8", outcome: "fact" });   // the model that decided
+
+    // "Ask a person": the fact may have been right; it goes to the staff, labelled differently.
+    const id = (a.result as any).question_id;
+    const ap = await run(db, "question.ask_person", { question_id: id }, as("Ben"), { now: at("2026-12-08", "10:02") });
+    assert.equal(ap.plan.summary.en, "Ask a person at the club. Your question goes to the staff, who answer in the app.");
+    assert.equal((await thread(id)).status, "open");
+    assert.equal((await db.selectFrom("answer_decision").select("corrected").where("question_id", "=", id).executeTakeFirstOrThrow()).corrected, "wants_person");
+
+    // The staff answer while the model is still deciding: theirs stands, and the pick is kept but not sent.
+    setAnswerer({ name: "test_model", version: "q-8", async decide(q, facts) {
+      const open = await db.selectFrom("question").innerJoin("question_message", "question_message.question_id", "question.id").select("question.id").where("question_message.body", "=", q.text).executeTakeFirstOrThrow();
+      await run(db, "question.answer", { question_id: open.id, body: "Bike racks by the door, Ben." }, as("Fay"), { now: at("2026-12-08", "11:00") });
+      return { outcome: "fact", factId: facts.find((x) => x.topic === "parking")!.id, confidence: 0.99 };
+    } });
+    const b = await run(db, "question.ask", { person_id: people.Ben, body: "Where do I leave my bike?" }, as("Ben"), { now: at("2026-12-08", "11:00") });
+    assert.equal((b.result as any).answered_by, "staff");
+    const bd = await db.selectFrom("answer_decision").select(["outcome", "fact_id", "detail"]).where("question_id", "=", (b.result as any).question_id).executeTakeFirstOrThrow();
+    assert.deepEqual(bd, { outcome: "staff", fact_id: null, detail: { picked: parking, not_sent: "written_since" } });
+    assert.deepEqual((await db.selectFrom("question_message").select("side").where("question_id", "=", (b.result as any).question_id).orderBy("created_at").orderBy("id").execute()).map((m) => m.side), ["member", "staff"]);
+
+    // Switched off in Settings: the model isn't asked at all.
+    await run(db, "club.update", { auto_answers: false }, owner);
+    const off = await plan(db, "question.ask", { person_id: people.Ben, body: "Is there parking?" }, as("Ben"), { now: at("2026-12-08", "12:00") });
+    assert.match(off.plan.summary.en, /The staff answer in the app/);
+    const c = await run(db, "question.ask", { person_id: people.Ben, body: "Is there parking?" }, as("Ben"), { now: at("2026-12-08", "12:00") });
+    assert.equal((c.result as any).answered_by, "staff");
+    assert.deepEqual(await db.selectFrom("answer_decision").select(["answerer", "detail"]).where("question_id", "=", (c.result as any).question_id).executeTakeFirstOrThrow(),
+      { answerer: "test_model", detail: { skipped: "club_off" } });
+    await run(db, "club.update", { auto_answers: true }, owner);
+    // The health check's count leaves out questions no model was asked about.
+    assert.deepEqual(await answerCounts(db, at("2026-12-08", "13:00")), { total: 2, answered: 1, errors: 0 });
   } finally { setAnswerer(staffOnly); }
 });
 

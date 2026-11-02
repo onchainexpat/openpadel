@@ -1,10 +1,11 @@
 import { serve } from "@hono/node-server";
-import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, type Texter } from "@kumi/core";
+import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl } from "./addresses.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 import { PracticeTexter, TwilioTexter, twilioFromEnv } from "./twilio.ts";
 import { handlers } from "./outbox.ts";
+import { answererFromEnv } from "./answerer.ts";
 
 // The server's key for the secrets it keeps (authenticators, the push key, the vault: sealed.ts). Production
 // refuses to start without one; elsewhere secrets are kept as they are, and it says so.
@@ -67,6 +68,11 @@ if (twilio) {
   setTexting(true);
   console.log(`texts: twilio${practice ? `, practice: only to ${testTo.filter((n) => n.trim()).length} test numbers` : ""}`);
 }
+// Ask the club: with a decision model's key (KUMI_TYPESAFE_API_KEY for Jev, KUMI_ANTHROPIC_API_KEY for Claude
+// Haiku, or both), Kumi answers a new question from the club's facts, word for word, or hands it to the staff
+// (answerer.ts). The club can still switch it off in Settings. Without a key every question goes to the staff.
+const answerer = answererFromEnv(process.env);
+if (answerer) { setAnswerer(answerer); console.log(`ask the club: answered by ${answerer.name}`); }
 // Bot protection on sign-up, sign-in codes and checkout. KUMI_BOT_CHECK=0 leaves it off on a practice
 // machine (scripts that sign in over the API); production refuses to start that way.
 const botCheck = process.env.KUMI_BOT_CHECK !== "0";

@@ -61,6 +61,7 @@ export const clubUpdate = defineAction({
     court_bookings: z.optional(z.boolean()), tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
     public_page: z.optional(z.boolean()), about: z.optional(z.nullable(z.string().check(z.maxLength(600)))),
     question_alert_hours: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(72))),
+    auto_answers: z.optional(z.boolean().check(z.describe("Kumi answers a new question from the club's facts by itself, when a decision model is set up on the server."))),
     broadcast_daily_cap: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(100000))), broadcast_copy_managers: z.optional(z.boolean()),
     program_decide_hours: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(336), z.describe("A program's minimum is decided this many hours before its first date, unless it sets its own."))),
     program_heads_up_hours: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(336), z.describe("Staff hear this many hours before that decision if a program is short (0: no heads-up)."))),

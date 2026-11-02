@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts } from "@kumi/core";
+import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn } from "@kumi/core";
 import { readPeopleCsv } from "./csv.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -148,7 +148,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "two_factor", "question_alert_hours", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "two_factor", "question_alert_hours", "auto_answers", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
     const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
     const policy = await currentPolicy(db), plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
@@ -159,7 +159,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("on_date", ">=", today).orderBy("on_date").execute();
     const t5 = (x: string | null) => (x ? x.slice(0, 5) : null);
     const waiver = await currentWaiver(db);
-    return c.json({ club, policy, plans, waiver: waiver ? { version_no: waiver.version_no, body: waiver.body } : null, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id),
+    // Which decision model answers questions, if the server has one ("staff_only" if not): Settings says so.
+    return c.json({ club, answerer: currentAnswerer().name, policy, plans, waiver: waiver ? { version_no: waiver.version_no, body: waiver.body } : null, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id),
       prices: rules.filter((r) => r.location_id === l.id).map((r) => ({ ...r, starts: t5(r.starts), ends: t5(r.ends) })),
       hours: [0, 1, 2, 3, 4, 5, 6].map((w) => { const h = hours.find((x) => x.location_id === l.id && x.weekday === w); return { weekday: w, opens: t5(h?.opens ?? null), closes: t5(h?.closes ?? null) }; }),
       special_days: special.filter((x) => x.location_id === l.id).map((x) => ({ ...x, opens: t5(x.opens), closes: t5(x.closes) })) })) });
@@ -473,8 +474,17 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const parents = q.junior ? (await db.selectFrom("person").select("display_name").where("id", "in", [...await managersOf(db, q.person_id), "00000000-0000-0000-0000-000000000000"]).execute()).map((p) => p.display_name) : [];
     const desk = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").innerJoin("person", "person.id", "person_role.person_id")
       .select(["person.id", "person.display_name"]).distinct().where("role.key", "in", ["owner", "manager", "front_desk"]).where("person_role.active", "=", true).orderBy("person.display_name").execute();
+    // A fact Kumi sent by itself: which fact, how sure the model was, and what the member said about it.
+    const l = lang(c), picks = await db.selectFrom("answer_decision").innerJoin("club_fact", "club_fact.id", "answer_decision.fact_id")
+      .select(["answer_decision.fact_id", "answer_decision.answerer", "answer_decision.confidence", "answer_decision.corrected", "answer_decision.created_at",
+        "club_fact.id", "club_fact.topic", "club_fact.question_en", "club_fact.answer_en", "club_fact.question_es", "club_fact.answer_es", "club_fact.active", "club_fact.public"])
+      .where("answer_decision.question_id", "=", id).where("answer_decision.outcome", "=", "fact").orderBy("answer_decision.created_at").execute();
+    const kumi = (m: { fact_id: string | null; created_at: Date }) => {
+      const p = picks.find((x) => x.fact_id === m.fact_id && new Date(x.created_at).getTime() === new Date(m.created_at).getTime());
+      return p ? { fact: factIn(p, l).question, by: p.answerer, confidence: p.confidence === null ? null : Number(p.confidence), corrected: p.corrected } : null;
+    };
     return c.json({ ...q, membership: plan?.name ?? null, level: level === null ? null : level.toFixed(2), parents, desk: desk.map((d) => ({ id: d.id, name: d.display_name })),
-      messages: q.messages.map((m) => ({ id: m.id, side: m.side, body: m.body, at: m.created_at, author: m.author, fact_id: m.fact_id })) });
+      messages: q.messages.map((m) => ({ id: m.id, side: m.side, body: m.body, at: m.created_at, author: m.author, fact_id: m.fact_id, kumi: m.side === "club" ? kumi(m) : null })) });
   });
   app.get("/staff/facts", async (c) => {
     await deskOnly(c);

@@ -48,6 +48,9 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   input: S;
   plan(ctx: PlanCtx, input: z.infer<S>): Promise<Plan>;
   apply(ctx: ApplyCtx, input: z.infer<S>, plan: Plan): Promise<unknown>;
+  /** Once the change is saved: work that mustn't hold the transaction open (a call to an outside service) but
+   *  that the person still waits for. What it returns is what the caller gets; it writes only through actions. */
+  after?(db: Db, input: z.infer<S>, result: unknown, ctx: { actor: Actor; now: Date }): Promise<unknown>;
 }
 
 /** Tables actions may write, how to find a row, and how undo retires a row it inserted. */
@@ -233,8 +236,9 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
     const prior = await db.selectFrom("action_run").select(["result", "status"]).where("idempotency_key", "=", opts.idempotencyKey).executeTakeFirst();
     if (prior?.status === "applied") return prior.result;
   }
+  let after: (() => Promise<unknown>) | null = null;
   try {
-    return await db.transaction().execute(async (trx) => {
+    const result = await db.transaction().execute(async (trx) => {
       const run = await trx.selectFrom("action_run").selectAll().where("id", "=", runId).forUpdate().executeTakeFirst();
       if (!run) throw new KumiError("error.not_found", { thing: both("thing.change") }, 404);
       const approving = Boolean(opts.approvedBy);
@@ -264,8 +268,10 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
         status: "applied", applied_at: now, result: JSON.stringify(result), idempotency_key: opts.idempotencyKey ?? null,
         approved_by: opts.approvedBy ?? null, undo_until: p.undo.minutes ? new Date(now.getTime() + p.undo.minutes * 60_000) : null,
       }).where("id", "=", runId).execute();
+      if (def.after) after = () => def.after!(db, run.input, result, { actor: runActor, now });
       return result;
     });
+    return after ? await (after as () => Promise<unknown>)() : result;
   } catch (e) {
     if (e instanceof KumiError && ["error.changed", "error.forbidden_reason"].includes(e.code)) {
       await db.updateTable("action_run").set({ status: "failed", error: JSON.stringify({ code: e.code, params: e.params }) }).where("id", "=", runId).where("status", "in", ["planned", "awaiting_approval"]).execute();

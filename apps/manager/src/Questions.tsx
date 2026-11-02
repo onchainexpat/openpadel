@@ -10,7 +10,8 @@ type Status = "open" | "answered" | "closed";
 type Row = { id: string; status: Status; waiting_since: string | null; alerted_at: string | null; created_at: string; asker: string; about: string | null; assignee: string | null; first: string; last_side: string | null };
 type Thread = { id: string; person_id: string; status: Status; asker: string; about: string; junior: boolean; assignee: string | null; assigned_to: string | null; waiting_since: string | null; alerted_at: string | null;
   membership: string | null; level: string | null; parents: string[]; desk: { id: string; name: string }[];
-  messages: { id: string; side: "member" | "staff" | "club"; body: string; at: string; author: string | null; fact_id: string | null }[] };
+  messages: { id: string; side: "member" | "staff" | "club"; body: string; at: string; author: string | null; fact_id: string | null;
+    kumi: { fact: string; by: string; confidence: number | null; corrected: "not_answered" | "wants_person" | null } | null }[] };
 type Fact = { id: string; topic: string; question_en: string | null; answer_en: string | null; question_es: string | null; answer_es: string | null; active: boolean; public: boolean };
 
 const TOPICS = ["general", "hours", "prices", "bookings", "memberships", "programs", "lessons", "juniors", "rules", "parking", "facilities"] as const;
@@ -60,6 +61,9 @@ export function QuestionPage() {
         <ul class="plain thread">{d.messages.map((m) => <li key={m.id} class={`msg ${m.side}`}>
           <p class="meta">{m.side === "club" ? t("ui.club_answer") : m.author} · {when(m.at)}</p>
           <p class="pre">{m.body}</p>
+          {/* Kumi sent this fact by itself: which one, how sure, and what the member said about it. */}
+          {m.kumi && <p class="meta">{t("ui.kumi_picked", { fact: m.kumi.fact, sure: m.kumi.confidence === null ? "" : t("ui.kumi_sure", { pct: Math.round(m.kumi.confidence * 100) }) })}
+            {m.kumi.corrected && <><br />{t(m.kumi.corrected === "not_answered" ? "ui.kumi_not_answered" : "ui.kumi_wants_person")}</>}</p>}
           {m.side === "staff" && <p><a class="small" href={`/facts?from=${d.id}&message=${m.id}`}>{t("ui.make_fact")}</a></p>}</li>)}</ul>
       </section>
       <section class="card card-form">

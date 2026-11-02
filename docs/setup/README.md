@@ -35,6 +35,7 @@ take a few days.
 | 5d | Membership plans (optional) | Owner decides, staff app | 10 min | below |
 | 5f | Coaches and private lessons (optional) | Each coach, staff app | 10 min a coach | below |
 | 5h | Common questions: the club's answers to what members ask most | Front desk drafts, owner checks | 1 hour | below |
+| 5h | Ask the club (optional): a decision model answers from those facts | Owner signs up, agent sets up | 15 min | [accounts/ask-the-club.md](accounts/ask-the-club.md) |
 | 5i | Messages to members: tags, groups and the daily email cap | Owner decides, front desk | 15 min | below |
 | 5j | Offsite backups, and the keys to keep | Owner creates the storage key, agent sets up | 20 min | [accounts/offsite-backups.md](accounts/offsite-backups.md) |
 | 5k | Texts (optional): the club's own Twilio number, registered with US carriers | Owner signs up and registers, agent sets up | 1 hour, then days to weeks of review | [accounts/twilio.md](accounts/twilio.md) |
@@ -229,10 +230,15 @@ reply opens it again. If a question waits longer than the club's setting (2 hour
 only while the club is open), front desk and up hear once; Settings changes the hours, and 0 turns the
 alert off. Members can start five new questions a day.
 
-Later, "ask the club" can answer from the club facts by itself, word for word: a decision model picks
-the fact that answers a question, or hands it to the staff. Every decision is kept, and a member who
-says "That didn't answer it" goes straight to the staff. Until a model is set up, every question goes
-to the staff.
+"Ask the club" can answer a new question from the club facts by itself, word for word, once the server
+has a decision model (`docs/setup/accounts/ask-the-club.md`: a TypeSafe key for Jev, an Anthropic key for
+Claude Haiku, or both). The question is saved with the staff first; then the model picks the one fact that
+answers it completely, or hands it to the staff, in a second or two. It never writes anything itself, and
+anything about the member's own bookings, money, membership or level, a complaint or an injury goes to a
+person. Only the question's words and the facts go to the model: no names or details. Under the fact the
+member can tap "That didn't answer it" or "Ask a person", and the question goes to the staff at once. Staff
+see on the Questions page which fact Kumi sent and how sure it was, and a staff answer always wins. Every
+decision is kept. Settings has a switch to stop it; without a model, every question goes to the staff.
 
 ### Step 5i: messages to members (optional)
 

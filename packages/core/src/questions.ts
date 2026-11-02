@@ -3,13 +3,15 @@
 // plain words; what they still ask goes to the staff, and front desk hears once if it waits longer than
 // the club's setting, counted in opening hours.
 //
-// "Ask the club" puts a decision model in front later (decisions.md): the answerer below is given the
-// question and the switched-on facts, and either picks one fact to send word for word or hands the
-// question to staff. The one set by default always hands it to staff. Whatever it decides is kept with
-// the version of its questions, and a member's "that didn't answer it" is kept on the decision as a label.
+// "Ask the club" puts a decision model in front (decisions.md): once a new question is saved, the answerer is
+// given it and the switched-on facts, and either picks one fact to send word for word or hands the question
+// to staff. It never writes anything. With no model set up (apps/server/src/answerer.ts), or the club's
+// switch off, every question goes to the staff. Whatever it decides is kept with the version of its
+// questions, and a member's "that didn't answer it" or "ask a person" is kept on the decision as a label.
 import * as z from "zod/mini";
+import { sql } from "kysely";
 import { both, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts";
+import { defineAction, readRow, runAsSystem } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
@@ -140,44 +142,114 @@ export const factUpdate = defineAction({
 });
 
 // ---- The answerer: where a decision model plugs in ----
-export interface AnswerChoice { outcome: "fact" | "staff"; factId?: string; confidence: number | null; detail?: unknown }
+/** A fact as the answerer sees it, in the asker's language. Its id stays here: the model gets a short key. */
+export interface AnswerCandidate { id: string; topic: string; question: string; answer: string }
+/** What it decided: send a fact (and how sure, where the model gives a probability), or the staff. `by` names the
+ *  model that actually decided, when an answerer tries more than one. */
+export interface AnswerChoice { outcome: "fact" | "staff"; factId?: string; confidence: number | null; detail?: unknown; by?: string }
 export interface Answerer {
   /** Kept on each decision: which answerer, and the version of the questions and thresholds it asks. */
   name: string; version: string;
   /** How long it may take before the question goes to staff instead; ANSWER_TIMEOUT_MS when not given. */
   timeoutMs?: number;
-  decide(question: { text: string; lang: Lang }, facts: { id: string; topic: string; question: Text; answer: Text }[]): Promise<AnswerChoice>;
+  decide(question: { text: string; lang: Lang }, facts: AnswerCandidate[]): Promise<AnswerChoice>;
 }
 /** Until a decision model is set up, every question goes to the staff. */
 export const staffOnly: Answerer = { name: "staff_only", version: "1", decide: async () => ({ outcome: "staff", confidence: null }) };
 let current: Answerer = staffOnly;
 export function setAnswerer(a: Answerer): void { current = a; }
+export function currentAnswerer(): Answerer { return current; }
+/** At most this many facts go to the answerer: all of a smaller club's (best word matches first, so a
+ *  question in other words still finds its fact), or a bigger club's best word matches. */
+export const ANSWER_CANDIDATES = 30, ANSWER_SHORTLIST = 10;
 
-/** Ask the answerer about one member message, keep what it decided, and send the fact if it picked one.
- *  A failure or a slow answer hands the question to staff: it never blocks a member (decisions.md). */
-async function answerWith(ctx: ApplyCtx, q: { id: string; asked_by: string }, messageId: string, text: string): Promise<"fact" | "staff"> {
-  const facts = await searchFacts(ctx.trx, "");
-  const lang = await langOf(ctx.trx, q.asked_by);
+/** A decision model answers new questions: one is set up on the server and the club hasn't switched it off. */
+export async function autoAnswering(db: Db | Trx): Promise<boolean> {
+  return current !== staffOnly && (await db.selectFrom("club").select("auto_answers").executeTakeFirstOrThrow()).auto_answers;
+}
+async function candidatesFor(db: Db | Trx, text: string, lang: Lang): Promise<AnswerCandidate[]> {
+  const all = await searchFacts(db, "");
+  let picked: FactRow[];
+  if (all.length <= ANSWER_CANDIDATES) {
+    const first = await searchFacts(db, text, { limit: ANSWER_CANDIDATES }), ids = new Set(first.map((f) => f.id));
+    picked = [...first, ...all.filter((f) => !ids.has(f.id))];
+  } else picked = await searchFacts(db, text, { limit: ANSWER_SHORTLIST });
+  return picked.map((f) => ({ id: f.id, topic: f.topic, ...factIn(f, lang) }));
+}
+
+/** Ask the answerer about a new question, once it's saved, and keep what it decided (question.decide sends the
+ *  fact if it picked one). A failure, a slow answer or anything unexpected hands the question to staff: it never
+ *  blocks a member (decisions.md). Only the question goes to the model, with the candidate facts: no names. */
+async function answerQuestion(db: Db, q: { id: string; messageId: string; text: string; askedBy: string }, now: Date): Promise<"fact" | "staff"> {
+  const a = current;
   let choice: AnswerChoice;
-  if (!facts.length || current === staffOnly) choice = { outcome: "staff", confidence: null };
-  else {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      choice = await Promise.race([current.decide({ text, lang }, facts.map((f) => ({ id: f.id, topic: f.topic, ...bothOf(f) }))),
-        new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error("timed out")), current.timeoutMs ?? ANSWER_TIMEOUT_MS); })]);
-    } catch (e) { choice = { outcome: "staff", confidence: null, detail: { error: String((e as Error).message).slice(0, 200) } }; }
-    finally { clearTimeout(timer); }
-  }
-  const fact = choice.outcome === "fact" ? facts.find((f) => f.id === choice.factId) : undefined;
-  await ctx.trx.insertInto("answer_decision").values({ id: uuidv7(), question_id: q.id, message_id: messageId, answerer: current.name, questions_version: current.version,
-    outcome: fact ? "fact" : "staff", fact_id: fact?.id ?? null, confidence: choice.confidence === null ? null : choice.confidence.toFixed(4),
-    detail: choice.detail === undefined ? null : JSON.stringify(choice.detail), created_at: ctx.now }).execute();
-  if (!fact) return "staff";
-  const words = factIn(fact, lang);
-  await ctx.insert("question_message", { id: uuidv7(), question_id: q.id, side: "club", author_id: null, body: words.answer, fact_id: fact.id, created_at: ctx.now });
-  await ctx.update("question", q.id, { status: "answered", waiting_since: null });
-  await ctx.emit("question.club_answered", { question_id: q.id, to: q.asked_by, question: excerpt(text), fact: bothOf(fact).question, answer: bothOf(fact).answer });
-  return "fact";
+  try {
+    const lang = await langOf(db, q.askedBy);
+    if (a === staffOnly) choice = { outcome: "staff", confidence: null };
+    else if (!(await autoAnswering(db))) choice = { outcome: "staff", confidence: null, detail: { skipped: "club_off" } };
+    else {
+      const facts = await candidatesFor(db, q.text, lang);
+      if (!facts.length) choice = { outcome: "staff", confidence: null, detail: { skipped: "no_facts" } };
+      else {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          choice = await Promise.race([a.decide({ text: q.text, lang }, facts),
+            new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error("timed out")), a.timeoutMs ?? ANSWER_TIMEOUT_MS); })]);
+          if (choice.outcome === "fact" && !facts.some((f) => f.id === choice.factId)) choice = { outcome: "staff", confidence: null, detail: { error: "picked a fact it wasn't given" } };
+        } catch (e) { choice = { outcome: "staff", confidence: null, detail: { error: String((e as Error).message).slice(0, 200) } }; }
+        finally { clearTimeout(timer); }
+      }
+    }
+  } catch (e) { choice = { outcome: "staff", confidence: null, detail: { error: String((e as Error).message).slice(0, 200) } }; }
+  try {
+    const r = await runAsSystem(db, "question.decide", { question_id: q.id, message_id: q.messageId, answerer: choice.by ?? a.name, questions_version: a.version, outcome: choice.outcome,
+      fact_id: choice.outcome === "fact" ? choice.factId : null, confidence: choice.confidence, detail: choice.detail ?? null }, "answerer", { now });
+    return (r.result as { outcome: "fact" | "staff" }).outcome;
+  } catch { return "staff"; }
+}
+
+/** Kumi keeps what the answerer decided, and sends the fact it picked word for word, unless the staff (or the
+ *  member) have written since or the fact was switched off: a staff answer always wins. */
+export const questionDecide = defineAction({
+  name: "question.decide", version: 1, system: true, internal: true,
+  input: z.object({ question_id: z.uuid(), message_id: z.uuid(), answerer: z.string(), questions_version: z.string(), outcome: z.enum(["fact", "staff"]),
+    fact_id: z.optional(z.nullable(z.uuid())), confidence: z.optional(z.nullable(z.number().check(z.minimum(0), z.maximum(1)))), detail: z.optional(z.unknown()) }),
+  async plan(ctx, i) {
+    await threadOf(ctx.db, i.question_id);   // apply looks again, under a lock
+    const fact = i.fact_id ? await ctx.db.selectFrom("club_fact").select(["id", "topic", "question_en", "answer_en", "question_es", "answer_es", "active", "public"]).where("id", "=", i.fact_id).executeTakeFirst() : undefined;
+    return { title: both("action.question.decide"), reads: [], undo: { kind: "none" },
+      summary: fact ? both("plan.question.decide_fact", { fact: bothOf(fact as FactRow).question }) : both("plan.question.decide_staff") };
+  },
+  async apply(ctx, i) {
+    const q = await ctx.trx.selectFrom("question").select(["id", "asked_by", "status"]).where("id", "=", i.question_id).forUpdate().executeTakeFirstOrThrow();
+    const last = await ctx.trx.selectFrom("question_message").select("id").where("question_id", "=", q.id).orderBy("created_at", "desc").orderBy("id", "desc").limit(1).executeTakeFirst();
+    let outcome = i.outcome, detail = i.detail ?? null, fact: FactRow | undefined;
+    if (outcome === "fact") {
+      fact = await ctx.trx.selectFrom("club_fact").select(["id", "topic", "question_en", "answer_en", "question_es", "answer_es", "active", "public"]).where("id", "=", i.fact_id!).where("active", "=", true).executeTakeFirst();
+      const notSent = !fact ? "fact_off" : q.status !== "open" || last?.id !== i.message_id ? "written_since" : null;
+      if (notSent) { outcome = "staff"; detail = { ...(detail && typeof detail === "object" ? detail : {}), picked: i.fact_id, not_sent: notSent }; fact = undefined; }
+    }
+    await ctx.trx.insertInto("answer_decision").values({ id: uuidv7(), question_id: q.id, message_id: i.message_id, answerer: i.answerer, questions_version: i.questions_version,
+      outcome, fact_id: fact?.id ?? null, confidence: i.confidence == null ? null : i.confidence.toFixed(4),
+      detail: detail === null ? null : JSON.stringify(detail), created_at: ctx.now }).execute();
+    if (!fact) return { outcome: "staff" };
+    const lang = await langOf(ctx.trx, q.asked_by), words = factIn(fact, lang);
+    const asked = await ctx.trx.selectFrom("question_message").select("body").where("id", "=", i.message_id).executeTakeFirstOrThrow();
+    await ctx.insert("question_message", { id: uuidv7(), question_id: q.id, side: "club", author_id: null, body: words.answer, fact_id: fact.id, created_at: ctx.now });
+    await ctx.update("question", q.id, { status: "answered", waiting_since: null });
+    await ctx.emit("question.club_answered", { question_id: q.id, to: q.asked_by, question: excerpt(asked.body), fact: bothOf(fact).question, answer: bothOf(fact).answer });
+    return { outcome: "fact" };
+  },
+});
+
+/** The last day's questions a decision model was asked about: how many, how many it answered from the facts, and
+ *  how many got no decision (the model failed or was slow) and went to the staff. For the health check and the doctor. */
+export async function answerCounts(db: Db, now = new Date()) {
+  const r = await db.selectFrom("answer_decision").select((eb) => [eb.fn.countAll<string>().as("total"),
+    eb.fn.count<string>("id").filterWhere("outcome", "=", "fact").as("answered"),
+    eb.fn.count<string>("id").filterWhere(sql<boolean>`detail ? 'error'`).as("errors")])
+    .where("created_at", ">", new Date(now.getTime() - 86_400_000)).where("answerer", "!=", "staff_only").where(sql<boolean>`NOT coalesce(detail ? 'skipped', false)`).executeTakeFirstOrThrow();
+  return { total: Number(r.total), answered: Number(r.answered), errors: Number(r.errors) };
 }
 
 // ---- Threads ----
@@ -205,15 +277,21 @@ export const questionAsk = defineAction({
     if (Number(n.n) >= QUESTIONS_PER_DAY) throw new KumiError("error.too_many_questions", { count: QUESTIONS_PER_DAY });
     const about = i.person_id === asker ? { en: "", es: "" } : both("plan.question.about", { name: await nameOf(ctx.db, i.person_id) });
     // A parent asks about their junior; anyone else, about themselves.
+    const auto = await autoAnswering(ctx.db) && Boolean(await ctx.db.selectFrom("club_fact").select("id").where("active", "=", true).limit(1).executeTakeFirst());
     return { title: both("action.question.ask"), reads: [], ownerIds: i.person_id === asker ? [asker] : (await managersOf(ctx.db, i.person_id)), undo: { kind: "none" },
-      summary: both("plan.question.ask", { body: excerpt(i.body, 200), about }) };
+      summary: both(auto ? "plan.question.ask_auto" : "plan.question.ask", { body: excerpt(i.body, 200), about }) };
   },
   async apply(ctx, i) {
     const id = uuidv7(), msg = uuidv7(), asker = ctx.actor.personId!;
     await ctx.insert("question", { id, person_id: i.person_id, asked_by: asker, status: "open", waiting_since: ctx.now, created_at: ctx.now });
     await ctx.insert("question_message", { id: msg, question_id: id, side: "member", author_id: asker, body: i.body, created_at: ctx.now });
-    const how = await answerWith(ctx, { id, asked_by: asker }, msg, i.body);
-    return { question_id: id, answered_by: how === "fact" ? "club" : "staff" };
+    return { question_id: id, message_id: msg };
+  },
+  // Saved first, with the staff; then the answerer, outside the transaction, which may answer it at once.
+  async after(db, i, result, ctx) {
+    const r = result as { question_id: string; message_id: string };
+    const how = await answerQuestion(db, { id: r.question_id, messageId: r.message_id, text: i.body, askedBy: ctx.actor.personId! }, ctx.now);
+    return { question_id: r.question_id, answered_by: how === "fact" ? "club" : "staff" };
   },
 });
 
@@ -235,25 +313,31 @@ export const questionReply = defineAction({
   },
 });
 
-export const questionNotAnswered = defineAction({
-  name: "question.not_answered", version: 1,
-  input: z.object({ question_id: z.uuid() }),
-  async plan(ctx, i) {
-    const { q, read } = await threadOf(ctx.db, i.question_id);
-    const last = await ctx.db.selectFrom("question_message").select("side").where("question_id", "=", q.id).orderBy("created_at", "desc").orderBy("id", "desc").limit(1).executeTakeFirst();
-    // The club's fact is the last word, and nobody's been asked to look at it since.
-    if (last?.side !== "club" || q.status !== "answered") throw new KumiError("error.no_club_answer");
-    return { title: both("action.question.not_answered"), summary: both("plan.question.not_answered"), reads: [read], ownerIds: await threadOwners(ctx.db, q), undo: { kind: "none" } };
-  },
-  async apply(ctx, i) {
-    const { q } = await threadOf(ctx.trx, i.question_id);
-    await ctx.update("question", q.id, { status: "open", waiting_since: ctx.now, closed_at: null });
-    // A label for the answerer: this pick didn't answer it.
-    await ctx.trx.updateTable("answer_decision").set({ corrected: "not_answered", corrected_at: ctx.now })
-      .where("id", "=", ctx.trx.selectFrom("answer_decision").select("id").where("question_id", "=", q.id).where("outcome", "=", "fact").orderBy("created_at", "desc").orderBy("id", "desc").limit(1)).execute();
-    return null;
-  },
-});
+/** After the club's fact: "that didn't answer it" (a label against the pick) or "ask a person" (the fact may have been
+ *  right, they want someone anyway). Either way the question goes to the staff at once. */
+function toStaff(name: "question.not_answered" | "question.ask_person", label: "not_answered" | "wants_person") {
+  return defineAction({
+    name, version: 1,
+    input: z.object({ question_id: z.uuid() }),
+    async plan(ctx, i) {
+      const { q, read } = await threadOf(ctx.db, i.question_id);
+      const last = await ctx.db.selectFrom("question_message").select("side").where("question_id", "=", q.id).orderBy("created_at", "desc").orderBy("id", "desc").limit(1).executeTakeFirst();
+      // The club's fact is the last word, and nobody's been asked to look at it since.
+      if (last?.side !== "club" || q.status !== "answered") throw new KumiError("error.no_club_answer");
+      return { title: both(`action.${name}`), summary: both(`plan.${name}`), reads: [read], ownerIds: await threadOwners(ctx.db, q), undo: { kind: "none" } };
+    },
+    async apply(ctx, i) {
+      const { q } = await threadOf(ctx.trx, i.question_id);
+      await ctx.update("question", q.id, { status: "open", waiting_since: ctx.now, closed_at: null });
+      // A label for the answerer, on its latest pick.
+      await ctx.trx.updateTable("answer_decision").set({ corrected: label, corrected_at: ctx.now })
+        .where("id", "=", ctx.trx.selectFrom("answer_decision").select("id").where("question_id", "=", q.id).where("outcome", "=", "fact").orderBy("created_at", "desc").orderBy("id", "desc").limit(1)).execute();
+      return null;
+    },
+  });
+}
+export const questionNotAnswered = toStaff("question.not_answered", "not_answered");
+export const questionAskPerson = toStaff("question.ask_person", "wants_person");
 
 export const questionAnswer = defineAction({
   name: "question.answer", version: 1,

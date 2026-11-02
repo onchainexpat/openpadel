@@ -77,7 +77,8 @@ export function AskThread() {
         <ul class="plain thread">{d.messages.map((m) => <li key={m.id} class={`msg ${m.side}`}>
           <p class="meta">{m.side === "club" ? t("ui.club_answer") : m.side === "member" ? (m.author === me.value?.person.display_name ? t("ui.question_you") : m.author) : m.author} · {when(m.at)}</p>
           <p class="pre">{m.body}</p></li>)}</ul>
-        {last?.side === "club" && d.status === "answered" && <button onClick={() => preview("question.not_answered", { question_id: d.id })}>{t("ui.not_answered")}</button>}
+        {last?.side === "club" && d.status === "answered" && <p><button onClick={() => preview("question.not_answered", { question_id: d.id })}>{t("ui.not_answered")}</button>{" "}
+          <button onClick={() => preview("question.ask_person", { question_id: d.id })}>{t("ui.ask_person")}</button></p>}
       </section>
       <section class="card card-form">
         <label>{t("ui.your_reply")}<textarea rows={3} maxLength={2000} value={reply} onInput={(e) => setReply(e.currentTarget.value)} /></label>

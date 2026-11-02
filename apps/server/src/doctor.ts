@@ -3,9 +3,10 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { readdirSync, statSync } from "node:fs";
 import { both, type Key, type Text } from "@kumi/i18n";
-import { heartbeats, parseSecretKey, pendingMigrations, textCounts, type Db } from "@kumi/core";
+import { answerCounts, heartbeats, parseSecretKey, pendingMigrations, textCounts, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { checkTwilio, twilioFromEnv } from "./twilio.ts";
+import { answerModels, checkAnswerKeys } from "./answerer.ts";
 import { memberUrl } from "./addresses.ts";
 import { VERSION } from "./version.ts";
 
@@ -77,6 +78,21 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
     else if (total >= 5 && sent.failed / total > 0.2) add("texts", "warn", "texts.failing", { failed: sent.failed, total }, twDoc);
     else if (!production || env.KUMI_PRACTICE === "1") add("texts", "warn", "texts.practice", { count: (env.KUMI_SMS_TEST_TO ?? "").split(",").filter((n) => n.trim()).length });
     else add("texts", "ok", "texts.ok", { sent: sent.sent, failed: sent.failed });
+  }
+
+  // Ask the club: optional. Each model is asked whether it takes its key (listing models, which costs nothing), and
+  // the last day's questions say whether decisions are coming back. Nothing is sent to a model from here.
+  const atcDoc = "docs/setup/accounts/ask-the-club.md", models = answerModels(env);
+  const named = (m: string) => (m === "jev" ? "Jev" : "Claude Haiku");
+  if (!models.length) add("answers", "off", "answers.off", {}, atcDoc);
+  else {
+    const refused = (await checkAnswerKeys(env, deps.fetch)).find((k) => k.error);
+    const on = (await db.selectFrom("club").select("auto_answers").executeTakeFirst())?.auto_answers ?? true;
+    const n = await answerCounts(db, now), list = models.map(named).join(" + ");
+    if (refused) add("answers", "fail", "answers.refused", { model: named(refused.model), error: refused.error! }, atcDoc);
+    else if (!on) add("answers", "off", "answers.club_off", { models: list });
+    else if (n.total >= 5 && n.errors / n.total > 0.2) add("answers", "warn", "answers.failing", { errors: n.errors, total: n.total }, atcDoc);
+    else add("answers", "ok", "answers.ok", { models: list, total: n.total, answered: n.answered });
   }
 
   // Card payments.

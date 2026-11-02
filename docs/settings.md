@@ -36,6 +36,15 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 | `KUMI_TWILIO_FROM` | Or one number instead (`+15035550123`). | not set |
 | `KUMI_SMS_TEST_TO` | Comma-separated numbers that get real texts in practice mode (`+15035550123`). | none |
 
+## Ask the club (a decision model, optional)
+
+| Setting | What it does | Default |
+|---|---|---|
+| `KUMI_TYPESAFE_API_KEY` | TypeSafe's Jev answers a member's new question from the club's facts, word for word, or hands it to the staff (`docs/setup/accounts/ask-the-club.md`). | not set |
+| `KUMI_ANTHROPIC_API_KEY` | Claude Haiku makes the same decision: when Jev fails or is slow, or on its own without a TypeSafe key. | not set |
+
+With neither, every question goes to the staff. The club can switch answering off in Settings either way.
+
 ## Card payments (Stripe)
 
 | Setting | What it does | Default |

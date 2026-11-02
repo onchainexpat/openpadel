@@ -11,9 +11,9 @@ type Price = { id: string; name: string; court_ids: string[] | null; weekdays: n
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
+type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
-type S = { club: ClubRow; policy: Policy; plans: Plan[]; locations: Loc[]; waiver: { version_no: number; body: string } | null };
+type S = { club: ClubRow; answerer: string; policy: Policy; plans: Plan[]; locations: Loc[]; waiver: { version_no: number; body: string } | null };
 type Preview = (action: string, input: unknown) => Promise<void>;
 
 const KINDS = ["indoor", "covered_outdoor", "outdoor"] as const;
@@ -42,7 +42,7 @@ export function Settings() {
   return (
     <main>
       <h1>{t("ui.settings_title")}</h1>
-      <ClubForm key={JSON.stringify(s.club)} c={s.club} send={send} />
+      <ClubForm key={JSON.stringify(s.club)} c={s.club} answerer={s.answerer} send={send} />
       <BookingRules key={JSON.stringify(s.policy)} p={s.policy} send={send} />
       <WaiverForm key={JSON.stringify(s.waiver)} w={s.waiver} send={send} />
       <SignInCard key={s.club.two_factor} rule={s.club.two_factor} send={send} />
@@ -88,7 +88,7 @@ function WaiverForm({ w, send }: { w: S["waiver"]; send: Preview }) {
   );
 }
 
-function ClubForm({ c, send }: { c: ClubRow; send: Preview }) {
+function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: Preview }) {
   const start = { ...c, legal_name: c.legal_name ?? "", about: c.about ?? "" };
   const [f, setF] = useState(start);
   const set = (k: keyof ClubRow, v: unknown) => setF({ ...f, [k]: v });
@@ -113,6 +113,9 @@ function ClubForm({ c, send }: { c: ClubRow; send: Preview }) {
       {c.public_page && <p class="meta"><a href="/public" target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
       <label>{t("ui.about_club")}<textarea maxLength={600} rows={3} value={f.about ?? ""} onInput={(e) => set("about", e.currentTarget.value)} /></label>
       <label>{t("ui.question_alert_hours")}<input type="number" min="0" max="72" step="1" value={String(f.question_alert_hours)} onChange={(e) => set("question_alert_hours", Math.max(0, Math.min(72, Math.round(Number(e.currentTarget.value) || 0))))} /></label>
+      {/* Ask the club: on by default, and only does anything once the server has a decision model. */}
+      <label class="check"><input type="checkbox" checked={f.auto_answers} onChange={(e) => set("auto_answers", e.currentTarget.checked)} /> {t("ui.auto_answers")}</label>
+      <p class="meta">{t(answerer === "staff_only" ? "ui.auto_answers_no_model" : "ui.auto_answers_help")}</p>
       <label>{t("ui.broadcast_daily_cap")}<input type="number" min="1" max="100000" step="1" value={String(f.broadcast_daily_cap)} onChange={(e) => set("broadcast_daily_cap", Math.max(1, Math.min(100000, Math.round(Number(e.currentTarget.value) || 1))))} /></label>
       <label class="check"><input type="checkbox" checked={f.broadcast_copy_managers} onChange={(e) => set("broadcast_copy_managers", e.currentTarget.checked)} /> {t("ui.broadcast_copy_managers")}</label>
       <label>{t("ui.program_decide_hours")}<input type="number" min="1" max="336" step="1" value={String(f.program_decide_hours)} onChange={(e) => set("program_decide_hours", Math.max(1, Math.min(336, Math.round(Number(e.currentTarget.value) || 24))))} /></label>

@@ -232,11 +232,18 @@ The first version a club can run on its own (court bookings included), or for it
   level beside it. Front desk and up answer it (the member hears in the app, by push and by email), give
   it to someone, close it, or turn an answer into a club fact. A question that waits past the club's
   setting (2 hours to start, counted only in opening hours; 0 turns it off) is told to front desk once.
-  Five new questions a day each. A place for a decision model is ready: given the question and the
-  facts, it sends one fact word for word or hands the question to the staff; every decision is kept,
-  and a member's "That didn't answer it" goes to the staff and is kept on the decision. Until one is
-  set up, every question goes to the staff. Questions are in the member's data file, and deleting the
-  account takes their words out of the history too.
+  Five new questions a day each. Questions are in the member's data file, and deleting the account
+  takes their words out of the history too.
+- Ask the club (optional): with a decision model's key on the server (TypeSafe's Jev, Claude Haiku, or
+  both, Jev first), a new question is answered at once from the club facts, word for word, when one
+  answers it completely; otherwise it waits for the staff as before. The model never writes anything,
+  and anything about the member's own bookings, money, membership or level, a complaint or an injury
+  goes to a person. Only the question's words and the facts go to the model, never names or details.
+  The question is saved with the staff first, so a slow or failing model only means it waits for them,
+  and a staff answer always wins. Under the fact, "That didn't answer it" or "Ask a person" sends it to
+  the staff at once. Staff see which fact Kumi sent and how sure it was; every decision is kept with
+  the version of its questions and thresholds. Settings can switch it off. `kumi doctor` and
+  `/health/deep` report it. The services that see member data are listed in `docs/processors.md`.
 - Messages to members, for front desk and up: write once, in each of the club's languages ({first_name}
   and {club} filled in for each person), to a group, now or at a set time. A group is a set of filters
   (membership and plan, level, the club's own tags, played lately or not, adults or juniors, language,
