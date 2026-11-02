@@ -82,10 +82,27 @@ file. Kumi doesn't register 10DLC by itself yet.
 - A kid with a login of their own says yes for themselves, once a parent turns texts on for them on the
   Family page. A junior without a login is texted through their parents.
 
+## What texts cost, and the monthly cap
+- Twilio bills by segment: one plain text of up to 160 characters is one, a longer one is 153 characters a
+  part, and anything outside the plain alphabet (an emoji) is 70, or 67 a part. Kumi keeps texts to the plain
+  alphabet, and most are one segment. In the US a segment is about 0.83 cents plus about 0.43 cents of
+  carrier fee; the number and its registration are on top (about $2.15 a month for a toll-free number).
+- Kumi counts every text it hands to Twilio, codes and HELP answers included, in the club's month. Settings,
+  Texts shows this month (texts, segments, the estimate at the club's price per segment, and Twilio's own
+  price where its delivery report gives one) and the eleven months before it. `kumi doctor` shows the month.
+- The cap starts at 1,500 segments a month (about $19): twice what an 800-member club texting only what
+  can't wait is expected to use. The owner or a manager changes it in Settings, Texts, at once.
+- At 80% of the cap the owner and managers hear once, and once more at the cap. Past it, texts that can wait
+  aren't sent: the message is in the member's inbox and goes by email where they have one. Codes and the
+  HELP and START answers carriers require keep going up to twice the cap (at least 100 segments), so a
+  member can still sign in; past that, phone sign-in tells them to use email. A new month starts fresh.
+
 ## Common problems
 - **`texts` says Twilio refused the account and token:** a typo, or the token was changed in Twilio.
 - **Texts fail with 30034 or 30032:** the registration isn't approved yet (or was turned down).
   `kumi texting status` says which.
+- **Members get messages by email instead of by text:** this month's cap is reached (Settings, Texts says
+  so). Raise it there, or wait for the new month.
 - **`kumi texting` says test credentials:** registering needs the account's live Account SID and Auth Token.
 - **A member says they never got the code:** a landline (Kumi says so), a number that once replied STOP
   (they text START to the club's number first), or the per-hour limits.

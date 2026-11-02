@@ -7,7 +7,7 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { sql } from "kysely";
 import { t, type Lang } from "@kumi/i18n";
-import { KumiError, runAsSystem, textingOn, textWords, TextError, UNSUBSCRIBED, uuidv7, type Db, type Texter } from "@kumi/core";
+import { countText, KumiError, runAsSystem, segments, textAllowed, textingOn, textWords, TextError, UNSUBSCRIBED, uuidv7, type Db, type Texter } from "@kumi/core";
 import type { Mailer } from "./mailer.ts";
 import { PER_CLUB, PER_NUMBER } from "./texts.ts";
 
@@ -101,8 +101,10 @@ export async function startPhoneSignIn(db: Db, texter: Texter, phone: string, la
     .where("kind", "in", ["phone_code", "phone_sign_in"]).where("created_at", ">", hour).$if(target !== null, (q) => q.where("target", "=", target!)).executeTakeFirstOrThrow()).n);
   if (await count(phone) >= PER_NUMBER) throw new KumiError("error.too_many_codes", {}, 429);
   if (await count(null) >= PER_CLUB) { console.warn(`sign-in by text: ${PER_CLUB} codes this hour already; not sending more until it calms down`); throw new KumiError("error.too_many_codes", {}, 429); }
-  const person = await personByPhone(db, phone);
+  // The club's texts paused past the monthly cap's ceiling (text_usage.ts): the same answer for every number.
   const club = await db.selectFrom("club").select(["name", "sign_up_open"]).executeTakeFirstOrThrow();
+  if (!(await textAllowed(db, "code", segments(textWords(club.name, t(lang, "sms.code", { code: "000000" }), lang, null, opts.memberUrl ?? "")), now)).ok) throw new KumiError("error.texts_paused", {}, 429);
+  const person = await personByPhone(db, phone);
   // A number with no account, at a club that isn't taking sign-ups: nothing is sent, and the answer is the same.
   if (!person && (!club.sign_up_open || opts.signUp === false)) return;
   // Taken by someone the number can't sign in (a junior whose parents haven't given them a login): the same.
@@ -111,7 +113,8 @@ export async function startPhoneSignIn(db: Db, texter: Texter, phone: string, la
   const id = uuidv7(now.getTime());
   await db.insertInto("auth_challenge").values({ id, kind: "phone_sign_in", person_id: person?.id ?? null, target: phone, code_hash: codeHash(id, code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
   const l = (person?.locale as Lang | undefined) ?? lang;
-  try { await texter.send({ to: phone, body: textWords(club.name, t(l, "sms.code", { code }), l, null, opts.memberUrl ?? "") }); }
+  const body = textWords(club.name, t(l, "sms.code", { code }), l, null, opts.memberUrl ?? "");
+  try { if ((await texter.send({ to: phone, body })).ref) await countText(db, "code", segments(body), now); }
   catch (e) {
     await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", id).execute();
     if (e instanceof TextError && e.code === UNSUBSCRIBED) throw new KumiError("error.phone_stopped", {}, 409);

@@ -16,6 +16,7 @@ import { defineAction, runAsSystem } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
+import { countHeld, countText, textAllowed, textPrice } from "./text_usage.ts";
 
 /** The version of the words a member says yes to. A new wording gets a new version, and the old yes stands. */
 export const TEXTS_FORM = "texts-2026-11-01";
@@ -67,11 +68,17 @@ export function gsm7(text: string): string {
   for (const ch of text.normalize("NFC")) out += GSM.has(ch) || GSM_EXT.has(ch) ? ch : PLAIN[ch] ?? "";
   return out.replace(/ {2,}/g, " ").trim();
 }
-/** How many texts a carrier counts this as: 160 plain characters in one, 153 each when it's longer. */
+/** How many texts a carrier counts (and Twilio bills) this as. Plain: 160 characters in one, 153 a part when
+ *  longer, with ^{}\\[~]|€ taking two and never split between parts. Anything else is sent as UCS-2: 70 in one,
+ *  67 a part, counted in UTF-16 units (an emoji takes two), and a pair is never split either. */
 export function segments(text: string): number {
-  const plain = [...text].every((ch) => GSM.has(ch) || GSM_EXT.has(ch));
-  const n = plain ? [...text].reduce((a, ch) => a + (GSM_EXT.has(ch) ? 2 : 1), 0) : [...text].length;
-  return plain ? (n <= 160 ? 1 : Math.ceil(n / 153)) : (n <= 70 ? 1 : Math.ceil(n / 67));
+  const chars = [...text], plain = chars.every((ch) => GSM.has(ch) || GSM_EXT.has(ch));
+  const width = (ch: string) => plain ? (GSM_EXT.has(ch) ? 2 : 1) : ch.length;
+  const total = chars.reduce((a, ch) => a + width(ch), 0), one = plain ? 160 : 70, part = plain ? 153 : 67;
+  if (total <= one) return 1;
+  let parts = 1, used = 0;
+  for (const ch of chars) { const w = width(ch); if (used + w > part) { parts++; used = 0; } used += w; }
+  return parts;
 }
 
 // ---- What came in ----
@@ -260,10 +267,13 @@ export async function sendTexts(db: Db, texter: Texter, o: { memberUrl: string; 
     const to = await textable(db, m.person_id);
     const why = m.stale_at && m.stale_at <= now ? "stale" : "why" in to ? to.why : null;
     if (why) { await db.updateTable("outbound_message").set({ status: "dropped", sent_at: null, failure: why }).where("id", "=", m.id).execute(); out.dropped++; continue; }
-    const words = textWords(club, m.body, m.lang === "es" ? "es" : "en", m.link, o.memberUrl);
+    const words = textWords(club, m.body, m.lang === "es" ? "es" : "en", m.link, o.memberUrl), segs = segments(words);
+    // Past the club's monthly cap (text_usage.ts): not sent; the message is in their inbox, and goes by email.
+    if (!(await textAllowed(db, "message", segs, now)).ok) { await heldByCap(db, m.id, words, now); out.dropped++; continue; }
     try {
       const r = await texter.send({ to: (to as { phone: string }).phone, body: words, ...(o.statusCallback ? { statusCallback: o.statusCallback } : {}) });
-      await db.updateTable("outbound_message").set({ body: words, provider_ref: r.ref, attempts: m.attempts + 1 }).where("id", "=", m.id).execute();
+      await db.updateTable("outbound_message").set({ body: words, provider_ref: r.ref, attempts: m.attempts + 1, segments: r.ref ? segs : null }).where("id", "=", m.id).execute();
+      if (r.ref) await countText(db, "message", segs, now);
       out.sent++;
     } catch (e) {
       const err = e instanceof TextError ? e : new TextError("network", (e as Error).message, false);
@@ -278,6 +288,22 @@ export async function sendTexts(db: Db, texter: Texter, o: { memberUrl: string; 
   return out;
 }
 
+/** A text the monthly cap kept back. It's in their inbox already; it goes by email too, where they have one and
+ *  weren't getting this message by email anyway. */
+async function heldByCap(db: Db, id: string, words: string, now: Date) {
+  const m = await db.updateTable("outbound_message").set({ status: "dropped", sent_at: null, body: words, failure: "monthly text cap reached" }).where("id", "=", id)
+    .returning(["event_id", "person_id", "kind"]).executeTakeFirstOrThrow();
+  await countHeld(db, now);
+  const email = (await db.selectFrom("person").select("email").where("id", "=", m.person_id).executeTakeFirst())?.email;
+  if (!email || !m.event_id) return;
+  const inbox = await db.selectFrom("outbound_message").selectAll().where("event_id", "=", m.event_id).where("person_id", "=", m.person_id).where("kind", "=", m.kind)
+    .where("channel", "=", "inbox").executeTakeFirst();
+  if (!inbox) return;
+  await db.insertInto("outbound_message").values({ id: uuidv7(now.getTime()), event_id: m.event_id, person_id: m.person_id, kind: m.kind, channel: "email", purpose: inbox.purpose,
+    essential: inbox.essential, lang: inbox.lang, subject: inbox.subject, body: inbox.body, link: inbox.link, status: "waiting", send_after: now, stale_at: inbox.stale_at, failure: null, sent_at: null, read_at: null })
+    .onConflict((oc) => oc.columns(["event_id", "person_id", "kind", "channel"]).doNothing()).execute();
+}
+
 /** Texting switched off: what was waiting to be texted won't be. */
 export async function dropWaitingTexts(db: Db): Promise<number> {
   const r = await db.updateTable("outbound_message").set({ status: "dropped", failure: "texts off" }).where("channel", "=", "sms").where("status", "=", "waiting").executeTakeFirst();
@@ -286,10 +312,12 @@ export async function dropWaitingTexts(db: Db): Promise<number> {
 
 /** Twilio's report on a text it took: when it reached the phone, or that it didn't (no retry: Twilio already
  *  tried, and the number won't change by itself). False when it isn't one of ours. */
-export async function textStatus(db: Db, r: { ref: string; status: string; errorCode?: string | null; now?: Date }): Promise<boolean> {
+export async function textStatus(db: Db, r: { ref: string; status: string; errorCode?: string | null; price?: string | null; now?: Date }): Promise<boolean> {
   const now = r.now ?? new Date();
   const m = await db.selectFrom("outbound_message").select(["id", "person_id", "status"]).where("provider_ref", "=", r.ref).where("channel", "=", "sms").executeTakeFirst();
   if (!m) return false;
+  // What it cost, when Twilio says (its status reports often don't; the estimate stands then).
+  if (r.price) await textPrice(db, r.ref, r.price, now);
   if (r.status === "delivered") await db.updateTable("outbound_message").set({ delivered_at: now }).where("id", "=", m.id).execute();
   else if (r.status === "undelivered" || r.status === "failed") {
     await db.updateTable("outbound_message").set({ status: "failed", failure: `twilio ${r.status}${r.errorCode ? ` ${r.errorCode}` : ""}` }).where("id", "=", m.id).execute();

@@ -36,6 +36,9 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 | `KUMI_TWILIO_FROM` | Or one number instead (`+15035550123`). | not set |
 | `KUMI_SMS_TEST_TO` | Comma-separated numbers that get real texts in practice mode (`+15035550123`). | none |
 
+The monthly text cap (1,500 segments to start) and the price per segment its estimate uses (1.26 cents) are
+the club's own settings, changed by the owner or a manager in the staff app (Settings, Texts), not here.
+
 ## Ask the club (a decision model, optional)
 
 | Setting | What it does | Default |

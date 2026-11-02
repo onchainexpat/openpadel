@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { assistantsOf, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration } from "@kumi/core";
+import { assistantsOf, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { readPeopleCsv } from "./csv.ts";
 
@@ -175,7 +175,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // Which decision model answers questions, if the server has one ("staff_only" if not): Settings says so.
     // Texts: whether they go, and where the carrier registration `kumi texting` runs stands (texting.ts).
     const reg = await textingRegistration(db);
-    const texting = { on: textingOn(), status: reg?.status ?? null, number: reg?.phone_number ?? null, said: reg ? textingStatusText(reg, lang(c), club.time_zone) : [] };
+    const texting = { on: textingOn(), status: reg?.status ?? null, number: reg?.phone_number ?? null, said: reg ? textingStatusText(reg, lang(c), club.time_zone) : [], usage: await textUsage(db) };
     // Each court's own week: a weekday it has no hours of its own for is left out (it follows the location's).
     const courtWeek = (id: string) => own.filter((x) => x.court_id === id).sort((a, b) => a.weekday - b.weekday).map((x) => ({ weekday: x.weekday, opens: t5(x.opens), closes: t5(x.closes) }));
     return c.json({ club, answerer: currentAnswerer().name, texting, policy, plans, waiver: waiver ? { version_no: waiver.version_no, body: waiver.body } : null, locations: locations.map((l) => ({ ...l,

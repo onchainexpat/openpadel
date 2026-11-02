@@ -2,8 +2,8 @@
 // the next step. An agent setting up a club runs it first and after every step, and works on the first
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { readdirSync, statSync } from "node:fs";
-import { both, type Key, type Text } from "@kumi/i18n";
-import { answerCounts, clubStripeAccount, heartbeats, parseSecretKey, pendingMigrations, StripeProvider, textCounts, textingRegistration, type Db } from "@kumi/core";
+import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
+import { answerCounts, clubStripeAccount, heartbeats, NEAR_SHARE, parseSecretKey, pendingMigrations, StripeProvider, textCounts, textingRegistration, textUsage, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { checkTwilio, hasSender, twilioFromEnv } from "./twilio.ts";
 import { answerModels, checkAnswerKeys } from "./answerer.ts";
@@ -19,7 +19,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   const checks: Check[] = [], now = deps.now ?? new Date(), production = env.NODE_ENV === "production";
   // Docker installs (the image sets KUMI_INSTALL=docker) run backups from a service, not systemd timers.
   const docker = env.KUMI_INSTALL === "docker", opsDoc = docker ? "deploy/docker/README.md" : "deploy/README.md", d = docker ? "_docker" : "";
-  const add = (id: string, state: CheckState, key: string, params: Record<string, string | number> = {}, doc?: string) =>
+  const add = (id: string, state: CheckState, key: string, params: Params = {}, doc?: string) =>
     checks.push({ id, state, text: both(`doctor.${key}` as Key, params), ...(doc ? { doc } : {}) });
   add("version", "ok", "version", { version: VERSION });
 
@@ -85,6 +85,13 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
     else if (total >= 5 && sent.failed / total > 0.2) add("texts", "warn", "texts.failing", { failed: sent.failed, total }, twDoc);
     else if (!production || env.KUMI_PRACTICE === "1") add("texts", "warn", "texts.practice", { count: (env.KUMI_SMS_TEST_TO ?? "").split(",").filter((n) => n.trim()).length });
     else add("texts", "ok", "texts.ok", { sent: sent.sent, failed: sent.failed });
+  }
+  // This month's texts against the club's monthly cap (text_usage.ts): a look once 80% of it is used.
+  const use = tw ? await textUsage(db, now).catch(() => null) : null;
+  if (use) {
+    const p = { texts: use.current.texts, segments: use.current.segments, cap: use.cap, share: Math.round((use.share ?? 0) * 100),
+      money: { en: money(use.current.estimate_cents, "en"), es: money(use.current.estimate_cents, "es") } };
+    add("text_usage", use.paused || (use.share ?? 0) >= NEAR_SHARE ? "warn" : "ok", use.paused ? "text_usage.paused" : "text_usage.month", p, twDoc);
   }
 
   // Ask the club: optional. Each model is asked whether it takes its key (listing models, which costs nothing), and

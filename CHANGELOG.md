@@ -380,6 +380,16 @@ The first version a club can run on its own (court bookings included), or for it
   wins). A rejection comes with each reason and its fix; `apply` sends the corrected verification while
   Twilio allows edits, and a new one (with `--yes`) after. Local numbers (A2P 10DLC) stay in Twilio's
   console. The Twilio keys alone no longer stop the server from starting: without a sender, texts are off.
+- Texts are counted per club month in carrier segments, the way Twilio bills them (160 plain characters in
+  one, 153 a part when longer; 70 and 67 for anything outside the plain alphabet), with an estimate at the
+  club's price per segment (1.26 cents to start) and Twilio's own price when its delivery report gives one.
+  A monthly cap, 1,500 segments to start (about $19), is set in Settings, Texts by the owner or a manager,
+  at once. At 80% the owner and managers hear once, and once more at the cap. Past the cap, texts that can
+  wait aren't sent: the message is in the member's inbox and goes by email where they have one. Sign-in and
+  confirm-number codes and the HELP and START answers carriers require keep going up to twice the cap (at
+  least 100 segments), so nobody is locked out; past that, phone sign-in says to use email. A new month
+  starts fresh, and raising the cap lets texts go again at once and closes the cap's alert on Today.
+  Settings shows this month and the eleven before it; `kumi doctor` and `/health/deep` show the month too.
 - Wording: a reason or note someone typed that ends its own sentence ("Fine for now.") no longer shows a
   second full stop after it. A message's preview of who it reaches names only people it will reach (club
   news never names someone left out for having said no). Creating an Americano (or another format) says so

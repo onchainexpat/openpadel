@@ -19,6 +19,7 @@ import { receiptParams } from "./receipts.ts";
 import { roleLabel } from "./roles.ts";
 import { needsTwoFactor } from "./two_factor.ts";
 import type { OpsJob } from "./ops.ts";
+import { nextMonthStart } from "./text_usage.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -453,6 +454,14 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   // ...and once more when it works again.
   async "ops.cleared"({ db }, p: { job: OpsJob }) {
     return (await managers(db)).map((to) => ({ to, kind: "ops_cleared_staff", params: { job: both(`ops.job_${p.job}`) }, purpose: "staff" as const, essential: true, email: true, link: "/" }));
+  },
+  // The club's texts this month (text_usage.ts): 80% of the cap, then the cap itself. Each said once per cap.
+  async "texts.usage"({ db, tz }, p: { level: "near" | "reached"; used: number; cap: number; month: string }) {
+    const cost = Number((await db.selectFrom("club").select("text_segment_cost").executeTakeFirstOrThrow()).text_segment_cost);
+    const cents = Math.round(p.used * cost), resets = nextMonthStart(p.month, tz);
+    const params = { used: p.used, cap: p.cap, money: amount(cents), resets: dayText(localDate(resets, tz)) };
+    return (await managers(db)).map((to) => ({ to, kind: p.level === "near" ? "texts_cap_near_staff" : "texts_cap_reached_staff", params, purpose: "staff" as const, essential: true, email: true,
+      link: "/settings", staleAt: resets }));
   },
   async "question.assigned"(_c, p: { question_id: string; to: string; by: string; person: string; question: string }) {
     return [{ to: p.to, kind: "question_assigned_staff", params: { by: p.by, person: p.person, question: p.question }, purpose: "staff" as const, essential: false, email: false, link: `/questions/${p.question_id}` }];

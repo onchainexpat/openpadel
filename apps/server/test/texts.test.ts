@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { runAsSystem, setTexting, TestTexter, TextError, type Db } from "@kumi/core";
+import { countText, runAsSystem, setTexting, TestTexter, TextError, textUsage, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 import { PracticeTexter, TwilioTexter, twilioFromEnv, twilioSignature, validSignature } from "../src/twilio.ts";
@@ -94,6 +94,30 @@ test("Twilio's delivery reports find the text they're about", async () => {
   assert.equal((await fromTwilio("/webhooks/twilio/status", { MessageSid: "SM00000000000000000000000000000001", MessageStatus: "undelivered", ErrorCode: "30003" })).status, 204);
   const row = await db.selectFrom("outbound_message").select(["status", "failure"]).where("provider_ref", "=", "SM00000000000000000000000000000001").executeTakeFirstOrThrow();
   assert.deepEqual(row, { status: "failed", failure: "twilio undelivered 30003" });
+});
+
+test("the monthly text cap: Twilio's price is kept; HELP is answered past the cap, other replies aren't; codes stop only at the ceiling, the same for every number", async () => {
+  // The texts so far this month were counted: the codes and the answers above.
+  const before = (await textUsage(db))!.current;
+  assert.ok(before.texts >= 5 && before.code_texts >= 4, JSON.stringify(before));
+  await db.insertInto("outbound_message").values({ id: "01900000-0000-7000-8000-000000000002", event_id: null, person_id: (await call("/me")).json.person.id, kind: "booking_cancelled", channel: "sms",
+    purpose: "account", essential: true, lang: "en", subject: "x", body: "x", link: null, status: "sent", send_after: new Date(), stale_at: null, provider_ref: "SM00000000000000000000000000000002" }).execute();
+  await fromTwilio("/webhooks/twilio/status", { MessageSid: "SM00000000000000000000000000000002", MessageStatus: "delivered", Price: "-0.00830", PriceUnit: "USD" });
+  assert.equal((await textUsage(db))!.current.priced, 1);
+  // A cap of 0: no texts that can wait, and codes up to the floor of 100 segments.
+  await db.updateTable("club").set({ text_cap_segments: 0 }).execute();
+  await countText(db, "code", 98 - (await textUsage(db))!.current.segments);
+  const form = { From: "+15035550191", To: "+15035550000", Body: "help", MessageSid: "SMy" };
+  assert.match((await fromTwilio("/webhooks/twilio/sms", form)).text, /<Message>Kestrel Padel: Texts about your bookings/);
+  assert.doesNotMatch((await fromTwilio("/webhooks/twilio/sms", { ...form, Body: "what time is it?" })).text, /<Message>/);
+  const sign = (phone: string) => app.request("/auth/phone/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ phone }) });
+  assert.equal((await sign("503 555 0192")).status, 200);   // the 100th segment
+  for (const phone of ["503 555 0193", "503 555 0142"]) {    // nobody's, and someone's: the same answer
+    const r = await sign(phone);
+    assert.deepEqual([r.status, (await r.json() as any).error], [429, "error.texts_paused"]);
+  }
+  assert.deepEqual([(await textUsage(db))!.current.segments, (await textUsage(db))!.paused], [100, true]);
+  await db.updateTable("club").set({ text_cap_segments: 1500 }).execute();
 });
 
 test("Twilio's settings, its signature and the practice sender", async () => {

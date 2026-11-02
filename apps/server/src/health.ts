@@ -5,7 +5,7 @@
 import { statfsSync } from "node:fs";
 import type { Context } from "hono";
 import { sql } from "kysely";
-import { answerCounts, heartbeats, jobFailed, jobWorked, KumiError, MAX_ATTEMPTS, textCounts, textingOn, type Db } from "@kumi/core";
+import { answerCounts, heartbeats, jobFailed, jobWorked, KumiError, MAX_ATTEMPTS, textCounts, textingOn, textUsage, type Db } from "@kumi/core";
 import { both } from "@kumi/i18n";
 import { newestLocalAge } from "./backups.ts";
 import { handledTopics } from "./outbox.ts";
@@ -62,7 +62,10 @@ export async function deepHealth(db: Db, o: { env?: Env; now?: Date; backupDir?:
   if (restore.error || (restore.last_ok_hours !== null && restore.last_ok_hours > 40 * 24)) problems.push("restore_test");
 
   // Texts in the last day, when the club texts: more than a fifth failing means they aren't getting through.
-  const t = await textCounts(db, now), texts = { on: textingOn(), ...t };
+  // And this month's, against the club's cap (text_usage.ts): reaching it is the club's own limit, not a fault.
+  const use = await textUsage(db, now), month = use && { texts: use.current.texts, segments: use.current.segments, cap: use.cap, held: use.current.held,
+    estimate_cents: use.current.estimate_cents, actual_cents: use.current.priced ? use.current.actual_cents : null, paused: use.paused };
+  const t = await textCounts(db, now), texts = { on: textingOn(), ...t, month };
   if (texts.on && t.sent + t.failed >= 5 && t.failed / (t.sent + t.failed) > 0.2) problems.push("texts");
 
   // Ask the club, when a decision model is set up: the last day's questions, from the database only (no model is

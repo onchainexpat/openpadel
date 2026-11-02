@@ -9,7 +9,7 @@ import { Hono, type Context } from "hono";
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { t, type Lang } from "@kumi/i18n";
-import { confirmedPhone, keyword, KumiError, runAsSystem, showPhone, startNumber, stopNumber, textingOn, textsAnswer, textStatus, textWords, TEXTS_FORM, TextError,
+import { confirmedPhone, countText, keyword, KumiError, segments, textAllowed, runAsSystem, showPhone, startNumber, stopNumber, textingOn, textsAnswer, textStatus, textWords, TEXTS_FORM, TextError,
   UNSUBSCRIBED, usPhone, uuidv7, type Db, type Texter } from "@kumi/core";
 import { RateLimiter } from "./limits.ts";
 import { validSignature } from "./twilio.ts";
@@ -68,7 +68,10 @@ export function textRoutes(d: TextDeps) {
     if (await count(null) >= PER_CLUB) { console.warn(`texts: ${PER_CLUB} codes this hour already; not sending more until it calms down`); throw new KumiError("error.phone_too_many", {}, 429); }
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0"), cid = uuidv7(now.getTime());
     await db.insertInto("auth_challenge").values({ id: cid, kind: "phone_code", person_id: id, target: phone, code_hash: codeHash(cid, code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
-    try { await d.texter!.send({ to: phone, body: textWords(await clubName(), t(lang, "sms.code", { code }), lang, null, d.memberUrl) }); }
+    const body = textWords(await clubName(), t(lang, "sms.code", { code }), lang, null, d.memberUrl), segs = segments(body);
+    // Codes keep going past the monthly text cap, up to its ceiling (text_usage.ts).
+    if (!(await textAllowed(db, "code", segs, now)).ok) { await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", cid).execute(); throw new KumiError("error.texts_paused", {}, 429); }
+    try { if ((await d.texter!.send({ to: phone, body })).ref) await countText(db, "code", segs, now); }
     catch (e) {
       await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", cid).execute();
       if (e instanceof TextError && e.code === UNSUBSCRIBED) throw new KumiError("error.phone_stopped", {}, 409);
@@ -122,17 +125,25 @@ export function textRoutes(d: TextDeps) {
       .where("auth_identity.kind", "=", "phone").where("auth_identity.value", "=", from).executeTakeFirst();
     const lang: Lang = person?.locale === "es" ? "es" : "en", club = await clubName();
     const say = (key: Parameters<typeof t>[1], link: string | null) => textWords(club, t(lang, key), lang, link, d.memberUrl);
+    // An answer is a text the club pays for too (text_usage.ts): HELP and START, which carriers require, go up to
+    // the cap's ceiling like codes; the rest stop at the cap.
+    const answer = async (text: string, use: "message" | "code") => {
+      const segs = segments(text);
+      if (!(await textAllowed(db, use, segs, now)).ok) return twiml(c);
+      await countText(db, use, segs, now);
+      return twiml(c, text);
+    };
     if (word === "stop") { await stopNumber(db, from, said, now); return twiml(c); }
-    if (word === "start") return twiml(c, (await startNumber(db, from, now)).people ? say("sms.start_on", null) : say("sms.start_none", "/profile"));
-    if (word === "help") return twiml(c, say("sms.help", "/"));
+    if (word === "start") return answer((await startNumber(db, from, now)).people ? say("sms.start_on", null) : say("sms.start_none", "/profile"), "code");
+    if (word === "help") return answer(say("sms.help", "/"), "code");
     if (!answered.take(from, now.getTime())) return twiml(c);
-    return twiml(c, word === "near_stop" ? say("sms.near_stop", null) : say("sms.not_read", "/"));
+    return answer(word === "near_stop" ? say("sms.near_stop", null) : say("sms.not_read", "/"), "message");
   });
 
   // Twilio's report on a text: delivered, or not.
   app.post("/webhooks/twilio/status", async (c) => {
     const p = await signed(c);
-    if (p.MessageSid && p.MessageStatus) await textStatus(db, { ref: p.MessageSid, status: p.MessageStatus, errorCode: p.ErrorCode ?? null, now: d.now() });
+    if (p.MessageSid && p.MessageStatus) await textStatus(db, { ref: p.MessageSid, status: p.MessageStatus, errorCode: p.ErrorCode ?? null, price: p.Price ?? null, now: d.now() });
     return c.body(null, 204);
   });
 
