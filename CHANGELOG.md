@@ -276,8 +276,10 @@ The first version a club can run on its own (court bookings included), or for it
   sign-ins, devices, friends and family links, here and in the history (Changes, events, other people's
   messages and level reasons), and keeps payments, refunds and game results under "Former member"
   ("Exmiembro" in Spanish), so the books and other players' levels still add up. Juniors only they
-  manage go with them. The owner can do either for a member who asks (a manager asks the owner), and
-  the club is told each time.
+  manage go with them. The owner can do either for a member who asks (a manager asks the owner; once
+  the owner approves, the manager who asked is sent the download link, theirs alone, for 15 minutes), and
+  the club is told each time. A parent who alone manages a junior downloads the junior's data or deletes
+  their account from Family; with another parent in the family, the club does it.
 - Asking the club: the club's own answers ("club facts", in each of its languages) show in the app as
   Common questions, searched by plain words, before a member asks; the ones the club marks public are
   on its public page too, with FAQ markup. What a member still asks (or a parent, about a junior) is a

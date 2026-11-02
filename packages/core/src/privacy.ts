@@ -279,6 +279,10 @@ export const privacyExport = defineAction({
   },
   async apply(ctx, i) {
     await ctx.emit("privacy.exported", { person_id: i.person_id, by: ctx.actor.personId, self: ctx.actor.personId === i.person_id, at: ctx.now.toISOString() });
+    // A manager's download, applied now because the owner approved it: the manager who asked isn't there to get
+    // the file, so they're sent its link, theirs alone, for the same few minutes (exportRun checks who's asking).
+    const waited = (await ctx.trx.selectFrom("action_run").select("status").where("id", "=", ctx.runId).executeTakeFirst())?.status === "awaiting_approval";
+    if (waited && ctx.actor.personId) await ctx.emit("privacy.export_ready", { to: ctx.actor.personId, person_id: i.person_id, run_id: ctx.runId, minutes: EXPORT_MINUTES });
     // The file itself is made when it's fetched (never stored, and never in Changes).
     return { person_id: i.person_id, download: `/my/privacy/export/${ctx.runId}` };
   },
@@ -298,6 +302,9 @@ export const privacyErase = defineAction({
   async plan(ctx, i) {
     const s = await subject(ctx, i.person_id);
     if (s.self && s.row.junior) throw new KumiError("error.privacy_kid_parent");
+    // A parent deletes a junior's account only when they alone manage them; with another parent, it's the club's.
+    if (!s.self && s.row.junior && ctx.actor.personId && s.ownerIds.includes(ctx.actor.personId) && (await managersOf(ctx.db, i.person_id)).length > 1)
+      throw new KumiError("error.privacy_kid_two_parents", { name: s.row.display_name });
     const c = await deleteCheck(ctx.db, i.person_id, ctx.now);
     if (c.blockers.length) throw new KumiError("error.privacy_blocked", { list: joinTexts(c.blockers.map((b) => both("privacy.blocker_line", { text: b.text, how: b.how })), "; ") });
     const also: Text[] = [...c.ends];

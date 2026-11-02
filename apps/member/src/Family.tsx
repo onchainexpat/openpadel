@@ -4,7 +4,7 @@
 // they ask for, and saves that card; a kid with a login sees their own rules and requests here.
 // Loaded only when one of these pages is opened, to keep the app small.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
+import { AccountData, api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { loadFamily } from "./ForWhom.tsx";
 import { PaySheet } from "./Pay.tsx";
 
@@ -29,6 +29,8 @@ function ParentFamily() {
   const [f, setF] = useState<Page | null>(null), [name, setName] = useState(""), [year, setYear] = useState(""), [copied, setCopied] = useState<string | null>(null);
   const [loginFor, setLoginFor] = useState<string | null>(null), [email, setEmail] = useState("");
   const [k, setK] = useState<Kids | null>(null), [kidLoginFor, setKidLoginFor] = useState<string | null>(null), [rulesFor, setRulesFor] = useState<string | null>(null);
+  // A junior's data: downloaded, or their account deleted (only by a parent who alone manages them; the server says).
+  const [dataFor, setDataFor] = useState<string | null>(null);
   const [paying, setPaying] = useState<{ id: string; cents: number; name: string } | "card" | null>(null), [note, setNote] = useState<string | null>(null), [provider, setProvider] = useState("test");
   const loadKids = () => api<Kids>("/my/kids").then(setK);
   const load = () => Promise.all([api<Page>("/my/household").then(setF), loadKids()]);
@@ -72,10 +74,12 @@ function ParentFamily() {
                   && <button class="small" onClick={() => setKidLoginFor(j.id)}>{t("ui.kid_login_turn_on")}</button>}{" "}
                 {kidOf(j.id)?.own_login && <><button class="small" onClick={() => setRulesFor(rulesFor === j.id ? null : j.id)}>{t("ui.kid_rules_button")}</button>{" "}
                   <button class="small" onClick={() => preview("kid.remove_login", { person_id: j.id })}>{t("ui.kid_login_off")}</button>{" "}</>}
-                <button class="small" onClick={() => preview("household.remove_junior", { person_id: j.id })}>{t("ui.remove")}</button>
+                <button class="small" onClick={() => preview("household.remove_junior", { person_id: j.id })}>{t("ui.remove")}</button>{" "}
+                <button class="small" onClick={() => setDataFor(dataFor === j.id ? null : j.id)}>{t("ui.junior_data")}</button>
               </span>}
               </div>
               {kidOf(j.id)?.own_login && <div class="meta">{t("ui.kid_has_login", { email: kidOf(j.id)!.email ?? "" })} · {t("ui.kid_spent", { spent: usd(kidOf(j.id)!.spent_cents), limit: usd(kidOf(j.id)!.rules!.monthly_limit_cents) })}</div>}
+              {dataFor === j.id && <AccountData personId={j.id} self={false} onDeleted={() => { setDataFor(null); void load(); }} />}
               {rulesFor === j.id && kidOf(j.id)?.rules && <KidRules id={j.id} name={j.display_name} rules={kidOf(j.id)!.rules!} send={preview} />}
             </li>))}</ul>
           {loginFor && <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("household.give_login", { person_id: loginFor, email }); }}>

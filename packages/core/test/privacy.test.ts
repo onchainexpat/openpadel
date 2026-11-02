@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { sql } from "kysely";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, deleteCheck, exportData, exportRun, managersOf, messageHandlers, openPayment, plan, processOutbox, run, runAsSystem, setPaymentProvider, subscribePush,
+import { approve, checkPayment, deleteCheck, exportData, exportRun, managersOf, messageHandlers, openPayment, plan, processOutbox, run, runAsSystem, setPaymentProvider, subscribePush,
   KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, court: string, match: string, mia: string, leo: string;
@@ -179,4 +179,36 @@ test("for anyone else, a manager asks the owner; front desk can't", async () => 
   const desk = ((await run(db, "person.create", { display_name: "Dot Desk", email: "dot@example.test" }, owner, { now: NOW })).result as any).person_id;
   await run(db, "role.assign", { person_id: desk, role: "front_desk" }, owner, { now: NOW });
   await rejects(plan(db, "privacy.export", { person_id: people.Eve }, { personId: desk, via: "test", lang: "en" }, { now: LATER }), "error.forbidden_reason");
+});
+
+test("a manager's download, once the owner approves it: the manager who asked gets the link, theirs alone, for 15 minutes", async () => {
+  const mgr = (await db.selectFrom("person").select("id").where("email", "=", "mo@example.test").executeTakeFirstOrThrow()).id;
+  const p = await plan(db, "privacy.export", { person_id: people.Eve }, { personId: mgr, via: "test", lang: "en" }, { now: LATER });
+  assert.equal(p.status, "awaiting_approval");
+  await approve(db, p.runId, owner, { now: LATER });
+  await processOutbox(db, messageHandlers);
+  const told = await db.selectFrom("outbound_message").select(["subject", "link", "channel"]).where("person_id", "=", mgr).where("kind", "=", "privacy_export_ready_staff").execute();
+  assert.deepEqual(told.map((m) => m.channel).sort(), ["email", "inbox"]);
+  assert.equal(told[0]!.link, `/my/privacy/export/${p.runId}`);
+  assert.match(told[0]!.subject, /^Ready to download: Eve/);
+  assert.equal(await exportRun(db, p.runId, mgr, new Date(LATER.getTime() + 14 * 60_000)), people.Eve);
+  await rejects(exportRun(db, p.runId, owner.personId!, LATER), "error.privacy_export_gone");   // not the owner's
+  await rejects(exportRun(db, p.runId, mgr, new Date(LATER.getTime() + 16 * 60_000)), "error.privacy_export_gone");
+  // The owner's own download is theirs at once: nobody else is sent a link.
+  const own = await run(db, "privacy.export", { person_id: people.Eve }, owner, { now: LATER });
+  await processOutbox(db, messageHandlers);
+  assert.equal((await db.selectFrom("outbound_message").select("id").where("kind", "=", "privacy_export_ready_staff").execute()).length, 2);
+  assert.ok((own.result as any).download);
+});
+
+test("a parent deletes a junior's account only when they alone manage them", async () => {
+  // Leo's other parent (Dee) is gone: Eve alone manages him now, so she can.
+  const p = await plan(db, "privacy.erase", { person_id: leo }, { ...as("Eve"), auth: "two_factor" }, { now: LATER });
+  assert.match(p.plan.summary.en, /Leo Marsh/);
+  // With another parent in the family, it's the club's to do.
+  const hh = (await db.selectFrom("household_member").select("household_id").where("person_id", "=", leo).where("removed_at", "is", null).executeTakeFirstOrThrow()).household_id;
+  const other = ((await run(db, "person.create", { display_name: "Gus Marsh", email: "gus.marsh@example.test" }, owner, { now: NOW })).result as any).person_id;
+  await db.insertInto("household_member").values({ id: crypto.randomUUID(), household_id: hh, person_id: other, role: "adult", added_by: null, removed_at: null }).execute();
+  await rejects(plan(db, "privacy.erase", { person_id: leo }, { ...as("Eve"), auth: "two_factor" }, { now: LATER }), "error.privacy_kid_two_parents");
+  await rejects(plan(db, "privacy.erase", { person_id: leo }, { personId: other, via: "test", lang: "en", auth: "two_factor" }, { now: LATER }), "error.privacy_kid_two_parents");
 });
