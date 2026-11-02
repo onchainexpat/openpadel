@@ -127,8 +127,12 @@ up keep the price they agreed to, so a member price is fairest set before the fi
 Members join in the app (Membership) and pay by card. Kumi renews each membership from that card when
 its month or year is up, at the price the member joined at. If the card is declined, the membership
 carries on while Kumi tries again two days later and three days after that, and the member can pay
-with another card meanwhile; after the third try it ends. Members cancel in the app, and it runs to
-the end of what they've paid. A plan with "join in the app" off is only given at the desk.
+with another card meanwhile; after the third try it ends. The owner and managers hear of the first
+declined try (by email and in the staff app, once, not at every try), with the bank's
+reason when it gives one and a link to the member, and it stays on the Courts page's alerts until
+someone marks it handled. Paid after all, the alert closes by itself and they hear so; ended after the
+last try, they hear that instead, and it takes the alert's place. Members cancel in the app, and it
+runs to the end of what they've paid. A plan with "join in the app" off is only given at the desk.
 
 A family plan covers a household on one card, the payer's: give the plan how many people it covers
 (the payer included) and, if more can be added, the price of each one more a month or a year. The

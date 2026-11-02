@@ -129,7 +129,8 @@ function AlertList({ a, clock, preview }: { a: Alerts; clock: (s: string) => str
           </li>))}</ul>
       )}
       {a.handled.length > 0 && <details><summary class="meta">{t("count.alerts_handled", { count: a.handled.length })}</summary>
-        <ul class="plain">{a.handled.map((x) => <li class="meta">{t("ui.alert_handled_by", { subject: x.subject, name: x.handled_by, time: clock(x.handled_at) })}</li>)}</ul></details>}
+        <ul class="plain">{a.handled.map((x) => <li class="meta">{x.handled_by ? t("ui.alert_handled_by", { subject: x.subject, name: x.handled_by, time: clock(x.handled_at) })
+          : t("ui.alert_closed", { subject: x.subject, time: clock(x.handled_at) })}</li>)}</ul></details>}
     </section>
   );
 }

@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, memberPlan, onDate, messageHandlers, openPayment, plan, processOutbox, renewMemberships, run, runAsSystem, setPaymentProvider, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { checkPayment, declineReason, memberPlan, onDate, messageHandlers, openPayment, plan, processOutbox, renewMemberships, run, runAsSystem, setPaymentProvider, staffAlerts, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, monthly: string, annual: string, deskOnly: string;
 const stripe = new TestProvider();
@@ -21,6 +21,11 @@ async function pay(paymentId: string, who: string, now = NOW) {
 }
 const join = async (who: string, planId: string, now = NOW) => (await run(db, "membership.join", { plan_id: planId, person_id: people[who] }, as(who), { now })).result as { payment_id: string };
 const membership = (who: string) => db.selectFrom("membership").selectAll().where("person_id", "=", people[who]!).orderBy("started_at", "desc").executeTakeFirstOrThrow();
+/** What the owner was told: every copy of one kind (each email, or each inbox message). */
+const toOwner = (kind: string, channel: "email" | "inbox" = "email") => db.selectFrom("outbound_message").select(["subject", "body", "link"]).where("person_id", "=", owner.personId!).where("kind", "=", kind)
+  .where("channel", "=", channel).orderBy("created_at").execute();
+/** The owner's Today view: its alerts (the list looks back from the real clock, when the messages were written). */
+const today = async () => staffAlerts(db, owner.personId!, new Date());
 const email = (who: string, kind: string) => db.selectFrom("outbound_message").select(["subject", "body"]).where("person_id", "=", people[who]!).where("kind", "=", kind).where("channel", "=", "email").orderBy("created_at", "desc").executeTakeFirstOrThrow();
 
 before(async () => {
@@ -91,6 +96,11 @@ test("a failed renewal: still a member, tried again later, or paid by hand with 
   await processOutbox(db, messageHandlers);
   assert.equal((await email("Ben", "membership_payment_failed")).body,
     "We couldn't take $800.00 for your Annual membership. Your membership carries on: we'll try your card again on February 2, 2027, or you can pay now with another card in the app.");
+  // The owner and managers hear too, once: why, what happens next, and a link to Ben's page. It waits on Today.
+  const [alert] = await toOwner("membership_payment_failed_staff");
+  assert.deepEqual(alert, { subject: "A membership renewal didn't go through: Ben", link: `/people/${people.Ben}`,
+    body: "Ben's Annual membership couldn't renew: the $800.00 payment didn't go through (the card was declined). They stay a member meanwhile. The card is tried again on February 2, 2027, and they can pay with another card in the app. If it's still not paid on February 5, 2027, the membership ends. You're told once, not at every try." });
+  assert.deepEqual((await today()).open.map((a) => a.kind), ["membership_payment_failed_staff"]);
   assert.equal((await renewMemberships(db, la("2027-02-01", "10:00"))).failed, 0);   // not before the retry
   // Ben pays it himself with another card: renewed for a year from when it was due, on the new card.
   await pay(payNow.id, "Ben", la("2027-02-01", "11:00"));
@@ -100,11 +110,24 @@ test("a failed renewal: still a member, tried again later, or paid by hand with 
   const ref = (await db.selectFrom("payment").select("provider_ref").where("id", "=", payNow.id).executeTakeFirstOrThrow()).provider_ref!;
   assert.equal(m.saved_method, stripe.intents.get(ref)!.paymentMethod);
   assert.equal((await renewMemberships(db, la("2027-02-02", "10:00"))).renewed, 0);
+  // The owner hears it's sorted, and the alert needs nobody now: closed with no one's name.
+  await processOutbox(db, messageHandlers);
+  // Only Ben's: Ann's renewals, paid on the day, told the staff nothing.
+  assert.deepEqual((await toOwner("membership_renewal_paid_staff")).map((m) => m.body), ["Ben's Annual membership is paid after all ($800.00), so nothing more is needed about its failed renewal."]);
+  const t = await today();
+  assert.deepEqual([t.open.length, t.handled.map((a) => [a.kind, a.handled_by])], [0, [["membership_payment_failed_staff", ""]]]);
+});
+
+test("why a card was declined, as the staff read it: a bank's reason, or nothing when it means nothing to a person", () => {
+  assert.deepEqual(declineReason("insufficient_funds"), { en: " (the card doesn't have enough funds)", es: " (la tarjeta no tiene fondos suficientes)" });
+  assert.equal(declineReason("stolen_card").en, " (the card was declined)");   // as Stripe advises
+  assert.equal(declineReason("authentication_required").en, " (the bank wants the cardholder to approve it)");
+  assert.deepEqual([declineReason("idempotency_error").en, declineReason(null).en], ["", ""]);
 });
 
 test("three failed tries end it; a cancelled membership ends at its period without a charge; keeping it after all", async () => {
   await pay((await join("Cal", monthly, la("2026-03-01", "12:00"))).payment_id, "Cal", la("2026-03-01", "12:00"));
-  for (const [day, hhmm] of [["2026-04-01", "12:00"], ["2026-04-03", "12:00"]]) { stripe.failNextCharge = "card_declined"; assert.equal((await renewMemberships(db, la(day!, hhmm!))).failed, 1); }
+  for (const [day, hhmm] of [["2026-04-01", "12:00"], ["2026-04-03", "12:00"]]) { stripe.failNextCharge = day === "2026-04-01" ? "expired_card" : "card_declined"; assert.equal((await renewMemberships(db, la(day!, hhmm!))).failed, 1); }
   stripe.failNextCharge = "card_declined";
   assert.equal((await renewMemberships(db, la("2026-04-06", "12:00"))).ended, 1);
   const cal = await membership("Cal");
@@ -129,6 +152,14 @@ test("three failed tries end it; a cancelled membership ends at its period witho
 
   await processOutbox(db, messageHandlers);
   assert.equal((await email("Cal", "membership_ended_unpaid")).body, "Your Monthly membership has ended because its payment didn't go through. You can join again in the app any time.");
+  // The owner heard once of the failure (not at the second try), then that it ended; the ending takes the failure's place on Today.
+  const failed = (await toOwner("membership_payment_failed_staff", "inbox")).filter((m) => m.subject.endsWith(": Cal"));
+  assert.equal(failed.length, 1);
+  assert.match(failed[0]!.body, /^Cal's Monthly membership couldn't renew: the \$\d+\.\d{2} payment didn't go through \(the card has expired\)\. .* tried again on April 3, 2026, .* not paid on April 6, 2026, the membership ends\./);
+  // Only Cal's: Dee's, cancelled, told the staff nothing.
+  assert.deepEqual((await toOwner("membership_ended_unpaid_staff")).map((m) => [m.subject, m.body, m.link]), [["A membership ended unpaid: Cal",
+    "Cal's Monthly membership has ended: its renewal still didn't go through on the last try. They can join again in the app.", `/people/${people.Cal}`]]);
+  assert.deepEqual((await today()).open.map((a) => [a.kind, a.subject]), [["membership_ended_unpaid_staff", "A membership ended unpaid: Cal"]]);
   assert.equal((await email("Dee", "membership_cancelled")).body,
     "Your Monthly membership is cancelled. It won't be charged again, and it runs until April 1, 2026. Changed your mind? You can keep it in the app until then.");
   assert.equal((await email("Dee", "membership_ended")).subject, "Your membership has ended: Monthly");

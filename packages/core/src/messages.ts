@@ -7,7 +7,7 @@ import type { Db, Trx } from "./db.ts";
 import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts } from "./clock.ts";
-import { dayText, endDay, kindList } from "./memberships.ts";
+import { dayText, endDay, kindList, lastTryAt } from "./memberships.ts";
 import { band } from "./match_rules.ts";
 import { gameView } from "./results.ts";
 import { hasPushDevice } from "./push.ts";
@@ -79,6 +79,23 @@ async function managers(db: Db): Promise<string[]> {
   const rows = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
     .where("role.key", "in", ["owner", "manager"]).where("person_role.active", "=", true).distinct().execute();
   return rows.map((r) => r.person_id);
+}
+/** Why a card was declined, as the staff can read it: a bank's reason Stripe passes on, or nothing when it's
+ *  one that means nothing to a person. Lost or stolen cards read as declined, as Stripe advises. */
+const DECLINES: Record<string, Key> = {
+  card_declined: "msg.decline_declined", generic_decline: "msg.decline_declined", do_not_honor: "msg.decline_declined", requires_payment_method: "msg.decline_declined",
+  lost_card: "msg.decline_declined", stolen_card: "msg.decline_declined", pickup_card: "msg.decline_declined", fraudulent: "msg.decline_declined",
+  restricted_card: "msg.decline_declined", call_issuer: "msg.decline_declined", transaction_not_allowed: "msg.decline_declined",
+  insufficient_funds: "msg.decline_funds", card_velocity_exceeded: "msg.decline_limit", withdrawal_count_limit_exceeded: "msg.decline_limit",
+  expired_card: "msg.decline_expired", authentication_required: "msg.decline_confirm", requires_action: "msg.decline_confirm",
+  processing_error: "msg.decline_processing", "no saved card": "msg.decline_no_card",
+};
+export function declineReason(failure: string | null | undefined): Text {
+  const key = failure ? DECLINES[failure] : undefined;
+  return key ? both("msg.decline_reason", { why: both(key) }) : NOTHING;
+}
+async function nameOf(db: Db, personId: string): Promise<string> {
+  return (await db.selectFrom("person").select("display_name").where("id", "=", personId).executeTakeFirst())?.display_name ?? "";
 }
 function refundLine(outcome: string, cents: number, paid: number): Text {
   if (cents > 0) return both(outcome === "credit" ? "msg.refund_credit" : "msg.refund_card", { amount: amount(cents) });
@@ -435,16 +452,29 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: m.person_id, kind: "membership_started", params: { name: m.name, until, perks: { en: more.map((x) => x.en).join(" "), es: more.map((x) => x.es).join(" ") } },
       purpose: "account", essential: true, email: true, link: "/membership" }];
   },
-  async "membership.renewed"({ db, tz }, p: { membership_id: string; payment_id: string }) {
+  // A renewal paid after it failed (`late`): the owner and managers, told of the failure, hear it's sorted.
+  async "membership.renewed"({ db, tz }, p: { membership_id: string; payment_id: string; late?: boolean }) {
     const m = await membershipInfo(db, p.membership_id);
     const pay = await db.selectFrom("payment").select("amount_cents").where("id", "=", p.payment_id).executeTakeFirstOrThrow();
-    return [{ to: m.person_id, kind: "membership_renewed", params: { name: m.name, amount: amount(pay.amount_cents), date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)) },
+    const drafts: Draft[] = [{ to: m.person_id, kind: "membership_renewed", params: { name: m.name, amount: amount(pay.amount_cents), date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)) },
       purpose: "account", essential: true, email: true, link: "/membership" }];
+    if (p.late) {
+      const params = { person: await nameOf(db, m.person_id), name: m.name, amount: amount(pay.amount_cents) };
+      for (const to of await managers(db)) drafts.push({ to, kind: "membership_renewal_paid_staff", params, purpose: "staff", essential: false, email: true, link: `/people/${m.person_id}` });
+    }
+    return drafts;
   },
-  async "membership.payment_failed"({ db, tz }, p: { membership_id: string; cents: number; next_attempt_at: string }) {
-    const m = await membershipInfo(db, p.membership_id);
-    return [{ to: m.person_id, kind: "membership_payment_failed", params: { name: m.name, amount: amount(p.cents), date: dayText(localDate(new Date(p.next_attempt_at), tz)) },
+  // The owner and managers hear of the first failed try only, not every try after it (money that went wrong).
+  async "membership.payment_failed"({ db, tz }, p: { membership_id: string; cents: number; next_attempt_at: string; tries?: number; failure?: string | null }) {
+    const m = await membershipInfo(db, p.membership_id), next = new Date(p.next_attempt_at);
+    const drafts: Draft[] = [{ to: m.person_id, kind: "membership_payment_failed", params: { name: m.name, amount: amount(p.cents), date: dayText(localDate(next, tz)) },
       purpose: "account", essential: true, email: true, link: "/membership" }];
+    if ((p.tries ?? 1) === 1) {
+      const params = { person: await nameOf(db, m.person_id), name: m.name, amount: amount(p.cents), reason: declineReason(p.failure),
+        retry: dayText(localDate(next, tz)), last: dayText(localDate(lastTryAt(next, p.tries ?? 1), tz)) };
+      for (const to of await managers(db)) drafts.push({ to, kind: "membership_payment_failed_staff", params, purpose: "staff", essential: false, email: true, link: `/people/${m.person_id}` });
+    }
+    return drafts;
   },
   async "membership.cancelled"({ db, tz }, p: { membership_id: string }) {
     const m = await membershipInfo(db, p.membership_id);
@@ -477,7 +507,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   async "membership.ended"({ db }, p: { membership_id: string }) {
     const m = await membershipInfo(db, p.membership_id);
-    return [{ to: m.person_id, kind: m.end_reason === "not_paid" ? "membership_ended_unpaid" : "membership_ended", params: { name: m.name }, purpose: "account", essential: true, email: true, link: "/membership" }];
+    const drafts: Draft[] = [{ to: m.person_id, kind: m.end_reason === "not_paid" ? "membership_ended_unpaid" : "membership_ended", params: { name: m.name }, purpose: "account", essential: true, email: true, link: "/membership" }];
+    // Its renewal was never paid: the owner and managers hear it's over (the failure alert closes; this one takes its place).
+    if (m.end_reason === "not_paid") {
+      const params = { person: await nameOf(db, m.person_id), name: m.name };
+      for (const to of await managers(db)) drafts.push({ to, kind: "membership_ended_unpaid_staff", params, purpose: "staff", essential: false, email: true, link: `/people/${m.person_id}` });
+    }
+    return drafts;
   },
   async "enrolment.booked"({ db, tz }, p: { enrolment_id: string }) {
     const e = await place(db, p.enrolment_id), due = await owes(db, e.id);

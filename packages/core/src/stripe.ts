@@ -11,7 +11,9 @@ export const STRIPE_API_VERSION = "2024-06-20";
 
 export class StripeError extends Error {
   readonly code: string | null; readonly status: number;
-  constructor(message: string, code: string | null, status: number) { super(message); this.code = code; this.status = status; }
+  /** A declined card's reason from the bank (insufficient_funds, expired_card, ...), when Stripe gives one. */
+  readonly decline: string | null;
+  constructor(message: string, code: string | null, status: number, decline: string | null = null) { super(message); this.code = code; this.status = status; this.decline = decline; }
 }
 
 /** Stripe's form encoding, including nested keys: { metadata: { a: "1" } } is metadata[a]=1. */
@@ -50,7 +52,7 @@ export class StripeProvider implements PaymentProvider {
     if (params) { headers["content-type"] = "application/x-www-form-urlencoded"; body = stripeForm(params).join("&"); }
     const r = await this.o.fetch(`${this.o.baseUrl}${path}`, { method, headers, body });
     const d = await r.json().catch(() => ({})) as any;
-    if (!r.ok) throw new StripeError(d?.error?.message ?? `stripe ${r.status}`, d?.error?.code ?? d?.error?.type ?? null, r.status);
+    if (!r.ok) throw new StripeError(d?.error?.message ?? `stripe ${r.status}`, d?.error?.code ?? d?.error?.type ?? null, r.status, d?.error?.decline_code ?? null);
     return d;
   }
 
@@ -116,7 +118,7 @@ export class StripeProvider implements PaymentProvider {
       return { ref: String(d.id), status: intentStatus(d.status), ...(d.status === "succeeded" ? {} : { failure: String(d.status) }) };
     } catch (e) {
       // A declined card, or one that needs its owner to confirm: a failed charge, for the desk to settle.
-      if (e instanceof StripeError && e.status >= 400 && e.status < 500 && e.status !== 429) return { ref: "", status: "failed" as const, failure: e.code ?? e.message };
+      if (e instanceof StripeError && e.status >= 400 && e.status < 500 && e.status !== 429) return { ref: "", status: "failed" as const, failure: e.decline ?? e.code ?? e.message };
       throw e;
     }
   }

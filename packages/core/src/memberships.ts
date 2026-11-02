@@ -65,6 +65,12 @@ export async function memberPlan(db: Db | Trx, personId: string, at = new Date()
 
 /** After a failed renewal, try the card again this many days later; after the last, the membership ends. */
 export const RETRY_AFTER_DAYS = [2, 3];
+/** When the last try is, and the membership ends if that fails too: from the next try, after `tries` have failed. */
+export function lastTryAt(next: Date, tries: number): Date {
+  return new Date(next.getTime() + RETRY_AFTER_DAYS.slice(tries).reduce((a, d) => a + d, 0) * 86400_000);
+}
+/** The staff alert about a failed renewal, on the Today view until someone handles it. */
+const RENEWAL_FAILED_ALERT = "membership_payment_failed_staff";
 
 /** One period on from `from`, on the membership's own day of the month: joined on the 31st, it renews on
  *  28 February, then 31 March. The same clock time, in the club's time zone. */
@@ -251,6 +257,16 @@ async function refundCard(ctx: ApplyCtx, paymentId: string, cents: number) {
   await ctx.emit("refund.requested", { refund_id: id });
 }
 
+/** The renewal was paid after all, or the membership ended for want of it: the staff alert about its failure
+ *  needs nobody now. It's closed with no one's name, and the staff hear what happened instead. */
+async function closeRenewalAlert(ctx: ApplyCtx, membershipId: string) {
+  const open = await ctx.trx.selectFrom("event_outbox").select("event_outbox.id").where("event_outbox.topic", "=", "membership.payment_failed")
+    .where(sql<string>`event_outbox.payload->>'membership_id'`, "=", membershipId)
+    .where((eb) => eb.not(eb.exists(eb.selectFrom("staff_alert").select("staff_alert.id").whereRef("staff_alert.event_id", "=", "event_outbox.id").where("staff_alert.kind", "=", RENEWAL_FAILED_ALERT))))
+    .execute();
+  for (const e of open) await ctx.insert("staff_alert", { id: uuidv7(), event_id: e.id, kind: RENEWAL_FAILED_ALERT, handled_by: null, handled_at: ctx.now });
+}
+
 /** Payments asked of the member for a renewal that no card form has opened yet: not needed any more. */
 async function dropPayNow(ctx: ApplyCtx, membershipId: string) {
   for (const p of await ctx.trx.selectFrom("payment").select("id").where("membership_id", "=", membershipId).where("status", "=", "pending").where("provider_ref", "is", null).execute())
@@ -266,7 +282,9 @@ export async function afterMembershipPayment(ctx: ApplyCtx, pay: { id: string; p
     if (m.status === "ended") { await refundCard(ctx, pay.id, pay.amount_cents); return; }
     await extend(ctx, pay.membership_id, pay.save_card ? card : undefined);
     await dropPayNow(ctx, pay.membership_id);
-    await ctx.emit("membership.renewed", { membership_id: pay.membership_id, payment_id: pay.id });
+    const late = m.status === "past_due";
+    if (late) await closeRenewalAlert(ctx, pay.membership_id);
+    await ctx.emit("membership.renewed", { membership_id: pay.membership_id, payment_id: pay.id, late });
     return;
   }
   const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period", "max_members", "family_size", "extra_person_cents"]).where("id", "=", pay.membership_plan_id!).forUpdate().executeTakeFirstOrThrow();
@@ -428,14 +446,18 @@ export const membershipRenew = defineAction({
         { account: await account(ctx.trx, "provider_clearing"), cents }, { account: await account(ctx.trx, "revenue", { revenueType: "memberships" }), cents: -cents }]);
       await extend(ctx, m.id);
       await dropPayNow(ctx, m.id);
+      // Paid on a try after a failed one: the staff who heard of the failure hear it's sorted.
+      const late = m.status === "past_due";
+      if (late) await closeRenewalAlert(ctx, m.id);
       // The first charge of a membership joined before its plan started is its start.
-      await ctx.emit(m.status === "upcoming" ? "membership.started" : "membership.renewed", { membership_id: m.id, payment_id: id });
+      await ctx.emit(m.status === "upcoming" ? "membership.started" : "membership.renewed", { membership_id: m.id, payment_id: id, late });
       return { outcome: "renewed" };
     }
     const tries = m.failed_attempts + 1;
     if (tries > RETRY_AFTER_DAYS.length) {
       await ctx.update("membership", m.id, { status: "ended", ended_at: ctx.now, end_reason: "not_paid", failed_attempts: tries, next_attempt_at: null });
       await dropPayNow(ctx, m.id);
+      await closeRenewalAlert(ctx, m.id);
       await ctx.emit("membership.ended", { membership_id: m.id });
       return { outcome: "ended", failure: charge.failure };
     }
@@ -445,7 +467,8 @@ export const membershipRenew = defineAction({
     const open = await ctx.trx.selectFrom("payment").select("id").where("membership_id", "=", m.id).where("status", "=", "pending").executeTakeFirst();
     if (!open) await ctx.insert("payment", { id: uuidv7(), person_id: m.person_id, amount_cents: cents, method: "card", provider: paymentProvider().name, provider_ref: null,
       status: "pending", membership_id: m.id, save_card: true });
-    await ctx.emit("membership.payment_failed", { membership_id: m.id, cents, next_attempt_at: next.toISOString() });
+    // The staff hear of the first failed try only (messages.ts); why it failed goes with it.
+    await ctx.emit("membership.payment_failed", { membership_id: m.id, cents, next_attempt_at: next.toISOString(), tries, failure: charge.failure ?? null });
     return { outcome: "failed", failure: charge.failure };
   },
 });

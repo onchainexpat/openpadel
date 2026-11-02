@@ -86,4 +86,7 @@ test("pay my part: a card saved for later (never held), and the one charge at th
   assert.equal(s.calls.at(-1)!.body.get("off_session"), "true"); assert.equal(s.calls.at(-1)!.headers["idempotency-key"], "charge:b1");
   const declined = new StripeProvider({ secretKey: "sk_test_abc", fetch: fakeStripe(() => ({ status: 402, json: { error: { code: "authentication_required", message: "needs the owner" } } })).fetch });
   assert.deepEqual(await declined.chargeSaved({ customer: "cus_1", paymentMethod: "pm_1", amountCents: 3000, currency: "USD", description: "x", idempotencyKey: "b2" }), { ref: "", status: "failed", failure: "authentication_required" });
+  // A declined card: the bank's reason, when Stripe gives one, says more than "declined".
+  const broke = new StripeProvider({ secretKey: "sk_test_abc", fetch: fakeStripe(() => ({ status: 402, json: { error: { code: "card_declined", decline_code: "insufficient_funds", message: "Your card has insufficient funds." } } })).fetch });
+  assert.deepEqual(await broke.chargeSaved({ customer: "cus_1", paymentMethod: "pm_1", amountCents: 3000, currency: "USD", description: "x", idempotencyKey: "b3" }), { ref: "", status: "failed", failure: "insufficient_funds" });
 });

@@ -145,6 +145,11 @@ The first version a club can run on its own (court bookings included), or for it
 - Members join in the app and pay by card; Kumi renews from that card each period at the price they
   joined at, with no subscription fee at Stripe. A declined renewal is tried again twice over five
   days while the membership carries on, and the member can pay with another card meanwhile.
+- The owner and managers hear once when a renewal is declined (not at every try): who, the plan, the
+  amount, the bank's reason when it gives one, the next try and the last day, with a link to the
+  member. It waits on the Courts page's alerts until it's handled, or closes by itself when the
+  renewal is paid after all (they hear that too). If the last try fails, they hear the membership
+  ended, and that takes its place on the alerts.
 - Members cancel in the app (it runs to the end of what's paid) and can change their mind until then.
 - The club pauses a membership until a date (an injury, a long trip): no benefits and nothing charged
   meanwhile, and the paid time left moves to after the pause; ending a pause early gives the unused
