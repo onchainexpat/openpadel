@@ -573,24 +573,29 @@ export const bookingRemind = defineAction({
 });
 
 // ---- Paid at the desk: cash, the club's own card reader, or another way ----
+/** The desk records at most what's still owed on a booking (its price, tax included, less what's been paid and not
+ *  refunded). Kumi keeps no credit or wallet, so more than that has nowhere to go: it's refused, not kept. */
+async function notMoreThanOwed(db: Db | Trx, b: Record<string, any>, cents: number) {
+  const paid = Number((await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+    .select(sql<string>`coalesce(sum(payment.amount_cents), 0) - coalesce(sum((select sum(r.amount_cents) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent'))), 0)`.as("c"))
+    .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "succeeded").executeTakeFirst())?.c ?? 0);
+  const owed = Math.max(0, b.price_cents - paid);
+  if (owed === 0) throw new KumiError("error.booking_paid_in_full");
+  if (cents > owed) throw new KumiError("error.more_than_owed", { owed: usd(owed), amount: usd(cents) });
+}
 export const bookingRecordPayment = defineAction({
   name: "booking.record_payment", version: 1,
   input: z.object({ booking_id: z.uuid(), cents: z.number().check(z.int(), z.minimum(1)), method: z.enum(["cash", "terminal", "other"]), note: z.optional(z.string().check(z.maxLength(200))) }),
   async plan(ctx, i) {
     const { row: b, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
-    // What's still owed, so the desk sees when it's recording more than that (a tip, or a mistake).
-    const paid = Number((await ctx.db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-      .select(sql<string>`coalesce(sum(payment.amount_cents), 0) - coalesce(sum((select sum(r.amount_cents) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent'))), 0)`.as("c"))
-      .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "succeeded").executeTakeFirst())?.c ?? 0);
-    const owed = Math.max(0, b.price_cents - paid);
-    const summary = both("plan.booking.record_payment", { amount: usd(i.cents), code: b.code, how: both(`paid_by.${i.method}` as Key) });
-    const over = i.cents > owed ? both(owed === 0 ? "plan.booking.record_payment_paid" : "plan.booking.record_payment_over", { owed: usd(owed), extra: usd(i.cents - owed) }) : null;
-    return { title: both("action.booking.record_payment"), summary: over ? { en: `${summary.en} ${over.en}`, es: `${summary.es} ${over.es}` } : summary,
+    await notMoreThanOwed(ctx.db, b, i.cents);
+    return { title: both("action.booking.record_payment"), summary: both("plan.booking.record_payment", { amount: usd(i.cents), code: b.code, how: both(`paid_by.${i.method}` as Key) }),
       reads: [read], locationId: b.location_id, moneyCents: i.cents, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
     const b = await ctx.trx.selectFrom("booking").selectAll().where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
+    await notMoreThanOwed(ctx.trx, b, i.cents);   // again under the lock: two desk payments at once can't both fit
     const player = await ctx.trx.selectFrom("booking_player").select(["id", "person_id"]).where("booking_id", "=", b.id).where("removed_at", "is", null)
       .orderBy(sql`person_id = ${b.organiser_id}`, "desc").orderBy("id").executeTakeFirstOrThrow();
     const id = uuidv7();

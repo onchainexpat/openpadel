@@ -11,8 +11,10 @@ The first version a club can run on its own (court bookings included), or for it
 
 **Court bookings**
 - Giving a court its own hours names any booking or program date already there that the new hours leave
-  outside; they stay booked for the staff to move or cancel. Recording a desk payment says when it's more
-  than what's owed.
+  outside; they stay booked for the staff to move or cancel.
+- The desk can't record more than a booking still owes (its price, tax included, less what's been paid and
+  not refunded): Kumi keeps no credit for later, so the extra would have nowhere to go. Part now and the rest
+  later is fine.
 - Opening hours and special days, court blocks, and a Courts page for staff to see the day, book at the
   desk (taking cash), block courts and cancel. No double bookings, even when many try at once.
 - Prices by court, day, time and season, sales tax, and booking rules that bookings keep once made.
