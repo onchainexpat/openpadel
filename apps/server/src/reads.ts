@@ -341,6 +341,26 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .select(["enrolment.id", "enrolment.status", "enrolment.program_id", "program.name"])
       .select((eb) => eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").as("first_start"))
       .where("enrolment.person_id", "=", id).orderBy("enrolment.id", "desc").limit(20).execute();
+    // Their court bookings and lessons from the last 30 days on, as organiser or player: what each cost, what they
+    // paid on it by card that can still go back, so the desk can cancel it or refund it from here.
+    const since = new Date(Date.now() - 30 * 86400_000);
+    const booked = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id")
+      .select(["booking.id", "booking.code", "booking.kind", "booking.status", "booking.price_cents", "booking.organiser_id", "court.name as court", sql<string>`lower(court_time.during)`.as("starts_at")])
+      .where((w) => w.or([w("booking.organiser_id", "=", id), w.exists(w.selectFrom("booking_player").select("booking_player.id").whereRef("booking_player.booking_id", "=", "booking.id")
+        .where("booking_player.person_id", "=", id).where("booking_player.removed_at", "is", null))]))
+      .where(sql<boolean>`upper(court_time.during) >= ${since}`).where("booking.status", "in", ["held", "confirmed", "completed", "cancelled"])
+      .where((w) => w.or([w("court_time.active", "=", true), w("booking.status", "=", "cancelled")]))
+      .distinctOn("booking.id").orderBy("booking.id").orderBy(sql`lower(court_time.during)`).execute();
+    const pays = booked.length ? await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+      .select(["payment.id", "booking_player.booking_id", "payment.amount_cents", "payment.provider", "payment.person_id"])
+      .select(sql<string>`coalesce((select sum(r.amount_cents) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent')), 0)`.as("back"))
+      .where("booking_player.booking_id", "in", booked.map((b) => b.id)).where("payment.status", "=", "succeeded").where("payment.person_id", "=", id).execute() : [];
+    const bookings = booked.sort((a, b) => String(b.starts_at).localeCompare(String(a.starts_at))).slice(0, 20).map((b) => {
+      const mine = pays.filter((x) => x.booking_id === b.id);
+      return { id: b.id, code: b.code, kind: b.kind, status: b.status, court: b.court, starts_at: new Date(b.starts_at).toISOString(), price_cents: b.price_cents, organiser: b.organiser_id === id,
+        paid_cents: mine.reduce((n, x) => n + x.amount_cents - Number(x.back), 0),
+        refundable: mine.filter((x) => x.provider !== "none" && x.amount_cents - Number(x.back) > 0).map((x) => ({ payment_id: x.id, left_cents: x.amount_cents - Number(x.back) })) };
+    });
     // The latest answer for each kind of message: consent is append-only.
     const consent = await db.selectFrom("channel_consent").select(["channel", "purpose", "granted", "source", "at"]).distinctOn(["channel", "purpose"])
       .where("person_id", "=", id).orderBy("channel").orderBy("purpose").orderBy("at", "desc").execute();
@@ -366,7 +386,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // A kid with a login of their own: the address they sign in with and the rules their parents set.
     const k = await kidOf(db, id);
     const kid = k ? { email: p.email, rules: rulesText(k)[lang(c)], spent_cents: await monthSpent(db, id, new Date()) } : null;
-    return c.json({ ...p, kid, roles, sign_in: signIn, places, consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
+    return c.json({ ...p, kid, roles, sign_in: signIn, places, bookings, consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
       membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null } : null });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.

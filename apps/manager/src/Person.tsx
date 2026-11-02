@@ -2,13 +2,15 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
-import { AccountData, api, dollars, lang, me, ReceiptSheet, t, usePreview, type ReceiptView } from "@kumi/ui";
+import { AccountData, api, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView } from "@kumi/ui";
 import { GiveMembership, MembershipButtons, membershipLine, type Plan } from "./Memberships.tsx";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
 type P = {
   id: string; display_name: string; email: string | null; locale: string; created_via: string; created_at: string;
   roles: Role[]; places: { id: string; status: string; program_id: string; name: string; first_start: string | null }[];
+  bookings: { id: string; code: string; kind: string; status: string; court: string; starts_at: string; price_cents: number; organiser: boolean; paid_cents: number;
+    refundable: { payment_id: string; left_cents: number }[] }[];
   consent: { channel: string; purpose: string; granted: boolean }[];
   membership: { id: string; name: string; status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null } | null;
   plans: (Omit<Plan, "members"> & { members?: number })[];
@@ -127,12 +129,42 @@ export function Person({ id }: { id: string }) {
           ))}</ul>
         )}
       </section>
+      <PersonBookings bookings={p.bookings} preview={preview} />
       <PersonReceipts personId={p.id} preview={preview} />
       {privacy && <PersonAssistants personId={p.id} preview={preview} key={`${p.id}-${String(sheet ? 1 : 0)}`} />}
       {!p.junior && p.id !== me.value?.person.id && (staffRoles.length === 0 || owner) && <ChangeEmail personId={p.id} name={p.display_name} onDone={load} />}
       {privacy && <AccountData personId={p.id} self={p.id === me.value?.person.id} onDeleted={() => route("/people")} />}
       {sheet}
     </main>
+  );
+}
+
+/** Their court bookings and lessons: the desk cancels one (the club's rule, everything back or nothing back) or
+ *  refunds part of a card payment on one that stays (leaving and refunding are separate decisions). */
+function PersonBookings({ bookings, preview }: { bookings: P["bookings"]; preview: (action: string, input: unknown) => Promise<void> | void }) {
+  const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  return (
+    <section class="card">
+      <h2>{t("ui.person_bookings")}</h2>
+      {bookings.length === 0 ? <p class="meta">{t("ui.person_no_bookings")}</p> : (
+        <ul class="plain">{bookings.map((b) => {
+          const upcoming = b.status !== "cancelled" && new Date(b.starts_at).getTime() > Date.now();
+          return (
+            <li class="row" key={b.id}>
+              <span>{when(b.starts_at)} · {b.court} · {b.code}</span>
+              <span class="meta">{[b.status === "cancelled" ? t("ui.status_cancelled") : null, b.paid_cents ? t("ui.paid_by_them", { amount: dollars(b.paid_cents, lang.value) }) : null].filter(Boolean).join(" · ")}</span>
+              {upcoming && mayDo("booking.cancel") && <form class="inline" onSubmit={(e) => { e.preventDefault(); preview("booking.cancel", { booking_id: b.id, refund: ((e.currentTarget as HTMLFormElement).elements.namedItem("refund") as HTMLSelectElement).value }); }}>
+                <select name="refund" aria-label={t("ui.refund")}><option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option></select>
+                <button class="small">{t("ui.cancel_booking")}</button></form>}
+              {b.status !== "cancelled" && mayDo("booking.refund") && b.refundable.map((r) => (
+                <form class="inline" key={r.payment_id} onSubmit={(e) => { e.preventDefault(); const v = Number(((e.currentTarget as HTMLFormElement).elements.namedItem("amount") as HTMLInputElement).value);
+                  preview("booking.refund", { booking_id: b.id, payment_id: r.payment_id, cents: Math.round(v * 100) }); }}>
+                  <label>{t("ui.refund_up_to", { amount: dollars(r.left_cents, lang.value) })} <input name="amount" type="number" min="0.01" step="0.01" max={(r.left_cents / 100).toFixed(2)} value={(r.left_cents / 100).toFixed(2)} /></label>
+                  <button class="small">{t("ui.refund")}</button></form>))}
+            </li>);
+        })}</ul>
+      )}
+    </section>
   );
 }
 

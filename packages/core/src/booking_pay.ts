@@ -426,6 +426,39 @@ export const bookingCancel = defineAction({
     return null;
   },
 });
+/** A refund on a booking that stays as it is (rule 9: refunding is its own decision, apart from leaving or
+ *  cancelling): part or all of one card payment on it, back to that card. Front desk and up. Cash paid at the
+ *  desk goes back at the desk, so it isn't refunded here. */
+export const bookingRefund = defineAction({
+  name: "booking.refund", version: 1,
+  input: z.object({ booking_id: z.uuid(), payment_id: z.uuid(), cents: z.number().check(z.int(), z.minimum(1)), reason: z.optional(z.string().check(z.maxLength(200))) }),
+  async plan(ctx, i) {
+    const { row: b, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
+    const pay = await refundable(ctx.db, b.id, i.payment_id);
+    if (i.cents > pay.left) throw new KumiError("error.refund_more_than_paid", { left: usd(pay.left) });
+    const who = (await ctx.db.selectFrom("person").select("display_name").where("id", "=", pay.person_id).executeTakeFirst())?.display_name ?? "";
+    return { title: both("action.booking.refund"), summary: both("plan.booking.refund_only", { amount: usd(i.cents), name: who, code: b.code }), reads: [read], locationId: b.location_id,
+      ownerIds: await withManagers(ctx.db, [b.organiser_id]), moneyCents: i.cents, undo: { kind: "compensating" } };
+  },
+  async apply(ctx, i) {
+    await ctx.trx.selectFrom("booking").select("id").where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
+    const pay = await refundable(ctx.trx, i.booking_id, i.payment_id);   // again under the lock
+    if (i.cents > pay.left) throw new KumiError("error.refund_more_than_paid", { left: usd(pay.left) });
+    await refundPayment(ctx, i.payment_id, i.cents);
+    await ctx.emit("booking.refunded", { booking_id: i.booking_id, payment_id: i.payment_id, cents: i.cents, reason: i.reason ?? null });
+    return null;
+  },
+});
+/** A card payment on this booking and how much of it can still go back. */
+async function refundable(db: Db | Trx, bookingId: string, paymentId: string) {
+  const pay = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+    .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider"])
+    .select(sql<string>`coalesce((select sum(r.amount_cents) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent')), 0)`.as("back"))
+    .where("payment.id", "=", paymentId).where("booking_player.booking_id", "=", bookingId).executeTakeFirst();
+  if (!pay || pay.status !== "succeeded") throw new KumiError("error.refund_not_paid");
+  if (pay.provider === "none") throw new KumiError("error.refund_cash");
+  return { person_id: pay.person_id, left: pay.amount_cents - Number(pay.back) };
+}
 /** Call a booking off: its court time is free, the refunds chosen in the plan go back, shares not paid yet can't
  *  be paid any more, and its players are told. Also for a repeating block that cancels bookings in its way. */
 export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: { payment_id: string; cents: number }[], reason: string | null) {

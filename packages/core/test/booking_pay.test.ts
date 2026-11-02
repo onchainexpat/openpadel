@@ -187,3 +187,22 @@ test("a reminder a few hours before, once; and paying at the desk", async () => 
   await run(db, "booking.record_payment", { booking_id: desk2.booking_id, cents: 2500, method: "terminal" }, owner, { now: NOW });
   await assert.rejects(plan(db, "booking.record_payment", { booking_id: desk2.booking_id, cents: 1, method: "cash" }, owner, { now: NOW }), /paid in full/);
 });
+
+test("a refund on a booking that stays: part of a card payment back, never more than is left, not for cash or a player", async () => {
+  const r = await request("Eve", c2, at("2026-12-10", "18:00"));
+  const { booking_id, payment_id } = r.result as { booking_id: string; payment_id: string };
+  await pay(payment_id, "Eve");
+  // A player can't refund themselves; the club decides (rule 9: refunding is its own decision).
+  await assert.rejects(plan(db, "booking.refund", { booking_id, payment_id, cents: 1000 }, as("Eve"), { now: NOW }));
+  const part = await run(db, "booking.refund", { booking_id, payment_id, cents: 2000, reason: "Lights out for half an hour" }, owner, { now: NOW });
+  assert.equal(part.plan.summary.en, `Refund $20.00 of Eve's payment for booking ${(await booking(booking_id)).code} to their card. The booking stays as it is.`);
+  assert.equal((await booking(booking_id)).status, "confirmed");
+  const back = await db.selectFrom("refund").select(["amount_cents", "destination", "status"]).where("payment_id", "=", payment_id).execute();
+  assert.deepEqual(back, [{ amount_cents: 2000, destination: "card", status: "pending" }]);
+  await rejects(plan(db, "booking.refund", { booking_id, payment_id, cents: 4001 }, owner, { now: NOW }), "error.refund_more_than_paid", "Only $40.00 of that payment can still go back.");
+  // A payment on another booking, or cash paid at the desk, isn't refunded here.
+  const other = (await run(db, "booking.create", { court_id: c2, starts_at: at("2026-12-10", "10:00"), minutes: 60, guest_name: "Walk-in" }, owner, { now: NOW })).result as { booking_id: string };
+  await rejects(plan(db, "booking.refund", { booking_id: other.booking_id, payment_id, cents: 100 }, owner, { now: NOW }), "error.refund_not_paid");
+  const cash = (await run(db, "booking.record_payment", { booking_id: other.booking_id, cents: 4000, method: "cash" }, owner, { now: NOW })).result as { payment_id: string };
+  await rejects(plan(db, "booking.refund", { booking_id: other.booking_id, payment_id: cash.payment_id, cents: 100 }, owner, { now: NOW }), "error.refund_cash");
+});

@@ -152,3 +152,13 @@ test("a member's court paid in full on the grid: the desk sees its players and c
   assert.equal(item.whole, true);
   assert.deepEqual(item.seats.map((s: any) => [s.name, s.booker]), [["Bo", true]]);
 });
+
+test("a member's page lists their bookings: what they paid and what can go back to a card", async () => {
+  const zoe = ((await run(db, "person.create", { display_name: "Zoe", email: "zoe@example.test" }, owner)).result as any).person_id as string;
+  const d = localDate(new Date(Date.now() + 3 * 86400_000), TZ);
+  const b = ((await run(db, "booking.create", { court_id: c1, starts_at: onDate(d, "09:00", TZ).toISOString(), minutes: 60, person_id: zoe, price_cents: 4000 }, owner)).result as any).booking_id as string;
+  await run(db, "booking.record_payment", { booking_id: b, cents: 4000, method: "cash" }, owner);
+  const page = (await get(`/staff/people/${zoe}`)).json;
+  assert.equal(page.bookings.length, 1);
+  assert.deepEqual([page.bookings[0].id, page.bookings[0].organiser, page.bookings[0].paid_cents, page.bookings[0].refundable], [b, true, 4000, []]);   // cash goes back at the desk
+});

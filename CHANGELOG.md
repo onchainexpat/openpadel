@@ -12,6 +12,10 @@ The first version a club can run on its own (court bookings included), or for it
 **Court bookings**
 - Giving a court its own hours names any booking or program date already there that the new hours leave
   outside; they stay booked for the staff to move or cancel.
+- A member's page in the staff app lists their court bookings and lessons (the last 30 days and those to
+  come). Front desk and up cancel one there, choosing the club's rule, everything back or nothing back, or
+  refund part of a card payment on one that stays (a new action, `booking.refund`: refunding is its own
+  decision, apart from leaving). Cash paid at the desk goes back at the desk.
 - The desk can't record more than a booking still owes (its price, tax included, less what's been paid and
   not refunded): Kumi keeps no credit for later, so the extra would have nowhere to go. Part now and the rest
   later is fine.
