@@ -353,6 +353,12 @@ watching hears once.
   small puzzle first, and a hidden field catches scripts that fill in everything. Nothing to set up. On a
   practice machine, `KUMI_BOT_CHECK=0` turns it off for scripts that sign in over the API; production
   refuses to start that way.
+- **A member's own email.** Profile, Email: a member adds one (an account that joined by phone) or
+  changes it. A code goes to the new address first. On a change, the old address is told, with a link good
+  for 14 days that puts it back and signs everyone out of the account, connected assistants too, for a
+  change they didn't make. Someone with a passkey changes it signed in with the passkey (or two steps). An
+  address another account uses gets the same answer as a free one, so nobody can find out who's a member;
+  that address is told someone tried, and no code that works is sent.
 - **Members' own assistants.** A member (or anyone) can connect Claude, ChatGPT or another assistant to
   the club at `https://<the staff app's address>/mcp`. They sign in on the club's own page, then choose how
   much it may spend for them each week: nothing (the default), $25, $50, $100 or $200. What counts is money

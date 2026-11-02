@@ -126,22 +126,27 @@ function Texts({ personId }: { personId: string }) {
   );
 }
 
-/** An email for an account that joined by phone: a code to the address, then it's theirs (auth.ts). Asked
- *  for, never required: receipts and messages also wait in the app. */
-function AddEmail() {
-  const [email, setEmail] = useState(""), [code, setCode] = useState(""), [sent, setSent] = useState(false);
+/** Their email: added to an account that joined by phone (asked for, never required: receipts and messages
+ *  also wait in the app), or changed. Either way a code goes to the new address first (auth.ts); on a change,
+ *  the old address is told, with a link that puts it back. */
+function Email({ current }: { current: string | null }) {
+  const [open, setOpen] = useState(!current), [email, setEmail] = useState(""), [code, setCode] = useState(""), [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const run = (f: () => Promise<void>) => async (e: Event) => { e.preventDefault(); setBusy(true); setError(null); try { await f(); } catch (x) { setError(x instanceof ApiError ? x.message : (x as Error).message); } finally { setBusy(false); } };
   const send = run(async () => { await api("/my/email/start", { email }); setSent(true); });
-  const confirm = run(async () => { await api("/my/email/verify", { code }); await loadMe(); });
+  const confirm = run(async () => { await api("/my/email/verify", { code }); setSent(false); setEmail(""); setCode(""); setOpen(false); await loadMe(); });
   return (
     <section class="card" id="email">
       <h2>{t("ui.email_title")}</h2>
-      <p class="meta">{t("ui.email_none")}</p>
-      {!sent ? <form onSubmit={send}>
+      <p class="meta">{current ? t("ui.email_current", { email: current }) : t("ui.email_none")}</p>
+      {current && !open && <button onClick={() => setOpen(true)}>{t("ui.email_change")}</button>}
+      {open && !sent && <form onSubmit={send}>
+        {current && <p class="meta">{t("ui.email_change_hint")}</p>}
         <label>{t("ui.email")}<input type="email" required autocomplete="email" value={email} onInput={(e) => setEmail(e.currentTarget.value)} /></label>
         <button class="primary" disabled={busy}>{t("ui.email_add")}</button>
-      </form> : <form onSubmit={confirm}>
+        {current && <> <button type="button" onClick={() => setOpen(false)}>{t("ui.cancel")}</button></>}
+      </form>}
+      {open && sent && <form onSubmit={confirm}>
         <p>{t("ui.email_code_sent", { email })}</p>
         <label>{t("ui.code")}<input inputMode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code" value={code} onInput={(e) => setCode(e.currentTarget.value)} /></label>
         <button class="primary" disabled={busy}>{t("ui.confirm")}</button>
@@ -192,7 +197,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
           <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>
         )}
       </form>
-      {app === "member" && m.has_email === false && <AddEmail />}
+      {(app === "member" || m.email) && <Email current={m.email ?? null} />}
       <PushToggle app={app} />
       {app === "member" && !m.kid && <ClubNews personId={m.person.id} />}
       {app === "member" && <Texts personId={m.person.id} />}

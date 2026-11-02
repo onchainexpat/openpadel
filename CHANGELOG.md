@@ -352,6 +352,10 @@ The first version a club can run on its own (court bookings included), or for it
   start someone's second step over (a lost phone): their authenticator, recovery codes and passkeys go and
   they're signed out everywhere; `kumi reset-sign-in <email>` does it on the server for an owner who is
   locked out. Connecting an agent asks for the second step too.
+- Members change their own email in Profile: a code to the new address, then the old address is told, with
+  a link (good 14 days, once) that puts it back and signs everyone out, assistants too. With a passkey, the
+  change needs the passkey or two steps. Adding or changing to an address another account uses answers the
+  same as a free one; that address hears someone tried, and no working code is made (it used to say so).
 - A weekly spending limit for a person's own assistant (Claude, ChatGPT and others, through the club's MCP
   address): chosen when they connect it, nothing unless they pick $25, $50, $100 or $200. It counts what they
   themselves pay for what the assistant books this week (from Monday, the club's clock), less refunds of

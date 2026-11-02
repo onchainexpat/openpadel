@@ -200,7 +200,7 @@ export const personSignUp = defineAction({
 
 /** An email address, proven with a code, for an account that has none (someone who joined by phone): their
  *  receipts and messages can go there, and it's a second way to sign in if they lose the phone. Changing an
- *  address the account already has isn't this: the staff do that. */
+ *  address the account already has is email.change. */
 export const emailAdd = defineAction({
   name: "email.add", version: 1, system: true, internal: true,
   input: z.object({ person_id: z.uuid(), email: z.email() }),
@@ -216,6 +216,29 @@ export const emailAdd = defineAction({
     const email = i.email.trim().toLowerCase();
     await ctx.update("person", i.person_id, { email });
     await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: i.person_id, kind: "email", value: email, verified_at: ctx.now }).execute();
+    return null;
+  },
+});
+
+/** A new address for an account that has one, proven with a code to the new address by the person themselves
+ *  (auth.ts); the old address is told, with a link to put it back. Also how that link puts it back. */
+export const emailChange = defineAction({
+  name: "email.change", version: 1, system: true, internal: true,
+  input: z.object({ person_id: z.uuid(), email: z.email() }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
+    const email = i.email.trim().toLowerCase();
+    if (!row.email) throw new KumiError("error.not_found", { thing: both("thing.email") }, 404);
+    if (row.email.toLowerCase() === email) throw new KumiError("error.nothing_changed");
+    if (await ctx.db.selectFrom("person").select("id").where("id", "!=", i.person_id).where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).executeTakeFirst()
+      || await ctx.db.selectFrom("auth_identity").select("id").where("person_id", "!=", i.person_id).where("kind", "=", "email").where((eb) => eb(eb.fn("lower", ["value"]), "=", email)).executeTakeFirst()) throw new KumiError("error.duplicate_email");
+    return { title: both("action.email.change"), summary: both("plan.email.change", { email }), reads: [read], ownerIds: [i.person_id], undo: { kind: "none" }, details: { from: row.email } };
+  },
+  async apply(ctx, i) {
+    const email = i.email.trim().toLowerCase();
+    await ctx.update("person", i.person_id, { email });
+    const had = await ctx.trx.updateTable("auth_identity").set({ value: email, verified_at: ctx.now }).where("person_id", "=", i.person_id).where("kind", "=", "email").returning("id").execute();
+    if (!had.length) await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: i.person_id, kind: "email", value: email, verified_at: ctx.now }).execute();
     return null;
   },
 });

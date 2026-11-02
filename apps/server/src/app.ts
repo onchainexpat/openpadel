@@ -12,11 +12,11 @@ import { manifestRoutes } from "./manifest.ts";
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
-import { pickLang, isLang, formerMember, FORMER_MEMBER, type Lang } from "@kumi/i18n";
+import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@kumi/i18n";
 import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { twoFactorRoutes } from "./two_factor.ts";
-import { completeSignUp, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, verifyEmailAdd, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
+import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
@@ -52,6 +52,8 @@ const PhoneVerify = z.object({ phone: z.string().check(z.maxLength(40)), code: z
 const CodeOnly = z.object({ code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
 const SignUp = z.object({ ticket: z.string().check(z.minLength(20)), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: z.enum(["en", "es"]), club_news: z.boolean() });
 
+
+const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 export function makeApp(deps: AppDeps) {
   const { db, mailer } = deps;
   const now = deps.now ?? (() => new Date());
@@ -64,10 +66,11 @@ export function makeApp(deps: AppDeps) {
   // A change must come from the club's own pages: refuse what the browser marks as from another site,
   // and form-style posts (which another site could make) except on the agent sign-in pages, which are
   // forms. Stripe's webhook and the agent endpoint use signatures and tokens, not the session cookie, and
-  // so does a club news email's unsubscribe link (its key does that one thing; mail apps post to it).
+  // so does a club news email's unsubscribe link (its key does that one thing; mail apps post to it), and
+  // the link that puts back an email someone else changed.
   app.use("*", async (c, next) => {
     const path = c.req.path, m = c.req.method;
-    if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && !path.startsWith("/webhooks/") && !path.startsWith("/mcp") && !path.startsWith("/unsubscribe/")) {
+    if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && !path.startsWith("/webhooks/") && !path.startsWith("/mcp") && !path.startsWith("/unsubscribe/") && !path.startsWith("/auth/email-undo/")) {
       const site = c.req.header("sec-fetch-site");
       if (site && site !== "same-origin" && site !== "none") throw new KumiError("error.cross_site", {}, 403);
       const type = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
@@ -243,15 +246,32 @@ export function makeApp(deps: AppDeps) {
     setCookie(c, COOKIE, r.token, { httpOnly: true, secure: deps.secureCookies ?? true, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
     return c.json({ signed_in: true });
   });
-  // ---- An email for an account that joined by phone ----
+  // ---- Their email: added (an account that joined by phone) or changed ----
+  const members = deps.memberUrl ?? memberUrl(publicUrl, {});
   app.post("/my/email/start", async (c) => {
     const a = actor(c), { email } = await body(c, EmailStart);
-    await startEmailAdd(db, mailer, a.personId!, email, c.get("lang"), now());
+    await startEmailAdd(db, mailer, a.personId!, email, c.get("lang"), now(), a.auth);
     return c.json({ sent: true });
   });
   app.post("/my/email/verify", async (c) => {
     const a = actor(c), { code } = await body(c, CodeOnly);
-    return c.json({ email: await verifyEmailAdd(db, a.personId!, code, now()) });
+    return c.json({ email: await verifyEmailAdd(db, a.personId!, code, now(), { mailer, undoUrl: (t) => `${members}/auth/email-undo/${t}` }) });
+  });
+  // The old address's link. Opening it (or a mail scanner checking it) changes nothing: the button does.
+  const undoPage = (l: Lang, club: string, body: string) => `<!doctype html><html lang="${l}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>${esc(t(l, "emailundo.title", { club }))}</title><style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;line-height:1.5;color:#1d2321;background:#fff}button{font:inherit;padding:.6rem 1.2rem;border-radius:.5rem;border:1px solid #1d2321;background:#1d2321;color:#fff;cursor:pointer}</style></head>
+<body><h1>${esc(t(l, "emailundo.title", { club }))}</h1>${body}</body></html>`;
+  app.get("/auth/email-undo/:token", async (c) => {
+    c.header("cache-control", "no-store");
+    const u = await emailUndoTarget(db, c.req.param("token"), now());
+    if (!u || u.consumed_at) return c.html(undoPage(c.get("lang"), u?.club ?? "", `<p>${esc(t(c.get("lang"), "emailundo.bad"))}</p>`), 404);
+    return c.html(undoPage(u.lang, u.club, `<p>${esc(t(u.lang, "emailundo.ask", { email: u.target }))}</p><form method="post"><button type="submit">${esc(t(u.lang, "emailundo.button"))}</button></form>`));
+  });
+  app.post("/auth/email-undo/:token", async (c) => {
+    c.header("cache-control", "no-store");
+    const token = c.req.param("token"), u = await emailUndoTarget(db, token, now());
+    if (!u || !(await undoEmailChange(db, mailer, token, now()))) return c.html(undoPage(c.get("lang"), u?.club ?? "", `<p>${esc(t(c.get("lang"), "emailundo.bad"))}</p>`), 404);
+    return c.html(undoPage(u.lang, u.club, `<p>${esc(t(u.lang, "emailundo.done", { email: u.target }))}</p>`));
   });
 
   app.post("/auth/sign-up", async (c) => {
@@ -280,7 +300,7 @@ export function makeApp(deps: AppDeps) {
     // An account with no email (it joined by phone): the apps ask, never require, for one.
     const email = (await db.selectFrom("person").select("email").where("id", "=", me.id).executeTakeFirst())?.email ?? null;
     return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can,
-      has_email: Boolean(email) });
+      has_email: Boolean(email), email });
   });
 
   // ---- Actions: one description each, the same one the MCP tools and forms use ----

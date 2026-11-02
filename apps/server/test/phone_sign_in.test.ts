@@ -115,7 +115,7 @@ test("a junior's number signs them in only once their parents have given them a 
   await db.updateTable("club").set({ two_factor: "off" }).execute();
 });
 
-test("an account that joined by phone adds an email with a code; an address someone else uses is said plainly", async () => {
+test("an account that joined by phone adds an email with a code; an address someone else uses gets the same answer", async () => {
   await anHourOn();
   await post("/auth/phone/start", { phone: "503 555 0170" });
   const { cookie } = await post("/auth/phone/verify", { phone: "503 555 0170", code: lastCode("+15035550170") });
@@ -123,14 +123,16 @@ test("an account that joined by phone adds an email with a code; an address some
   assert.equal((await post("/my/phone/start", { phone: "503 555 0170" }, cookie)).status, 200);
   assert.equal((await post("/my/phone/start", { phone: "503 555 0170" }, cookie)).status, 200);
   assert.equal((await post("/my/phone/start", { phone: "503 555 0170" }, cookie)).json.error, "error.phone_too_many");
-  assert.equal((await post("/my/email/start", { email: "robin@example.test" }, cookie)).json.error, "error.duplicate_email");
+  // The owner's address: the same answer as a free one; the owner hears someone tried, and no code that works exists.
+  assert.deepEqual((await post("/my/email/start", { email: "robin@example.test" }, cookie)).json, { sent: true });
+  assert.equal(mailer.last("robin@example.test")!.subject, "Someone tried to use this email at Kestrel Padel");
+  assert.doesNotMatch(mailer.last("robin@example.test")!.text, /\b\d{6}\b/);
   assert.equal((await post("/my/email/start", { email: "pat@example.test" }, cookie)).status, 200);
   const code = mailer.last("pat@example.test")!.text.match(/\b(\d{6})\b/)![1]!;
   assert.match(mailer.last("pat@example.test")!.subject, /^Tu código para agregar este correo en Kestrel Padel: \d{6}$/);   // in their language
   assert.deepEqual((await post("/my/email/verify", { code }, cookie)).json, { email: "pat@example.test" });
   assert.equal((await get("/me", cookie)).json.has_email, true);
-  // Now the address signs them in too, and an account that has an email can't add another here.
-  assert.equal((await post("/my/email/start", { email: "pat2@example.test" }, cookie)).json.error, "error.email_already_set");
+  // Now the address signs them in too.
   await post("/auth/email/start", { email: "pat@example.test" });
   const v = await post("/auth/email/verify", { email: "pat@example.test", code: mailer.last("pat@example.test")!.text.match(/\b(\d{6})\b/)![1]! });
   assert.equal((await get("/me", v.cookie)).json.person.display_name, "Pat Rivera");

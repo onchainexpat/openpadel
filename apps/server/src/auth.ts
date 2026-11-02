@@ -146,22 +146,38 @@ export async function verifyPhoneCode(db: Db, phone: string, code: string, userA
   return { token: await startSession(db, person.id, userAgent, now, ch.id, "phone_code"), personId: person.id };
 }
 
-// ---- An email for an account that joined by phone ----
-/** A code to the address they typed, to add it to their account (club.ts, email.add). Signed in, so an address
- *  someone else already uses is said plainly. */
-export async function startEmailAdd(db: Db, mailer: Mailer, personId: string, email: string, lang: Lang, now = new Date()): Promise<void> {
+// ---- Their email: added (an account that joined by phone) or changed ----
+export const UNDO_DAYS = 14;
+/** A code to the address they typed. With an address already on the account it's a change: someone with a
+ *  passkey makes it signed in with the passkey or two steps, like other sensitive changes. An address another
+ *  account uses gets the same answer as a free one (so addresses can't be probed); that address hears someone
+ *  tried, and no code that could work is made. */
+export async function startEmailAdd(db: Db, mailer: Mailer, personId: string, email: string, lang: Lang, now = new Date(), auth?: string): Promise<void> {
+  const target = email.trim().toLowerCase();
   const p = await db.selectFrom("person").select(["email"]).where("id", "=", personId).executeTakeFirstOrThrow();
-  if (p.email) throw new KumiError("error.email_already_set", {}, 409);
-  if (await personByEmail(db, email)) throw new KumiError("error.duplicate_email", {}, 409);
+  if (p.email?.toLowerCase() === target) throw new KumiError("error.email_same", {}, 409);
+  if (p.email && auth !== "passkey" && auth !== "two_factor"
+    && await db.selectFrom("passkey").select("credential_id").where("person_id", "=", personId).where("revoked_at", "is", null).executeTakeFirst()) throw new KumiError("error.need_passkey", {}, 403);
   const recent = await db.selectFrom("auth_challenge").select((eb) => eb.fn.countAll<string>().as("n")).where("kind", "=", "email_add")
-    .where((eb) => eb.or([eb(sql`lower(target)`, "=", email.toLowerCase()), eb("person_id", "=", personId)])).where("created_at", ">", new Date(now.getTime() - 3600_000)).executeTakeFirstOrThrow();
+    .where((eb) => eb.or([eb(sql`lower(target)`, "=", target), eb("person_id", "=", personId)])).where("created_at", ">", new Date(now.getTime() - 3600_000)).executeTakeFirstOrThrow();
   if (Number(recent.n) >= MAX_CODES_PER_HOUR) throw new KumiError("error.too_many_codes", {}, 429);
-  const code = String(randomInt(0, 1_000_000)).padStart(6, "0"), id = uuidv7(now.getTime());
-  await db.insertInto("auth_challenge").values({ id, kind: "email_add", person_id: personId, target: email.trim().toLowerCase(), code_hash: codeHash(id, code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
   const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
-  await mailer.send({ to: email, subject: t(lang, "auth.email_add_subject", { club: club.name, code }), text: t(lang, "auth.email_add_body", { club: club.name, code }) });
+  const taken = await personByEmail(db, target)
+    ?? await db.selectFrom("auth_identity").innerJoin("person", "person.id", "auth_identity.person_id").select(["person.id", "person.locale"])
+      .where("auth_identity.kind", "=", "email").where(sql<boolean>`lower(auth_identity.value) = ${target}`).executeTakeFirst();
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0"), id = uuidv7(now.getTime());
+  // Taken: a challenge still counts toward the limits, with a code nobody was sent.
+  await db.insertInto("auth_challenge").values({ id, kind: "email_add", person_id: personId, target, code_hash: codeHash(id, taken ? randomBytes(16).toString("hex") : code),
+    expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
+  if (taken) {
+    const l = (taken.locale as Lang) ?? lang;
+    await mailer.send({ to: target, subject: t(l, "auth.email_taken_subject", { club: club.name }), text: t(l, "auth.email_taken_body", { club: club.name }) });
+    return;
+  }
+  await mailer.send({ to: target, subject: t(lang, "auth.email_add_subject", { club: club.name, code }), text: t(lang, "auth.email_add_body", { club: club.name, code }) });
 }
-export async function verifyEmailAdd(db: Db, personId: string, code: string, now = new Date()): Promise<string> {
+/** The code back: the address is theirs. A change tells the old address, with a link to put it back. */
+export async function verifyEmailAdd(db: Db, personId: string, code: string, now = new Date(), o?: { mailer: Mailer; undoUrl: (token: string) => string }): Promise<string> {
   const ch = await db.selectFrom("auth_challenge").selectAll().where("kind", "=", "email_add").where("person_id", "=", personId).where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
   if (!ch) throw new KumiError("error.bad_code", {}, 401);
   if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
@@ -172,8 +188,41 @@ export async function verifyEmailAdd(db: Db, personId: string, code: string, now
     throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_code", {}, exhausted ? 429 : 401);
   }
   await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", ch.id).execute();
-  await runAsSystem(db, "email.add", { person_id: personId, email: ch.target }, "web", { now });
+  const p = await db.selectFrom("person").select(["email", "display_name", "locale"]).where("id", "=", personId).executeTakeFirstOrThrow();
+  if (!p.email) { await runAsSystem(db, "email.add", { person_id: personId, email: ch.target }, "web", { now }); return ch.target; }
+  await runAsSystem(db, "email.change", { person_id: personId, email: ch.target }, "web", { now });
+  if (o) {
+    const token = randomBytes(32).toString("base64url"), l = (p.locale as Lang) ?? "en";
+    await db.insertInto("auth_challenge").values({ id: uuidv7(now.getTime()), kind: "email_undo", person_id: personId, target: p.email, code_hash: sha(token), expires_at: new Date(now.getTime() + UNDO_DAYS * 864e5), consumed_at: null }).execute();
+    const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
+    await o.mailer.send({ to: p.email, subject: t(l, "auth.email_changed_subject", { club: club.name }),
+      text: t(l, "auth.email_changed_body", { name: p.display_name, club: club.name, email: ch.target, link: o.undoUrl(token), days: UNDO_DAYS }) });
+  }
   return ch.target;
+}
+
+/** The old address's link, for a change its owner didn't make: who it's for, if it still works. */
+export async function emailUndoTarget(db: Db, token: string, now = new Date()) {
+  const ch = await db.selectFrom("auth_challenge").innerJoin("person", "person.id", "auth_challenge.person_id").select(["auth_challenge.id", "auth_challenge.target", "auth_challenge.consumed_at",
+    "auth_challenge.expires_at", "person.id as person_id", "person.locale", "person.email"]).where("auth_challenge.kind", "=", "email_undo").where("auth_challenge.code_hash", "=", sha(token)).executeTakeFirst();
+  if (!ch || ch.expires_at.getTime() < now.getTime()) return null;
+  return { ...ch, lang: ((ch.locale as Lang) ?? "en") as Lang, club: (await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name };
+}
+/** "This wasn't me": the old address back, every session and connected assistant signed out, and any other
+ *  address change waiting for its code called off. The old address is told it's done. */
+export async function undoEmailChange(db: Db, mailer: Mailer, token: string, now = new Date()): Promise<boolean> {
+  const u = await emailUndoTarget(db, token, now);
+  if (!u || u.consumed_at) return false;
+  if (u.email?.toLowerCase() !== u.target.toLowerCase()) await runAsSystem(db, "email.change", { person_id: u.person_id, email: u.target }, "email_undo", { now });
+  await db.transaction().execute(async (trx) => {
+    await trx.updateTable("auth_challenge").set({ consumed_at: now }).where("person_id", "=", u.person_id).where("kind", "in", ["email_add", "email_undo"]).where("consumed_at", "is", null).execute();
+    await trx.updateTable("web_session").set({ revoked_at: now }).where("person_id", "=", u.person_id).where("revoked_at", "is", null).execute();
+    const grants = trx.selectFrom("oauth_grant").select("id").where("person_id", "=", u.person_id);
+    await trx.updateTable("oauth_token").set({ revoked_at: now }).where("grant_id", "in", grants).where("revoked_at", "is", null).execute();
+    await trx.updateTable("oauth_grant").set({ revoked_at: now }).where("person_id", "=", u.person_id).where("revoked_at", "is", null).execute();
+  });
+  await mailer.send({ to: u.target, subject: t(u.lang, "auth.email_restored_subject", { club: u.club }), text: t(u.lang, "auth.email_restored_body", { club: u.club, email: u.target }) });
+  return true;
 }
 
 /** The last step of joining: their name, language and (with an email) club-news answer, with the ticket from the code. */

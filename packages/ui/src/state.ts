@@ -5,6 +5,7 @@ import { format, pickLang, type Catalog, type Key, type Lang, type Params } from
 export type Me = { person: { id: string; display_name: string; locale: string }; signed_in_with: "email_code" | "phone_code" | "passkey" | "two_factor"; lang: Lang;
   /** False for an account that joined by phone and hasn't added an email: the members' app asks for one, never requires it. */
   has_email?: boolean;
+  email?: string | null;
   /** A role the club made has its own name; the built-in ones are worded by key. */
   roles: { key: string; name?: string | null; location_id: string | null }[];
   /** This session still owes its second step ("verify"), or has none set up yet ("setup"): the apps show only that. */
