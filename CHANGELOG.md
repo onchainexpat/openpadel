@@ -31,6 +31,8 @@ The first version a club can run on its own (court bookings included), or for it
   location's special days apply to every court, unless a court has its own for that date. Free courts,
   desk and member bookings, moves, a lesson's court, the Courts page (shading when a court is closed)
   and the occupancy report all use each court's own hours; a program date on a closed court is a warning.
+  A booking left outside its court's hours (kept when the hours changed) still counts as booked in the
+  report; only the occupancy, the share of open time used, leaves it out.
 - Courts blocked every week ("Courts 1 and 2 every Tuesday 18:00 to 20:00, for the league"), from a
   date until a date or with no end. Each date is an ordinary block, so nothing else can take the court
   then. Bookings already in the way stay (the block leaves that court free that day) or are cancelled,

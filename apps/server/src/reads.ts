@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { assistantsOf, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration } from "@kumi/core";
+import { assistantsOf, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { readPeopleCsv } from "./csv.ts";
 
@@ -202,19 +202,26 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     for (const day of days) {
       // Each court counts its own hours that day (a court's own week, or the location's).
       const hours = await courtOpenings(db, loc.id, courts.map((x) => x.id), day), open = spanOf([...hours.values()]);
-      const openMin = open ? (open.closes.getTime() - open.opens.getTime()) / 60_000 : 0, by: Record<string, number> = {};
+      const openMin = open ? (open.closes.getTime() - open.opens.getTime()) / 60_000 : 0;
+      // What was booked counts whatever the hours say (a match kept after its court's hours changed is still
+      // booked and paid for); the hours only shape the capacity, so occupancy counts the time inside them.
+      const all: Record<string, number> = {}, inside: Record<string, number> = {};
       let capacity = 0;
       for (const h of hours.values()) if (h) capacity += (h.closes.getTime() - h.opens.getTime()) / 60_000;
-      if (open) for (const it of await occupied(db, courts.map((x) => x.id), open.opens, open.closes, new Date(0))) {
+      const [y, mo, dd] = day.split("-").map(Number) as [number, number, number];
+      const dayStart = atLocal(y, mo, dd, 0, loc.time_zone).getTime(), dayEnd = atLocal(y, mo, dd + 1, 0, loc.time_zone).getTime();
+      for (const it of await occupied(db, courts.map((x) => x.id), new Date(dayStart), new Date(dayEnd), new Date(0))) {
+        const s = Math.max(new Date(it.start).getTime(), dayStart), e = Math.min(new Date(it.end).getTime(), dayEnd);
+        if (e <= s) continue;
+        all[it.kind] = (all[it.kind] ?? 0) + (e - s) / 60_000;
         const h = hours.get(it.court_id);
-        if (!h) continue;
-        const m = (Math.min(new Date(it.end).getTime(), h.closes.getTime()) - Math.max(new Date(it.start).getTime(), h.opens.getTime())) / 60_000;
-        if (m > 0) by[it.kind] = (by[it.kind] ?? 0) + m;
+        const m = h ? (Math.min(e, h.closes.getTime()) - Math.max(s, h.opens.getTime())) / 60_000 : 0;
+        if (m > 0) inside[it.kind] = (inside[it.kind] ?? 0) + m;
       }
-      const used = (by.booking ?? 0) + (by.session ?? 0) + (by.mirror ?? 0), blocked = by.block ?? 0;
+      const used = (inside.booking ?? 0) + (inside.session ?? 0) + (inside.mirror ?? 0), blocked = inside.block ?? 0;
       const cents = (type: string) => Number(money.find((r) => r.day === day && r.revenue_type === type)?.cents ?? 0);
-      rows.push({ date: day, open_hours: openMin / 60, courts: courts.length, court_hours: capacity / 60, booked_hours: (by.booking ?? 0) / 60, program_hours: (by.session ?? 0) / 60,
-        playtomic_hours: (by.mirror ?? 0) / 60, blocked_hours: blocked / 60, occupancy_percent: capacity - blocked > 0 ? Math.round(used / (capacity - blocked) * 1000) / 10 : 0,
+      rows.push({ date: day, open_hours: openMin / 60, courts: courts.length, court_hours: capacity / 60, booked_hours: (all.booking ?? 0) / 60, program_hours: (all.session ?? 0) / 60,
+        playtomic_hours: (all.mirror ?? 0) / 60, blocked_hours: blocked / 60, occupancy_percent: capacity - blocked > 0 ? Math.round(used / (capacity - blocked) * 1000) / 10 : 0,
         court_revenue_cents: cents("courts"), lesson_revenue_cents: cents("lessons"), program_revenue_cents: cents("programs") });
     }
     return { location: loc.name, from, to, rows };

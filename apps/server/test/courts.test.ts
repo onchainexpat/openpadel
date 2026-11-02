@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { localDate, run, runAsSystem, type Actor, type Db } from "@kumi/core";
+import { localDate, onDate, run, runAsSystem, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
@@ -129,7 +129,13 @@ test("a weekly block on the day's grid: marked as repeating, on each of its date
 test("a court's own hours: on the day's grid and in settings", async () => {
   const d = localDate(new Date(Date.now() + 5 * 86400_000), TZ), weekday = new Date(`${d}T12:00:00Z`).getUTCDay();
   const c2 = (await db.selectFrom("court").select("id").where("name", "=", "Court 2").executeTakeFirstOrThrow()).id;
+  await run(db, "booking.create", { court_id: c2, starts_at: onDate(d, "18:00", TZ).toISOString(), minutes: 90, guest_name: "Iva (walk-in)" }, owner);
   await run(db, "court.hours_set", { court_id: c2, days: [{ weekday, opens: "10:00", closes: "16:00" }] }, owner);
+  // The 18:00 booking is now outside Court 2's hours: still booked (and counted), but not in the occupancy.
+  const rep = (await get(`/staff/reports?location_id=${loc}&from=${d}&to=${d}`)).json.rows[0];
+  assert.equal(rep.court_hours, 20);   // Court 1 08:00 to 22:00, Court 2 10:00 to 16:00
+  assert.equal(rep.booked_hours, 1.5);
+  assert.equal(rep.occupancy_percent, 0);
   const g = (await get(`/staff/grid?location_id=${loc}&date=${d}`)).json;
   const court = (id: string) => g.courts.find((c: any) => c.id === id);
   assert.equal(new Date(court(c2).open.opens).getTime() - new Date(court(c1).open.opens).getTime(), 2 * 3600_000);   // 10:00 against the location's 08:00
