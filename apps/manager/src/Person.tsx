@@ -38,7 +38,7 @@ export function Person({ id }: { id: string }) {
   if (!p) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
   const date = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
-  const news = p.consent.find((c) => c.channel === "email" && c.purpose === "club_news");
+  const news = p.consent.find((c) => c.channel === "email" && c.purpose === "club_news"), texts = p.consent.find((c) => c.channel === "sms" && c.purpose === "account");
   const staffRoles = p.roles.filter((r) => r.key !== "member");
   // A deleted account: nothing left to show or change.
   if (p.redacted_at) return <main><h1>{p.display_name}</h1><section class="card"><p>{t("ui.data_deleted_for")}</p></section></main>;
@@ -53,6 +53,7 @@ export function Person({ id }: { id: string }) {
         <p>{p.email ?? t("ui.no_email")}</p>
         <p class="meta">{t("ui.joined", { date: date(p.created_at), how: t(`ui.via_${p.created_via}` as Key) })} · {p.locale === "es" ? "Español" : "English"}</p>
         {!p.junior && <p class="meta">{t("ui.club_news_email")}: {news ? t(news.granted ? "ui.consent_yes" : "ui.consent_no") : t("ui.consent_unknown")}</p>}
+        {texts && <p class="meta">{t("ui.texts_staff")}: {t(texts.granted ? "ui.consent_yes" : "ui.consent_no")}</p>}
         <p><a href={`/people/${p.id}/level`}>{t("ui.see_level")}</a></p>
       </section>
 

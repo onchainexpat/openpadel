@@ -14,6 +14,7 @@ import { hasPushDevice } from "./push.ts";
 import { declineReason, refundReason } from "./declines.ts";
 import { managersOf } from "./households.ts";
 import { paymentWhat } from "./kids.ts";
+import { TEXT_KINDS, textable, textingOn } from "./texts.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -686,6 +687,12 @@ async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<numbe
     if (d.email && person.email) rows.push({ ...base, id: uuidv7(now.getTime()), channel: "email", status: "waiting", send_after: wait ?? now, sent_at: null as any });
     // Every message also goes to the phones they turned notifications on for.
     if (await hasPushDevice(db, d.to)) rows.push({ ...base, id: uuidv7(now.getTime()), channel: "push", status: "waiting", send_after: wait ?? now, sent_at: null as any });
+    // And by text, what they need to know soon, if they said yes to texts (texts.ts); never news of what they did themselves.
+    if (textingOn() && d.purpose === "account" && TEXT_KINDS.has(d.kind) && (ev.payload as { by?: unknown } | null)?.by !== d.to && "phone" in await textable(db, d.to)) {
+      let text = t(lang, `msg.${d.kind}.sms` as Key, d.params);
+      if (d.junior) text = t(lang, "msg.for_junior.sms", { name: d.junior, text });
+      rows.push({ ...base, body: tidy(text), id: uuidv7(now.getTime()), channel: "sms", status: "waiting", send_after: wait ?? now, sent_at: null as any });
+    }
     const r = await db.insertInto("outbound_message").values(rows as any).onConflict((oc) => oc.columns(["event_id", "person_id", "kind", "channel"]).doNothing()).execute();
     written += r.reduce((n, x) => n + Number(x.numInsertedOrUpdatedRows ?? 0), 0);
   }

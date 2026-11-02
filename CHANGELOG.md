@@ -271,6 +271,17 @@ The first version a club can run on its own (court bookings included), or for it
 - Push notifications on phones and computers, turned on per device in Profile: every message also
   arrives as a notification, encrypted for that device (Web Push, no third-party service of Kumi's
   own), with quiet hours and consent as for email. Staff alerts go to the staff app's devices.
+- Texts, through the club's own Twilio account (optional): a member confirms their US or Canadian
+  number with a texted code and ticks the yes themselves in Profile, and Kumi keeps the words they saw,
+  their version, the number and the device. Texts are only for what can't wait: a place offered with a
+  deadline, a booking, lesson or class the club cancelled or moved, a court lost while paying, a match
+  that didn't fill. Each starts with the club's name, ends with how to stop and keeps to plain letters
+  (one segment where it can). STOP to the club's number turns every message to that member off at once;
+  START turns texts back on; HELP is answered with the club's name. Codes are guarded against SMS
+  pumping (the bot check, no Caribbean or premium numbers, limits per number, person and club). A kid
+  with their own login says yes once a parent turns texts on. Twilio's delivery reports are checked
+  against its signature; `kumi doctor` and `/health/deep` report texts. US carriers must approve the
+  club's texting registration (in its own Twilio console) before real texts reach anyone.
 
 **Signing in and roles**
 - Two-step sign-in for staff: a passkey (both steps by itself), or the emailed code followed by a code from

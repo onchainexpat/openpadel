@@ -13,7 +13,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, type Actor, type Db } from "@kumi/core";
+import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, sessionPerson, signOut, startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
@@ -27,6 +27,7 @@ import { publicRoutes } from "./public.ts";
 import { memberUrl } from "./addresses.ts";
 import { memberRoutes } from "./member.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
+import { textRoutes } from "./texts.ts";
 import type { Mailer } from "./mailer.ts";
 
 /** The changes a staff screen offers a button for, which /me reports for people with only the club's own roles. */
@@ -36,7 +37,9 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   /** The members' app's address (addresses.ts), for the public page's own links; from publicUrl when not given. */
   memberUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata; production?: boolean; stripe?: StripeConfig
   /** Bot protection on sign-up, sign-in codes and checkout. On in production, always; tests and practice can leave it off. */
-  botCheck?: boolean }
+  botCheck?: boolean
+  /** Texts, when the club's Twilio account is set up (twilio.ts): what sends them, and the token Twilio signs its posts with. */
+  texts?: { texter: Texter; authToken: string | null } }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
 type Me = { id: string; display_name: string; locale: string; method: "email_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
@@ -73,7 +76,7 @@ export function makeApp(deps: AppDeps) {
   const limits = new Map<string, RateLimiter>([
     ["/auth/email/start", new RateLimiter(10, 15 * 60_000)], ["/oauth/sign-in", new RateLimiter(10, 15 * 60_000)],
     ["/auth/email/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/sign-up", new RateLimiter(10, 60 * 60_000)],
-    ["/auth/passkey/sign-in/verify", new RateLimiter(30, 15 * 60_000)],
+    ["/auth/passkey/sign-in/verify", new RateLimiter(30, 15 * 60_000)], ["/my/phone/start", new RateLimiter(10, 60 * 60_000)], ["/my/phone/verify", new RateLimiter(20, 15 * 60_000)],
     ["/auth/totp/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/recovery", new RateLimiter(20, 15 * 60_000)], ["/oauth/two-step", new RateLimiter(10, 15 * 60_000)],
   ]);
   app.use("*", async (c, next) => {
@@ -188,6 +191,9 @@ export function makeApp(deps: AppDeps) {
     if (!staff && (await botGuard(c)) !== "ok") throw new KumiError("error.bot_check", {}, 400);
   };
   app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe, checkoutGuard));
+  // Texts: a member's number and their yes, and what Twilio posts back (texts.ts).
+  app.route("/", textRoutes({ db, texter: deps.texts?.texter ?? null, authToken: deps.texts?.authToken ?? null, publicUrl, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}),
+    me: (c) => c.get("me"), lang: (c) => c.get("lang"), now, botGuard }));
   app.all("/mcp", async (c) => {
     const who = await bearerPerson(db, c.req.header("authorization"), `${publicUrl}/mcp`, now());
     if (!who) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": `Bearer resource_metadata="${publicUrl}/.well-known/oauth-protected-resource/mcp", scope="kumi"` });

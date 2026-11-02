@@ -14,7 +14,7 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 | `NODE_ENV` | `production` on a real server: secure cookies, live Stripe keys allowed, no development routes. | not set |
 | `KUMI_PUBLIC_URL` | The staff app's address, such as `https://staff.app.yourclub.com`. Used for passkeys, agent sign-in and Stripe's return pages. | `http://127.0.0.1:8790` |
 | `KUMI_MEMBER_URL` | The members' app's address, such as `https://app.yourclub.com`. Links members are sent use it: a club news email's unsubscribe link, and the public page's own address for search engines. | `KUMI_PUBLIC_URL` without its `staff.`, or `KUMI_PUBLIC_URL` itself when it has none |
-| `KUMI_PRACTICE` | `1` keeps a production server in practice: real email only to `KUMI_MAIL_TEST_TO`. Remove it to go live. | off |
+| `KUMI_PRACTICE` | `1` keeps a production server in practice: real email only to `KUMI_MAIL_TEST_TO`, real texts only to `KUMI_SMS_TEST_TO`. Remove it to go live. | off |
 | `KUMI_BOT_CHECK` | `0` turns bot protection off on a practice machine (for scripts that sign in over the API). Production refuses to start with it off. | on |
 | `KUMI_PUSH_CONTACT` | Who push services can contact about this server's notifications: a `mailto:` address or an `https://` page. The keys that sign pushes are made by the server itself, the first time someone turns notifications on, and kept in the database. | `KUMI_PUBLIC_URL` when it's `https`, otherwise `mailto:owner@localhost` |
 
@@ -26,6 +26,15 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 | `KUMI_MAIL_FROM` | The sender, on the club's verified domain: `"Your Club <hello@mail.yourclub.com>"`. Needed with the key. | not set |
 | `KUMI_MAIL_REPLY_TO` | Where replies to Kumi's emails go. | not set |
 | `KUMI_MAIL_TEST_TO` | Comma-separated addresses that get real email in practice mode. | none |
+
+## Texts (Twilio, optional)
+
+| Setting | What it does | Default |
+|---|---|---|
+| `KUMI_TWILIO_ACCOUNT_SID`, `KUMI_TWILIO_AUTH_TOKEN` | The club's own Twilio account (`docs/setup/accounts/twilio.md`). With them, members can choose texts in the app. The token also checks what Twilio posts to `/webhooks/twilio/sms` and `/webhooks/twilio/status`. | not set |
+| `KUMI_TWILIO_MESSAGING_SERVICE_SID` | Who texts are from: the Messaging Service with the club's registered number (`MG...`). | not set |
+| `KUMI_TWILIO_FROM` | Or one number instead (`+15035550123`). | not set |
+| `KUMI_SMS_TEST_TO` | Comma-separated numbers that get real texts in practice mode (`+15035550123`). | none |
 
 ## Card payments (Stripe)
 

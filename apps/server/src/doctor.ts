@@ -3,8 +3,9 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { readdirSync, statSync } from "node:fs";
 import { both, type Key, type Text } from "@kumi/i18n";
-import { heartbeats, parseSecretKey, pendingMigrations, type Db } from "@kumi/core";
+import { heartbeats, parseSecretKey, pendingMigrations, textCounts, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
+import { checkTwilio, twilioFromEnv } from "./twilio.ts";
 import { memberUrl } from "./addresses.ts";
 import { VERSION } from "./version.ts";
 
@@ -60,6 +61,23 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   else if (!env.KUMI_MAIL_FROM) add("email", "fail", "email.no_from", {}, "docs/setup/accounts/resend.md");
   else if (!production || env.KUMI_PRACTICE === "1") add("email", "warn", "email.practice", { from: env.KUMI_MAIL_FROM, count: (env.KUMI_MAIL_TEST_TO ?? "").split(",").filter((a) => a.trim()).length });
   else add("email", "ok", "email.ok", { from: env.KUMI_MAIL_FROM });
+
+  // Texts: optional. Set up, Twilio is asked whether it takes the account and token (reading only), and the
+  // last day's texts say whether they're getting through (an unapproved registration shows up as failures).
+  const twDoc = "docs/setup/accounts/twilio.md";
+  let tw: ReturnType<typeof twilioFromEnv> = null, twErr: string | null = null;
+  try { tw = twilioFromEnv(env); } catch (e) { twErr = (e as Error).message; }
+  if (twErr) add("texts", "fail", twErr.includes("who they're from") ? "texts.half" : "texts.bad", { error: twErr }, twDoc);
+  else if (!tw) add("texts", "off", "texts.off", {}, twDoc);
+  else {
+    const answer = await checkTwilio(tw, deps.fetch);
+    const sent = await textCounts(db, now), total = sent.sent + sent.failed;
+    if (typeof answer === "object") add("texts", "fail", "texts.refused", { error: answer.error }, twDoc);
+    else if (answer === "test") add("texts", production ? "warn" : "ok", "texts.test");
+    else if (total >= 5 && sent.failed / total > 0.2) add("texts", "warn", "texts.failing", { failed: sent.failed, total }, twDoc);
+    else if (!production || env.KUMI_PRACTICE === "1") add("texts", "warn", "texts.practice", { count: (env.KUMI_SMS_TEST_TO ?? "").split(",").filter((n) => n.trim()).length });
+    else add("texts", "ok", "texts.ok", { sent: sent.sent, failed: sent.failed });
+  }
 
   // Card payments.
   const sk = env.KUMI_STRIPE_SECRET_KEY;

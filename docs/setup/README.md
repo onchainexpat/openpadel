@@ -37,6 +37,7 @@ take a few days.
 | 5h | Common questions: the club's answers to what members ask most | Front desk drafts, owner checks | 1 hour | below |
 | 5i | Messages to members: tags, groups and the daily email cap | Owner decides, front desk | 15 min | below |
 | 5j | Offsite backups, and the keys to keep | Owner creates the storage key, agent sets up | 20 min | [accounts/offsite-backups.md](accounts/offsite-backups.md) |
+| 5k | Texts (optional): the club's own Twilio number, registered with US carriers | Owner signs up and registers, agent sets up | 1 hour, then days to weeks of review | [accounts/twilio.md](accounts/twilio.md) |
 | 6 | Card payments, in test mode first | Owner copies keys, agent sets up | 30 min | [accounts/stripe.md](accounts/stripe.md) |
 | 7 | Playtomic, only if the club also uses it | Owner creates keys, agent sets up | 20 min | [accounts/playtomic.md](accounts/playtomic.md) |
 | 8 | Practice with the club's own staff | Everyone | a few days | below |
@@ -275,6 +276,18 @@ the club owns (Cloudflare R2 or Backblaze B2; both have a free allowance far abo
 The owner also has a **vault** in the staff app (Settings, then "The vault"): the club's keys and small
 documents (a supplier login, the alarm code, the insurance certificate, the lease), sealed with the
 server's key and seen only by the owner. Never paste those into a chat; the owner adds them there.
+
+### Step 5k: texts (optional)
+
+Members can choose a text when something needs them soon: a place offered with a deadline, or a booking or
+class the club cancelled or moved. Everything else stays in the app, by push and by email. Texts go through
+the club's own Twilio account, only to US and Canadian numbers, and only to members who confirmed their
+number with a code and ticked the yes themselves (Profile, then Texts). STOP to the club's number turns every
+message to that member off at once.
+
+**US carriers must approve the club's texting first** (A2P 10DLC for a local number, or toll-free
+verification): until then, real texts don't reach anyone. That registration is the club's to do in its own
+Twilio console for now; [accounts/twilio.md](accounts/twilio.md) says how, and what to put in the settings.
 
 ### Programs: weekly dates, changes and a minimum to run
 

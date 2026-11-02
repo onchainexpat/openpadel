@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
 import { approveKidRequest, checkFamilyCard, checkPayment, combine, moneyHandlers, friendsOf, kidOf, messageHandlers, monthSpent, openFamilyCardSetup, openPayment, payKidRun, payWithFamilyCard, plan, processOutbox, run,
-  runAsSystem, setPaymentProvider, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+  runAsSystem, setPaymentProvider, setTexting, textable, KumiError, TestProvider, TEXTS_FORM, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, court: string, court2: string, clinic: string, mia: string, leo: string;
 const stripe = new TestProvider();
@@ -229,6 +229,22 @@ test("friends stay off until a parent turns them on; then a kid adds and is adde
   await checkPayment(db, (j.result as any).payment_id, "test", NOW);
   const offer = await run(db, "booking.offer_place", { booking_id: om.id, person_id: people.Ann }, as("Ann"), opts);
   await rejects(plan(db, "booking.take_place", { code: (offer.result as any).code, person_id: mia }, asMia(), opts), "error.kid_link_off");
+});
+
+test("texts: a kid says yes for themselves, but only once a parent turns texts on; off again, no more texts", async () => {
+  setTexting(true);
+  try {
+    await runAsSystem(db, "phone.confirm", { person_id: mia, phone: "+15035550177" }, "web", opts);
+    const yes = { person_id: mia, granted: true, form_version: TEXTS_FORM, app: "member" };
+    await rejects(plan(db, "consent.texts", yes, asMia(), opts), "error.texts_kid_off", "Your parents haven't turned texts on for you.");
+    const r = await run(db, "kid.set_rules", { person_id: mia, texts: true }, as("Pat"), opts);
+    assert.match(r.plan.summary.en, /and they can turn texts on/);
+    await rejects(plan(db, "consent.texts", yes, as("Pat"), opts), "error.forbidden_reason");   // their own yes, not a parent's
+    await run(db, "consent.texts", yes, asMia(), opts);
+    assert.deepEqual(await textable(db, mia), { phone: "+15035550177" });
+    await run(db, "kid.set_rules", { person_id: mia, texts: false }, as("Pat"), opts);
+    assert.deepEqual(await textable(db, mia), { why: "junior" });
+  } finally { setTexting(false); }
 });
 
 test("turning the login off signs the kid out and they're a junior booked by a parent again", async () => {

@@ -181,7 +181,7 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
       .where("household_id", "=", h.household_id).where("household_member.removed_at", "is", null).where("person.id", "!=", personId).execute();
     family.push({ your_role: h.role, joined_at: iso(h.created_at), left_at: iso(h.removed_at), others: members.map((m) => ({ name: m.display_name, role: m.role })) });
   }
-  const kidRules = await db.selectFrom("kid_rule").select(["open_matches", "courts", "programs", "lessons", "monthly_limit_cents", "friends", "updated_at"]).where("person_id", "=", personId).executeTakeFirst();
+  const kidRules = await db.selectFrom("kid_rule").select(["open_matches", "courts", "programs", "lessons", "monthly_limit_cents", "friends", "texts", "updated_at"]).where("person_id", "=", personId).executeTakeFirst();
   const kidRequests = await db.selectFrom("kid_request").select(["created_at", "kind", "reason", "cents", "what", "status", "decided_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
   const devices = await db.selectFrom("push_subscription").select(["app", "endpoint", "user_agent", "created_at", "last_ok_at", "revoked_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
   const asked = (await sql<{ asked: string; at: Date }>`SELECT asked, at FROM missing_feature WHERE person_id = ${personId} ORDER BY at`.execute(db)).rows;

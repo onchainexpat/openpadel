@@ -11,7 +11,7 @@ import { PaySheet } from "./Pay.tsx";
 type Person = { id: string; display_name: string; me?: boolean };
 type Junior = Person & { birth_year: number | null; level: number | null; waiver: { version_no: number; accepted_at: string | null } | null };
 type Page = { role: "adult" | "member" | "junior" | null; household: { adults: Person[]; members: Person[]; juniors: Junior[]; invites: { id: string; code: string; until: string }[] } | null };
-type Rules = { open_matches: boolean; courts: boolean; programs: boolean; lessons: boolean; monthly_limit_cents: number; friends: boolean };
+type Rules = { open_matches: boolean; courts: boolean; programs: boolean; lessons: boolean; monthly_limit_cents: number; friends: boolean; texts: boolean };
 type Kids = { kids: { id: string; own_login: boolean; email: string | null; rules: Rules | null; spent_cents: number }[]; requests: { id: string; name: string; cents: number; what: string }[];
   to_pay: { payment_id: string; name: string; cents: number; what: string }[]; card: { saved_by: string; saved_on: string | null } | null };
 const KINDS = ["open_matches", "courts", "programs", "lessons"] as const;
@@ -142,7 +142,7 @@ function KidRules({ id, name, rules, send }: { id: string; name: string; rules: 
     <label class="check"><input type="checkbox" checked={Boolean(r[key])} onChange={(e) => setR({ ...r, [key]: e.currentTarget.checked })} /> {label}</label>;
   return (
     <form class="card-form" onSubmit={(e) => { e.preventDefault();
-      send("kid.set_rules", { person_id: id, open_matches: r.open_matches, courts: r.courts, programs: r.programs, lessons: r.lessons, friends: r.friends, monthly_limit_cents: Math.round(Number(limit) * 100) }); }}>
+      send("kid.set_rules", { person_id: id, open_matches: r.open_matches, courts: r.courts, programs: r.programs, lessons: r.lessons, friends: r.friends, texts: r.texts, monthly_limit_cents: Math.round(Number(limit) * 100) }); }}>
       <p><strong>{t("ui.kid_rules", { name })}</strong></p>
       {box("open_matches", t("ui.kid_open_matches"))}
       {box("courts", t("ui.kid_courts"))}
@@ -150,6 +150,7 @@ function KidRules({ id, name, rules, send }: { id: string; name: string; rules: 
       {box("lessons", t("ui.kid_lessons"))}
       <label>{t("ui.kid_limit")} <input type="number" required min={0} max={1000} step="1" inputMode="numeric" value={limit} onInput={(e) => setLimit(e.currentTarget.value)} /></label>
       {box("friends", t("ui.kid_friends"))}
+      {box("texts", t("ui.kid_texts"))}
       <button class="primary">{t("ui.kid_save_rules")}</button>
     </form>
   );

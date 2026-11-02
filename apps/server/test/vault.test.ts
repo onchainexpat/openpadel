@@ -86,8 +86,9 @@ test("/health names the release; /health/deep is for this machine, or an owner o
   const deep = await get("/health/deep", "mia@example.test");
   const h = await deep.json() as any;
   assert.equal(h.database.ok, true);
-  assert.deepEqual(Object.keys(h).sort(), ["backup", "database", "disks", "offsite", "ok", "outbox", "problems", "restore_test", "revision", "version"]);
+  assert.deepEqual(Object.keys(h).sort(), ["backup", "database", "disks", "offsite", "ok", "outbox", "problems", "restore_test", "revision", "texts", "version"]);
   assert.equal(h.offsite.on, false);
+  assert.deepEqual(h.texts, { on: false, sent: 0, failed: 0, dropped: 0, waiting: 0 });
   assert.equal(deep.status, h.ok ? 200 : 503);
   // Straight from this machine it answers anyone; through the proxy (a forwarded address) it doesn't.
   const local = { incoming: { socket: { remoteAddress: "127.0.0.1" } } };

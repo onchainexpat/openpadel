@@ -37,10 +37,10 @@ export async function kidOf(db: Db | Trx, personId: string | null | undefined) {
   if (!personId) return null;
   const p = await db.selectFrom("person").leftJoin("kid_rule", "kid_rule.person_id", "person.id")
     .select(["person.id", "person.display_name", "person.junior", "person.own_login", "person.birth_year", "kid_rule.open_matches", "kid_rule.courts", "kid_rule.programs", "kid_rule.lessons",
-      "kid_rule.monthly_limit_cents", "kid_rule.friends", "kid_rule.version"]).where("person.id", "=", personId).executeTakeFirst();
+      "kid_rule.monthly_limit_cents", "kid_rule.friends", "kid_rule.texts", "kid_rule.version"]).where("person.id", "=", personId).executeTakeFirst();
   if (!p?.junior || !p.own_login) return null;
   return { id: p.id, display_name: p.display_name, birth_year: p.birth_year, open_matches: p.open_matches ?? true, courts: p.courts ?? true, programs: p.programs ?? true,
-    lessons: p.lessons ?? true, monthly_limit_cents: p.monthly_limit_cents ?? KID_LIMIT_CENTS, friends: p.friends ?? false };
+    lessons: p.lessons ?? true, monthly_limit_cents: p.monthly_limit_cents ?? KID_LIMIT_CENTS, friends: p.friends ?? false, texts: p.texts ?? false };
 }
 export type Kid = NonNullable<Awaited<ReturnType<typeof kidOf>>>;
 
@@ -348,12 +348,12 @@ async function parentsOf(db: Db | Trx, personId: string): Promise<string[]> {
   if (!m.length) throw new KumiError("error.not_a_junior", { name: "" });
   return m;
 }
-export const rulesText = (r: Record<KidKind, boolean> & { monthly_limit_cents: number; friends: boolean }): Text => {
+export const rulesText = (r: Record<KidKind, boolean> & { monthly_limit_cents: number; friends: boolean; texts?: boolean }): Text => {
   const on = KID_KINDS.filter((k) => r[k]).map((k) => both(`kid.kind.${k}` as Key)), off = KID_KINDS.filter((k) => !r[k]).map((k) => both(`kid.kind.${k}` as Key));
   const and = (xs: string[], word: string) => xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} ${word} ${xs[xs.length - 1]}`;
   const list = (xs: Text[]) => ({ en: and(xs.map((x) => x.en), "and"), es: and(xs.map((x) => x.es), "y") });
   return both(off.length ? "kid.rules_some" : "kid.rules_all", { on: on.length ? list(on) : both("kid.nothing"), off: list(off), limit: usd(r.monthly_limit_cents),
-    friends: both(r.friends ? "kid.friends_on" : "kid.friends_off") });
+    friends: both(r.friends ? (r.texts ? "kid.friends_on_texts_on" : "kid.friends_on") : (r.texts ? "kid.friends_off_texts_on" : "kid.friends_off")) });
 };
 
 export const kidGiveLogin = defineAction({
@@ -413,12 +413,12 @@ const limitInput = z.number().check(z.int(), z.minimum(0), z.maximum(100_000));
 export const kidSetRules = defineAction({
   name: "kid.set_rules", version: 1,
   input: z.object({ person_id: z.uuid(), open_matches: z.optional(z.boolean()), courts: z.optional(z.boolean()), programs: z.optional(z.boolean()), lessons: z.optional(z.boolean()),
-    monthly_limit_cents: z.optional(limitInput), friends: z.optional(z.boolean()) }),
+    monthly_limit_cents: z.optional(limitInput), friends: z.optional(z.boolean()), texts: z.optional(z.boolean()) }),
   async plan(ctx, i) {
     const { row } = await juniorRow(ctx.db, i.person_id);
     const { row: rules, read } = await readRow(ctx.db, "kid_rule", i.person_id, "thing.kid_rule");
     const next = { open_matches: i.open_matches ?? rules.open_matches, courts: i.courts ?? rules.courts, programs: i.programs ?? rules.programs, lessons: i.lessons ?? rules.lessons,
-      monthly_limit_cents: i.monthly_limit_cents ?? rules.monthly_limit_cents, friends: i.friends ?? rules.friends };
+      monthly_limit_cents: i.monthly_limit_cents ?? rules.monthly_limit_cents, friends: i.friends ?? rules.friends, texts: i.texts ?? rules.texts };
     return { title: both("action.kid.set_rules"), summary: both("plan.kid.set_rules", { name: row.display_name, rules: rulesText(next) }), reads: [read],
       ownerIds: await parentsOf(ctx.db, i.person_id), undo: { kind: "reversible" }, details: next };
   },

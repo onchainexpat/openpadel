@@ -3,6 +3,7 @@ import { startRegistration } from "@simplewebauthn/browser";
 import type { Key, Lang } from "@kumi/i18n";
 import { api, ApiError, club, farewell, loadMe, me, t } from "./state.ts";
 import { AccountData } from "./AccountData.tsx";
+import { protectedPost } from "./pow.ts";
 import { lazy } from "preact-iso";
 
 // Two-step sign-in, loaded when the profile opens.
@@ -75,6 +76,54 @@ function ClubNews({ personId }: { personId: string }) {
   );
 }
 
+/** Texts: their number, confirmed with a texted code, then their own yes to the words shown, never ticked for
+ *  them (texts.ts). Shown only when the club sends texts; a kid sees it once their parents turn texts on. */
+function Texts({ personId }: { personId: string }) {
+  type S = { on: boolean; phone: string | null; waiting_code_for: string | null; answer: boolean | null; kid: { allowed: boolean } | null; form: { version: string; words: string } };
+  const [s, setS] = useState<S | null>(null), [editing, setEditing] = useState(false), [phone, setPhone] = useState(""), [code, setCode] = useState(""), [yes, setYes] = useState(false);
+  const [pending, setPending] = useState<{ runId: string; summary: string } | null>(null), [note, setNote] = useState<string | null>(null), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  const load = () => api<S>("/my/texts").then((x) => { setS(x); setEditing(!x.phone); setYes(false); }).catch(() => setS(null));
+  useEffect(() => { void load(); }, []);
+  const guard = (f: () => Promise<void>) => async () => { setBusy(true); setError(null); setNote(null); try { await f(); } catch (e) { setError(e instanceof ApiError ? e.message : String(e)); } finally { setBusy(false); } };
+  const sendCode = guard(async () => { const r = await protectedPost<{ phone?: string }>("/my/phone/start", { phone }); setNote(t("ui.texts_sent_code", { phone: r.phone ?? phone })); await load(); setEditing(true); });
+  const confirmCode = guard(async () => { await api("/my/phone/verify", { code }); setCode(""); await load(); });
+  const ask = (granted: boolean) => guard(async () => {
+    const p = await api<{ run_id: string; summary: string }>("/actions/consent.texts/plan", { person_id: personId, granted, ...(granted ? { form_version: s!.form.version, app: "member", device: navigator.userAgent.slice(0, 300) } : {}) });
+    setPending({ runId: p.run_id, summary: p.summary });
+  });
+  const confirm = guard(async () => { try { await api(`/runs/${pending!.runId}/apply`, {}, { "idempotency-key": pending!.runId }); } finally { setPending(null); } await load(); });
+  if (!s?.on) return null;
+  if (s.kid && !s.kid.allowed) return <section class="card"><h2>{t("ui.texts_title")}</h2><p class="meta">{t("ui.texts_kid_off")}</p></section>;
+  return (
+    <section class="card">
+      <h2>{t("ui.texts_title")}</h2>
+      <p class="meta">{t("ui.texts_hint")}</p>
+      {s.phone && !editing && <>
+        <p>{t(s.answer ? "ui.texts_on" : "ui.texts_off", { phone: s.phone })}</p>
+        {!pending && (s.answer ? <button disabled={busy} onClick={ask(false)}>{t("ui.texts_turn_off")}</button> : <>
+          <label class="check"><input type="checkbox" checked={yes} onChange={(e) => setYes(e.currentTarget.checked)} /> {s.form.words}</label>
+          <button class="primary" disabled={busy || !yes} onClick={ask(true)}>{t("ui.texts_turn_on")}</button>
+        </>)}
+        {!pending && <p><button class="link" onClick={() => setEditing(true)}>{t("ui.texts_change_number")}</button></p>}
+      </>}
+      {editing && <>
+        <form onSubmit={(e) => { e.preventDefault(); void sendCode(); }}>
+          <label>{t("ui.texts_phone")}<input type="tel" autocomplete="tel" inputMode="tel" required value={phone} onInput={(e) => setPhone(e.currentTarget.value)} /></label>
+          <button class={s.waiting_code_for ? "" : "primary"} disabled={busy}>{t("ui.texts_send_code")}</button>
+        </form>
+        {s.waiting_code_for && <form onSubmit={(e) => { e.preventDefault(); void confirmCode(); }}>
+          <label>{t("ui.texts_code")}<input inputMode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" required value={code} onInput={(e) => setCode(e.currentTarget.value)} /></label>
+          <button class="primary" disabled={busy}>{t("ui.confirm")}</button>
+        </form>}
+        {s.phone && <p><button class="link" onClick={() => setEditing(false)}>{t("ui.cancel")}</button></p>}
+      </>}
+      {pending && <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" disabled={busy} onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>}
+      {note && <p class="note" role="status">{note}</p>}
+      {error && <p class="error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
 export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
   const m = me.value!;
   const [name, setName] = useState(m.person.display_name), [locale, setLocale] = useState<Lang>(m.person.locale as Lang);
@@ -117,6 +166,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
       </form>
       <PushToggle app={app} />
       {app === "member" && !m.kid && <ClubNews personId={m.person.id} />}
+      {app === "member" && <Texts personId={m.person.id} />}
       <section class="card">
         <h2>{t("ui.passkeys")}</h2>
         <button onClick={addPasskey}>{t("ui.add_passkey")}</button>

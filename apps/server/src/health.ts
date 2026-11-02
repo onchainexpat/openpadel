@@ -5,7 +5,7 @@
 import { statfsSync } from "node:fs";
 import type { Context } from "hono";
 import { sql } from "kysely";
-import { heartbeats, KumiError, MAX_ATTEMPTS, type Db } from "@kumi/core";
+import { heartbeats, KumiError, MAX_ATTEMPTS, textCounts, textingOn, type Db } from "@kumi/core";
 import { newestLocalAge } from "./backups.ts";
 import { handledTopics } from "./outbox.ts";
 import { s3FromEnv } from "./s3.ts";
@@ -59,9 +59,13 @@ export async function deepHealth(db: Db, o: { env?: Env; now?: Date; backupDir?:
   const restore = job("restore_test");
   if (restore.error || (restore.last_ok_hours !== null && restore.last_ok_hours > 40 * 24)) problems.push("restore_test");
 
+  // Texts in the last day, when the club texts: more than a fifth failing means they aren't getting through.
+  const t = await textCounts(db, now), texts = { on: textingOn(), ...t };
+  if (texts.on && t.sent + t.failed >= 5 && t.failed / (t.sent + t.failed) > 0.2) problems.push("texts");
+
   const disks = [disk(dir), disk(process.cwd())];
   if (disks.some((d) => d.free_mb !== null && d.total_mb !== null && d.free_mb < Math.max(1024, d.total_mb * 0.1))) problems.push("disk");
-  return { ok: problems.length === 0, version: VERSION, revision: REVISION, database, outbox, backup, offsite, restore_test: restore, disks, problems };
+  return { ok: problems.length === 0, version: VERSION, revision: REVISION, database, outbox, backup, offsite, restore_test: restore, texts, disks, problems };
 }
 
 /** Who may read /health/deep: this machine itself, or a signed-in owner or manager. */

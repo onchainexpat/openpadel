@@ -329,7 +329,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const kids = await Promise.all(juniors.map(async (j) => {
       const k = await kidOf(db, j.id), p = await db.selectFrom("person").select(["email", "own_login"]).where("id", "=", j.id).executeTakeFirstOrThrow();
       return { id: j.id, display_name: j.display_name, birth_year: j.birth_year, own_login: p.own_login, email: p.own_login ? p.email : null,
-        rules: k ? { open_matches: k.open_matches, courts: k.courts, programs: k.programs, lessons: k.lessons, monthly_limit_cents: k.monthly_limit_cents, friends: k.friends } : null,
+        rules: k ? { open_matches: k.open_matches, courts: k.courts, programs: k.programs, lessons: k.lessons, monthly_limit_cents: k.monthly_limit_cents, friends: k.friends, texts: k.texts } : null,
         spent_cents: k ? await monthSpent(db, j.id, now) : 0 };
     }));
     const requests = ids.length ? await db.selectFrom("kid_request").innerJoin("person", "person.id", "kid_request.person_id")
@@ -356,7 +356,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const parents = (await db.selectFrom("person").select("display_name").where("id", "in", await managersOf(db, pid)).execute()).map((p) => p.display_name);
     const requests = await db.selectFrom("kid_request").select(["id", "what", "cents", "status", "error", "created_at"]).where("person_id", "=", pid)
       .where("created_at", ">", new Date(Date.now() - 30 * 864e5)).orderBy("created_at", "desc").limit(20).execute();
-    return c.json({ kid: { rules: { open_matches: k.open_matches, courts: k.courts, programs: k.programs, lessons: k.lessons, monthly_limit_cents: k.monthly_limit_cents, friends: k.friends },
+    return c.json({ kid: { rules: { open_matches: k.open_matches, courts: k.courts, programs: k.programs, lessons: k.lessons, monthly_limit_cents: k.monthly_limit_cents, friends: k.friends, texts: k.texts },
       spent_cents: await monthSpent(db, pid, new Date()), parents, card: Boolean(await familyCardFor(db, pid)),
       requests: requests.map((r) => ({ id: r.id, cents: r.cents, status: r.status, what: (r.what as Record<Lang, string>)[l], error: r.error ? (r.error as Record<Lang, string>)[l] : null })) } });
   });

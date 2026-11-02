@@ -1,8 +1,9 @@
 import { serve } from "@hono/node-server";
-import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
+import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl } from "./addresses.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
+import { PracticeTexter, TwilioTexter, twilioFromEnv } from "./twilio.ts";
 import { handlers } from "./outbox.ts";
 
 // The server's key for the secrets it keeps (authenticators, the push key, the vault: sealed.ts). Production
@@ -55,11 +56,23 @@ if (process.env.KUMI_RESEND_API_KEY) {
   mailer = practice ? new PracticeMailer(resend, testTo) : resend;
   console.log(`email: resend from ${from}${practice ? `, practice: only to ${testTo.filter(Boolean).length} test addresses` : ""}`);
 }
+// Texts: through the club's own Twilio account when it's set up (twilio.ts). In practice, like email, only the
+// club's test numbers (KUMI_SMS_TEST_TO, comma-separated) get them; the rest are held and logged.
+let twilio: ReturnType<typeof twilioFromEnv> = null;
+try { twilio = twilioFromEnv(process.env); } catch (e) { console.error(`texts: ${(e as Error).message}`); process.exit(1); }
+let texter: Texter | null = null;
+if (twilio) {
+  const practice = !production || process.env.KUMI_PRACTICE === "1", testTo = (process.env.KUMI_SMS_TEST_TO ?? "").split(",");
+  texter = practice ? new PracticeTexter(new TwilioTexter(twilio), testTo) : new TwilioTexter(twilio);
+  setTexting(true);
+  console.log(`texts: twilio${practice ? `, practice: only to ${testTo.filter((n) => n.trim()).length} test numbers` : ""}`);
+}
 // Bot protection on sign-up, sign-in codes and checkout. KUMI_BOT_CHECK=0 leaves it off on a practice
 // machine (scripts that sign in over the API); production refuses to start that way.
 const botCheck = process.env.KUMI_BOT_CHECK !== "0";
 if (!botCheck && production) { console.error("KUMI_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
-serve({ fetch: makeApp({ db, mailer, publicUrl, memberUrl: membersUrl, secureCookies: production, production, stripe: stripeConfig, botCheck }).fetch, port });
+serve({ fetch: makeApp({ db, mailer, publicUrl, memberUrl: membersUrl, secureCookies: production, production, stripe: stripeConfig, botCheck,
+  ...(texter && twilio ? { texts: { texter, authToken: twilio.authToken } } : {}) }).fetch, port });
 console.log(`kumi server on http://127.0.0.1:${port}`);
 
 // The jobs, every 30 seconds: refunds and messages leave through the outbox, and due emails go out;
@@ -78,6 +91,11 @@ const jobs = async () => {
     const push = await sendPushes(db, { subject: pushContact });
     if (push.sent || push.failed) console.log(`push: ${push.sent} sent, ${push.dropped} dropped, ${push.failed} to retry`);
     if (mail.sent || mail.dropped || mail.failed) console.log(`email: ${mail.sent} sent, ${mail.dropped} dropped, ${mail.failed} to retry`);
+    // Texts, with Twilio's delivery reports coming back to this server; with texts switched off, none wait.
+    if (texter) {
+      const tx = await sendTexts(db, texter, { memberUrl: membersUrl, ...(publicUrl.startsWith("https://") ? { statusCallback: `${publicUrl.replace(/\/$/, "")}/webhooks/twilio/status` } : {}) });
+      if (tx.sent || tx.dropped || tx.failed) console.log(`texts: ${tx.sent} sent, ${tx.dropped} dropped, ${tx.failed} failed or to retry`);
+    } else if (await dropWaitingTexts(db)) console.log("texts: switched off, so the ones waiting were dropped");
     const r = await expireOffers(db);
     if (r.expired) console.log(`waitlist offers: ${r.expired} ran out, ${r.offered} passed on`);
     const h = await expireHolds(db);
