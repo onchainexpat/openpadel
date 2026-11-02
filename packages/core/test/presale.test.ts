@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { checkCardSetup, memberPlan, messageHandlers, onDate, openCardSetup, plan, processOutbox, renewMemberships, run, runAsSystem, setPaymentProvider, tidyPresales, KumiError, TestProvider,
+import { checkCardSetup, staffAlerts, memberPlan, messageHandlers, onDate, openCardSetup, plan, processOutbox, renewMemberships, run, runAsSystem, setPaymentProvider, tidyPresales, KumiError, TestProvider,
   type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, founding: string, foundingYear: string;
@@ -100,4 +100,17 @@ test("giving up a place before the start; a declined first charge; joining once 
 
   await processOutbox(db, messageHandlers);
   assert.equal((await email("Dee", "membership_released")).body, "You're no longer down for the Founding annual membership. Nothing was charged.");
+  // The staff hear it's the first payment, not a renewal.
+  const staff = await db.selectFrom("outbound_message").select(["subject", "body"]).where("person_id", "=", owner.personId!).where("kind", "=", "membership_payment_failed_staff")
+    .where("channel", "=", "email").executeTakeFirstOrThrow();
+  assert.equal(staff.subject, "A membership's first payment didn't go through: Eve");
+  assert.match(staff.body, /^Eve's Founding annual membership couldn't start: the \$600\.00 payment didn't go through \(the card was declined\)\. /);
+  // The staff end it themselves: nothing is tried again, and its alert on Today closes by itself.
+  assert.equal((await staffAlerts(db, owner.personId!, new Date())).open.filter((a) => a.kind === "membership_payment_failed_staff").length, 1);
+  await run(db, "membership.end", { membership_id: (await membership("Eve")).id }, owner, { now: la("2027-03-02", "11:00") });
+  const eve = await membership("Eve");
+  assert.deepEqual([eve.status, eve.next_attempt_at], ["ended", null]);
+  assert.equal(await db.selectFrom("payment").select("id").where("membership_id", "=", eve.id).where("status", "=", "pending").executeTakeFirst(), undefined);
+  const t = await staffAlerts(db, owner.personId!, new Date());
+  assert.deepEqual([t.open.filter((a) => a.kind === "membership_payment_failed_staff").length, t.handled.filter((a) => a.kind === "membership_payment_failed_staff").map((a) => a.handled_by)], [0, [""]]);
 });

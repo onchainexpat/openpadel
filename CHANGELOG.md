@@ -194,7 +194,9 @@ The first version a club can run on its own (court bookings included), or for it
   amount, the bank's reason when it gives one, the next try and the last day, with a link to the
   member. It waits on the Courts page's alerts until it's handled, or closes by itself when the
   renewal is paid after all (they hear that too). If the last try fails, they hear the membership
-  ended, and that takes its place on the alerts.
+  ended, and that takes its place on the alerts. Staff ending it themselves closes the alert too, and
+  nothing is tried again. A founding member's declined first charge says it's the first payment, not a
+  renewal.
 - Members cancel in the app (it runs to the end of what's paid) and can change their mind until then.
 - The club pauses a membership until a date (an injury, a long trip): no benefits and nothing charged
   meanwhile, and the paid time left moves to after the pause; ending a pause early gives the unused

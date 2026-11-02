@@ -488,12 +488,15 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return (await managers(db)).map((to) => ({ to, kind, params: { number: p.number, reasons }, purpose: "staff" as const, essential: false, email: true, link: "/settings" }));
   },
   // The owner and managers hear of the first failed try only, not every try after it (money that went wrong).
-  async "membership.payment_failed"({ db, tz }, p: { membership_id: string; cents: number; next_attempt_at: string; tries?: number; failure?: string | null }) {
+  async "membership.payment_failed"({ db, tz }, p: { membership_id: string; cents: number; next_attempt_at: string; tries?: number; failure?: string | null; first?: boolean }) {
     const m = await membershipInfo(db, p.membership_id), next = new Date(p.next_attempt_at);
     const drafts: Draft[] = [{ to: m.person_id, kind: "membership_payment_failed", params: { name: m.name, amount: amount(p.cents), date: dayText(localDate(next, tz)) },
       purpose: "account", essential: true, email: true, link: "/membership" }];
     if ((p.tries ?? 1) === 1) {
+      // A membership joined before its plan started: its first payment, not a renewal.
+      const which = p.first ? "first" : "renewal";
       const params = { person: await nameOf(db, m.person_id), name: m.name, amount: amount(p.cents), reason: declineReason(p.failure),
+        what: both(`membership.failed_what_${which}`), couldnt: both(`membership.failed_couldnt_${which}`),
         retry: dayText(localDate(next, tz)), last: dayText(localDate(lastTryAt(next, p.tries ?? 1), tz)) };
       for (const to of await managers(db)) drafts.push({ to, kind: "membership_payment_failed_staff", params, purpose: "staff", essential: false, email: true, link: `/people/${m.person_id}` });
     }

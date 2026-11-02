@@ -196,7 +196,10 @@ export const membershipEnd = defineAction({
       reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
-    await ctx.update("membership", i.membership_id, { status: "ended", ended_at: ctx.now, ...(i.note ? { note: i.note } : {}) });
+    const m = await ctx.trx.selectFrom("membership").select("status").where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    await ctx.update("membership", i.membership_id, { status: "ended", ended_at: ctx.now, ...(m.status === "past_due" ? { next_attempt_at: null } : {}), ...(i.note ? { note: i.note } : {}) });
+    // Ended by the staff while a renewal was unpaid: nothing is tried again, and its alert needs nobody now.
+    if (m.status === "past_due") { await dropPayNow(ctx, i.membership_id); await closeRenewalAlert(ctx, i.membership_id); }
     await ctx.emit("membership.ended", { membership_id: i.membership_id });
     return null;
   },
@@ -481,7 +484,7 @@ export const membershipRenew = defineAction({
     if (!open) await ctx.insert("payment", { id: uuidv7(), person_id: m.person_id, amount_cents: cents, method: "card", provider: paymentProvider().name, provider_ref: null,
       status: "pending", membership_id: m.id, save_card: true });
     // The staff hear of the first failed try only (messages.ts); why it failed goes with it.
-    await ctx.emit("membership.payment_failed", { membership_id: m.id, cents, next_attempt_at: next.toISOString(), tries, failure: charge.failure ?? null });
+    await ctx.emit("membership.payment_failed", { membership_id: m.id, cents, next_attempt_at: next.toISOString(), tries, failure: charge.failure ?? null, ...(m.status === "upcoming" ? { first: true } : {}) });
     return { outcome: "failed", failure: charge.failure };
   },
 });
