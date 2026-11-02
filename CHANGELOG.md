@@ -336,13 +336,15 @@ The first version a club can run on its own (court bookings included), or for it
   snapshot of the database, switches and checks it answers as the new release; if it doesn't, the old
   release and the snapshot go back by themselves. `sudo kumi rollback --yes` goes back later (losing what
   happened since). The last 3 releases and snapshots are kept. With Docker, `deploy/docker/update.sh`
-  does the same with images tagged by release.
+  does the same with images tagged by release; given a branch, it takes the branch's newest commit, and
+  after an update that didn't come up, `rollback` still goes back to the release before the last one
+  that worked.
 - Backups with a manifest: each night's dump comes with every table's row count, from the same snapshot.
   Offsite copies go to the club's own S3-compatible storage (Cloudflare R2, Backblaze B2, S3, Spaces),
   sealed with a backup key of their own; 30 daily and 12 monthly are kept. Once a month the newest is
   restored into a scratch database and checked against its manifest. If the backup, its offsite copy or
   the check starts failing, the owner and managers are told once. `kumi restore` restores a local or
-  offsite backup.
+  offsite backup. Backup files and update snapshots can be read only by the server's own user.
 - Two addresses: the staff app's (`KUMI_PUBLIC_URL`) and the members' (`KUMI_MEMBER_URL`, which the
   install sets; without it, the staff address without its `staff.`). `kumi doctor` checks both answer.
 - `/health/deep` (on the server itself, or for an owner or manager): the database, the outbox, the last
@@ -355,4 +357,5 @@ The first version a club can run on its own (court bookings included), or for it
 
 **When updating:** nothing; this is the first release. (A server set up from a test build before it gets
 `KUMI_SECRET_KEY` added to `/etc/kumi/kumi.env` by its first update; with Docker, `deploy/docker/update.sh`
-adds it to `.env`.)
+adds it to `.env`. A Docker checkout from before `update.sh` existed runs the release's own copy:
+`git fetch && bash <(git show origin/main:deploy/docker/update.sh) main`.)

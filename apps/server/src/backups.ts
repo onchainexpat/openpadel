@@ -8,7 +8,7 @@
 // the server's key; restored without that key, those few need setting up again, and everything else is whole.
 import { spawn } from "node:child_process";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { sql, type Kysely } from "kysely";
@@ -65,6 +65,10 @@ export async function makeBackup(db: Db, o: { url: string; dir: string; now?: Da
   const file = join(o.dir, `${name}.dump`), manifestFile = join(o.dir, `${name}.json`), part = `${file}.part`;
   const target = toolTarget(o.url);
   let tables: Record<string, number> = {};
+  // A dump holds every member's details: only this server's user reads it, wherever the folder is (Docker's
+  // ./backups is a plain folder the owner made). pg_dump keeps the mode of a file that's already there.
+  const owner = (f: string) => { if (existsSync(f)) chmodSync(f, 0o600); };
+  writeFileSync(part, "", { mode: 0o600 }); owner(part);
   // Repeatable read: the counts and pg_dump (handed the same snapshot) see exactly the same rows.
   await db.transaction().setIsolationLevel("repeatable read").execute(async (trx) => {
     const snapshot = (await sql<{ s: string }>`SELECT pg_export_snapshot() AS s`.execute(trx)).rows[0]!.s;
@@ -72,11 +76,11 @@ export async function makeBackup(db: Db, o: { url: string; dir: string; now?: Da
     await runTool(pgTool("pg_dump", env), ["-Fc", "--no-owner", "--no-acl", `--snapshot=${snapshot}`, "-f", part, "-d", target.url], target.env);
   });
   const bytes = readFileSync(part);
-  writeFileSync(file, bytes);
+  writeFileSync(file, bytes, { mode: 0o600 }); owner(file);
   rmSync(part, { force: true });
   const manifest: Manifest = { kind: "kumi-backup", created_at: now.toISOString(), file: basename(file), bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"),
     migrations: tables.schema_migration ?? 0, tables };
-  writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
+  writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), { mode: 0o600 }); owner(manifestFile);
   return { file, manifestFile, manifest };
 }
 

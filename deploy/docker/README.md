@@ -32,12 +32,14 @@ offsite copies. Keep a copy of both away from this machine, in a password manage
 `KUMI_SECRET_KEY` for a setup from before it existed.
 
 ## Backups
-Every night at 3:17 (the machine's time) the `backup` service runs `kumi backup`: the database and a
+Every night at 3:17 UTC (the containers' clock, whatever the machine's is: early evening in the US) the
+`backup` service runs `kumi backup`: the database and a
 manifest of every table's rows go to `./backups/kumi-DATE.dump` and `.json`, kept 14 days, and, once offsite
 backups are set up in `.env` ([docs/setup/accounts/offsite-backups.md](../../docs/setup/accounts/offsite-backups.md)),
 a sealed copy goes to the club's own storage. On the 1st of each month it also runs `kumi restore-test`,
 which restores the newest backup into a scratch database and checks every table against its manifest. The
-owner and managers hear once if any of it starts failing.
+owner and managers hear once if any of it starts failing. The files hold every member's details, so only
+root can read them.
 
 ```bash
 docker compose exec backup kumi backup          # tonight's backup now
@@ -59,8 +61,13 @@ deploy/docker/update.sh v0.2.0          # a release tag, or a branch
 ```
 It builds the new release's images beside the running ones (tagged by commit), takes a snapshot of the
 database (`./backups/update-<old>-to-<new>-<time>.dump`), switches, and checks the server answers as the new
-release. If it doesn't, the old images and the snapshot go back. To go back later (everything since the
-update is lost):
+release. If it doesn't, the old images and the snapshot go back. A branch name means the branch's newest
+commit. To go back later (everything since the update is lost):
 ```bash
 deploy/docker/update.sh rollback --yes
+```
+
+A checkout from before `update.sh` existed (no `deploy/docker/update.sh` in it) runs the release's own copy:
+```bash
+git fetch && bash <(git show origin/main:deploy/docker/update.sh) main
 ```

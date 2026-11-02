@@ -4,7 +4,7 @@
 // KUMI_REQUIRE_PG_TOOLS=1 says they must run (CI installs the tools).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
@@ -44,6 +44,10 @@ test("a backup is a dump with a manifest of every table's rows, from one snapsho
   assert.equal(m.tables.person, Number((await sql<{ n: string }>`SELECT count(*) AS n FROM person`.execute(db)).rows[0]!.n));
   assert.ok(m.tables.schema_migration! > 40);
   assert.equal(readFileSync(r.file).subarray(0, 5).toString(), "PGDMP");
+  // Only the server's own user can read it, even made again over a file someone opened up.
+  chmodSync(r.file, 0o644);
+  const again = await makeBackup(db, { url, dir, now: NOW, env });
+  for (const f of [again.file, again.manifestFile]) assert.equal(statSync(f).mode & 0o777, 0o600, f);
   // A labelled one (before an update) is named for it and left alone by the tidying.
   const labelled = await makeBackup(db, { url, dir, now: NOW, label: "update-abc-to-def", env });
   assert.equal(labelled.file, join(dir, "kumi-update-abc-to-def.dump"));

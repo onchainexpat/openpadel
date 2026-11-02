@@ -8,3 +8,4 @@ node_modules
 club.yaml
 config
 backups
+.kumi-release
