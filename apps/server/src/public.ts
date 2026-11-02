@@ -28,9 +28,10 @@ ${o.jsonLd.map((x) => `<script type="application/ld+json">${ld(x)}</script>`).jo
 <style>${STYLE.replace("#0B5A55", /^#[0-9A-Fa-f]{6}$/.test(o.brand) ? o.brand : "#0B5A55")}</style></head><body><main>${o.body}</main></body></html>`;
 }
 
-export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, publicUrl: string) {
+/** `memberUrl`: the members' app's address (addresses.ts), which the pages, the sitemap and search engines name as theirs. */
+export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl: string) {
   const app = new Hono();
-  const base = publicUrl.replace(/\/$/, "");
+  const base = memberUrl.replace(/\/$/, "");
   const pick = (c: Context<any>): Lang => { const q = c.req.query("lang"); return isLang(q) ? q : lang(c); };
   const club = () => db.selectFrom("club").select(["name", "brand_colour", "time_zone", "currency", "public_page", "about", "sign_up_open"]).executeTakeFirstOrThrow();
   const off = (c: Context<any>) => c.text("Not found", 404);

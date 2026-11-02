@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror } from "@kumi/core";
 import { makeApp } from "./app.ts";
+import { memberUrl } from "./addresses.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 import { handlers } from "./outbox.ts";
 
@@ -25,6 +26,8 @@ if (sealed.sealed || sealed.resealed) console.log(`secrets: ${sealed.sealed} sea
 if (sealed.unreadable) console.error(`secrets: ${sealed.unreadable} sealed under a key this server doesn't have (set KUMI_SECRET_KEY_PREVIOUS to the old key)`);
 const port = Number(process.env.PORT ?? 8790);
 const publicUrl = process.env.KUMI_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
+// What members are sent: the members' app's address, not the staff app's (addresses.ts).
+const membersUrl = memberUrl(publicUrl);
 
 // Card payments go through Stripe when a key is set (from the environment, never the database or the
 // code); otherwise the stand-in. Self-hosted, the key is the club's own. Hosted (KUMI_STRIPE_CONNECT=1),
@@ -56,7 +59,7 @@ if (process.env.KUMI_RESEND_API_KEY) {
 // machine (scripts that sign in over the API); production refuses to start that way.
 const botCheck = process.env.KUMI_BOT_CHECK !== "0";
 if (!botCheck && production) { console.error("KUMI_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
-serve({ fetch: makeApp({ db, mailer, publicUrl, secureCookies: production, production, stripe: stripeConfig, botCheck }).fetch, port });
+serve({ fetch: makeApp({ db, mailer, publicUrl, memberUrl: membersUrl, secureCookies: production, production, stripe: stripeConfig, botCheck }).fetch, port });
 console.log(`kumi server on http://127.0.0.1:${port}`);
 
 // The jobs, every 30 seconds: refunds and messages leave through the outbox, and due emails go out;
@@ -69,8 +72,8 @@ const jobs = async () => {
     // Scheduled broadcasts whose time has come: their messages are written for whoever matches now.
     const bc = await sendBroadcasts(db);
     if (bc.sent) console.log(`broadcasts: ${bc.sent} sent`);
-    // A club news email's unsubscribe link: a page on this server, no sign-in (unsubscribe.ts).
-    const mail = await sendEmails(db, mailer, new Date(), 50, { unsubscribeUrl: (token) => `${publicUrl}/unsubscribe/${token}` });
+    // A club news email's unsubscribe link: a page on this server, no sign-in (broadcasts.ts), at the members' address.
+    const mail = await sendEmails(db, mailer, new Date(), 50, { unsubscribeUrl: (token) => `${membersUrl}/unsubscribe/${token}` });
     // Push services want a contact for whoever sends: the club's address on the web, or the owner's email.
     const push = await sendPushes(db, { subject: pushContact });
     if (push.sent || push.failed) console.log(`push: ${push.sent} sent, ${push.dropped} dropped, ${push.failed} to retry`);

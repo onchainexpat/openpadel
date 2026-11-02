@@ -14,6 +14,7 @@ import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts, onDate } from "./clock.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { householdOf } from "./households.ts";
+import { declineReason } from "./declines.ts";
 
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 const LIVE = ["active", "past_due"] as const;
@@ -625,7 +626,7 @@ export const membershipAddPerson = defineAction({
             // included, so a key per person and period would refuse every retry after a declined card.
             idempotencyKey: `extra:${id}`, account: m.provider_account })
         : { ref: "", status: "failed" as const, failure: "no saved card" };
-      if (r.status !== "succeeded") throw new KumiError("error.extra_declined", { failure: r.failure ?? "" });
+      if (r.status !== "succeeded") throw new KumiError("error.extra_declined", { reason: declineReason(r.failure) });
       await ctx.insert("payment", { id: uuidv7(), person_id: m.person_id, amount_cents: charge, method: "card", provider: paymentProvider().name, provider_ref: r.ref,
         provider_account: m.provider_account, status: "succeeded", membership_id: m.id, membership_member_id: id });
       await post(ctx.trx, ctx.runId, "payment", "family membership: one more person", [

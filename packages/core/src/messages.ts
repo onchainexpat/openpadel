@@ -11,6 +11,7 @@ import { dayText, endDay, kindList, lastTryAt } from "./memberships.ts";
 import { band } from "./match_rules.ts";
 import { gameView } from "./results.ts";
 import { hasPushDevice } from "./push.ts";
+import { declineReason, refundReason } from "./declines.ts";
 import { managersOf } from "./households.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
@@ -79,20 +80,6 @@ async function managers(db: Db): Promise<string[]> {
   const rows = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
     .where("role.key", "in", ["owner", "manager"]).where("person_role.active", "=", true).distinct().execute();
   return rows.map((r) => r.person_id);
-}
-/** Why a card was declined, as the staff can read it: a bank's reason Stripe passes on, or nothing when it's
- *  one that means nothing to a person. Lost or stolen cards read as declined, as Stripe advises. */
-const DECLINES: Record<string, Key> = {
-  card_declined: "msg.decline_declined", generic_decline: "msg.decline_declined", do_not_honor: "msg.decline_declined", requires_payment_method: "msg.decline_declined",
-  lost_card: "msg.decline_declined", stolen_card: "msg.decline_declined", pickup_card: "msg.decline_declined", fraudulent: "msg.decline_declined",
-  restricted_card: "msg.decline_declined", call_issuer: "msg.decline_declined", transaction_not_allowed: "msg.decline_declined",
-  insufficient_funds: "msg.decline_funds", card_velocity_exceeded: "msg.decline_limit", withdrawal_count_limit_exceeded: "msg.decline_limit",
-  expired_card: "msg.decline_expired", authentication_required: "msg.decline_confirm", requires_action: "msg.decline_confirm",
-  processing_error: "msg.decline_processing", "no saved card": "msg.decline_no_card",
-};
-export function declineReason(failure: string | null | undefined): Text {
-  const key = failure ? DECLINES[failure] : undefined;
-  return key ? both("msg.decline_reason", { why: both(key) }) : NOTHING;
 }
 async function nameOf(db: Db, personId: string): Promise<string> {
   return (await db.selectFrom("person").select("display_name").where("id", "=", personId).executeTakeFirst())?.display_name ?? "";
@@ -209,7 +196,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "booking.balance_due"({ db }, p: { booking_id: string; cents: number; failure: string | null }) {
     const b = await bookingInfo(db, p.booking_id);
     const name = b.organiser_id ? (await db.selectFrom("person").select("display_name").where("id", "=", b.organiser_id).executeTakeFirst())?.display_name ?? "" : "";
-    const params = { ...b.base, amount: amount(p.cents), failure: p.failure ?? "", name };
+    const params = { ...b.base, amount: amount(p.cents), reason: declineReason(p.failure), name };
     return [
       ...(b.organiser_id ? [{ to: b.organiser_id, kind: "booking_balance_due", params, purpose: "account" as const, essential: true, email: true, link: "/places" }] : []),
       ...(await managers(db)).map((to) => ({ to, kind: "booking_balance_due_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/courts" })),
@@ -340,7 +327,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   async "kid.pay_needed"({ db }, p: { kid: string; to: string[]; cents: number; what: Text; why: string; failure: string | null }) {
     const name = (await db.selectFrom("person").select("display_name").where("id", "=", p.kid).executeTakeFirst())?.display_name ?? "";
-    const why = both(`kid.pay_why.${p.why}` as Key, { failure: p.failure ?? "" });
+    const why = both(`kid.pay_why.${p.why}` as Key, { reason: declineReason(p.failure) });
     return [...p.to.map((to) => ({ to, kind: "kid_pay_needed", params: { name, what: p.what, amount: amount(p.cents), why }, purpose: "account" as const, essential: true, email: true, link: "/family" })),
       { to: p.kid, kind: "kid_parent_pays", params: { what: p.what, amount: amount(p.cents) }, purpose: "account" as const, essential: false, email: false, link: "/places" }];
   },
@@ -611,7 +598,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const r = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("person", "person.id", "payment.person_id")
       .select(["refund.amount_cents", "refund.failure", "refund.enrolment_id", "person.display_name"]).where("refund.id", "=", p.refund_id).executeTakeFirstOrThrow();
     const e = r.enrolment_id ? await place(db, r.enrolment_id) : null;
-    const params = { amount: amount(r.amount_cents), person: r.display_name, name: e?.name ?? "", failure: r.failure ?? "" };
+    const params = { amount: amount(r.amount_cents), person: r.display_name, name: e?.name ?? "", reason: refundReason(r.failure) };
     return (await managers(db)).map((to) => ({ to, kind: "refund_failed", params, purpose: "staff" as const, essential: false, email: true, link: e ? `/programs/${e.program_id}` : "/" }));
   },
   async "mirror.conflict"({ db, tz }, p: { court_name: string | null; start: string; type: string }) {

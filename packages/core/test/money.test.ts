@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { sql } from "kysely";
 import { freshDb } from "./helpers.ts";
-import { approve, checkPayment, creditBalance, moneyHandlers, openPayment, plan, processOutbox, reconcilePayments, run, runAsSystem, setPaymentProvider, uuidv7, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { approve, checkPayment, creditBalance, messageHandlers, moneyHandlers, openPayment, refundReason, plan, processOutbox, reconcilePayments, run, runAsSystem, setPaymentProvider, uuidv7, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, monica: Actor, locationId: string;
 const stripe = new TestProvider();
@@ -110,6 +110,17 @@ test("a refund the provider refuses is recorded as failed", async () => {
   await processOutbox(db, moneyHandlers);
   const r = (await refundOf(e.enrolment_id))!;
   assert.equal(r.status, "failed"); assert.equal(r.failure, "card_declined");
+  // The managers hear why in words, not Stripe's code.
+  await processOutbox(db, messageHandlers);
+  const told = await db.selectFrom("outbound_message").select("body").where("person_id", "=", owner.personId!).where("kind", "=", "refund_failed").where("channel", "=", "email").executeTakeFirstOrThrow();
+  assert.match(told.body, /^The \$25\.00 refund to Cy for .* didn't go through \(the card's bank turned it down\)\. Look at it on the program's page\.$/);
+});
+
+test("a refund's failure in words: Stripe's reasons and errors, and nothing for one that means nothing", () => {
+  assert.deepEqual(refundReason("charge_already_refunded"), { en: " (the payment was already refunded)", es: " (el pago ya se había reembolsado)" });
+  assert.equal(refundReason("lost_or_stolen_card").en, " (the card is closed or has expired)");
+  assert.equal(refundReason("balance_insufficient").en, " (the club's Stripe balance is too low)");
+  assert.deepEqual([refundReason("unknown").en, refundReason("No such payment_intent: 'pi_x'").en, refundReason(null).en], ["", "", ""]);
 });
 
 test("Monica's late drop moves no money at all", async () => {

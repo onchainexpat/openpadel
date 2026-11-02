@@ -83,6 +83,13 @@ test("doctor: each check, and what's wrong in production", async () => {
   writeFileSync(join(dir, "kumi-2026-10-29.dump"), "x");
   const live = await state({ NODE_ENV: "production", KUMI_PUBLIC_URL: "https://club.example", KUMI_RESEND_API_KEY: "re_x", KUMI_MAIL_FROM: "a@b.example" }, up);
   assert.equal(live.address, "ok"); assert.equal(live.email, "ok"); assert.equal(live.backups, "ok");
+  assert.equal(live.members_address, undefined);   // one address for both: nothing more to check
+  // The members' app on its own address: checked too, since the links members are sent use it.
+  const asked: string[] = [];
+  const two = await state({ NODE_ENV: "production", KUMI_PUBLIC_URL: "https://staff.club.example" },
+    async (u: string) => { asked.push(u); return new Response("{}", { status: u.startsWith("https://club.example/") ? 502 : 200 }); });
+  assert.equal(two.address, "ok"); assert.equal(two.members_address, "fail");
+  assert.deepEqual(asked, ["https://staff.club.example/health", "https://club.example/health"]);
   utimesSync(join(dir, "kumi-2026-10-29.dump"), new Date(Date.now() - 50 * 3600_000), new Date(Date.now() - 50 * 3600_000));
   assert.equal((await state({ NODE_ENV: "production" })).backups, "warn");   // two days without a backup
 });

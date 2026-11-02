@@ -117,7 +117,7 @@ test("a declined card for one more person: they aren't added, and adding them ag
   const t0 = new Date("2027-02-03T19:00:00Z");
   people.Zoe = ((await run(db, "household.add_junior", { person_id: people.Pat, display_name: "Zoe", birth_year: 2019 }, as("Pat"), { now: t0 })).result as any).person_id;
   stripe.failNextCharge = "card_declined";
-  await rejects(add("Zoe", t0), "error.extra_declined", "The card was declined for the extra person (card_declined), so they weren't added.");
+  await rejects(add("Zoe", t0), "error.extra_declined", "The charge for the extra person didn't go through (the card was declined), so they weren't added.");
   assert.equal(await memberPlan(db, people.Zoe!, t0), null);
   const charges = stripe.charges.length;
   await add("Zoe", t0);   // the card works now: a new try, not the first answer again

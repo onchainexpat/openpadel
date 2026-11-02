@@ -47,6 +47,7 @@ KUMI_PRACTICE=1
 PORT=8790
 DATABASE_URL=postgresql://kumi@/kumi?host=/var/run/postgresql
 KUMI_PUBLIC_URL=https://staff.$KUMI_HOST
+KUMI_MEMBER_URL=https://$KUMI_HOST
 KUMI_CLUB_FILE=/etc/kumi/club.yaml
 # The server's key for the secrets it keeps (sealed.ts), and the key offsite backups are sealed with. Never
 # printed. Keep a copy of KUMI_BACKUP_KEY away from this server (a password manager): without it, the offsite

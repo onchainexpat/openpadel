@@ -145,6 +145,9 @@ The first version a club can run on its own (court bookings included), or for it
 - Members join in the app and pay by card; Kumi renews from that card each period at the price they
   joined at, with no subscription fee at Stripe. A declined renewal is tried again twice over five
   days while the membership carries on, and the member can pay with another card meanwhile.
+- When a card payment or a refund doesn't go through, people are told why in plain words (the card was
+  declined, it has expired, the payment was already refunded), never a code from Stripe; a reason that
+  means nothing to a person isn't given at all.
 - The owner and managers hear once when a renewal is declined (not at every try): who, the plan, the
   amount, the bank's reason when it gives one, the next try and the last day, with a link to the
   member. It waits on the Courts page's alerts until it's handled, or closes by itself when the
@@ -247,7 +250,8 @@ The first version a club can run on its own (court bookings included), or for it
   what went, to which group, and what came of it by channel; a message can be called off before it goes,
   and email still waiting can be stopped. Templates keep words to start from.
 - Club news emails carry one-click unsubscribe (RFC 8058, and a link at the foot): it stops club news by
-  email with no sign-in, and nothing else. Members turn club news on or off in Profile too.
+  email with no sign-in, and nothing else. Members turn club news on or off in Profile too. The link is on
+  the members' app's address (`KUMI_MEMBER_URL`), never the staff app's.
 - Tags: the club's own words for members ("league A"), put on a member's page. The People list searches by
   name, email or phone and narrows to a tag or a saved group. Tags, and the groups, templates and messages
   a staff member made, are in the data file; deleting an account takes the tags off and kills the old
@@ -258,7 +262,8 @@ The first version a club can run on its own (court bookings included), or for it
 **The public page**
 - Once switched on: the club's locations, hours, courts, prices, memberships and upcoming public
   events, as plain HTML that search engines and AI assistants read, with schema.org markup and a
-  sitemap. "Join the club" goes to the app's sign-up (the interest list before opening).
+  sitemap. "Join the club" goes to the app's sign-up (the interest list before opening). Its own address,
+  for search engines, is the members' app's, even when someone opens it from the staff app.
 
 **Notifications**
 - Push notifications on phones and computers, turned on per device in Profile: every message also
@@ -310,6 +315,8 @@ The first version a club can run on its own (court bookings included), or for it
   restored into a scratch database and checked against its manifest. If the backup, its offsite copy or
   the check starts failing, the owner and managers are told once. `kumi restore` restores a local or
   offsite backup.
+- Two addresses: the staff app's (`KUMI_PUBLIC_URL`) and the members' (`KUMI_MEMBER_URL`, which the
+  install sets; without it, the staff address without its `staff.`). `kumi doctor` checks both answer.
 - `/health/deep` (on the server itself, or for an owner or manager): the database, the outbox, the last
   backup, offsite copy and restore test, and disk space. `/health` now names the release's commit.
 - English and US Spanish throughout. Security: rate limits, no cross-site changes, strict headers,

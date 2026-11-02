@@ -59,3 +59,9 @@ test("each public event has its own page with schema.org markup, and the sitemap
   const map = await page("/public/sitemap.xml");
   assert.ok(map.text.includes(`<loc>https://play.kestrel.test/public/events/${clinic}</loc>`));
 });
+
+test("reached on the staff address too, the pages name the members' address as theirs", async () => {
+  const staffSide = makeApp({ db, mailer: new MemoryMailer(), secureCookies: false, publicUrl: "https://staff.play.kestrel.test" });
+  const map = await (await staffSide.request("/public/sitemap.xml")).text();
+  assert.ok(map.includes(`<loc>https://play.kestrel.test/public/events/${clinic}</loc>`) && !map.includes("staff."), map);
+});

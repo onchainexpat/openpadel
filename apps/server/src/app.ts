@@ -24,6 +24,7 @@ import { readRoutes } from "./reads.ts";
 import { calendarRoutes } from "./calendar.ts";
 import { broadcastRoutes } from "./broadcasts.ts";
 import { publicRoutes } from "./public.ts";
+import { memberUrl } from "./addresses.ts";
 import { memberRoutes } from "./member.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import type { Mailer } from "./mailer.ts";
@@ -31,7 +32,9 @@ import type { Mailer } from "./mailer.ts";
 /** The changes a staff screen offers a button for, which /me reports for people with only the club's own roles. */
 const CLIENT_ACTIONS = ["person.create", "person.import", "booking.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "court.block", "court.unblock", "alert.handle", "series.edit"];
 
-export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata; production?: boolean; stripe?: StripeConfig
+export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string;
+  /** The members' app's address (addresses.ts), for the public page's own links; from publicUrl when not given. */
+  memberUrl?: string; secureCookies?: boolean; now?: () => Date; fetchMetadata?: FetchMetadata; production?: boolean; stripe?: StripeConfig
   /** Bot protection on sign-up, sign-in codes and checkout. On in production, always; tests and practice can leave it off. */
   botCheck?: boolean }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
@@ -174,7 +177,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", vaultRoutes(db, (c) => c.get("me"), now));
   app.route("/", calendarRoutes(db, (c) => c.get("me")));
   app.route("/", broadcastRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
-  app.route("/", publicRoutes(db, (c) => c.get("lang"), publicUrl));
+  app.route("/", publicRoutes(db, (c) => c.get("lang"), deps.memberUrl ?? memberUrl(publicUrl, {})));
   app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false, now }));
   // Checkout asks for the challenge too, except from staff (who are already signed in, at the desk).
   const checkoutGuard = async (c: Context<Env>) => {

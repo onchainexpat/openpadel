@@ -191,7 +191,7 @@ test("a declined family card: a parent is asked to pay, and the next try uses a 
   assert.equal((await db.selectFrom("payment").select("family_declines").where("id", "=", pid).executeTakeFirstOrThrow()).family_declines, 1);
   await processOutbox(db, messageHandlers);
   assert.deepEqual((await msg(people.Pat!, "kid_pay_needed")).at(-1), { subject: "Mia: $60.00 for you to pay",
-    body: "Mia booked Court 2, Wed, Dec 9, 6:00 PM, but the family card didn't go through (card_declined). Pay $60.00 on the Family page to keep it." });
+    body: "Mia booked Court 2, Wed, Dec 9, 6:00 PM, but the family card didn't go through (the card was declined). Pay $60.00 on the Family page to keep it." });
   assert.equal((await msg(mia, "kid_parent_pays")).length, 2);
   // Asked again (the parent sorted out the card): a new key, so the decline isn't replayed.
   await db.updateTable("payment").set({ parent_to_pay_at: null }).where("id", "=", pid).execute();

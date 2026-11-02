@@ -5,6 +5,7 @@ import { readdirSync, statSync } from "node:fs";
 import { both, type Key, type Text } from "@kumi/i18n";
 import { heartbeats, parseSecretKey, pendingMigrations, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
+import { memberUrl } from "./addresses.ts";
 import { VERSION } from "./version.ts";
 
 export type CheckState = "ok" | "warn" | "fail" | "off";
@@ -36,15 +37,23 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   add("courts", courts ? "ok" : "warn", courts ? "courts.ok" : "courts.none", { count: courts }, courts ? undefined : "docs/setup/README.md");
 
   // The address people use. In production it must be HTTPS and answer from outside.
-  const url = env.KUMI_PUBLIC_URL;
-  if (!url) add("address", production ? "fail" : "warn", "address.unset", {}, "docs/setup/accounts/server.md");
-  else if (production && !url.startsWith("https://")) add("address", "fail", "address.not_https", { url }, "docs/setup/accounts/server.md");
-  else if (production) {
+  const reach = async (id: string, url: string) => {
+    if (production && !url.startsWith("https://")) return add(id, "fail", `${id}.not_https`, { url }, "docs/setup/accounts/server.md");
+    if (!production) return add(id, "ok", `${id}.dev`, { url });
     try {
       const r = await (deps.fetch ?? fetch)(`${url.replace(/\/$/, "")}/health`, { signal: AbortSignal.timeout(8000) });
-      add("address", r.ok ? "ok" : "fail", r.ok ? "address.ok" : "address.down", { url, error: `HTTP ${r.status}` }, r.ok ? undefined : "docs/setup/accounts/server.md");
-    } catch (e) { add("address", "fail", "address.down", { url, error: (e as Error).message }, "docs/setup/accounts/server.md"); }
-  } else add("address", "ok", "address.dev", { url });
+      add(id, r.ok ? "ok" : "fail", r.ok ? `${id}.ok` : `${id}.down`, { url, error: `HTTP ${r.status}` }, r.ok ? undefined : "docs/setup/accounts/server.md");
+    } catch (e) { add(id, "fail", `${id}.down`, { url, error: (e as Error).message }, "docs/setup/accounts/server.md"); }
+  };
+  const url = env.KUMI_PUBLIC_URL;
+  if (!url) add("address", production ? "fail" : "warn", "address.unset", {}, "docs/setup/accounts/server.md");
+  else {
+    await reach("address", url);
+    // The members' app's address, which the links members are sent use: checked too, when it isn't the same one.
+    let members: string | null = null;
+    try { members = memberUrl(url, env); } catch { /* KUMI_PUBLIC_URL isn't an address: the check above says so */ }
+    if (members && members !== url.replace(/\/$/, "")) await reach("members_address", members);
+  }
 
   // Email: without it, sign-in codes and messages only reach the server's log.
   if (!env.KUMI_RESEND_API_KEY) add("email", production ? "warn" : "off", "email.off", {}, "docs/setup/accounts/resend.md");
