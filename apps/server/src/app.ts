@@ -8,6 +8,7 @@ import { clientIp, RateLimiter } from "./limits.ts";
 import { REVISION, VERSION } from "./version.ts";
 import { deepHealth, mayReadDeepHealth } from "./health.ts";
 import { vaultRoutes } from "./vault.ts";
+import { exportRoutes } from "./export_routes.ts";
 import { manifestRoutes } from "./manifest.ts";
 import * as z from "zod/mini";
 import { sql } from "kysely";
@@ -41,7 +42,9 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   /** Bot protection on sign-up, sign-in codes and checkout. On in production, always; tests and practice can leave it off. */
   botCheck?: boolean
   /** Texts, when the club's Twilio account is set up (twilio.ts): what sends them, and the token Twilio signs its posts with. */
-  texts?: { texter: Texter; authToken: string | null } }
+  texts?: { texter: Texter; authToken: string | null }
+  /** The database's address for the tools that copy it whole (the owner's "Download everything"). */
+  databaseUrl?: string }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
 type Me = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
@@ -185,7 +188,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page"]).executeTakeFirst();
+    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page", "read_only_since"]).executeTakeFirst();
     // Not set up yet (kumi setup apply): nothing to show, which isn't the server failing.
     if (!club) throw new KumiError("error.club_not_set_up", {}, 404);
     // Whether there's a membership to join in the app.
@@ -195,7 +198,9 @@ export function makeApp(deps: AppDeps) {
     // Whether the sign-in page offers a texted code: only when the club's texting account is set up.
     // The members' address, for the staff app's links members open (the public page, a booking's players link).
     // Whether the staff forms offer a draft in the club's other language (translate.ts).
-    return c.json({ ...club, memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
+    // Read-only (read_only.ts): both apps say so at the top.
+    const { read_only_since, ...shown } = club;
+    return c.json({ ...shown, read_only: Boolean(read_only_since), memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
       member_url: deps.memberUrl ?? memberUrl(publicUrl, {}) });
   });
 
@@ -207,6 +212,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"), tries: secondStep }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", vaultRoutes(db, (c) => c.get("me"), now));
+  app.route("/", exportRoutes(db, (c) => c.get("me"), { databaseUrl: deps.databaseUrl ?? null, now }));
   app.route("/", calendarRoutes(db, (c) => c.get("me")));
   app.route("/", translateRoutes(db, (c) => c.get("me"), { now }));
   app.route("/", broadcastRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));

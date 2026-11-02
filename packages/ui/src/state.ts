@@ -16,7 +16,9 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   can?: string[] | null;
   /** A junior with a login of their own: their parents' rules apply, and payments go on the family card. */
   kid?: { friends: boolean } | null };
-export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string };
+export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
+  /** The club's host made it read-only (read_only.ts): both apps say so at the top. */
+  read_only?: boolean };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
 /** Whether to offer a button for a change: a role the club made may not allow it (the server decides either way). */

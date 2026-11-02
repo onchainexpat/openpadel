@@ -16,6 +16,7 @@ import { atLocal, localDate, localParts, onDate } from "./clock.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { householdOf } from "./households.ts";
 import { declineReason } from "./declines.ts";
+import { isReadOnly, refuseWhenReadOnly } from "./read_only.ts";
 
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 const LIVE = ["active", "past_due"] as const;
@@ -425,6 +426,8 @@ export const membershipResume = defineAction({
 /** The job: memberships joined in the app whose period is up. Each is renewed from its saved card, tried again
  *  later if that fails, or ended (cancelled, or its tries ran out). */
 export async function renewMemberships(db: Db, now = new Date()) {
+  // Read-only: no card is charged, and no membership ends for it either; renewals wait until it's over.
+  if (await isReadOnly(db)) return { renewed: 0, failed: 0, ended: 0 };
   const due = await db.selectFrom("membership").select("id").where("source", "=", "app").where("status", "in", HELD).where("current_period_end", "<=", now)
     .where((eb) => eb.or([eb("next_attempt_at", "is", null), eb("next_attempt_at", "<=", now)])).execute();
   const n = { renewed: 0, failed: 0, ended: 0 };
@@ -505,6 +508,7 @@ export async function openCardSetup(db: Db, membershipId: string, personId: stri
   const m = await db.selectFrom("membership").selectAll().where("id", "=", membershipId).executeTakeFirst();
   if (!m || m.person_id !== personId) throw new KumiError("error.not_found", { thing: both("thing.membership") }, 404);
   if (m.status !== "upcoming" || m.saved_method) throw new KumiError("error.not_pending", {}, 409);
+  await refuseWhenReadOnly(db);
   const pv = paymentProvider();
   if (m.provider_ref) return { clientSecret: (await pv.getSetup(m.provider_ref, m.provider_account)).clientSecret, provider: pv.name, account: m.provider_account };
   const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", personId).executeTakeFirstOrThrow();
@@ -563,6 +567,8 @@ export const membershipCardSaved = defineAction({
 
 /** The job: card setups not yet recorded here (a missed webhook), then presale places whose card never came. */
 export async function tidyPresales(db: Db, now = new Date()) {
+  // Read-only: nobody can save a card, so no presale place is let go for want of one.
+  if (await isReadOnly(db)) return { saved: 0, released: 0 };
   const open = await db.selectFrom("membership").select("id").where("status", "=", "upcoming").where("saved_method", "is", null).where("provider_ref", "is not", null).execute();
   let saved = 0;
   for (const m of open) {

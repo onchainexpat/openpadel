@@ -1,0 +1,56 @@
+// A club can always leave (hosted.md, item 2): the host's read-only switch for an account that isn't paid
+// (read_only.ts says what still works), and the owner's "Download everything", a sealed file that a fresh
+// self-hosted install restores (apps/server/src/export.ts makes and opens it).
+import * as z from "zod/mini";
+import { both } from "@kumi/i18n";
+import { defineAction } from "./actions.ts";
+import type { Db, Trx } from "./db.ts";
+import { KumiError } from "./errors.ts";
+
+/** Minutes the owner has to make the file once they've confirmed, as for a person's own data. */
+export const CLUB_EXPORT_MINUTES = 15;
+
+/** The host turns read-only on or off (`kumi read-only on|off`); nobody in the club can. */
+export const clubReadOnly = defineAction({
+  name: "club.read_only", version: 1, system: true, internal: true,
+  input: z.object({ on: z.boolean() }),
+  async plan(_ctx, i) {
+    return { title: both("action.club.read_only"), summary: both(i.on ? "plan.club.read_only_on" : "plan.club.read_only_off"), reads: [], undo: { kind: "none", note: both("reason.read_only_host") } };
+  },
+  async apply(ctx, i) {
+    const c = await ctx.trx.selectFrom("club").select("read_only_since").forUpdate().executeTakeFirstOrThrow();
+    if (Boolean(c.read_only_since) === i.on) return { changed: false, since: c.read_only_since };
+    await ctx.update("club", "singleton", { read_only_since: i.on ? ctx.now : null });
+    await ctx.emit(i.on ? "club.read_only_on" : "club.read_only_off", { at: ctx.now.toISOString() });
+    return { changed: true, since: i.on ? ctx.now : null };
+  },
+});
+
+async function isOwner(db: Db | Trx, personId: string | null): Promise<boolean> {
+  if (!personId) return false;
+  return Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.id")
+    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.key", "=", "owner").executeTakeFirst());
+}
+
+/** The owner's download of everything: recorded here; the file is made once, right after (exportClubRun). */
+export const clubExport = defineAction({
+  name: "club.export", version: 1, strongAuth: true,
+  input: z.object({}),
+  async plan(ctx) {
+    // The owner's alone, not something a manager can ask for: the file holds every member's details.
+    if (!(await isOwner(ctx.db, ctx.actor.personId))) throw new KumiError("error.export_owner_only", {}, 403);
+    return { title: both("action.club.export"), summary: both("plan.club.export"), reads: [], undo: { kind: "none", note: both("reason.export_final") } };
+  },
+  async apply(ctx) {
+    await ctx.emit("club.exported", { by: ctx.actor.personId, at: ctx.now.toISOString() });
+    return { make: `/staff/export/${ctx.runId}` };
+  },
+});
+
+/** The export the owner just confirmed: theirs, applied, recent, and still an owner's. */
+export async function exportClubRun(db: Db, runId: string, actorId: string, now: Date): Promise<void> {
+  const run = await db.selectFrom("action_run").select(["action", "status", "actor_person_id", "applied_at"]).where("id", "=", runId).executeTakeFirst();
+  if (!run || run.action !== "club.export" || run.status !== "applied" || run.actor_person_id !== actorId || !run.applied_at
+    || now.getTime() - run.applied_at.getTime() > CLUB_EXPORT_MINUTES * 60_000) throw new KumiError("error.club_export_gone", {}, 404);
+  if (!(await isOwner(db, actorId))) throw new KumiError("error.export_owner_only", {}, 403);
+}

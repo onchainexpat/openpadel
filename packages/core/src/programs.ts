@@ -18,6 +18,7 @@ import { quietUntil } from "./messages.ts";
 import { priceFor, programPerks, programPrice, priceWords, type ProgramPrice } from "./program_prices.ts";
 import { manages, requireWaiver, withManagers } from "./households.ts";
 import { paymentsWhat, paymentWhat } from "./kids.ts";
+import { isReadOnly, refuseWhenReadOnly } from "./read_only.ts";
 
 /** How long a place offered from the waitlist is held. With texts it would be 2 hours; while email is
  *  the only way to reach people, it's doubled (messages.md). */
@@ -516,7 +517,8 @@ async function goingPlan(ctx: PlanCtx, enrolmentId: string, reason: string, refu
 }
 
 export async function freePlace(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], programId: string, skip: string[] = [], sessionId: string | null = null) {
-  if (await started(ctx.trx, programId, ctx.now, sessionId)) return null;
+  // Read-only: a place given up isn't offered on (nobody could sign up for it); the waitlist keeps its order.
+  if (await started(ctx.trx, programId, ctx.now, sessionId) || await isReadOnly(ctx.trx)) return null;
   const next = await nextWaitlisted(ctx.trx, programId, ctx.now, skip, sessionId);
   if (!next) return null;
   const offerId = uuidv7();
@@ -528,6 +530,7 @@ export async function freePlace(ctx: Parameters<NonNullable<Parameters<typeof de
 
 /** A place free to anyone (nobody on the waitlist took it): everyone watching the program (or that date) hears it once. */
 export async function tellWatchers(ctx: ApplyContext, programId: string, sessionId: string | null = null): Promise<number> {
+  if (await isReadOnly(ctx.trx)) return 0;
   const p = await ctx.trx.selectFrom("program").select(["name", "translations", "capacity", "status"]).where("id", "=", programId).executeTakeFirstOrThrow();
   if (p.status !== "published" || await started(ctx.trx, programId, ctx.now, sessionId) || (await takenCount(ctx.trx, programId, ctx.now, sessionId)) >= await placesOf(ctx.trx, programId, sessionId)) return 0;
   const watches = await ctx.trx.selectFrom("program_watch").select(["id", "person_id"]).where("program_id", "=", programId).where("told_at", "is", null).where("ended_at", "is", null)
@@ -797,6 +800,7 @@ export const paymentOpen = defineAction({
 
 /** The card form for one of the person's own pending payments: the provider's intent, opened once and reused. */
 export async function openPayment(db: Db, paymentId: string, personId: string): Promise<{ clientSecret: string; provider: "test" | "stripe"; account: string | null }> {
+  await refuseWhenReadOnly(db);
   const pay = await db.selectFrom("payment").leftJoin("enrolment", "enrolment.id", "payment.enrolment_id").leftJoin("program", "program.id", "enrolment.program_id")
     .leftJoin("booking_player", "booking_player.id", "payment.booking_player_id").leftJoin("booking", "booking.id", "booking_player.booking_id")
     .leftJoin("membership", "membership.id", "payment.membership_id")
@@ -931,6 +935,8 @@ export const enrolmentUnpaid = defineAction({
 /** The job: places taken and not paid for, reminded halfway and freed at the end of the hold. A card form opened
  *  and left is called off at the provider first (or found paid). */
 export async function lapseUnpaidPlaces(db: Db, now = new Date(), limit = 50) {
+  // Read-only: nobody can pay, so nobody's place runs out for not paying; the hold waits.
+  if (await isReadOnly(db)) return { reminded: 0, lapsed: 0 };
   const rows = await db.selectFrom("enrolment").innerJoin("payment", "payment.enrolment_id", "enrolment.id")
     .select(["enrolment.id", "enrolment.program_id", "enrolment.session_id", "enrolment.pay_reminded_at", "payment.id as payment_id", "payment.provider_ref"])
     // When the place was taken, by the change's own clock.

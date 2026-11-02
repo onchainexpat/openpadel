@@ -21,6 +21,7 @@ import { paymentProvider } from "./money.ts";
 import { ADULT_AGE, householdOf, managersOf } from "./households.ts";
 import { openMatchOf } from "./match_rules.ts";
 import { fullCost } from "./assistant_spend.ts";
+import { refuseWhenReadOnly } from "./read_only.ts";
 
 /** A junior can have a login of their own from the year they turn this. */
 export const KID_AGE = 13;
@@ -218,6 +219,7 @@ export const familyCardRemove = defineAction({
 
 /** The card form for a parent saving the family card: the provider's card setup, opened once and reused. */
 export async function openFamilyCardSetup(db: Db, parent: Actor): Promise<{ cardId: string; clientSecret: string; provider: "test" | "stripe"; account: string | null }> {
+  await refuseWhenReadOnly(db);
   const hh = await parentHousehold(db, parent.personId!), pv = paymentProvider();
   const open = await db.selectFrom("family_card").selectAll().where("household_id", "=", hh.household_id).where("saved_by", "=", parent.personId!).where("status", "=", "pending")
     .where("provider", "=", pv.name).orderBy("created_at", "desc").executeTakeFirst();
@@ -272,6 +274,7 @@ export type FamilyPay = { status: "paid" | "parent"; cents: number; why?: "no_ca
 export async function payWithFamilyCard(db: Db, paymentId: string, now = new Date(), o: { approved?: boolean } = {}): Promise<FamilyPay | null> {
   const pay = await db.selectFrom("payment").selectAll().where("id", "=", paymentId).executeTakeFirst();
   if (!pay || pay.status !== "pending" || pay.provider_ref) return null;
+  await refuseWhenReadOnly(db);
   const kid = await kidOf(db, pay.person_id);
   if (!kid) return null;
   const group = pay.group_id ? await db.selectFrom("payment").selectAll().where("group_id", "=", pay.group_id).execute() : [pay];

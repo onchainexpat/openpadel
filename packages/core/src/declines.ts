@@ -13,7 +13,7 @@ const DECLINES: Record<string, Key> = {
   restricted_card: "msg.decline_declined", call_issuer: "msg.decline_declined", transaction_not_allowed: "msg.decline_declined",
   insufficient_funds: "msg.decline_funds", card_velocity_exceeded: "msg.decline_limit", withdrawal_count_limit_exceeded: "msg.decline_limit",
   expired_card: "msg.decline_expired", authentication_required: "msg.decline_confirm", requires_action: "msg.decline_confirm",
-  processing_error: "msg.decline_processing", "no saved card": "msg.decline_no_card",
+  processing_error: "msg.decline_processing", "no saved card": "msg.decline_no_card", read_only: "msg.decline_read_only",
 };
 /** " (the card was declined)", to follow a sentence; or nothing. */
 export function declineReason(failure: string | null | undefined): Text {

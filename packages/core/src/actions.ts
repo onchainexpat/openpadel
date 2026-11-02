@@ -9,6 +9,7 @@ import { KumiError } from "./errors.ts";
 import { checkAssistantSpend } from "./assistant_spend.ts";
 import { uuidv7 } from "./ids.ts";
 import { decide, type Decision } from "./permissions.ts";
+import { readOnlyGate } from "./read_only.ts";
 
 /** How the person proved who they are: the strong-sign-in rule reads it. */
 /** "two_factor": an emailed code and then an authenticator or recovery code. */
@@ -230,6 +231,7 @@ export async function dryPlan(db: Db | Trx, name: string, raw: unknown, actor: A
 export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opts: PlanOpts = {}): Promise<Planned> {
   const def = getAction(name);
   if (def.internal && !opts.internal) throw new KumiError("error.unknown_action", {}, 404);
+  await readOnlyGate(db, name);   // a club its host has made read-only (read_only.ts)
   await requireStrongAuth(db, def, actor, raw);
   const input = validate(def, raw);
   const now = opts.now ?? new Date();
@@ -284,6 +286,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       }
       const def = getAction(run.action);
       const p = run.plan as Plan;
+      await readOnlyGate(trx, run.action);   // a preview made before the club went read-only
       if (!approving && !opts.system) await requireStrongAuth(trx, def, actor, run.input);
       if (opts.system && !def.system) throw new KumiError("error.forbidden_reason", { reason: both("reason.no_role") }, 403);
       if (!approving && !opts.system) {   // permissions may have changed since the preview
@@ -363,6 +366,7 @@ function applyCtx(trx: Trx, actor: Actor, now: Date, runId: string): ApplyCtx {
 export async function runAsSystem(db: Db, name: string, raw: unknown, via: string, opts: { now?: Date } = {}) {
   const def = getAction(name);
   if (!def.system) throw new KumiError("error.forbidden_reason", { reason: both("reason.no_role") }, 403);
+  await readOnlyGate(db, name);
   const input = validate(def, raw);
   const now = opts.now ?? new Date();
   const actor: Actor = { personId: null, via, lang: "en" };

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, club as clubSignal, dollars, lang, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club } from "@kumi/ui";
+import { ClubExport } from "./ClubExport.tsx";
 
 type Hours = { weekday: number; opens: string | null; closes: string | null };
 // A court's own hours: only the weekdays it has its own for (no times: closed); the rest follow the location.
@@ -51,6 +52,7 @@ export function Settings() {
       <WaiverForm key={JSON.stringify(s.waiver)} w={s.waiver} send={send} />
       <TextingCard x={s.texting} tz={s.club.time_zone} />
       <SignInCard key={s.club.two_factor} rule={s.club.two_factor} send={send} />
+      {me.value?.roles.some((r) => r.key === "owner") && <ClubExport />}
       {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} plans={s.plans} send={send} />)}
       <NewLocation tz={s.club.time_zone} send={send} />
       {note && <p class="note" role="status">{note}</p>}

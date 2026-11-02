@@ -126,7 +126,7 @@ setTranslator(translatorFromEnv(process.env));
 // machine (scripts that sign in over the API); production refuses to start that way.
 const botCheck = process.env.KUMI_BOT_CHECK !== "0";
 if (!botCheck && production) { console.error("KUMI_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
-serve({ fetch: makeApp({ db, mailer, publicUrl, memberUrl: membersUrl, secureCookies: production, production, stripe: stripeConfig, botCheck,
+serve({ fetch: makeApp({ db, mailer, publicUrl, memberUrl: membersUrl, secureCookies: production, production, stripe: stripeConfig, botCheck, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
   ...(texter && twilio ? { texts: { texter, authToken: twilio.authToken } } : {}) }).fetch, port });
 console.log(`kumi server on http://127.0.0.1:${port}`);
 

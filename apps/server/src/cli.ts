@@ -8,7 +8,12 @@
 //   kumi backup [--label=<name>]   tonight's backup now: the dump and its manifest, and the offsite copy if set up
 //                                  (--scheduled: only when it's due, 3:17 on the club's clock; the hourly timer runs this)
 //   kumi offsite                   what's kept offsite
-//   kumi restore <file|offsite:latest|offsite:<key>> --yes   replace the database with a backup (server stopped)
+//   kumi restore <file|offsite:latest|offsite:<key>> --yes   replace the database with a backup (server stopped), or
+//                                  with a club's export (kumi-export-*.kumi, from kumi export or the staff app's
+//                                  "Download everything"): asks for its passphrase, or reads it from what's piped in
+//   kumi export [--out=<folder>]   the club's export: everything it needs to run somewhere else (export.ts), sealed
+//                                  with a passphrase typed at the prompt (or piped in); never printed
+//   kumi read-only on|off|status   the host's switch for an account that isn't paid (read_only.ts)
 //   kumi restore-test              restore the newest backup into a scratch database and check it
 //                                  (--scheduled: only when it's due, the 1st at 4:17 on the club's clock)
 //   kumi rotate-key                seal every secret with KUMI_SECRET_KEY (the old one in KUMI_SECRET_KEY_PREVIOUS)
@@ -17,10 +22,11 @@
 //   kumi usage [--month=YYYY-MM]   what AI, texts and email cost the club in a month, by kind, against its cap
 //                                  (usage.ts); --json for a host's bill
 //   (on a one-server install, as root: kumi update <release.tar>, kumi rollback --yes, kumi releases)
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { money, t, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { connect, migrate, monthOf, plan, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
+import { connect, migrate, monthOf, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
+import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
 import { readPeopleCsv } from "./csv.ts";
@@ -41,6 +47,31 @@ const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.sli
 const backupDir = process.env.KUMI_BACKUP_DIR ?? "/var/backups/kumi";
 const dbUrl = () => { const u = process.env.DATABASE_URL; if (!u) throw new Error("DATABASE_URL isn't set"); return u; };
 const out = (v: unknown) => console.log(JSON.stringify(v, null, 2));
+const serverKeys = () => setSecretKeys({ current: process.env.KUMI_SECRET_KEY, previous: process.env.KUMI_SECRET_KEY_PREVIOUS });
+
+/** A passphrase: typed at a prompt that doesn't show it, or the first line of what's piped in (never an argument,
+ *  which the process list and the shell's history would keep). */
+async function passphrase(prompt: string): Promise<string> {
+  const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    let data = "";
+    for await (const chunk of stdin) { data += String(chunk); if (data.includes("\n")) break; }
+    return data.split(/\r?\n/)[0] ?? "";
+  }
+  process.stderr.write(prompt);
+  stdin.setRawMode(true); stdin.resume(); stdin.setEncoding("utf8");
+  return new Promise((done) => {
+    let typed = "";
+    const key = (chunk: string) => {
+      for (const ch of chunk) {
+        if (ch === "\r" || ch === "\n") { stdin.setRawMode(false); stdin.pause(); stdin.off("data", key); process.stderr.write("\n"); done(typed); return; }
+        if (ch === "\u0003") { stdin.setRawMode(false); process.stderr.write("\n"); process.exit(130); }
+        typed = ch === "\u007f" || ch === "\b" ? typed.slice(0, -1) : typed + ch;
+      }
+    };
+    stdin.on("data", key);
+  });
+}
 
 async function main(): Promise<number> {
   if (cmd === "setup" && (sub === "plan" || sub === "apply")) {
@@ -160,6 +191,33 @@ async function main(): Promise<number> {
       return 0;
     } finally { await db.destroy(); }
   }
+  if (cmd === "export") {
+    serverKeys();
+    const typed = await passphrase(t(lang, "cli.export_ask", { min: PASSPHRASE_MIN }));
+    if (process.stdin.isTTY && typed !== await passphrase(t(lang, "cli.export_ask_again"))) { console.error(t(lang, "cli.export_differ")); return 2; }
+    const db = connect();
+    try {
+      const r = await makeExport(db, { url: dbUrl(), passphrase: typed });
+      const file = join(resolve(process.env.KUMI_CALLER_DIR ?? ".", flag("out") ?? backupDir), r.name);
+      writeFileSync(file, r.file, { mode: 0o600 });
+      if (json) { out({ ok: true, file, bytes: r.file.length, tables: Object.keys(r.manifest.database.tables).length }); return 0; }
+      console.log(t(lang, "cli.export_done", { file, mb: (r.file.length / 1048576).toFixed(1) }));
+      return 0;
+    } catch (e) {
+      if (json) out({ ok: false, error: (e as Error).message }); else console.error(t(lang, "cli.export_failed", { error: (e as Error).message }));
+      return e instanceof ExportRefused ? 2 : 1;
+    } finally { await db.destroy(); }
+  }
+  if (cmd === "read-only" && (sub === "on" || sub === "off" || sub === "status")) {
+    const db = connect();
+    try {
+      if (sub !== "status") await runAsSystem(db, "club.read_only", { on: sub === "on" }, "cli");
+      const since = await readOnlySince(db);
+      if (json) { out({ ok: true, read_only: Boolean(since), since }); return 0; }
+      console.log(sub === "on" ? t(lang, "cli.read_only_on") : sub === "off" ? t(lang, "cli.read_only_off") : since ? t(lang, "cli.read_only_since", { since: since.toISOString() }) : t(lang, "cli.read_only_not"));
+      return 0;
+    } finally { await db.destroy(); }
+  }
   if (cmd === "doctor") {
     const db = connect();
     try {
@@ -216,6 +274,8 @@ async function main(): Promise<number> {
   if (cmd === "restore" && sub) {
     const source = sub;
     if (!args.includes("--yes")) { console.error(t(lang, "cli.restore_confirm", { source })); return 2; }
+    const local = source.startsWith("offsite:") ? null : resolve(process.env.KUMI_CALLER_DIR ?? ".", source);
+    if (local && isExportFile(local)) return importClub(local);
     let got: { file: string; cleanup: () => void };
     try {
       if (source.startsWith("offsite:")) {
@@ -282,6 +342,44 @@ async function main(): Promise<number> {
   }
   console.log(t(lang, "cli.usage"));
   return cmd ? 2 : 0;
+}
+
+/** `kumi restore <export>`: the club's export into this server (export.ts), and what's left to set up here. */
+async function importClub(path: string): Promise<number> {
+  try {
+    const file = readFileSync(path);
+    exportHeader(file);   // a damaged or foreign file says so before the passphrase is asked for
+    const typed = await passphrase(t(lang, "cli.import_ask", { file: path }));
+    serverKeys();
+    const r = await importExport({ url: dbUrl(), file, passphrase: typed, dir: backupDir });
+    let clubFile: string | null = null;
+    if (r.club_file) { clubFile = join(backupDir, "club-from-export.yaml"); writeFileSync(clubFile, r.club_file, { mode: 0o600 }); }
+    const settings = Object.entries(r.settings).map(([k, v]) => `${k}=${v}`);
+    if (json) {
+      const { club_file: _f, ...rest } = r;
+      out({ ok: true, ...rest, club_file: clubFile });
+      return 0;
+    }
+    console.log(t(lang, "cli.import_done", { club: r.club, version: r.from.version, when: r.from.created_at.slice(0, 10), copy: r.safety_copy }));
+    if (r.secrets) console.log(`  - ${t(lang, "cli.import_secrets", { count: r.secrets })}`);
+    if (r.secrets_lost) console.log(`  - ${t(lang, "cli.import_lost", { count: r.secrets_lost })}`);
+    if (r.passkeys_retired) console.log(`  - ${t(lang, "cli.import_passkeys", { count: r.passkeys_retired })}`);
+    if (r.was_read_only) console.log(`  - ${t(lang, "cli.import_read_only")}`);
+    if (settings.length) console.log(`  - ${t(lang, "cli.import_settings", { list: settings.join(", ") })}`);
+    if (r.set_elsewhere.length) console.log(`  - ${t(lang, "cli.import_elsewhere", { list: r.set_elsewhere.join(", ") })}`);
+    if (r.stripe_account && process.env.KUMI_STRIPE_CONNECT !== "1") console.log(`  - ${t(lang, "cli.import_stripe", { account: r.stripe_account })}`);
+    if (r.texting_registered) console.log(`  - ${t(lang, "cli.import_texting")}`);
+    if (clubFile) console.log(`  - ${t(lang, "cli.import_club_file", { file: clubFile })}`);
+    return 0;
+  } catch (e) {
+    if (e instanceof RestoreFailed) {
+      if (json) out({ ok: false, error: e.message, safety_copy: e.safetyCopy, put_back: e.putBack });
+      else console.error(t(lang, e.putBack ? "cli.restore_put_back" : "cli.restore_not_put_back", { error: e.message, file: e.safetyCopy }));
+      return e.putBack ? 3 : 4;
+    }
+    if (json) out({ ok: false, error: (e as Error).message, changed: false }); else console.error(t(lang, "cli.import_failed", { error: (e as Error).message }));
+    return e instanceof ExportRefused ? 2 : 1;
+  }
 }
 
 process.exitCode = await main();

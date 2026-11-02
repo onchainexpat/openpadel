@@ -47,6 +47,8 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://kumi_app:${KUMI_DB_PASSWORD}@db/kumi
+      KUMI_PUBLIC_URL: https://staff.${KUMI_HOST}   # a club's export records its address; restoring one compares it
+      KUMI_MEMBER_URL: https://${KUMI_HOST}
     volumes: ["./backups:/var/backups/kumi"]
     entrypoint: ["sh", "-c", "while true; do sleep $$(( (1020 - $$(date +%s) % 3600 + 3600) % 3600 + 1 )); kumi backup --scheduled; kumi restore-test --scheduled; done"]
     depends_on: { db: { condition: service_healthy }, kumi: { condition: service_started } }

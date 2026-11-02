@@ -19,6 +19,7 @@ import { memberPlan } from "./memberships.ts";
 import { band, joinRule, levelOf, openMatchOf } from "./match_rules.ts";
 import { managersOf, notJunior, requireWaiver, withManagers } from "./households.ts";
 import { kidOf, overRules, paymentsWhat } from "./kids.ts";
+import { isReadOnly } from "./read_only.ts";
 
 /** How long a court is held while the organiser pays. */
 export const HOLD_MINUTES = 10;
@@ -551,6 +552,12 @@ export const bookingSettleShares = defineAction({
     for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
       .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "pending").execute()) await ctx.update("payment", p.id, { status: "failed" });
     if (unpaid <= 0) { await ctx.update("booking", b.id, { settled_at: ctx.now }); return { charged: 0 }; }
+    // Read-only (read_only.ts): no card is charged. What's unpaid stays owed to the club, as after a declined card.
+    if (await isReadOnly(ctx.trx)) {
+      await ctx.update("booking", b.id, { settled_at: ctx.now, balance_cents: unpaid });
+      await ctx.emit("booking.balance_due", { booking_id: b.id, cents: unpaid, failure: "read_only" });
+      return { owed: unpaid, read_only: true };
+    }
     const organiserPay = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
       .select(["payment.saved_customer", "payment.saved_method", "payment.provider_account", "booking_player.id as bp"])
       .where("booking_player.booking_id", "=", b.id).where("booking_player.person_id", "=", b.organiser_id).where("payment.save_card", "=", true).where("payment.status", "=", "succeeded").executeTakeFirst();
