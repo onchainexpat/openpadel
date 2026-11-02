@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { t, pickLang, type Lang, type Text } from "@kumi/i18n";
 import { connect, migrate, plan, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration } from "@kumi/core";
-import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, restoreInto, restoreTest, scheduledDue, writeOpsRecords } from "./backups.ts";
+import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
 import { readPeopleCsv } from "./csv.ts";
 import { doctor, type Check } from "./doctor.ts";
@@ -212,12 +212,21 @@ async function main(): Promise<number> {
         got = await fetchOffsite(s3, objectKey, key);
       } else got = readableDump(resolve(process.env.KUMI_CALLER_DIR ?? ".", source));
       const kept = await readOpsRecords(dbUrl());
-      try { await restoreInto(dbUrl(), got.file); } finally { got.cleanup(); }
+      let safetyCopy: string;
+      try { ({ safetyCopy } = await safeRestore(dbUrl(), got.file, { dir: backupDir })); } finally { got.cleanup(); }
       await writeOpsRecords(dbUrl(), kept);
-      if (json) out({ ok: true, source }); else console.log(t(lang, "cli.restore_done", { source }));
+      if (json) out({ ok: true, source, safety_copy: safetyCopy });
+      else { console.log(t(lang, "cli.restore_done", { source })); console.log(t(lang, "cli.restore_safety_copy", { file: safetyCopy })); }
       return 0;
     } catch (e) {
-      if (json) out({ ok: false, error: (e as Error).message }); else console.error(t(lang, "cli.restore_failed", { error: (e as Error).message }));
+      // The exit code tells `sudo kumi restore` whether the server may start again: 4 only when the database may
+      // be empty (the restore failed and the copy made before it couldn't be put back).
+      if (e instanceof RestoreFailed) {
+        if (json) out({ ok: false, error: e.message, safety_copy: e.safetyCopy, put_back: e.putBack });
+        else console.error(t(lang, e.putBack ? "cli.restore_put_back" : "cli.restore_not_put_back", { error: e.message, file: e.safetyCopy }));
+        return e.putBack ? 3 : 4;
+      }
+      if (json) out({ ok: false, error: (e as Error).message, changed: false }); else console.error(t(lang, "cli.restore_failed", { error: (e as Error).message }));
       return 1;
     }
   }

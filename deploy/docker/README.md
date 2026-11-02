@@ -53,6 +53,9 @@ docker compose stop kumi
 docker compose exec backup kumi restore /var/backups/kumi/kumi-DATE.dump --yes   # or offsite:latest
 docker compose start kumi && docker compose exec kumi kumi doctor
 ```
+The restore checks the file first and keeps a copy of the database as it was (`kumi-<time>-before-restore.dump`
+in `./backups`); if it fails, that copy goes back in. If its message says the database couldn't be put back,
+don't start `kumi`: restore the copy it names first.
 
 ## Updating
 Read the release's notes in [`CHANGELOG.md`](../../CHANGELOG.md) first, then:

@@ -57,6 +57,13 @@ Going back loses everything since the update (bookings, payments, sign-ups), whi
 `--yes`. A server set up before releases were kept side by side moves its running code into
 `/opt/kumi/releases` on its first update.
 
+Everything in `/opt/kumi` belongs to root: the kumi user builds each release, then it becomes root's before it
+runs, so nothing running as kumi (the server, or a package's install step) can change what `sudo kumi ...` runs
+later. `sudo kumi rollback` and `sudo kumi releases` use root's own copy of `release.sh`
+(`/usr/local/lib/kumi/release.sh`), refreshed by each update from the release file. The kumi user's own folder is
+`/var/lib/kumi`. Caddy reads the apps like anyone else and isn't in the kumi group, so it can't read
+`/etc/kumi/kumi.env`. A server set up before 0.1.0 is moved over by its next update.
+
 ## Backups
 
 - **Every night at 3:17 on the club's clock** (`kumi-backup.timer` checks every hour, and `kumi backup --scheduled`
@@ -83,8 +90,11 @@ sudo kumi restore /var/backups/kumi/kumi-2026-11-30T0317.dump --yes   # replace 
 sudo kumi restore offsite:latest --yes      # or the newest offsite copy
 ```
 
-`kumi restore` stops the server, empties the database, restores, and starts it again. It asks for `--yes`
-because everything since that backup is lost.
+`kumi restore` stops the server, checks the file is a backup it can read, keeps a copy of the database as it
+is (`kumi-<time>-before-restore.dump` beside the backups), restores, and starts the server again. It asks for
+`--yes` because everything since that backup is lost. If the restore fails, the copy goes back in and nothing is
+lost. In the rare case that fails too, the server stays stopped (it would start with an empty club) and the
+message names the copy to restore by hand.
 
 ## Health
 

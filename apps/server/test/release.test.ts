@@ -4,7 +4,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -113,4 +113,20 @@ test("the last 3 releases and the last 3 update snapshots are kept", () => {
   assert.ok(kept.includes("r9") && kept.includes("r8"));
   assert.equal(readdirSync(backups).filter((f) => f.startsWith("update-")).length, 3);
   assert.match(sh("update", release("r9b"), "r9").out, /already running r9/);
+});
+
+test("root never follows a link the kumi user left, and an odd backup name is one file", () => {
+  // A link where the state file used to be written first (releases/STATE.tmp): writing through it would let
+  // kumi overwrite any file as root. The state is now written to a new temporary file instead.
+  const victim = join(t, "victim.txt"); writeFileSync(victim, "untouched\n");
+  symlinkSync(victim, join(root, "releases/STATE.tmp"));
+  // An old update snapshot with a space in its name: split on the space, it was two names, and root deleted the
+  // second one (a path relative to /). Now it's one file, tidied like the others.
+  const odd = join(backups, "update-old snap.dump"); writeFileSync(odd, "");
+  const past = new Date("2020-01-01T00:00:00Z"); utimesSync(odd, past, past);
+  assert.equal(sh("update", release("r10"), "r10").code, 0);
+  assert.equal(readFileSync(victim, "utf8"), "untouched\n");
+  assert.ok(!existsSync(odd), "the oldest snapshot, odd name and all, is tidied");
+  assert.equal(readdirSync(backups).filter((f) => f.startsWith("update-")).length, 3);
+  assert.ok(!readdirSync(join(root, "releases")).some((f) => f.startsWith(".STATE.")), "no temporary state file left");
 });

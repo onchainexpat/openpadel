@@ -9,7 +9,9 @@
 #   release.sh status                            which release runs, which is kept, and the snapshots
 #
 # Releases live in $ROOT/releases/<revision>; $ROOT/app is a link to the running one. The last 3 releases and
-# the last 3 update snapshots are kept. Every path and command can be swapped by the environment (the tests
+# the last 3 update snapshots are kept. Everything under $ROOT is root's: the kumi user builds a release (as
+# itself, so nothing an npm package runs gets root), then the release becomes root's before it's used, so the
+# server and Caddy read it and nothing running as kumi can change what root runs later. Every path and command can be swapped by the environment (the tests
 # run it against a scratch folder with stand-ins for systemctl, curl and the Postgres tools).
 set -euo pipefail
 
@@ -24,8 +26,9 @@ STOP=${KUMI_STOP:-systemctl stop kumi}
 INSTALL=${KUMI_INSTALL:-npm ci --no-audit --no-fund --loglevel=error}
 BUILD=${KUMI_BUILD:-npm run build -w @kumi/member -w @kumi/manager --silent}
 SYSTEM_FILES=${KUMI_SYSTEM_FILES:-1}
+KUMI_HOME=${KUMI_HOME_DIR:-/var/lib/kumi}   # the kumi user's own folder (npm's cache), outside the code
 # Commands that touch the app or the database run as the kumi user; the tests set KUMI_AS= to run them as themselves.
-AS=${KUMI_AS-sudo -u kumi HOME=$ROOT}
+AS=${KUMI_AS-sudo -u kumi HOME=$KUMI_HOME}
 STATE=$ROOT/releases/STATE
 
 say() { echo "kumi: $*"; }
@@ -44,7 +47,11 @@ PORT=${PORT:-8790}
 [ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL isn't set in $ENV_FILE"
 
 state_get() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" | head -1 || true; }
-state_set() { mkdir -p "$ROOT/releases"; printf 'current=%s\nprevious=%s\nsnapshot=%s\n' "$1" "$2" "$3" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"; }
+state_set() {
+  mkdir -p "$ROOT/releases"
+  local t; t=$(mktemp "$ROOT/releases/.STATE.XXXXXX")
+  printf 'current=%s\nprevious=%s\nsnapshot=%s\n' "$1" "$2" "$3" > "$t" && chmod 644 "$t" && mv -f "$t" "$STATE"
+}
 current_rev() { if [ -L "$ROOT/app" ]; then basename "$(readlink "$ROOT/app")"; elif [ -d "$ROOT/app" ]; then cat "$ROOT/app/REVISION" 2>/dev/null || echo legacy; else echo none; fi; }
 
 # Servers set up before releases were kept side by side run from a plain folder: move it into releases/.
@@ -58,6 +65,24 @@ adopt_layout() {
     say "the running release ($rev) now lives in $ROOT/releases/$rev"
   fi
   rm -rf "$ROOT/app.old" "$ROOT/app.new"
+}
+
+# Servers set up before 0.1.0 had /opt/kumi as the kumi user's home and its releases owned by kumi, so code running
+# as kumi could change what `sudo kumi ...` later ran as root; and Caddy read the apps as the kumi group, which
+# also let it read the settings file. Make it all root's (readable by everyone: it's open-source code), give kumi
+# a home of its own, and take Caddy out of the kumi group. Safe to run every time.
+harden_layout() {
+  [ -n "$AS" ] || return 0   # the tests run as themselves
+  install -d -m 700 -o kumi -g kumi "$KUMI_HOME"
+  install -d -m 755 -o root -g root "$ROOT" "$ROOT/releases"
+  find "$ROOT/releases" -mindepth 1 -maxdepth 1 ! -user root -exec chown -R root:root {} + -exec chmod -R u+rwX,go+rX,go-w {} +
+  [ -e "$STATE" ] && chown root:root "$STATE" && chmod 644 "$STATE"
+  # What kumi kept in its old home (npm's cache, shell files) goes; only the releases and the app link stay.
+  find "$ROOT" -mindepth 1 -maxdepth 1 ! -name releases ! -name app -exec rm -rf {} +
+  if id caddy >/dev/null 2>&1 && id -nG caddy | tr ' ' '\n' | grep -qx kumi; then
+    gpasswd -d caddy kumi >/dev/null && { systemctl restart caddy || true; }
+    say "Caddy no longer reads as the kumi group (the apps are readable by everyone; the settings file isn't)"
+  fi
 }
 switch_to() { ln -sfn "releases/$1" "$ROOT/app.next" && mv -Tf "$ROOT/app.next" "$ROOT/app"; }
 
@@ -77,10 +102,11 @@ check() {
   return 1
 }
 
+# The dump is made, named and given its mode by the kumi user (whose folder it is), never by root in that folder.
 snapshot() {
   local file=$1
   mkdir -p "$BACKUPS"
-  $AS "$(tool pg_dump)" -Fc --no-owner --no-acl -d "$DATABASE_URL" -f "$file.part" && mv "$file.part" "$file" && chmod 600 "$file"
+  $AS sh -c 'umask 077; "$0" -Fc --no-owner --no-acl -d "$2" -f "$1.part" && mv -f "$1.part" "$1"' "$(tool pg_dump)" "$file" "$DATABASE_URL"
 }
 restore() {
   local file=$1
@@ -98,7 +124,9 @@ tidy() {
     if [ "$d" = "$cur" ] || [ "$d" = "$prev" ]; then n=$((n + 1)); continue; fi
     if [ "$n" -lt "$KEEP" ]; then n=$((n + 1)); else rm -rf "${ROOT:?}/releases/$d"; fi
   done
-  ls -1t "$BACKUPS"/update-*.dump 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+  # Newest first, names kept whole (a name with spaces is one file), deleted by kumi in kumi's own folder.
+  $AS find "$BACKUPS" -maxdepth 1 -type f -name 'update-*.dump' -printf '%T@ %p\0' 2>/dev/null \
+    | sort -zrn | tail -zn +$((KEEP + 1)) | cut -zd' ' -f2- | $AS xargs -0r rm -f --
 }
 
 # The kumi command, the backup and restore-test timers and the scratch database for the restore test, from this
@@ -117,11 +145,16 @@ case "${1:-}" in
     tar -xOf "$f" deploy/release.sh > "$t/release.sh" || { echo "kumi: $f isn't a Kumi release" >&2; exit 1; }
     bash "$t/release.sh" update "$@"; rc=$?; rm -rf "$t"; exit $rc;;
   rollback|releases)
-    root "$1"; [ "$1" = releases ] && set -- status; exec bash /opt/kumi/app/deploy/release.sh "$@";;
+    # Root's own copy of release.sh, from the last update's release file: never one the kumi user could change.
+    root "$1"; [ "$1" = releases ] && set -- status
+    [ -f /usr/local/lib/kumi/release.sh ] || { echo "kumi: no release installed yet (ship one with deploy/ship.sh)" >&2; exit 1; }
+    exec bash /usr/local/lib/kumi/release.sh "$@";;
   restore)
     root restore; systemctl stop kumi
     cd /opt/kumi/app && sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
-    rc=$?; systemctl start kumi; exit $rc;;
+    # 4: the restore failed and the database may be empty: the server stays stopped (starting would set up an
+    # empty club). Any other outcome left the database whole (restored, put back, or never touched).
+    rc=$?; if [ "$rc" = 4 ]; then echo "kumi: the server stays stopped; see above" >&2; else systemctl start kumi; fi; exit $rc;;
 esac
 cd /opt/kumi/app || exit 1
 exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
@@ -177,6 +210,9 @@ systemctl daemon-reload
 systemctl enable kumi-backup.timer kumi-restore-test.timer
 systemctl restart kumi-backup.timer kumi-restore-test.timer   # a changed schedule takes effect now
 # --- end system files ---
+  # Root's own copy of this script, for `sudo kumi rollback` and `sudo kumi releases`. It comes from the release
+  # file (ship.sh and `kumi update` run it from there), never from the built release the kumi user worked in.
+  install -D -m 755 -o root -g root "${BASH_SOURCE[0]}" /usr/local/lib/kumi/release.sh
 }
 
 update() {
@@ -188,6 +224,7 @@ update() {
   [ -n "$new" ] || new=$(sha256sum "$tarball" | cut -c1-12)
   case "$new" in *[!A-Za-z0-9._-]*|"") die "a revision is letters, digits, dots and dashes: $new";; esac
   adopt_layout
+  harden_layout
   local old; old=$(current_rev)
   if [ "$old" = "$new" ] && [ "${KUMI_FORCE:-0}" != "1" ]; then say "already running $new"; exit 0; fi
 
@@ -199,6 +236,8 @@ update() {
   [ -z "$AS" ] || chown -R kumi:kumi "$dir.new"
   say "installing $new beside $old"
   if ! (cd "$dir.new" && $AS $INSTALL && $AS $BUILD); then rm -rf "$dir.new"; die "installing $new failed; nothing changed, still on $old"; fi
+  # Built: now root's, read-only to everyone else, before anything uses it (chown -R doesn't follow links in it).
+  [ -z "$AS" ] || { chown -R root:root "$dir.new"; chmod -R u+rwX,go+rX,go-w "$dir.new"; }
   rm -rf "$dir"; mv "$dir.new" "$dir"
 
   # 2. A snapshot of the database as it is now, named for the update.
@@ -229,6 +268,7 @@ update() {
 
 rollback() {
   cd /
+  harden_layout
   [ "${1:-}" = "--yes" ] || die "going back puts the previous release back AND the database as it was just before the last update.
 Everything since then (bookings, payments, sign-ups, changes) is lost. To go ahead: kumi rollback --yes"
   local prev snap cur

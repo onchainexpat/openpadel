@@ -189,7 +189,44 @@ export async function offsiteLatest(s3: S3Client, prefix: string): Promise<{ dum
 }
 
 // ---- Restoring ----
-/** Empty a database's public schema and restore a dump into it. The server must not be using it (stop it first). */
+/** Read a dump's table of contents (pg_restore --list) without changing anything: a file that isn't a backup, or
+ *  is cut short, is refused here, before the live database is touched. */
+export async function checkDump(dumpFile: string, env: Env = process.env) {
+  try { await runTool(pgTool("pg_restore", env), ["--list", dumpFile], {}); }
+  catch (e) { throw new RestoreRefused(`${basename(dumpFile)} isn't a backup that can be restored (${(e as Error).message})`); }
+}
+/** Nothing was changed: the file was refused, or the copy of the database as it is couldn't be made. */
+export class RestoreRefused extends Error {}
+/** The restore failed after the database was emptied. `putBack` says whether the copy made just before went back in. */
+export class RestoreFailed extends Error {
+  readonly safetyCopy: string; readonly putBack: boolean;
+  constructor(message: string, safetyCopy: string, putBack: boolean) { super(message); this.safetyCopy = safetyCopy; this.putBack = putBack; }
+}
+
+/** Replace the live database with a backup, without ever leaving the club empty: the file is checked first, a
+ *  copy of the database as it is now is made (kumi-<time>-before-restore.dump, kept, not tidied), and if the
+ *  restore fails that copy is put back. The server must not be using the database (stop it first). */
+export async function safeRestore(url: string, dumpFile: string, o: { dir: string; now?: Date; env?: Env }): Promise<{ safetyCopy: string }> {
+  const env = o.env ?? process.env, now = o.now ?? new Date();
+  await checkDump(dumpFile, env);
+  const label = `${now.toISOString().slice(0, 16).replace(/[-:]/g, "")}Z-before-restore`;
+  const db = connect(url);
+  let safetyCopy: string;
+  try { safetyCopy = (await makeBackup(db, { url, dir: o.dir, label, env, now })).file; }
+  catch (e) { throw new RestoreRefused(`a copy of the database as it is couldn't be made first, so nothing was changed (${(e as Error).message})`); }
+  finally { await db.destroy(); }
+  try { await restoreInto(url, dumpFile, env); }
+  catch (e) {
+    const why = (e as Error).message;
+    try { await restoreInto(url, safetyCopy, env); }
+    catch (e2) { throw new RestoreFailed(`${why}; putting the database back failed too: ${(e2 as Error).message}`, safetyCopy, false); }
+    throw new RestoreFailed(why, safetyCopy, true);
+  }
+  return { safetyCopy };
+}
+
+/** Empty a database's public schema and restore a dump into it. The server must not be using it (stop it first).
+ *  `kumi restore` goes through safeRestore; the restore test uses this on its scratch database. */
 export async function restoreInto(url: string, dumpFile: string, env: Env = process.env) {
   const db = connect(url);
   try {
@@ -266,6 +303,7 @@ export async function restoreTest(db: Db, o: { liveUrl: string; dir: string; s3:
     }
     if (manifest && manifest.sha256 !== createHash("sha256").update(readFileSync(dumpFile)).digest("hex")) throw new Error("the backup doesn't match its manifest's checksum");
     const url = scratchUrl(o.liveUrl, env), created = await ensureScratch(db, url);
+    if (!created && await isSameDatabase(db, url)) throw new Error("the restore test's scratch database is the live database: KUMI_RESTORE_TEST_DATABASE_URL must name another one");
     let restored: Record<string, number> = {};
     try {
       await restoreInto(url, dumpFile, env);
@@ -282,6 +320,19 @@ export async function restoreTest(db: Db, o: { liveUrl: string; dir: string; s3:
     await jobFailed(db, "restore_test", (e as Error).message, now);
     throw e;
   } finally { cleanup(); }
+}
+
+/** Whether a URL reaches the very database `db` is connected to: the same name, the same database id, on a server
+ *  started at the same moment. The restore test empties its scratch database, so it must never be the live one,
+ *  however the two URLs are written (a socket and 127.0.0.1, another user). */
+export async function isSameDatabase(db: Kysely<any>, url: string): Promise<boolean> {
+  const who = async (d: Kysely<any>) => (await sql<{ name: string; id: string; started: string }>`SELECT current_database() AS name,
+    (SELECT oid::text FROM pg_database WHERE datname = current_database()) AS id, pg_postmaster_start_time()::text AS started`.execute(d)).rows[0]!;
+  const other = connect(url);
+  try {
+    const [a, b] = [await who(db), await who(other)];
+    return a.name === b.name && a.id === b.id && a.started === b.started;
+  } finally { await other.destroy(); }
 }
 
 /** The scratch database: there already (the one-server install makes it), or made now if this server may. */

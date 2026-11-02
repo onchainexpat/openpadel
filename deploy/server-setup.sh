@@ -34,8 +34,10 @@ if ! node --version 2>/dev/null | grep -q '^v24\.'; then
 fi
 node --version
 
-# The kumi user owns the app and its database (it signs in to Postgres as itself, over the local socket).
-id kumi >/dev/null 2>&1 || useradd --system --create-home --home-dir /opt/kumi --shell /usr/sbin/nologin kumi
+# The kumi user runs the server and owns its database (it signs in to Postgres as itself, over the local socket).
+# Its home is /var/lib/kumi; the code in /opt/kumi is root's, which kumi reads but can't change.
+id kumi >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/kumi --shell /usr/sbin/nologin kumi
+install -d -m 700 -o kumi -g kumi /var/lib/kumi
 sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'kumi'" | grep -q 1 || sudo -u postgres createuser kumi
 sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'kumi'" | grep -q 1 || sudo -u postgres createdb -O kumi kumi
 
@@ -118,13 +120,14 @@ $1 {
 SITE
 }
 { site "$KUMI_HOST" member; site "staff.$KUMI_HOST" manager; } > /etc/caddy/Caddyfile
-# Caddy serves the built apps from the kumi user's (private) home, so it reads as the kumi group.
-usermod -aG kumi caddy
+# Caddy serves the built apps from /opt/kumi, which everyone can read. It isn't in the kumi group, so it can't read
+# the settings file (a server set up before 0.1.0 had it there: take it out).
+if id -nG caddy | tr ' ' '\n' | grep -qx kumi; then gpasswd -d caddy kumi >/dev/null; systemctl restart caddy; fi
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl reload caddy || systemctl restart caddy
 
-# Releases are kept side by side (release.sh); /opt/kumi/app links to the running one.
-install -d -o kumi -g kumi /opt/kumi/releases
+# Releases are kept side by side (release.sh); /opt/kumi/app links to the running one. All of it is root's.
+install -d -m 755 -o root -g root /opt/kumi /opt/kumi/releases
 # --- system files (the same in server-setup.sh and release.sh) ---
 cat > /usr/local/bin/kumi <<'SH'
 #!/bin/sh
@@ -137,11 +140,16 @@ case "${1:-}" in
     tar -xOf "$f" deploy/release.sh > "$t/release.sh" || { echo "kumi: $f isn't a Kumi release" >&2; exit 1; }
     bash "$t/release.sh" update "$@"; rc=$?; rm -rf "$t"; exit $rc;;
   rollback|releases)
-    root "$1"; [ "$1" = releases ] && set -- status; exec bash /opt/kumi/app/deploy/release.sh "$@";;
+    # Root's own copy of release.sh, from the last update's release file: never one the kumi user could change.
+    root "$1"; [ "$1" = releases ] && set -- status
+    [ -f /usr/local/lib/kumi/release.sh ] || { echo "kumi: no release installed yet (ship one with deploy/ship.sh)" >&2; exit 1; }
+    exec bash /usr/local/lib/kumi/release.sh "$@";;
   restore)
     root restore; systemctl stop kumi
     cd /opt/kumi/app && sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
-    rc=$?; systemctl start kumi; exit $rc;;
+    # 4: the restore failed and the database may be empty: the server stays stopped (starting would set up an
+    # empty club). Any other outcome left the database whole (restored, put back, or never touched).
+    rc=$?; if [ "$rc" = 4 ]; then echo "kumi: the server stays stopped; see above" >&2; else systemctl start kumi; fi; exit $rc;;
 esac
 cd /opt/kumi/app || exit 1
 exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"

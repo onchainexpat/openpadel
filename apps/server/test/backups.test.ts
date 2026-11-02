@@ -10,7 +10,7 @@ import { basename, join } from "node:path";
 import { sql } from "kysely";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { heartbeat, jobWorked, run, runAsSystem, type Actor, type Db } from "@kumi/core";
-import { compareCounts, lastSlot, makeBackup, newestLocal, offsiteLatest, readOpsRecords, writeOpsRecords, nightlyBackup, openBackup, pgTool, restoreInto, restoreTest, scheduledDue, scratchUrl, SCHEDULE, tidyLocal, type Manifest } from "../src/backups.ts";
+import { compareCounts, isSameDatabase, lastSlot, makeBackup, newestLocal, RestoreFailed, RestoreRefused, safeRestore, offsiteLatest, readOpsRecords, writeOpsRecords, nightlyBackup, openBackup, pgTool, restoreInto, restoreTest, scheduledDue, scratchUrl, SCHEDULE, tidyLocal, type Manifest } from "../src/backups.ts";
 import { S3Client } from "../src/s3.ts";
 import { fakeS3, type FakeS3 } from "./fake_s3.ts";
 
@@ -73,6 +73,37 @@ test("restoring into a scratch database brings back every table and row", { skip
     const names = await scratch.db.selectFrom("person").select("display_name").orderBy("display_name").execute();
     assert.deepEqual(names.map((n) => n.display_name), ["Ann", "Ben", "Cy", "Robin Hale"]);
   } finally { await scratch.drop(); }
+});
+
+test("a restore never leaves the club empty: a bad file changes nothing; a failed restore puts the copy back", { skip }, async () => {
+  const scratch = await freshDb();
+  const dir2 = mkdtempSync(join(tmpdir(), "kumi-restore-"));
+  try {
+    const sUrl = ADMIN.replace(/\/[^/]*$/, `/${(await sql<{ d: string }>`SELECT current_database() AS d`.execute(scratch.db)).rows[0]!.d}`);
+    await runAsSystem(scratch.db, "club.setup", { name: "Osprey Padel", time_zone: "America/Los_Angeles", owner_email: "pat@example.test", owner_name: "Pat Lee" }, "setup");
+    const tables = async () => Number((await sql<{ n: string }>`SELECT count(*) AS n FROM pg_tables WHERE schemaname = 'public'`.execute(scratch.db)).rows[0]!.n);
+    const before = await tables();
+    // A manifest passed as if it were the dump: refused before anything is dropped (it used to empty the database).
+    await assert.rejects(safeRestore(sUrl, join(dir, "kumi-2026-11-30T0317.json"), { dir: dir2, env }), RestoreRefused);
+    assert.equal(await tables(), before);
+    assert.deepEqual(readdirSync(dir2), []);
+    // A dump that reads but fails halfway (cut short): the database goes back as it was, from the copy made first.
+    const whole = readFileSync(join(dir, "kumi-2026-11-30T0317.dump"));
+    const cut = join(dir2, "cut.dump"); writeFileSync(cut, whole.subarray(0, Math.floor(whole.length * 0.6)));
+    const err = await safeRestore(sUrl, cut, { dir: dir2, env, now: NOW }).then(() => null, (e) => e);
+    if (err instanceof RestoreRefused) assert.ok(true);   // pg_restore --list may already catch a short file: also fine
+    else {
+      assert.ok(err instanceof RestoreFailed, String(err)); assert.equal(err.putBack, true);
+      assert.match(basename(err.safetyCopy), /^kumi-20261130T1117Z-before-restore\.dump$/);
+      assert.equal(await tables(), before);
+      assert.equal((await scratch.db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name, "Osprey Padel");
+    }
+    // A good one: restored, with the copy of the database as it was kept beside the backups.
+    const r = await safeRestore(sUrl, join(dir, "kumi-2026-11-30T0317.dump"), { dir: dir2, env, now: new Date("2026-11-30T12:00:00Z") });
+    assert.equal(basename(r.safetyCopy), "kumi-20261130T1200Z-before-restore.dump");
+    assert.equal((await scratch.db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name, "Kestrel Padel");
+    assert.equal(statSync(r.safetyCopy).mode & 0o777, 0o600);
+  } finally { await scratch.drop(); rmSync(dir2, { recursive: true, force: true }); }
 });
 
 test("the restore test checks a local backup against its manifest, and records it", { skip }, async () => {
@@ -182,4 +213,12 @@ test("a restore keeps the server's own job records, not the ones the backup reme
   await writeOpsRecords(url, kept);
   const after = (await heartbeat(db, "restore_test"))!;
   assert.deepEqual([after.last_ok_at!.toISOString(), after.details], ["2026-12-01T12:47:00.000Z", { rows: 1 }]);
+});
+
+test("the restore test refuses a scratch database that is the live one, and leaves it alone", { skip }, async () => {
+  const people = await db.selectFrom("person").select((e) => e.fn.countAll().as("n")).executeTakeFirstOrThrow();
+  await assert.rejects(restoreTest(db, { liveUrl: url, dir, s3: null, key: null, prefix: "club/", env: { ...env, KUMI_RESTORE_TEST_DATABASE_URL: url }, now: NOW }), /is the live database/);
+  assert.deepEqual(await db.selectFrom("person").select((e) => e.fn.countAll().as("n")).executeTakeFirstOrThrow(), people);
+  assert.equal(await isSameDatabase(db, url), true);
+  assert.equal(await isSameDatabase(db, ADMIN), false);
 });

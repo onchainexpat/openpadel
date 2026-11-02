@@ -41,3 +41,19 @@ test("ship.sh hands the release to its own release.sh", () => {
   assert.match(ship, /tar -xOf .*deploy\/release\.sh/);
   assert.match(ship, /release\.sh update /);
 });
+
+test("root runs only root's files: its own copy of release.sh, releases made root's once built, Caddy outside kumi", () => {
+  const setup = read("deploy/server-setup.sh"), release = read("deploy/release.sh");
+  // `sudo kumi rollback|releases` used to run release.sh from the running release, a file the kumi user owned.
+  assert.ok(!/bash \/opt\/kumi\/app\/deploy\/release\.sh/.test(setup + release));
+  assert.match(release, /exec bash \/usr\/local\/lib\/kumi\/release\.sh/);
+  assert.match(release, /install -D -m 755 -o root -g root "\$\{BASH_SOURCE\[0\]\}" \/usr\/local\/lib\/kumi\/release\.sh/);
+  assert.match(release, /chown -R root:root "\$dir\.new"/);
+  assert.match(setup, /install -d -m 755 -o root -g root \/opt\/kumi \/opt\/kumi\/releases/);
+  assert.match(setup, /--home-dir \/var\/lib\/kumi/);
+  // Caddy reads the apps as anyone does; in the kumi group it could also read the settings file.
+  assert.ok(!/usermod -aG kumi caddy/.test(setup));
+  assert.match(setup + release, /gpasswd -d caddy kumi/);
+  // After a restore, the server starts again unless the database may be empty (exit code 4).
+  assert.match(release, /if \[ "\$rc" = 4 \]; then .* else systemctl start kumi; fi/);
+});
