@@ -6,8 +6,8 @@ import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setCookie } from "hono/cookie";
 import { money, t, type Lang } from "@kumi/i18n";
-import { activeFactor, KumiError, useAuthenticatorCode, uuidv7, type Db } from "@kumi/core";
-import { startEmailSignIn, verifyEmailCode, SESSION_DAYS } from "./auth.ts";
+import { activeFactor, KumiError, usPhone, useAuthenticatorCode, uuidv7, type Db, type Texter } from "@kumi/core";
+import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 
 export const ACCESS_SECONDS = 3600, REFRESH_DAYS = 30, CODE_SECONDS = 300, SCOPE = "kumi";
@@ -31,7 +31,9 @@ function okRedirect(u: string): boolean {
   catch { return false; }
 }
 
-export interface OAuthDeps { db: Db; mailer: Mailer; publicUrl: string; secureCookies: boolean; fetchMetadata: FetchMetadata; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => { id: string; display_name: string; token_hash: string; gate: "setup" | "verify" | null } | null }
+export interface OAuthDeps { db: Db; mailer: Mailer; publicUrl: string; secureCookies: boolean; fetchMetadata: FetchMetadata; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => { id: string; display_name: string; token_hash: string; gate: "setup" | "verify" | null } | null;
+  /** The club's texts, when it sends them: then the sign-in can be by a texted code too. */
+  texter?: Texter | null; memberUrl?: string }
 
 /** The pending consent screens: one per authorize request, for 10 minutes. */
 const pending = new Map<string, { at: number; params: AuthorizeParams; clientName: string }>();
@@ -80,7 +82,10 @@ export function oauthRoutes(deps: OAuthDeps) {
     return c.json({ client_id: clientId, client_id_issued_at: Math.floor(deps.now().getTime() / 1000), redirect_uris: uris, token_endpoint_auth_method: method, grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], client_name: b.client_name, ...(secret ? { client_secret: secret, client_secret_expires_at: 0 } : {}) }, 201);
   });
 
-  // The consent page. Not signed in: sign in by emailed code first, on the same page.
+  // The consent page. Not signed in: sign in by an emailed code first, on the same page, or a texted one when
+  // the club texts. Only a number already confirmed on an account is ever texted here (no joining), so the page
+  // needs no bot check for it; the club's limits on texts per number and per hour apply as everywhere.
+  const phoneOn = () => phoneSignInOn(deps.texter ?? null);
   app.get("/oauth/authorize", async (c) => {
     const lang = deps.lang(c), q = c.req.query();
     if (q.response_type !== "code" || !q.client_id || !q.redirect_uri || !q.code_challenge || q.code_challenge_method !== "S256") throw new KumiError("error.oauth_request", {}, 400);
@@ -89,12 +94,16 @@ export function oauthRoutes(deps: OAuthDeps) {
     if (!client.redirect_uris.includes(q.redirect_uri)) throw new KumiError("error.oauth_client", {}, 400);
     const clubName = await club(), me = deps.me(c);
     if (!me) {
-      const back = c.req.url;
+      const back = c.req.url, sent = Boolean(c.req.query("sent")), byPhone = c.req.query("by") === "phone" && phoneOn();
+      const other = new URL(back); other.searchParams.delete("sent"); other.searchParams.delete("email"); other.searchParams.delete("phone");
+      if (byPhone) other.searchParams.delete("by"); else other.searchParams.set("by", "phone");
+      const code = html`<label>${t(lang, byPhone ? "consent.text_code_label" : "consent.code_label")}<input name="code" inputmode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code"></label><button class="primary">${t(lang, "consent.verify")}</button>`;
       return c.html(page(lang, t(lang, "consent.sign_in_first", { club: clubName }), html`
 <form method="post" action="/oauth/sign-in"><input type="hidden" name="back" value="${back}">
-<label>${t(lang, "consent.email_label")}<input name="email" type="email" required autocomplete="email" value="${c.req.query("email") ?? ""}"></label>
-${c.req.query("sent") ? html`<label>${t(lang, "consent.code_label")}<input name="code" inputmode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code"></label><button class="primary">${t(lang, "consent.verify")}</button>`
-  : html`<button class="primary">${t(lang, "consent.send_code")}</button>`}</form>`));
+${byPhone ? html`<label>${t(lang, "consent.phone_label")}<input name="phone" type="tel" required autocomplete="tel" value="${c.req.query("phone") ?? ""}"></label>`
+  : html`<label>${t(lang, "consent.email_label")}<input name="email" type="email" required autocomplete="email" value="${c.req.query("email") ?? ""}"></label>`}
+${sent ? code : html`<button class="primary">${t(lang, byPhone ? "consent.send_text" : "consent.send_code")}</button>`}</form>
+${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPhone ? "consent.use_email" : "consent.use_phone")}</a></p>` : ""}`));
     }
     // Signed in by emailed code, but this person signs in with two steps: the authenticator's code here, or
     // (with only a passkey, or nothing set up yet) the club's app first.
@@ -120,6 +129,22 @@ ${c.req.query("sent") ? html`<label>${t(lang, "consent.code_label")}<input name=
     const email = String(f.email ?? "");
     const u = new URL(String(f.back ?? ""), issuer);   // only ever back to this club's own consent page
     if (u.origin !== new URL(issuer).origin || u.pathname !== "/oauth/authorize") throw new KumiError("error.oauth_request", {}, 400);
+    if (f.phone !== undefined) {
+      if (!phoneOn()) throw new KumiError("error.phone_sign_in_off", {}, 409);
+      const phone = usPhone(String(f.phone));
+      if (!phone) throw new KumiError("error.phone_bad", {}, 400);
+      if (!f.code) {
+        // The same answer whether or not the number has an account; only an account's own number gets a text.
+        await startPhoneSignIn(deps.db, deps.texter!, phone, lang, deps.now(), { signUp: false, memberUrl: deps.memberUrl });
+        u.searchParams.set("sent", "1"); u.searchParams.set("phone", String(f.phone)); u.searchParams.set("by", "phone");
+        return c.redirect(`${u.pathname}${u.search}`, 303);
+      }
+      const r = await verifyPhoneCode(deps.db, phone, String(f.code), c.req.header("user-agent") ?? null, deps.now(), { signUp: false });
+      if (!("token" in r)) throw new KumiError("error.no_account", {}, 404);
+      setCookie(c, "kumi_session", r.token, { httpOnly: true, secure: deps.secureCookies, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
+      for (const k of ["sent", "phone", "by"]) u.searchParams.delete(k);
+      return c.redirect(`${u.pathname}${u.search}`, 303);
+    }
     if (!f.code) {
       // Connecting an agent needs an account already: joining the club happens in the app.
       await startEmailSignIn(deps.db, deps.mailer, email, lang, deps.now(), { signUp: false });

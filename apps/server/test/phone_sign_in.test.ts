@@ -138,6 +138,32 @@ test("an account that joined by phone adds an email with a code; an address some
   assert.equal((await get("/me", v.cookie)).json.person.display_name, "Pat Rivera");
 });
 
+test("an assistant's sign-in page offers the texted code too; only a number already on an account is texted", async () => {
+  await anHourOn();
+  const reg = await (await app.request("/oauth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "Agent", redirect_uris: ["http://localhost:9999/cb"], token_endpoint_auth_method: "none" }) })).json() as any;
+  const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: "http://localhost:9999/cb", code_challenge: "x".repeat(43), code_challenge_method: "S256", scope: "kumi" });
+  const authorize = `https://staff.kestrel.example/oauth/authorize?${q}`;
+  const first = await (await app.request(authorize)).text();
+  assert.match(first, /Use my mobile number instead/);
+  const byPhone = await (await app.request(`${authorize}&by=phone`)).text();
+  assert.match(byPhone, /Your mobile number/); assert.match(byPhone, /Text me a code/); assert.match(byPhone, /Use my email instead/);
+  const form = (o: Record<string, string>, cookie = "") => app.request("https://staff.kestrel.example/oauth/sign-in", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", cookie }, body: new URLSearchParams(o).toString() });
+  const before = texter.sent.length;
+  const stranger = await form({ back: authorize, phone: "503 555 0199" });
+  assert.equal(stranger.status, 303);
+  assert.equal(texter.sent.length, before, "a number with no account isn't texted (no joining here)");
+  const r1 = await form({ back: authorize, phone: "503 555 0170" });
+  assert.equal(r1.status, 303);
+  const sentPage = await (await app.request(`https://staff.kestrel.example${r1.headers.get("location")}`)).text();
+  assert.match(sentPage, /The 6-digit code we texted you/);
+  const r2 = await form({ back: authorize, phone: "503 555 0170", code: lastCode("+15035550170") });
+  assert.equal(r2.status, 303);
+  const cookie = r2.headers.get("set-cookie")!.split(";")[0]!;
+  const consent = await (await app.request(`https://staff.kestrel.example${r2.headers.get("location")}`, { headers: { cookie } })).text();
+  assert.match(consent, /Conectar Agent con Kestrel Padel/);   // Pat reads Spanish
+  assert.match(consent, /Pat Rivera/);
+});
+
 test("a club that doesn't text doesn't offer it", async () => {
   const plain = makeApp({ db, mailer, secureCookies: false });
   setTexting(false);

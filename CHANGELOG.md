@@ -356,6 +356,8 @@ The first version a club can run on its own (court bookings included), or for it
   number and 30 for the club an hour, plus the bot check). A sign-in code needs no yes to texts: it's a text
   the person asked for. Staff can sign in this way too, and still owe their second step; a junior only once
   their parents have given them a login. In practice mode the code is in the server's log, as an emailed one is.
+  Connecting an assistant can sign in by texted code too ("Use my mobile number instead" on its sign-in page);
+  there it only texts a number already confirmed on an account, since connecting never makes one.
 - Two-step sign-in for staff: a passkey (both steps by itself), or the emailed code followed by a code from
   an authenticator app. Setting one up shows a QR code and the key to type, then ten recovery codes, shown
   once and kept only as slow hashes, each good once. Owners, managers and anyone with a role the club made
