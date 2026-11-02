@@ -567,13 +567,25 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     }
     return drafts;
   },
-  async "enrolment.booked"({ db, tz }, p: { enrolment_id: string }) {
+  async "enrolment.booked"({ db, tz }, p: { enrolment_id: string; by_other?: boolean }) {
+    if (p.by_other) return [];   // signed up by the desk for several dates: enrolment.signed_up_for_you says it once
     const e = await place(db, p.enrolment_id), due = await owes(db, e.id);
     // With something to pay, the confirmation comes with the payment; until then it's in the inbox only.
     // Paid already by the time this runs: the payment's message is the confirmation.
     if (due > 0) return [{ to: e.person_id, kind: "booked_to_pay", params: { name: e.name, when: when(e.start, tz), amount: amount(due) }, purpose: "account", essential: false, email: false, link: "/places" }];
     if (await paidFor(db, e.id) > 0) return [];
     return [{ to: e.person_id, kind: "booked", params: { name: e.name, when: when(e.start, tz) }, purpose: "account", essential: true, email: true, link: "/places" }];
+  },
+  // The desk signed them up for dates of a program: one message with every date they have a place on, and what
+  // to pay in the app (a waitlisted date has its own message).
+  async "enrolment.signed_up_for_you"({ db, tz }, p: { person_id: string; enrolment_ids: string[] }) {
+    const rows = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").leftJoin("session", "session.id", "enrolment.session_id")
+      .select(["enrolment.id", "program.name", "session.starts_at"]).where("enrolment.id", "in", p.enrolment_ids).where("enrolment.status", "=", "booked").orderBy("session.starts_at").execute();
+    if (!rows.length) return [];
+    let due = 0;
+    for (const r of rows) due += await owes(db, r.id);
+    const dates: Text = { en: rows.map((r) => when(r.starts_at, tz).en).join("; "), es: rows.map((r) => when(r.starts_at, tz).es).join("; ") };
+    return [{ to: p.person_id, kind: due > 0 ? "signed_up_for_you" : "signed_up_for_you_free", params: { name: rows[0]!.name, dates, amount: amount(due) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "payment.succeeded"({ db, tz }, p: { payment_id: string }) {
     const pay = await db.selectFrom("payment").select(["enrolment_id", "amount_cents", "person_id", "booking_player_id"]).where("id", "=", p.payment_id).executeTakeFirstOrThrow();

@@ -137,8 +137,14 @@ ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}<footer>${h(t(l, "pub.f
     const [e] = await events(id);
     if (!e) return off(c);
     const l = pick(c);
-    const sessions = await db.selectFrom("session").select(["starts_at", "ends_at"]).where("program_id", "=", e.id).where("status", "!=", "cancelled").orderBy("starts_at").execute();
-    const dates = sessions.map((s) => `<li>${h(fmt(l, e.time_zone, s.starts_at, { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" }))} - ${h(fmt(l, e.time_zone, s.ends_at, { hour: "numeric", minute: "2-digit" }))}</li>`).join("");
+    const sessions = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id")
+      .select(["session.starts_at", "session.ends_at", sql<number>`coalesce(session.capacity_override, program.capacity)`.as("capacity")])
+      .select((eb) => eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.session_id", "=", "session.id").where("enrolment.status", "=", "booked").as("booked"))
+      .where("session.program_id", "=", e.id).where("session.status", "!=", "cancelled").orderBy("session.starts_at").execute();
+    // Signed up per date: each date still to come says its own places, since each fills on its own.
+    const now = new Date(), perDate = e.sign_up === "per_session";
+    const places = (s: (typeof sessions)[number]) => { const left = Math.max(0, Number(s.capacity) - Number(s.booked ?? 0)); return ` · ${h(left > 0 ? t(l, "ui.places_left", { count: left }) : t(l, "pub.full"))}`; };
+    const dates = sessions.map((s) => `<li>${h(fmt(l, e.time_zone, s.starts_at, { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" }))} - ${h(fmt(l, e.time_zone, s.ends_at, { hour: "numeric", minute: "2-digit" }))}${perDate && s.starts_at > now ? places(s) : ""}</li>`).join("");
     const levels = e.level_min || e.level_max ? `<p>${h(t(l, "pub.levels", { min: e.level_min ?? "", max: e.level_max ?? "" }))}</p>` : "";
     const body = `<header><p><a href="/public${l === "es" ? "?lang=es" : ""}">${h(cl.name)}</a></p><h1>${h(e.name)}</h1><p class="meta">${eventLine(l, e)}</p></header>
 <section><p>${h(t(l, `kind.${e.kind}` as Key))}${e.format ? ` · ${h(e.format)}` : ""}${e.rated ? ` · ${h(t(l, "ui.match_rated"))}` : ""}</p>${levels}<h2>${h(t(l, "pub.dates"))}</h2><ul>${dates}</ul>

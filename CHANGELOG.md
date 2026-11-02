@@ -293,6 +293,10 @@ The first version a club can run on its own (court bookings included), or for it
   reason). Changing places for "this date", "this and following" or "all" sets each date's own places.
   Staff see one date's roster at a time, and give a free place on a date. Receipts, My places, the
   coach's students and the public page show the date. Courses, leagues and tournaments stay whole.
+- The desk signs a member up for one or several dates of a program signed up date by date, from its
+  page in the staff app: a date with room is a place, a full one the waitlist. The member pays by card in
+  the app and gets one message with every date and the amount (not one a date). The program's public
+  page says each date's places, not only the next date's.
 - A place given up before it was paid calls off what was still owed for it; if its card form was
   already open and the money arrives anyway, all of it goes back.
 - A new program's results change levels by default for socials, leagues and tournaments, and not for

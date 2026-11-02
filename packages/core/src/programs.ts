@@ -436,18 +436,21 @@ export const enrolmentJoinDates = defineAction({
     const now = await datesPriced(ctx.trx, p, i.person_id, planned.map((x) => x.session_id), ctx.now);
     if (now.some((x, k) => x.status !== planned[k]!.status || x.price.cents !== planned[k]!.price.cents || x.price.basis !== planned[k]!.price.basis)) throw new KumiError("error.changed");
     const ids: string[] = [], toPay = now.filter((x) => x.status === "booked" && x.price.cents > 0);
+    // Someone else (the desk) signing them up: they hear it once, every date and what to pay, not a message a date.
+    const forOther = ctx.actor.personId !== i.person_id;
     const group = toPay.length > 1 ? uuidv7() : null;
     let firstPayment: string | null = null;
     for (const x of now) {
       const id = uuidv7(); ids.push(id);
       await ctx.insert("enrolment", { id, program_id: p.id, session_id: x.session_id, person_id: i.person_id, status: x.status, waitlist_position: x.position ?? null, ...priced(x.price) });
-      await ctx.emit(x.status === "booked" ? "enrolment.booked" : "enrolment.waitlisted", { enrolment_id: id });
+      await ctx.emit(x.status === "booked" ? "enrolment.booked" : "enrolment.waitlisted", { enrolment_id: id, ...(forOther && x.status === "booked" ? { by_other: true } : {}) });
       if (x.status === "booked" && x.price.cents > 0) {
         const pay = uuidv7(); firstPayment ??= pay;
         await ctx.insert("payment", { id: pay, person_id: i.person_id, amount_cents: x.price.cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", enrolment_id: id, group_id: group });
       }
     }
     await endWatches(ctx, p.id, i.person_id, now.map((x) => x.session_id));
+    if (forOther && now.some((x) => x.status === "booked")) await ctx.emit("enrolment.signed_up_for_you", { person_id: i.person_id, enrolment_ids: ids });
     return { enrolment_ids: ids, ...(firstPayment ? { payment_id: firstPayment } : {}) };
   },
 });

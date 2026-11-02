@@ -60,6 +60,22 @@ test("each public event has its own page with schema.org markup, and the sitemap
   assert.ok(map.text.includes(`<loc>https://play.kestrel.test/public/events/${clinic}</loc>`));
 });
 
+test("a clinic signed up date by date: its page says each date's places, as each fills on its own", async () => {
+  const loc = (await db.selectFrom("location").select("id").executeTakeFirstOrThrow()).id, court = (await db.selectFrom("court").select("id").where("name", "=", "Court 1").executeTakeFirstOrThrow()).id;
+  const dropIn = ((await run(db, "program.create", { location_id: loc, kind: "clinic", name: "Drop-in", capacity: 2, price_cents: 2000, sign_up: "per_session" }, owner)).result as any).program_id;
+  const start = new Date(Date.now() + 6 * 86400_000); start.setUTCHours(17, 0, 0, 0);
+  const ids = ((await run(db, "session.add", { program_id: dropIn, starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 60 * 60_000).toISOString(), court_ids: [court], weeks: 2 }, owner)).result as any).session_ids;
+  await run(db, "program.publish", { program_id: dropIn }, owner);
+  for (const name of ["Ann", "Bob"]) {
+    const id = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner)).result as any).person_id;
+    await run(db, "enrolment.comp", { program_id: dropIn, person_id: id, note: "Test", session_id: ids[0] }, owner);
+  }
+  const p = await page(`/public/events/${dropIn}`);
+  const items = [...p.text.matchAll(/<li>([^<]*)<\/li>/g)].map((m) => m[1]!).filter((x) => x.includes(" - "));
+  assert.equal(items.length, 2, p.text);
+  assert.ok(items[0]!.endsWith("· Full"), items[0]); assert.ok(items[1]!.endsWith("· 2 places left"), items[1]);
+});
+
 test("reached on the staff address too, the pages name the members' address as theirs", async () => {
   const staffSide = makeApp({ db, mailer: new MemoryMailer(), secureCookies: false, publicUrl: "https://staff.play.kestrel.test" });
   const map = await (await staffSide.request("/public/sitemap.xml")).text();

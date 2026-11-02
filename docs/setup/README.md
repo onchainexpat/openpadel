@@ -353,7 +353,9 @@ What's On and pay once for all of them; a full date puts them on that date's wai
 to hear when a place opens on it. Leaving a date follows the cancel rule for that date only. Changing
 places on its dates sets each date's own; cancelling a date gives everyone on it all they paid back. On
 the program's page, pick a date to see its roster, waitlist and who has a free place. A minimum is
-decided before each date, so a short date is cancelled on its own and the others go ahead.
+decided before each date, so a short date is cancelled on its own and the others go ahead. The desk
+signs someone up for dates from the program's page ("Sign someone up for dates"): the member pays by card
+in the app, and hears once with every date and the amount. Its public page lists each date's places.
 
 A program can need a minimum to run. At its decision time (Settings: 24 hours before its first date to
 start, or the program's own), a program short of it is cancelled, everyone gets their money back, and

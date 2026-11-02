@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, lang, t, shortTime } from "@kumi/ui";
+import { api, lang, mayDo, t, shortTime } from "@kumi/ui";
 import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
 
 type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; paid_by: string; paid_cents: number; level: string | null; price_basis: string;
@@ -156,6 +156,7 @@ export function Program({ id }: { id: string }) {
         )}
         {waiting.length > 0 && <><h2>{t("ui.waitlist")}</h2><ol>{waiting.map((r) => <li>{r.display_name}{r.offer_expires_at && <span class="meta"> · {t("ui.offer_until", { time: shortTime(r.offer_expires_at) })}</span>}
           {" "}<button class="small" onClick={() => preview("enrolment.comp", { program_id: id, person_id: r.person_id, note: compNote.trim() || t("ui.comp_waitlist_note"), ...onDate })}>{t("ui.give_place_now")}</button></li>)}</ol></>}
+        {byDate && p.status === "published" && mayDo("enrolment.join_dates") && <SignUpDates programId={id} sessions={d.sessions} when={when} preview={preview} />}
         <h2>{t(byDate ? "ui.give_place_date" : "ui.comp")}</h2>
         <input placeholder={t("ui.search_person")} value={search} onInput={(e) => find(e.currentTarget.value)} />
         <input placeholder={t("ui.note")} value={compNote} onInput={(e) => setCompNote(e.currentTarget.value)} />
@@ -172,5 +173,30 @@ export function Program({ id }: { id: string }) {
           </form>}
       </section>}
     </main>
+  );
+}
+
+/** Signed up date by date: the desk signs a member up for one or several dates in one go. A date with room is a place,
+ *  a full one the waitlist; the member pays what's owed by card in the app, and hears once with every date and the
+ *  amount. A place at no charge is "give a place" below. */
+function SignUpDates({ programId, sessions, when, preview }: { programId: string; sessions: Data["sessions"]; when: (iso: string) => string; preview: (action: string, input: unknown) => Promise<void> }) {
+  const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]);
+  const [who, setWho] = useState<{ id: string; display_name: string } | null>(null), [picked, setPicked] = useState<string[]>([]);
+  const ahead = sessions.filter((s) => s.status !== "cancelled" && new Date(s.starts_at) > new Date());
+  const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
+  if (!ahead.length) return null;
+  return (
+    <form class="card-form" onSubmit={(e) => { e.preventDefault(); void preview("enrolment.join_dates", { program_id: programId, person_id: who!.id, session_ids: picked }); }}>
+      <h2>{t("ui.desk_sign_up_dates")}</h2>
+      {who ? <p>{who.display_name} <button type="button" class="link" onClick={() => setWho(null)}>{t("ui.change")}</button></p> : <>
+        <label>{t("ui.search_person")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>
+        {found.length > 0 && <ul class="plain">{found.slice(0, 6).map((f) => <li class="row"><span>{f.display_name}</span>
+          <button type="button" class="small" onClick={() => { setWho(f); setFound([]); setQ(""); }}>{t("ui.choose")}</button></li>)}</ul>}
+      </>}
+      <fieldset><legend>{t("ui.dates")}</legend>{ahead.map((s) => <label class="check"><input type="checkbox" checked={picked.includes(s.id)}
+        onChange={(e) => setPicked(e.currentTarget.checked ? [...picked, s.id] : picked.filter((x) => x !== s.id))} /> {when(s.starts_at)} · {t("ui.date_roster", { booked: s.booked, places: s.places })}</label>)}</fieldset>
+      <p class="meta">{t("ui.desk_sign_up_dates_hint")}</p>
+      <button class="primary" disabled={!who || !picked.length}>{t("ui.preview")}</button>
+    </form>
   );
 }

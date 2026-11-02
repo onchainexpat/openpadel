@@ -157,3 +157,22 @@ test("how people sign up can't change once someone has", async () => {
   assert.equal(r.plan.summary.en, "People sign up for Thursday drills date by date: each date has its own places, waitlist and minimum.");
   await rejects(plan(db, "program.set_sign_up", { program_id: await program("Course", { kind: "course", sign_up: "whole_program" }), sign_up: "per_session" }, owner, opts), "error.per_date_kinds");
 });
+
+test("the desk signs Eve up for two dates: she hears once, with both dates and what to pay in the app", async () => {
+  const thu = await program("Thursday drop-in", { capacity: 4 });
+  const dates = await weekly(thu, "2026-12-03T18:00", 2, c2);
+  await run(db, "program.publish", { program_id: thu }, owner, opts);
+  await deliver();
+  const r = await run(db, "enrolment.join_dates", { program_id: thu, person_id: people.Eve, session_ids: dates }, owner, opts);
+  assert.equal(r.plan.moneyCents, 5000);
+  await deliver();
+  const mine = (await inbox("Eve")).filter((m) => m.subject.includes("Thursday drop-in"));
+  assert.deepEqual(mine.map((m) => [m.kind, m.body]), [["signed_up_for_you",
+    "The club signed you up for Thursday drop-in: Thu, Dec 3, 6:00 PM; Thu, Dec 10, 6:00 PM. Pay $50.00 in the app."]]);
+  const email = await db.selectFrom("outbound_message").select("kind").where("person_id", "=", people.Eve!).where("channel", "=", "email").where("kind", "=", "signed_up_for_you").execute();
+  assert.equal(email.length, 1);
+  // Two dates still owed by card: Eve pays them in the app, in one payment.
+  const pays = await db.selectFrom("payment").innerJoin("enrolment", "enrolment.id", "payment.enrolment_id").select(["payment.amount_cents", "payment.group_id"])
+    .where("enrolment.program_id", "=", thu).where("payment.status", "=", "pending").execute();
+  assert.deepEqual(pays.map((x) => x.amount_cents), [2500, 2500]); assert.ok(pays[0]!.group_id && pays[0]!.group_id === pays[1]!.group_id);
+});
