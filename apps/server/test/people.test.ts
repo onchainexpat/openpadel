@@ -4,7 +4,7 @@ import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { plan, run, runAsSystem, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
-import { parseCsv, readPeopleCsv } from "../src/csv.ts";
+import { csvCell, parseCsv, readPeopleCsv } from "../src/csv.ts";
 
 let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor;
 const mailer = new MemoryMailer();
@@ -68,4 +68,12 @@ test("staff screens: search with roles, the staff filter, a person's page, and t
   // A member can't read any of it.
   const mia = await signIn("mia@example.test");
   assert.equal((await call("/staff/people", mia)).status, 403);
+});
+
+test("every spreadsheet Kumi hands out keeps names as text: a name that looks like a formula never runs", () => {
+  assert.equal(csvCell('=HYPERLINK("https://x.example","pay")'), `"'=HYPERLINK(""https://x.example"",""pay"")"`);
+  for (const v of ["+1-555", "-cmd", "@SUM(A1)", "\tx"]) assert.equal(csvCell(v)[0], "'", v);
+  assert.equal(csvCell("-12.50"), "-12.50");   // an amount stays a number
+  assert.equal(csvCell("Ann, Ben"), '"Ann, Ben"');
+  assert.equal(csvCell(null), "");
 });

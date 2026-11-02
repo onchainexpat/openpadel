@@ -6,7 +6,7 @@ import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
 import { assistantsOf, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
-import { readPeopleCsv } from "./csv.ts";
+import { csvCell, readPeopleCsv } from "./csv.ts";
 import { translatorOn } from "./translate.ts";
 
 type Me = { id: string; locale: string } | null;
@@ -114,13 +114,12 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/coach-earnings.csv", async (c) => {
     const r = await earnings(c), l = lang(c);
     const at = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: r.time_zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(d)).replace(",", "");
-    const q = (v: unknown) => { const x = String(v ?? ""); return /[",\r\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
     const head = ["coach", "kind", "when", "minutes", "what", "status", "paid", "refunded", "net"].map((k) => t(l, `csv.${k}` as Key));
     const lines = [
       ...r.lessons.map((x) => [x.coach, t(l, "csv.lesson"), at(x.start), x.minutes, `${x.code} ${x.booked_by ?? ""} (${x.court})`, t(l, `csv.status_${x.status === "cancelled" ? "cancelled" : "held"}` as Key),
         (x.paid_cents / 100).toFixed(2), (x.refunded_cents / 100).toFixed(2), (x.net_cents / 100).toFixed(2)]),
       ...r.sessions.map((x) => [x.coach, t(l, "csv.session"), at(x.start), x.minutes, x.name, t(l, "csv.status_held"), "", "", ""]),
-    ].sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2]))).map((row) => row.map(q).join(","));
+    ].sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2]))).map((row) => row.map(csvCell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-coaches-${r.from}-to-${r.to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });
@@ -233,7 +232,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const r = await report(c.req.query("location_id") ?? "", c.req.query("from") ?? "", c.req.query("to") ?? "");
     const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "lesson revenue", "program revenue", "membership revenue"];
     const lines = r.rows.map((x) => [x.date, x.open_hours, x.courts, x.court_hours, x.booked_hours, x.program_hours, x.playtomic_hours, x.blocked_hours, x.occupancy_percent,
-      (x.court_revenue_cents / 100).toFixed(2), (x.lesson_revenue_cents / 100).toFixed(2), (x.program_revenue_cents / 100).toFixed(2), (x.membership_revenue_cents / 100).toFixed(2)].join(","));
+      (x.court_revenue_cents / 100).toFixed(2), (x.lesson_revenue_cents / 100).toFixed(2), (x.program_revenue_cents / 100).toFixed(2), (x.membership_revenue_cents / 100).toFixed(2)].map(csvCell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-${r.from}-to-${r.to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });

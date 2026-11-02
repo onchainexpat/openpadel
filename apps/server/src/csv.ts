@@ -5,6 +5,15 @@ import { both, type Text } from "@kumi/i18n";
 export interface PersonRow { display_name: string; email?: string; locale?: "en" | "es" }
 export interface Problem { line: number; text: Text }
 
+/** One cell of a spreadsheet Kumi hands out: quoted when it needs to be, and text a spreadsheet would run as a
+ *  formula (starting =, +, - or @, or a tab or return) kept as text. Plain numbers stay numbers, so a refund's
+ *  minus stays a minus. Every CSV export goes through this: names and notes are typed by members and staff. */
+export function csvCell(v: unknown): string {
+  const s = String(v ?? "");
+  const x = /^-?\d+(\.\d+)?$/.test(s) ? s : /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return /[",\r\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x;
+}
+
 /** CSV as spreadsheets write it: quotes around fields that need them, "" for a quote, commas or semicolons. */
 export function parseCsv(text: string): string[][] {
   const src = text.replace(/^﻿/, "");

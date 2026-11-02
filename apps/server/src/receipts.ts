@@ -4,6 +4,7 @@
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
 import { clubReceipts, customAreas, KumiError, receiptsOf, receiptView, type Db } from "@kumi/core";
+import { csvCell } from "./csv.ts";
 
 type Me = { id: string } | null;
 const MONEY_ROLES = ["owner", "manager", "front_desk", "accountant"];
@@ -14,12 +15,6 @@ function said(v: Record<string, unknown>, lang: Lang): Record<string, unknown> {
   return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, one(x)]));
 }
 
-/** One spreadsheet cell: quoted when it needs to be, and a name a spreadsheet would run as a formula
- *  (starting =, +, - or @) kept as text. Amounts are numbers, so a refund's minus stays a minus. */
-function cell(v: string): string {
-  const x = /^-?\d+(\.\d+)?$/.test(v) ? v : /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
-  return /[",\r\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x;
-}
 
 export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang) {
   const app = new Hono();
@@ -68,7 +63,7 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
     const other = l === "es" ? "en" : "es", more = (r: { more: number }) => (r.more ? ` (+${r.more})` : "");
     const head = ["receipt", "kind", "date", "paid by", "for", "what", `what (${other})`, "subtotal", "tax", "total", "method", "card"];
     const lines = rows.slice().reverse().map((r) => [r.number, r.kind, r.local, r.paid_by, r.for ?? "", r.what[l] + more(r), r.what[other] + more(r),
-      money(r.subtotal_cents, r.kind), money(r.tax_cents, r.kind), money(r.total_cents, r.kind), r.method, r.card ?? ""].map(cell).join(","));
+      money(r.subtotal_cents, r.kind), money(r.tax_cents, r.kind), money(r.total_cents, r.kind), r.method, r.card ?? ""].map(csvCell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-receipts-${from}-to-${to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });
