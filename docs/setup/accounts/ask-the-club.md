@@ -13,11 +13,11 @@ input tokens, output free; Claude Haiku 5.5 $0.10 per million input tokens and $
 
 ## Which model
 
-- **Jev (TypeSafe)**, the one Kumi asks first: a decision model that gives a calibrated probability for each
-  fact, so Kumi sends a fact only when it's at least 85% sure it answers the question completely, and the
-  question doesn't need a person. Fast and cheap. Its main language is English; Spanish works, less well.
+- **Jev (TypeSafe)**, the one Kumi asks first: a decision model that says how sure it is that each fact
+  answers the question. Kumi sends a fact only when it's at least 85% sure it answers it completely, and
+  the question doesn't need a person. Fast and cheap. Its main language is English; Spanish works, less well.
 - **Claude Haiku (Anthropic)**: makes the same decision from a fixed list (a fact, or none), when Jev fails or
-  is slow (1.5 seconds), or on its own without a TypeSafe key. It gives no probability, so the club's staff see
+  is slow (1.5 seconds), or on its own without a TypeSafe key. It doesn't say how sure it is, so the club's staff see
   "sent by Kumi" without a percentage.
 
 Both keys is the most dependable. Either one alone works.
@@ -61,10 +61,7 @@ stops it too.
 ## Day to day
 
 - **A member taps "That didn't answer it" or "Ask a person":** the question goes to the staff at once, and
-  the decision keeps the label. That's how the thresholds get tuned.
+  the decision keeps the label, so the club can see where it went wrong.
 - **A staff answer always wins:** if the staff answer while the model is still deciding, the fact isn't sent.
 - **A model down or slow:** the question goes to the staff, as without a model. `kumi doctor` and
   `/health/deep` say so when more than a fifth of the last day's questions got no decision.
-- **Rerunning Kumi's test set** after changing the questions or thresholds in
-  `apps/server/src/answerer.ts`: `node apps/server/test/ask_the_club_live.ts` with the keys in the
-  environment. It costs cents.

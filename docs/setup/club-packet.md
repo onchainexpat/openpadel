@@ -15,7 +15,7 @@ collected here.
 | Staff: name, email and role (manager, front desk, coach, accountant) | `club.yaml` | Owner |
 | Who signs in with two steps (owners, managers and the club's own roles, or every staff role), and any roles the club wants of its own (a name and what it can do) | Settings, Sign-in and roles | Owner |
 | A domain the club owns (or can buy), and who controls its DNS | The app's address and email | Owner |
-| Brand colour and logo | The apps | Website, owner approves |
+| Brand colour (one colour) | Settings, the apps' accent | Website, owner approves |
 | Clinic, social and Americano prices, the cancellation rule (how many hours before a refund stops), and any minimum to run | Programs, once set up | Owner |
 | For programs with a minimum: how many hours before the first date it's decided (24 to start), and how long before that the front desk hears one is short (24) | Settings | Owner |
 | Opening hours for each location, and the days it's closed | Settings, Opening hours (step 5c) | Website or Google listing, owner checks |

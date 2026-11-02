@@ -29,7 +29,7 @@ before(async () => {
   const s = await runAsSystem(db, "club.setup", { name: "Kestrel Padel", time_zone: TZ, owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
   owner = { personId: (s.result as any).owner_person_id, via: "test", lang: "en", auth: "passkey" };
   const opts = { now: NOW };
-  loc = ((await run(db, "location.create", { name: "Eastside", time_zone: TZ, address: "1200 SE Water Ave, Portland, OR 97214" }, owner, opts)).result as any).location_id;
+  loc = ((await run(db, "location.create", { name: "Eastside", time_zone: TZ, address: "100 Example St, Springfield, OR 97477" }, owner, opts)).result as any).location_id;
   [c1, c2] = await Promise.all(["Court 1", "Court 2"].map(async (name) => ((await run(db, "court.create", { location_id: loc, name }, owner, opts)).result as any).court_id));
   await run(db, "hours.set", { location_id: loc, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "07:00", closes: "23:00" })) }, owner, opts);
   await run(db, "price.rule_set", { location_id: loc, name: "Standard", cents_per_hour: 4000 }, owner, opts);
@@ -54,7 +54,7 @@ test("a court paid by card: a numbered receipt with the club's address, the cour
   annReceipt = (await db.selectFrom("receipt").select("id").where("person_id", "=", people.Ann!).executeTakeFirstOrThrow()).id;
   assert.equal(email!.subject, "Your receipt from Kestrel Padel: $66.00");
   assert.equal(email!.body, [
-    "Kestrel Padel", "1200 SE Water Ave, Portland, OR 97214", "",
+    "Kestrel Padel", "100 Example St, Springfield, OR 97477", "",
     "Receipt R-001001, Nov 30, 2026, 8:00 AM",
     "", "Court booking, Court 1, Wed, Dec 2, 6:00 PM: $66.00", "",
     "Subtotal: $60.00", "Sales tax: $6.00", "Total: $66.00", "Paid with: Visa ending in 4242"].join("\n"));

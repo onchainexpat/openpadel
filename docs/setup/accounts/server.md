@@ -9,12 +9,12 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
 
 ## Have ready
 - A domain the club controls, or a subdomain of the club's existing one.
-- Somewhere to hold copies of the backups away from the server (see "Backups").
 
 ## Steps
 
 1. **Owner: create the server.** Ubuntu 24.04, 2 GB of memory, in the region nearest the club. Add
-   an SSH key when asked (not a password), so the agent can sign in with it.
+   an SSH key when asked (not a password), so the agent can sign in with it: your agent makes one with
+   `ssh-keygen` and gives you the line from its `.pub` file to paste in.
 2. **Owner: add two DNS records** at the domain's registrar, both type A and both pointing at the
    server's IP address. With `app.yourclub.com` as the members' address:
 
@@ -25,8 +25,12 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
 
    Check they've spread: `dig +short app.yourclub.com` and `dig +short staff.app.yourclub.com`
    both print the IP (usually within minutes).
-3. **Agent: set up the server**, from a checkout of this repository:
+
+   DNS at Cloudflare? Set both records to **DNS only** (the grey cloud, not proxied). Caddy on the
+   server gets the certificates itself.
+3. **Agent: set up the server**, from a copy of the released code:
    ```bash
+   git clone https://github.com/<your-org>/kumi && cd kumi && git checkout v0.1.0
    ssh root@SERVER 'KUMI_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
    deploy/ship.sh root@SERVER
    ```
@@ -34,8 +38,9 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
    certificates and renews them itself), Kumi as a service, the `kumi` command and a nightly
    backup. It's safe to run again. `ship.sh` sends the committed code, builds both apps and
    restarts Kumi; run it again to update.
-4. **Agent: `ssh root@SERVER kumi doctor`.** `address` should be `ok`. Then carry on with
-   `club.yaml` ([README](../README.md), step 4).
+4. **Agent: `ssh root@SERVER kumi doctor`.** It shows `database` ok and `club` missing; that's
+   expected. Carry on with `club.yaml` ([README](../README.md), step 4); `address` is checked once the
+   club exists.
 
 ## The settings file
 `/etc/kumi/kumi.env` holds the server's settings and keys, readable only by root and Kumi. The
@@ -45,29 +50,27 @@ owner adds keys by typing them in (`sudoedit /etc/kumi/kumi.env`); after any cha
 ## Backups
 Every night at 3:17 (the club's time) the server saves the whole database to `/var/backups/kumi/kumi-DATE.dump` (named by
 the club's date and time, such as `kumi-2026-11-30T0317.dump`; a backup run by hand gets a file of its own) and
-keeps 14 days. A backup on the same disk doesn't survive losing the server, so also copy them
-somewhere else, such as a storage bucket or the owner's computer:
-```bash
-scp "root@SERVER:$(ssh root@SERVER 'ls -t /var/backups/kumi/kumi-2*.dump | head -1')" .   # the newest
-```
+keeps 14 days. A backup on the same disk doesn't survive losing the server, so set up the sealed
+offsite copy too ([offsite-backups.md](offsite-backups.md), step 5j). Don't copy the dumps to a laptop:
+they hold every member's details unencrypted.
 
-**Restoring** (onto a fresh server set up with the steps above):
+**Restoring** (everything since that backup is lost):
 ```bash
-systemctl stop kumi
-sudo -u kumi pg_restore --clean --if-exists --no-owner -d kumi /var/backups/kumi/kumi-DATE.dump
-systemctl start kumi && kumi doctor
+sudo kumi restore /var/backups/kumi/<file>.dump --yes   # or: sudo kumi restore offsite:latest --yes
+kumi doctor
 ```
 
 ## Updating
-Read the release's notes in [`CHANGELOG.md`](../../../CHANGELOG.md) first, take a backup, then ship
-the new release and check:
+Read the release's notes in [`CHANGELOG.md`](../../../CHANGELOG.md) first, then ship the new release
+and check:
 ```bash
-ssh root@SERVER 'sudo -u kumi pg_dump -Fc -d kumi -f /var/backups/kumi/before-update.dump'
-git checkout v0.x.y && deploy/ship.sh root@SERVER
+git fetch && git checkout v0.x.y && deploy/ship.sh root@SERVER
 ssh root@SERVER kumi doctor
 ```
-Database changes apply when the server starts. To go back, ship the previous release and restore
-`before-update.dump` (see "Restoring").
+`ship.sh` takes a snapshot of the database first and puts everything back by itself if the new release
+doesn't come up. Database changes apply when the server starts. To go back later:
+`sudo kumi rollback --yes` on the server (everything since the update is lost; see
+[`deploy/README.md`](../../../deploy/README.md)).
 
 ## Logs
 `journalctl -u kumi -f` shows what Kumi is doing. Until email is set up, sign-in codes appear there.

@@ -6,7 +6,7 @@ security headers, and a nightly backup. Any machine with Docker and Docker Compo
 will do. The DNS records are the same as in [the server guide](../../docs/setup/accounts/server.md).
 
 ```bash
-git clone <this repository> kumi && cd kumi
+git clone https://github.com/<your-org>/kumi && cd kumi && git checkout v0.1.0   # the release, not main
 cp deploy/docker/env.example .env       # fill in KUMI_HOST and KUMI_DB_PASSWORD (openssl rand -hex 24)
 mkdir -p config backups
 cp club.example.yaml config/club.yaml   # describe the club (docs/setup/README.md, step 4)

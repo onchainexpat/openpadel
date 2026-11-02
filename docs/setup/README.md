@@ -4,8 +4,10 @@ This guide is written for a club owner and for the owner's AI agent (Claude Code
 working together. The agent can do most of it. The owner does the parts that need their identity,
 their payment details or their decision; each step says which is which.
 
-**Agents:** read the rules at the top of [`AGENTS.md`](../../AGENTS.md) first. Then run
-`kumi doctor --json` (once the server exists) and work on the first check that isn't `ok`.
+**Agents:** read the rules at the top of [`AGENTS.md`](../../AGENTS.md) first. Then follow the steps
+below in order, running `kumi doctor --json` (once the server exists) after each one and fixing any
+`fail`. `off` is an optional piece the club hasn't chosen, and the practice-mode `warn`s stay until
+go-live.
 
 Kumi runs on the club's own server ("self-hosted"). A hosted service, where Kumi runs it for you,
 is planned but not offered yet.
@@ -29,16 +31,17 @@ take a few days.
 | # | Step | Who | Time | Guide |
 |---|---|---|---|---|
 | 1 | Collect the club's details | Agent drafts from the club's website, owner checks | 30 min | [club-packet.md](club-packet.md) |
-| 2 | Create the Stripe account (start now, it's the slowest) | Owner | 20 min, then days of checks | [accounts/stripe.md](accounts/stripe.md) |
+| 2 | Create the Stripe account (start now, it's the slowest) | Owner | 20 min, then days of checks | [accounts/stripe.md](accounts/stripe.md), step 1 only |
 | 3 | Domain, server and HTTPS | Owner buys, agent sets up | 1 hour | [accounts/server.md](accounts/server.md) |
 | 4 | Describe the club in `club.yaml`, preview, apply | Agent, owner approves the plan | 20 min | below |
 | 5 | Email from the club's domain | Owner signs up, agent sets up | 30 min | [accounts/resend.md](accounts/resend.md) |
 | 5b | Bring in the existing members (optional) | Owner exports a spreadsheet, agent imports | 15 min | below |
-| 5c | Courts, prices and booking rules | Owner decides, staff app | 20 min | below |
+| 5c | Courts, prices and booking rules, and turning on court booking | Owner decides, staff app | 20 min | below |
 | 5d | Membership plans (optional) | Owner decides, staff app | 10 min | below |
+| 5e | The public page (optional) | Owner, staff app | 10 min | below |
 | 5f | Coaches and private lessons (optional) | Each coach, staff app | 10 min a coach | below |
-| 5h | Common questions: the club's answers to what members ask most | Front desk drafts, owner checks | 1 hour | below |
-| 5h | Ask the club (optional): a decision model answers from those facts | Owner signs up, agent sets up | 15 min | [accounts/ask-the-club.md](accounts/ask-the-club.md) |
+| 5g | The waiver, and families with juniors (optional) | Owner, staff app | 10 min | below |
+| 5h | Common questions, and ask the club (optional): a decision model answers from them | Front desk drafts, owner checks; owner signs up for the model, agent sets it up | 1 hour, plus 15 min | below, and [accounts/ask-the-club.md](accounts/ask-the-club.md) |
 | 5i | Messages to members: tags, groups and the daily email cap | Owner decides, front desk | 15 min | below |
 | 5j | Offsite backups, and the keys to keep | Owner creates the storage key, agent sets up | 20 min | [accounts/offsite-backups.md](accounts/offsite-backups.md) |
 | 5k | Texts (optional): the club's own Twilio number, registered with US carriers | Owner signs up and registers, agent sets up | 1 hour, then days to weeks of review | [accounts/twilio.md](accounts/twilio.md) |
@@ -69,7 +72,7 @@ Owners and managers sign in with two steps. The first time, the staff app asks t
 second step: a passkey on their phone or computer (both steps at once), or an authenticator app (Google
 Authenticator, Microsoft Authenticator, 1Password and the like) with ten recovery codes to keep
 somewhere safe. If the owner ever loses all of them, an agent on the server runs
-`kumi reset-sign-in owner@theclub.com`, and the owner sets it up again at the next sign-in.
+`kumi reset-sign-in owner@yourclub.com`, and the owner sets it up again at the next sign-in.
 
 ### Step 5b: members
 
@@ -89,6 +92,9 @@ People already in Kumi (by email) are left as they are, and nobody is emailed: t
 about the app is the club's own announcement. Staff can do the same from People in the staff app.
 
 ### Step 5c: courts, prices and rules
+
+**Turn on "Members book courts in the app"** (Settings, The club). It starts off. Leave it off only
+while the club's courts are booked in Playtomic, or until the doors open (step 9).
 
 In the staff app's Settings: each location's opening hours and special days (a court can have its own
 week, such as an outdoor court that closes at dusk, and its own special day; any day it has none of its
@@ -230,7 +236,7 @@ accepted which version, and when, shows on each person's page. Staff booking at 
 stopped by it, so check the person's page for walk-ins. With no text, nobody is asked.
 
 Families need nothing set up. A parent adds their children under Family in the app (a name and a
-birth year only: juniors have no login) and invites the other parent with a link. Then either parent
+birth year only: no login of their own until a parent turns one on, below) and invites the other parent with a link. Then either parent
 signs a child up for clinics, books their lessons and pays, and both get the child's messages. Front
 desk can add a junior from the parent's page in the staff app. A junior can't book courts or join open
 matches. From the year they turn 18, a parent or staff give them their own login with an email address.
@@ -471,9 +477,13 @@ Only when the owner says so:
 
 1. Stripe: switch to live keys ([accounts/stripe.md](accounts/stripe.md), "Going live").
 2. Email: remove `KUMI_PRACTICE=1` from `/etc/kumi/kumi.env`.
-3. `systemctl restart kumi`, then `kumi doctor`: everything should be `ok`, offsite backups and the
-   restore test included.
-4. Tell members where the app is. Kumi doesn't send that announcement for you.
+3. `systemctl restart kumi`, then `kumi doctor`: nothing should say FAIL, and `offsite` and
+   `restore_test` should be `ok`. Optional pieces the club skipped say `off`.
+4. Turn on "Members book courts in the app" (Settings, The club) if it isn't on yet.
+5. Tell members where the app is. Kumi doesn't send that announcement for you.
+
+Selling a founding offer before opening (step 5d)? Go live when the sales start, since members' cards
+and emails must be real; keep "Members book courts in the app" off until the doors open.
 
 ## Commands, and where they run
 
@@ -485,7 +495,9 @@ agents) and `--lang=es` (for Spanish), and none of them prompts or prints a secr
 | `kumi setup plan [file]` | What setting the club up from the file would change. Changes nothing. |
 | `kumi setup apply [file]` | Makes those changes, through the same checked and audited actions the apps use. |
 | `kumi import members <file.csv> [--apply]` | Adds members from a spreadsheet; a preview unless `--apply`. Emails nobody. |
-| `kumi doctor` | Checks the database, the club, the address, email, payments, Playtomic, backups, the offsite copy, the restore test and the server's key. |
+| `kumi doctor` | Checks the database, the club, the address, email, texts, ask the club, payments, Apple Pay and Google Pay, Playtomic, backups, the offsite copy, the restore test and the server's key. |
+| `kumi reset-sign-in <email>` | Starts someone's second sign-in step over: a lost phone, or an owner locked out. |
+| `kumi texting plan \| apply \| status` | Registers the club's texting with US carriers through its own Twilio account ([accounts/twilio.md](accounts/twilio.md)). `apply --yes` to buy a number. |
 | `kumi backup` | Tonight's backup now: the dump and its manifest, and the offsite copy if it's set up. |
 | `kumi offsite` | What's kept offsite. |
 | `kumi restore-test` | Restores the newest backup into a scratch database and checks every table. |

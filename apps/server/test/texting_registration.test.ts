@@ -109,7 +109,7 @@ class FakeTwilio {
 const DETAILS: TextingDetails = {
   business_name: "Kestrel Padel LLC", doing_business_as: "Kestrel Padel", business_type: "private_profit", registration_number: "12-3456789",
   website: "https://kestrelpadel.example", privacy_policy_url: "https://kestrelpadel.example/privacy",
-  address: { street: "1200 SE Water Ave", city: "Portland", state: "OR", postal_code: "97214" },
+  address: { street: "100 Example St", city: "Springfield", state: "OR", postal_code: "97477" },
   contact: { first_name: "Robin", last_name: "Hale", email: "robin@example.test", phone: "+15035550123" }, monthly_texts: 800,
 };
 let db: Db, drop: () => Promise<void>, owner: string;

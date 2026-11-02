@@ -8,7 +8,7 @@ and email. Optional.
 business's details in club.yaml. The agent runs `kumi texting`, which buys a toll-free number, makes the
 Messaging Service and registers the club's texting with US carriers, then checks it.
 **Time and cost:** an hour of setup, then the carriers' review: about three business days for a toll-free
-number. Twilio's prices (October 2026): about $0.0083 a text plus a carrier fee of about $0.003, and a
+number. Twilio's prices (October 2026): about $0.0083 a text plus a carrier fee of about $0.0043, and a
 toll-free number at $2.15 a month; toll-free has no registration or campaign fees. Kumi keeps texts to one
 segment where it can.
 **`kumi doctor` checks:** `texts`.
@@ -38,11 +38,11 @@ real texts won't reach anyone.** Kumi turns texts on by itself when Twilio appro
 5. **Agent, once the owner agrees: `kumi texting apply --yes`.** It:
    - buys a toll-free number that can text (or uses `texting.number`, one the club already has);
    - makes a Messaging Service, "Club name texts (Kumi)", sending texts members reply with to
-     `https://staff.yourclub.com/webhooks/twilio/sms` and delivery reports to `.../webhooks/twilio/status`
+     `https://staff.app.yourclub.com/webhooks/twilio/sms` and delivery reports to `.../webhooks/twilio/status`
      (the staff app's address, `KUMI_PUBLIC_URL`), and puts the number in it;
    - sends the toll-free verification: account notices and sign-in codes to the club's own members, who opt
      in on a web form in the app. Kumi writes the use case, a real sample text and the opt-in description
-     itself, and points the reviewers at `https://yourclub.com/public/texts`, a page on the members' address
+     itself, and points the reviewers at `https://app.yourclub.com/public/texts`, a page on the members' address
      showing the exact words members tick. Add screenshots of your own with `texting.opt_in_image_urls`.
 
    Running it again carries on where it stopped and never buys or sends anything twice. Without `--yes` it
@@ -62,7 +62,7 @@ real texts won't reach anyone.** Kumi turns texts on by itself when Twilio appro
 
 **Already have a registered number?** Skip `kumi texting`: put `KUMI_TWILIO_MESSAGING_SERVICE_SID=MG...` (or
 `KUMI_TWILIO_FROM=+1...`, one number) in the settings file and point the Messaging Service's incoming texts at
-`https://staff.yourclub.com/webhooks/twilio/sms` yourself. A sender in the settings file always wins.
+`https://staff.app.yourclub.com/webhooks/twilio/sms` yourself. A sender in the settings file always wins.
 
 **Texting a lot more (local numbers, A2P 10DLC).** Toll-free suits a club's volume. A club that texts tens of
 thousands a month, or wants a local number, registers A2P 10DLC in Twilio's console instead: a brand for the

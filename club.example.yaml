@@ -15,7 +15,7 @@ owner:                               # signs in by a code sent to this address
 
 locations:
   - name: Eastside
-    address: 1200 SE Water Ave, Portland, OR 97214
+    address: 100 Example St, Springfield, OR 97477
     courts:                          # a name, or a name and kind: indoor, covered_outdoor or outdoor
       - Court 1
       - Court 2
@@ -37,7 +37,7 @@ texting:
   website: https://kestrelpadel.example           # live and public, about this club
   privacy_policy_url: https://kestrelpadel.example/privacy   # should say mobile numbers aren't shared for marketing
   # terms_url: https://kestrelpadel.example/terms
-  address: { street: 1200 SE Water Ave, city: Portland, state: OR, postal_code: "97214" }   # country: US (or CA)
+  address: { street: 100 Example St, city: Springfield, state: OR, postal_code: "97477" }   # country: US (or CA)
   contact: { first_name: Robin, last_name: Hale, email: robin@kestrelpadel.example, phone: "+15035550123" }
   monthly_texts: 1000                             # about how many a month; a guess is fine
   # number: "+18885550123"                        # a toll-free number the club already has in Twilio (else Kumi buys one)

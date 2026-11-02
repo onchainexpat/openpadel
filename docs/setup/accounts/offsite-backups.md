@@ -34,6 +34,9 @@ Keep `KUMI_SECRET_KEY` there too. It seals the few secrets inside the database (
 authenticators, the push key). A restore without it brings back everything else, and those few need
 setting up again.
 
+Keep the five `KUMI_OFFSITE_*` settings there too, once you've made them below (R2 and B2 show the
+secret only once). Without them you'd make a new key for the bucket before you can restore.
+
 ## Cloudflare R2
 
 1. **Owner: turn R2 on** in the Cloudflare dashboard (R2 Object Storage). Cloudflare asks for a payment
@@ -98,8 +101,8 @@ by email too, and again only after it has worked in between.
 ## Restoring after losing the server
 
 1. Set up a new server with `server-setup.sh` and ship the code (see [server.md](server.md)).
-2. **Owner:** put `KUMI_BACKUP_KEY` and the five `KUMI_OFFSITE_*` settings from the password manager into
-   the new server's `/etc/kumi/kumi.env`. If you kept the old `KUMI_SECRET_KEY`, add it as
+2. **Owner:** replace the new server's `KUMI_BACKUP_KEY` line with the one from the password manager,
+   and add the five `KUMI_OFFSITE_*` settings, in `/etc/kumi/kumi.env`. If you kept the old `KUMI_SECRET_KEY`, add it as
    `KUMI_SECRET_KEY_PREVIOUS` (the new server made its own `KUMI_SECRET_KEY`).
 3. `sudo kumi restore offsite:latest --yes` (it stops the server, restores, and starts it again), then
    `kumi rotate-key` and `kumi doctor`.
