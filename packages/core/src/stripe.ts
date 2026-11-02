@@ -47,7 +47,9 @@ export class StripeProvider implements PaymentProvider {
   private async call(method: "GET" | "POST", path: string, params?: Record<string, unknown>, idempotencyKey?: string, account?: string | null): Promise<any> {
     const headers: Record<string, string> = { authorization: `Bearer ${this.o.secretKey}`, "stripe-version": STRIPE_API_VERSION };
     if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
-    if (account) headers["stripe-account"] = account;
+    // Only under Connect: run directly, the key is the club's own account's. A club that moved here from a hosted
+    // Kumi (its payments remember the account they were made on) reaches them with its own key, no header.
+    if (account && this.o.connect) headers["stripe-account"] = account;
     let body: string | undefined;
     if (params) { headers["content-type"] = "application/x-www-form-urlencoded"; body = stripeForm(params).join("&"); }
     const r = await this.o.fetch(`${this.o.baseUrl}${path}`, { method, headers, body });
