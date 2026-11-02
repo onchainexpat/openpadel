@@ -14,10 +14,10 @@ export const FRESH_MINUTES = 15, CHALLENGE_MINUTES = 5;
 /** Adding a passkey or an authenticator: right after an emailed or texted code, and, for someone who already has
  *  either, only from a session that used it (a passkey, or the code and then the authenticator). Otherwise whoever
  *  has the mailbox could make a second step of their own. */
-export async function mayAddSecondStep(db: Db, me: { id: string; method: string; created_at: Date }, now: Date): Promise<void> {
+export async function mayAddSecondStep(db: Db, me: { id: string; method: string; created_at: Date }, now: Date, what: "step" | "phone" = "step"): Promise<void> {
   const codeOnly = me.method === "email_code" || me.method === "phone_code";
-  if (codeOnly && now.getTime() - me.created_at.getTime() > FRESH_MINUTES * 60_000) throw new KumiError("error.recent_sign_in", {}, 403);
-  if (codeOnly && await hasSecondFactor(db, me.id)) throw new KumiError("error.second_step_first", {}, 403);
+  if (codeOnly && now.getTime() - me.created_at.getTime() > FRESH_MINUTES * 60_000) throw new KumiError(what === "phone" ? "error.recent_sign_in_phone" : "error.recent_sign_in", {}, 403);
+  if (codeOnly && await hasSecondFactor(db, me.id)) throw new KumiError(what === "phone" ? "error.second_step_first_phone" : "error.second_step_first", {}, 403);
 }
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 type Session = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date } | null;

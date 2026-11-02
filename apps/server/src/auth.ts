@@ -196,14 +196,19 @@ export async function verifyEmailAdd(db: Db, personId: string, code: string, now
   const by = o?.by ? { by: o.by } : {}, via = o?.by ? "staff" : "web";
   if (!p.email) { await runAsSystem(db, "email.add", { person_id: personId, email: ch.target, ...by }, via, { now }); return ch.target; }
   await runAsSystem(db, "email.change", { person_id: personId, email: ch.target, ...by }, via, { now });
-  if (o) {
-    const token = randomBytes(32).toString("base64url"), l = (p.locale as Lang) ?? "en";
-    await db.insertInto("auth_challenge").values({ id: uuidv7(now.getTime()), kind: "email_undo", person_id: personId, target: p.email, code_hash: sha(token), expires_at: new Date(now.getTime() + UNDO_DAYS * 864e5), consumed_at: null }).execute();
-    const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
-    await o.mailer.send({ to: p.email, subject: t(l, "auth.email_changed_subject", { club: club.name }),
-      text: t(l, "auth.email_changed_body", { name: p.display_name, club: club.name, email: ch.target, link: o.undoUrl(token), days: UNDO_DAYS }) });
-  }
+  if (o) await sendUndoLink(db, o.mailer, personId, p.email, "auth.email_changed_subject", "auth.email_changed_body", { email: ch.target }, o.undoUrl, now);
   return ch.target;
+}
+
+/** A change to how someone signs in, told to `to` (their email) with a link that takes it back for UNDO_DAYS:
+ *  the address goes back to `to` if it was changed, and every way in made lately is taken off (undoEmailChange). */
+export async function sendUndoLink(db: Db, mailer: Mailer, personId: string, to: string, subject: "auth.email_changed_subject" | "auth.phone_changed_subject",
+  body: "auth.email_changed_body" | "auth.phone_changed_body", params: Record<string, string>, undoUrl: (token: string) => string, now: Date): Promise<void> {
+  const p = await db.selectFrom("person").select(["display_name", "locale"]).where("id", "=", personId).executeTakeFirstOrThrow();
+  const token = randomBytes(32).toString("base64url"), l = (p.locale as Lang) ?? "en";
+  await db.insertInto("auth_challenge").values({ id: uuidv7(now.getTime()), kind: "email_undo", person_id: personId, target: to, code_hash: sha(token), expires_at: new Date(now.getTime() + UNDO_DAYS * 864e5), consumed_at: null }).execute();
+  const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
+  await mailer.send({ to, subject: t(l, subject, { club: club.name }), text: t(l, body, { name: p.display_name, club: club.name, link: undoUrl(token), days: UNDO_DAYS, ...params }) });
 }
 
 /** The old address's link, for a change its owner didn't make: who it's for, if it still works. */
@@ -229,7 +234,9 @@ export async function undoEmailChange(db: Db, mailer: Mailer, token: string, now
     await trx.updateTable("oauth_token").set({ revoked_at: now }).where("grant_id", "in", grants).where("revoked_at", "is", null).execute();
     await trx.updateTable("oauth_grant").set({ revoked_at: now }).where("person_id", "=", u.person_id).where("revoked_at", "is", null).execute();
   });
-  await mailer.send({ to: u.target, subject: t(u.lang, "auth.email_restored_subject", { club: u.club }), text: t(u.lang, "auth.email_restored_body", { club: u.club, email: u.target }) });
+  const same = u.email?.toLowerCase() === u.target.toLowerCase();   // a sign-in number's change: the address never moved
+  await mailer.send({ to: u.target, subject: t(u.lang, same ? "auth.sign_in_taken_back_subject" : "auth.email_restored_subject", { club: u.club }),
+    text: t(u.lang, same ? "auth.sign_in_taken_back_body" : "auth.email_restored_body", { club: u.club, email: u.target }) });
   return true;
 }
 

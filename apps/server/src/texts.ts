@@ -13,18 +13,23 @@ import { confirmedPhone, countText, keyword, KumiError, segments, textAllowed, r
   UNSUBSCRIBED, usPhone, uuidv7, type Db, type Texter } from "@kumi/core";
 import { RateLimiter } from "./limits.ts";
 import { validSignature } from "./twilio.ts";
+import { sendUndoLink } from "./auth.ts";
+import { mayAddSecondStep } from "./passkeys.ts";
+import type { Mailer } from "./mailer.ts";
 
 export const CODE_MINUTES = 10, MAX_TRIES = 5, PER_NUMBER = 3, PER_PERSON = 5, PER_CLUB = 30;
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 const codeHash = (challengeId: string, code: string) => sha(`${challengeId}:${code}`);
 
-type Me = { id: string } | null;
+type Me = { id: string; method: string; created_at: Date } | null;
 export interface TextDeps {
   db: Db; texter: Texter | null; authToken: string | null;
   /** Twilio posts to this server's address (the staff one); a member's link in a reply is the members' address. */
   publicUrl: string; memberUrl: string;
   me: (c: Context<any>) => Me; lang: (c: Context<any>) => Lang; now: () => Date;
   botGuard: (c: Context<any>) => Promise<"ok" | "honeypot">;
+  /** A changed sign-in number is told to the person's email, with a link that takes it back. */
+  mailer?: Mailer; undoUrl?: (token: string) => string;
 }
 
 const Start = z.object({ phone: z.string().check(z.maxLength(40)) });
@@ -37,6 +42,16 @@ export function textRoutes(d: TextDeps) {
   const on = () => Boolean(d.texter) && textingOn();
   const who = (c: Context<any>) => { const me = d.me(c); if (!me) throw new KumiError("error.signed_out", {}, 401); return me.id; };
   const clubName = async () => (await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
+  /** A new sign-in number: the person's email hears, with a link that takes it back, and the old number is told
+   *  it's no longer on the account (one short text, counted like a code). */
+  const toldOfNewNumber = async (personId: string, before: string | null, phone: string, lang: Lang, now: Date) => {
+    const p = await db.selectFrom("person").select(["email"]).where("id", "=", personId).executeTakeFirstOrThrow();
+    if (p.email && d.mailer && d.undoUrl) await sendUndoLink(db, d.mailer, personId, p.email, "auth.phone_changed_subject", "auth.phone_changed_body", { phone: showPhone(phone) }, d.undoUrl, now);
+    if (!before || !d.texter) return;
+    const body = textWords(await clubName(), t(lang, "sms.number_moved"), lang, null, d.memberUrl), segs = segments(body);
+    if (!(await textAllowed(db, "code", segs, now)).ok) return;
+    try { if ((await d.texter.send({ to: before, body })).ref) await countText(db, "code", segs, now); } catch { /* a stopped or dead old number: nothing to tell */ }
+  };
 
   // What the Texts card on the profile shows.
   app.get("/my/texts", async (c) => {
@@ -53,21 +68,25 @@ export function textRoutes(d: TextDeps) {
   app.post("/my/phone/start", async (c) => {
     const id = who(c), lang = d.lang(c), now = d.now();
     if (!on()) throw new KumiError("error.texts_off", {}, 409);
+    // A confirmed number signs in: like adding a passkey, right after signing in, and with the passkey or
+    // authenticator for someone who has one.
+    await mayAddSecondStep(db, d.me(c)!, now, "phone");
     const raw = await c.req.json().catch(() => ({}));
     const parsed = z.safeParse(Start, raw);
     if (!parsed.success) throw new KumiError("error.phone_bad", {}, 400);
     if ((await d.botGuard(c)) === "honeypot") return c.json({ sent: true });
     const phone = usPhone(parsed.data.phone);
     if (!phone) throw new KumiError("error.phone_bad", {}, 400);
-    const other = await db.selectFrom("auth_identity").select("person_id").where("kind", "=", "phone").where("value", "=", phone).where("person_id", "!=", id).executeTakeFirst();
-    if (other) throw new KumiError("error.phone_taken", {}, 409);
+    // Another account's number gets the same answer as a free one (numbers can't be probed): a code nobody is sent.
+    const taken = Boolean(await db.selectFrom("auth_identity").select("person_id").where("kind", "=", "phone").where("value", "=", phone).where("person_id", "!=", id).executeTakeFirst());
     const hour = new Date(now.getTime() - 3600_000);
     const count = async (f: "target" | "person_id" | null, v?: string) => Number((await db.selectFrom("auth_challenge").select((eb) => eb.fn.countAll<string>().as("n"))
       .where("kind", "in", ["phone_code", "phone_sign_in"]).where("created_at", ">", hour).$if(f !== null, (q) => q.where(f!, "=", v!)).executeTakeFirstOrThrow()).n);
     if (await count("target", phone) >= PER_NUMBER || await count("person_id", id) >= PER_PERSON) throw new KumiError("error.phone_too_many", {}, 429);
     if (await count(null) >= PER_CLUB) { console.warn(`texts: ${PER_CLUB} codes this hour already; not sending more until it calms down`); throw new KumiError("error.phone_too_many", {}, 429); }
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0"), cid = uuidv7(now.getTime());
-    await db.insertInto("auth_challenge").values({ id: cid, kind: "phone_code", person_id: id, target: phone, code_hash: codeHash(cid, code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
+    await db.insertInto("auth_challenge").values({ id: cid, kind: "phone_code", person_id: id, target: phone, code_hash: codeHash(cid, taken ? randomInt(0, 2 ** 47).toString(36) : code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
+    if (taken) return c.json({ sent: true, phone: showPhone(phone) });
     const body = textWords(await clubName(), t(lang, "sms.code", { code }), lang, null, d.memberUrl), segs = segments(body);
     // Codes keep going past the monthly text cap, up to its ceiling (text_usage.ts).
     if (!(await textAllowed(db, "code", segs, now)).ok) { await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", cid).execute(); throw new KumiError("error.texts_paused", {}, 429); }
@@ -84,6 +103,7 @@ export function textRoutes(d: TextDeps) {
   // The code back: the number is theirs.
   app.post("/my/phone/verify", async (c) => {
     const id = who(c), now = d.now();
+    await mayAddSecondStep(db, d.me(c)!, now, "phone");
     const parsed = z.safeParse(Verify, await c.req.json().catch(() => ({})));
     if (!parsed.success) throw new KumiError("error.bad_text_code", {}, 400);
     const ch = await db.selectFrom("auth_challenge").selectAll().where("kind", "=", "phone_code").where("person_id", "=", id).where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
@@ -96,7 +116,9 @@ export function textRoutes(d: TextDeps) {
       throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_text_code", {}, exhausted ? 429 : 401);
     }
     await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", ch.id).execute();
+    const before = await confirmedPhone(db, id);
     await runAsSystem(db, "phone.confirm", { person_id: id, phone: ch.target }, "web", { now });
+    if (before !== ch.target) await toldOfNewNumber(id, before, ch.target, d.lang(c), now);
     return c.json({ phone: showPhone(ch.target) });
   });
 

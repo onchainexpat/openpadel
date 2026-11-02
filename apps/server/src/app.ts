@@ -220,7 +220,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe, checkoutGuard));
   // Texts: a member's number and their yes, and what Twilio posts back (texts.ts).
   app.route("/", textRoutes({ db, texter: deps.texts?.texter ?? null, authToken: deps.texts?.authToken ?? null, publicUrl, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}),
-    me: (c) => c.get("me"), lang: (c) => c.get("lang"), now, botGuard }));
+    me: (c) => c.get("me"), lang: (c) => c.get("lang"), now, botGuard, mailer, undoUrl: (t) => `${deps.memberUrl ?? memberUrl(publicUrl, {})}/auth/email-undo/${t}` }));
   // The MCP door, at either address. What an assistant reads is what the person reads in the app: the same
   // member routes, run in-process for the person behind the token.
   const mcpAt = mcpResources(publicUrl, deps.memberUrl ?? memberUrl(publicUrl, {}));
@@ -312,13 +312,15 @@ export function makeApp(deps: AppDeps) {
     c.header("cache-control", "no-store");
     const u = await emailUndoTarget(db, c.req.param("token"), now());
     if (!u || u.consumed_at) return c.html(undoPage(c.get("lang"), u?.club ?? "", `<p>${esc(t(c.get("lang"), "emailundo.bad"))}</p>`), 404);
-    return c.html(undoPage(u.lang, u.club, `<p>${esc(t(u.lang, "emailundo.ask", { email: u.target }))}</p><form method="post"><button type="submit">${esc(t(u.lang, "emailundo.button"))}</button></form>`));
+    const same = u.email?.toLowerCase() === u.target.toLowerCase();   // a sign-in number's change: the address never moved
+    return c.html(undoPage(u.lang, u.club, `<p>${esc(t(u.lang, same ? "emailundo.ask_same" : "emailundo.ask", { email: u.target }))}</p><form method="post"><button type="submit">${esc(t(u.lang, same ? "emailundo.button_same" : "emailundo.button"))}</button></form>`));
   });
   app.post("/auth/email-undo/:token", async (c) => {
     c.header("cache-control", "no-store");
     const token = c.req.param("token"), u = await emailUndoTarget(db, token, now());
+    const same = u?.email?.toLowerCase() === u?.target.toLowerCase();
     if (!u || !(await undoEmailChange(db, mailer, token, now()))) return c.html(undoPage(c.get("lang"), u?.club ?? "", `<p>${esc(t(c.get("lang"), "emailundo.bad"))}</p>`), 404);
-    return c.html(undoPage(u.lang, u.club, `<p>${esc(t(u.lang, "emailundo.done", { email: u.target }))}</p>`));
+    return c.html(undoPage(u.lang, u.club, `<p>${esc(t(u.lang, same ? "emailundo.done_same" : "emailundo.done", { email: u.target }))}</p>`));
   });
 
   app.post("/auth/sign-up", async (c) => {

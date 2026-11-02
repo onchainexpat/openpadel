@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { countText, runAsSystem, setTexting, TestTexter, TextError, textUsage, type Db } from "@kumi/core";
+import { countText, run, runAsSystem, setTexting, TestTexter, TextError, textUsage, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 import { PracticeTexter, TwilioTexter, twilioFromEnv, twilioSignature, validSignature } from "../src/twilio.ts";
@@ -156,4 +156,46 @@ test("a server without texts: the card says so and Twilio's posts aren't taken",
     assert.equal((await (await plain.request("/my/texts", { headers: { cookie } })).json() as any).on, false);
     assert.equal((await plain.request("/webhooks/twilio/sms", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "From=%2B15035550142&Body=STOP" })).status, 404);
   } finally { setTexting(true); }
+});
+
+test("a sign-in number changes only right after signing in, and with the passkey for someone who has one; the email hears, with a way back, and so does the old number", async () => {
+  const robin = (await call("/me")).json.person.id as string;
+  const ann = ((await run(db, "person.create", { display_name: "Ann Lee", email: "ann@example.test" }, { personId: robin, via: "test", lang: "en", auth: "passkey" })).result as any).person_id as string;
+  assert.ok(robin && ann);
+  const signIn = async () => {
+    await app.request("/auth/email/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "ann@example.test" }) });
+    const code = mailer.last("ann@example.test")!.text.match(/\b(\d{6})\b/)![1]!;
+    return (await app.request("/auth/email/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "ann@example.test", code }) })).headers.get("set-cookie")!.split(";")[0]!;
+  };
+  const as = async (c: string, path: string, body: unknown) => { const r = await app.request(path, { method: "POST", headers: { cookie: c, "content-type": "application/json" }, body: JSON.stringify(body) }); return { status: r.status, json: await r.json().catch(() => null) as any }; };
+  const annCookie = await signIn();
+  assert.equal((await as(annCookie, "/my/phone/start", { phone: "503 555 0150" })).status, 200);
+  assert.equal((await as(annCookie, "/my/phone/verify", { code: lastCode("+15035550150") })).status, 200);
+  const told = mailer.last("ann@example.test")!;
+  assert.equal(told.subject, "A number can now sign in to your account at Kestrel Padel");
+  assert.match(told.text, /^Ann Lee, \(503\) 555-0150 can now be used to sign in/);
+  assert.match(told.text, /https:\/\/kestrel\.example\/auth\/email-undo\/[A-Za-z0-9_-]{43}$/);
+  // A new number: the old one hears it's no longer on the account.
+  assert.equal((await as(annCookie, "/my/phone/start", { phone: "503 555 0151" })).status, 200);
+  assert.equal((await as(annCookie, "/my/phone/verify", { code: lastCode("+15035550151") })).status, 200);
+  assert.match(texter.last("+15035550150")!.body, /^Kestrel Padel: This number is no longer on your account\./);
+  // Another account's number: the same answer as a free one, and no text goes to it.
+  const sentBefore = texter.sent.length;
+  assert.deepEqual((await as(annCookie, "/my/phone/start", { phone: "503 555 0142" })).json, { sent: true, phone: "(503) 555-0142" });
+  assert.equal(texter.sent.length, sentBefore);
+  // An old session can't; nor an emailed code alone once there's a passkey.
+  const old = "old-ann-session";
+  await db.insertInto("web_session").values({ token_hash: (await import("node:crypto")).createHash("sha256").update(old).digest("hex"), person_id: ann, created_at: new Date(Date.now() - 29 * 864e5), expires_at: new Date(Date.now() + 864e5), last_seen_at: new Date(), user_agent: null, revoked_at: null }).execute();
+  assert.equal((await as(`kumi_session=${old}`, "/my/phone/start", { phone: "503 555 0152" })).json.error, "error.recent_sign_in_phone");
+  await db.insertInto("passkey").values({ credential_id: "ann-key", person_id: ann, public_key: Buffer.from("x"), counter: "0", transports: null, name: "Phone" }).execute();
+  assert.equal((await as(await signIn(), "/my/phone/start", { phone: "503 555 0152" })).json.error, "error.second_step_first_phone");
+  // The link in the email takes it all back: the number, the passkey, every session.
+  const link = told.text.match(/(\/auth\/email-undo\/\S+)$/)![1]!;
+  assert.match(await (await app.request(link)).text(), /Sign everyone out of your account, and turn off its passkeys, authenticator app and a sign-in number added lately\?/);
+  const done = await app.request(link, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "" });
+  assert.match(await done.text(), /Done: everyone was signed out/);
+  assert.equal((await db.selectFrom("auth_identity").select("id").where("person_id", "=", ann).where("kind", "=", "phone").execute()).length, 0);
+  assert.ok((await db.selectFrom("passkey").select("revoked_at").where("credential_id", "=", "ann-key").executeTakeFirstOrThrow()).revoked_at);
+  assert.equal((await as(annCookie, "/my/phone/start", { phone: "503 555 0152" })).status, 401);
+  assert.equal(mailer.last("ann@example.test")!.subject, "Your account at Kestrel Padel is yours again");
 });
