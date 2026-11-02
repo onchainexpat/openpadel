@@ -596,6 +596,14 @@ to go live.
   closes by itself). `kumi restore` restores a local or
   offsite backup, and keeps the server's own record of its backups as it was (so doctor doesn't go back to
   the night the backup was made). Backup files and update snapshots can be read only by the server's own user.
+- A restore never leaves the club empty: `kumi restore` checks the file is a backup it can read before
+  touching anything, keeps a copy of the database as it is (`kumi-<time>-before-restore.dump`), and puts that
+  copy back if the restore fails. Only if that fails too does the server stay stopped, with the copy named. The
+  monthly restore test refuses a scratch database that is the live one.
+- Old offsite copies can be left to the storage's own rules (`KUMI_OFFSITE_PRUNE=0`): then Kumi never deletes
+  offsite, and the key on the server needs no right to delete, so whoever takes the server can't wipe the
+  offsite copies too. The offsite guide says how on R2 (lifecycle and bucket lock rules) and B2 (lifecycle
+  rules and a key without delete); doctor says which way the server works.
 - The server watches three more things the same way, telling the owner and managers once when one starts
   failing and once when it works again: texts (more than a fifth of at least 5 in a day not getting through), ask
   the club's model (more than a fifth of at least 5 questions in a day with no decision), and, once Twilio has
@@ -620,8 +628,25 @@ to go live.
   backup, offsite copy and restore test, and disk space. `/health` names the release's commit.
 - English and US Spanish throughout. Security: rate limits, no cross-site changes, strict headers,
   two-step sign-in for staff, bot protection.
+- On the one-server install, everything in `/opt/kumi` is root's: the kumi user builds each release, then
+  it becomes root's before it runs, so nothing running as kumi (the server, or a package's install step) can
+  change what `sudo kumi ...` runs later. `sudo kumi rollback` and `sudo kumi releases` use root's own copy of
+  `release.sh`. Caddy reads the apps like anyone else and isn't in the kumi group, so it can't read the
+  settings file.
+- In Docker, the server connects to the database as `kumi_app`, which owns the club's database and nothing
+  more, not as the database's superuser. Behind Docker's Caddy, sign-in limits and the bot check count each
+  visitor (`KUMI_TRUST_PROXY`, set by `compose.yaml`), not the proxy as one.
+- Live (out of practice mode) without email, the server won't start: sign-in codes would only go to its log.
+- A person's AI assistant connecting with a published identity: the server fetches it only from a public
+  address, at most 64 KB, within 5 seconds, and saves it once someone allows it; the consent page is limited
+  per address.
+- Every spreadsheet Kumi hands out keeps names as text, so one that looks like a formula never runs.
 - Light apps: each app downloads only its own wording, in the person's language. The staff app's first
   screen carries only the courts day and a coach's schedule; every other page loads when opened, and the
   pages in a person's menu are fetched quietly once their first page is up, so both open quickly on a phone.
 
-**When updating:** nothing; this is the first release.
+**When updating:** nothing; this is the first release. A server set up from a pre-release build is moved
+over by its next update: on the one-server install, `/opt/kumi` and its releases become root's, the kumi
+user gets `/var/lib/kumi` as its own folder, and Caddy leaves the kumi group (Caddy restarts, a few seconds);
+in Docker, `update.sh` moves the database to `kumi_app` once, with the server stopped for a minute, and
+warns if `.env` can be read by others (`chmod 600 .env`).
