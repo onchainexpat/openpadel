@@ -35,6 +35,18 @@ export interface OAuthDeps { db: Db; mailer: Mailer; publicUrl: string; secureCo
   /** The club's texts, when it sends them: then the sign-in can be by a texted code too. */
   texter?: Texter | null; memberUrl?: string }
 
+/** The club's own /mcp addresses: the staff app's (where the sign-in server lives) and the members' app's.
+ *  Both are this one server, so a token for either works at both; each address names itself as the resource
+ *  (RFC 9728), since an assistant checks that the resource it's told matches the address it was given. */
+export function mcpResources(publicUrl: string, memberUrl?: string): string[] {
+  return [...new Set([publicUrl, memberUrl ?? publicUrl])].map((u) => `${u}/mcp`);
+}
+/** The /mcp address a request came in on: the members' app's on its host, the staff app's otherwise. */
+export function mcpResourceOf(resources: string[], requestUrl: string): string {
+  const host = new URL(requestUrl).host;
+  return resources.find((r) => new URL(r).host === host) ?? resources[0]!;
+}
+
 /** The pending consent screens: one per authorize request, for 10 minutes. */
 const pending = new Map<string, { at: number; params: AuthorizeParams; clientName: string }>();
 interface AuthorizeParams { client_id: string; redirect_uri: string; code_challenge: string; state?: string; scope: string; resource: string }
@@ -60,10 +72,10 @@ function page(lang: Lang, title: string, body: unknown) {
 
 export function oauthRoutes(deps: OAuthDeps) {
   const app = new Hono();
-  const issuer = deps.publicUrl, resource = `${deps.publicUrl}/mcp`;
+  const issuer = deps.publicUrl, resources = mcpResources(deps.publicUrl, deps.memberUrl);
   const club = async () => (await deps.db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
 
-  const prm = async (c: Context) => c.json({ resource, authorization_servers: [issuer], scopes_supported: [SCOPE], bearer_methods_supported: ["header"], resource_name: await club() });
+  const prm = async (c: Context) => c.json({ resource: mcpResourceOf(resources, c.req.url), authorization_servers: [issuer], scopes_supported: [SCOPE], bearer_methods_supported: ["header"], resource_name: await club() });
   app.get("/.well-known/oauth-protected-resource", prm);
   app.get("/.well-known/oauth-protected-resource/mcp", prm);
   app.get("/.well-known/oauth-authorization-server", (c) => c.json({
@@ -89,7 +101,7 @@ export function oauthRoutes(deps: OAuthDeps) {
   app.get("/oauth/authorize", async (c) => {
     const lang = deps.lang(c), q = c.req.query();
     if (q.response_type !== "code" || !q.client_id || !q.redirect_uri || !q.code_challenge || q.code_challenge_method !== "S256") throw new KumiError("error.oauth_request", {}, 400);
-    if (q.resource && q.resource !== resource) throw new KumiError("error.oauth_request", {}, 400);
+    if (q.resource && !resources.includes(q.resource)) throw new KumiError("error.oauth_request", {}, 400);
     const client = await resolveClient(deps, q.client_id);
     if (!client.redirect_uris.includes(q.redirect_uri)) throw new KumiError("error.oauth_client", {}, 400);
     const clubName = await club(), me = deps.me(c);
@@ -114,7 +126,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
       return c.html(page(lang, t(lang, "consent.two_step_title"), html`<p>${t(lang, "consent.two_step_in_app", { club: clubName })}</p>`));
     }
     const id = b64url(randomBytes(16));
-    pending.set(id, { at: Date.now(), clientName: client.name, params: { client_id: client.client_id, redirect_uri: q.redirect_uri, code_challenge: q.code_challenge, state: q.state, scope: SCOPE, resource } });
+    pending.set(id, { at: Date.now(), clientName: client.name, params: { client_id: client.client_id, redirect_uri: q.redirect_uri, code_challenge: q.code_challenge, state: q.state, scope: SCOPE, resource: q.resource || resources[0]! } });
     const host = new URL(q.redirect_uri).host;
     return c.html(page(lang, t(lang, "consent.title", { client: client.name, club: clubName }), html`
 <p>${t(lang, "consent.body", { client: client.name, host, club: clubName })}</p><p>${t(lang, "consent.signed_in_as", { name: me.display_name })}</p>
@@ -197,7 +209,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     if (!client) return err("invalid_client");
     if (client.secret_hash && (!secret || sha(secret) !== client.secret_hash)) return err("invalid_client");
     const now = deps.now();
-    const issue = async (grantId: string, family: string) => {
+    const issue = async (grantId: string, family: string, resource: string) => {
       const access = b64url(randomBytes(32)), refresh = b64url(randomBytes(32));
       await deps.db.insertInto("oauth_token").values([
         { token_hash: sha(access), kind: "access", grant_id: grantId, family, resource, expires_at: new Date(now.getTime() + ACCESS_SECONDS * 1000), used_at: null, revoked_at: null },
@@ -214,7 +226,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
       if (f.resource && f.resource !== row.resource) return err("invalid_target");
       if (b64url(createHash("sha256").update(String(f.code_verifier ?? "")).digest()) !== row.code_challenge) return err("invalid_grant", "PKCE check failed");
       await deps.db.updateTable("oauth_code").set({ consumed_at: now }).where("code_hash", "=", row.code_hash).execute();
-      return issue(row.grant_id, uuidv7());
+      return issue(row.grant_id, uuidv7(), row.resource);
     }
     if (f.grant_type === "refresh_token") {
       const row = await deps.db.selectFrom("oauth_token").innerJoin("oauth_grant", "oauth_grant.id", "oauth_token.grant_id").selectAll("oauth_token").select(["oauth_grant.client_id", "oauth_grant.revoked_at as grant_revoked"])
@@ -225,7 +237,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
         return err("invalid_grant", "refresh token reused");
       }
       await deps.db.updateTable("oauth_token").set({ used_at: now }).where("token_hash", "=", row.token_hash).execute();
-      return issue(row.grant_id, row.family);
+      return issue(row.grant_id, row.family, row.resource);
     }
     return c.json({ error: "unsupported_grant_type" }, 400);
   });
@@ -233,13 +245,13 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
   return app;
 }
 
-/** The person behind a bearer token for this club's MCP address, or null. */
-export async function bearerPerson(db: Db, header: string | undefined, resource: string, now: Date) {
+/** The person behind a bearer token for one of this club's MCP addresses, or null. */
+export async function bearerPerson(db: Db, header: string | undefined, resources: string[], now: Date) {
   if (!header?.startsWith("Bearer ")) return null;
   const r = await db.selectFrom("oauth_token").innerJoin("oauth_grant", "oauth_grant.id", "oauth_token.grant_id").innerJoin("oauth_client", "oauth_client.client_id", "oauth_grant.client_id")
     .innerJoin("person", "person.id", "oauth_grant.person_id")
     .select(["person.id", "person.display_name", "person.locale", "oauth_client.name as client_name", "oauth_token.resource", "oauth_grant.id as grant_id"])
     .where("oauth_token.token_hash", "=", sha(header.slice(7))).where("oauth_token.kind", "=", "access").where("oauth_token.revoked_at", "is", null)
     .where("oauth_grant.revoked_at", "is", null).where("oauth_token.expires_at", ">", now).where("person.status", "!=", "archived").executeTakeFirst();
-  return r && r.resource === resource ? r : null;
+  return r && resources.includes(r.resource) ? r : null;
 }

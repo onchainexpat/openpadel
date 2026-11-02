@@ -21,11 +21,12 @@ export function Assistants() {
     try { await api(`/runs/${pending!.runId}/apply`, {}, { "idempotency-key": pending!.runId }); setPending(null); await load(); }
     catch (e) { setError(e instanceof ApiError ? e.message : String(e)); setPending(null); }
   };
-  if (!list?.length) return null;
+  if (!list) return null;   // shown with none yet too: it says how to connect one
   return (
     <section class="card">
       <h2>{t("ui.assistants_title")}</h2>
       <p class="meta">{t("ui.assistants_hint")}</p>
+      <p class="meta">{t("ui.assistants_how", { address: `${location.origin}/mcp` })}</p>
       {list.map((a) => {
         const want = cap[a.id] ?? a.weekly_cap_cents;
         return (

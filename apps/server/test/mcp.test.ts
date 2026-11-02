@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { runAsSystem, uuidv7, type Db } from "@kumi/core";
+import { apply, plan, runAsSystem, uuidv7, KumiError, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
@@ -15,12 +15,14 @@ const mailer = new MemoryMailer();
 const OWNER = "robin@example.test";
 const b64 = (b: Buffer) => b.toString("base64url");
 const req = (path: string, init: RequestInit = {}) => app.request(path.startsWith("http") ? path : `${BASE}${path}`, init);
+const reqMain = req;
 const form = (o: Record<string, string>) => ({ method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(o).toString() });
 
 /** The whole sign-in an assistant does: authorize, sign in on the consent page, allow, swap the code. */
-async function connect(email: string, clientId: string, redirect: string, opts: { sendVerifier?: string; resource?: string; cap?: string } = {}) {
+async function connect(email: string, clientId: string, redirect: string, opts: { sendVerifier?: string; resource?: string; cap?: string; askFor?: string; via?: { req: typeof req; base: string } } = {}) {
+  const req = opts.via?.req ?? reqMain, base = opts.via?.base ?? BASE;
   const verifier = b64(randomBytes(32)), challenge = b64(createHash("sha256").update(verifier).digest());
-  const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", state: "s1", scope: "kumi", resource: `${BASE}/mcp` });
+  const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", state: "s1", scope: "kumi", resource: opts.askFor ?? `${base}/mcp` });
   const authorize = `/oauth/authorize?${q}`;
   assert.match(await (await req(authorize)).text(), /Email me a code/);
   const r1 = await req("/oauth/sign-in", form({ back: authorize, email }));
@@ -32,8 +34,8 @@ async function connect(email: string, clientId: string, redirect: string, opts: 
   const id = consent.match(/name="req" value="([^"]+)"/)![1]!;
   const r3 = await req("/oauth/decide", { ...form({ req: id, decision: "allow", ...(opts.cap !== undefined ? { cap: opts.cap } : {}) }), headers: { "content-type": "application/x-www-form-urlencoded", cookie } });
   const back = new URL(r3.headers.get("location")!);
-  assert.equal(back.searchParams.get("state"), "s1"); assert.equal(back.searchParams.get("iss"), BASE);
-  const tok = await req("/oauth/token", form({ grant_type: "authorization_code", code: back.searchParams.get("code")!, code_verifier: opts.sendVerifier ?? verifier, client_id: clientId, redirect_uri: redirect, resource: opts.resource ?? `${BASE}/mcp` }));
+  assert.equal(back.searchParams.get("state"), "s1"); assert.equal(back.searchParams.get("iss"), base);
+  const tok = await req("/oauth/token", form({ grant_type: "authorization_code", code: back.searchParams.get("code")!, code_verifier: opts.sendVerifier ?? verifier, client_id: clientId, redirect_uri: redirect, resource: opts.resource ?? opts.askFor ?? `${base}/mcp` }));
   return { status: tok.status, body: await tok.json() as any, consent };
 }
 async function mcp(accessToken: string) {
@@ -135,4 +137,57 @@ test("connecting sets a weekly spending limit, $0 unless the person picks more; 
   const grants = await db.selectFrom("oauth_grant").select("weekly_cap_cents").where("person_id", "=", id).orderBy("created_at", "desc").execute();
   assert.ok(odd.body.access_token);
   assert.deepEqual(grants.map((g) => g.weekly_cap_cents), [0, 5000]);
+});
+
+test("the members' address works too: each address names itself as the resource, and a token from either works at both", async () => {
+  // A club with two addresses, as the installs make them: staff.<host> for the staff app (and sign-in), <host> for members.
+  const STAFF = "https://staff.kestrel.example.test", MEMBERS = "https://kestrel.example.test";
+  const app2 = makeApp({ db, mailer, publicUrl: STAFF, secureCookies: false, fetchMetadata: async () => null });
+  const req2 = (path: string, init: RequestInit = {}) => app2.request(path.startsWith("http") ? path : `${STAFF}${path}`, init);
+  const r = await req2(`${MEMBERS}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  assert.equal(r.status, 401);
+  assert.match(r.headers.get("www-authenticate")!, /resource_metadata="https:\/\/kestrel\.example\.test\/\.well-known\/oauth-protected-resource\/mcp"/);
+  const prm = await (await req2(`${MEMBERS}/.well-known/oauth-protected-resource/mcp`)).json() as any;
+  assert.equal(prm.resource, `${MEMBERS}/mcp`, "an assistant checks the resource matches the address it was given");
+  assert.deepEqual(prm.authorization_servers, [STAFF]);
+  assert.equal((await (await req2(`${STAFF}/.well-known/oauth-protected-resource/mcp`)).json() as any).resource, `${STAFF}/mcp`);
+  const reg = await (await req2("/oauth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "Two Doors", redirect_uris: ["http://localhost:9998/cb"], token_endpoint_auth_method: "none" }) })).json() as any;
+  const { status, body } = await connect(OWNER, reg.client_id, "http://localhost:9998/cb", { askFor: `${MEMBERS}/mcp`, via: { req: req2, base: STAFF } });
+  assert.equal(status, 200, JSON.stringify(body));
+  for (const door of [MEMBERS, STAFF]) {
+    const list = await req2(`${door}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${body.access_token}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+    assert.equal(list.status, 200, door);
+  }
+  const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: "http://localhost:9998/cb", code_challenge: "x".repeat(43), code_challenge_method: "S256", resource: "https://elsewhere.example.test/mcp" });
+  assert.equal((await req2(`/oauth/authorize?${q}`)).status, 400, "another server's address isn't ours");
+});
+
+test("an assistant reads what the person reads, can't raise its own limit or change how they sign in, and its previews die with it", async () => {
+  const email = "dee@example.test", id = uuidv7();
+  await db.insertInto("person").values({ id, display_name: "Dee", email, locale: "en", created_via: "desk" }).execute();
+  const member = await db.selectFrom("role").select("id").where("key", "=", "member").executeTakeFirstOrThrow();
+  await db.insertInto("person_role").values({ id: uuidv7(), person_id: id, role_id: member.id, location_id: null }).execute();
+  const { body } = await connect(email, CLAUDE, "https://claude.ai/api/mcp/auth_callback", { cap: "2500" });
+  const second = await connect(email, CLAUDE, "https://claude.ai/api/mcp/auth_callback", { cap: "2500" });
+  assert.ok(second.body.access_token);
+  const [mine, other] = (await db.selectFrom("oauth_grant").select("id").where("person_id", "=", id).orderBy("created_at").execute()).map((g) => g.id);
+  const client = await mcp(body.access_token);
+  const names = (await client.listTools()).tools.map((t) => t.name);
+  for (const hidden of ["assistant_set_cap_preview", "privacy_erase_preview", "person_factor_remove_preview", "person_passkey_remove_preview"]) assert.ok(!names.includes(hidden), hidden);
+  for (const shown of ["assistant_disconnect_preview", "booking_options", "free_courts", "open_programs", "my_places", "my_level", "club_answers", "lesson_times"]) assert.ok(names.includes(shown), shown);
+  const options = textOf(await client.callTool({ name: "booking_options", arguments: {} }));
+  assert.ok(Array.isArray(options.locations) && Array.isArray(options.lengths), "the same answer the app gets");
+  const bad = await client.callTool({ name: "free_courts", arguments: { location_id: uuidv7(), date: "2026-13-40", minutes: 60 } });
+  assert.equal(bad.isError, true, "a read the app would refuse is refused with its words");
+  const oauth = { personId: id, via: "mcp:Claude", lang: "en" as const, auth: "oauth" as const, grantId: mine };
+  const inApp = (e: unknown) => e instanceof KumiError && e.code === "error.assistant_in_app";
+  await assert.rejects(plan(db, "assistant.set_cap", { grant_id: mine, weekly_cap_cents: 50000 }, oauth), inApp, "an agent can't raise its own limit");
+  await assert.rejects(plan(db, "privacy.erase", { person_id: id }, oauth), inApp);
+  await assert.rejects(plan(db, "assistant.disconnect", { grant_id: other }, oauth), inApp, "nor touch another assistant");
+  const p = textOf(await client.callTool({ name: "question_ask_preview", arguments: { person_id: id, body: "Is there parking at the club?" } }));
+  const person = { personId: id, via: "app", lang: "en" as const, auth: "email_code" as const };
+  const d = await plan(db, "assistant.disconnect", { grant_id: mine }, person);
+  await apply(db, d.runId, person);
+  await assert.rejects(apply(db, p.run_id, person), (e: unknown) => e instanceof KumiError && e.code === "error.assistant_disconnected", "its preview died with it");
+  await client.close();
 });

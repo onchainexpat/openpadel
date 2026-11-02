@@ -6,12 +6,44 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { both, en, isLang, type Key, type Lang, type Text } from "@kumi/i18n";
 import { money } from "@kumi/i18n";
-import { actions, apply, mayEverDo, plan, weekSpent, KumiError, type Actor, type Db } from "@kumi/core";
+import { actions, apply, mayEverDo, plan, weekSpent, APP_ONLY, KumiError, type Actor, type Db } from "@kumi/core";
 
 const toolBase = (action: string) => action.replace(/\./g, "_");
+
+/** What an assistant can read: the same answers the members' app gets, for the person behind the token. */
+const ymd = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/), z.describe("A club date, YYYY-MM-DD"));
+const READS: { name: string; title: Text; description: string; input: Record<string, z.ZodMiniType>; path: (a: any) => string }[] = [
+  { name: "booking_options", title: { en: "Where and how to book", es: "Dónde y cómo reservar" }, input: {}, path: () => "/booking-options",
+    description: "The club's locations (with their ids), the lengths a court can be booked for, how many days ahead you may book, and the deadlines for sharing the cost and cancelling." },
+  { name: "free_courts", title: { en: "Free courts", es: "Pistas libres" }, path: (a) => `/availability?${new URLSearchParams({ location_id: a.location_id, date: a.date, minutes: String(a.minutes) })}`,
+    input: { location_id: z.uuid(), date: ymd, minutes: z.number().check(z.int(), z.describe("60, 90 or 120, as booking_options lists")) },
+    description: "Each court at a location that is free on a date for a length, with every start time it's free (UTC). Use a court id and start from here in booking_request_preview." },
+  { name: "court_price", title: { en: "What a court costs", es: "Cuánto cuesta una pista" }, path: (a) => `/quote?${new URLSearchParams({ court_id: a.court_id, starts_at: a.starts_at, minutes: String(a.minutes) })}`,
+    input: { court_id: z.uuid(), starts_at: z.string().check(z.describe("ISO time, as free_courts gives it")), minutes: z.number().check(z.int()) },
+    description: "The price of a court at a time and length for this person (their member price, if they have one), with tax." },
+  { name: "open_programs", title: { en: "Clinics, courses and socials", es: "Clínicas, cursos y sociales" }, input: {}, path: () => "/open-programs",
+    description: "Clinics, courses and socials open for sign-up: dates, places left, level band and this person's price. Programs signed up date by date list each date's places." },
+  { name: "open_matches", title: { en: "Open matches", es: "Partidos abiertos" }, input: {}, path: () => "/open-matches",
+    description: "Open matches this person can join or ask to join: court, time, level band, places left and the price of a place." },
+  { name: "my_places", title: { en: "My bookings and places", es: "Mis reservas y plazas" }, input: {}, path: () => "/my/places",
+    description: "This person's court bookings, matches, lessons and program places to come, with what they owe." },
+  { name: "my_level", title: { en: "My level", es: "Mi nivel" }, input: {}, path: () => "/my/level",
+    description: "This person's level, how it moved and why, and their games." },
+  { name: "my_membership", title: { en: "My membership", es: "Mi membresía" }, input: {}, path: () => "/my/membership",
+    description: "This person's membership: the plan, its perks and the next payment." },
+  { name: "club_answers", title: { en: "The club's answers", es: "Las respuestas del club" }, path: (a) => `/my/facts?${new URLSearchParams({ q: a.q ?? "" })}`,
+    input: { q: z.optional(z.string().check(z.describe("Words to search for; empty lists them all"))) },
+    description: "The club's own answers to common questions (hours, parking, prices, rules), word for word. Quote them; for anything else, question_ask_preview asks the staff." },
+  { name: "lesson_coaches", title: { en: "Coaches for lessons", es: "Entrenadores para clases" }, input: {}, path: () => "/my/lessons/coaches",
+    description: "The coaches who give private lessons, with their ids and rates by length." },
+  { name: "lesson_times", title: { en: "A coach's lesson times", es: "Horarios de un entrenador" }, path: (a) => `/my/lessons/times?${new URLSearchParams({ coach_id: a.coach_id, date: a.date, minutes: String(a.minutes) })}`,
+    input: { coach_id: z.uuid(), date: ymd, minutes: z.number().check(z.int()) },
+    description: "When a coach gives a lesson of a length on a date, with a court free. Use a time from here in lesson_request_preview." },
+];
 const titleOf = (action: string): Text => (`action.${action}` in en ? both(`action.${action}` as Key) : { en: action, es: action });
 
-export async function mcpServerFor(db: Db, who: { id: string; display_name: string; locale: string; client_name: string | null; grant_id: string }, now: () => Date): Promise<McpServer> {
+export async function mcpServerFor(db: Db, who: { id: string; display_name: string; locale: string; client_name: string | null; grant_id: string }, now: () => Date,
+  read?: (path: string) => Promise<unknown>): Promise<McpServer> {
   const lang: Lang = isLang(who.locale) ? who.locale : "en";
   const actor: Actor = { personId: who.id, via: `mcp:${who.client_name ?? "client"}`, lang, auth: "oauth", grantId: who.grant_id };
   const server = new McpServer({ name: "kumi", version: "0.1.0" }, { instructions: `You act for ${who.display_name} at their padel club. Every change is two steps: call a *_preview tool, show the person the summary in their words, and only after they agree call the matching *_confirm tool with the run_id. Anything that costs them money must fit the weekly limit they set for you (whoami says what's left); over it, the preview fails and they do it in the club's app. Reply in ${lang === "es" ? "Spanish" : "English"}.` });
@@ -30,10 +62,16 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
       spending: { weekly_limit: money(g.weekly_cap_cents, lang), spent_this_week: money(spent, lang), left: money(Math.max(0, g.weekly_cap_cents - spent), lang) } });
   });
 
+  if (read) for (const r of READS) {
+    server.registerTool(r.name, { title: r.title[lang], description: r.description, inputSchema: r.input, annotations: { readOnlyHint: true } }, async (args: unknown) => {
+      try { return text(await read(r.path(args ?? {}))); } catch (e) { return fail(e); }
+    });
+  }
+
   for (const a of actions()) {
     // A tool you may never use doesn't exist for you. Undo is checked against the original change.
     const listed = a.name === "action.undo" || (await mayEverDo(db, who.id, a.name));
-    if (a.system || a.name.startsWith("test.") || !listed) continue;
+    if (a.system || a.name.startsWith("test.") || !listed || APP_ONLY.has(a.name)) continue;   // never offered: see APP_ONLY
     const base = toolBase(a.name), title = titleOf(a.name);
     server.registerTool(`${base}_preview`, {
       title: `${title[lang]} (${lang === "es" ? "vista previa" : "preview"})`,

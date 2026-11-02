@@ -384,7 +384,8 @@ watching hears once.
   address another account uses gets the same answer as a free one, so nobody can find out who's a member;
   that address is told someone tried, and no code that works is sent.
 - **Members' own assistants.** A member (or anyone) can connect Claude, ChatGPT or another assistant to
-  the club at `https://<the staff app's address>/mcp`. They sign in on the club's own page (by an emailed
+  the club at `https://<the members' app's address>/mcp` (the staff app's address works too; Profile,
+  Assistants shows it). They sign in on the club's own page (by an emailed
   code, or a texted one when the club texts), then choose how
   much it may spend for them each week: nothing (the default), $25, $50, $100 or $200. What counts is money
   they themselves pay for what the assistant books (courts, shares, places, lessons, memberships, extra

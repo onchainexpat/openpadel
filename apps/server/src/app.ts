@@ -17,7 +17,7 @@ import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, nee
 import { BotCheck } from "./bot.ts";
 import { twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
-import { bearerPerson, defaultFetchMetadata, oauthRoutes, type FetchMetadata } from "./oauth.ts";
+import { bearerPerson, defaultFetchMetadata, mcpResourceOf, mcpResources, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
 import { readRoutes } from "./reads.ts";
@@ -208,10 +208,16 @@ export function makeApp(deps: AppDeps) {
   // Texts: a member's number and their yes, and what Twilio posts back (texts.ts).
   app.route("/", textRoutes({ db, texter: deps.texts?.texter ?? null, authToken: deps.texts?.authToken ?? null, publicUrl, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}),
     me: (c) => c.get("me"), lang: (c) => c.get("lang"), now, botGuard }));
+  // The MCP door, at either address. What an assistant reads is what the person reads in the app: the same
+  // member routes, run in-process for the person behind the token.
+  const mcpAt = mcpResources(publicUrl, deps.memberUrl ?? memberUrl(publicUrl, {}));
   app.all("/mcp", async (c) => {
-    const who = await bearerPerson(db, c.req.header("authorization"), `${publicUrl}/mcp`, now());
-    if (!who) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": `Bearer resource_metadata="${publicUrl}/.well-known/oauth-protected-resource/mcp", scope="kumi"` });
-    return handleMcp(c.req.raw, await mcpServerFor(db, who, now));
+    const who = await bearerPerson(db, c.req.header("authorization"), mcpAt, now());
+    if (!who) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": `Bearer resource_metadata="${new URL(mcpResourceOf(mcpAt, c.req.url)).origin}/.well-known/oauth-protected-resource/mcp", scope="kumi"` });
+    const reads = memberRoutes(db, () => ({ id: who.id }), () => (isLang(who.locale) ? who.locale : "en"), { production: deps.production ?? false, now });
+    reads.onError((e) => { throw e; });
+    const read = async (path: string) => (await reads.request(`http://kumi${path}`)).json();
+    return handleMcp(c.req.raw, await mcpServerFor(db, who, now, read));
   });
 
   // ---- Sign in by an emailed code ----

@@ -455,6 +455,16 @@ The first version a club can run on its own (court bookings included), or for it
   $500) or disconnects it, which ends its tokens at once. The owner and managers see a member's assistants on
   their page and can disconnect one there. Staff working for the club through an assistant
   aren't limited. The assistant's "whoami" says what's left. Fixed: "whoami" itself failed on a query.
+- A person's assistant reads what they read in the app: where and how to book, free courts, a court's price,
+  open clinics, courses, socials and matches, their bookings and places, level and membership, the club's
+  answers, and coaches' lesson times. Before, it could only ask "who am I", so it had no ids to book with.
+- The club's MCP address works on the members' address too (`https://<members' address>/mcp`), and Profile,
+  Assistants shows it with how to connect one. Each address names itself as the resource, as assistants
+  check; before, an assistant given the members' address was refused by Claude's own sign-in checks.
+- Fixed: an assistant could raise its own weekly limit. It can't now, nor delete the account or change how
+  the person signs in (passkeys, the authenticator app, recovery codes); those are done in the app. An
+  assistant can disconnect itself but no other. A preview an assistant made can't be applied by anyone once
+  it's disconnected. Staff disconnecting a member's assistant see whose account it's from, not "for you".
 - Bot protection with no third party, on sign-up, sign-in codes and opening a card form: a field people
   never see, and a small proof of work the page solves (a fraction of a second on a phone, harder for an
   address that keeps failing). It's always on in production; staff at the desk and agents don't meet it.

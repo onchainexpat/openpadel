@@ -180,8 +180,13 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
   throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
 }
 
+/** Never through an assistant (permissions.md: an agent can't raise its own limits): what it may spend, and the
+ *  account's own safety, deleting it or changing how the person signs in. These are done in the club's app. */
+export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "person.factor_add", "person.factor_codes", "person.factor_remove", "person.passkey_add", "person.passkey_remove"]);
+
 /** Sensitive changes: a person with a passkey makes them signed in with it, or with two steps. */
 async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor): Promise<void> {
+  if (actor.auth === "oauth" && APP_ONLY.has(def.name)) throw new KumiError("error.assistant_in_app", {}, 403);
   if (!def.strongAuth || !actor.personId || actor.auth === "passkey" || actor.auth === "two_factor" || actor.auth === "system") return;
   const has = await db.selectFrom("passkey").select("credential_id").where("person_id", "=", actor.personId).where("revoked_at", "is", null).executeTakeFirst();
   if (has) throw new KumiError("error.need_passkey", {}, 403);
@@ -266,8 +271,12 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
         if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
       }
       // Checked again as it happens, with the connection locked, so two confirms at once can't both fit.
+      // A preview an assistant made dies with it: once it's disconnected, nobody can apply it.
+      if (run.oauth_grant_id) {
+        const g = await trx.selectFrom("oauth_grant").select("revoked_at").where("id", "=", run.oauth_grant_id).forUpdate().executeTakeFirst();
+        if (!g || g.revoked_at) throw new KumiError("error.assistant_disconnected", {}, 403);
+      }
       if (run.oauth_grant_id && run.actor_person_id) {
-        await trx.selectFrom("oauth_grant").select("id").where("id", "=", run.oauth_grant_id).forUpdate().execute();
         await checkAssistantSpend(trx, run.oauth_grant_id, run.action, run.input, p, run.actor_person_id, now, runId);
       }
       for (const [k, v] of Object.entries(run.read_versions as Record<string, number>)) {

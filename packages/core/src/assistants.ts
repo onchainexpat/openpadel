@@ -48,8 +48,13 @@ export const assistantDisconnect = defineAction({
   name: "assistant.disconnect", version: 1,
   input: z.object({ grant_id: z.uuid() }),
   async plan(ctx, i) {
+    // An assistant may disconnect itself, never another one.
+    if (ctx.actor.auth === "oauth" && ctx.actor.grantId !== i.grant_id) throw new KumiError("error.assistant_in_app", {}, 403);
     const g = await grantOf(ctx, i.grant_id);
-    return { title: both("action.assistant.disconnect"), summary: both("plan.assistant.disconnect", { client: g.name }), reads: [g.read], ownerIds: [g.row.person_id],
+    const someoneElse = g.row.person_id !== ctx.actor.personId
+      ? (await ctx.db.selectFrom("person").select("display_name").where("id", "=", g.row.person_id).executeTakeFirst())?.display_name ?? "" : null;
+    return { title: both("action.assistant.disconnect"),
+      summary: someoneElse === null ? both("plan.assistant.disconnect", { client: g.name }) : both("plan.assistant.disconnect_for", { client: g.name, name: someoneElse }), reads: [g.read], ownerIds: [g.row.person_id],
       undo: { kind: "none", note: both("undo.none", { reason: both("reason.assistant_reconnects") }) } };
   },
   async apply(ctx, i) {
