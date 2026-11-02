@@ -2,15 +2,16 @@
 
 ## Reporting a problem
 
-Please report security problems privately, through this repository's **Security** tab ("Report a
-vulnerability"), not in a public issue. Say what you found, how to reproduce it, and what it could
-let someone do. You'll get an answer within a few days, and credit in the release that fixes it if
+Please report security problems privately, never in a public issue: through this repository's
+**Security** tab ("Report a vulnerability"), which is turned on when the repository goes public, or
+until then by email to `security@<your-domain>`. Say what you found, how to reproduce it, and what it
+could let someone do. You'll get an answer within a few days, and credit in the release that fixes it if
 you'd like it.
 
 ## What Kumi does
 
-- **No passwords.** People sign in with a code sent to their email (hashed, valid 10 minutes, 5 tries)
-  or a passkey. Staff who have a passkey must use it (or two steps) for sensitive changes, such as roles
+- **No passwords.** People sign in with a code sent to their email or, when the club texts, their phone
+  (hashed, valid 10 minutes, 5 tries), or a passkey. Staff who have a passkey must use it (or two steps) for sensitive changes, such as roles
   and the club's payment account.
 - **Two steps for staff.** Owners, managers and the club's own roles (or every staff role, if the club
   chooses) sign in with a passkey, or with the emailed code and then an authenticator app's code (TOTP,

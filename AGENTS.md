@@ -8,8 +8,10 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
 - **Changing Kumi's code:** the rules further down.
 
 ## Setting up a club: the rules
-1. **Run `kumi doctor --json` first and after every step,** and work on the first check that isn't
-   `ok`. Each check names the guide that fixes it.
+1. **Run `kumi doctor --json` first and after every step,** and fix the first `fail`. `off` means an
+   optional piece the club hasn't chosen (texts, Playtomic, ask the club); the `warn`s that say
+   practice mode stay until go-live. Follow the order of [`docs/setup/README.md`](docs/setup/README.md),
+   not the order of the checks: Stripe comes before texts. Each check names the guide that fixes it.
 2. **Never ask the owner to paste a secret into the chat** (API keys, passwords, codes). Tell them
    which setting it is and where it goes (`/etc/kumi/kumi.env` on the server), and let them type it
    there themselves. Never print the settings file or a key.
@@ -34,10 +36,8 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
 ## Changing Kumi's code
 
 ### Read first
-The design specs are being moved into `docs/` as each milestone needs them. Until then they live
-in the private research folder this project grew from: the data model, the action catalogue,
-permissions, messages, decisions (where a decision model replaces an LLM), the stack, the v1
-scope and the roadmap.
+Design notes are added to `docs/` as each part needs them. Until a part has one, the code, its tests
+and [`CHANGELOG.md`](CHANGELOG.md) are the record of what it does and why.
 
 ### Rules that are not up for debate
 1. **Every write is an action** from the catalogue: typed input (Zod Mini), a permission check,

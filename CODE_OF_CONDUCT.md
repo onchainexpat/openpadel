@@ -12,6 +12,6 @@ expected to:
 Not acceptable: harassment, insults, unwelcome sexual attention, discriminatory jokes or language,
 threats, publishing someone's private information, and deliberately disrupting the project.
 
-**Reporting.** Tell the maintainers privately (the contact is listed here before the project accepts
-outside contributions). Reports are kept confidential. Maintainers may remove comments, code or
-issues that break this code, and may ban anyone who does so repeatedly or seriously.
+**Reporting.** Tell the maintainers privately, by email to `conduct@<your-domain>`. Reports are kept
+confidential. Maintainers may remove comments, code or issues that break this code, and may ban anyone
+who does so repeatedly or seriously.

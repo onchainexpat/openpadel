@@ -1,11 +1,13 @@
 # Kumi
 
 Free, open-source software (AGPL-3.0) that runs a padel club: bookings, payments, memberships,
-open matches, clinics and fair levels, with the club's own branded app and a manager that works
-on a phone. Agents are built in: members and staff can ask Kumi, or connect their own assistant
-over MCP. A club can run it itself or have it hosted.
+open matches, clinics and fair levels, with the club's own app in its colour and a staff app that
+works on a phone. Members can ask the club questions in the app, and members and staff can connect
+their own AI assistant (Claude, ChatGPT). A club runs it on its own server; a hosted service is
+planned.
 
-**Status:** pre-alpha, private while the first version is built. Not ready for use.
+**Status:** 0.1.0, the first release. Self-hosted; English and US Spanish; texts to US and Canadian
+numbers only. What it does and its known limits are at the top of [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Setting up your club
 
@@ -34,10 +36,12 @@ doing.
 
 TypeScript end to end on Node 24 LTS, Hono, Postgres 17 with Kysely over node-postgres, Zod Mini
 schemas shared by the API, the MCP tools and the forms, the official MCP SDK, and Preact. The
-reasons and measurements are in the design notes (`docs/`, to come).
+reasons and measurements are added to `docs/` as design notes, part by part.
 
 ## Development
 
+The rest of this page is for working on Kumi's code on your own machine. On a club's server the same
+settings go in `/etc/kumi/kumi.env`; see [`docs/settings.md`](docs/settings.md) and the setup guide.
 Needs Node 24 and Docker.
 
 ```bash
@@ -45,7 +49,7 @@ npm install
 docker run -d --rm --name kumi-dev-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:17.9-alpine
 docker exec kumi-dev-pg createdb -U postgres kumi
 node apps/server/src/seed.ts                                   # a demo club, owner owner@kestrel.test
-npm run kumi -- setup plan club.example.yaml                   # or set up from a club.yaml instead
+# or instead of seed.ts: npm run kumi -- setup apply club.example.yaml
 KUMI_PUBLIC_URL=http://localhost:5173 node apps/server/src/main.ts   # API on 8790; emailed codes go to its log
 npm run dev -w @kumi/manager                                    # the staff app on http://localhost:5173
 npm run dev -w @kumi/member                                     # the members' app on http://localhost:5174
@@ -54,7 +58,7 @@ npm test && npm run typecheck
 
 Open the staff app at `localhost` (not `127.0.0.1`), so passkeys and the session cookie see one origin.
 
-## Messages and email
+### Messages and email
 
 Kumi tells people what happened: a place offered from the waitlist, a removal and what happens to the
 money, a payment, a sub taking a place, and, for staff, a refund that failed or a clash with Playtomic.
@@ -66,13 +70,13 @@ Without a Resend key, emails (and sign-in codes) only go to the server's log. Wi
 club's own domain, which has to be verified in Resend first:
 
 ```bash
-KUMI_RESEND_API_KEY=re_… KUMI_MAIL_FROM="Kestrel Padel <hello@kestrelpadel.com>" node apps/server/src/main.ts
-# optional: KUMI_MAIL_REPLY_TO=desk@kestrelpadel.com
+KUMI_RESEND_API_KEY=re_… KUMI_MAIL_FROM="Kestrel Padel <hello@kestrelpadel.example>" node apps/server/src/main.ts
+# optional: KUMI_MAIL_REPLY_TO=desk@kestrelpadel.example
 # outside production, only these get real email; everyone else's is held and logged:
 # KUMI_MAIL_TEST_TO=you@example.com,staff@example.com
 ```
 
-## Card payments (Stripe)
+### Card payments (Stripe)
 
 Without Stripe keys the server uses a stand-in, and the members' app shows a "Pay (test)" button.
 With a Stripe **test** key it takes real test-mode card payments through Stripe's own card form
@@ -92,7 +96,8 @@ any future date, any CVC. For webhooks locally: `stripe listen --forward-to loca
 Payments are cards only. Apple Pay and Google Pay are cards underneath, so every payment refunds the
 same way, straight back to the card.
 
-**Hosted, with Stripe Connect** (`KUMI_STRIPE_CONNECT=1`): the key is Kumi's platform key, and each
+**Stripe Connect, for the planned hosted service** (`KUMI_STRIPE_CONNECT=1`; a club running Kumi
+itself leaves it off and uses its own keys): the key is Kumi's platform key, and each
 club connects its own Stripe account from the manager's Payments page ("Connect with Stripe", then
 Stripe's own setup pages). Every payment is made on the club's account, so the money, the payouts,
 Stripe's fees and any dispute are the club's; Kumi takes no commission and never holds the club's key.
@@ -102,7 +107,7 @@ they have one. Each payment remembers its account, so a refund goes back through
 club changes accounts. Stripe's webhook should send `account.updated` and `payment_intent.*` events
 from connected accounts.
 
-## Running beside Playtomic
+### Running beside Playtomic
 
 A club on Playtomic can keep it for court bookings while Kumi runs its events. Kumi copies the
 club's Playtomic bookings in, read-only, so it never puts an event on a court Playtomic has sold.

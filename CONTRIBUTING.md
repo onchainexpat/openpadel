@@ -25,6 +25,13 @@ npm run dev -w @kumi/member             # the members' app, http://localhost:517
 ```
 Sign-in codes appear in the server's output.
 
+## Ask the club's test set
+
+After changing the questions or how sure the model must be (`apps/server/src/answerer.ts`), run
+`node apps/server/test/ask_the_club_live.ts` with `KUMI_TYPESAFE_API_KEY` and `KUMI_ANTHROPIC_API_KEY`
+in the environment. It sends a labelled set of questions to both models and costs cents. A wrong fact
+sent is the result that matters; a missed one is better than a wrong one.
+
 ## A good pull request
 - **Passes** `npm run typecheck && npm test`. Each test file gets its own fresh database.
 - **Has tests** for what it changes, and says in the description how you checked it in a browser

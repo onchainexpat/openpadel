@@ -9,7 +9,10 @@ Do these once, before the first public release:
       "Report a vulnerability" button, which only appears once this is on.
 - [ ] **Decide how outside contributions are signed:** DCO (a sign-off line on each commit) or a CLA.
 - [ ] **The name:** the trademark search on "Kumi" done.
-- [ ] **A contact for the code of conduct:** an address for reports, added to `CODE_OF_CONDUCT.md`.
+- [ ] **Real contact addresses:** replace `security@<your-domain>` in `SECURITY.md` and
+      `conduct@<your-domain>` in `CODE_OF_CONDUCT.md` with addresses someone reads, and the
+      `<your-org>` placeholder in the clone commands (`docs/setup/accounts/server.md`,
+      `deploy/docker/README.md`) with the repository's real address.
 - [ ] **Tests on every push:** add `push:` to `.github/workflows/test.yml` (public repositories don't use up Actions minutes).
 
 ## Cutting a release
