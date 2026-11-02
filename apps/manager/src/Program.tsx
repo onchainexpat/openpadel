@@ -143,7 +143,8 @@ export function Program({ id }: { id: string }) {
             <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setRemoving(null)}>{t("ui.cancel")}</button>
           </form>
         )}
-        {waiting.length > 0 && <><h2>{t("ui.waitlist")}</h2><ol>{waiting.map((r) => <li>{r.display_name}{r.offer_expires_at && <span class="meta"> · {t("ui.offer_until", { time: shortTime(r.offer_expires_at) })}</span>}</li>)}</ol></>}
+        {waiting.length > 0 && <><h2>{t("ui.waitlist")}</h2><ol>{waiting.map((r) => <li>{r.display_name}{r.offer_expires_at && <span class="meta"> · {t("ui.offer_until", { time: shortTime(r.offer_expires_at) })}</span>}
+          {" "}<button class="small" onClick={() => preview("enrolment.comp", { program_id: id, person_id: r.person_id, note: compNote.trim() || t("ui.comp_waitlist_note") })}>{t("ui.give_place_now")}</button></li>)}</ol></>}
         <h2>{t("ui.comp")}</h2>
         <input placeholder={t("ui.search_person")} value={search} onInput={(e) => find(e.currentTarget.value)} />
         <input placeholder={t("ui.note")} value={compNote} onInput={(e) => setCompNote(e.currentTarget.value)} />

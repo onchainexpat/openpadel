@@ -271,6 +271,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.unpaid": "Todavía no pagó",
   "ui.comped": "Lugar gratis: {note}",
   "ui.offer_until": "Se le ofreció el lugar (vence {time})",
+  "ui.give_place_now": "Darle el lugar ahora",
+  "ui.comp_waitlist_note": "Siguiente en la lista de espera, en un lugar que alguien dejó",
   "ui.level": "Nivel",
   "ui.sent_for_approval": "Enviado para aprobación. Se hará cuando alguien que pueda aprobarlo lo haga.",
   "ui.make_rounds": "Armar las rondas",

@@ -268,6 +268,8 @@ export const en = {
   "ui.unpaid": "Not paid yet",
   "ui.comped": "Free place: {note}",
   "ui.offer_until": "Offered the place until {time}",
+  "ui.give_place_now": "Give them the place now",
+  "ui.comp_waitlist_note": "Next on the waitlist, in a place someone left",
   "ui.level": "Level",
   "ui.sent_for_approval": "Sent for approval. It happens once someone who can approve it does.",
   "ui.make_rounds": "Make the rounds",

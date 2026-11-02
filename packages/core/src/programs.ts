@@ -482,14 +482,19 @@ export const enrolmentComp = defineAction({
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     const person = await personName(ctx.db, i.person_id);
-    if ((await takenCount(ctx.db, i.program_id, ctx.now)) >= p.capacity) throw new KumiError("error.program_full");
+    // A place held by an open offer to this same person is theirs to be given.
+    const waiting = await ctx.db.selectFrom("enrolment").select("id").where("program_id", "=", i.program_id).where("person_id", "=", i.person_id).where("status", "=", "waitlisted").executeTakeFirst();
+    const held = waiting && await openOffer(ctx.db, waiting.id, ctx.now) ? 1 : 0;
+    if ((await takenCount(ctx.db, i.program_id, ctx.now)) - held >= p.capacity) throw new KumiError("error.program_full");
     return { title: both("action.enrolment.comp"), summary: both("plan.enrolment.comp", { person, name: p.name }), reads: [read], locationId: p.location_id, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();
-    if ((await takenCount(ctx.trx, i.program_id, ctx.now)) >= p.capacity) throw new KumiError("error.changed");
-    // If they were waiting, their waitlist place becomes the free place.
+    // If they were waiting, their waitlist place becomes the free place, and an offer they held is taken.
     const waiting = await ctx.trx.selectFrom("enrolment").selectAll().where("program_id", "=", i.program_id).where("person_id", "=", i.person_id).where("status", "=", "waitlisted").executeTakeFirst();
+    const offer = waiting ? await openOffer(ctx.trx, waiting.id, ctx.now) : undefined;
+    if ((await takenCount(ctx.trx, i.program_id, ctx.now)) - (offer ? 1 : 0) >= p.capacity) throw new KumiError("error.changed");
+    if (offer) await ctx.update("waitlist_offer", offer.id, { outcome: "taken" });
     if (waiting) { await ctx.update("enrolment", waiting.id, { status: "booked", waitlist_position: null, price_cents: 0, paid_by: "comp", comp_note: i.note }); return { enrolment_id: waiting.id }; }
     const id = uuidv7();
     await ctx.insert("enrolment", { id, program_id: i.program_id, person_id: i.person_id, status: "booked", price_cents: 0, paid_by: "comp", comp_note: i.note });

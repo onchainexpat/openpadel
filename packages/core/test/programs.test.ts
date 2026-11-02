@@ -118,6 +118,25 @@ test("a free place for the 17th player, and only when there's room", async () =>
   assert.equal(row.paid_by, "comp"); assert.equal(row.price_cents, 0); assert.equal(row.comp_note, "Covered by C1's kept fee");
 });
 
+test("a late cancel with a waitlist: the staff give the offered place to the next one straight away", async () => {
+  const p = await americano("Late cancel test", 90, court2);
+  const firsts = [];
+  for (const n of ["Late1", "Late2", "Late3", "Late4"]) firsts.push(await join(p, await person(n)));
+  const w1 = await person("Wait1"), w2 = await person("Wait2");
+  const a = await join(p, w1), b = await join(p, w2);
+  assert.equal((await enrolment(a.enrolment_id)).status, "waitlisted");
+  await run(db, "enrolment.remove", { enrolment_id: firsts[0]!.enrolment_id, reason: "late_cancel" }, monica);
+  // W1 now holds an offer for the place; the staff needn't wait for them to take it.
+  await rejects(plan(db, "enrolment.comp", { program_id: p, person_id: w2, note: "Next in line" }, monica), "error.program_full");
+  const c = await run(db, "enrolment.comp", { program_id: p, person_id: w1, note: "In Late1's place" }, monica);
+  assert.equal((c.result as any).enrolment_id, a.enrolment_id);
+  const row = await enrolment(a.enrolment_id);
+  assert.equal(row.status, "booked"); assert.equal(row.paid_by, "comp"); assert.equal(row.price_cents, 0);
+  const offer = await db.selectFrom("waitlist_offer").select("outcome").where("enrolment_id", "=", a.enrolment_id).executeTakeFirstOrThrow();
+  assert.equal(offer.outcome, "taken");
+  assert.equal((await enrolment(b.enrolment_id)).status, "waitlisted");
+});
+
 test("two people previewing the last place: the second gets 'look again'", async () => {
   const p = await americano("Race test", 40, court1);
   for (const n of ["R1", "R2", "R3"]) await join(p, await person(n));
