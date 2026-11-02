@@ -271,6 +271,9 @@ The first version a club can run on its own (court bookings included), or for it
   the staff at once. Staff see which fact Kumi sent and how sure it was; every decision is kept with
   the version of its questions and thresholds. Settings can switch it off. `kumi doctor` and
   `/health/deep` report it. The services that see member data are listed in `docs/processors.md`.
+  A club answer that states a general rule (an age range, opening hours) now counts when it settles the
+  asker's case ("Can my 8 year old play?" gets the juniors answer); decisions from here on are kept as
+  version atc-2.
 - Messages to members, for front desk and up: write once, in each of the club's languages ({first_name}
   and {club} filled in for each person), to a group, now or at a set time. A group is a set of filters
   (membership and plan, level, the club's own tags, played lately or not, adults or juniors, language,

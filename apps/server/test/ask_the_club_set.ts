@@ -41,6 +41,7 @@ export const SET_QUESTIONS: { text: string; lang: "en" | "es"; want: string | "s
   { text: "If I cancel 2 hours before, do I get my money back?", lang: "en", want: id(4) },
   { text: "Do you rent paddles?", lang: "en", want: id(5) },
   { text: "My daughter is 8, can she play?", lang: "en", want: id(6) },
+  { text: "Can my 8 year old play?", lang: "en", want: id(6) },   // from the dress rehearsal, 2 Nov 2026
   { text: "Is there somewhere to keep my bag while I play?", lang: "en", want: id(7) },
   { text: "Can I wear running shoes on court?", lang: "en", want: id(8) },
   { text: "Do you have showers?", lang: "en", want: "staff" },
