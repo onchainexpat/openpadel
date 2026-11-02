@@ -1507,6 +1507,8 @@ export const en = {
   "error.lesson_too_many": { one: "{coach}'s lessons are for one player.", other: "{coach}'s lessons are for up to {count} players." },
   "error.lesson_split_alone": "Paying each their part needs at least 2 players.",
   "error.refund_choice_staff": "Only the club can choose a refund other than its rule.",
+  "error.balance_owed": "You still owe {amount} on a court booking. Pay it at the club's front desk, then you can book and join again.",
+  "error.presale_given_up": "You gave up your place on {name} before it started, so it can't be taken again in the app. Ask the club.",
   "error.refund_not_failed": "That refund hasn't failed, so there's nothing to send again.",
   "error.refund_more_than_paid": "Only {left} of that payment can still go back.",
   "error.refund_not_paid": "That payment isn't on this booking, or it didn't go through.",

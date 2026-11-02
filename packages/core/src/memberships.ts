@@ -318,6 +318,12 @@ export const membershipJoin = defineAction({
     if (await holds(ctx.db, i.person_id)) throw new KumiError("error.already_a_member");
     if (!await hasRoom(ctx.db, plan as { id: string; max_members: number | null })) throw new KumiError("error.plan_full", { name: textOf(plan.name, plan.translations, "name") });
     const tz = await clubTz(ctx.db), presale = Boolean(plan.starts_on && plan.starts_on > localDate(ctx.now, tz));
+    // A founding place given up before the start can't be taken again in the app: its member prices came with it
+    // (perks before the start), and joining and leaving again would keep them for nothing. Staff can still add them.
+    if (presale && await ctx.db.selectFrom("membership").select("id").where("person_id", "=", i.person_id).where("plan_id", "=", plan.id).where("end_reason", "=", "gave_up_place").executeTakeFirst()
+      && !(await ctx.db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id").where("person_role.person_id", "=", ctx.actor.personId ?? "00000000-0000-0000-0000-000000000000")
+        .where("person_role.active", "=", true).where("role.key", "in", ["owner", "manager", "front_desk"]).executeTakeFirst()))
+      throw new KumiError("error.presale_given_up", { name: textOf(plan.name, plan.translations, "name") });
     const p = { name: textOf(plan.name, plan.translations, "name"), price: planPrice(plan.price_cents, plan.period), period: both(plan.period === "year" ? "plan.membership.every_year" : "plan.membership.every_month"),
       date: plan.starts_on ? dayText(plan.starts_on) : "" };
     const base = both(!plan.price_cents ? "plan.membership.join_free" : presale ? "plan.membership.join_presale" : "plan.membership.join", p);

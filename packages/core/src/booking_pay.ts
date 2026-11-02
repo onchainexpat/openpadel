@@ -80,13 +80,14 @@ export async function newCode(trx: Trx): Promise<string> {
 export const bookingRequest = defineAction({
   name: "booking.request", version: 1,
   input: z.object({ court_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), minutes: z.number().check(z.int()), pay: z.enum(["whole", "split"]),
-    players: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(8))), person_id: z.uuid(),
+    players: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(4))), person_id: z.uuid(),   // a padel court holds 4
     // An open match: other players can find it and join, inside the level band (or ask the host).
     open: z.optional(z.object({ level_min: levelInput, level_max: levelInput, outside_band: z.optional(z.enum(["ask", "closed"])), rated: z.optional(z.boolean()),
       listed: z.optional(z.boolean()), note: z.optional(z.string().check(z.maxLength(200))) })) }),
   async plan(ctx, i) {
     const club = await ctx.db.selectFrom("club").select(["court_bookings"]).executeTakeFirstOrThrow();
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
+    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
     if (i.open && (i.pay !== "split" || (i.players ?? 4) !== 4)) throw new KumiError("error.open_match_split");
     if (i.open && i.open.level_max < i.open.level_min) throw new KumiError("error.bad_band");
     await notJunior(ctx.db, i.person_id);
@@ -151,6 +152,7 @@ export const bookingRequestCourts = defineAction({
     const club = await ctx.db.selectFrom("club").select(["court_bookings"]).executeTakeFirstOrThrow();
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
     await notJunior(ctx.db, i.person_id);
+    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
     await requireWaiver(ctx, i.person_id);
     const policy = await currentPolicy(ctx.db), slots = [];
     for (const s of i.courts) slots.push({ ...s, ...(await checkSlot(ctx, policy, s, i.person_id)) });
@@ -203,6 +205,7 @@ export const bookingJoin = defineAction({
     const b = await ctx.db.selectFrom("booking").selectAll().$if(Boolean(i.invite_code), (q) => q.where("invite_code", "=", i.invite_code!))
       .$if(!i.invite_code, (q) => q.where("id", "=", i.booking_id ?? "00000000-0000-0000-0000-000000000000")).executeTakeFirst();
     if (!b || b.status !== "confirmed" || b.pay_mode !== "split") throw new KumiError("error.invite_closed");
+    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
     // After the deadline only a place staff opened again can be joined.
     if (b.settled_at && !(await reopenedPlace(ctx.db, b.id))) throw new KumiError("error.invite_settled");
     await notJunior(ctx.db, i.person_id);
@@ -482,6 +485,17 @@ export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: {
   for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
     .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await ctx.update("payment", p.id, { status: "failed" });
   await ctx.emit("booking.cancelled", { booking_id: bookingId, by: ctx.actor.personId });
+}
+/** Someone who still owes on a court (the deadline charge that didn't go through, or time owed at the desk on a
+ *  booking that's over) books and joins nothing more until it's paid at the desk. Staff booking for them can. */
+export async function notOwing(db: Db | Trx, personId: string, actorId: string | null | undefined, now: Date) {
+  if (actorId && actorId !== personId && await deskOrUp(db, actorId)) return;
+  const r = await db.selectFrom("booking").select(sql<string>`coalesce(sum(balance_cents), 0)`.as("c")).where("organiser_id", "=", personId).where("balance_cents", ">", 0)
+    .where("status", "!=", "cancelled")
+    .where((w) => w.or([w("settled_at", "is not", null), w.exists(w.selectFrom("court_time").select("court_time.id").whereRef("court_time.booking_id", "=", "booking.id")
+      .where(sql<boolean>`upper(court_time.during) <= ${now}`))]))
+    .executeTakeFirstOrThrow();
+  if (Number(r.c) > 0) throw new KumiError("error.balance_owed", { amount: usd(Number(r.c)) });
 }
 /** Owners, managers and front desk: who may choose a refund other than the rule. */
 export async function deskOrUp(db: Db | Trx, personId: string | null): Promise<boolean> {

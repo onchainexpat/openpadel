@@ -66,6 +66,9 @@ to go live.
   (saved, never held). Cancelling refunds what the club's rules give, and anyone who paid between the
   cancel's preview and its confirm gets all of theirs back. Calendar links.
   An open match works differently (below): nothing goes on the host's card.
+  A court is shared 2 or 4 ways, never more. Someone who still owes on a court (the deadline charge
+  didn't go through, or time owed at the desk on a booking that's over) can't book, join or ask to join
+  in the app until it's paid at the desk; staff can still book for them.
 - Several courts the same day in one checkout (whole courts): one card payment for all of them, at
   each court's own price (member prices included), and one message. Each court is still its own
   booking, cancelled on its own, with its part of the payment refunded. If someone takes one of the
@@ -283,6 +286,8 @@ to go live.
   their card is saved, not the start date (a plan setting, on by default; included sessions still
   start with the membership). Giving up the place before the start keeps what was already paid. Their
   Membership page says the perks apply already.
+  Someone who gives up a founding place before the start can't take it again in the app (joining and
+  leaving again would keep the member prices for nothing); staff can still add them.
 - The desk gives and ends memberships (with an end date or without), and can stop or restart a
   renewal. Messages for joining, renewals, declined cards, cancelling and ending.
 - Family plans: a plan covers up to so many people from one household on the payer's card, and

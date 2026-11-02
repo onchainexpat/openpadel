@@ -118,6 +118,10 @@ test("when the saved card is declined at the deadline, the booking shows what's 
   const deadline = new Date(new Date(at("2026-12-07", "18:00")).getTime() - 23 * 3600_000);
   assert.deepEqual(await settleShares(db, deadline), { settled: 1, charged: 0, failed: 1, cancelled: 0 });
   assert.equal((await booking(r.booking_id)).balance_cents, 3000);
+  // Owing, Eve books nothing more until it's paid at the desk.
+  await rejects(request("Eve", c1, at("2026-12-09", "18:00")), "error.balance_owed");
+  await run(db, "booking.record_payment", { booking_id: r.booking_id, cents: 3000, method: "cash" }, owner, { now: deadline });
+  assert.equal((await booking(r.booking_id)).balance_cents, 0);
 });
 
 test("cancelling: early gets everything back, late gets the club's rule, and staff can choose", async () => {

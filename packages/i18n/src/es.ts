@@ -1510,6 +1510,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "error.lesson_too_many": { one: "Las clases de {coach} son para una persona.", other: "Las clases de {coach} son para hasta {count} personas." },
   "error.lesson_split_alone": "Para que cada quien pague su parte hacen falta al menos 2 personas.",
   "error.refund_choice_staff": "Solo el club puede elegir un reembolso distinto de su regla.",
+  "error.balance_owed": "Todavía debes {amount} de una reserva de pista. Págalo en la recepción del club y podrás volver a reservar y unirte.",
+  "error.presale_given_up": "Dejaste tu lugar en {name} antes de que empezara, así que no se puede volver a tomar en la app. Pregunta al club.",
   "error.refund_not_failed": "Ese reembolso no falló, así que no hay nada que volver a enviar.",
   "error.refund_more_than_paid": "Solo se pueden devolver {left} de ese pago.",
   "error.refund_not_paid": "Ese pago no es de esta reserva, o no se completó.",

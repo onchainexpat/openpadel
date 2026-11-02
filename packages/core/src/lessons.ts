@@ -17,7 +17,7 @@ import { localDate, onDate, weekdayOf } from "./clock.ts";
 import { freeCourts, occupied } from "./bookings.ts";
 import { currentPolicy } from "./prices.ts";
 import { paymentProvider } from "./money.ts";
-import { checkSlot, courtAndPlace, HOLD_MINUTES, newCode, shares } from "./booking_pay.ts";
+import { checkSlot, courtAndPlace, HOLD_MINUTES, newCode, notOwing, shares } from "./booking_pay.ts";
 import { requireWaiver, withManagers } from "./households.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
@@ -307,6 +307,7 @@ export const lessonRequest = defineAction({
   async plan(ctx, i) {
     const c = await lessonCoach(ctx.db, i.coach_id), rate = c.rates[String(i.minutes)];
     if (i.person_id === i.coach_id) throw new KumiError("error.own_lesson");
+    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
     await requireWaiver(ctx, i.person_id);
     if (rate === undefined) throw new KumiError("error.lesson_length", { coach: c.name, lengths: Object.keys(c.rates).join(", ") });
     const players = i.players ?? (i.pay === "split" ? 2 : 1);

@@ -12,7 +12,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { paymentProvider } from "./money.ts";
 import { abandonPayment } from "./programs.ts";
-import { deadlineSql, pastDeadline, policyOf, refundPayment, refundTarget, refundUpTo, shares } from "./booking_pay.ts";
+import { deadlineSql, notOwing, pastDeadline, policyOf, refundPayment, refundTarget, refundUpTo, shares } from "./booking_pay.ts";
 import { band, levelOf, openMatchOf } from "./match_rules.ts";
 import { notJunior, requireWaiver } from "./households.ts";
 import { areFriends } from "./friends.ts";
@@ -45,6 +45,7 @@ export const bookingAsk = defineAction({
   input: z.object({ booking_id: z.uuid(), person_id: z.uuid(), note: z.optional(z.string().check(z.maxLength(200))) }),
   async plan(ctx, i) {
     await notJunior(ctx.db, i.person_id);
+    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
     await requireWaiver(ctx, i.person_id);
     const m = await matchFacts(ctx.db, i.booking_id);
     if (!isOpen(m, ctx.now)) throw new KumiError("error.invite_closed");
