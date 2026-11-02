@@ -138,6 +138,10 @@ export const courtArchive = defineAction({
   async apply(ctx, i) { await ctx.update("court", i.court_id, { archived_at: ctx.now }); await ctx.emit("court.archived", { court_id: i.court_id }); return null; },
 });
 
+/** Whether a new program's results change levels when staff don't say: yes for socials, leagues and tournaments,
+ *  which are played for a score with fair teams; no for clinics and courses, which are for learning. */
+export const ratedByDefault = (kind: string) => kind !== "clinic" && kind !== "course";
+
 export const programCreate = defineAction({
   name: "program.create", version: 1,
   input: z.object({
@@ -146,7 +150,7 @@ export const programCreate = defineAction({
     member_price_cents: z.optional(z.nullable(z.number().check(z.int(), z.minimum(0), z.describe("What members pay instead (any plan). Empty: the plan's own discount on programs, if any.")))),
     level_min: z.optional(z.number()), level_max: z.optional(z.number()),
     refund_window_hours: z.optional(z.number().check(z.int(), z.minimum(0))), refund_inside_window: z.optional(z.enum(["none", "credit", "full"])),
-    rated: z.optional(z.boolean().check(z.describe("Whether results change levels. Friendlies never do."))),
+    rated: z.optional(z.boolean().check(z.describe("Whether results change levels. Friendlies never do. Default: no for clinics and courses, yes for the rest."))),
     min_players: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.describe("The fewest players it runs with. Short of it at the decision time, it's cancelled and everyone is paid back.")))),
     decide_hours: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(336), z.describe("How many hours before the first date the minimum is decided. Empty: the club's default.")))),
   }),
@@ -164,7 +168,7 @@ export const programCreate = defineAction({
   async apply(ctx, i) {
     const id = uuidv7();
     await ctx.insert("program", { id, location_id: i.location_id, kind: i.kind, format: i.format ?? null, name: i.name, capacity: i.capacity, price_cents: i.price_cents, member_price_cents: i.member_price_cents ?? null,
-      level_min: i.level_min ?? null, level_max: i.level_max ?? null, refund_window_hours: i.refund_window_hours ?? 24, refund_inside_window: i.refund_inside_window ?? "none", rated: i.rated ?? false,
+      level_min: i.level_min ?? null, level_max: i.level_max ?? null, refund_window_hours: i.refund_window_hours ?? 24, refund_inside_window: i.refund_inside_window ?? "none", rated: i.rated ?? ratedByDefault(i.kind),
       min_players: i.min_players ?? null, decide_hours: i.decide_hours ?? null });
     return { program_id: id };
   },

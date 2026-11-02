@@ -9,6 +9,8 @@ type Location = { id: string; name: string };
 export function Programs() {
   const [rows, setRows] = useState<Row[] | null>(null), [locations, setLocations] = useState<Location[]>([]), [open, setOpen] = useState(false);
   const [f, setF] = useState({ location_id: "", kind: "social", format: "americano", name: "", capacity: 16, price: 25, member_price: "", rated: true, refund_window_hours: 24, min_players: "" });
+  // Clinics and courses are for learning: their results don't change levels unless staff tick it (socials, leagues and tournaments do).
+  const [ratedSet, setRatedSet] = useState(false), ratedFor = (kind: string) => kind !== "clinic" && kind !== "course";
   const load = () => api<Row[]>("/staff/programs").then(setRows);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); api<Location[]>("/staff/locations").then((l) => { setLocations(l); setF((x) => ({ ...x, location_id: x.location_id || l[0]?.id || "" })); }); }, []);
@@ -24,14 +26,14 @@ export function Programs() {
         <form class="card" onSubmit={create}>
           <label>{t("ui.location")}<select value={f.location_id} onChange={(e) => setF({ ...f, location_id: e.currentTarget.value })}>{locations.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>
           <label>{t("ui.name")}<input required value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
-          <label>{t("ui.kind")}<select value={f.kind} onChange={(e) => setF({ ...f, kind: e.currentTarget.value })}>{["social", "clinic", "course", "tournament", "league"].map((k) => <option value={k}>{t(`kind.${k}` as Key)}</option>)}</select></label>
+          <label>{t("ui.kind")}<select value={f.kind} onChange={(e) => setF({ ...f, kind: e.currentTarget.value, rated: ratedSet ? f.rated : ratedFor(e.currentTarget.value) })}>{["social", "clinic", "course", "tournament", "league"].map((k) => <option value={k}>{t(`kind.${k}` as Key)}</option>)}</select></label>
           <label>{t("ui.format")}<select value={f.format} onChange={(e) => setF({ ...f, format: e.currentTarget.value })}><option value="">{t("ui.format_none")}</option><option value="americano">{t("ui.format_americano")}</option></select></label>
           <label>{t("ui.capacity")}<input type="number" min="1" value={f.capacity} onInput={(e) => setF({ ...f, capacity: Number(e.currentTarget.value) })} /></label>
           <label>{t("ui.price")}<input type="number" min="0" step="0.01" value={f.price} onInput={(e) => setF({ ...f, price: Number(e.currentTarget.value) })} /></label>
           <label>{t("ui.member_price_optional")}<input inputMode="decimal" value={f.member_price} onInput={(e) => setF({ ...f, member_price: e.currentTarget.value })} /></label>
           <label>{t("ui.refund_window")}<input type="number" min="0" value={f.refund_window_hours} onInput={(e) => setF({ ...f, refund_window_hours: Number(e.currentTarget.value) })} /></label>
           <label>{t("ui.min_players")}<input type="number" min="1" value={f.min_players} onInput={(e) => setF({ ...f, min_players: e.currentTarget.value })} /></label>
-          <label class="check"><input type="checkbox" checked={f.rated} onChange={(e) => setF({ ...f, rated: e.currentTarget.checked })} /> {t("ui.rated")}</label>
+          <label class="check"><input type="checkbox" checked={f.rated} onChange={(e) => { setRatedSet(true); setF({ ...f, rated: e.currentTarget.checked }); }} /> {t("ui.rated")}</label>
           <button class="primary">{t("ui.preview")}</button>
         </form>
       )}

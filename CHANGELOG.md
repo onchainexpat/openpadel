@@ -235,6 +235,9 @@ The first version a club can run on its own (court bookings included), or for it
 - "Tell me when a place opens" on a full program: the waitlist is offered places first; once a place
   is open to anyone, everyone watching hears once. A watch ends when they sign up.
 - Americano rounds with fair teams, scores and re-pairing.
+- A new program's results change levels by default for socials, leagues and tournaments, and not for
+  clinics and courses (they're for learning); staff can tick or untick it. Programs already made keep
+  what they have.
 - Levels from results: members see theirs, how many rated games it rests on and each change;
   staff can set a level or a coach's floor, always with a reason.
 

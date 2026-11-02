@@ -244,3 +244,12 @@ test("someone holding an offer who leaves the waitlist passes it on", async () =
   assert.equal((await db.selectFrom("waitlist_offer").select("outcome").where("enrolment_id", "=", w[0]!.enrolment_id).executeTakeFirstOrThrow()).outcome, "declined");
   assert.ok(await openOfferFor(w[1]!.enrolment_id));
 });
+
+test("results change levels by default for socials, leagues and tournaments, not for clinics and courses; staff can choose", async () => {
+  const rated = async (kind: string, extra: Record<string, unknown> = {}) => {
+    const id = ((await run(db, "program.create", { location_id: locationId, kind, name: `Rated ${kind} ${Object.keys(extra).length}`, capacity: 4, price_cents: 0, ...extra }, owner)).result as { program_id: string }).program_id;
+    return (await db.selectFrom("program").select("rated").where("id", "=", id).executeTakeFirstOrThrow()).rated;
+  };
+  assert.deepEqual([await rated("clinic"), await rated("course"), await rated("social"), await rated("league"), await rated("tournament")], [false, false, true, true, true]);
+  assert.deepEqual([await rated("clinic", { rated: true }), await rated("social", { rated: false })], [true, false]);
+});

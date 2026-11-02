@@ -385,8 +385,9 @@ Android and computers it works in the browser. Staff turn them on in the staff a
 ### Levels
 
 Nothing to set up. Staff can give a member who already has a level elsewhere (Playtomic, say) that
-level to start from, with a reason, on their level page; after that, rated results move it. A new
-player who feels it's wrong can move it once, by up to half a level, in their first 5 rated games,
+level to start from, with a reason, on their level page; after that, rated results move it (a new
+clinic or course isn't rated unless staff tick "results change levels"; socials, leagues and tournaments
+are, unless staff untick it). A new player who feels it's wrong can move it once, by up to half a level, in their first 5 rated games,
 and anyone can ask the club for a review (free, once every 30 days). Staff answer reviews on the
 Levels page, which also lists any level that moved more than 0.50 in 30 days. After a clinic, the coach
 who ran it or the front desk sets the levels of everyone who came in one go, from that date on the
