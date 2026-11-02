@@ -8,7 +8,8 @@ services:
       POSTGRES_USER: kumi
       POSTGRES_DB: kumi
       POSTGRES_PASSWORD: ${KUMI_DB_PASSWORD:?set KUMI_DB_PASSWORD in .env}
-    volumes: [db:/var/lib/postgresql/data]
+      KUMI_DB_PASSWORD: ${KUMI_DB_PASSWORD}   # for kumi_app, the role the server connects as (db-init.sh)
+    volumes: [db:/var/lib/postgresql/data, ./deploy/docker/db-init.sh:/docker-entrypoint-initdb.d/10-kumi-app.sh:ro]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U kumi -d kumi"], interval: 5s, timeout: 5s, retries: 20 }
     restart: unless-stopped
 
@@ -17,7 +18,7 @@ services:
     build: { context: ., target: server }
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://kumi:${KUMI_DB_PASSWORD}@db/kumi
+      DATABASE_URL: postgresql://kumi_app:${KUMI_DB_PASSWORD}@db/kumi
       KUMI_PUBLIC_URL: https://staff.${KUMI_HOST:?set KUMI_HOST in .env}
       KUMI_MEMBER_URL: https://${KUMI_HOST}
       KUMI_TRUST_PROXY: "1"              # Caddy (the web service) says who each visitor is; port 8790 isn't published
@@ -45,7 +46,7 @@ services:
     user: "0:0"                          # ./backups may be root's from before
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://kumi:${KUMI_DB_PASSWORD}@db/kumi
+      DATABASE_URL: postgresql://kumi_app:${KUMI_DB_PASSWORD}@db/kumi
     volumes: ["./backups:/var/backups/kumi"]
     entrypoint: ["sh", "-c", "while true; do sleep $$(( (1020 - $$(date +%s) % 3600 + 3600) % 3600 + 1 )); kumi backup --scheduled; kumi restore-test --scheduled; done"]
     depends_on: { db: { condition: service_healthy }, kumi: { condition: service_started } }

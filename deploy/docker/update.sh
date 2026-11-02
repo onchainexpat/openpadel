@@ -13,6 +13,11 @@ STATE=.kumi-release
 say() { echo "kumi: $*"; }
 die() { echo "kumi: $*" >&2; exit 1; }
 setenv() { if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi; }
+# Database commands run inside the db container, over its own socket (the tests swap in their own container).
+DBX=${KUMI_DBX:-docker compose exec -T db}
+STOP_APP=${KUMI_STOP_APP:-docker compose stop kumi backup}
+# .env holds every key the club has: only its owner should read it.
+case "$(stat -c %a .env)" in *00) ;; *) say "warning: .env can be read by other users on this machine; run: chmod 600 .env";; esac
 
 # The server's key for the secrets it keeps: a setup from before there was one gets one now (never printed).
 made_key=
@@ -26,11 +31,40 @@ check() {
   done
   return 1
 }
+# The role that owns the club's tables: kumi_app since 0.1.0, kumi (the image's superuser) before.
+app_role() { if $DBX psql -tAq -U kumi -d postgres -c "SELECT 1 FROM pg_roles WHERE rolname = 'kumi_app'" | grep -q 1; then echo kumi_app; else echo kumi; fi; }
 restore() {
-  docker compose stop kumi backup
-  docker compose exec -T db psql -q -v ON_ERROR_STOP=1 -U kumi -d kumi -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'
-  docker compose exec -T db pg_restore --no-owner --no-acl --exit-on-error -U kumi -d kumi < "$1"
+  local as; as=$(app_role)
+  $STOP_APP
+  $DBX psql -q -v ON_ERROR_STOP=1 -U "$as" -d kumi -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'
+  $DBX pg_restore --no-owner --no-acl --exit-on-error -U "$as" -d kumi < "$1"
 }
+# Before 0.1.0 the server connected as kumi, the database's superuser (the Postgres image makes POSTGRES_USER one),
+# so a flaw that let someone run SQL could run commands in the database container. Since then it connects as
+# kumi_app, which owns the club's database and nothing more. Once, on the update to it: with the server stopped,
+# the database is dumped, made again owned by kumi_app and restored as kumi_app. If that fails, it's put back as
+# it was and the update stops. kumi keeps its password, so going back to an older release still connects.
+move_to_app_role() {
+  [ "$(app_role)" = kumi ] || return 0
+  local dump; dump="backups/kumi-$(date -u +%Y%m%dT%H%M%SZ)-before-app-role.dump"; mkdir -p backups
+  say "moving the club's database to its own role (kumi_app), once; a copy is kept as $dump"
+  $STOP_APP
+  (umask 077; $DBX pg_dump -Fc --no-owner --no-acl -U kumi -d kumi > "$dump") || return 1
+  $DBX pg_restore --list < "$dump" > /dev/null || return 1
+  local pw; pw=$(sed -n 's/^KUMI_DB_PASSWORD=//p' .env)
+  $DBX psql -q -v ON_ERROR_STOP=1 -U kumi -d postgres -v pw="$pw" <<'SQL' || return 1
+CREATE ROLE kumi_app LOGIN NOSUPERUSER NOCREATEROLE CREATEDB PASSWORD :'pw';
+DROP DATABASE kumi WITH (FORCE);
+CREATE DATABASE kumi OWNER kumi_app;
+SQL
+  if $DBX pg_restore --no-owner --no-acl --exit-on-error -U kumi_app -d kumi < "$dump"; then return 0; fi
+  say "moving the database failed; putting it back as it was"
+  $DBX psql -q -v ON_ERROR_STOP=1 -U kumi -d postgres -c 'DROP DATABASE kumi WITH (FORCE)' -c 'CREATE DATABASE kumi OWNER kumi' -c 'DROP ROLE kumi_app' \
+    && $DBX pg_restore --no-owner --no-acl --exit-on-error -U kumi -d kumi < "$dump" \
+    || die "putting the database back failed too: restore $dump by hand (see deploy/docker/README.md)"
+  return 1
+}
+[ "${1:-}" = move-to-app-role ] && { move_to_app_role && exit 0; exit 1; }   # for the tests
 up_as() { setenv KUMI_TAG "$1"; KUMI_TAG=$1 docker compose up -d; }
 
 if [ "${1:-}" = rollback ]; then
@@ -69,11 +103,16 @@ KUMI_TAG=$new docker compose build || { echo "$old" > REVISION; git checkout -q 
 mkdir -p backups
 snap="backups/update-$old-to-$new-$(date -u +%Y%m%dT%H%M%SZ).dump"
 # Only this user can read the snapshot: it holds every member's details.
-(umask 077; docker compose exec -T db pg_dump -Fc --no-owner --no-acl -U kumi -d kumi > "$snap") || { git checkout -q "$old"; die "couldn't snapshot the database; nothing changed"; }
+(umask 077; $DBX pg_dump -Fc --no-owner --no-acl -U kumi -d kumi > "$snap") || { git checkout -q "$old"; die "couldn't snapshot the database; nothing changed"; }
 say "database snapshot: $snap"
 kept=$(cat "$STATE" 2>/dev/null || true)
 printf 'current=%s\nprevious=%s\nsnapshot=%s\n' "$new" "$old" "$snap" > "$STATE"
 
+# The new compose.yaml connects as kumi_app: a database from before it moves over first (once).
+if grep -q 'postgresql://kumi_app:' compose.yaml && ! move_to_app_role; then
+  git checkout -q "$old"; echo "$old" > REVISION; up_as "$old"
+  die "couldn't move the database to its own role; still on $old with the database as it was"
+fi
 up_as "$new"
 if check "$new"; then
   ls -1t backups/update-*.dump 2>/dev/null | tail -n +4 | xargs -r rm -f

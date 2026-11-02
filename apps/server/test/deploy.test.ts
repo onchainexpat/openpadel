@@ -57,3 +57,14 @@ test("root runs only root's files: its own copy of release.sh, releases made roo
   // After a restore, the server starts again unless the database may be empty (exit code 4).
   assert.match(release, /if \[ "\$rc" = 4 \]; then .* else systemctl start kumi; fi/);
 });
+
+test("Docker: the server connects as kumi_app, not the database's superuser; older setups move over once", () => {
+  const compose = read("compose.yaml"), init = read("deploy/docker/db-init.sh"), update = read("deploy/docker/update.sh");
+  assert.ok(!/postgresql:\/\/kumi:/.test(compose), "no service connects as the superuser kumi");
+  assert.equal((compose.match(/postgresql:\/\/kumi_app:/g) ?? []).length, 2);   // the server and the backup service
+  assert.match(compose, /db-init\.sh:\/docker-entrypoint-initdb\.d\//);
+  assert.match(init, /CREATE ROLE kumi_app LOGIN NOSUPERUSER NOCREATEROLE CREATEDB/);
+  assert.match(init, /ALTER DATABASE kumi OWNER TO kumi_app/);
+  assert.match(update, /move_to_app_role\(\)/);
+  assert.match(update, /chmod 600 \.env/);
+});

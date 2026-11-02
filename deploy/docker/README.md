@@ -8,6 +8,7 @@ will do. The DNS records are the same as in [the server guide](../../docs/setup/
 ```bash
 git clone https://github.com/<your-org>/kumi && cd kumi && git checkout v0.1.0   # the release, not main
 cp deploy/docker/env.example .env       # fill in KUMI_HOST and KUMI_DB_PASSWORD (openssl rand -hex 24)
+chmod 600 .env                          # it will hold every key the club has: only you read it
 mkdir -p config backups
 cp club.example.yaml config/club.yaml   # describe the club (docs/setup/README.md, step 4)
 git rev-parse --short HEAD > REVISION     # which commit this is, for /health and kumi doctor
@@ -24,6 +25,13 @@ docker compose exec kumi kumi doctor
   `/etc/kumi`: `docker compose exec kumi kumi import members /etc/kumi/members.csv`.
 - **Sign-in codes**, until email is set up: `docker compose logs kumi | grep '\[mail'`.
 - **Logs:** `docker compose logs -f kumi`.
+
+## The database
+
+The server connects as `kumi_app`, which owns the club's database and nothing more. `kumi` is the database's
+superuser (the Postgres image makes it); it isn't used by the server, and its port isn't published, so reach it
+only from inside: `docker compose exec db psql -U kumi`. A setup from before 0.1.0 connected as `kumi`;
+`update.sh` moves its database to `kumi_app` once, keeping a copy (`backups/kumi-<time>-before-app-role.dump`).
 
 ## Keys
 
