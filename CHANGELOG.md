@@ -41,6 +41,10 @@ The first version a club can run on its own (court bookings included), or for it
   half-done is called off at Stripe first, so it can't go through unrecorded. A match that isn't
   full at the club's deadline is cancelled: the court is free again and everyone gets back all they
   paid, and nothing goes on the host's card (it isn't even saved).
+- Same-day open matches: after the club's deadline, a member can still open a match, until the
+  club's same-day cutoff (2 hours before the start, changed in the booking rules). Each player pays
+  their part when they join, places can't be saved for friends, and a match that isn't full at the
+  cutoff is cancelled with everyone paid back. The match page says when it has to be full by.
 - If the host cancels, the players who joined get everything back whenever it is; the club's late
   cancellation rule is for the host's own payment.
 - The host saves places for friends (nobody else can take them; each pays their own, and a saved

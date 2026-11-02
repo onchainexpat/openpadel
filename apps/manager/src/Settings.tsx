@@ -9,7 +9,7 @@ type Hours = { weekday: number; opens: string | null; closes: string | null };
 type Special = { id: string; on_date: string; opens: string | null; closes: string | null; note: string | null };
 type Price = { id: string; name: string; court_ids: string[] | null; weekdays: number[] | null; starts: string | null; ends: string | null; valid_from: string | null; valid_to: string | null; cents_per_hour: number; priority: number; plan_ids: string[] | null };
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
-type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; lengths: number[];
+type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
 type ClubRow = { name: string; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
@@ -233,7 +233,7 @@ function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
 function BookingRules({ p, send }: { p: Policy; send: Preview }) {
   const [f, setF] = useState({ ...p });
   const num = (k: keyof Policy) => (e: Event) => setF({ ...f, [k]: Number((e.currentTarget as HTMLInputElement).value) });
-  const changed = Object.fromEntries((["days_ahead", "max_active", "free_cancel_hours", "late_refund_percent", "split_deadline_hours", "lengths",
+  const changed = Object.fromEntries((["days_ahead", "max_active", "free_cancel_hours", "late_refund_percent", "split_deadline_hours", "same_day_cutoff_hours", "lengths",
     "late_sub_refund_percent", "late_filled_refund_percent", "late_empty_refund_percent"] as const)
     .filter((k) => JSON.stringify(f[k]) !== JSON.stringify(p[k])).map((k) => [k, f[k]]));
   return (
@@ -245,6 +245,7 @@ function BookingRules({ p, send }: { p: Policy; send: Preview }) {
       <label>{t("ui.free_cancel_hours")}<input type="number" min={0} max={720} value={f.free_cancel_hours} onInput={num("free_cancel_hours")} /></label>
       <label>{t("ui.late_refund_percent")}<input type="number" min={0} max={100} value={f.late_refund_percent} onInput={num("late_refund_percent")} /></label>
       <label>{t("ui.split_deadline_hours")}<input type="number" min={1} max={168} value={f.split_deadline_hours} onInput={num("split_deadline_hours")} /></label>
+      <label>{t("ui.same_day_cutoff_hours")}<input type="number" min={1} max={24} value={f.same_day_cutoff_hours} onInput={num("same_day_cutoff_hours")} /></label>
       <fieldset><legend>{t("ui.late_refunds")}</legend>
         {([["late_sub_refund_percent", "ui.late_sub_refund_percent"], ["late_filled_refund_percent", "ui.late_filled_refund_percent"], ["late_empty_refund_percent", "ui.late_empty_refund_percent"]] as const).map(([k, label]) =>
           <label class="inline-number"><input type="number" min={0} max={100} value={f[k]} onInput={num(k)} /> {t(label)}</label>)}

@@ -6,7 +6,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
-type Options = { locations: { id: string; name: string; time_zone: string }[]; lengths: number[]; days_ahead: number; split_deadline_hours: number; free_cancel_hours: number; late_refund_percent: number };
+type Options = { locations: { id: string; name: string; time_zone: string }[]; lengths: number[]; days_ahead: number; split_deadline_hours: number; same_day_cutoff_hours: number; free_cancel_hours: number; late_refund_percent: number };
 type Free = { open: { opens: string; closes: string } | null; courts: { id: string; name: string; kind: string; starts: string[] }[] };
 type Quote = { total_cents: number; tax_cents: number; priced: boolean; member: string | null };
 
@@ -53,7 +53,9 @@ export function Book() {
   const clash = (id: string, s: string) => cart.some((x) => x.court === id && ms(s) < ms(x.start) + x.minutes * 60_000 && ms(x.start) < ms(s) + minutes * 60_000);
   const times = [...new Set(free?.courts.flatMap((c) => c.starts) ?? [])].sort().map((s) => ({ start: s, courts: free!.courts.filter((c) => c.starts.includes(s) && !clash(c.id, s)) })).filter((x) => x.courts.length);
   const each = q ? Math.floor(q.total_cents / players) : 0, mine = q ? q.total_cents - each * (players - 1) : 0;
-  const canSplit = pick ? new Date(pick.start).getTime() - Date.now() > o.split_deadline_hours * 3600_000 : false;
+  // Past the deadline for sharing the cost, only a same-day open match can still be shared, until its cutoff.
+  const ahead = pick ? new Date(pick.start).getTime() - Date.now() : 0;
+  const canSplit = pick ? ahead > o.split_deadline_hours * 3600_000 : false, sameDay = pick ? !canSplit && ahead > o.same_day_cutoff_hours * 3600_000 : false;
   const choose = (x: { start: string; courts: Free["courts"] }) => { setPick(x); setCourt(x.courts.length === 1 ? x.courts[0]!.id : ""); setQ(null); setPay("whole"); };
   const opened = open && pay === "split" && players === 4;
   const add = () => { setCart([...cart, { court, name: pick!.courts.find((c) => c.id === court)!.name, start: pick!.start, minutes, cents: q!.total_cents }]); setPick(null); setQ(null); };
@@ -94,10 +96,11 @@ export function Book() {
             {cart.length > 0 ? <button class="primary" onClick={add}>{t("ui.add_this_court")}</button> : <>
             <label class="check"><input type="radio" name="pay" checked={pay === "whole"} onChange={() => setPay("whole")} /> {t("ui.pay_whole", { amount: dollars(q.total_cents, lang.value) })}</label>
             {canSplit && <label class="check"><input type="radio" name="pay" checked={pay === "split"} onChange={() => setPay("split")} /> {t("ui.pay_split")}</label>}
+            {sameDay && <label class="check"><input type="radio" name="pay" checked={pay === "split"} onChange={() => { setPay("split"); setPlayers(4); setOpen(true); }} /> {t("ui.open_same_day")}</label>}
             {pay === "split" && <>
-              <div class="chips" role="group" aria-label={t("ui.sharing")}>{[2, 4].map((n) => <button type="button" class={n === players ? "chip on" : "chip"} onClick={() => setPlayers(n)}>{t("count.players", { count: n })}</button>)}</div>
-              <p class="meta">{t(opened ? "ui.open_explain" : "ui.split_explain", { mine: dollars(mine, lang.value), each: dollars(each, lang.value), hours: t("count.hours", { count: o.split_deadline_hours }) })}</p>
-              {players === 4 && <label class="check"><input type="checkbox" checked={open} onChange={(e) => setOpen(e.currentTarget.checked)} /> {t("ui.open_to_others")}</label>}
+              {canSplit && <div class="chips" role="group" aria-label={t("ui.sharing")}>{[2, 4].map((n) => <button type="button" class={n === players ? "chip on" : "chip"} onClick={() => setPlayers(n)}>{t("count.players", { count: n })}</button>)}</div>}
+              <p class="meta">{t(opened ? "ui.open_explain" : "ui.split_explain", { mine: dollars(mine, lang.value), each: dollars(each, lang.value), hours: t("count.hours", { count: sameDay ? o.same_day_cutoff_hours : o.split_deadline_hours }) })}</p>
+              {players === 4 && canSplit && <label class="check"><input type="checkbox" checked={open} onChange={(e) => setOpen(e.currentTarget.checked)} /> {t("ui.open_to_others")}</label>}
               {opened && <fieldset>
                 <legend>{t("ui.match_band", { level: myLevel === null ? t("ui.no_level_yet") : myLevel.toFixed(2) })}</legend>
                 <div class="court-row"><label>{t("ui.from")}<input type="number" min={0.5} max={7} step={0.25} value={om.min} onInput={(e) => setOm({ ...om, min: e.currentTarget.value })} /></label>

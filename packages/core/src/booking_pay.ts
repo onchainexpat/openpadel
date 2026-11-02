@@ -94,20 +94,26 @@ export const bookingRequest = defineAction({
     if (await upcomingCount(ctx.db, i.person_id, ctx.now) >= policy.max_active) throw new KumiError("error.too_many_bookings", { count: policy.max_active });
     const q = await quote(ctx.db, { courtId: i.court_id, start, minutes: i.minutes, personId: i.person_id, at: ctx.now });
     if (!q.priced) throw new KumiError("error.no_price");
-    if (i.pay === "split" && start.getTime() - ctx.now.getTime() <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
+    // Past the "pay my part" deadline, only an open match can still be shared: a same-day match, where each
+    // player pays when they join, with its own cutoff (not full by then, it's cancelled and everyone paid back).
+    const ahead = start.getTime() - ctx.now.getTime(), sameDay = Boolean(i.open) && ahead <= policy.split_deadline_hours * 3600_000;
+    if (sameDay && ahead <= policy.same_day_cutoff_hours * 3600_000) throw new KumiError("error.too_late_for_match", { count: policy.same_day_cutoff_hours });
+    if (i.pay === "split" && !sameDay && ahead <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
+    const cutoffAt = sameDay ? new Date(start.getTime() - policy.same_day_cutoff_hours * 3600_000) : null;
     const players = i.players ?? 4, s = shares(q.total_cents, players);
     const p = { court: court.name, when: when(start, court.time_zone), minutes: i.minutes, total: usd(q.total_cents) };
-    const hours = both("count.hours", { count: policy.split_deadline_hours });
+    const hours = both("count.hours", { count: sameDay ? policy.same_day_cutoff_hours : policy.split_deadline_hours });
     const summary = i.pay === "whole" ? both("plan.booking.request_whole", p)
       : both(i.open ? "plan.booking.request_open" : "plan.booking.request_split", { ...p, share: usd(s.organiser), players: both("count.players", { count: players }), others: usd(s.each), hours });
-    const openText = i.open ? both(i.open.rated === false ? "plan.booking.open_friendly" : "plan.booking.open_rated", { band: band(i.open), hours,
+    const band_ = i.open ? both(i.open.rated === false ? "plan.booking.open_friendly" : "plan.booking.open_rated", { band: band(i.open), hours,
       outside: both(i.open.outside_band === "closed" ? "plan.booking.outside_closed" : "plan.booking.outside_ask") }) : null;
+    const openText = band_ && sameDay ? (() => { const n = both("plan.booking.same_day_note"); return { en: `${band_.en} ${n.en}`, es: `${band_.es} ${n.es}` }; })() : band_;
     return { title: both("action.booking.request"), reads: [], locationId: court.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" },
-      moneyCents: i.pay === "whole" ? q.total_cents : s.organiser, details: { quote: q, policy_id: policy.id },
+      moneyCents: i.pay === "whole" ? q.total_cents : s.organiser, details: { quote: q, policy_id: policy.id, cutoff_at: cutoffAt?.toISOString() ?? null },
       summary: openText ? { en: `${summary.en} ${openText.en}`, es: `${summary.es} ${openText.es}` } : summary };
   },
   async apply(ctx, i, plan) {
-    const { quote: q, policy_id } = plan.details as { quote: Awaited<ReturnType<typeof quote>>; policy_id: string };
+    const { quote: q, policy_id, cutoff_at } = plan.details as { quote: Awaited<ReturnType<typeof quote>>; policy_id: string; cutoff_at: string | null };
     const start = new Date(i.starts_at), end = new Date(start.getTime() + i.minutes * 60_000);
     for (const id of [i.court_id]) await ctx.trx.selectFrom("court").select("id").where("id", "=", id).forUpdate().execute();
     await ctx.trx.updateTable("court_time").set({ active: false }).where("court_id", "=", i.court_id).where("kind", "=", "hold").where("active", "=", true).where("hold_until", "<=", ctx.now).execute();
@@ -116,7 +122,7 @@ export const bookingRequest = defineAction({
     await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id, status: "held", source: "app", price_cents: q.total_cents, tax_cents: q.tax_cents,
       quote: JSON.stringify(q), policy_id, pay_mode: i.pay, players, invite_code: i.pay === "split" ? randomBytes(9).toString("base64url") : null });
     if (i.open) await ctx.insert("open_match", { booking_id: id, level_min: i.open.level_min.toFixed(2), level_max: i.open.level_max.toFixed(2), outside_band: i.open.outside_band ?? "ask",
-      rated: i.open.rated ?? true, listed: i.open.listed ?? true, note: i.open.note ?? null });
+      rated: i.open.rated ?? true, listed: i.open.listed ?? true, note: i.open.note ?? null, cutoff_at: cutoff_at ? new Date(cutoff_at) : null });
     const bp = uuidv7();
     await ctx.insert("booking_player", { id: bp, booking_id: id, person_id: i.person_id, share_cents: i.pay === "whole" ? q.total_cents : s.organiser });
     try {
@@ -251,10 +257,15 @@ export async function policyOf(db: Db | Trx, bookingId: string) {
   return b.policy_id ? db.selectFrom("booking_policy").selectAll().where("id", "=", b.policy_id).executeTakeFirstOrThrow() : currentPolicy(db);
 }
 
+/** A booking's deadline in SQL: a same-day open match's own cutoff, otherwise the club's deadline before the start
+ *  (needs booking_policy, court_time and a left join of open_match). */
+export const deadlineSql = sql<Date>`coalesce(open_match.cutoff_at, lower(court_time.during) - make_interval(hours => booking_policy.split_deadline_hours))`;
+
 /** Whether the club's deadline for this booking has passed (after it, nobody new can take a place, unless staff open one). */
 export async function pastDeadline(db: Db | Trx, bookingId: string, now: Date) {
   const r = await db.selectFrom("booking").innerJoin("booking_policy", "booking_policy.id", "booking.policy_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
-    .select(sql<boolean>`booking.settled_at IS NOT NULL OR lower(court_time.during) - make_interval(hours => booking_policy.split_deadline_hours) <= ${now}`.as("past"))
+    .leftJoin("open_match", "open_match.booking_id", "booking.id")
+    .select(sql<boolean>`booking.settled_at IS NOT NULL OR ${deadlineSql} <= ${now}`.as("past"))
     .where("booking.id", "=", bookingId).where("court_time.active", "=", true).executeTakeFirst();
   return Boolean(r?.past);
 }

@@ -12,7 +12,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { paymentProvider } from "./money.ts";
 import { abandonPayment } from "./programs.ts";
-import { pastDeadline, policyOf, refundPayment, refundTarget, refundUpTo, shares } from "./booking_pay.ts";
+import { deadlineSql, pastDeadline, policyOf, refundPayment, refundTarget, refundUpTo, shares } from "./booking_pay.ts";
 import { band, levelOf, openMatchOf } from "./match_rules.ts";
 import { notJunior, requireWaiver } from "./households.ts";
 import { areFriends } from "./friends.ts";
@@ -149,8 +149,9 @@ export async function releaseSeats(db: Db, now = new Date()) {
  *  called off first (one that went through counts as paid). */
 export async function settleShares(db: Db, now = new Date()) {
   const due = await db.selectFrom("booking").innerJoin("booking_policy", "booking_policy.id", "booking.policy_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
+    .leftJoin("open_match", "open_match.booking_id", "booking.id")
     .select(["booking.id"]).distinct().where("booking.pay_mode", "=", "split").where("booking.status", "=", "confirmed").where("booking.settled_at", "is", null).where("court_time.active", "=", true)
-    .where(sql<boolean>`lower(court_time.during) - make_interval(hours => booking_policy.split_deadline_hours) <= ${now}`).execute();
+    .where(sql<boolean>`${deadlineSql} <= ${now}`).execute();
   let charged = 0, failed = 0, cancelled = 0;
   for (const b of due) {
     for (const pay of await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
@@ -181,6 +182,8 @@ export const bookingSavePlace = defineAction({
     if (!isOpen(m, ctx.now)) throw new KumiError("error.invite_closed");
     if (m.seated >= m.players) throw new KumiError("error.booking_full");
     if (i.person_id === m.organiser_id || await seatOf(ctx.db, i.booking_id, i.person_id)) throw new KumiError("error.already_in_booking");
+    // A same-day match has no time to wait for a saved place: each player pays when they join.
+    if (m.om.cutoff_at) throw new KumiError("error.same_day_no_saving");
     // Only for a friend (each has added the other): a host can't put a stranger's name on a match.
     if (!m.organiser_id || !(await areFriends(ctx.db, m.organiser_id, i.person_id))) throw new KumiError("error.not_friends");
     const friend = (await readRow(ctx.db, "person", i.person_id, "thing.person")).row.display_name as string;

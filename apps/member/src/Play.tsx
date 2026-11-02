@@ -15,7 +15,7 @@ export type Match = {
   requests: { id: string; display_name: string; level: number | null; note: string | null; record: Rec }[]; invite_code: string | null;
   result: { id: string; status: string; sets: { a: number; b: number }[]; a: string[]; b: string[]; confirm_by: string | null; rated: boolean; my_side: "a" | "b" | null; can_confirm: boolean; can_dispute: boolean } | null;
   teams: { a: { name: string }[]; b: { name: string }[]; odds: string } | null; can_score: boolean; four: { person_id: string; name: string }[];
-  stakes: { now: number; win: number; lose: number } | null;
+  stakes: { now: number; win: number; lose: number } | null; full_by: string; same_day: boolean;
 };
 type Rec = { no_shows: number; late_leaves: number };
 /** "1 no-show, 2 late cancellations (90 days)", or nothing for a clean record. */
@@ -33,6 +33,8 @@ function Facts({ m }: { m: Match }) {
       {p.saved ? ` · ${t("ui.place_saved_for")}` : ""}{p.leaving ? ` · ${t("ui.cant_make_it_tag")}` : ""}{p.no_show ? ` · ${t("ui.didnt_come")}` : ""}
       {recText(p.record) && <span class="meta"> · {recText(p.record)}</span>}</li>)}
       {Array.from({ length: m.spots_left }, () => <li class="meta">{t("ui.open_place")}</li>)}</ul>
+    {m.open && !m.cancelled && m.spots_left > 0 && new Date(m.full_by) > new Date() && <p class="meta">{t("ui.match_cutoff", { time: new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US",
+      { timeZone: m.time_zone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(m.full_by)) })}</p>}
   </>;
 }
 
@@ -124,7 +126,7 @@ export function MatchPage({ id }: { id: string }) {
               <button class="small" onClick={() => preview("booking.answer_ask", { request_id: r.id, approve: false })}>{t("ui.no")}</button></span></li>))}</ul>}
         {m.invite_code && <p><button onClick={share}>{copied ? t("ui.link_copied") : t("ui.copy_match_link")}</button></p>}
       </section>}
-      {m.host_is_me && m.open && m.spots_left > 0 && <section class="card card-form">
+      {m.host_is_me && m.open && m.spots_left > 0 && !m.same_day && <section class="card card-form">
         <h2>{t("ui.save_place_title")}</h2>
         <p class="meta">{t("ui.save_place_hint")}</p>
         <label>{t("ui.search_friends")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>

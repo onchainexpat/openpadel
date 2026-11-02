@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { clubNewsAnswer, icsCalendar, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread } from "@kumi/core";
+import { clubNewsAnswer, icsCalendar, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -78,7 +78,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const pid = who(c);
     const p = await currentPolicy(db);
     const locations = await db.selectFrom("location").select(["id", "name", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
-    return c.json({ locations, lengths: p.lengths, days_ahead: await daysAhead(db, pid), split_deadline_hours: p.split_deadline_hours, free_cancel_hours: p.free_cancel_hours, late_refund_percent: p.late_refund_percent });
+    return c.json({ locations, lengths: p.lengths, days_ahead: await daysAhead(db, pid), split_deadline_hours: p.split_deadline_hours, same_day_cutoff_hours: p.same_day_cutoff_hours,
+      free_cancel_hours: p.free_cancel_hours, late_refund_percent: p.late_refund_percent });
   });
   app.get("/quote", async (c) => {
     const pid = who(c);
@@ -139,9 +140,12 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   async function matchView(bookingId: string, pid: string) {
     const b = await db.selectFrom("open_match").innerJoin("booking", "booking.id", "open_match.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
       .innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id").leftJoin("person", "person.id", "booking.organiser_id")
+      .innerJoin("booking_policy", "booking_policy.id", "booking.policy_id")
       .select(["booking.id", "booking.status", "booking.players", "booking.price_cents", "booking.settled_at", "booking.organiser_id", "booking.invite_code", "open_match.level_min", "open_match.level_max",
         "open_match.outside_band", "open_match.rated", "open_match.listed", "open_match.note", "court.name as court", "location.name as location", "location.time_zone", "person.display_name as host",
-        sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
+        sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end"),
+        // When it has to be full: a same-day match's own cutoff, otherwise the club's deadline.
+        deadlineSql.as("full_by"), sql<boolean>`open_match.cutoff_at IS NOT NULL`.as("same_day")])
       .where("booking.id", "=", bookingId).orderBy(sql`court_time.active`, "desc").executeTakeFirst();   // a cancelled one still shows, as cancelled
     if (!b) return null;
     const cancelled = b.status === "cancelled";

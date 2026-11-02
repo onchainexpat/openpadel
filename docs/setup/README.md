@@ -91,7 +91,9 @@ In the staff app's Settings: each location's opening hours and special days, cou
 time and season), the sales tax rate, and the booking rules (how far ahead, how many at once, the
 cancellation window, and the "pay my part" deadline). At that deadline, unpaid shares of a booking go
 on its organiser's saved card; an open match that isn't full is cancelled instead, and everyone in it
-gets back all they paid. Members only book courts in the app once "Members book courts in the app" is
+gets back all they paid. After the deadline a member can still open a same-day match, until the
+same-day cutoff (2 hours before the start, set beside the deadline): each player pays when they join,
+and one not full at the cutoff is cancelled the same way. Members only book courts in the app once "Members book courts in the app" is
 on; leave it off while the club books courts in Playtomic. Paying for whole courts, a member can book
 several the same day in one card payment (each counts toward "how many at once"); each is still its
 own booking, cancelled on its own.
