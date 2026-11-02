@@ -428,7 +428,14 @@ export const bookingCancel = defineAction({
       ownerIds: [...organisers, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };
   },
   async apply(ctx, i, plan) {
-    await cancelBooking(ctx, i.booking_id, (plan.details as { refunds: { payment_id: string; cents: number }[] }).refunds, i.reason ?? null);
+    const planned = (plan.details as { refunds: { payment_id: string; cents: number }[] }).refunds;
+    const b = await ctx.trx.selectFrom("booking").select("status").where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
+    if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
+    // Someone who paid after the preview was made never agreed to its rule: all of theirs back.
+    const late = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "payment.amount_cents"])
+      .where("booking_player.booking_id", "=", i.booking_id).where("booking_player.removed_at", "is", null).where("payment.status", "=", "succeeded")
+      .$if(planned.length > 0, (q) => q.where("payment.id", "not in", planned.map((r) => r.payment_id))).execute();
+    await cancelBooking(ctx, i.booking_id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents }))], i.reason ?? null);
     return null;
   },
 });

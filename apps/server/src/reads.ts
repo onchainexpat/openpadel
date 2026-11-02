@@ -374,6 +374,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         paid_cents: mine.reduce((n, x) => n + x.amount_cents - Number(x.back), 0),
         refundable: mine.filter((x) => x.provider !== "none" && x.amount_cents - Number(x.back) > 0).map((x) => ({ payment_id: x.id, left_cents: x.amount_cents - Number(x.back) })) };
     });
+    // Refunds to them that didn't go through: the staff can send each again.
+    const failedRefunds = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select(["refund.id", "refund.amount_cents", "refund.failure", "refund.created_at"])
+      .where("payment.person_id", "=", id).where("refund.status", "=", "failed").orderBy("refund.created_at", "desc").limit(20).execute();
     // The latest answer for each kind of message: consent is append-only.
     const consent = await db.selectFrom("channel_consent").select(["channel", "purpose", "granted", "source", "at"]).distinctOn(["channel", "purpose"])
       .where("person_id", "=", id).orderBy("channel").orderBy("purpose").orderBy("at", "desc").execute();
@@ -399,7 +402,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // A kid with a login of their own: the address they sign in with and the rules their parents set.
     const k = await kidOf(db, id);
     const kid = k ? { email: p.email, rules: rulesText(k)[lang(c)], spent_cents: await monthSpent(db, id, new Date()) } : null;
-    return c.json({ ...p, kid, roles, sign_in: signIn, places, bookings, consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
+    return c.json({ ...p, kid, roles, sign_in: signIn, places, bookings, failed_refunds: failedRefunds, consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
       membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null } : null });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.

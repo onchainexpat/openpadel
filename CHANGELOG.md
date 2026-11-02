@@ -63,7 +63,8 @@ to go live.
 - Prices by court, day, time and season, sales tax, and booking rules that bookings keep once made.
 - Members book in the app and pay the whole court, or only their part: the others join from a link
   and pay theirs, and what's unpaid at the club's deadline goes once on the organiser's saved card
-  (saved, never held). Cancelling refunds what the club's rules give. Calendar links.
+  (saved, never held). Cancelling refunds what the club's rules give, and anyone who paid between the
+  cancel's preview and its confirm gets all of theirs back. Calendar links.
   An open match works differently (below): nothing goes on the host's card.
 - Several courts the same day in one checkout (whole courts): one card payment for all of them, at
   each court's own price (member prices included), and one message. Each court is still its own
@@ -261,6 +262,10 @@ to go live.
   means nothing to a person isn't given at all.
 - A refund that doesn't go through tells the owner and managers what it was for (the program, the court
   or lesson and when, or the membership) and links to the program's page or the person's.
+- A refund that can't reach the card provider (an outage) tries again, waiting 30 seconds, then longer each
+  time up to an hour between tries. After about an hour it's marked as not gone through, so it no longer counts
+  as paid back and the owner and managers hear once. They send it again from the person's page ("Refunds that
+  didn't go through"); it's the same refund to the provider, so it never goes out twice.
 - The owner and managers hear once when a renewal is declined (not at every try): who, the plan, the
   amount, the bank's reason when it gives one, the next try and the last day, with a link to the
   member. It waits on the Courts page's alerts until it's handled, or closes by itself when the

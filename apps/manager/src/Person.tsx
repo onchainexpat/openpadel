@@ -11,6 +11,7 @@ type P = {
   roles: Role[]; places: { id: string; status: string; program_id: string; name: string; first_start: string | null }[];
   bookings: { id: string; code: string; kind: string; status: string; court: string; starts_at: string; price_cents: number; organiser: boolean; paid_cents: number;
     refundable: { payment_id: string; left_cents: number }[] }[];
+  failed_refunds: { id: string; amount_cents: number; failure: string | null; created_at: string }[];
   consent: { channel: string; purpose: string; granted: boolean }[];
   membership: { id: string; name: string; status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null } | null;
   plans: (Omit<Plan, "members"> & { members?: number })[];
@@ -130,6 +131,14 @@ export function Person({ id }: { id: string }) {
         )}
       </section>
       <PersonBookings bookings={p.bookings} preview={preview} />
+      {p.failed_refunds?.length > 0 && <section class="card">
+        <h2>{t("ui.refunds_failed")}</h2>
+        <ul class="plain">{p.failed_refunds.map((r) => (
+          <li class="row" key={r.id}>
+            <span>{dollars(r.amount_cents, lang.value)} · {new Date(r.created_at).toLocaleDateString(lang.value === "es" ? "es-US" : "en-US")}</span>
+            {mayDo("refund.resend") && <button class="small" onClick={() => preview("refund.resend", { refund_id: r.id })}>{t("ui.send_again")}</button>}
+          </li>))}</ul>
+      </section>}
       <PersonReceipts personId={p.id} preview={preview} />
       {privacy && <PersonAssistants personId={p.id} preview={preview} key={`${p.id}-${String(sheet ? 1 : 0)}`} />}
       {!p.junior && p.id !== me.value?.person.id && (staffRoles.length === 0 || owner) && <ChangeEmail personId={p.id} name={p.display_name} onDone={load} />}

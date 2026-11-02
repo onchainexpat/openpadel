@@ -1004,6 +1004,35 @@ export const paymentSettle = defineAction({
   },
 });
 
+/** A refund that didn't go through (the provider said no, or couldn't be reached for an hour), sent again by the
+ *  staff. The same refund, so the same key at the provider: if the first try did reach it, nothing goes twice. */
+export const refundResend = defineAction({
+  name: "refund.resend", version: 1,
+  input: z.object({ refund_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "refund", i.refund_id);
+    if (row.status !== "failed") throw new KumiError("error.refund_not_failed");
+    const pay = await ctx.db.selectFrom("payment").select(["person_id", "amount_cents", "booking_player_id", "enrolment_id"]).where("id", "=", row.payment_id).executeTakeFirstOrThrow();
+    await refundRoom(ctx.db, row.payment_id, pay.amount_cents, row.amount_cents);
+    return { title: both("action.refund.resend"), summary: both("plan.refund.resend", { person: await personName(ctx.db, pay.person_id), amount: usd(row.amount_cents), what: await paymentWhat(ctx.db, pay) }),
+      reads: [read], ownerIds: [pay.person_id], moneyCents: row.amount_cents, undo: { kind: "none", note: both("reason.refund_sent") } };
+  },
+  async apply(ctx, i) {
+    const r = await ctx.trx.selectFrom("refund").selectAll().where("id", "=", i.refund_id).forUpdate().executeTakeFirstOrThrow();
+    if (r.status !== "failed") throw new KumiError("error.changed");
+    const pay = await ctx.trx.selectFrom("payment").select("amount_cents").where("id", "=", r.payment_id).forUpdate().executeTakeFirstOrThrow();
+    await refundRoom(ctx.trx, r.payment_id, pay.amount_cents, r.amount_cents);   // again under the lock
+    await ctx.update("refund", r.id, { status: "pending", failure: null });
+    await ctx.emit("refund.requested", { refund_id: r.id });
+    return null;
+  },
+});
+/** Whether a payment still has room for this much more back (refunds sent or on their way count). */
+async function refundRoom(db: Db | Trx, paymentId: string, paid: number, cents: number) {
+  const back = await db.selectFrom("refund").select(sql<string>`coalesce(sum(amount_cents), 0)`.as("c")).where("payment_id", "=", paymentId).where("status", "in", ["pending", "sent"]).executeTakeFirstOrThrow();
+  if (Number(back.c) + cents > paid) throw new KumiError("error.refund_more_than_paid", { left: usd(paid - Number(back.c)) });
+}
+
 /** A kid's payment went on the family card: the parents hear what for and how much (worked out now). */
 async function familyCharged(ctx: ApplyContext, rows: { person_id: string; amount_cents: number; booking_player_id: string | null; enrolment_id: string | null; family_card_id: string | null }[]) {
   const card = await ctx.trx.selectFrom("family_card").select("household_id").where("id", "=", rows[0]!.family_card_id!).executeTakeFirstOrThrow();
