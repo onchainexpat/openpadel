@@ -205,7 +205,8 @@ lesson off, the players get everything back. The coach hears about each lesson b
 coming up, and sees their own two weeks under My schedule.
 
 Each program date can name the coach who runs it (on the program's page); that coach then sets the
-levels after it, and can't be booked for a lesson then. Reports shows lesson revenue apart from courts,
+levels after it, and can't be booked for a lesson then. Reports shows lesson revenue apart from courts
+(and programs and memberships, each its own line),
 and each coach's lessons (paid, less refunds) and the dates they ran, with a CSV for payroll. A coach
 sees their own; owners, managers and the accountant see everyone's.
 

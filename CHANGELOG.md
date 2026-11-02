@@ -31,7 +31,8 @@ The first version a club can run on its own (court bookings included), or for it
   booking, cancelled on its own, with its part of the payment refunded. If someone takes one of the
   courts while the payment is going through, that court's part comes back and the rest stay booked.
 - Messages for confirmations, shares paid, cancellations, money owed, and a reminder before playing.
-- Occupancy and revenue by day, with a CSV export.
+- Occupancy and revenue by day, with a CSV export. Revenue has courts, lessons, programs and memberships
+  (starts, renewals and a family's extra people, less refunds) each on its own line.
 - A court's own hours: an outdoor court that closes at dusk, or one that opens later, inside the
   location's hours or outside them. A day it has no hours of its own follows the location's. The
   location's special days apply to every court, unless a court has its own for that date. Free courts,

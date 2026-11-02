@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { localDate, onDate, run, runAsSystem, type Actor, type Db } from "@kumi/core";
+import { account, localDate, onDate, post, run, runAsSystem, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
@@ -95,7 +95,7 @@ test("occupancy and revenue for a day, and the same as a spreadsheet", async () 
   assert.ok(row.booked_hours >= 1.5); assert.equal(row.blocked_hours, 1);
   assert.ok(row.occupancy_percent > 0);
   const csv = await (await app.request(`/staff/reports.csv?location_id=${loc}&from=${d}&to=${d}`, { headers: { cookie } })).text();
-  assert.match(csv, /^date,open hours,courts,court hours,booked hours,program hours,playtomic hours,blocked hours,occupancy %,court revenue,lesson revenue,program revenue\r\n/);
+  assert.match(csv, /^date,open hours,courts,court hours,booked hours,program hours,playtomic hours,blocked hours,occupancy %,court revenue,lesson revenue,program revenue,membership revenue\r\n/);
   assert.equal(csv.trim().split("\r\n").length, 2);
 });
 
@@ -161,4 +161,18 @@ test("a member's page lists their bookings: what they paid and what can go back 
   const page = (await get(`/staff/people/${zoe}`)).json;
   assert.equal(page.bookings.length, 1);
   assert.deepEqual([page.bookings[0].id, page.bookings[0].organiser, page.bookings[0].paid_cents, page.bookings[0].refundable], [b, true, 4000, []]);   // cash goes back at the desk
+});
+
+test("the revenue report has memberships as their own lines, net of refunds", async () => {
+  const d = localDate(new Date(), TZ);
+  const runId = (await db.selectFrom("action_run").select("id").orderBy("id", "desc").executeTakeFirstOrThrow()).id;
+  await db.transaction().execute(async (trx) => {
+    const members = await account(trx, "revenue", { revenueType: "memberships" }), clearing = await account(trx, "provider_clearing");
+    await post(trx, runId, "payment", "a membership started", [{ account: clearing, cents: 8900 }, { account: members, cents: -8900 }]);
+    await post(trx, runId, "refund", "part of it back", [{ account: members, cents: 900 }, { account: clearing, cents: -900 }]);
+  });
+  const row = (await get(`/staff/reports?location_id=${loc}&from=${d}&to=${d}`)).json.rows[0];
+  assert.equal(row.membership_revenue_cents, 8000);
+  const csv = await (await app.request(`/staff/reports.csv?location_id=${loc}&from=${d}&to=${d}`, { headers: { cookie } })).text();
+  assert.match(csv.trim().split("\r\n")[1]!, /,80\.00$/);
 });

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, ReceiptSheet, t, type ReceiptView } from "@kumi/ui";
 
-type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number };
+type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number; membership_revenue_cents: number };
 type Receipt = { id: string; number: string; kind: "payment" | "refund"; when: string; paid_by: string; for: string | null; what: string; more: number; total_cents: number };
 type Earnings = { coaches: { coach_id: string; coach: string; lessons: number; lesson_minutes: number; net_cents: number; sessions: number; session_minutes: number }[] };
 /** The date on the device's own calendar (not UTC's, which is already tomorrow on a US evening). */
@@ -34,13 +34,13 @@ export function Reports() {
         {locs.length > 1 && <label>{t("ui.location")}<select value={loc} onChange={(e) => setLoc(e.currentTarget.value)}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>}
         <div class="court-row"><label>{t("ui.from")}<input type="date" value={from} onInput={(e) => setFrom(e.currentTarget.value)} /></label>
           <label>{t("ui.to")}<input type="date" value={to} onInput={(e) => setTo(e.currentTarget.value)} /></label></div>
-        {rows && <p><strong>{t("ui.occupancy_total", { percent: usable > 0 ? Math.round(used / usable * 100) : 0 })}</strong> · {t("ui.revenue_total", { courts: dollars(sum("court_revenue_cents"), lang.value), lessons: dollars(sum("lesson_revenue_cents"), lang.value), programs: dollars(sum("program_revenue_cents"), lang.value) })}</p>}
+        {rows && <p><strong>{t("ui.occupancy_total", { percent: usable > 0 ? Math.round(used / usable * 100) : 0 })}</strong> · {t("ui.revenue_total", { courts: dollars(sum("court_revenue_cents"), lang.value), lessons: dollars(sum("lesson_revenue_cents"), lang.value), programs: dollars(sum("program_revenue_cents"), lang.value), memberships: dollars(sum("membership_revenue_cents"), lang.value) })}</p>}
         <p><a href={`/staff/reports.csv?location_id=${loc}&from=${from}&to=${to}`}>{t("ui.download_csv")}</a></p>
       </section>
       {rows && <section class="card"><div class="table-scroll"><table>
-        <thead><tr><th>{t("ui.day")}</th><th>{t("ui.occupancy")}</th><th>{t("ui.court_hours_used")}</th><th>{t("ui.court_revenue")}</th><th>{t("ui.lesson_revenue")}</th><th>{t("ui.program_revenue")}</th></tr></thead>
+        <thead><tr><th>{t("ui.day")}</th><th>{t("ui.occupancy")}</th><th>{t("ui.court_hours_used")}</th><th>{t("ui.court_revenue")}</th><th>{t("ui.lesson_revenue")}</th><th>{t("ui.program_revenue")}</th><th>{t("ui.membership_revenue")}</th></tr></thead>
         <tbody>{rows.map((r) => <tr><td>{day(r.date)}</td><td>{r.court_hours ? `${r.occupancy_percent}%` : t("ui.closed")}</td><td>{hrs(r.booked_hours + r.program_hours + r.playtomic_hours)} / {hrs(r.court_hours - r.blocked_hours)}</td>
-          <td>{dollars(r.court_revenue_cents, lang.value)}</td><td>{dollars(r.lesson_revenue_cents, lang.value)}</td><td>{dollars(r.program_revenue_cents, lang.value)}</td></tr>)}</tbody>
+          <td>{dollars(r.court_revenue_cents, lang.value)}</td><td>{dollars(r.lesson_revenue_cents, lang.value)}</td><td>{dollars(r.program_revenue_cents, lang.value)}</td><td>{dollars(r.membership_revenue_cents, lang.value)}</td></tr>)}</tbody>
       </table></div></section>}
       {earn && <section class="card">
         <h2>{t("ui.coach_earnings")}</h2>

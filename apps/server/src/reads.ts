@@ -186,7 +186,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   });
 
   // Occupancy and revenue by day: court hours open, what used them (bookings, programs, Playtomic) and what
-  // was blocked, and the money from the ledger (court and program revenue, net of refunds; club-wide).
+  // was blocked, and the money from the ledger (courts, lessons, programs and memberships, net of refunds;
+  // club-wide). Memberships are their own lines: starts, renewals and a family's extra people, less refunds.
   async function report(locationId: string, from: string, to: string) {
     if (!/^[0-9a-f-]{36}$/i.test(locationId)) throw new KumiError("error.invalid_input", { details: "location_id, from and to (YYYY-MM-DD)" }, 400);
     const loc = await db.selectFrom("location").select(["id", "name", "time_zone"]).where("id", "=", locationId).executeTakeFirst();
@@ -222,16 +223,16 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       const cents = (type: string) => Number(money.find((r) => r.day === day && r.revenue_type === type)?.cents ?? 0);
       rows.push({ date: day, open_hours: openMin / 60, courts: courts.length, court_hours: capacity / 60, booked_hours: (all.booking ?? 0) / 60, program_hours: (all.session ?? 0) / 60,
         playtomic_hours: (all.mirror ?? 0) / 60, blocked_hours: blocked / 60, occupancy_percent: capacity - blocked > 0 ? Math.round(used / (capacity - blocked) * 1000) / 10 : 0,
-        court_revenue_cents: cents("courts"), lesson_revenue_cents: cents("lessons"), program_revenue_cents: cents("programs") });
+        court_revenue_cents: cents("courts"), lesson_revenue_cents: cents("lessons"), program_revenue_cents: cents("programs"), membership_revenue_cents: cents("memberships") });
     }
     return { location: loc.name, from, to, rows };
   }
   app.get("/staff/reports", async (c) => c.json(await report(c.req.query("location_id") ?? "", c.req.query("from") ?? "", c.req.query("to") ?? "")));
   app.get("/staff/reports.csv", async (c) => {
     const r = await report(c.req.query("location_id") ?? "", c.req.query("from") ?? "", c.req.query("to") ?? "");
-    const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "lesson revenue", "program revenue"];
+    const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "lesson revenue", "program revenue", "membership revenue"];
     const lines = r.rows.map((x) => [x.date, x.open_hours, x.courts, x.court_hours, x.booked_hours, x.program_hours, x.playtomic_hours, x.blocked_hours, x.occupancy_percent,
-      (x.court_revenue_cents / 100).toFixed(2), (x.lesson_revenue_cents / 100).toFixed(2), (x.program_revenue_cents / 100).toFixed(2)].join(","));
+      (x.court_revenue_cents / 100).toFixed(2), (x.lesson_revenue_cents / 100).toFixed(2), (x.program_revenue_cents / 100).toFixed(2), (x.membership_revenue_cents / 100).toFixed(2)].join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-${r.from}-to-${r.to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });
