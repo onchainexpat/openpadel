@@ -73,3 +73,16 @@ test("a program date on a court that's closed then is a warning, not a block", a
   const clashes = await dateClashes(db, { programId: uuidv7(), locationId: loc, levelMin: null, levelMax: null, slots, skipSessions: [], now: NOW, tz: TZ });
   assert.deepEqual(clashes.map((c) => [c.kind, c.blocks, c.text.en]), [["court_closed", false, "Court 3 is closed at Tue, Dec 1, 6:00 PM (a warning: it can still go ahead)."]]);
 });
+
+test("new hours that leave a booking outside them: the plan names it, and it stays booked", async () => {
+  const b = (await run(db, "booking.create", { court_id: c1, starts_at: at("2026-12-03", "19:00"), minutes: 60, guest_name: "Evening game" }, owner, opts)).result as any;
+  const code = (await db.selectFrom("booking").select("code").where("id", "=", b.booking_id).executeTakeFirstOrThrow()).code;
+  const days = [1, 2, 3, 4, 5].map((weekday) => ({ weekday, opens: "07:00", closes: "18:00" }));
+  const p = await plan(db, "court.hours_set", { court_id: c1, days }, owner, opts);
+  assert.equal(p.plan.summary.en, `Set Court 1's own hours: Mon to Fri 07:00 to 18:00. Other days follow Eastside's hours. Already on the court and outside these hours: ${code} Thu, Dec 3, 7:00 PM. They stay as they are; move or cancel them on the courts day if they shouldn't.`);
+  assert.match(p.plan.summary.es, /Ya en la cancha y fuera de este horario: KP-/);
+  const fine = await plan(db, "court.hours_set", { court_id: c1, days: [{ weekday: 4, opens: "07:00", closes: "22:00" }] }, owner, opts);
+  assert.ok(!fine.plan.summary.en.includes("outside"), fine.plan.summary.en);
+  await run(db, "court.hours_set", { court_id: c1, days }, owner, opts);
+  assert.equal((await db.selectFrom("booking").select("status").where("id", "=", b.booking_id).executeTakeFirstOrThrow()).status, "confirmed");
+});

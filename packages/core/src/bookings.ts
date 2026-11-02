@@ -5,12 +5,12 @@
 import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, dateTime, money, type Key, type Lang, type Text } from "@kumi/i18n";
+import { both, dateTime, money, t, type Key, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
-import { onDate, weekdayOf } from "./clock.ts";
+import { localParts, onDate, weekdayOf } from "./clock.ts";
 import { currentPolicy, quote } from "./prices.ts";
 
 const clockTime = z.string().check(z.regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/));
@@ -131,6 +131,23 @@ export const hoursSet = defineAction({
   },
 });
 
+/** What's booked on a court from now on that a new week of its own hours would leave outside (a day with no times is closed). */
+async function outsideHours(db: Db | Trx, courtId: string, tz: string, days: { weekday: number; opens: string | null; closes: string | null }[], now: Date) {
+  const rows = await db.selectFrom("court_time").leftJoin("booking", "booking.id", "court_time.booking_id").leftJoin("session", "session.id", "court_time.session_id")
+    .leftJoin("program", "program.id", "session.program_id")
+    .select([sql<Date>`lower(court_time.during)`.as("from"), sql<Date>`upper(court_time.during)`.as("to"), "booking.code", "booking.status", "program.name"])
+    .where("court_time.court_id", "=", courtId).where("court_time.active", "=", true).where(sql<boolean>`lower(court_time.during) >= ${now}`)
+    .where((w) => w.or([w("court_time.booking_id", "is not", null), w("court_time.session_id", "is not", null)])).orderBy(sql`lower(court_time.during)`).execute();
+  const hm = (d: Date) => { const q = localParts(d, tz); return `${String(q.h).padStart(2, "0")}:${String(q.min).padStart(2, "0")}`; };
+  return rows.filter((r) => r.status !== "cancelled").filter((r) => {
+    const day = days.find((d) => d.weekday === localParts(r.from, tz).weekday);
+    if (!day) return false;   // that day follows the location, as it did
+    if (!day.opens || !day.closes) return true;
+    const end = hm(r.to) === "00:00" ? "24:00" : hm(r.to);
+    return hm(r.from) < day.opens || end > day.closes;
+  }).map((r) => ({ what: r.code ?? r.name ?? "", at: r.from }));
+}
+
 /** A court's own week: the weekdays listed are its own (no times: closed that day), the rest follow the location. */
 export const courtHoursSet = defineAction({
   name: "court.hours_set", version: 1,
@@ -141,8 +158,15 @@ export const courtHoursSet = defineAction({
     if (new Set(i.days.map((d) => d.weekday)).size !== i.days.length) throw new KumiError("error.bad_hours");
     for (const d of i.days) if ((d.opens === null) !== (d.closes === null) || (d.opens && d.closes! <= d.opens)) throw new KumiError("error.bad_hours");
     const p = { court: court!.name, location: loc.name, hours: { en: hoursText(i.days, "en", false), es: hoursText(i.days, "es", false) } };
-    return { title: both("action.court.hours_set"), summary: both(i.days.length === 0 ? "plan.court.hours_follow" : i.days.length === 7 ? "plan.court.hours_own" : "plan.court.hours_some", p),
-      reads: [], locationId: court!.location_id, undo: { kind: "reversible" } };
+    let summary = both(i.days.length === 0 ? "plan.court.hours_follow" : i.days.length === 7 ? "plan.court.hours_own" : "plan.court.hours_some", p);
+    // Bookings and program dates already on the court that the new hours leave outside: they stay, and the staff are told which.
+    const outside = await outsideHours(ctx.db, i.court_id, loc.time_zone, i.days, ctx.now);
+    if (outside.length) {
+      const list = (l: Lang) => outside.slice(0, 5).map((o) => `${o.what} ${dateTime(o.at, l, loc.time_zone)}`).join(", ") + (outside.length > 5 ? ", ..." : "");
+      const more = { en: t("en", "plan.court.hours_outside", { list: list("en") }), es: t("es", "plan.court.hours_outside", { list: list("es") }) };
+      summary = { en: `${summary.en} ${more.en}`, es: `${summary.es} ${more.es}` };
+    }
+    return { title: both("action.court.hours_set"), summary, reads: [], locationId: court!.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     for (const w of WEEKDAYS) {

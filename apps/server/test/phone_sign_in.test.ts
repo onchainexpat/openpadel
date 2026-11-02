@@ -76,7 +76,8 @@ test("codes are limited: three a number an hour, five wrong tries, ten minutes",
   await anHourOn();
   await post("/auth/phone/start", { phone: "503 555 0172" });
   const right = lastCode("+15035550172"), wrong = right === "000000" ? "111111" : "000000";
-  for (let i = 0; i < 4; i++) assert.equal((await post("/auth/phone/verify", { phone: "503 555 0172", code: wrong })).json.error, "error.bad_code");
+  for (let i = 0; i < 4; i++) assert.equal((await post("/auth/phone/verify", { phone: "503 555 0172", code: wrong })).json.error, "error.bad_text_code");
+  assert.match((await post("/auth/phone/verify", { phone: "503 555 0199", code: wrong })).json.message ?? "", /text/);   // a texted code is never "check the latest email"
   assert.equal((await post("/auth/phone/verify", { phone: "503 555 0172", code: wrong })).json.error, "error.too_many_attempts");
   assert.equal((await post("/auth/phone/verify", { phone: "503 555 0172", code: right })).json.error, "error.too_many_attempts");   // locked, even with the right one
   await post("/auth/phone/start", { phone: "503 555 0172" });

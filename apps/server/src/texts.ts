@@ -82,7 +82,7 @@ export function textRoutes(d: TextDeps) {
   app.post("/my/phone/verify", async (c) => {
     const id = who(c), now = d.now();
     const parsed = z.safeParse(Verify, await c.req.json().catch(() => ({})));
-    if (!parsed.success) throw new KumiError("error.bad_code", {}, 400);
+    if (!parsed.success) throw new KumiError("error.bad_text_code", {}, 400);
     const ch = await db.selectFrom("auth_challenge").selectAll().where("kind", "=", "phone_code").where("person_id", "=", id).where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
     if (!ch) throw new KumiError("error.phone_no_code", {}, 400);
     if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
@@ -90,7 +90,7 @@ export function textRoutes(d: TextDeps) {
     if (ch.code_hash !== codeHash(ch.id, parsed.data.code.trim())) {
       await db.updateTable("auth_challenge").set({ attempts: sql`attempts + 1` }).where("id", "=", ch.id).execute();
       const exhausted = ch.attempts + 1 >= MAX_TRIES;
-      throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_code", {}, exhausted ? 429 : 401);
+      throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_text_code", {}, exhausted ? 429 : 401);
     }
     await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", ch.id).execute();
     await runAsSystem(db, "phone.confirm", { person_id: id, phone: ch.target }, "web", { now });

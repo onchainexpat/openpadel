@@ -10,6 +10,9 @@ server starts.
 The first version a club can run on its own (court bookings included), or for its events alongside Playtomic.
 
 **Court bookings**
+- Giving a court its own hours names any booking or program date already there that the new hours leave
+  outside; they stay booked for the staff to move or cancel. Recording a desk payment says when it's more
+  than what's owed.
 - Opening hours and special days, court blocks, and a Courts page for staff to see the day, book at the
   desk (taking cash), block courts and cancel. No double bookings, even when many try at once.
 - Prices by court, day, time and season, sales tax, and booking rules that bookings keep once made.
@@ -105,6 +108,9 @@ The first version a club can run on its own (court bookings included), or for it
   a place in one go, with one reason; each player whose level changes is told why.
 
 **Coaches and private lessons**
+- A coach with no other staff role reads their own work: their schedule, students, programs, courts, levels
+  and their own earnings. The club's money, the member list and contact details (except their own students'),
+  memberships, messages and settings say "staff only", and the staff app doesn't offer them.
 - A profile for each coach (photo, a few lines, the levels and languages they teach, a rate for each
   lesson length, court included), the hours they give lessons each week, and time off. Coaches keep
   their own from the staff app; front desk and up keep anyone's. Members see the coaches in the app,
@@ -366,6 +372,7 @@ The first version a club can run on its own (court bookings included), or for it
   in its preview. The waiver's text box in Settings has a label for screen readers.
 
 **Signing in and roles**
+- A wrong texted code says to check the latest text, not the latest email.
 - Signing in, or joining, by a code texted to a US or Canadian mobile number, when the club texts: "Use my
   mobile number instead" on the sign-in page. A new number joins with a name and language, and no email is
   needed; the app then asks (never requires) for one, confirmed by a code, for receipts by email and to sign

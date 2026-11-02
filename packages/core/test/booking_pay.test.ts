@@ -176,4 +176,11 @@ test("a reminder a few hours before, once; and paying at the desk", async () => 
   assert.equal(paid.plan.summary.en, "Record $40.00 paid in cash for booking " + (await booking(desk.booking_id)).code + ".");
   const pay = await db.selectFrom("payment").selectAll().where("id", "=", (paid.result as any).payment_id).executeTakeFirstOrThrow();
   assert.deepEqual([pay.status, pay.method, pay.provider, pay.amount_cents], ["succeeded", "cash", "none", 4000]);
+  // Recording more than is owed says so before it's done.
+  const again = await plan(db, "booking.record_payment", { booking_id: desk.booking_id, cents: 1000, method: "cash" }, owner, { now: NOW });
+  assert.match(again.plan.summary.en, /It's already paid in full, so all \$10\.00 of this is more than the price\.$/);
+  const desk2 = (await run(db, "booking.create", { court_id: c2, starts_at: at("2026-12-09", "12:00"), minutes: 60, guest_name: "Walk-in" }, owner, { now: NOW })).result as { booking_id: string };
+  const over = await plan(db, "booking.record_payment", { booking_id: desk2.booking_id, cents: 5000, method: "cash" }, owner, { now: NOW });
+  assert.match(over.plan.summary.en, /Only \$40\.00 is owed, so \$10\.00 of this is more than the price\.$/);
+  assert.match(over.plan.summary.es, /Solo se deben/);
 });

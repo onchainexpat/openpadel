@@ -124,13 +124,13 @@ export async function startPhoneSignIn(db: Db, texter: Texter, phone: string, la
 export async function verifyPhoneCode(db: Db, phone: string, code: string, userAgent: string | null, now = new Date(), opts: { signUp?: boolean } = {}): Promise<{ token: string; personId: string } | { signUpTicket: string }> {
   const ch = await db.selectFrom("auth_challenge").selectAll().where("target", "=", phone).where("kind", "=", "phone_sign_in")
     .where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
-  if (!ch) throw new KumiError("error.bad_code", {}, 401);
+  if (!ch) throw new KumiError("error.bad_text_code", {}, 401);
   if (ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.code_expired", {}, 401);
   if (ch.attempts >= MAX_TRIES) throw new KumiError("error.too_many_attempts", {}, 429);
   if (ch.code_hash !== codeHash(ch.id, code.trim())) {
     await db.updateTable("auth_challenge").set({ attempts: sql`attempts + 1` }).where("id", "=", ch.id).execute();
     const exhausted = ch.attempts + 1 >= MAX_TRIES;
-    throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_code", {}, exhausted ? 429 : 401);
+    throw new KumiError(exhausted ? "error.too_many_attempts" : "error.bad_text_code", {}, exhausted ? 429 : 401);
   }
   const person = await personByPhone(db, phone);
   if (!person) {

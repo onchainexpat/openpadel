@@ -243,7 +243,7 @@ export function makeApp(deps: AppDeps) {
   app.post("/auth/phone/verify", async (c) => {
     texter();
     const parsed = z.safeParse(PhoneVerify, await c.req.json().catch(() => ({})));
-    if (!parsed.success) throw new KumiError("error.bad_code", {}, 400);
+    if (!parsed.success) throw new KumiError("error.bad_text_code", {}, 400);
     const r = await verifyPhoneCode(db, phoneOf(parsed.data.phone), parsed.data.code, c.req.header("user-agent") ?? null, now());
     if ("signUpTicket" in r) return c.json({ sign_up: true, ticket: r.signUpTicket, by: "phone" });
     setCookie(c, COOKIE, r.token, { httpOnly: true, secure: deps.secureCookies ?? true, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
