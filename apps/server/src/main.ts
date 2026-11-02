@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, type Texter } from "@kumi/core";
+import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, issueReceipts, paymentProvider, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl } from "./addresses.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -127,6 +127,9 @@ const jobs = async () => {
     if (mr.renewed || mr.failed || mr.ended) console.log(`membership renewals: ${mr.renewed} renewed, ${mr.failed} card declined (tried again later), ${mr.ended} ended`);
     const p = await reconcilePayments(db);
     if (p.settled) console.log(`payments: ${p.settled} settled by checking with the provider`);
+    // A receipt for each payment that went through and each refund sent (receipts.ts), with the card from the provider.
+    const rc = await issueReceipts(db, { card: async (ref, account) => (await paymentProvider().cardOf?.(ref, account)) ?? null });
+    if (rc.issued) console.log(`receipts: ${rc.issued} written`);
     await tidyVaultUploads(db);
     const fc = await tidyFamilyCards(db);
     if (fc.saved) console.log(`family cards: ${fc.saved} saved (found by checking with the provider)`);

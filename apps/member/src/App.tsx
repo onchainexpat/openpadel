@@ -18,6 +18,8 @@ const FamilyJoin = lazy(() => import("./Family.tsx").then((m) => m.FamilyJoin));
 const Waiver = lazy(() => import("./Family.tsx").then((m) => m.Waiver));
 const Ask = lazy(() => import("./Ask.tsx").then((m) => m.Ask));
 const AskThread = lazy(() => import("./Ask.tsx").then((m) => m.AskThread));
+const Receipts = lazy(() => import("./Receipts.tsx").then((m) => m.Receipts));
+const ReceiptPage = lazy(() => import("./Receipts.tsx").then((m) => m.ReceiptPage));
 
 /** Someone who joined by phone is asked to add an email, until they add one or say "not now" on this device. */
 function EmailBanner() {
@@ -73,6 +75,8 @@ export function App() {
         <Route path="/waiver" component={Waiver} />
         <Route path="/ask" component={Ask} />
         <Route path="/ask/:id" component={AskThread} />
+        <Route path="/receipts" component={Receipts} />
+        <Route path="/receipts/:id" component={ReceiptPage} />
         <Route path="/profile" component={Profile} />
       </Router>
     </LocationProvider>

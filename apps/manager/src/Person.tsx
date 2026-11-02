@@ -2,7 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
-import { AccountData, api, lang, me, t, usePreview } from "@kumi/ui";
+import { AccountData, api, lang, me, ReceiptSheet, t, usePreview, type ReceiptView } from "@kumi/ui";
 import { GiveMembership, MembershipButtons, membershipLine, type Plan } from "./Memberships.tsx";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
@@ -127,8 +127,32 @@ export function Person({ id }: { id: string }) {
           ))}</ul>
         )}
       </section>
+      <PersonReceipts personId={p.id} preview={preview} />
       {privacy && <AccountData personId={p.id} self={p.id === me.value?.person.id} onDeleted={() => route("/people")} />}
       {sheet}
     </main>
+  );
+}
+
+type ReceiptRow = { id: string; number: string; kind: "payment" | "refund"; total: string; when: string; what: string; more: number };
+/** Their receipts, for whoever takes or sees the club's money (the server says who): open one to print it, or
+ *  email it to them again. Nothing shows for anyone else. */
+function PersonReceipts({ personId, preview }: { personId: string; preview: (action: string, input: unknown) => Promise<void> | void }) {
+  const [rows, setRows] = useState<ReceiptRow[] | null>(null), [open, setOpen] = useState<ReceiptView | null>(null);
+  useEffect(() => { api<ReceiptRow[]>(`/staff/receipts?person_id=${personId}`).then(setRows).catch(() => setRows(null)); setOpen(null); }, [personId, lang.value]);
+  if (!rows) return null;
+  const show = (id: string) => api<ReceiptView>(`/staff/receipts/${id}`).then(setOpen);
+  return (
+    <section class="card">
+      <h2>{t("ui.receipts_title")}</h2>
+      {rows.length === 0 ? <p class="meta">{t("ui.receipts_none")}</p> : (
+        <ul class="plain">{rows.map((r) => (
+          <li class="row"><button class="link" onClick={() => show(r.id)}>{r.number}</button>
+            <span class="meta">{[r.when, `${r.what}${r.more ? ` ${t("ui.receipt_more", { count: r.more })}` : ""}`, `${r.kind === "refund" ? `${t("ui.receipt_refund_tag")} ` : ""}${r.total}`].join(" · ")}</span>
+            <button class="small" onClick={() => preview("receipt.resend", { receipt_id: r.id })}>{t("ui.receipt_resend")}</button></li>
+        ))}</ul>
+      )}
+      {open && <><ReceiptSheet r={open} /><p class="no-print"><button onClick={() => window.print()}>{t("ui.receipt_print")}</button></p></>}
+    </section>
   );
 }

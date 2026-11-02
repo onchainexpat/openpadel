@@ -113,6 +113,11 @@ first, and the players are told. A move keeps the price paid unless staff tick "
 time is owed at the desk; less time gives back what the club's cancellation rule says (or all, or
 nothing, as staff choose). Money paid at the desk is given back at the desk.
 
+Every payment that goes through, and every refund, gets a numbered receipt for whoever paid, by email and
+in the members' app (Profile, then Receipts). Staff with the club's money see someone's receipts on their
+page and can send one again. Turn off Stripe's own receipt emails so members don't get two
+([accounts/stripe.md](accounts/stripe.md), step 4).
+
 ### Step 5d: memberships (optional)
 
 If the club sells memberships, add its plans under Memberships in the staff app: a name, the price a

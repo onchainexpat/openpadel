@@ -50,3 +50,4 @@ export * from "./roles.ts";
 export * from "./sealed.ts";
 export * from "./vault.ts";
 export * from "./ops.ts";
+export * from "./receipts.ts";

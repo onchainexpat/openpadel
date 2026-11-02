@@ -121,3 +121,6 @@ body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
 .tg-ghost { position: absolute; left: 3px; right: 3px; z-index: 4; padding: 4px 6px; font-size: 13px; font-weight: 600; color: var(--brand); border: 2px dashed var(--brand); border-radius: 6px;
   background: color-mix(in srgb, var(--brand) 10%, transparent); pointer-events: none; }
 .alerts li strong { display: block; }
+/* A receipt: amounts to the right; printing shows only the receipt. */
+.receipt td.num { text-align: right; white-space: nowrap; }
+@media print { header, nav, .no-print, .banner, .dock { display: none !important; } .card.receipt { border: 0; padding: 0; } }

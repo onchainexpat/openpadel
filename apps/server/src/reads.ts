@@ -13,7 +13,7 @@ type Me = { id: string; locale: string } | null;
 const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
   [/^\/staff\/(people|tags)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
-  [/^\/staff\/(reports|coach-earnings|payments)/, "money"], [/^\/staff\/(settings|roles|vault)/, "settings"],
+  [/^\/staff\/(reports|coach-earnings|payments|receipts)/, "money"], [/^\/staff\/(settings|roles|vault)/, "settings"],
   [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|quote|mirror|alerts)/, "bookings"],
   [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
 ];

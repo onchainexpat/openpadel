@@ -29,6 +29,8 @@ export interface PaymentProvider {
   chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; currency: string; description: string; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; status: IntentStatus; failure?: string }>;
   /** Send a refund. Retrying with the same key never refunds twice. */
   refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; ok: boolean; failure?: string }>;
+  /** The card a payment was made with, for its receipt: the brand and the last four digits, never more. */
+  cardOf?(ref: string, account?: string | null): Promise<{ brand: string; last4: string } | null>;
 }
 
 /** A stand-in for Stripe: records what was asked, and can be told to fail. */
@@ -101,6 +103,8 @@ export class TestProvider implements PaymentProvider {
     this.chargesByKey.set(i.idempotencyKey, { asked, answer });
     return answer;
   }
+  /** Every card the stand-in takes is Stripe's test Visa. */
+  async cardOf(ref: string) { return this.intents.has(ref) || this.charges.some((c) => c.ref === ref) ? { brand: "visa", last4: "4242" } : null; }
   async refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string }) {
     const seen = this.refunds.get(i.idempotencyKey);
     if (seen) return { ref: seen.ref, ok: true };

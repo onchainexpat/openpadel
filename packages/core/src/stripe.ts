@@ -137,6 +137,13 @@ export class StripeProvider implements PaymentProvider {
     }
   }
 
+  /** The card a payment went through on (its latest charge), for the receipt: brand and last four only. */
+  async cardOf(ref: string, account?: string | null) {
+    const d = await this.call("GET", `/v1/payment_intents/${encodeURIComponent(ref)}?expand[]=latest_charge`, undefined, undefined, account);
+    const c = d?.latest_charge?.payment_method_details?.card;
+    return c?.brand && /^\d{4}$/.test(String(c.last4 ?? "")) ? { brand: String(c.brand), last4: String(c.last4) } : null;
+  }
+
   // ---- Connect: the club's own Stripe account ----
   /** A new Standard account for the club: its own Stripe account, dashboard and payouts. */
   async createAccount(i: { country: string; email?: string | null; idempotencyKey: string }): Promise<string> {

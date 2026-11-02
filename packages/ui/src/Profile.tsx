@@ -194,6 +194,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
       <PushToggle app={app} />
       {app === "member" && !m.kid && <ClubNews personId={m.person.id} />}
       {app === "member" && <Texts personId={m.person.id} />}
+      {app === "member" && <section class="card"><h2>{t("ui.receipts_title")}</h2><p><a href="/receipts">{t("ui.receipts_link")}</a></p></section>}
       <section class="card">
         <h2>{t("ui.passkeys")}</h2>
         <button onClick={addPasskey}>{t("ui.add_passkey")}</button>

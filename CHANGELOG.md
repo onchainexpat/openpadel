@@ -140,6 +140,18 @@ The first version a club can run on its own (court bookings included), or for it
   after, and friends stay off until a parent turns them on (then nobody can add them, and they can't
   take a place from someone's link). Turning the login off signs them out everywhere.
 
+**Receipts**
+- A numbered receipt for every payment that goes through and every refund sent, to whoever paid: by email
+  (whatever they chose about news) and in the members' app (Profile, then Receipts), where each prints. It
+  has the club and its address, what was bought and when, the subtotal, the sales tax when the club charges
+  it, the total, the card's brand and last four digits (from Stripe), and the date. Several courts paid in
+  one checkout share a receipt; a kid's charge on the family card is the receipt of the parent who saved the
+  card, naming the kid; a refund's receipt names the receipt it refunds. Paid at the desk (cash, the club's
+  card reader, another way) says so. No notification on phones for a receipt. Staff who take or see the
+  club's money (owners, managers, front desk, accountants) see someone's receipts on their page and can
+  email one again. Receipts start with this version: nothing paid before it gets one. Turn off Stripe's own
+  receipt emails (docs/setup/accounts/stripe.md) so members don't get two.
+
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.
 - Members join in the app and pay by card; Kumi renews from that card each period at the price they

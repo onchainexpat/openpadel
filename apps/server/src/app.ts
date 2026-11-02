@@ -28,6 +28,7 @@ import { memberUrl } from "./addresses.ts";
 import { memberRoutes } from "./member.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import { textRoutes } from "./texts.ts";
+import { receiptRoutes } from "./receipts.ts";
 import type { Mailer } from "./mailer.ts";
 
 /** The changes a staff screen offers a button for, which /me reports for people with only the club's own roles. */
@@ -188,6 +189,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", broadcastRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", publicRoutes(db, (c) => c.get("lang"), deps.memberUrl ?? memberUrl(publicUrl, {})));
   app.route("/", memberRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false, now }));
+  app.route("/", receiptRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   // Checkout asks for the challenge too, except from staff (who are already signed in, at the desk).
   const checkoutGuard = async (c: Context<Env>) => {
     const me = c.get("me");

@@ -15,6 +15,7 @@ import { declineReason, refundReason } from "./declines.ts";
 import { managersOf } from "./households.ts";
 import { paymentWhat } from "./kids.ts";
 import { TEXT_KINDS, textable, textingOn } from "./texts.ts";
+import { receiptParams } from "./receipts.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -37,6 +38,8 @@ interface Draft {
   email: boolean;               // also by email, or the inbox only
   link?: string;
   staleAt?: Date | null;        // not worth sending after this
+  push?: boolean;               // false: no notification on their phones (a receipt)
+  inbox?: boolean;              // false: no new inbox copy (a receipt sent again by email)
 }
 
 /** When quiet hours end, if `now` is inside them in the club's time; otherwise null. */
@@ -631,6 +634,16 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: p.person_id, kind: "sign_in_reset", params: { by: p.by ? both("msg.sign_in_reset_by", { by: p.by }) : both("msg.sign_in_reset_kumi") }, purpose: "account" as const, essential: true, email: true, link: "/profile" }];
   },
   // An account deleted: the club hears, without a name (it's gone), and who did it.
+  // A receipt, to whoever paid: by email and in the app, with no notification (it's a record, not news).
+  // Sent again by the staff: by email only.
+  async "receipt.issued"({ db }, p: { receipt_id: string }) {
+    const r = await receiptParams(db, p.receipt_id);
+    return r ? [{ to: r.view.person_id, kind: r.kind, params: r.params, purpose: "account" as const, essential: true, email: true, push: false, link: `/receipts/${p.receipt_id}` }] : [];
+  },
+  async "receipt.resent"({ db }, p: { receipt_id: string }) {
+    const r = await receiptParams(db, p.receipt_id);
+    return r ? [{ to: r.view.person_id, kind: r.kind, params: r.params, purpose: "account" as const, essential: true, email: true, push: false, inbox: false, link: `/receipts/${p.receipt_id}` }] : [];
+  },
   async "privacy.erased"({ db, tz }, p: { self: boolean; by: string | null; juniors: number; at: string }) {
     const by = p.by ? (await db.selectFrom("person").select("display_name").where("id", "=", p.by).executeTakeFirst())?.display_name ?? "" : "";
     const params = { when: when(new Date(p.at), tz), how: p.self ? both("msg.privacy_erased_self") : both("msg.privacy_erased_by", { by }),
@@ -681,18 +694,19 @@ async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<numbe
     let words = { subject: tidy(t(lang, `msg.${d.kind}.subject` as Key, d.params)), body: tidy(t(lang, `msg.${d.kind}.body` as Key, d.params)) };
     if (d.junior) words = { subject: t(lang, "msg.for_junior.subject", { name: d.junior, text: words.subject }), body: t(lang, "msg.for_junior.body", { name: d.junior, text: words.body }) };
     const base = { event_id: ev.id, person_id: d.to, kind: d.kind, purpose: d.purpose, essential: d.essential, lang, ...words, link: d.link ?? null, stale_at: d.staleAt ?? null };
-    const rows = [{ ...base, id: uuidv7(now.getTime()), channel: "inbox", status: "sent", send_after: now, sent_at: now }];
+    const rows = d.inbox === false ? [] : [{ ...base, id: uuidv7(now.getTime()), channel: "inbox", status: "sent", send_after: now, sent_at: now }];
     // Staff alerts and essential messages go straight away; the rest wait out quiet hours.
     const wait = d.essential || d.purpose === "staff" ? null : quietUntil(now, club.time_zone);
     if (d.email && person.email) rows.push({ ...base, id: uuidv7(now.getTime()), channel: "email", status: "waiting", send_after: wait ?? now, sent_at: null as any });
     // Every message also goes to the phones they turned notifications on for.
-    if (await hasPushDevice(db, d.to)) rows.push({ ...base, id: uuidv7(now.getTime()), channel: "push", status: "waiting", send_after: wait ?? now, sent_at: null as any });
+    if (d.push !== false && await hasPushDevice(db, d.to)) rows.push({ ...base, id: uuidv7(now.getTime()), channel: "push", status: "waiting", send_after: wait ?? now, sent_at: null as any });
     // And by text, what they need to know soon, if they said yes to texts (texts.ts); never news of what they did themselves.
     if (textingOn() && d.purpose === "account" && TEXT_KINDS.has(d.kind) && (ev.payload as { by?: unknown } | null)?.by !== d.to && "phone" in await textable(db, d.to)) {
       let text = t(lang, `msg.${d.kind}.sms` as Key, d.params);
       if (d.junior) text = t(lang, "msg.for_junior.sms", { name: d.junior, text });
       rows.push({ ...base, body: tidy(text), id: uuidv7(now.getTime()), channel: "sms", status: "waiting", send_after: wait ?? now, sent_at: null as any });
     }
+    if (!rows.length) continue;
     const r = await db.insertInto("outbound_message").values(rows as any).onConflict((oc) => oc.columns(["event_id", "person_id", "kind", "channel"]).doNothing()).execute();
     written += r.reduce((n, x) => n + Number(x.numInsertedOrUpdatedRows ?? 0), 0);
   }

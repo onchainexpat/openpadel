@@ -31,10 +31,15 @@ Stripe Billing subscription and no Billing fee on top.
 
    Payments are also checked every 30 seconds, so a missed webhook never loses one; the webhook
    just makes it instant.
-4. **Agent:** `systemctl restart kumi`, then `kumi doctor`: `payments` should say test mode.
-5. **Test:** in the members' app, sign up for a paid clinic and pay with 4242 4242 4242 4242 (any
-   future date, any CVC). Then take that member off in the staff app with a refund, and check the
-   refund in Stripe's dashboard.
+4. **Owner: turn off Stripe's own receipt emails** (Settings, then Customer emails, then "Successful
+   payments" and "Refunds" off). Kumi sends a receipt for every payment and refund itself, in the
+   member's language and in the app; with Stripe's on too, members get two. Kumi never asks Stripe to
+   email one.
+5. **Agent:** `systemctl restart kumi`, then `kumi doctor`: `payments` should say test mode.
+6. **Test:** in the members' app, sign up for a paid clinic and pay with 4242 4242 4242 4242 (any
+   future date, any CVC): a receipt arrives within a minute (Profile, then Receipts, and by email). Then
+   take that member off in the staff app with a refund, and check the refund in Stripe's dashboard and
+   the refund receipt.
 
 ## Going live (only when the owner says so)
 Stripe has finished checking the business, and the club has practised with test payments. In the
