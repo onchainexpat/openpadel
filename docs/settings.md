@@ -37,8 +37,7 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 | `KUMI_TWILIO_FROM` | Or one number instead (`+15035550123`). | not set |
 | `KUMI_SMS_TEST_TO` | Comma-separated numbers that get real texts in practice mode (`+15035550123`). | none |
 
-The monthly text cap (1,500 segments to start) and the price per segment its estimate uses (1.26 cents) are
-the club's own settings, changed by the owner or a manager in the staff app (Settings, Texts), not here.
+Texts count toward the club's one monthly cap, below.
 
 ## Ask the club (a decision model, optional)
 
@@ -48,6 +47,19 @@ the club's own settings, changed by the owner or a manager in the staff app (Set
 | `KUMI_ANTHROPIC_API_KEY` | Claude Haiku makes the same decision: when Jev fails or is slow, or on its own without a TypeSafe key. It also writes the drafts staff can ask for of the club's own words in its other language. | not set |
 
 With neither, every question goes to the staff. The club can switch answering off in Settings either way.
+
+## What outside services cost (the monthly meter)
+
+AI, texts and email are counted in the club's month, in dollars, against one cap the owner sets in the staff
+app (Usage: $50 a month to start, and an amount allowed over it in a busy month, none to start). The cap is
+the club's setting, not the server's. What each thing costs is the server's:
+
+| Setting | What it does | Default |
+|---|---|---|
+| `KUMI_PRICES` | Prices in cents, comma-separated, for any that differ from list prices: `text_segment` (a text segment with the carrier fee), `email` (one email), and per million tokens `jev_input`, `jev_output`, `haiku_input`, `haiku_output`. Like `text_segment=0.83,email=0`. A hosted service sets its own; a club on its own keys can set what its providers charge it. | `text_segment=1.26,email=0.09,jev_input=4.2,jev_output=0,haiku_input=10,haiku_output=50` |
+
+A price counts from when it's set: what's already counted keeps the price it had. `kumi usage --json` gives a
+month's lines by kind (calls, tokens, segments, emails and cents to four places).
 
 ## Card payments (Stripe)
 

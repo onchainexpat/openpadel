@@ -130,6 +130,18 @@ copied booking does:
   said once.
 - **Cancelled or gone in Playtomic:** the court is free again in Kumi.
 
+### What outside services cost: one monthly cap
+
+AI (the decisions "ask the club" makes, and drafts of the club's words in its other language), texts and
+email each cost the club something, so Kumi counts them in the club's month, in dollars, on one meter: the
+staff app's Usage page, `kumi usage` on the server (`--json` for a host's bill), and `kumi doctor`. The owner
+sets one monthly cap ($50 to start) and can allow an amount over it for a busy month; a manager can ask.
+At 80% of the cap and at the cap the owner and managers hear once each. Past the cap and what's allowed over
+it, what can wait waits until the 1st: no drafts, club news emails go when the month starts, and texts that
+can wait reach members in the app and by email instead. Answers from the club's facts, sign-in codes,
+confirmations and cancellations keep going, up to twice that, so a bill can pass the cap by cents but never
+run away. Prices are list prices unless `KUMI_PRICES` says otherwise (`docs/settings.md`).
+
 ## Taking part
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for changes, [`SECURITY.md`](SECURITY.md) for security problems,

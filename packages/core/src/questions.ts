@@ -18,6 +18,7 @@ import { uuidv7 } from "./ids.ts";
 import { localDate } from "./clock.ts";
 import { openingOn } from "./bookings.ts";
 import { managersOf, withManagers } from "./households.ts";
+import { usageAllows } from "./usage.ts";
 
 export const FACT_TOPICS = ["general", "hours", "prices", "bookings", "memberships", "programs", "lessons", "juniors", "rules", "parking", "facilities"] as const;
 export type FactTopic = typeof FACT_TOPICS[number];
@@ -187,6 +188,8 @@ async function answerQuestion(db: Db, q: { id: string; messageId: string; text: 
     const lang = await langOf(db, q.askedBy);
     if (a === staffOnly) choice = { outcome: "staff", confidence: null };
     else if (!(await autoAnswering(db))) choice = { outcome: "staff", confidence: null, detail: { skipped: "club_off" } };
+    // Decisions keep running past the club's monthly cap, up to the meter's ceiling (usage.ts).
+    else if (!(await usageAllows(db, "essential", 0, now))) choice = { outcome: "staff", confidence: null, detail: { skipped: "usage_ceiling" } };
     else {
       const facts = await candidatesFor(db, q.text, lang);
       if (!facts.length) choice = { outcome: "staff", confidence: null, detail: { skipped: "no_facts" } };

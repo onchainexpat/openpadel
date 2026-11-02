@@ -88,8 +88,11 @@ export function choose(r: Reading, facts: AnswerCandidate[], keys: string[]): { 
   return { outcome: "fact", factId: facts[at]!.id, best };
 }
 
+/** What a model's answer used, for the club's monthly meter (usage.ts). */
+export type OnUsage = (u: { model: "jev" | "haiku"; tokens: { input: number; output: number } }) => Promise<void>;
+
 /** The answerer: each model in turn until one answers. Null when no model is set up. */
-export function makeAnswerer(providers: Provider[], clock: () => number = Date.now): Answerer | null {
+export function makeAnswerer(providers: Provider[], clock: () => number = Date.now, onUsage?: OnUsage): Answerer | null {
   if (!providers.length) return null;
   return {
     name: providers.map((p) => p.name).join("+"), version: ANSWER_QUESTIONS_VERSION,
@@ -102,6 +105,8 @@ export function makeAnswerer(providers: Provider[], clock: () => number = Date.n
         const t0 = clock();
         try {
           const r = await p.read(state, keys), ms = clock() - t0, c = choose(r, facts, keys);
+          // Counted, never in the way: a meter that can't be written doesn't stop the answer.
+          if (onUsage) await onUsage({ model: p.name, tokens: r.tokens }).catch(() => {});
           const detail = { provider: p.name, model: r.model, ms, tokens: r.tokens, needs_person: r.needsPerson, thresholds: { fit: FIT_AT_LEAST, person: PERSON_BELOW },
             // How well each fact answered it, by fact id (kept here only).
             fits: Object.fromEntries(keys.map((k, n) => [facts[n]!.id, r.fits[k] ?? 0])), ...(failed.length ? { failed } : {}) };
@@ -123,9 +128,9 @@ function errorText(e: unknown): string {
 export function answerModels(env: Env): ("jev" | "haiku")[] {
   return [...(env.KUMI_TYPESAFE_API_KEY?.trim() ? ["jev" as const] : []), ...(env.KUMI_ANTHROPIC_API_KEY?.trim() ? ["haiku" as const] : [])];
 }
-export function answererFromEnv(env: Env, fetchFn?: Fetch): Answerer | null {
+export function answererFromEnv(env: Env, fetchFn?: Fetch, onUsage?: OnUsage): Answerer | null {
   const ts = env.KUMI_TYPESAFE_API_KEY?.trim(), an = env.KUMI_ANTHROPIC_API_KEY?.trim();
-  return makeAnswerer([...(ts ? [jevProvider(ts, fetchFn)] : []), ...(an ? [haikuProvider(an, fetchFn)] : [])]);
+  return makeAnswerer([...(ts ? [jevProvider(ts, fetchFn)] : []), ...(an ? [haikuProvider(an, fetchFn)] : [])], Date.now, onUsage);
 }
 
 /** For `kumi doctor`: does each model take its key? Listing models is free on both, so nothing is spent. */

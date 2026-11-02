@@ -5,7 +5,7 @@
 import { statfsSync } from "node:fs";
 import type { Context } from "hono";
 import { sql } from "kysely";
-import { answerCounts, heartbeats, jobFailed, jobWorked, KumiError, MAX_ATTEMPTS, textCounts, textingOn, textUsage, type Db } from "@kumi/core";
+import { answerCounts, heartbeats, jobFailed, jobWorked, KumiError, MAX_ATTEMPTS, textCounts, textingOn, textUsage, usageView, type Db } from "@kumi/core";
 import { both } from "@kumi/i18n";
 import { newestLocalAge } from "./backups.ts";
 import { handledTopics } from "./outbox.ts";
@@ -62,8 +62,8 @@ export async function deepHealth(db: Db, o: { env?: Env; now?: Date; backupDir?:
   if (restore.error || (restore.last_ok_hours !== null && restore.last_ok_hours > 40 * 24)) problems.push("restore_test");
 
   // Texts in the last day, when the club texts: more than a fifth failing means they aren't getting through.
-  // And this month's, against the club's cap (text_usage.ts): reaching it is the club's own limit, not a fault.
-  const use = await textUsage(db, now), month = use && { texts: use.current.texts, segments: use.current.segments, cap: use.cap, held: use.current.held,
+  // And this month's (text_usage.ts).
+  const use = await textUsage(db, now), month = use && { texts: use.current.texts, segments: use.current.segments, held: use.current.held,
     estimate_cents: use.current.estimate_cents, actual_cents: use.current.priced ? use.current.actual_cents : null, paused: use.paused };
   const t = await textCounts(db, now), texts = { on: textingOn(), ...t, month };
   if (texts.on && t.sent + t.failed >= 5 && t.failed / (t.sent + t.failed) > 0.2) problems.push("texts");
@@ -74,9 +74,13 @@ export async function deepHealth(db: Db, o: { env?: Env; now?: Date; backupDir?:
   const answers = { models, club_on: (await db.selectFrom("club").select("auto_answers").executeTakeFirst())?.auto_answers ?? true, ...a };
   if (models.length && a.total >= 5 && a.errors / a.total > 0.2) problems.push("answers");
 
+  // The club's monthly meter (usage.ts): reaching the cap is the club's own limit, not a fault.
+  const u = await usageView(db, now);
+  const usage = u && { month: u.month, spent_cents: u.spent_cents, cap_cents: u.cap_cents, limit_cents: u.limit_cents, state: u.state };
+
   const disks = [disk(dir), disk(process.cwd())];
   if (disks.some((d) => d.free_mb !== null && d.total_mb !== null && d.free_mb < Math.max(1024, d.total_mb * 0.1))) problems.push("disk");
-  return { ok: problems.length === 0, version: VERSION, revision: REVISION, database, outbox, backup, offsite, restore_test: restore, texts, answers, disks, problems };
+  return { ok: problems.length === 0, version: VERSION, revision: REVISION, database, outbox, backup, offsite, restore_test: restore, texts, usage, answers, disks, problems };
 }
 
 /** What the server watches besides its own jobs, every few minutes: texts getting through, and ask the club's

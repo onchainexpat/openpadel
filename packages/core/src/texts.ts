@@ -268,7 +268,7 @@ export async function sendTexts(db: Db, texter: Texter, o: { memberUrl: string; 
     const why = m.stale_at && m.stale_at <= now ? "stale" : "why" in to ? to.why : null;
     if (why) { await db.updateTable("outbound_message").set({ status: "dropped", sent_at: null, failure: why }).where("id", "=", m.id).execute(); out.dropped++; continue; }
     const words = textWords(club, m.body, m.lang === "es" ? "es" : "en", m.link, o.memberUrl), segs = segments(words);
-    // Past the club's monthly cap (text_usage.ts): not sent; the message is in their inbox, and goes by email.
+    // Past the club's monthly meter (usage.ts): not sent; the message is in their inbox, and goes by email.
     if (!(await textAllowed(db, "message", segs, now)).ok) { await heldByCap(db, m.id, words, now); out.dropped++; continue; }
     try {
       const r = await texter.send({ to: (to as { phone: string }).phone, body: words, ...(o.statusCallback ? { statusCallback: o.statusCallback } : {}) });
@@ -291,7 +291,7 @@ export async function sendTexts(db: Db, texter: Texter, o: { memberUrl: string; 
 /** A text the monthly cap kept back. It's in their inbox already; it goes by email too, where they have one and
  *  weren't getting this message by email anyway. */
 async function heldByCap(db: Db, id: string, words: string, now: Date) {
-  const m = await db.updateTable("outbound_message").set({ status: "dropped", sent_at: null, body: words, failure: "monthly text cap reached" }).where("id", "=", id)
+  const m = await db.updateTable("outbound_message").set({ status: "dropped", sent_at: null, body: words, failure: "monthly cap reached" }).where("id", "=", id)
     .returning(["event_id", "person_id", "kind"]).executeTakeFirstOrThrow();
   await countHeld(db, now);
   const email = (await db.selectFrom("person").select("email").where("id", "=", m.person_id).executeTakeFirst())?.email;

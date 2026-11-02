@@ -1,8 +1,8 @@
 import { serve } from "@hono/node-server";
-import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, registeredSender, textingOn, TextError, jobFailed, jobWorked, type Texter } from "@kumi/core";
+import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
-import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
+import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 import { hasSender, PracticeTexter, TwilioTexter, twilioFromEnv, type TwilioConfig } from "./twilio.ts";
 import { checkTextingNumber, refreshTexting } from "./texting.ts";
 import { watchHealth } from "./health.ts";
@@ -21,6 +21,10 @@ if (!process.env.KUMI_SECRET_KEY?.trim()) {
 }
 try { setSecretKeys({ current: process.env.KUMI_SECRET_KEY, previous: process.env.KUMI_SECRET_KEY_PREVIOUS }); }
 catch (e) { console.error(`KUMI_SECRET_KEY: ${(e as Error).message}`); process.exit(1); }
+// What AI, texts and email cost, for the club's monthly meter (usage.ts): list prices unless KUMI_PRICES says
+// otherwise (a host's own prices, or a club's deal with its providers).
+try { setPrices(parsePrices(process.env.KUMI_PRICES)); }
+catch (e) { console.error((e as Error).message); process.exit(1); }
 
 // Live with no email key, sign-in codes would only be written to the log, readable by anyone who can read it:
 // refuse to start instead. In practice (and development) the log is how the owner signs in before email is set up.
@@ -78,7 +82,8 @@ let mailer: Mailer = new MemoryMailer(true);
 if (process.env.KUMI_RESEND_API_KEY) {
   const from = process.env.KUMI_MAIL_FROM;
   if (!from) { console.error("KUMI_RESEND_API_KEY needs KUMI_MAIL_FROM, the address on the club's own domain"); process.exit(1); }
-  const resend = new ResendMailer({ apiKey: process.env.KUMI_RESEND_API_KEY, from, replyTo: process.env.KUMI_MAIL_REPLY_TO });
+  // Each email Resend takes counts on the club's monthly meter (usage.ts); held practice email doesn't.
+  const resend = new MeteredMailer(new ResendMailer({ apiKey: process.env.KUMI_RESEND_API_KEY, from, replyTo: process.env.KUMI_MAIL_REPLY_TO }), db);
   const testTo = (process.env.KUMI_MAIL_TEST_TO ?? "").split(",");
   // A trial server runs in production mode (HTTPS cookies) but still in practice until the club switches over.
   const practice = !production || process.env.KUMI_PRACTICE === "1";
@@ -112,7 +117,8 @@ const texter: Texter | null = twilio ? { send: (x) => { if (!sending) throw new 
 // Ask the club: with a decision model's key (KUMI_TYPESAFE_API_KEY for Jev, KUMI_ANTHROPIC_API_KEY for Claude
 // Haiku, or both), Kumi answers a new question from the club's facts, word for word, or hands it to the staff
 // (answerer.ts). The club can still switch it off in Settings. Without a key every question goes to the staff.
-const answerer = answererFromEnv(process.env);
+// Each model's answer counts on the club's monthly meter (usage.ts).
+const answerer = answererFromEnv(process.env, undefined, (u) => countAi(db, "ai_decisions", u.model, u.tokens));
 if (answerer) { setAnswerer(answerer); console.log(`ask the club: answered by ${answerer.name}`); }
 // Drafts of the club's own words in its other language, for staff to check (translate.ts): the same Anthropic key.
 setTranslator(translatorFromEnv(process.env));

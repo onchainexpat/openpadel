@@ -67,10 +67,14 @@ test("Jev: only the question's words and the facts go out, under short keys; a f
 
 test("Claude Haiku when Jev fails, slow or down: the same decision, from a fixed list of answers, and why Jev was passed over is kept", async () => {
   const jevSent: Sent[] = [], claudeSent: Sent[] = [];
-  const a = makeAnswerer([jevProvider("k", fakeJev({}, jevSent, 503)), haikuProvider("sk-ant-test", fakeClaude({ answer: "a1", needs_person: false }, claudeSent))])!;
+  const used: unknown[] = [];
+  const a = makeAnswerer([jevProvider("k", fakeJev({}, jevSent, 503)), haikuProvider("sk-ant-test", fakeClaude({ answer: "a1", needs_person: false }, claudeSent))], Date.now,
+    async (u) => { used.push(u); })!;
   assert.equal(a.name, "jev+haiku");
   const c = await a.decide({ text: "¿A qué hora abren?", lang: "es" }, FACTS);
   assert.deepEqual([c.outcome, c.factId, c.confidence, c.by], ["fact", FACTS[0]!.id, null, "haiku"]);   // no calibrated probability from Haiku
+  // The club's meter hears what the model that answered used (usage.ts).
+  assert.deepEqual(used, [{ model: "haiku", tokens: { input: 380, output: 14 } }]);
   assert.deepEqual((c.detail as any).failed.map((f: any) => [f.provider, f.error]), [["jev", "HTTP 503"]]);
   const req = claudeSent[0]!;
   assert.equal(req.url, "https://api.anthropic.com/v1/messages");

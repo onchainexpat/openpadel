@@ -231,6 +231,15 @@ test("ask the club: the question is saved before the model is asked, a staff ans
     assert.deepEqual(await db.selectFrom("answer_decision").select(["answerer", "detail"]).where("question_id", "=", (c.result as any).question_id).executeTakeFirstOrThrow(),
       { answerer: "test_model", detail: { skipped: "club_off" } });
     await run(db, "club.update", { auto_answers: true }, owner);
+    // Past the club's monthly meter's ceiling (twice the limit, at least $2): not asked either. Below it, decisions
+    // keep going past the cap.
+    await db.updateTable("club").set({ usage_cap_cents: 0 }).execute();
+    await db.insertInto("usage_month").values({ month: "2026-12-01", kind: "texts", count: 1, segments: 1, cents: "200.5" }).execute();
+    const cut = await run(db, "question.ask", { person_id: people.Ben, body: "Is there parking?" }, as("Ben"), { now: at("2026-12-08", "12:30") });
+    assert.deepEqual(await db.selectFrom("answer_decision").select(["answerer", "detail"]).where("question_id", "=", (cut.result as any).question_id).executeTakeFirstOrThrow(),
+      { answerer: "test_model", detail: { skipped: "usage_ceiling" } });
+    await db.deleteFrom("usage_month").execute();
+    await db.updateTable("club").set({ usage_cap_cents: 5000 }).execute();
     // The health check's count leaves out questions no model was asked about.
     assert.deepEqual(await answerCounts(db, at("2026-12-08", "13:00")), { total: 2, answered: 1, errors: 0 });
   } finally { setAnswerer(staffOnly); }

@@ -66,7 +66,7 @@ test("signing up with something to pay waits in the inbox; the payment brings th
   assert.equal(email!.status, "waiting"); assert.ok(email!.essential);
   assert.match(email!.body, /We have your \$30\.00 for Friday social/);
   const box = new Outbox();
-  assert.deepEqual(await sendEmails(db, box), { sent: 1, dropped: 0, failed: 0 });
+  assert.deepEqual(await sendEmails(db, box), { sent: 1, dropped: 0, failed: 0, waiting: 0 });
   assert.equal(box.sent[0]!.to, "sam@example.test"); assert.equal(box.sent[0]!.subject, "Paid: Friday social");
 });
 

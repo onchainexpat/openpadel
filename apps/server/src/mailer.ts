@@ -1,7 +1,7 @@
 // Email goes through a Mailer. In development it is kept in memory and logged. With a Resend key it
 // goes from the club's own domain, and outside production only to the test addresses listed, so a
 // practice run never reaches a real member.
-import type { Mail, Mailer } from "@kumi/core";
+import { countEmail, type Db, type Mail, type Mailer } from "@kumi/core";
 export type { Mail, Mailer };
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
@@ -50,5 +50,18 @@ export class PracticeMailer implements Mailer {
     if (this.allowed.has(mail.to.toLowerCase())) return this.inner.send(mail);
     this.held.push(mail);
     console.log(`[mail held, practice] to ${mail.to}: ${mail.subject}`);
+  }
+}
+
+/** Each email the provider took counts on the club's monthly meter (usage.ts). Wraps the real sender only, so
+ *  email held in practice isn't counted. A meter that can't be written never stops the email. */
+export class MeteredMailer implements Mailer {
+  private readonly inner: Mailer;
+  private readonly db: Db;
+  private readonly now: () => Date;
+  constructor(inner: Mailer, db: Db, now: () => Date = () => new Date()) { this.inner = inner; this.db = db; this.now = now; }
+  async send(mail: Mail) {
+    await this.inner.send(mail);
+    await countEmail(this.db, this.now()).catch((e) => console.error(`usage: an email wasn't counted: ${(e as Error).message}`));
   }
 }

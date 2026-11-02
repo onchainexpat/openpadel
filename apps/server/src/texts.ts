@@ -97,7 +97,7 @@ export function textRoutes(d: TextDeps) {
     });
     if (taken) return c.json({ sent: true, phone: showPhone(phone) });
     const body = textWords(await clubName(), t(lang, "sms.code", { code }), lang, null, d.memberUrl), segs = segments(body);
-    // Codes keep going past the monthly text cap, up to its ceiling (text_usage.ts).
+    // Codes keep going past the club's monthly cap, up to the meter's ceiling (usage.ts).
     if (!(await textAllowed(db, "code", segs, now)).ok) { await db.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", cid).execute(); throw new KumiError("error.texts_paused", {}, 429); }
     try { if ((await d.texter!.send({ to: phone, body })).ref) await countText(db, "code", segs, now); }
     catch (e) {

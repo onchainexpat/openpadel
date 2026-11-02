@@ -114,11 +114,18 @@ test("a draft in the other language: staff only, only with a translator, never s
   assert.equal((await post("/staff/translate", "Robin", { text: "Six courts", from: "en", to: "es" })).status, 404, "no key: no drafts");
   assert.equal((await get("/club", "Robin")).json.drafts, false);
   const sent: string[] = [];
-  setTranslator(async (text, from, to) => { sent.push(text); return `[${from}>${to}] ${text}`; });
+  setTranslator(async (text, from, to) => { sent.push(text); return { text: `[${from}>${to}] ${text}`, tokens: { input: 400, output: 100 } }; });
   assert.equal((await get("/club", "Robin")).json.drafts, true);
   const r = await post("/staff/translate", "Robin", { text: "Six courts by the river.", from: "en", to: "es" });
   assert.deepEqual([r.status, r.json.draft], [200, "[en>es] Six courts by the river."]);
   assert.deepEqual(sent, ["Six courts by the river."], "only the text goes out");
+  // Counted on the club's meter at Haiku's price (400 in, 100 out: 0.009 cents); past the limit, no drafts till the 1st.
+  const line = await db.selectFrom("usage_month").select(["count", "input_tokens", "output_tokens", "cents"]).where("kind", "=", "ai_drafts").executeTakeFirstOrThrow();
+  assert.deepEqual([line.count, line.input_tokens, line.output_tokens, Number(line.cents)], [1, "400", "100", 0.009]);
+  await db.updateTable("club").set({ usage_cap_cents: 0 }).execute();
+  const paused = await post("/staff/translate", "Robin", { text: "Six courts", from: "en", to: "es" });
+  assert.deepEqual([paused.status, paused.json.error, sent.length], [429, "error.drafts_paused", 1]);
+  await db.updateTable("club").set({ usage_cap_cents: 5000 }).execute();
   assert.equal((await post("/staff/translate", "Ana", { text: "Hola", from: "es", to: "en" })).status, 403);
   assert.equal((await post("/staff/translate", "Robin", { text: "x", from: "en", to: "en" })).status, 400);
   assert.equal((await db.selectFrom("club").select("about").executeTakeFirstOrThrow()).about, "Six courts by the river.", "nothing saved");

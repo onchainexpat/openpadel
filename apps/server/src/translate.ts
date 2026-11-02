@@ -1,16 +1,18 @@
 // "Offer a draft": the club's own words (a plan's description, a program's name, the waiver, a coach's bio) put
 // into the club's other language by Claude Haiku, through the same Anthropic key ask the club uses
 // (KUMI_ANTHROPIC_API_KEY). The draft lands in the staff form's field: a person reads it, changes what needs
-// changing and saves it. Nothing is saved from here. Only the text to translate leaves the server.
+// changing and saves it. Nothing is saved from here. Only the text to translate leaves the server. Each draft
+// counts on the club's monthly meter (usage.ts), and past the club's limit there are none until the 1st.
 import Anthropic from "@anthropic-ai/sdk";
 import { Hono, type Context } from "hono";
-import { KumiError, type Db } from "@kumi/core";
+import { countAi, KumiError, usageAllows, type Db } from "@kumi/core";
 import { isLang, type Lang } from "@kumi/i18n";
 import { HAIKU_MODEL } from "./answerer.ts";
 
 type Env = Record<string, string | undefined>;
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
-export type Translator = (text: string, from: Lang, to: Lang) => Promise<string>;
+/** The draft, and what it used (for the meter). */
+export type Translator = (text: string, from: Lang, to: Lang) => Promise<{ text: string; tokens: { input: number; output: number } }>;
 
 const NAMES: Record<Lang, string> = { en: "English (United States)", es: "Spanish (as spoken in the United States)" };
 const SYSTEM = (from: Lang, to: Lang) => `You translate a padel club's own text for its members: a membership plan, a program's name, the club's waiver, a coach's bio, a price's name or the club's short description. Translate from ${NAMES[from]} into ${NAMES[to]}.
@@ -31,7 +33,7 @@ export function haikuTranslator(key: string, fetchFn?: Fetch): Translator {
     const block = m.content.find((b) => b.type === "text");
     const out = (JSON.parse(block && block.type === "text" ? block.text : "") as { translation?: unknown }).translation;
     if (typeof out !== "string" || !out.trim()) throw new Error("no translation");
-    return out.trim();
+    return { text: out.trim(), tokens: { input: m.usage.input_tokens, output: m.usage.output_tokens } };
   };
 }
 /** The translator the server's settings turn on: Haiku when an Anthropic key is set, otherwise none (no button). */
@@ -57,9 +59,13 @@ export function translateRoutes(db: Db, me: (c: Context<any>) => Me, opts: { now
     if (!text || text.length > 20_000 || !isLang(b.from) || !isLang(b.to) || b.from === b.to) throw new KumiError("error.invalid_input", { details: "text, from and to" }, 400);
     const at = now().getTime(), mine = (used.get(m.id) ?? []).filter((t) => t > at - 3_600_000);
     if (mine.length >= PER_HOUR) throw new KumiError("error.too_many_drafts", {}, 429);
+    if (!(await usageAllows(db, "can_wait", 0, now()))) throw new KumiError("error.drafts_paused", {}, 429);
     used.set(m.id, [...mine, at]);
-    try { return c.json({ draft: await current(text, b.from, b.to) }); }
+    let d: Awaited<ReturnType<Translator>>;
+    try { d = await current(text, b.from, b.to); }
     catch { throw new KumiError("error.draft_failed", {}, 502); }
+    await countAi(db, "ai_drafts", "haiku", d.tokens, now()).catch(() => {});
+    return c.json({ draft: d.text });
   });
   return app;
 }

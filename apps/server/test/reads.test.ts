@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { run, runAsSystem, uuidv7, type Actor, type Db } from "@kumi/core";
+import { countAi, countEmail, run, runAsSystem, uuidv7, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
@@ -83,6 +83,17 @@ test("a player's level, with why it moved, in the reader's language", async () =
   const r = (await get(`/staff/people/${who.id}/level`, cookie)).json;
   assert.equal(r.rating.rated_games, 1);
   assert.match(r.events[0].explanation, /^Won 14 to 10 with /);
+});
+
+test("the club's monthly meter: the owner and managers read it, by kind against the cap; the desk doesn't", async () => {
+  await countEmail(db); await countAi(db, "ai_decisions", "haiku", { input: 3000, output: 200 });
+  const r = await get("/staff/usage", await signIn("robin@example.test"));
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.json.usage.cap_cents, r.json.usage.state, r.json.usage.kinds.email.count, r.json.usage.kinds.ai_decisions.count], [5000, "ok", 1, 1]);
+  const desk = uuidv7(), role = await db.selectFrom("role").select("id").where("key", "=", "front_desk").executeTakeFirstOrThrow();
+  await db.insertInto("person").values({ id: desk, display_name: "Lee", email: "lee@example.test", locale: "en", created_via: "desk" }).execute();
+  await db.insertInto("person_role").values({ id: uuidv7(), person_id: desk, role_id: role.id, location_id: null }).execute();
+  assert.equal((await get("/staff/usage", await signIn("lee@example.test"))).status, 403);
 });
 
 test("members can't read staff pages", async () => {

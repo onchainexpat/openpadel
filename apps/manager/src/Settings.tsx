@@ -15,7 +15,7 @@ type Policy = { version_no: number; days_ahead: number; max_active: number; free
 type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
-type Usage = { cap: number; cents_per_segment: number; code_ceiling: number; share: number | null; paused: boolean; resets: string; current: Month; history: Month[] };
+type Usage = { cents_per_segment: number; paused: boolean; resets: string; current: Month; history: Month[] };
 type Texting = { on: boolean; status: string | null; number: string | null; said: string[]; usage: Usage | null };
 type S = { club: ClubRow; answerer: string; texting: Texting; policy: Policy; plans: Plan[]; locations: Loc[]; waiver: { version_no: number; body: string; translations?: unknown } | null };
 type Preview = (action: string, input: unknown) => Promise<void>;
@@ -49,7 +49,7 @@ export function Settings() {
       <ClubForm key={JSON.stringify(s.club)} c={s.club} answerer={s.answerer} send={send} />
       <BookingRules key={JSON.stringify(s.policy)} p={s.policy} send={send} />
       <WaiverForm key={JSON.stringify(s.waiver)} w={s.waiver} send={send} />
-      <TextingCard key={JSON.stringify(s.texting.usage)} x={s.texting} tz={s.club.time_zone} send={send} />
+      <TextingCard x={s.texting} tz={s.club.time_zone} />
       <SignInCard key={s.club.two_factor} rule={s.club.two_factor} send={send} />
       {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} plans={s.plans} send={send} />)}
       <NewLocation tz={s.club.time_zone} send={send} />
@@ -60,14 +60,12 @@ export function Settings() {
 }
 
 /** Texts: on or off, where the club's registration with US carriers stands (done from the server, `kumi
- *  texting`), this month's texts against the club's monthly cap, and the cap itself (owners and managers). */
-function TextingCard({ x, tz, send }: { x: Texting; tz: string; send: Preview }) {
-  const u = x.usage, boss = me.value?.roles.some((r) => r.key === "owner" || r.key === "manager");
-  const [cap, setCap] = useState(String(u?.cap ?? "")), [cost, setCost] = useState(String(u?.cents_per_segment ?? ""));
-  const usd = (cents: number) => dollars(cents, lang.value), loc = lang.value === "es" ? "es-US" : "en-US";
+ *  texting`), and this month's texts. They count toward the club's one monthly cap, on the Usage page. */
+function TextingCard({ x, tz }: { x: Texting; tz: string }) {
+  const u = x.usage, usd = (cents: number) => dollars(cents, lang.value), loc = lang.value === "es" ? "es-US" : "en-US";
   const monthName = (m: string) => new Intl.DateTimeFormat(loc, { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${m}T12:00:00Z`));
   const day = (iso: string) => new Intl.DateTimeFormat(loc, { day: "numeric", month: "long", timeZone: tz }).format(new Date(iso));
-  const changed = u && (Number(cap) !== u.cap || Number(cost) !== u.cents_per_segment);
+  const boss = me.value?.roles.some((r) => r.key === "owner" || r.key === "manager");
   return (
     <section class="card card-form">
       <h2>{t("ui.texting_title")}</h2>
@@ -75,17 +73,11 @@ function TextingCard({ x, tz, send }: { x: Texting; tz: string; send: Preview })
       {x.said.map((line) => <p class="meta">{line}</p>)}
       {!x.on && <p class="meta">{t("ui.texting_how")}</p>}
       {u && <>
-        <p class="meta">{t("ui.texts_month", { texts: u.current.texts, segments: u.current.segments, cap: u.cap, share: Math.round((u.share ?? 0) * 100), money: usd(u.current.estimate_cents) })}</p>
+        <p class="meta">{t("ui.texts_month", { texts: u.current.texts, segments: u.current.segments, money: usd(u.current.estimate_cents) })}</p>
         {u.current.priced > 0 && <p class="meta">{t("ui.texts_actual", { count: u.current.priced, money: usd(u.current.actual_cents) })}</p>}
         {u.paused && <p class="note" role="status">{t("ui.texts_paused", { resets: day(u.resets) })}</p>}
         {u.current.held > 0 && <p class="meta">{t("ui.texts_held", { count: u.current.held })}</p>}
-        <p class="meta">{t("ui.texts_codes", { ceiling: u.code_ceiling })}</p>
-        {boss && <>
-          <label>{t("ui.texts_cap")}<input type="number" min={0} max={1000000} step={1} value={cap} onInput={(e) => setCap(e.currentTarget.value)} /></label>
-          <label>{t("ui.texts_cost")}<input type="number" min={0} max={100} step={0.001} value={cost} onInput={(e) => setCost(e.currentTarget.value)} /></label>
-          <p class="meta">{t("ui.texts_cap_hint")}</p>
-          <button class="primary" disabled={!changed || cap === "" || cost === ""} onClick={() => send("texts.cap_set", { cap_segments: Math.round(Number(cap)), ...(Number(cost) !== u.cents_per_segment ? { cents_per_segment: Number(cost) } : {}) })}>{t("ui.preview")}</button>
-        </>}
+        <p class="meta">{t("ui.texts_codes")}{boss && <> <a href="/usage">{t("ui.texts_usage_link")}</a></>}</p>
         {u.history.length > 0 && <details><summary>{t("ui.texts_history")}</summary><ul class="plain">
           {u.history.map((m) => <li class="meta">{t("ui.texts_history_row", { month: monthName(m.month), texts: m.texts, segments: m.segments, money: usd(m.estimate_cents) })}</li>)}
         </ul></details>}

@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { MemoryMailer, PracticeMailer, ResendMailer } from "../src/mailer.ts";
+import { freshDb } from "../../../packages/core/test/helpers.ts";
+import { runAsSystem, usageView } from "@kumi/core";
+import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer } from "../src/mailer.ts";
 
 function fakeResend(status = 200, reply: unknown = { id: "e_1" }) {
   const calls: { url: string; headers: Record<string, string>; body: any }[] = [];
@@ -50,4 +52,17 @@ test("the memory mailer keeps only the newest 500", async () => {
   for (let i = 0; i < 520; i++) await m.send({ to: `p${i}@example.test`, subject: "x", text: "x" } as any);
   assert.equal(m.sent.length, 500);
   assert.equal(m.sent[0]!.to, "p20@example.test");
+});
+
+test("each email the provider takes counts on the club's meter; one it refuses doesn't, and practice email held back doesn't either", async () => {
+  const { db, drop } = await freshDb();
+  try {
+    await runAsSystem(db, "club.setup", { name: "Kestrel Padel", time_zone: "America/Los_Angeles", owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
+    const ok = new MeteredMailer(new ResendMailer({ apiKey: "re_x", from: "hello@kestrel.example", fetch: fakeResend().fetch }), db);
+    await ok.send({ to: "a@example.test", subject: "s", text: "t" });
+    const no = new MeteredMailer(new ResendMailer({ apiKey: "re_x", from: "hello@kestrel.example", fetch: fakeResend(500).fetch }), db);
+    await assert.rejects(no.send({ to: "a@example.test", subject: "s", text: "t" }));
+    await new PracticeMailer(ok, ["desk@kestrel.example"]).send({ to: "a@example.test", subject: "s", text: "t" });
+    assert.equal((await usageView(db))!.kinds.email.count, 1);
+  } finally { await drop(); }
 });

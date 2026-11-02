@@ -5,6 +5,24 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
+## Unreleased
+
+### Added
+- One monthly cap for what outside services cost the club: AI (answers from the club's facts, and drafts in
+  its other language), texts and email are counted in the club's month, in dollars, on the staff app's new
+  Usage page, in `kumi usage` (`--json` for a bill) and in `kumi doctor`. The owner sets the cap ($50 to
+  start) and an amount allowed over it in a busy month; a manager can ask. At 80% and at the cap the owner
+  and managers hear once each. Past it, what can wait waits until the 1st (drafts, club news emails, and
+  texts that can go in the app and by email); answers from the club's facts, sign-in codes, confirmations
+  and cancellations keep going, up to twice the limit.
+
+### Changed
+- The monthly text cap in segments is folded into the one cap. Settings, Texts still shows the month's texts.
+
+### When updating
+- Nothing to do. The cap starts at $50 a month, whatever the text cap was. Prices are list prices; set
+  `KUMI_PRICES` if your providers charge you differently (`docs/settings.md`).
+
 ## 0.1.0 (2026-11-02)
 
 The first release: a club can run on it on its own, or run its events with it alongside Playtomic.

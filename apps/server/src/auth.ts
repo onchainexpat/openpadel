@@ -111,7 +111,7 @@ export async function startPhoneSignIn(db: Db, texter: Texter, phone: string, la
   const club = await db.selectFrom("club").select(["name", "sign_up_open"]).executeTakeFirstOrThrow();
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const id = uuidv7(now.getTime());
-  // The club's texts paused past the monthly cap's ceiling (text_usage.ts): the same answer for every number.
+  // The club's texts paused past the monthly meter's ceiling (usage.ts): the same answer for every number.
   if (!(await textAllowed(db, "code", segments(textWords(club.name, t(lang, "sms.code", { code: "000000" }), lang, null, opts.memberUrl ?? "")), now)).ok) throw new KumiError("error.texts_paused", {}, 429);
   // Counted and written under one lock (shared with the profile's confirm-number codes), so codes asked for at
   // the same moment can't all slip under the hourly limits. Only the transaction's own connection is used inside.

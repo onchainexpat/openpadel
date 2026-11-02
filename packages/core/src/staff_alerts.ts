@@ -1,8 +1,8 @@
 // Staff alerts on the Today view: the staff messages that need a person to do something (a place left empty at
 // the last minute, a question still waiting, money owed, a program short of its minimum, a refund that failed,
-// a membership renewal that failed or ended unpaid, the club's texts paused at their monthly cap). Each stays on
+// a membership renewal that failed or ended unpaid, what can wait paused at the club's monthly cap). Each stays on
 // the list until someone marks it handled, once for the whole club, with who and when, or until it needs nobody
-// (a failed renewal paid after all, a text cap raised: closed with no one's name). The words are the message the
+// (a failed renewal paid after all, the cap raised: closed with no one's name). The words are the message the
 // person already got (the same event, in their language): nothing is written twice.
 import { sql } from "kysely";
 import * as z from "zod/mini";
@@ -13,7 +13,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 
 export const ALERT_KINDS = ["match_late_cancel_staff", "question_unanswered_staff", "booking_balance_due_staff", "program_min_short", "program_min_cancelled_staff", "refund_failed", "ops_failed_staff",
-  "membership_payment_failed_staff", "membership_ended_unpaid_staff", "texts_cap_reached_staff"] as const;
+  "membership_payment_failed_staff", "membership_ended_unpaid_staff", "usage_reached_staff", "usage_paused_staff"] as const;
 /** How far back the list looks: older alerts have been dealt with one way or another. */
 export const ALERT_DAYS = 14;
 

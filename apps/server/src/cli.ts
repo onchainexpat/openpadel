@@ -14,11 +14,13 @@
 //   kumi rotate-key                seal every secret with KUMI_SECRET_KEY (the old one in KUMI_SECRET_KEY_PREVIOUS)
 //   kumi texting plan|apply|status [club.yaml]   register the club's texting with US carriers through its own
 //                                  Twilio account, toll-free (texting.ts); apply --yes to buy a number or start over
+//   kumi usage [--month=YYYY-MM]   what AI, texts and email cost the club in a month, by kind, against its cap
+//                                  (usage.ts); --json for a host's bill
 //   (on a one-server install, as root: kumi update <release.tar>, kumi rollback --yes, kumi releases)
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { t, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { connect, migrate, plan, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration } from "@kumi/core";
+import { money, t, pickLang, type Lang, type Text } from "@kumi/i18n";
+import { connect, migrate, monthOf, plan, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
 import { readPeopleCsv } from "./csv.ts";
@@ -138,6 +140,24 @@ async function main(): Promise<number> {
         if (json) out({ ok: false, error: why }); else console.error(why);
         return 1;
       }
+    } finally { await db.destroy(); }
+  }
+  if (cmd === "usage") {
+    const m = flag("month") ?? sub;
+    if (m !== undefined && !/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) { console.error(t(lang, "cli.usage_bad_month")); return 2; }
+    const db = connect();
+    try {
+      const club = await db.selectFrom("club").select(["name", "time_zone"]).executeTakeFirst();
+      if (!club) { console.error(t(lang, "doctor.club.missing")); return 2; }
+      const u = await usageMonth(db, m ? `${m}-01` : monthOf(new Date(), club.time_zone));
+      if (json) { out({ ok: true, club: club.name, ...u }); return 0; }
+      const cents = (n: number) => money(Math.round(n), lang);
+      console.log(t(lang, "cli.usage_heading", { club: club.name, month: u.month.slice(0, 7), spent: cents(u.total_cents), cap: cents(u.cap_cents ?? 0) }));
+      for (const k of USAGE_KINDS) {
+        const x = u.kinds[k];
+        console.log(`  ${t(lang, `cli.usage_${k}`, { count: k === "texts" ? x.segments : x.count })}: ${cents(x.cents)}`);
+      }
+      return 0;
     } finally { await db.destroy(); }
   }
   if (cmd === "doctor") {
