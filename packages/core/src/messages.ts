@@ -13,6 +13,7 @@ import { gameView } from "./results.ts";
 import { hasPushDevice } from "./push.ts";
 import { declineReason, refundReason } from "./declines.ts";
 import { managersOf } from "./households.ts";
+import { paymentWhat } from "./kids.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -594,12 +595,20 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     if (!d?.changed?.length) return [];
     return d.people.map((to) => ({ to, kind: "dates_restored", params: { name: d.name, lines: d.back }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
   },
+  // A refund that didn't go through: the managers hear what it was for (a program place, a court or lesson, a
+  // membership) and where to look, the program's page or the person's.
   async "refund.failed"({ db }, p: { refund_id: string }) {
     const r = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("person", "person.id", "payment.person_id")
-      .select(["refund.amount_cents", "refund.failure", "refund.enrolment_id", "person.display_name"]).where("refund.id", "=", p.refund_id).executeTakeFirstOrThrow();
-    const e = r.enrolment_id ? await place(db, r.enrolment_id) : null;
-    const params = { amount: amount(r.amount_cents), person: r.display_name, name: e?.name ?? "", reason: refundReason(r.failure) };
-    return (await managers(db)).map((to) => ({ to, kind: "refund_failed", params, purpose: "staff" as const, essential: false, email: true, link: e ? `/programs/${e.program_id}` : "/" }));
+      .leftJoin("membership_plan", "membership_plan.id", "payment.membership_plan_id")
+      .select(["refund.amount_cents", "refund.failure", "refund.enrolment_id", "payment.enrolment_id as paid_enrolment", "payment.booking_player_id", "payment.person_id", "person.display_name", "membership_plan.name as plan"])
+      .where("refund.id", "=", p.refund_id).executeTakeFirstOrThrow();
+    const enrolmentId = r.enrolment_id ?? r.paid_enrolment;
+    const e = enrolmentId ? await place(db, enrolmentId) : null;
+    const what = !e && !r.booking_player_id && r.plan ? both("msg.what_membership", { name: r.plan })
+      : await paymentWhat(db, { person_id: r.person_id, booking_player_id: r.booking_player_id, enrolment_id: enrolmentId });
+    const where = e ? both("msg.refund_failed.where_program") : both("msg.refund_failed.where_person", { person: r.display_name });
+    const params = { amount: amount(r.amount_cents), person: r.display_name, what, where, reason: refundReason(r.failure) };
+    return (await managers(db)).map((to) => ({ to, kind: "refund_failed", params, purpose: "staff" as const, essential: false, email: true, link: e ? `/programs/${e.program_id}` : `/people/${r.person_id}` }));
   },
   async "mirror.conflict"({ db, tz }, p: { court_name: string | null; start: string; type: string }) {
     const params = { court: p.court_name ?? "", when: when(new Date(p.start), tz), type: p.type.toLowerCase().replace(/_/g, " ") };

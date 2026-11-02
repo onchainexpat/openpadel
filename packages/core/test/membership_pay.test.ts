@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, declineReason, memberPlan, onDate, messageHandlers, openPayment, plan, processOutbox, renewMemberships, run, runAsSystem, setPaymentProvider, staffAlerts, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { checkPayment, declineReason, memberPlan, onDate, messageHandlers, moneyHandlers, openPayment, plan, processOutbox, renewMemberships, run, runAsSystem, setPaymentProvider, staffAlerts, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, monthly: string, annual: string, deskOnly: string;
 const stripe = new TestProvider();
@@ -196,4 +196,18 @@ test("the club pauses a membership: no benefits and no charge meanwhile, and the
   await rejects(plan(db, "membership.pause", { membership_id: m.id, until: "2026-03-01" }, as("Fay"), { now: la("2026-02-16", "10:00") }), "error.forbidden_reason");   // the club pauses
   await processOutbox(db, messageHandlers);
   assert.match((await email("Fay", "membership_paused")).body, /^Your Monthly membership is paused through February 19, 2026\. Nothing is charged meanwhile, and the time you'd paid for is kept for after\. It now renews on March 10, 2026\.$/);
+});
+
+test("a membership refund that doesn't go through: the managers hear which membership, on the person's page", async () => {
+  people.Gus = ((await run(db, "person.create", { display_name: "Gus", email: "gus@example.test" }, owner, { now: NOW })).result as { person_id: string }).person_id;
+  const first = await join("Gus", monthly), second = await join("Gus", annual);
+  await pay(first.payment_id, "Gus");
+  await processOutbox(db, moneyHandlers);   // the refunds earlier tests asked for go first
+  await pay(second.payment_id, "Gus");
+  stripe.failNextRefund = true;
+  await processOutbox(db, moneyHandlers);
+  await processOutbox(db, messageHandlers);
+  const [told] = await toOwner("refund_failed");
+  assert.equal(told!.body, "The $800.00 refund to Gus for the Annual membership didn't go through (the card's bank turned it down). Look at it on Gus's page.");
+  assert.equal(told!.link, `/people/${people.Gus}`);
 });

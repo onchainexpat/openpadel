@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, expireHolds, messageHandlers, openPayment, plan, processOutbox, remindBookings, run, runAsSystem, setPaymentProvider, settleShares, uuidv7, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { checkPayment, expireHolds, messageHandlers, moneyHandlers, openPayment, plan, processOutbox, remindBookings, run, runAsSystem, setPaymentProvider, settleShares, uuidv7, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, loc: string, c1: string, c2: string;
 const stripe = new TestProvider();
@@ -133,6 +133,19 @@ test("cancelling: early gets everything back, late gets the club's rule, and sta
   assert.match(staff.plan.summary.en, /\$60\.00 goes back to the card\.$/);
   // A member can't cancel someone else's booking.
   await rejects(plan(db, "booking.cancel", { booking_id: late.booking_id }, as("Dee"), { now: NOW }), "error.forbidden_reason");
+});
+
+test("a refund that doesn't go through: the managers hear which court it was for, and the link is the person's page", async () => {
+  const b = (await request("Eve", c2, at("2026-12-09", "10:00"))).result as { booking_id: string; payment_id: string };
+  await pay(b.payment_id, "Eve");
+  await processOutbox(db, moneyHandlers);   // the refunds earlier tests asked for go first
+  await run(db, "booking.cancel", { booking_id: b.booking_id }, as("Eve"), { now: NOW });
+  stripe.failNextRefund = true;
+  await processOutbox(db, moneyHandlers);
+  await processOutbox(db, messageHandlers);
+  const told = await db.selectFrom("outbound_message").select(["body", "link"]).where("person_id", "=", owner.personId!).where("kind", "=", "refund_failed").where("channel", "=", "inbox").executeTakeFirstOrThrow();
+  assert.equal(told.body, "The $60.00 refund to Eve for Court 2, Wed, Dec 9, 10:00 AM didn't go through (the card's bank turned it down). Look at it on Eve's page.");
+  assert.equal(told.link, `/people/${people.Eve}`);
 });
 
 test("who hears what: confirmations, a part paid, what was charged or is owed, a lost court, cancelling", async () => {

@@ -148,6 +148,8 @@ The first version a club can run on its own (court bookings included), or for it
 - When a card payment or a refund doesn't go through, people are told why in plain words (the card was
   declined, it has expired, the payment was already refunded), never a code from Stripe; a reason that
   means nothing to a person isn't given at all.
+- A refund that doesn't go through tells the owner and managers what it was for (the program, the court
+  or lesson and when, or the membership) and links to the program's page or the person's.
 - The owner and managers hear once when a renewal is declined (not at every try): who, the plan, the
   amount, the bank's reason when it gives one, the next try and the last day, with a link to the
   member. It waits on the Courts page's alerts until it's handled, or closes by itself when the
