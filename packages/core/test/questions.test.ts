@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { sql } from "kysely";
 import { freshDb } from "./helpers.ts";
-import { alertUnanswered, answerCounts, exportData, messageHandlers, openMinutes, plan, processOutbox, run, runAsSystem, searchFacts, setAnswerer, staffOnly, KumiError, type Actor, type Db } from "../src/index.ts";
+import { alertUnanswered, answerCounts, exportData, messageHandlers, sendEmails, openMinutes, plan, processOutbox, run, runAsSystem, searchFacts, setAnswerer, staffOnly, KumiError, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, parking: string, doorCode: string;
 const TZ = "America/Los_Angeles";
@@ -153,6 +153,15 @@ test("the answerer: a fact it picks goes word for word, \"that didn't answer it\
     await processOutbox(db, messageHandlers);
     assert.equal((await said(people.Ben!, "question_club_answered")).body,
       "From the club's common questions, \"Where do I park?\":\n\nFree parking behind the club.\n\nIf that doesn't answer \"Is there parking for a van?\", tap \"That didn't answer it\" or \"Ask a person\" in the app and the staff will reply.");
+    // Seen on the question's page in the app (as the members' app opens it after asking): the email, held a few
+    // minutes, isn't sent as well.
+    const mail = await db.selectFrom("outbound_message").select(["id", "send_after", "created_at"]).where("person_id", "=", people.Ben!).where("kind", "=", "question_club_answered").where("channel", "=", "email").executeTakeFirstOrThrow();
+    assert.ok(new Date(mail.send_after).getTime() - new Date(mail.created_at).getTime() >= 5 * 60_000 - 1000);
+    await db.updateTable("question").set({ member_seen_at: at("2026-12-07", "10:01") }).where("id", "=", id).execute();
+    const sent: string[] = [];
+    await sendEmails(db, { async send(m: { to: string }) { sent.push(m.to); return { id: "x" }; } } as any, new Date(new Date(mail.send_after).getTime() + 60_000));
+    const after = await db.selectFrom("outbound_message").select(["status", "failure"]).where("id", "=", mail.id).executeTakeFirstOrThrow();
+    assert.deepEqual([after.status, after.failure], ["dropped", "read in the app"]);
 
     const n = await run(db, "question.not_answered", { question_id: id }, as("Ben"), { now: at("2026-12-07", "10:05") });
     assert.equal(n.plan.summary.en, "Tell the club that answer didn't help. Your question goes to the staff, who answer in the app.");

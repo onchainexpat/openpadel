@@ -510,6 +510,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   app.get("/my/questions/:id", async (c) => {
     const pid = who(c), id = c.req.param("id");
     await myThread(pid, id);
+    // Seen in the app: an automatic answer already shown here isn't emailed as well (messages.ts).
+    await db.updateTable("question").set({ member_seen_at: new Date() }).where("id", "=", id).execute();
     const q = await questionThread(db, id);
     // Staff answer as the club: a member sees who answered by name, but nothing else about them.
     return c.json({ id: q.id, status: q.status, created_at: q.created_at, about: q.person_id === pid ? null : q.about, asked_by_me: q.asked_by === pid,

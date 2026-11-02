@@ -454,6 +454,11 @@ The first version a club can run on its own (court bookings included), or for it
   server's clock is (Docker's is UTC). The timer, or Docker's backup service, checks every hour; a server
   that was off at 3:17 catches up at its next check. In Docker, doctor's hints name the backup service and
   Docker's own guide.
+- Cancelling some dates of a course brings a place not paid for yet down to the dates left (its price and
+  what's owed), the way a paid place gets those dates' share back; a card form already opened for the old
+  amount is called off and a new one asked.
+- Ask the club's answer email waits 5 minutes and isn't sent when the member already saw the answer in the
+  app (their question opened after it, or the inbox copy read).
 - Two addresses: the staff app's (`KUMI_PUBLIC_URL`) and the members' (`KUMI_MEMBER_URL`, which the
   install sets; without it, the staff address without its `staff.`). `kumi doctor` checks both answer.
 - `/health/deep` (on the server itself, or for an owner or manager): the database, the outbox, the last

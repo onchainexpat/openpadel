@@ -161,6 +161,21 @@ test("cancelling one date of a course pays back that date's share; a refund othe
   assert.equal(m.body, "The club cancelled these dates of Winter course: Wed, Dec 2, 6:00 PM. $30.00 goes back to your card.");
 });
 
+test("cancelling one date of a course: a place not paid for yet comes down to the dates left", async () => {
+  const spring = await program("Spring course", { kind: "course", capacity: 2, price: 9000 });
+  await addDate(spring, "2026-12-04T10:00", 90, [c3], { weeks: 3 });
+  await run(db, "program.publish", { program_id: spring }, owner, opts).catch(() => null);
+  people.Fay = ((await run(db, "person.create", { display_name: "Fay", email: "fay@example.test" }, owner, opts)).result as any).person_id;
+  const r = (await run(db, "enrolment.join", { program_id: spring, person_id: people.Fay }, as("Fay"), opts)).result as { enrolment_id: string; payment_id?: string };
+  assert.ok(r.payment_id);   // owed, not paid
+  const [first] = await dates(spring);
+  const c = await run(db, "series.cancel", { session_id: first!.id, scope: "this" }, owner, opts);
+  assert.match(c.plan.summary.en, / 1 place not paid for yet now costs less, for the dates left\./);
+  assert.equal((await db.selectFrom("enrolment").select("price_cents").where("id", "=", r.enrolment_id).executeTakeFirstOrThrow()).price_cents, 6000);
+  assert.equal((await db.selectFrom("payment").select("amount_cents").where("id", "=", r.payment_id!).executeTakeFirstOrThrow()).amount_cents, 6000);
+  assert.equal((await refunds("Fay", spring)).length, 0);   // nothing was paid, so nothing goes back
+});
+
 test("cancelling a program altogether: everyone paid back, the waitlist told, places no longer payable", async () => {
   const p = await program("Friday clinic", { capacity: 2, price: 2500 });
   await addDate(p, "2026-12-11T18:00", 60, [c2]);

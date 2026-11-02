@@ -2354,6 +2354,7 @@ export const en = {
   "plan.series.cancel_date": " {when}.",
   "plan.series.refunds": { one: " {count} person gets money back, {amount}.", other: " {count} people get money back, {amount} in all." },
   "plan.series.no_refunds": " Nobody gets money back.",
+  "plan.series.unpaid_repriced": { one: " {count} place not paid for yet now costs less, for the dates left.", other: " {count} places not paid for yet now cost less, for the dates left." },
   "plan.series.nothing_paid": " Nobody has paid anything.",
   "plan.series.told": { one: " {count} person is told.", other: " {count} people are told." },
   "plan.program.no_minimum": "Run {name} however many sign up, with no minimum.",

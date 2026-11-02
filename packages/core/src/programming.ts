@@ -9,6 +9,7 @@ import { defineAction, readRow, runAsSystem, type PlanCtx, type Read } from "./a
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
+import { paymentProvider } from "./money.ts";
 import { localDate, onDate } from "./clock.ts";
 import { coachBusy, isCoach } from "./lessons.ts";
 import { withManagers } from "./households.ts";
@@ -160,7 +161,7 @@ export const seriesEdit = defineAction({
 
 // ---- Cancelling dates ----
 type Choice = "rule" | "full" | "none";
-interface Going { enrolment_id: string; person_id: string; status: string; paid: number; cents: number; rule: number; outcome: Refund["outcome"]; back: boolean }
+interface Going { enrolment_id: string; person_id: string; status: string; paid: number; cents: number; rule: number; outcome: Refund["outcome"]; back: boolean; reprice: number | null }
 
 /** What cancelling these dates means for each person. A program left with no dates at all is cancelled,
  *  and everyone gets back what they paid. Some dates of a course paid once: each person gets back those
@@ -168,15 +169,17 @@ interface Going { enrolment_id: string; person_id: string; status: string; paid:
 async function cancelling(db: Db | Trx, programId: string, sessionIds: string[], choice: Choice) {
   const live = await db.selectFrom("session").select("id").where("program_id", "=", programId).where("status", "!=", "cancelled").execute();
   const entire = live.every((l) => sessionIds.includes(l.id));
-  const rows = await db.selectFrom("enrolment").select(["id", "person_id", "status", "price_basis"]).where("program_id", "=", programId).where("status", "in", ["booked", "waitlisted"]).execute();
+  const rows = await db.selectFrom("enrolment").select(["id", "person_id", "status", "price_basis", "price_cents"]).where("program_id", "=", programId).where("status", "in", ["booked", "waitlisted"]).execute();
   const people: Going[] = [];
   for (const e of rows) {
-    if (e.status !== "booked") { if (entire) people.push({ enrolment_id: e.id, person_id: e.person_id, status: e.status, paid: 0, cents: 0, rule: 0, outcome: "none", back: false }); continue; }
+    if (e.status !== "booked") { if (entire) people.push({ enrolment_id: e.id, person_id: e.person_id, status: e.status, paid: 0, cents: 0, rule: 0, outcome: "none", back: false, reprice: null }); continue; }
     const paid = await paidFor(db, e.id);
     const rule = entire ? paid : Math.round(paid * sessionIds.length / Math.max(1, live.length));
     const cents = choice === "full" ? paid : choice === "none" ? 0 : rule;
+    // A place not paid for yet: its price comes down to the dates left, as a payment's share would come back.
+    const reprice = !entire && paid === 0 && e.price_cents > 0 ? Math.round(e.price_cents * (live.length - sessionIds.length) / Math.max(1, live.length)) : null;
     people.push({ enrolment_id: e.id, person_id: e.person_id, status: e.status, paid, cents, rule, outcome: cents <= 0 ? "none" : cents >= paid ? "full" : "partial",
-      back: entire && e.price_basis === "included" && choice !== "none" });
+      back: entire && e.price_basis === "included" && choice !== "none", reprice });
   }
   return { entire, people, total: people.reduce((n, x) => n + x.cents, 0) };
 }
@@ -192,6 +195,15 @@ async function cancelDates(ctx: ApplyContext, programId: string, sessionIds: str
   for (const g of c.people) {
     const refund: Refund = { outcome: g.outcome, cents: g.cents, text: { en: "", es: "" }, changed: g.cents !== g.rule };
     if (g.cents > 0) await startRefund(ctx, g.enrolment_id, g.person_id, refund);
+    if (g.reprice !== null) {
+      await ctx.update("enrolment", g.enrolment_id, { price_cents: g.reprice });
+      // What's still owed for it: the new price. One a card form already opened is called off, and a new one asked.
+      for (const pay of await ctx.trx.selectFrom("payment").select(["id", "provider_ref"]).where("enrolment_id", "=", g.enrolment_id).where("status", "=", "pending").execute()) {
+        if (!pay.provider_ref) { await ctx.update("payment", pay.id, { amount_cents: g.reprice }); continue; }
+        await ctx.update("payment", pay.id, { status: "failed" });
+        if (g.reprice > 0) await ctx.insert("payment", { id: uuidv7(), person_id: g.person_id, amount_cents: g.reprice, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", enrolment_id: g.enrolment_id });
+      }
+    }
     if (!c.entire) continue;
     await ctx.update("enrolment", g.enrolment_id, { ...leaving(refund, "removed", "club", p.refund_rule_version, note ?? undefined), left_at: ctx.now, included_back: g.back });
     for (const o of await ctx.trx.selectFrom("waitlist_offer").select("id").where("enrolment_id", "=", g.enrolment_id).where("outcome", "is", null).execute()) await ctx.update("waitlist_offer", o.id, { outcome: "expired" });
@@ -218,6 +230,8 @@ async function cancelPlan(ctx: PlanCtx, p: Record<string, any>, sessionIds: stri
   const paying = c.people.filter((g) => g.cents > 0);
   summary = join2(summary, paying.length ? both("plan.series.refunds", { count: paying.length, amount: usd(c.total) })
     : c.people.some((g) => g.paid > 0) ? both("plan.series.no_refunds") : both("plan.series.nothing_paid"));
+  const repriced = c.people.filter((g) => g.reprice !== null).length;
+  if (repriced) summary = join2(summary, both("plan.series.unpaid_repriced", { count: repriced }));
   const booked = c.people.filter((g) => g.status === "booked").length, waiting = c.people.filter((g) => g.status === "waitlisted").length;
   summary = join2(summary, booked || waiting ? both("plan.series.told", { count: booked + waiting }) : both("plan.series.nobody"));
   const reads: Read[] = [{ entity: "program", id: p.id, version: p.version }];

@@ -2357,6 +2357,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "plan.series.cancel_date": " {when}.",
   "plan.series.refunds": { one: " {count} persona recupera dinero, {amount}.", other: " {count} personas recuperan dinero, {amount} en total.", many: " {count} personas recuperan dinero, {amount} en total." },
   "plan.series.no_refunds": " Nadie recupera dinero.",
+  "plan.series.unpaid_repriced": { one: " {count} plaza aún sin pagar ahora cuesta menos, por las fechas que quedan.", other: " {count} plazas aún sin pagar ahora cuestan menos, por las fechas que quedan." },
   "plan.series.nothing_paid": " Nadie ha pagado nada.",
   "plan.series.told": { one: " Se le avisa a {count} persona.", other: " Se les avisa a {count} personas.", many: " Se les avisa a {count} personas." },
   "plan.program.no_minimum": "Hacer {name} con los que se inscriban, sin mínimo.",

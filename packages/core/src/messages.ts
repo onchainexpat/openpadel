@@ -43,7 +43,22 @@ interface Draft {
   staleAt?: Date | null;        // not worth sending after this
   push?: boolean;               // false: no notification on their phones (a receipt)
   inbox?: boolean;              // false: no new inbox copy (a receipt sent again by email)
+  emailUnlessRead?: number;     // the email waits this many minutes, and isn't sent if the inbox copy was read by then
 }
+/** Emails not sent when the member saw it in the app first: an automatic answer, shown on their question's page
+ *  as soon as they ask. Seen means the inbox copy read, or the question opened after the answer was written. */
+const UNLESS_READ = new Set(["question_club_answered"]);
+async function seenInApp(trx: Trx, m: { event_id: string | null; person_id: string; kind: string; link?: string | null }): Promise<boolean> {
+  if (m.event_id && await trx.selectFrom("outbound_message").select("id").where("event_id", "=", m.event_id).where("person_id", "=", m.person_id).where("kind", "=", m.kind)
+    .where("channel", "=", "inbox").where("read_at", "is not", null).executeTakeFirst()) return true;
+  const qid = m.link?.match(/^\/ask\/([0-9a-f-]{36})$/)?.[1];
+  if (!qid) return false;
+  const r = await trx.selectFrom("question").select("member_seen_at")
+    .select((eb) => eb.selectFrom("question_message").select((x) => x.fn.max("created_at").as("at")).whereRef("question_message.question_id", "=", "question.id").where("side", "=", "club").as("answered_at"))
+    .where("id", "=", qid).executeTakeFirst();
+  return Boolean(r?.member_seen_at && r.answered_at && new Date(r.member_seen_at) >= new Date(r.answered_at as Date));
+}
+export const ANSWER_EMAIL_MINUTES = 5;
 
 /** When quiet hours end, if `now` is inside them in the club's time; otherwise null. */
 export function quietUntil(now: Date, tz: string, q = QUIET): Date | null {
@@ -422,7 +437,9 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: p.to, kind: "question_answered", params: { by: p.by, question: p.question, answer: p.answer }, purpose: "account" as const, essential: false, email: true, link: `/ask/${p.question_id}` }];
   },
   async "question.club_answered"(_c, p: { question_id: string; to: string; question: string; fact: Text; answer: Text }) {
-    return [{ to: p.to, kind: "question_club_answered", params: { question: p.question, fact: p.fact, answer: p.answer }, purpose: "account" as const, essential: false, email: true, link: `/ask/${p.question_id}` }];
+    // Mostly seen in the app at once: the email waits a few minutes, and goes only if it wasn't.
+    return [{ to: p.to, kind: "question_club_answered", params: { question: p.question, fact: p.fact, answer: p.answer }, purpose: "account" as const, essential: false, email: true,
+      link: `/ask/${p.question_id}`, emailUnlessRead: ANSWER_EMAIL_MINUTES }];
   },
   async "question.unanswered"({ db, tz }, p: { question_id: string; person: string; asked_at: string; hours: number; question: string; assigned_to: string | null }) {
     const params = { person: p.person, when: when(new Date(p.asked_at), tz), question: p.question, hours: both("count.hours", { count: p.hours }) };
@@ -762,7 +779,9 @@ async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<numbe
     const rows = d.inbox === false ? [] : [{ ...base, id: uuidv7(now.getTime()), channel: "inbox", status: "sent", send_after: now, sent_at: now }];
     // Staff alerts and essential messages go straight away; the rest wait out quiet hours.
     const wait = d.essential || d.purpose === "staff" ? null : quietUntil(now, club.time_zone);
-    if (d.email && person.email) rows.push({ ...base, id: uuidv7(now.getTime()), channel: "email", status: "waiting", send_after: wait ?? now, sent_at: null as any });
+    const later = d.emailUnlessRead ? new Date(now.getTime() + d.emailUnlessRead * 60_000) : null;
+    const emailAt = [wait, later].filter((x): x is Date => Boolean(x)).sort((a, b) => b.getTime() - a.getTime())[0] ?? now;
+    if (d.email && person.email) rows.push({ ...base, id: uuidv7(now.getTime()), channel: "email", status: "waiting", send_after: emailAt, sent_at: null as any });
     // Every message also goes to the phones they turned notifications on for.
     if (d.push !== false && await hasPushDevice(db, d.to)) rows.push({ ...base, id: uuidv7(now.getTime()), channel: "push", status: "waiting", send_after: wait ?? now, sent_at: null as any });
     // And by text, what they need to know soon, if they said yes to texts (texts.ts); never news of what they did themselves.
@@ -798,13 +817,15 @@ export async function sendEmails(db: Db, mailer: Mailer, now = new Date(), limit
     const done = await db.transaction().execute(async (trx) => {
       const m = await trx.selectFrom("outbound_message").innerJoin("person", "person.id", "outbound_message.person_id")
         .select(["outbound_message.id", "outbound_message.person_id", "outbound_message.purpose", "outbound_message.essential", "outbound_message.subject", "outbound_message.body",
-          "outbound_message.stale_at", "outbound_message.attempts", "outbound_message.lang", "person.email", "person.news_token"])
+          "outbound_message.stale_at", "outbound_message.attempts", "outbound_message.lang", "outbound_message.kind", "outbound_message.event_id", "outbound_message.link", "person.email", "person.news_token"])
         .where("outbound_message.status", "=", "waiting").where("outbound_message.channel", "=", "email").where("outbound_message.send_after", "<=", now)
         .orderBy("outbound_message.send_after").limit(1).forUpdate("outbound_message").skipLocked().executeTakeFirst();
       if (!m) return null;
       // Consent is checked now, at the send: a member who said no to email since still isn't emailed,
       // except what they can't do without (sign-ins, confirmations, money).
-      const why = !m.email ? "no email" : !m.essential && m.purpose !== "staff" && await refused(trx, m.person_id, "email", m.purpose) ? "no consent" : m.stale_at && m.stale_at <= now ? "stale" : null;
+      const seen = UNLESS_READ.has(m.kind) && await seenInApp(trx, m);
+      const why = !m.email ? "no email" : !m.essential && m.purpose !== "staff" && await refused(trx, m.person_id, "email", m.purpose) ? "no consent" : m.stale_at && m.stale_at <= now ? "stale"
+        : seen ? "read in the app" : null;
       if (why) {
         await trx.updateTable("outbound_message").set({ status: "dropped", failure: why }).where("id", "=", m.id).execute();
         return "dropped" as const;
