@@ -477,6 +477,20 @@ The first version a club can run on its own (court bookings included), or for it
   the person signs in (passkeys, the authenticator app, recovery codes); those are done in the app. An
   assistant can disconnect itself but no other. A preview an assistant made can't be applied by anyone once
   it's disconnected. Staff disconnecting a member's assistant see whose account it's from, not "for you".
+- What an assistant spends now counts what's really charged or on the person's hook. A court shared "pay my
+  part" counts in full until the others pay (what they don't pay goes on the organiser's card at the
+  deadline), and the preview says so: "It counts $60.00 against your assistant's weekly limit until the
+  others pay". Each share paid by someone else comes off. A hold that lapses unpaid, a payment called off or a
+  place given up counts nothing; a preview never confirmed never counted. An open match still counts only the
+  person's own place, since its host never pays for empty ones.
+- More stays in the app, never through an assistant: accepting a waiver, moving one's own level, downloading
+  one's data, the family card, saying yes to texts or club news (an assistant can still turn them off), and
+  every change that needs a strong sign-in (club settings, roles, the vault, payment account), whatever the
+  person signed in with. They're left off the assistant's tool list and refused if called.
+- A shorter tool list for assistants, which they read on every turn: about half the size (a member's 117 kB
+  to 55 kB, an owner's 280 kB to 137 kB). Descriptions are a line each, and the list leaves out what only
+  checking needs (the long patterns for ids and times, the widest number limits); every argument is still
+  checked in full when a tool is called. Tools only Kumi's own code calls are no longer listed.
 - Bot protection with no third party, on sign-up, sign-in codes and opening a card form: a field people
   never see, and a small proof of work the page solves (a fraction of a second on a phone, harder for an
   address that keeps failing). It's always on in production; staff at the desk and agents don't meet it.

@@ -398,11 +398,18 @@ watching hears once.
   code, or a texted one when the club texts), then choose how
   much it may spend for them each week: nothing (the default), $25, $50, $100 or $200. What counts is money
   they themselves pay for what the assistant books (courts, shares, places, lessons, memberships, extra
-  time), this week from Monday on the club's clock, less what came back to the card. Over the limit, the
-  preview stops and says to do it in the app. In Profile, Assistants, they see what each spent this week,
-  change its limit (up to $500) or disconnect it. Staff working for the club through an assistant (a
-  refund, someone else's booking) aren't limited, since it isn't their own money; every change is still
-  previewed first, and an assistant never does more than the person could.
+  time), this week from Monday on the club's clock: what's charged or still waiting to be paid, less what
+  came back to the card. A hold that lapses unpaid counts nothing. A court shared "pay my part" counts in
+  full until the others pay, since what they don't pay goes on the organiser's card; the preview says so.
+  Over the limit, the preview stops and says to do it in the app. In Profile, Assistants, they see what each
+  spent this week, change its limit (up to $500) or disconnect it. Staff working for the club through an
+  assistant (a refund, someone else's booking) aren't limited, since it isn't their own money; every change
+  is still previewed first, and an assistant never does more than the person could.
+- **What an assistant never does.** Its own limit, how the person signs in, deleting the account,
+  accepting a waiver, moving their own level, downloading their data, the family card, saying yes to texts
+  or club news (it can turn them off), and anything that needs a strong sign-in, such as club settings,
+  roles and the vault. Those are done in the club's app; an assistant isn't offered them and is refused if
+  it tries.
 
 ### Members' data: a copy, and deleting an account
 

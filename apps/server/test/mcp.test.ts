@@ -68,12 +68,13 @@ test("Claude's published identity: no registration, consent, then preview and co
   assert.equal(status, 200, JSON.stringify(body));
   const client = await mcp(body.access_token);
   const names = (await client.listTools()).tools.map((t) => t.name);
-  assert.ok(names.includes("club_update_preview") && names.includes("club_update_confirm") && names.includes("whoami"));
-  const p = textOf(await client.callTool({ name: "club_update_preview", arguments: { name: "Kestrel Padel Club" } }));
-  assert.equal(p.summary, "Change the name.");
-  assert.equal((await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name, "Kestrel Padel", "a preview changes nothing");
-  assert.equal(textOf(await client.callTool({ name: "club_update_confirm", arguments: { run_id: p.run_id } })).done, true);
-  assert.equal((await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name, "Kestrel Padel Club");
+  assert.ok(names.includes("location_create_preview") && names.includes("location_create_confirm") && names.includes("whoami"));
+  for (const strong of ["club_update_preview", "role_assign_preview", "vault_add_preview"]) assert.ok(!names.includes(strong), `${strong}: a strong sign-in's change is the app's alone`);
+  const p = textOf(await client.callTool({ name: "location_create_preview", arguments: { name: "Westside", time_zone: "America/Los_Angeles" } }));
+  assert.equal(p.summary, "Add the location Westside (America/Los_Angeles).");
+  assert.equal((await db.selectFrom("location").select("id").where("name", "=", "Westside").execute()).length, 0, "a preview changes nothing");
+  assert.equal(textOf(await client.callTool({ name: "location_create_confirm", arguments: { run_id: p.run_id } })).done, true);
+  assert.equal((await db.selectFrom("location").select("id").where("name", "=", "Westside").execute()).length, 1);
   const via = await db.selectFrom("action_run").select("via").where("id", "=", p.run_id).executeTakeFirstOrThrow();
   assert.equal(via.via, "mcp:Claude");
   await client.close();
@@ -92,12 +93,30 @@ test("a registered client; a member sees only their own tools, in Spanish, and c
   assert.ok(!tools.some((t) => t.name.startsWith("club_update")), "no club tools for a member");
   const profile = tools.find((t) => t.name === "person_update_profile_preview")!;
   assert.equal(profile.title, "Cambiar tu perfil (vista previa)");
-  const ownerRun = (await db.selectFrom("action_run").select("id").where("action", "=", "club.update").where("status", "=", "applied").executeTakeFirstOrThrow()).id;
-  const stolen = await client.callTool({ name: "club_update_confirm", arguments: { run_id: ownerRun } });
+  const ownerRun = (await db.selectFrom("action_run").select("id").where("action", "=", "location.create").where("status", "=", "applied").executeTakeFirstOrThrow()).id;
+  const stolen = await client.callTool({ name: "location_create_confirm", arguments: { run_id: ownerRun } });
   assert.equal(stolen.isError, true, "a tool that isn't listed for you can't be called");
   assert.equal((await db.selectFrom("action_run").select("status").where("id", "=", ownerRun).executeTakeFirstOrThrow()).status, "applied");
   const p = textOf(await client.callTool({ name: "person_update_profile_preview", arguments: { person_id: id, display_name: "Ana R." } }));
   assert.equal(p.summary, "Cambiar tu nombre visible en tu perfil.");
+  // Only the player's tools, and only what an assistant may do: the person's own say stays in the app.
+  const names = tools.map((t) => t.name);
+  for (const appOnly of ["waiver_accept_preview", "level_self_adjust_preview", "privacy_export_preview", "family_card_remove_preview", "family_card_start_preview", "assistant_set_cap_preview"])
+    assert.ok(!names.includes(appOnly), appOnly);
+  assert.ok(names.includes("booking_request_preview") && names.includes("level_request_review_preview"));
+  assert.match(tools.find((t) => t.name === "consent_texts_preview")!.description!, /Only to turn it off: saying yes is done in the club's app\.$/);
+  const yes = await client.callTool({ name: "consent_club_news_preview", arguments: { person_id: id, granted: true } });
+  assert.equal(yes.isError, true);
+  assert.match((yes as any).content[0].text, /Hazlo en la app del club/);
+  // A short list: no validation patterns, no default fields, short descriptions.
+  const json = JSON.stringify(tools);
+  assert.ok(!json.includes("[0-9a-fA-F]{8}") && !json.includes("(?:0[13578]") && !json.includes("$schema") && !json.includes("taskSupport"), "the long patterns stay on the server");
+  assert.ok(json.length < 70_000, `member tool list is ${json.length} bytes`);
+  const book = tools.find((t) => t.name === "booking_request_preview")!;
+  assert.deepEqual((book.inputSchema as any).properties.court_id, { type: "string", format: "uuid" });
+  assert.equal(book.description, "Book a court: preview. Gives a summary to show the person and a run_id; nothing changes until booking_request_confirm.");
+  const bad = await client.callTool({ name: "booking_request_preview", arguments: { court_id: "not-an-id", starts_at: "x", minutes: 90, pay: "whole", person_id: id } });
+  assert.equal(bad.isError, true, "the full check still runs when the tool is called");
   await client.close();
 });
 

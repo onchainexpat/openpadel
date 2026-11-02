@@ -6,7 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { both, en, isLang, type Key, type Lang, type Text } from "@kumi/i18n";
 import { money } from "@kumi/i18n";
-import { actions, apply, mayEverDo, plan, weekSpent, APP_ONLY, KumiError, type Actor, type Db } from "@kumi/core";
+import { actions, apply, appOnly, mayEverDo, plan, weekSpent, APP_ONLY_YES, KumiError, type Actor, type Db } from "@kumi/core";
 
 const toolBase = (action: string) => action.replace(/\./g, "_");
 
@@ -42,11 +42,37 @@ const READS: { name: string; title: Text; description: string; input: Record<str
 ];
 const titleOf = (action: string): Text => (`action.${action}` in en ? both(`action.${action}` as Key) : { en: action, es: action });
 
+/** A tool's input schema without what only validation needs: the converter's long patterns for ids and times,
+ *  the widest integer bounds and the $schema line. Every argument is still checked in full when a tool runs. */
+function slim(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(slim);
+  if (!node || typeof node !== "object") return node;
+  const o = node as Record<string, unknown>, out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (k === "$schema" && typeof v === "string") continue;
+    if (k === "pattern" && typeof v === "string" && (o.format === "uuid" || o.format === "date-time" || o.format === "date")) continue;
+    if ((k === "minimum" && v === Number.MIN_SAFE_INTEGER) || (k === "maximum" && v === Number.MAX_SAFE_INTEGER)) continue;
+    out[k] = slim(v);
+  }
+  return out;
+}
+/** The tool list an assistant reads into its context on every turn, kept small (see slim). */
+function slimToolList(server: McpServer): void {
+  type Handler = (req: unknown, extra: unknown) => Promise<{ tools: { inputSchema?: unknown; execution?: { taskSupport?: string } }[] }>;
+  const handlers = (server.server as unknown as { _requestHandlers: Map<string, Handler> })._requestHandlers;
+  const list = handlers.get("tools/list");
+  if (list) handlers.set("tools/list", async (req, extra) => {
+    const r = await list(req, extra);
+    return { ...r, tools: r.tools.map(({ execution, ...t }: { execution?: { taskSupport?: string }; inputSchema?: unknown }) =>
+      ({ ...t, inputSchema: slim(t.inputSchema), ...(execution && execution.taskSupport !== "forbidden" ? { execution } : {}) })) };   // "forbidden" is the default
+  });
+}
+
 export async function mcpServerFor(db: Db, who: { id: string; display_name: string; locale: string; client_name: string | null; grant_id: string }, now: () => Date,
   read?: (path: string) => Promise<unknown>): Promise<McpServer> {
   const lang: Lang = isLang(who.locale) ? who.locale : "en";
   const actor: Actor = { personId: who.id, via: `mcp:${who.client_name ?? "client"}`, lang, auth: "oauth", grantId: who.grant_id };
-  const server = new McpServer({ name: "kumi", version: "0.1.0" }, { instructions: `You act for ${who.display_name} at their padel club. Every change is two steps: call a *_preview tool, show the person the summary in their words, and only after they agree call the matching *_confirm tool with the run_id. Anything that costs them money must fit the weekly limit they set for you (whoami says what's left); over it, the preview fails and they do it in the club's app. Reply in ${lang === "es" ? "Spanish" : "English"}.` });
+  const server = new McpServer({ name: "kumi", version: "0.1.0" }, { instructions: `You act for ${who.display_name} at their padel club. Every change is two steps: call a *_preview tool, show the person the summary in their words, and only after they agree call the matching *_confirm tool with the run_id. Anything that costs them money must fit the weekly limit they set for you (whoami says what's left); over it, the preview fails and they do it in the club's app. Some things are only ever done in the app: their limit for you, how they sign in, accepting a waiver, moving their own level, downloading their data, the family card and saying yes to texts or club news. Reply in ${lang === "es" ? "Spanish" : "English"}.` });
   const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v) }] });
   const fail = (e: unknown) => {
     if (e instanceof KumiError) return { isError: true, content: [{ type: "text" as const, text: e.text[lang] }] };
@@ -71,11 +97,12 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
   for (const a of actions()) {
     // A tool you may never use doesn't exist for you. Undo is checked against the original change.
     const listed = a.name === "action.undo" || (await mayEverDo(db, who.id, a.name));
-    if (a.system || a.name.startsWith("test.") || !listed || APP_ONLY.has(a.name)) continue;   // never offered: see APP_ONLY
+    if (a.system || a.internal || a.name.startsWith("test.") || !listed || appOnly(a)) continue;   // never offered: see APP_ONLY
     const base = toolBase(a.name), title = titleOf(a.name);
+    const onlyOff = APP_ONLY_YES.has(a.name) ? " Only to turn it off: saying yes is done in the club's app." : "";
     server.registerTool(`${base}_preview`, {
       title: `${title[lang]} (${lang === "es" ? "vista previa" : "preview"})`,
-      description: `Preview: ${title.en}. Shows exactly what would change, who is told and how it can be undone, and returns a run_id. Nothing changes until ${base}_confirm is called with that run_id.`,
+      description: `${title.en}: preview. Gives a summary to show the person and a run_id; nothing changes until ${base}_confirm.${onlyOff}`,
       inputSchema: a.input.shape, annotations: { readOnlyHint: true },
     }, async (args: unknown) => {
       try {
@@ -86,13 +113,14 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
     });
     server.registerTool(`${base}_confirm`, {
       title: `${title[lang]} (${lang === "es" ? "confirmar" : "confirm"})`,
-      description: `Confirm: ${title.en}. Applies a preview from ${base}_preview, by its run_id, after the person agreed. Fails if anything changed since the preview.`,
-      inputSchema: { run_id: z.uuid().check(z.describe("The run_id that the preview returned")) }, annotations: { readOnlyHint: false, idempotentHint: true },
+      description: `${title.en}: do it, once the person agreed to the ${base}_preview summary. Takes its run_id.`,
+      inputSchema: { run_id: z.uuid() }, annotations: { readOnlyHint: false, idempotentHint: true },
     }, async (args: { run_id: string }) => {
       try { return text({ done: true, result: await apply(db, args.run_id, actor, { now: now(), idempotencyKey: `mcp:${args.run_id}` }) }); }
       catch (e) { return fail(e); }
     });
   }
+  slimToolList(server);
   return server;
 }
 

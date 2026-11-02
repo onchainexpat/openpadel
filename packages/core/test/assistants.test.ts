@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, openPayment, plan, run, runAsSystem, setPaymentProvider, weekSpent, assistantsOf, KumiError, TestProvider, uuidv7, type Actor, type Db } from "../src/index.ts";
+import { apply, checkPayment, expireHolds, openPayment, plan, run, runAsSystem, setPaymentProvider, weekSpent, assistantsOf, KumiError, TestProvider, uuidv7, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, court: string, ann: string, grant: string, ownerGrant: string;
 const stripe = new TestProvider();
@@ -85,6 +85,62 @@ test("money that comes back to the card from the assistant's own bookings frees 
 test("staff work through an assistant isn't the person's own money: a booking for someone else doesn't count", async () => {
   const p = await book(bot(owner.personId!, ownerGrant), ann, "2026-12-08", "10:00");
   assert.equal(p.status, "planned");
+});
+
+async function pay(paymentId: string, who: string) {
+  await openPayment(db, paymentId, who);
+  stripe.settle((await db.selectFrom("payment").select("provider_ref").where("id", "=", paymentId).executeTakeFirstOrThrow()).provider_ref!, "succeeded");
+  await checkPayment(db, paymentId, "test", NOW);
+}
+
+const newPerson = async (name: string) =>
+  ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner, { now: NOW })).result as { person_id: string }).person_id;
+
+test("a shared court counts in full until the others pay: the preview says so, and each share paid frees the limit", async () => {
+  const dot = await newPerson("Dot"), g = await connect(dot, 6000);
+  const input = { court_id: court, starts_at: at("2026-12-10", "18:00"), minutes: 90, pay: "split", person_id: dot };
+  const p = await plan(db, "booking.request", input, bot(dot, g), { now: NOW });
+  assert.match(p.plan.summary.en, /You pay your part, \$15\.00, now.* It counts \$60\.00 against your assistant's weekly limit until the others pay\.$/);
+  const r = await apply(db, p.runId, bot(dot, g), { now: NOW }) as { booking_id: string; payment_id: string };
+  assert.equal(await weekSpent(db, g, NOW), 6000, "their share and what the others still owe");
+  await rejects(plan(db, "booking.request", { ...input, starts_at: at("2026-12-11", "18:00") }, bot(dot, g), { now: NOW }), "error.assistant_over_cap_shared",
+    /^This court counts \$60\.00 until the others pay their part, and Test Agent has \$0\.00 left/);
+  await pay(r.payment_id, dot);
+  assert.equal(await weekSpent(db, g, NOW), 6000, "paying their own part doesn't change what they're on the hook for");
+  const cy = await newPerson("Cy");
+  const invite = (await db.selectFrom("booking").select("invite_code").where("id", "=", r.booking_id).executeTakeFirstOrThrow()).invite_code!;
+  const joined = (await run(db, "booking.join", { invite_code: invite, person_id: cy }, web(cy), { now: NOW })).result as { payment_id: string };
+  assert.equal(await weekSpent(db, g, NOW), 6000, "a share not paid yet still counts");
+  await pay(joined.payment_id, cy);
+  assert.equal(await weekSpent(db, g, NOW), 4500, "Cy's $15 came off");
+});
+
+test("only what's charged counts: a hold that lapses unpaid gives the limit back, and a preview never confirmed never counted", async () => {
+  const eli = await newPerson("Eli"), g = await connect(eli, 6000);
+  const p = await book(bot(eli, g), eli, "2026-12-12", "10:00");
+  assert.equal(await weekSpent(db, g, NOW), 0, "a preview is no spending");
+  await apply(db, p.runId, bot(eli, g), { now: NOW });
+  assert.equal(await weekSpent(db, g, NOW), 6000, "a booking waiting to be paid counts while it's held");
+  const later = new Date(NOW.getTime() + 20 * 60_000);
+  await expireHolds(db, later);
+  assert.equal(await weekSpent(db, g, later), 0, "it lapsed unpaid: nothing was charged");
+});
+
+test("the person's own say stays in the app: waivers, their own level, their data, the family card, saying yes to messages, and anything that needs a strong sign-in", async () => {
+  const fay = await newPerson("Fay"), g = await connect(fay, 0), inApp = "error.assistant_in_app";
+  await rejects(plan(db, "waiver.accept", { person_id: fay }, bot(fay, g), { now: NOW }), inApp);
+  await rejects(plan(db, "level.self_adjust", { person_id: fay, level: 3 }, bot(fay, g), { now: NOW }), inApp);
+  await rejects(plan(db, "privacy.export", { person_id: fay }, bot(fay, g), { now: NOW }), inApp);
+  await rejects(plan(db, "family_card.remove", { person_id: fay }, bot(fay, g), { now: NOW }), inApp);
+  await rejects(plan(db, "consent.club_news", { person_id: fay, granted: true }, bot(fay, g), { now: NOW }), inApp, /Do it in the club's app/);
+  await rejects(plan(db, "consent.texts", { person_id: fay, granted: true }, bot(fay, g), { now: NOW }), inApp);
+  await run(db, "consent.club_news", { person_id: fay, granted: true }, web(fay), { now: NOW });   // in the app
+  const off = await plan(db, "consent.club_news", { person_id: fay, granted: false }, bot(fay, g), { now: NOW });
+  assert.equal(off.status, "planned", "an assistant may still turn club news off");
+  const og = await connect(owner.personId!, 0);
+  await rejects(plan(db, "club.update", { name: "Kestrel" }, bot(owner.personId!, og), { now: NOW }), inApp, undefined);   // strongAuth, whatever the sign-in
+  const inAppOwner = await plan(db, "club.update", { name: "Kestrel" }, web(owner.personId!), { now: NOW });
+  assert.equal(inAppOwner.status, "planned");
 });
 
 test("disconnecting ends it at once: its tokens stop working, and a preview it made can't be confirmed", async () => {

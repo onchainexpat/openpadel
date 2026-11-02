@@ -3,7 +3,7 @@
 // in the way its plan said.
 import * as z from "zod/mini";
 import { sql } from "kysely";
-import { both, type Key, type Lang, type Params, type Text } from "@kumi/i18n";
+import { both, money, type Key, type Lang, type Params, type Text } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { checkAssistantSpend } from "./assistant_spend.ts";
@@ -180,13 +180,22 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
   throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
 }
 
-/** Never through an assistant (permissions.md: an agent can't raise its own limits): what it may spend, and the
- *  account's own safety, deleting it or changing how the person signs in. These are done in the club's app. */
-export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "person.factor_add", "person.factor_codes", "person.factor_remove", "person.passkey_add", "person.passkey_remove"]);
+/** Never through an assistant (permissions.md: an agent can't raise its own limits): what it may spend, the
+ *  account's own safety (deleting it, changing how the person signs in), and the person's own say: accepting
+ *  a waiver, moving their own level, downloading their data, the family card. These are done in the club's
+ *  app. So is anything that needs a strong sign-in (strongAuth), and saying yes to texts or club news
+ *  (APP_ONLY_YES): an assistant may still turn them off. */
+export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.export", "person.factor_add", "person.factor_codes", "person.factor_remove",
+  "person.passkey_add", "person.passkey_remove", "waiver.accept", "level.self_adjust", "family_card.start", "family_card.remove"]);
+export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news"]);
+/** Whether an action is the app's alone, never an assistant's: with `input`, for this input. */
+export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
+  return APP_ONLY.has(def.name) || Boolean(def.strongAuth) || (APP_ONLY_YES.has(def.name) && (input as { granted?: unknown } | undefined)?.granted === true);
+}
 
 /** Sensitive changes: a person with a passkey makes them signed in with it, or with two steps. */
-async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor): Promise<void> {
-  if (actor.auth === "oauth" && APP_ONLY.has(def.name)) throw new KumiError("error.assistant_in_app", {}, 403);
+async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor, input: unknown): Promise<void> {
+  if (actor.auth === "oauth" && appOnly(def, input)) throw new KumiError("error.assistant_in_app", {}, 403);
   if (!def.strongAuth || !actor.personId || actor.auth === "passkey" || actor.auth === "two_factor" || actor.auth === "system") return;
   const has = await db.selectFrom("passkey").select("credential_id").where("person_id", "=", actor.personId).where("revoked_at", "is", null).executeTakeFirst();
   if (has) throw new KumiError("error.need_passkey", {}, 403);
@@ -217,7 +226,7 @@ export async function dryPlan(db: Db | Trx, name: string, raw: unknown, actor: A
 export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opts: PlanOpts = {}): Promise<Planned> {
   const def = getAction(name);
   if (def.internal && !opts.internal) throw new KumiError("error.unknown_action", {}, 404);
-  await requireStrongAuth(db, def, actor);
+  await requireStrongAuth(db, def, actor, raw);
   const input = validate(def, raw);
   const now = opts.now ?? new Date();
   const p = await def.plan({ db, actor, now }, input);
@@ -228,7 +237,14 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     if (instead) return plan(db, instead.name, instead.input, actor, { now, internal: true });
   }
   // An assistant can't plan past the weekly cap its person set for it (assistant_spend.ts).
-  if (actor.grantId && actor.personId) await checkAssistantSpend(db, actor.grantId, name, input, p, actor.personId, now);
+  if (actor.grantId && actor.personId) {
+    const counted = await checkAssistantSpend(db, actor.grantId, name, input, p, actor.personId, now);
+    // A shared court counts in full until the others pay: the preview says so.
+    if (counted > (p.moneyCents ?? 0)) {
+      const note = both("plan.assistant.counts_until_paid", { amount: { en: money(counted, "en"), es: money(counted, "es") } });
+      p.summary = { en: `${p.summary.en} ${note.en}`, es: `${p.summary.es} ${note.es}` };
+    }
+  }
   const status = d.mode === "ask" || p.secondPerson ? "awaiting_approval" : "planned";
   const expiresAt = new Date(now.getTime() + (status === "planned" ? PLAN_MINUTES * 60_000 : APPROVAL_DAYS * 864e5));
   const runId = uuidv7(now.getTime());
@@ -264,7 +280,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       }
       const def = getAction(run.action);
       const p = run.plan as Plan;
-      if (!approving && !opts.system) await requireStrongAuth(trx, def, actor);
+      if (!approving && !opts.system) await requireStrongAuth(trx, def, actor, run.input);
       if (opts.system && !def.system) throw new KumiError("error.forbidden_reason", { reason: both("reason.no_role") }, 403);
       if (!approving && !opts.system) {   // permissions may have changed since the preview
         const d = await decide(trx, run.action, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now });
