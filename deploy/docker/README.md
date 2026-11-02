@@ -34,7 +34,7 @@ offsite copies. Keep a copy of both away from this machine, in a password manage
 
 ## Backups
 Every night at 3:17 on the club's clock (its time zone from setup, whatever the machine's or the containers'
-clock says) the `backup` service runs `kumi backup`: the database and a manifest of every table's rows go to `./backups/kumi-DATE.dump` and `.json`, kept 14 days, and, once offsite
+clock says) the `backup` service runs `kumi backup`: the database and a manifest of every table's rows go to `./backups/kumi-DATE.dump` and `.json` (named by the club's date and time, such as `kumi-2026-11-30T0317.dump`, so a backup run by hand never replaces the night's), kept 14 days, and, once offsite
 backups are set up in `.env` ([docs/setup/accounts/offsite-backups.md](../../docs/setup/accounts/offsite-backups.md)),
 a sealed copy goes to the club's own storage. On the 1st of each month at 4:17 it also runs `kumi restore-test`,
 which restores the newest backup into a scratch database and checks every table against its manifest. The

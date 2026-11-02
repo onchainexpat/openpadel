@@ -4,13 +4,13 @@
 // KUMI_REQUIRE_PG_TOOLS=1 says they must run (CI installs the tools).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { sql } from "kysely";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { heartbeat, jobWorked, run, runAsSystem, type Actor, type Db } from "@kumi/core";
-import { compareCounts, lastSlot, makeBackup, readOpsRecords, writeOpsRecords, nightlyBackup, openBackup, pgTool, restoreInto, restoreTest, scheduledDue, scratchUrl, SCHEDULE, tidyLocal, type Manifest } from "../src/backups.ts";
+import { compareCounts, lastSlot, makeBackup, newestLocal, offsiteLatest, readOpsRecords, writeOpsRecords, nightlyBackup, openBackup, pgTool, restoreInto, restoreTest, scheduledDue, scratchUrl, SCHEDULE, tidyLocal, type Manifest } from "../src/backups.ts";
 import { S3Client } from "../src/s3.ts";
 import { fakeS3, type FakeS3 } from "./fake_s3.ts";
 
@@ -38,7 +38,7 @@ after(async () => { if (skip) return; await s3.close(); await drop(); });
 
 test("a backup is a dump with a manifest of every table's rows, from one snapshot", { skip }, async () => {
   const r = await makeBackup(db, { url, dir, now: NOW, env });
-  assert.equal(r.file, join(dir, "kumi-2026-11-30.dump"));
+  assert.equal(r.file, join(dir, "kumi-2026-11-30T0317.dump"));   // the club's date and time (Los Angeles)
   const m = JSON.parse(readFileSync(r.manifestFile, "utf8")) as Manifest;
   assert.equal(m.kind, "kumi-backup");
   assert.equal(m.tables.person, Number((await sql<{ n: string }>`SELECT count(*) AS n FROM person`.execute(db)).rows[0]!.n));
@@ -48,6 +48,10 @@ test("a backup is a dump with a manifest of every table's rows, from one snapsho
   chmodSync(r.file, 0o644);
   const again = await makeBackup(db, { url, dir, now: NOW, env });
   for (const f of [again.file, again.manifestFile]) assert.equal(statSync(f).mode & 0o777, 0o600, f);
+  // A second backup in the same minute gets a name of its own: nothing is ever written over.
+  assert.equal(again.file, join(dir, "kumi-2026-11-30T0317-2.dump"));
+  assert.equal(statSync(r.file).mode & 0o777, 0o644);   // the first is untouched
+  rmSync(again.file); rmSync(again.manifestFile);
   // A labelled one (before an update) is named for it and left alone by the tidying.
   const labelled = await makeBackup(db, { url, dir, now: NOW, label: "update-abc-to-def", env });
   assert.equal(labelled.file, join(dir, "kumi-update-abc-to-def.dump"));
@@ -55,8 +59,9 @@ test("a backup is a dump with a manifest of every table's rows, from one snapsho
 
 test("nightly files older than 14 days are tidied; others are left", { skip }, () => {
   writeFileSync(join(dir, "kumi-2026-11-01.dump"), "old"); writeFileSync(join(dir, "kumi-2026-11-01.json"), "{}");
+  writeFileSync(join(dir, "kumi-2026-11-02T0317.dump"), "old, named to the minute");
   writeFileSync(join(dir, "kumi-2026-11-20.dump"), "recent");
-  assert.deepEqual(tidyLocal(dir, NOW).sort(), ["kumi-2026-11-01.dump", "kumi-2026-11-01.json"]);
+  assert.deepEqual(tidyLocal(dir, NOW).sort(), ["kumi-2026-11-01.dump", "kumi-2026-11-01.json", "kumi-2026-11-02T0317.dump"]);
   assert.ok(readdirSync(dir).includes("kumi-2026-11-20.dump") && readdirSync(dir).includes("kumi-update-abc-to-def.dump"));
 });
 
@@ -64,7 +69,7 @@ test("restoring into a scratch database brings back every table and row", { skip
   const scratch = await freshDb();   // a migrated database: the restore empties it first
   try {
     const scratchUrl = ADMIN.replace(/\/[^/]*$/, `/${(await sql<{ d: string }>`SELECT current_database() AS d`.execute(scratch.db)).rows[0]!.d}`);
-    await restoreInto(scratchUrl, join(dir, "kumi-2026-11-30.dump"), env);
+    await restoreInto(scratchUrl, join(dir, "kumi-2026-11-30T0317.dump"), env);
     const names = await scratch.db.selectFrom("person").select("display_name").orderBy("display_name").execute();
     assert.deepEqual(names.map((n) => n.display_name), ["Ann", "Ben", "Cy", "Robin Hale"]);
   } finally { await scratch.drop(); }
@@ -83,16 +88,34 @@ test("the restore test checks a local backup against its manifest, and records i
 test("the nightly job: the backup, then the sealed offsite copy; the restore test can use that copy", { skip }, async () => {
   const s3cfg = { endpoint: s3.url, bucket: creds.bucket, accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey, region: creds.region, pathStyle: true };
   const r = await nightlyBackup(db, { url, dir, s3: s3cfg, env, now: NOW });
-  assert.equal(r.offsite!.key, "club/daily/kumi-2026-11-30.dump.enc");
+  assert.equal(r.offsite!.key, "club/daily/kumi-2026-11-30T0317-2.dump.enc");   // 03:17's own file was already there
   assert.equal(r.offsite!.monthly, "club/monthly/kumi-2026-11.dump.enc");
-  const sealed = s3.objects.get("club/daily/kumi-2026-11-30.dump.enc")!;
+  const sealed = s3.objects.get("club/daily/kumi-2026-11-30T0317-2.dump.enc")!;
   assert.ok(!sealed.includes(Buffer.from("PGDMP")));
   assert.equal(openBackup(sealed, KEY).subarray(0, 5).toString(), "PGDMP");
   assert.equal((await heartbeat(db, "backup"))!.last_error, null);
   assert.equal(((await heartbeat(db, "offsite"))!.details as any).bucket, creds.bucket);
   const rt = await restoreTest(db, { liveUrl: url, dir, s3: new S3Client(s3cfg), key: KEY, prefix: "club/", env: { ...env, KUMI_RESTORE_TEST_DATABASE_URL: ADMIN.replace(/\/[^/]*$/, `/kumi_rt2_${process.pid}`) }, now: NOW });
   assert.equal(rt.ok, true, rt.problems.join("; "));
-  assert.equal(rt.source, "club/daily/kumi-2026-11-30.dump.enc");
+  assert.equal(rt.source, "club/daily/kumi-2026-11-30T0317-2.dump.enc");
+});
+
+test("two backups on one day both survive, here and offsite; the month keeps its first", { skip }, async () => {
+  const s3cfg = { endpoint: s3.url, bucket: creds.bucket, accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey, region: creds.region, pathStyle: true };
+  const evening = new Date("2026-12-01T05:39:00Z");   // 21:39 on Nov 30 in Los Angeles, after the 03:17 ones
+  const first = s3.objects.get("club/monthly/kumi-2026-11.dump.enc")!;
+  const r = await nightlyBackup(db, { url, dir, s3: s3cfg, env, now: evening });
+  assert.equal(basename(r.file), "kumi-2026-11-30T2139.dump");
+  for (const f of ["kumi-2026-11-30T0317.dump", "kumi-2026-11-30T0317-2.dump", "kumi-2026-11-30T2139.dump"]) assert.ok(readdirSync(dir).includes(f), f);
+  const daily = [...s3.objects.keys()].filter((k) => k.startsWith("club/daily/kumi-2026-11-30") && k.endsWith(".dump.enc")).sort();
+  assert.deepEqual(daily, ["club/daily/kumi-2026-11-30T0317-2.dump.enc", "club/daily/kumi-2026-11-30T2139.dump.enc"]);
+  assert.equal(r.offsite!.monthly, null);   // November's monthly copy is the first good backup of the club's month
+  assert.ok(s3.objects.get("club/monthly/kumi-2026-11.dump.enc")!.equals(first));
+  // The newest is the evening's, here and offsite, and an old one-a-day name still reads.
+  writeFileSync(join(dir, "kumi-2026-11-29.dump"), "PGDMP old");
+  assert.equal(basename(newestLocal(dir)!.file), "kumi-2026-11-30T2139.dump");
+  assert.equal((await offsiteLatest(new S3Client(s3cfg), "club/"))!.dump, "club/daily/kumi-2026-11-30T2139.dump.enc");
+  rmSync(join(dir, "kumi-2026-11-29.dump"));
 });
 
 test("an offsite copy that fails is recorded, and the owner and managers are told once", { skip }, async () => {

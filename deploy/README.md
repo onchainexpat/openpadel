@@ -62,7 +62,9 @@ Going back loses everything since the update (bookings, payments, sign-ups), whi
 - **Every night at 3:17 on the club's clock** (`kumi-backup.timer` checks every hour, and `kumi backup --scheduled`
   runs only when it's due, so the club's time zone counts, not the server's; a server that was off then catches up
   at its next check): `kumi backup` dumps the database with a manifest of every
-  table's rows, both from one snapshot, to `/var/backups/kumi/kumi-<date>.dump` and `.json`, kept 14 days.
+  table's rows, both from one snapshot, to `/var/backups/kumi/kumi-<date>T<time>.dump` and `.json` (the club's date
+  and time, such as `kumi-2026-11-30T0317.dump`), kept 14 days. Every backup keeps its own file: one run by hand
+  never replaces the night's.
 - **Offsite**, once it's set up ([docs/setup/accounts/offsite-backups.md](../docs/setup/accounts/offsite-backups.md)):
   the same night's dump goes to the club's own S3-compatible storage (Cloudflare R2, Backblaze B2, AWS S3,
   DigitalOcean Spaces), sealed with `KUMI_BACKUP_KEY`. 30 daily and 12 monthly copies are kept. One upload
@@ -77,7 +79,7 @@ Going back loses everything since the update (bookings, payments, sign-ups), whi
 kumi backup                                 # tonight's backup now
 kumi offsite                                # what's kept offsite
 kumi restore-test                           # the monthly check, now
-sudo kumi restore /var/backups/kumi/kumi-2026-11-30.dump --yes   # replace the database with a backup
+sudo kumi restore /var/backups/kumi/kumi-2026-11-30T0317.dump --yes   # replace the database with a backup
 sudo kumi restore offsite:latest --yes      # or the newest offsite copy
 ```
 

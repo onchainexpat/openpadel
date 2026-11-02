@@ -54,14 +54,33 @@ async function tableCounts(db: Kysely<any>): Promise<Record<string, number>> {
   for (const t of tables) out[t] = Number((await sql<{ n: string }>`SELECT count(*) AS n FROM ${sql.table(t)}`.execute(db)).rows[0]!.n);
   return out;
 }
-const day = (d: Date) => d.toISOString().slice(0, 10);
+const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+/** A backup's name on the club's clock, to the minute: kumi-2026-11-01T2139. Every backup keeps its own file (a
+ *  second one in the same minute gets -2, -3...), so one run by hand never replaces the night's. Names from before
+ *  this (kumi-2026-11-01, one a day) are still read everywhere. */
+export function backupStem(now: Date, tz: string): string {
+  const p = localParts(now, tz);
+  return `kumi-${p.y}-${pad(p.m)}-${pad(p.d)}T${pad(p.h)}${pad(p.min)}`;
+}
+/** A nightly backup's name taken apart: its club date, and a key that sorts backups oldest first. */
+const STEM = /^kumi-(\d{4}-\d{2}-\d{2})(?:T(\d{4})(?:-(\d+))?)?$/;
+export function parseStem(stem: string): { date: string; sortKey: string } | null {
+  const m = STEM.exec(stem);
+  return m ? { date: m[1]!, sortKey: `${m[1]}T${m[2] ?? "0000"}#${pad(Number(m[3] ?? 1), 4)}` } : null;
+}
+const stemOf = (name: string) => name.replace(/\.(dump|json)(\.enc)?$/, "");
+const byAge = (a: string, b: string) => parseStem(stemOf(basename(a)))!.sortKey.localeCompare(parseStem(stemOf(basename(b)))!.sortKey);
+async function clubTimeZone(db: Db): Promise<string> {
+  return (await db.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
+}
 
 /** Dump the database (custom format) with a manifest of every table's rows, from one snapshot. `label` names a
  *  dump made for something else (an update): those aren't the nightly files and aren't tidied with them. */
-export async function makeBackup(db: Db, o: { url: string; dir: string; now?: Date; label?: string; env?: Env }): Promise<{ file: string; manifestFile: string; manifest: Manifest }> {
+export async function makeBackup(db: Db, o: { url: string; dir: string; now?: Date; label?: string; env?: Env; tz?: string }): Promise<{ file: string; manifestFile: string; manifest: Manifest }> {
   const now = o.now ?? new Date(), env = o.env ?? process.env;
   mkdirSync(o.dir, { recursive: true });
-  const name = o.label ? `kumi-${o.label}` : `kumi-${day(now)}`;
+  let name = o.label ? `kumi-${o.label}` : backupStem(now, o.tz ?? await clubTimeZone(db));
+  if (!o.label) for (let n = 2; existsSync(join(o.dir, `${name}.dump`)) || existsSync(join(o.dir, `${name}.json`)); n++) name = `${name.replace(/-\d+$/, "")}-${n}`;
   const file = join(o.dir, `${name}.dump`), manifestFile = join(o.dir, `${name}.json`), part = `${file}.part`;
   const target = toolTarget(o.url);
   let tables: Record<string, number> = {};
@@ -90,8 +109,8 @@ export function tidyLocal(dir: string, now = new Date()): string[] {
   let names: string[] = [];
   try { names = readdirSync(dir); } catch { return gone; }
   for (const f of names) {
-    const m = /^kumi-(\d{4}-\d{2}-\d{2})\.(dump|json)$/.exec(f);
-    if (m && now.getTime() - new Date(`${m[1]}T00:00:00Z`).getTime() > LOCAL_DAYS * 86400_000) { rmSync(join(dir, f), { force: true }); gone.push(f); }
+    const m = /\.(dump|json)$/.test(f) ? parseStem(stemOf(f)) : null;
+    if (m && now.getTime() - new Date(`${m.date}T00:00:00Z`).getTime() > LOCAL_DAYS * 86400_000) { rmSync(join(dir, f), { force: true }); gone.push(f); }
   }
   return gone;
 }
@@ -99,7 +118,7 @@ export function tidyLocal(dir: string, now = new Date()): string[] {
 export function newestLocal(dir: string): { file: string; manifestFile: string | null } | null {
   let names: string[] = [];
   try { names = readdirSync(dir); } catch { return null; }
-  const dumps = names.filter((f) => /^kumi-\d{4}-\d{2}-\d{2}\.dump$/.test(f)).sort();
+  const dumps = names.filter((f) => f.endsWith(".dump") && parseStem(stemOf(f))).sort(byAge);
   const last = dumps.at(-1);
   if (!last) return null;
   const m = join(dir, last.replace(/\.dump$/, ".json"));
@@ -127,13 +146,14 @@ export const offsitePrefix = (env: Env = process.env) => { const p = (env.KUMI_O
 
 /** Upload a dump (and its manifest), sealed, as tonight's daily copy and, if this month has none yet, its monthly
  *  copy; then drop daily copies past OFFSITE_DAILY days and monthly ones past OFFSITE_MONTHLY months. */
-export async function offsitePush(s3: S3Client, o: { file: string; manifestFile: string | null; key: Buffer; prefix: string; now?: Date }) {
+export async function offsitePush(s3: S3Client, o: { file: string; manifestFile: string | null; key: Buffer; prefix: string; now?: Date; tz?: string }) {
   const now = o.now ?? new Date(), dump = readFileSync(o.file), stem = basename(o.file).replace(/\.dump$/, "");
   const sealedDump = sealBackup(dump, o.key), sealedManifest = o.manifestFile ? sealBackup(readFileSync(o.manifestFile), o.key) : null;
   const daily = `${o.prefix}daily/${stem}`;
   await s3.put(`${daily}.dump.enc`, sealedDump);
   if (sealedManifest) await s3.put(`${daily}.json.enc`, sealedManifest);
-  const month = now.toISOString().slice(0, 7), monthly = `${o.prefix}monthly/kumi-${month}`;
+  // The month on the club's clock: the first good backup of the club's month is kept as its monthly copy, never replaced.
+  const lp = localParts(now, o.tz ?? "UTC"), month = `${lp.y}-${pad(lp.m)}`, monthly = `${o.prefix}monthly/kumi-${month}`;
   const monthlies = await s3.list(`${o.prefix}monthly/`);
   let monthlyMade = false;
   if (!monthlies.some((x) => x.key === `${monthly}.dump.enc`)) {
@@ -145,10 +165,11 @@ export async function offsitePush(s3: S3Client, o: { file: string; manifestFile:
   return { key: `${daily}.dump.enc`, bytes: sealedDump.length, monthly: monthlyMade ? `${monthly}.dump.enc` : null, dropped };
 }
 
-/** Keep the newest OFFSITE_DAILY daily copies and OFFSITE_MONTHLY monthly ones (by the date in their names). */
+/** Keep the daily copies of the newest OFFSITE_DAILY days (every copy made on those days) and the newest
+ *  OFFSITE_MONTHLY monthly ones, by the club date in their names. */
 export async function offsiteRetention(s3: S3Client, prefix: string): Promise<string[]> {
   const dropped: string[] = [];
-  for (const [folder, keep, re] of [["daily/", OFFSITE_DAILY, /kumi-(\d{4}-\d{2}-\d{2})\.(dump|json)\.enc$/], ["monthly/", OFFSITE_MONTHLY, /kumi-(\d{4}-\d{2})\.(dump|json)\.enc$/]] as const) {
+  for (const [folder, keep, re] of [["daily/", OFFSITE_DAILY, /kumi-(\d{4}-\d{2}-\d{2})(?:T\d{4}(?:-\d+)?)?\.(dump|json)\.enc$/], ["monthly/", OFFSITE_MONTHLY, /kumi-(\d{4}-\d{2})\.(dump|json)\.enc$/]] as const) {
     const objects = (await s3.list(`${prefix}${folder}`)).filter((x) => re.test(x.key));
     const stamps = [...new Set(objects.map((x) => re.exec(x.key)![1]!))].sort().reverse();
     const old = new Set(stamps.slice(keep));
@@ -160,7 +181,7 @@ export async function offsiteRetention(s3: S3Client, prefix: string): Promise<st
 /** The newest daily copy offsite: its dump and manifest keys. */
 export async function offsiteLatest(s3: S3Client, prefix: string): Promise<{ dump: string; manifest: string | null } | null> {
   const objects = await s3.list(`${prefix}daily/`);
-  const dumps = objects.map((x) => x.key).filter((k) => /kumi-\d{4}-\d{2}-\d{2}\.dump\.enc$/.test(k)).sort();
+  const dumps = objects.map((x) => x.key).filter((k) => k.endsWith(".dump.enc") && parseStem(stemOf(basename(k)))).sort(byAge);
   const last = dumps.at(-1);
   if (!last) return null;
   const m = last.replace(/\.dump\.enc$/, ".json.enc");
@@ -318,7 +339,7 @@ export function lastSlot(now: Date, tz: string, at: { hour: number; monthDay?: n
 
 /** Is the nightly backup (or the monthly restore test) due now? The club's time zone, or UTC before a club exists. */
 export async function scheduledDue(db: Db, job: "backup" | "restore_test", now = new Date()): Promise<{ due: boolean; tz: string; slot: Date }> {
-  const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
+  const tz = await clubTimeZone(db);
   const slot = lastSlot(now, tz, SCHEDULE[job]);
   const last = (await heartbeat(db, job as OpsJob))?.last_run_at ?? null;
   return { due: !last || last < slot, tz, slot };
@@ -328,10 +349,10 @@ export async function scheduledDue(db: Db, job: "backup" | "restore_test", now =
 /** The nightly backup: dump with its manifest, tidy old local files, then the offsite copy if it's set up. Each
  *  part is recorded (/health/deep, kumi doctor), and the owner and managers hear once if one starts failing. */
 export async function nightlyBackup(db: Db, o: { url: string; dir: string; s3: S3Config | null; env?: Env; now?: Date; fetch?: (u: string, i?: RequestInit) => Promise<Response> }) {
-  const env = o.env ?? process.env, now = o.now ?? new Date();
+  const env = o.env ?? process.env, now = o.now ?? new Date(), tz = await clubTimeZone(db);
   let made: Awaited<ReturnType<typeof makeBackup>>;
   try {
-    made = await makeBackup(db, { url: o.url, dir: o.dir, now, env });
+    made = await makeBackup(db, { url: o.url, dir: o.dir, now, env, tz });
     const tidied = tidyLocal(o.dir, now);
     await jobWorked(db, "backup", { file: basename(made.file), bytes: made.manifest.bytes, tables: Object.keys(made.manifest.tables).length, tidied: tidied.length }, now);
   } catch (e) { await jobFailed(db, "backup", (e as Error).message, now); throw e; }
@@ -340,7 +361,7 @@ export async function nightlyBackup(db: Db, o: { url: string; dir: string; s3: S
     const key = backupKey(env);
     if (!key) throw new Error("KUMI_BACKUP_KEY isn't set, so nothing can go offsite");
     const s3 = new S3Client(o.s3, o.fetch ? { fetch: o.fetch } : {});
-    const r = await offsitePush(s3, { file: made.file, manifestFile: made.manifestFile, key, prefix: offsitePrefix(env), now });
+    const r = await offsitePush(s3, { file: made.file, manifestFile: made.manifestFile, key, prefix: offsitePrefix(env), now, tz });
     await jobWorked(db, "offsite", { key: r.key, bytes: r.bytes, monthly: r.monthly, dropped: r.dropped.length, bucket: o.s3.bucket }, now);
     return { file: made.file, offsite: r };
   } catch (e) { await jobFailed(db, "offsite", (e as Error).message, now); throw e; }

@@ -83,7 +83,7 @@ setting up again.
 ```bash
 sudo systemctl restart kumi        # not needed for the backup itself, but keeps everything on the same settings
 kumi backup                        # tonight's backup now, and its offsite copy
-kumi offsite                       # what's there: daily/kumi-<date>.dump.enc and .json.enc, monthly/kumi-<month>...
+kumi offsite                       # what's there: daily/kumi-<date>T<time>.dump.enc and .json.enc, monthly/kumi-<month>...
 kumi restore-test                  # restore the newest offsite copy into a scratch database and check it
 kumi doctor                        # offsite and restore_test should be ok
 ```

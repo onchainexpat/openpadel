@@ -461,6 +461,10 @@ The first version a club can run on its own (court bookings included), or for it
   server's clock is (Docker's is UTC). The timer, or Docker's backup service, checks every hour; a server
   that was off at 3:17 catches up at its next check. In Docker, doctor's hints name the backup service and
   Docker's own guide.
+- Every backup keeps its own file, named by the club's date and time (`kumi-2026-11-30T0317.dump`, and its
+  offsite copy `daily/kumi-2026-11-30T0317.dump.enc`). Before, a backup run by hand replaced that night's, here
+  and offsite. The monthly offsite copy is the first good backup of the club's month and is never replaced.
+  Backups named the old way (`kumi-2026-11-30.dump`) are still found, restored and tidied.
 - Cancelling some dates of a course brings a place not paid for yet down to the dates left (its price and
   what's owed), the way a paid place gets those dates' share back; a card form already opened for the old
   amount is called off and a new one asked.
