@@ -61,7 +61,9 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   }
 
   // Email: without it, sign-in codes and messages only reach the server's log.
-  if (!env.KUMI_RESEND_API_KEY) add("email", production ? "warn" : "off", "email.off", {}, "docs/setup/accounts/resend.md");
+  // Live (production, out of practice) with no email: the server refuses to start, since sign-in codes would only
+  // reach the log, where anyone who can read it could sign in as any member.
+  if (!env.KUMI_RESEND_API_KEY) add("email", production && env.KUMI_PRACTICE !== "1" ? "fail" : production ? "warn" : "off", production && env.KUMI_PRACTICE !== "1" ? "email.off_live" : "email.off", {}, "docs/setup/accounts/resend.md");
   else if (!env.KUMI_MAIL_FROM) add("email", "fail", "email.no_from", {}, "docs/setup/accounts/resend.md");
   else if (!production || env.KUMI_PRACTICE === "1") add("email", "warn", "email.practice", { from: env.KUMI_MAIL_FROM, count: (env.KUMI_MAIL_TEST_TO ?? "").split(",").filter((a) => a.trim()).length });
   else add("email", "ok", "email.ok", { from: env.KUMI_MAIL_FROM });

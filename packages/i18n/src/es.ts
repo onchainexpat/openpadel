@@ -746,6 +746,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "doctor.members_address.not_https": "Dirección de los miembros: {url} no usa HTTPS. Define KUMI_MEMBER_URL con la dirección https de la app de miembros.",
   "doctor.members_address.down": "Dirección de los miembros: {url} no responde ({error}). Revisa su registro DNS y Caddy, o define KUMI_MEMBER_URL con la dirección de la app de miembros.",
   "doctor.email.off": "Correo: sin configurar, así que los correos y los códigos para iniciar sesión solo van al registro del servidor.",
+  "doctor.email.off_live": "Correo: sin configurar, y el club está en marcha (sin KUMI_PRACTICE): el servidor no arranca, porque los códigos para entrar solo irían a su registro. Configura el correo, o vuelve a poner KUMI_PRACTICE=1 hasta tenerlo.",
   "doctor.email.no_from": "Correo: KUMI_RESEND_API_KEY está definida pero KUMI_MAIL_FROM no.",
   "doctor.email.practice": "Correo: por Resend desde {from}, en modo de práctica. Solo {count} direcciones de prueba reciben correo; quita KUMI_PRACTICE cuando el club empiece a usarlo de verdad.",
   "doctor.email.ok": "Correo: por Resend desde {from}.",

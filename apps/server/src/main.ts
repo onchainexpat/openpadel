@@ -22,6 +22,12 @@ if (!process.env.KUMI_SECRET_KEY?.trim()) {
 try { setSecretKeys({ current: process.env.KUMI_SECRET_KEY, previous: process.env.KUMI_SECRET_KEY_PREVIOUS }); }
 catch (e) { console.error(`KUMI_SECRET_KEY: ${(e as Error).message}`); process.exit(1); }
 
+// Live with no email key, sign-in codes would only be written to the log, readable by anyone who can read it:
+// refuse to start instead. In practice (and development) the log is how the owner signs in before email is set up.
+if (!process.env.KUMI_RESEND_API_KEY && production && process.env.KUMI_PRACTICE !== "1") {
+  console.error("email isn't set up (KUMI_RESEND_API_KEY and KUMI_MAIL_FROM): live, members' sign-in codes would only go to the log. Set up email (docs/setup/accounts/resend.md), or keep KUMI_PRACTICE=1 until it is.");
+  process.exit(1);
+}
 const db = connect();
 const applied = await migrate(db);
 if (applied.length) console.log(`migrations applied: ${applied.join(", ")}`);

@@ -78,7 +78,7 @@ test("doctor: each check, and what's wrong in production", async () => {
   assert.equal(dev.email, "off"); assert.equal(dev.payments, "off"); assert.equal(dev.backups, "off");
   assert.equal((await state({ KUMI_STRIPE_SECRET_KEY: "sk_live_x", KUMI_STRIPE_PUBLISHABLE_KEY: "pk_live_x" })).payments, "fail");   // a live key outside production
   const prod = await state({ NODE_ENV: "production", KUMI_PUBLIC_URL: "http://club.example" });
-  assert.equal(prod.address, "fail"); assert.equal(prod.email, "warn"); assert.equal(prod.backups, "warn");
+  assert.equal(prod.address, "fail"); assert.equal(prod.email, "fail"); assert.equal(prod.backups, "warn");   // live with no email: see below
   const up = async () => new Response("{}", { status: 200 });
   writeFileSync(join(dir, "kumi-2026-10-29.dump"), "x");
   const live = await state({ NODE_ENV: "production", KUMI_PUBLIC_URL: "https://club.example", KUMI_RESEND_API_KEY: "re_x", KUMI_MAIL_FROM: "a@b.example" }, up);
@@ -97,6 +97,9 @@ test("doctor: each check, and what's wrong in production", async () => {
   const one = await checks({}), dock = await checks({ KUMI_INSTALL: "docker" });
   assert.match(one.backups!.text.en, /kumi-backup timer/); assert.match(dock.backups!.text.en, /docker compose logs backup/);
   assert.equal(one.restore_test!.doc, "deploy/README.md"); assert.equal(dock.restore_test!.doc, "deploy/docker/README.md");
+  // Live without email, sign-in codes would only reach the log: the server refuses to start, and doctor fails.
+  assert.equal(one.email!.state, "fail"); assert.match(one.email!.text.en, /won't start/);
+  assert.equal((await checks({ KUMI_PRACTICE: "1" })).email!.state, "warn");
 });
 
 test("doctor: Apple Pay and Google Pay need the members' domain registered with Stripe", async () => {

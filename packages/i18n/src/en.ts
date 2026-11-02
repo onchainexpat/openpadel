@@ -743,6 +743,7 @@ export const en = {
   "doctor.members_address.not_https": "Members' address: {url} isn't HTTPS. Set KUMI_MEMBER_URL to the members' app's https address.",
   "doctor.members_address.down": "Members' address: {url} doesn't answer ({error}). Check its DNS record and Caddy, or set KUMI_MEMBER_URL to the members' app's address.",
   "doctor.email.off": "Email: not set up, so emails and sign-in codes only go to the server's log.",
+  "doctor.email.off_live": "Email: not set up, and the club is live (no KUMI_PRACTICE): the server won't start, since sign-in codes would only go to its log. Set up email, or put KUMI_PRACTICE=1 back until it is.",
   "doctor.email.no_from": "Email: KUMI_RESEND_API_KEY is set but KUMI_MAIL_FROM isn't.",
   "doctor.email.practice": "Email: through Resend from {from}, in practice mode. Only {count} test addresses get email; remove KUMI_PRACTICE when the club goes live.",
   "doctor.email.ok": "Email: through Resend from {from}.",

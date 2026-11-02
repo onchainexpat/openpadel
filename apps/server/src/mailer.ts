@@ -6,12 +6,15 @@ export type { Mail, Mailer };
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
+/** Email kept in memory (the newest 500) and, when `log` is on, written to the log, codes and all. The server only
+ *  uses it in practice or development: live, it won't start without real email. */
 export class MemoryMailer implements Mailer {
   sent: Mail[] = [];
   private log: boolean;
   constructor(log = false) { this.log = log; }
   async send(mail: Mail) {
     this.sent.push(mail);
+    if (this.sent.length > 500) this.sent.splice(0, this.sent.length - 500);
     if (this.log) console.log(`[mail] to ${mail.to}: ${mail.subject}`);
   }
   last(to: string): Mail | undefined { return [...this.sent].reverse().find((m) => m.to === to); }

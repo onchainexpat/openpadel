@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { MemoryMailer, PracticeMailer, ResendMailer } from "../src/mailer.ts";
 
 function fakeResend(status = 200, reply: unknown = { id: "e_1" }) {
@@ -34,4 +35,19 @@ test("outside production, only the test addresses get real email", async () => {
   await m.send({ to: "real.member@example.test", subject: "b", text: "b" });
   assert.deepEqual(inner.sent.map((x) => x.to), ["robin@example.test"]);
   assert.deepEqual(m.held.map((x) => x.to), ["real.member@example.test"]);
+});
+
+test("live with no email, the server won't start: sign-in codes would only reach its log", () => {
+  const main = new URL("../src/main.ts", import.meta.url).pathname;
+  const env = { PATH: process.env.PATH!, NODE_ENV: "production", KUMI_SECRET_KEY: Buffer.alloc(32, 7).toString("base64"), DATABASE_URL: "postgresql://nobody@127.0.0.1:1/none" };
+  const r = spawnSync(process.execPath, [main], { env, encoding: "utf8", timeout: 20_000 });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /email isn't set up .*KUMI_PRACTICE=1/);
+});
+
+test("the memory mailer keeps only the newest 500", async () => {
+  const m = new MemoryMailer();
+  for (let i = 0; i < 520; i++) await m.send({ to: `p${i}@example.test`, subject: "x", text: "x" } as any);
+  assert.equal(m.sent.length, 500);
+  assert.equal(m.sent[0]!.to, "p20@example.test");
 });
