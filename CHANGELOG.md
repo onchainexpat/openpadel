@@ -15,9 +15,19 @@ server starts.
   and managers hear once each. Past it, what can wait waits until the 1st (drafts, club news emails, and
   texts that can go in the app and by email); answers from the club's facts, sign-in codes, confirmations
   and cancellations keep going, up to twice the limit.
+- **Download everything.** The owner can download all of the club's data and settings in one file, sealed
+  with a passphrase shown once (Settings in the staff app, or `kumi export` on the server). `kumi restore`
+  puts it into another install of the same Kumi or a newer one: the secrets are sealed again with the new
+  server's key, and it says what's left to set up there. A club can always leave, with everything.
+- **Read-only**, a host's switch for an account that isn't paid (`kumi read-only on|off|status`). Everyone
+  still signs in, sees everything, cancels with the usual refunds and downloads their data; nothing new is
+  booked, joined, sold or charged, renewals wait, and both apps say so at the top.
 
 ### Changed
 - The monthly text cap in segments is folded into the one cap. Settings, Texts still shows the month's texts.
+- A club that ran on a hosted Kumi (Stripe Connect) and moves to its own server reaches its earlier
+  payments with its own Stripe keys, so refunds of them work.
+- The Docker backup service knows the club's address (for exports).
 
 ### When updating
 - Nothing to do. The cap starts at $50 a month, whatever the text cap was. Prices are list prices; set

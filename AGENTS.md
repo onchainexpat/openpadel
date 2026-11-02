@@ -14,7 +14,8 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
    not the order of the checks: Stripe comes before texts. Each check names the guide that fixes it.
 2. **Never ask the owner to paste a secret into the chat** (API keys, passwords, codes). Tell them
    which setting it is and where it goes (`/etc/kumi/kumi.env` on the server), and let them type it
-   there themselves. Never print the settings file or a key.
+   there themselves. Never print the settings file or a key. `kumi export` and restoring an export ask
+   for the file's passphrase: the owner runs those in their own terminal and types it.
 3. **Never ask for a Social Security number, ID, bank account or card details.** Stripe collects
    those on its own pages, from the owner directly.
 4. **The owner creates every outside account** (domain, server, Stripe, Resend, Playtomic API keys)

@@ -96,6 +96,13 @@ is (`kumi-<time>-before-restore.dump` beside the backups), restores, and starts 
 lost. In the rare case that fails too, the server stays stopped (it would start with an empty club) and the
 message names the copy to restore by hand.
 
+A club's export (`kumi export`, or the owner's "Download everything") restores the same way, onto this
+server's Kumi or a newer one: put it where the kumi user can read it, and type its passphrase when asked.
+```bash
+sudo install -o kumi -m 600 kumi-export-20261130T1900Z.kumi /var/backups/kumi/
+sudo kumi restore /var/backups/kumi/kumi-export-20261130T1900Z.kumi --yes
+```
+
 ## Health
 
 - `/health` is cheap and open: `{"ok":true,"version":"0.1.0","revision":"<commit>"}`.

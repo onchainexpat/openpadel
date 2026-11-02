@@ -65,6 +65,12 @@ The restore checks the file first and keeps a copy of the database as it was (`k
 in `./backups`); if it fails, that copy goes back in. If its message says the database couldn't be put back,
 don't start `kumi`: restore the copy it names first.
 
+A club's export (the owner's "Download everything", or `docker compose exec backup kumi export`, which
+asks for a passphrase and writes the file to `./backups`) restores the same way, onto this Kumi or a newer
+one: copy it into `./backups`, stop `kumi`, then
+`docker compose exec backup kumi restore /var/backups/kumi/kumi-export-<time>.kumi --yes` and type its
+passphrase when asked.
+
 ## Updating
 Read the release's notes in [`CHANGELOG.md`](../../CHANGELOG.md) first, then:
 ```bash

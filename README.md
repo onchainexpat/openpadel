@@ -107,6 +107,14 @@ they have one. Each payment remembers its account, so a refund goes back through
 club changes accounts. Stripe's webhook should send `account.updated` and `payment_intent.*` events
 from connected accounts.
 
+### A club can always leave
+
+The owner's "Download everything" (Settings) and `kumi export` make one file with all of the club's data
+and settings, sealed with a passphrase; `kumi restore <file>` puts it into another install of the same
+Kumi or a newer one. A host can make a club read-only (`kumi read-only on`) when its account isn't paid:
+everyone still signs in, cancels and downloads their data, and nothing new is booked or charged. See
+[docs/setup](docs/setup/README.md#moving-the-club-and-read-only).
+
 ### Running beside Playtomic
 
 A club on Playtomic can keep it for court bookings while Kumi runs its events. Kumi copies the

@@ -449,6 +449,45 @@ each. Then:
 
 The same address can join again later as a new member, with nothing of the old account.
 
+### Moving the club, and read-only
+
+A club can always take everything with it. The owner's **Download everything** (Settings in the staff
+app, a passkey sign-in if the owner has a passkey) makes one file with all of the club's data: members,
+bookings, payments, programs, levels, messages, settings, photos and documents, and the secrets Kumi keeps
+sealed (staff authenticators, the push key, the vault). The file is sealed with a passphrase that Kumi
+shows once, beside the download, and doesn't keep: put it in a password manager. On the server,
+`kumi export` makes the same file, with a passphrase the owner types.
+
+To run the club somewhere else, install Kumi there (the same version or a newer one), put the file on the
+new server and restore it instead of setting the club up:
+
+```bash
+sudo install -o kumi -m 600 kumi-export-20261130T1900Z.kumi /var/backups/kumi/
+sudo kumi restore /var/backups/kumi/kumi-export-20261130T1900Z.kumi --yes   # asks for the passphrase
+```
+
+It works like restoring a backup (the database as it was is kept first), then brings the club up to this
+Kumi, seals the secrets with the new server's key, and says what's left to set up there: the keys for
+email, texts and payments are the old server's or its host's, so the new server gets its own. If the
+club's web address changed, passkeys stop working (a passkey belongs to its address): people sign in
+with a code and add one again. A club that took card payments on its own Stripe account through a hosted
+Kumi puts that account's keys in `KUMI_STRIPE_SECRET_KEY` and `KUMI_STRIPE_PUBLISHABLE_KEY`, so refunds
+of earlier payments still work.
+
+**Read-only** is a host's switch for an account that isn't paid: `kumi read-only on` (and `off`, and
+`status`). Nothing is held back: everyone still signs in, sees everything, looks after their account
+and downloads their data, and the owner can download everything. People can still cancel and leave,
+with the club's usual refunds. Nothing new is booked, joined, sold or charged, and the club's settings
+don't change. Both apps say so at the top, and `kumi doctor` shows it. While it's on:
+
+- renewals wait (no card is charged, and no membership ends for it); they go through when it's off;
+- at a shared court's deadline nothing is charged: what's unpaid is owed at the desk, and the organiser
+  is told why;
+- unpaid program places and presale memberships aren't let go (nobody can pay), and a place someone
+  gives up isn't offered to the waitlist;
+- payments already under way at Stripe, refunds, receipts, reminders, sign-in codes and club news
+  already scheduled still go out; assistants follow the same rules as the apps.
+
 ### Notifications
 
 Nothing to set up. Each member turns notifications on for their own phone in Profile, and from then
@@ -491,7 +530,8 @@ and emails must be real; keep "Members book courts in the app" off until the doo
 ## Commands, and where they run
 
 `kumi` runs on the server: `ssh root@your-server kumi doctor`. Every command takes `--json` (for
-agents) and `--lang=es` (for Spanish), and none of them prompts or prints a secret.
+agents) and `--lang=es` (for Spanish), and none of them prints a secret. Only `kumi export` and restoring
+an export ask for something: the file's passphrase, typed by the owner (it isn't shown), or piped in.
 
 | Command | What it does |
 |---|---|
@@ -505,5 +545,7 @@ agents) and `--lang=es` (for Spanish), and none of them prompts or prints a secr
 | `kumi offsite` | What's kept offsite. |
 | `kumi restore-test` | Restores the newest backup into a scratch database and checks every table. |
 | `kumi rotate-key` | Seals every secret with `KUMI_SECRET_KEY` (the old key in `KUMI_SECRET_KEY_PREVIOUS`). |
-| `sudo kumi restore <file \| offsite:latest> --yes` | Replaces the database with a backup: stops the server, restores, starts it. Everything since is lost. |
+| `kumi export [--out=<folder>]` | Everything the club needs to run somewhere else, in one file sealed with a passphrase the owner types. |
+| `kumi read-only on \| off \| status` | The host's switch for an account that isn't paid: nothing new is booked or charged; everyone keeps their data. |
+| `sudo kumi restore <file \| offsite:latest> --yes` | Replaces the database with a backup, or with a club's export: stops the server, restores, starts it. Everything since is lost. |
 | `sudo kumi releases`, `sudo kumi rollback --yes` | Which release runs; going back to the previous one and its database (see `deploy/README.md`). |
