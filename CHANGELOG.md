@@ -485,16 +485,32 @@ to go live.
   their parents have given them a login. In practice mode the code is in the server's log, as an emailed one is.
   Connecting an assistant can sign in by texted code too ("Use my mobile number instead" on its sign-in page);
   there it only texts a number already confirmed on an account, since connecting never makes one.
+- A confirmed number signs in, so adding or changing it in Profile follows the passkey rule: right after
+  signing in, and with the passkey or authenticator for someone who has one. The person's email hears, with
+  a link (14 days) that takes the number back and signs everyone out, and the old number is told it's no
+  longer on the account. Another account's number gets the same answer as a free one, and no text.
+- Every code (sign-in, an email change, a number) counts each try before comparing it, so tries made at once
+  can't get past five, and a right one is used up in the same step. An assistant's sign-in code is swapped
+  once; a refresh token is refreshed one at a time, and a second at the same moment ends its chain.
+- Registering an assistant (anyone may) is limited to 10 an hour from one address and 16 KB, keeping only its
+  name and the few fields Kumi uses; starting a passkey sign-in is limited per address too. Old codes and
+  assistants never connected within a week are tidied hourly.
 - Two-step sign-in for staff: a passkey (both steps by itself), or the emailed code followed by a code from
   an authenticator app. Setting one up shows a QR code and the key to type, then ten recovery codes, shown
   once and kept only as slow hashes, each good once. Owners, managers and anyone with a role the club made
   must use it (the default), or every staff role if the club says so in Settings; members can choose it
-  for themselves. Until the second step is given, nothing but finishing the sign-in answers. The owner can
+  for themselves. Until the second step is given, nothing but giving it (or signing in again, or out)
+  answers; setting a first one up is open only to someone who has none. Adding a passkey or an authenticator
+  for someone who already has either needs a session that used it, so a mailbox alone can't make a second
+  step of its own. Wrong authenticator codes count per person, five in 15 minutes, in the apps and on an
+  assistant's sign-in page together. The owner can
   start someone's second step over (a lost phone): their authenticator, recovery codes and passkeys go and
   they're signed out everywhere; `kumi reset-sign-in <email>` does it on the server for an owner who is
   locked out. Connecting an agent asks for the second step too.
 - Members change their own email in Profile: a code to the new address, then the old address is told, with
-  a link (good 14 days, once) that puts it back and signs everyone out, assistants too. With a passkey, the
+  a link (good 14 days, once) that puts it back and signs everyone out, assistants too, and turns off the
+  account's passkeys, authenticator app and recovery codes and a sign-in number confirmed in the 14 days
+  before the change or since, so whoever changed it can't come back another way. With a passkey, the
   change needs the passkey or two steps. Adding or changing to an address another account uses answers the
   same as a free one; that address hears someone tried, and no working code is made.
   Staff change it for a member at the desk the same way, from the person's page: signed in with a passkey or
@@ -528,7 +544,9 @@ to go live.
   place given up counts nothing; a preview never confirmed never counted. An open match still counts only the
   person's own place, since its host never pays for empty ones.
 - More stays in the app, never through an assistant: accepting a waiver, moving one's own level, downloading
-  one's data, the family card, saying yes to texts or club news (an assistant can still turn them off), and
+  one's data, the family card and saved cards, a parent's say over their children (a junior's login and rules,
+  a charge past them, inviting or accepting a second parent, leaving the family or taking a junior out of it),
+  saying yes to texts or club news (an assistant can still turn them off), and
   every change that needs a strong sign-in (club settings, roles, the vault, payment account), whatever the
   person signed in with. They're left off the assistant's tool list and refused if called.
 - A short tool list for assistants, which they read on every turn: descriptions are a line each, and the

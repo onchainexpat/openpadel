@@ -394,8 +394,10 @@ watching hears once.
   refuses to start that way.
 - **A member's own email.** Profile, Email: a member adds one (an account that joined by phone) or
   changes it. A code goes to the new address first. On a change, the old address is told, with a link good
-  for 14 days that puts it back and signs everyone out of the account, connected assistants too, for a
-  change they didn't make. Someone with a passkey changes it signed in with the passkey (or two steps). An
+  for 14 days that puts it back, signs everyone out of the account, connected assistants too, and turns off
+  its passkeys, authenticator app and a sign-in number added lately, for a change they didn't make. Adding or
+  changing the number they sign in with works the same way: right after signing in (with the passkey, for
+  someone who has one), and their email hears with the same kind of link. Someone with a passkey changes it signed in with the passkey (or two steps). An
   address another account uses gets the same answer as a free one, so nobody can find out who's a member;
   that address is told someone tried, and no code that works is sent.
 - **Members' own assistants.** A member (or anyone) can connect Claude, ChatGPT or another assistant to
@@ -412,8 +414,9 @@ watching hears once.
   assistant (a refund, someone else's booking) aren't limited, since it isn't their own money; every change
   is still previewed first, and an assistant never does more than the person could.
 - **What an assistant never does.** Its own limit, how the person signs in, deleting the account,
-  accepting a waiver, moving their own level, downloading their data, the family card, saying yes to texts
-  or club news (it can turn them off), and anything that needs a strong sign-in, such as club settings,
+  accepting a waiver, moving their own level, downloading their data, the family card and saved cards, a
+  parent's say over their children (a junior's login and rules, a charge past them, a second parent, leaving
+  the family), saying yes to texts or club news (it can turn them off), and anything that needs a strong sign-in, such as club settings,
   roles and the vault. Those are done in the club's app; an assistant isn't offered them and is refused if
   it tries.
 
