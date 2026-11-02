@@ -80,7 +80,7 @@ check() {
 snapshot() {
   local file=$1
   mkdir -p "$BACKUPS"
-  $AS "$(tool pg_dump)" -Fc --no-owner --no-acl -d "$DATABASE_URL" -f "$file.part" && mv "$file.part" "$file"
+  $AS "$(tool pg_dump)" -Fc --no-owner --no-acl -d "$DATABASE_URL" -f "$file.part" && mv "$file.part" "$file" && chmod 600 "$file"
 }
 restore() {
   local file=$1
