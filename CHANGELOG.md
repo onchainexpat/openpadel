@@ -7,15 +7,54 @@ server starts.
 
 ## 0.1.0 (not released yet)
 
-The first version a club can run on its own (court bookings included), or for its events alongside Playtomic.
+The first release: a club can run on it on its own, or run its events with it alongside Playtomic.
+
+### What Kumi 0.1.0 does
+- Members book and pay for courts in the club's own app (the whole court, or only their part), open
+  matches to players of their level, and find a sub when they can't make it.
+- Clinics, courses, socials and Americanos, signed up for as a whole or date by date, with waitlists,
+  a minimum to run, and refunds by the club's own rules. Private lessons with the club's coaches.
+- Fair levels: scores both sides confirm, a sentence on why a level moved, and reviews the club answers.
+- Memberships, founding offers sold before opening, family plans, and juniors under their parents' care,
+  with a login of their own from 13 if the parents allow.
+- Card payments, Apple Pay and Google Pay into the club's own Stripe account, with no commission, and a
+  receipt for every payment and refund.
+- Messages by the app's inbox, email, push and, optionally, text, with consent and quiet hours kept.
+  Members can ask the club and get its own answers word for word, or a person.
+- A staff app for the desk on a phone or computer: the day on the courts, people, programs, money,
+  reports, roles and two-step sign-in. Members and staff can connect their own AI assistant.
+- English and US Spanish throughout, including the club's own words.
+- One server or Docker, with nightly backups, sealed offsite copies, a monthly restore test, and updates
+  that put themselves back if something goes wrong.
+
+### Installing
+Start at [`docs/setup/README.md`](docs/setup/README.md), with the code at `git checkout v0.1.0`. You'll
+need a domain, a server with 2 GB of memory (about $12 a month) or a machine with Docker, a Stripe
+account, a Resend account for email, and storage for offsite backups (Cloudflare R2 or Backblaze B2).
+Texts (Twilio) and "ask the club" (TypeSafe or Anthropic) are optional. The owner's time is about a day,
+spread over a week or two while Stripe checks the business. Two things people miss: turn on "Members book
+courts in the app" (Settings, The club), which starts off; and keep practice mode on until the owner says
+to go live.
+
+### Known limits
+- Self-hosted only; a hosted service is planned.
+- US clubs: US dollars and US formats, English and US Spanish, texts to US and Canadian numbers only.
+- Cards only (Apple Pay and Google Pay included); no credit, gift cards, vouchers or drop-in passes. The
+  desk records cash for bookings, not yet for memberships or program places.
+- Tournaments and leagues run as programs, without draws or fixtures. No chat between players, no
+  recurring bookings, and no app store apps (the members' app installs from the browser).
+- Playtomic is read only, and needs one of its top two plans for the API keys.
+- Texting registration is automatic for a toll-free number (`kumi texting`); a local number (10DLC) is
+  registered by hand in Twilio.
+
+### Everything in 0.1.0
 
 **Court bookings**
 - Giving a court its own hours names any booking or program date already there that the new hours leave
   outside; they stay booked for the staff to move or cancel.
 - A member's page in the staff app lists their court bookings and lessons (the last 30 days and those to
   come). Front desk and up cancel one there, choosing the club's rule, everything back or nothing back, or
-  refund part of a card payment on one that stays (a new action, `booking.refund`: refunding is its own
-  decision, apart from leaving). Cash paid at the desk goes back at the desk.
+  refund part of a card payment on one that stays (refunding is its own decision, apart from leaving). Cash paid at the desk goes back at the desk.
 - The desk can't record more than a booking still owes (its price, tax included, less what's been paid and
   not refunded): Kumi keeps no credit for later, so the extra would have nowhere to go. Part now and the rest
   later is fine.
@@ -42,14 +81,13 @@ The first version a club can run on its own (court bookings included), or for it
   report; only the occupancy, the share of open time used, leaves it out.
   On the Courts page, the desk's forms (book, move or change the length, block, change a repeating
   block's times) offer only the times the chosen court is open that day, and only lengths that end by
-  its closing, instead of the location's whole day and a "closed then" refusal.
+  its closing.
 - Courts blocked every week ("Courts 1 and 2 every Tuesday 18:00 to 20:00, for the league"), from a
   date until a date or with no end. Each date is an ordinary block, so nothing else can take the court
   then. Bookings already in the way stay (the block leaves that court free that day) or are cancelled,
   with their players told and what they get back chosen separately. Opening one date, ending from a
   date, ending them all, and changing the times work for this date, this and the following ones, or all.
-  A booking made between the preview and the confirm stays too: the block leaves that court that day
-  instead of failing.
+  A booking made between the preview and the confirm stays too: the block leaves that court that day.
 - The Courts page lists every repeating block with dates still to come: its courts, days, times, dates,
   reason and next date. From the list, staff change its courts, days, times, end date, reason or note
   for one date, from a date on, or for every date still to come, or end it, with the same preview of the
@@ -343,9 +381,8 @@ The first version a club can run on its own (court bookings included), or for it
   the staff at once. Staff see which fact Kumi sent and how sure it was; every decision is kept with
   the version of its questions and thresholds. Settings can switch it off. `kumi doctor` and
   `/health/deep` report it. The services that see member data are listed in `docs/processors.md`.
-  A club answer that states a general rule (an age range, opening hours) now counts when it settles the
-  asker's case ("Can my 8 year old play?" gets the juniors answer); decisions from here on are kept as
-  version atc-2.
+  A club answer that states a general rule (an age range, opening hours) counts when it settles the
+  asker's case ("Can my 8 year old play?" gets the juniors answer).
 - Messages to members, for front desk and up: write once, in each of the club's languages ({first_name}
   and {club} filled in for each person), to a group, now or at a set time. A group is a set of filters
   (membership and plan, level, the club's own tags, played lately or not, adults or juniors, language,
@@ -360,15 +397,13 @@ The first version a club can run on its own (court bookings included), or for it
   keep room. The sender gets a copy (owners and managers too, if the club wants). The Messages page lists
   what went, to which group, and what came of it by channel; a message can be called off before it goes,
   and email still waiting can be stopped. Templates keep words to start from.
-- Club news emails carry one-click unsubscribe (RFC 8058, and a link at the foot): it stops club news by
+- Club news emails carry one-click unsubscribe (the mail app's own unsubscribe button, and a link at the foot): it stops club news by
   email with no sign-in, and nothing else. Members turn club news on or off in Profile too. The link is on
   the members' app's address (`KUMI_MEMBER_URL`), never the staff app's.
 - Tags: the club's own words for members ("league A"), put on a member's page. The People list searches by
   name, email or phone and narrows to a tag or a saved group. Tags, and the groups, templates and messages
   a staff member made, are in the data file; deleting an account takes the tags off and kills the old
   unsubscribe link.
-- Staff start on the page their role uses: owners and managers on Changes, coaches on their schedule,
-  front desk on Courts, the accountant on Reports.
 
 **The club's own words in both languages**
 - A plan's name and description, a program's name, the waiver, the public page's blurb, a coach's bio and a
@@ -376,7 +411,7 @@ The first version a club can run on its own (court bookings included), or for it
   A member reads their language's version, and the club's own words where there isn't one: on the members'
   app, the public page, previews, messages, texts and receipts (a receipt names the program or plan in each
   language). Court and location names stay as written.
-- Programs can be renamed (`program.set_name`), with their name in the other language.
+- Programs can be renamed, with their name in the other language.
 - With an Anthropic key in the settings, "Offer a draft" fills the other-language field from the club's own
   words through Claude Haiku. A person reads it and saves it; nothing is saved by itself. Staff only, 40 an hour each.
 - Accepting the waiver records which language it was read in. The data download and the club's receipts file
@@ -415,7 +450,7 @@ The first version a club can run on its own (court bookings included), or for it
   by themselves when it's approved, from that Messaging Service (a sender named in the settings file still
   wins). A rejection comes with each reason and its fix; `apply` sends the corrected verification while
   Twilio allows edits, and a new one (with `--yes`) after. Local numbers (A2P 10DLC) stay in Twilio's
-  console. The Twilio keys alone no longer stop the server from starting: without a sender, texts are off.
+  console. With Twilio keys but no sender, the server starts and texts stay off.
 - Texts are counted per club month in carrier segments, the way Twilio bills them (160 plain characters in
   one, 153 a part when longer; 70 and 67 for anything outside the plain alphabet), with an estimate at the
   club's price per segment (1.26 cents to start) and Twilio's own price when its delivery report gives one.
@@ -426,13 +461,10 @@ The first version a club can run on its own (court bookings included), or for it
   least 100 segments), so nobody is locked out; past that, phone sign-in says to use email. A new month
   starts fresh, and raising the cap lets texts go again at once and closes the cap's alert on Today.
   Settings shows this month and the eleven before it; `kumi doctor` and `/health/deep` show the month too.
-- Wording: a reason or note someone typed that ends its own sentence ("Fine for now.") no longer shows a
-  second full stop after it. A message's preview of who it reaches names only people it will reach (club
-  news never names someone left out for having said no). Creating an Americano (or another format) says so
-  in its preview. The waiver's text box in Settings has a label for screen readers.
+- A message's preview of who it reaches names only people it will reach (club news never names someone left
+  out for having said no). Creating an Americano (or another format) says so in its preview.
 
 **Signing in and roles**
-- A wrong texted code says to check the latest text, not the latest email.
 - Signing in, or joining, by a code texted to a US or Canadian mobile number, when the club texts: "Use my
   mobile number instead" on the sign-in page. A new number joins with a name and language, and no email is
   needed; the app then asks (never requires) for one, confirmed by a code, for receipts by email and to sign
@@ -454,7 +486,7 @@ The first version a club can run on its own (court bookings included), or for it
 - Members change their own email in Profile: a code to the new address, then the old address is told, with
   a link (good 14 days, once) that puts it back and signs everyone out, assistants too. With a passkey, the
   change needs the passkey or two steps. Adding or changing to an address another account uses answers the
-  same as a free one; that address hears someone tried, and no working code is made (it used to say so).
+  same as a free one; that address hears someone tried, and no working code is made.
   Staff change it for a member at the desk the same way, from the person's page: signed in with a passkey or
   two steps, they send the code to the new address and the member reads it out; the old address is told,
   with its link back, and the change is kept with who made it. Owners, managers and front desk (or a role the
@@ -466,18 +498,17 @@ The first version a club can run on its own (court bookings included), or for it
   two previews can't both squeeze in. Profile, Assistants shows each one's week, changes its limit (up to
   $500) or disconnects it, which ends its tokens at once. The owner and managers see a member's assistants on
   their page and can disconnect one there. Staff working for the club through an assistant
-  aren't limited. The assistant's "whoami" says what's left. Fixed: "whoami" itself failed on a query.
+  aren't limited. The assistant's "whoami" says what's left.
 - A person's assistant reads what they read in the app: where and how to book, free courts, a court's price,
   open clinics, courses, socials and matches, their bookings and places, level and membership, the club's
-  answers, and coaches' lesson times. Before, it could only ask "who am I", so it had no ids to book with.
+  answers, and coaches' lesson times.
 - The club's MCP address works on the members' address too (`https://<members' address>/mcp`), and Profile,
   Assistants shows it with how to connect one. Each address names itself as the resource, as assistants
-  check; before, an assistant given the members' address was refused by Claude's own sign-in checks.
-- Fixed: an assistant could raise its own weekly limit. It can't now, nor delete the account or change how
-  the person signs in (passkeys, the authenticator app, recovery codes); those are done in the app. An
+  such as Claude check when connecting.
+- An assistant can't raise its own weekly limit, delete the account or change how the person signs in (passkeys, the authenticator app, recovery codes); those are done in the app. An
   assistant can disconnect itself but no other. A preview an assistant made can't be applied by anyone once
   it's disconnected. Staff disconnecting a member's assistant see whose account it's from, not "for you".
-- What an assistant spends now counts what's really charged or on the person's hook. A court shared "pay my
+- What an assistant spends counts what's really charged or on the person's hook. A court shared "pay my
   part" counts in full until the others pay (what they don't pay goes on the organiser's card at the
   deadline), and the preview says so: "It counts $60.00 against your assistant's weekly limit until the
   others pay". Each share paid by someone else comes off. A hold that lapses unpaid, a payment called off or a
@@ -487,10 +518,10 @@ The first version a club can run on its own (court bookings included), or for it
   one's data, the family card, saying yes to texts or club news (an assistant can still turn them off), and
   every change that needs a strong sign-in (club settings, roles, the vault, payment account), whatever the
   person signed in with. They're left off the assistant's tool list and refused if called.
-- A shorter tool list for assistants, which they read on every turn: about half the size (a member's 117 kB
-  to 55 kB, an owner's 280 kB to 137 kB). Descriptions are a line each, and the list leaves out what only
-  checking needs (the long patterns for ids and times, the widest number limits); every argument is still
-  checked in full when a tool is called. Tools only Kumi's own code calls are no longer listed.
+- A short tool list for assistants, which they read on every turn: descriptions are a line each, and the
+  list leaves out what only checking needs (the long patterns for ids and times, the widest number limits);
+  every argument is still checked in full when a tool is called. Tools only Kumi's own code calls aren't
+  listed.
 - Bot protection with no third party, on sign-up, sign-in codes and opening a card form: a field people
   never see, and a small proof of work the page solves (a fraction of a second on a phone, harder for an
   address that keeps failing). It's always on in production; staff at the desk and agents don't meet it.
@@ -501,8 +532,6 @@ The first version a club can run on its own (court bookings included), or for it
   as a start. Someone whose only staff role is the club's own sees only the areas it covers, and their
   screens offer only the changes the role allows (no "Add a person" or "Import" on People without them)
   and don't ask for lists the role can't read.
-- Fixed: grants like "person.passkey_*" (a family of actions) now apply, so front desk, coaches and
-  accountants can add and remove their own passkeys, as was meant.
 - Someone given a staff role (or another owner's) is emailed once, in their language: who gave it, the role and
   where, and the staff app's address to sign in at, with a word about the second step when their role needs
   it. Taking a role away tells them once too. Nobody hears about a role they gave themselves.
@@ -514,8 +543,8 @@ The first version a club can run on its own (court bookings included), or for it
   `kumi doctor`; guides an owner's AI agent can follow (`docs/setup`).
 - One-server install script or Docker Compose, HTTPS, nightly backups, tested restore.
 - The server's own key (`KUMI_SECRET_KEY`, made at install, never printed) seals the secrets Kumi keeps:
-  staff authenticators, the push signing key and the vault. Production won't start without it; a server
-  from before gets one on its next update and seals what it has as it starts. `kumi rotate-key` moves
+  staff authenticators, the push signing key and the vault. Production won't start without it.
+  `kumi rotate-key` moves
   everything to a new key.
 - The vault, for the owner only (Settings): the club's keys (a supplier login, the alarm code) and small
   documents (insurance, the lease), sealed. A secret is never shown again, only its last four characters;
@@ -546,31 +575,22 @@ The first version a club can run on its own (court bookings included), or for it
   that was off at 3:17 catches up at its next check. In Docker, doctor's hints name the backup service and
   Docker's own guide.
 - Every backup keeps its own file, named by the club's date and time (`kumi-2026-11-30T0317.dump`, and its
-  offsite copy `daily/kumi-2026-11-30T0317.dump.enc`). Before, a backup run by hand replaced that night's, here
-  and offsite. The monthly offsite copy is the first good backup of the club's month and is never replaced.
-  Backups named the old way (`kumi-2026-11-30.dump`) are still found, restored and tidied.
+  offsite copy `daily/kumi-2026-11-30T0317.dump.enc`), so a backup run by hand never replaces the night's,
+  here or offsite. The monthly offsite copy is the first good backup of the club's month and is never replaced.
 - Cancelling some dates of a course brings a place not paid for yet down to the dates left (its price and
   what's owed), the way a paid place gets those dates' share back; a card form already opened for the old
   amount is called off and a new one asked.
 - Ask the club's answer email waits 5 minutes and isn't sent when the member already saw the answer in the
   app (their question opened after it, or the inbox copy read).
-- The Docker guide writes which commit is installed (`REVISION`) before the first build, so a fresh install
-  shows its commit in /health and doctor instead of "dev".
+- `/health` and `kumi doctor` name the commit installed, on a fresh Docker install too.
 - Two addresses: the staff app's (`KUMI_PUBLIC_URL`) and the members' (`KUMI_MEMBER_URL`, which the
   install sets; without it, the staff address without its `staff.`). `kumi doctor` checks both answer.
 - `/health/deep` (on the server itself, or for an owner or manager): the database, the outbox, the last
-  backup, offsite copy and restore test, and disk space. `/health` now names the release's commit.
+  backup, offsite copy and restore test, and disk space. `/health` names the release's commit.
 - English and US Spanish throughout. Security: rate limits, no cross-site changes, strict headers,
   two-step sign-in for staff, bot protection.
 - Light apps: each app downloads only its own wording, in the person's language. The staff app's first
   screen carries only the courts day and a coach's schedule; every other page loads when opened, and the
-  pages in a person's menu are fetched quietly once their first page is up. The members' app needs about
-  131 kB of JavaScript before its first screen and the staff app about 148 kB, under budgets of 200 kB and
-  160 kB that the builds check.
+  pages in a person's menu are fetched quietly once their first page is up, so both open quickly on a phone.
 
-**When updating:** nothing; this is the first release. An update rewrites the backup timers, so backups
-move to the club's 3:17 by themselves (with Docker, `deploy/docker/update.sh` starts the backup service
-again with the new schedule). (A server set up from a test build before it gets
-`KUMI_SECRET_KEY` added to `/etc/kumi/kumi.env` by its first update; with Docker, `deploy/docker/update.sh`
-adds it to `.env`. A Docker checkout from before `update.sh` existed runs the release's own copy:
-`git fetch && bash <(git show origin/main:deploy/docker/update.sh) main`.)
+**When updating:** nothing; this is the first release.
