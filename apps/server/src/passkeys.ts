@@ -5,11 +5,20 @@ import { Hono, type Context } from "hono";
 import { setCookie } from "hono/cookie";
 import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse, type AuthenticationResponseJSON, type RegistrationResponseJSON } from "@simplewebauthn/server";
 import { t, type Lang } from "@kumi/i18n";
-import { run, uuidv7, KumiError, type Actor, type Db } from "@kumi/core";
+import { hasSecondFactor, run, uuidv7, KumiError, type Actor, type Db } from "@kumi/core";
 import { SESSION_DAYS } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 
 export const FRESH_MINUTES = 15, CHALLENGE_MINUTES = 5;
+
+/** Adding a passkey or an authenticator: right after an emailed or texted code, and, for someone who already has
+ *  either, only from a session that used it (a passkey, or the code and then the authenticator). Otherwise whoever
+ *  has the mailbox could make a second step of their own. */
+export async function mayAddSecondStep(db: Db, me: { id: string; method: string; created_at: Date }, now: Date): Promise<void> {
+  const codeOnly = me.method === "email_code" || me.method === "phone_code";
+  if (codeOnly && now.getTime() - me.created_at.getTime() > FRESH_MINUTES * 60_000) throw new KumiError("error.recent_sign_in", {}, 403);
+  if (codeOnly && await hasSecondFactor(db, me.id)) throw new KumiError("error.second_step_first", {}, 403);
+}
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 type Session = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date } | null;
 export interface PasskeyDeps { db: Db; mailer: Mailer; publicUrl: string; secureCookies: boolean; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => Session }
@@ -33,7 +42,7 @@ export function passkeyRoutes(deps: PasskeyDeps) {
   app.post("/auth/passkey/add/options", async (c) => {
     const me = deps.me(c);
     if (!me) throw new KumiError("error.signed_out", {}, 401);
-    if ((me.method === "email_code" || me.method === "phone_code") && deps.now().getTime() - me.created_at.getTime() > FRESH_MINUTES * 60_000) throw new KumiError("error.recent_sign_in", {}, 403);
+    await mayAddSecondStep(db, me, deps.now());
     const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", me.id).executeTakeFirstOrThrow();
     const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
     const existing = await db.selectFrom("passkey").select(["credential_id", "transports"]).where("person_id", "=", me.id).where("revoked_at", "is", null).execute();
@@ -50,6 +59,7 @@ export function passkeyRoutes(deps: PasskeyDeps) {
     const me = deps.me(c), lang = deps.lang(c);
     if (!me) throw new KumiError("error.signed_out", {}, 401);
     const b = await c.req.json() as { challenge_id: string; response: RegistrationResponseJSON; name?: string };
+    await mayAddSecondStep(db, me, deps.now());
     const ch = await takeChallenge(String(b.challenge_id), "passkey_add");
     if (ch.person_id !== me.id) throw new KumiError("error.passkey_failed", {}, 400);
     const v = await verifyRegistrationResponse({ response: b.response, expectedChallenge: ch.code_hash, expectedOrigin: origin, expectedRPID: rpID }).catch(() => null);

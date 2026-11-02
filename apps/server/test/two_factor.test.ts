@@ -108,6 +108,40 @@ test("an emailed-code session from a while ago can't start setting one up; agent
   assert.equal((await app.request("/oauth/decide", { method: "POST", headers: { cookie: mia, "content-type": "application/x-www-form-urlencoded" }, body: "req=x&decision=allow" })).status, 403);
 });
 
+test("a half sign-in only gives its second step: no passkey or authenticator of its own can be added on it", async () => {
+  clock = new Date();   // sessions start on the database's clock
+  // Mia has an authenticator: whoever has her mailbox gets the emailed code, and nothing more.
+  const half = await signIn("mia@example.test");
+  assert.equal((await req("/me", half)).json.gate, "verify");
+  for (const path of ["/auth/passkey/add/options", "/auth/passkey/add/verify", "/auth/totp/setup", "/auth/totp/confirm", "/my/phone/start", "/my/email/start"])
+    assert.equal((await req(path, half, {})).json?.error, "error.two_step_needed", path);
+  assert.equal((await req("/auth/passkey/sign-in/options", half, {})).status, 200);
+  // Sam, a member with a passkey: an emailed code alone can't add a second one, or an authenticator; the passkey can.
+  await db.insertInto("passkey").values({ credential_id: "sam-key", person_id: people.Sam!, public_key: Buffer.from("x"), counter: "0", transports: null, name: "Phone" }).execute();
+  const sam = await signIn("sam@example.test");
+  assert.equal((await req("/auth/totp/setup", sam, {})).json.error, "error.second_step_first");
+  assert.equal((await req("/auth/passkey/add/options", sam, {})).json.error, "error.second_step_first");
+  assert.equal((await req("/auth/passkey/add/options", await passkeySession("Sam"), {})).status, 200);
+  await db.updateTable("passkey").set({ revoked_at: clock }).where("credential_id", "=", "sam-key").execute();
+});
+
+test("the assistant's sign-in page counts wrong authenticator codes with the apps' sign-in: five in all, then a wait", async () => {
+  clock = new Date();
+  const lou = ((await run(db, "person.create", { display_name: "Lou", email: "lou@example.test" }, owner)).result as any).person_id as string;
+  const c = await signIn("lou@example.test");
+  const st = await req("/auth/totp/setup", c, {});
+  const key = base32Decode(st.json.key.replaceAll(" ", ""));
+  assert.equal((await req("/auth/totp/confirm", c, { challenge_id: st.json.challenge_id, code: totp(key, clock) })).status, 200);   // 1
+  const twoStep = (code: string) => app.request("/oauth/two-step", { method: "POST", headers: { cookie: c, "content-type": "application/x-www-form-urlencoded" }, body: `back=${encodeURIComponent("/oauth/authorize?x=1")}&code=${code}` });
+  assert.equal((await req("/auth/totp/verify", c, { code: "000000" })).status, 401);   // 2
+  assert.equal((await req("/auth/totp/verify", c, { code: "000001" })).status, 401);   // 3
+  assert.equal((await twoStep("000002")).status, 401);                                   // 4
+  assert.equal((await twoStep("000003")).status, 401);                                   // 5
+  assert.equal((await twoStep("000004")).status, 429);
+  assert.equal((await req("/auth/totp/verify", c, { code: totp(key, new Date(clock.getTime() + 60_000)) })).status, 429);
+  assert.ok(lou);
+});
+
 test("the owner starts the manager's second step over: every session ends, and the next sign-in sets it up again", async () => {
   const mia = await passkeySession("Mia"), robin = await passkeySession("Robin");
   const p = await req("/actions/person.reset_sign_in/plan", robin, { person_id: people.Mia });

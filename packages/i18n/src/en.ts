@@ -2491,6 +2491,7 @@ export const en = {
   "error.factor_needed": "You sign in with two steps, so add a passkey before removing your authenticator app.",
   "error.reset_own_sign_in": "Someone else has to reset your sign-in: you can change your own in Profile.",
   "error.nothing_to_reset": "There's nothing to reset: no authenticator app, passkey or recovery codes.",
+  "error.second_step_first": "You already have a passkey or an authenticator app. Sign in with it first, then add another.",
   "error.two_step_needed": "Finish signing in first: the second step is still to do.",
   "error.bot_check": "We couldn't check this page. Try again.",
   "thing.authenticator": "authenticator app",

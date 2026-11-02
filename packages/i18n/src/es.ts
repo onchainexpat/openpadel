@@ -2494,6 +2494,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "error.factor_needed": "Inicias sesión en dos pasos, así que agrega una llave de acceso antes de quitar tu app de autenticación.",
   "error.reset_own_sign_in": "Otra persona tiene que restablecer tu inicio de sesión: el tuyo lo cambias en tu perfil.",
   "error.nothing_to_reset": "No hay nada que restablecer: ni app de autenticación, ni llaves de acceso, ni códigos de recuperación.",
+  "error.second_step_first": "Ya tienes una llave de acceso o una app de autenticación. Inicia sesión con ella primero y luego agrega otra.",
   "error.two_step_needed": "Termina de iniciar sesión primero: falta el segundo paso.",
   "error.bot_check": "No pudimos comprobar esta página. Inténtalo de nuevo.",
   "thing.authenticator": "app de autenticación",

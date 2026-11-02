@@ -4,12 +4,17 @@
 import { Hono, type Context } from "hono";
 import { both, t, type Lang } from "@kumi/i18n";
 import { activeFactor, KumiError, makeRecoveryCodes, needsTwoFactor, newSecret, otpauthUri, qrSvg, recoveryLeft, run, sealText, SETUP_MINUTES, useAuthenticatorCode, useRecoveryCode, uuidv7, type Actor, type Db } from "@kumi/core";
-import { FRESH_MINUTES } from "./passkeys.ts";
+import { mayAddSecondStep } from "./passkeys.ts";
 import { RateLimiter } from "./limits.ts";
 import type { Mailer } from "./mailer.ts";
 
 export type SessionMe = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
-export interface TwoFactorDeps { db: Db; mailer: Mailer; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => SessionMe }
+export interface TwoFactorDeps { db: Db; mailer: Mailer; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => SessionMe;
+  /** Wrong second-step codes per person, shared with the assistant's sign-in page (oauth.ts). */
+  tries?: RateLimiter }
+
+/** Five wrong second-step codes in 15 minutes, per person, then a wait (the emailed code came first). */
+export const secondStepTries = () => new RateLimiter(5, 15 * 60_000);
 
 /** "JBSW Y3DP EHPK 3PXP ...": the key, for typing into an app by hand. */
 const grouped = (secret: string) => secret.match(/.{1,4}/g)!.join(" ");
@@ -17,8 +22,7 @@ const grouped = (secret: string) => secret.match(/.{1,4}/g)!.join(" ");
 export function twoFactorRoutes(deps: TwoFactorDeps) {
   const app = new Hono();
   const { db } = deps;
-  // Five wrong second-step codes in 15 minutes, per person, then a wait (the emailed code came first).
-  const tries = new RateLimiter(5, 15 * 60_000);
+  const tries = deps.tries ?? secondStepTries();
   const signedIn = (c: Context<any>) => { const me = deps.me(c); if (!me) throw new KumiError("error.signed_out", {}, 401); return me; };
   const actor = (c: Context<any>, me: NonNullable<SessionMe>): Actor => ({ personId: me.id, via: "web", lang: deps.lang(c), auth: me.method });
   const markSession = (me: NonNullable<SessionMe>, how: "totp" | "recovery") => db.updateTable("web_session").set({ second_factor: how }).where("token_hash", "=", me.token_hash).execute();
@@ -32,8 +36,8 @@ export function twoFactorRoutes(deps: TwoFactorDeps) {
   app.post("/auth/totp/setup", async (c) => {
     const me = signedIn(c), now = deps.now();
     if (await activeFactor(db, me.id)) throw new KumiError("error.factor_exists", {}, 409);
-    // Like adding a passkey: right after signing in, or from a session that's already two-step.
-    if ((me.method === "email_code" || me.method === "phone_code") && now.getTime() - me.created_at.getTime() > FRESH_MINUTES * 60_000) throw new KumiError("error.recent_sign_in", {}, 403);
+    // Like adding a passkey: right after signing in, and with the passkey itself for someone who has one.
+    await mayAddSecondStep(db, me, now);
     const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", me.id).executeTakeFirstOrThrow();
     const club = (await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
     const secret = newSecret(), id = uuidv7(now.getTime()), uri = otpauthUri(secret, club, person.email ?? person.display_name);
@@ -44,6 +48,7 @@ export function twoFactorRoutes(deps: TwoFactorDeps) {
   app.post("/auth/totp/confirm", async (c) => {
     const me = signedIn(c), b = await c.req.json().catch(() => ({})) as { challenge_id?: string; code?: string };
     if (!tries.take(me.id, deps.now().getTime())) throw new KumiError("error.too_many_attempts", {}, 429);
+    await mayAddSecondStep(db, me, deps.now());
     await run(db, "person.factor_add", { person_id: me.id, challenge_id: String(b.challenge_id ?? ""), code: String(b.code ?? "") }, actor(c, me), { internal: true, now: deps.now() });
     // The emailed code and now the app's: this session has both steps.
     if (me.method === "email_code" || me.method === "phone_code") await markSession(me, "totp");

@@ -9,6 +9,7 @@ import { money, t, type Lang } from "@kumi/i18n";
 import { activeFactor, KumiError, usPhone, useAuthenticatorCode, uuidv7, type Db, type Texter } from "@kumi/core";
 import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
+import { RateLimiter } from "./limits.ts";
 
 export const ACCESS_SECONDS = 3600, REFRESH_DAYS = 30, CODE_SECONDS = 300, SCOPE = "kumi";
 /** What a person can let an assistant spend for them a week, chosen as they connect it ($0 unless they pick more;
@@ -33,7 +34,9 @@ function okRedirect(u: string): boolean {
 
 export interface OAuthDeps { db: Db; mailer: Mailer; publicUrl: string; secureCookies: boolean; fetchMetadata: FetchMetadata; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => { id: string; display_name: string; token_hash: string; gate: "setup" | "verify" | null } | null;
   /** The club's texts, when it sends them: then the sign-in can be by a texted code too. */
-  texter?: Texter | null; memberUrl?: string }
+  texter?: Texter | null; memberUrl?: string;
+  /** Wrong second-step codes per person: the same count as the apps' sign-in (two_factor.ts). */
+  secondStepTries?: RateLimiter }
 
 /** The club's own /mcp addresses: the staff app's (where the sign-in server lives) and the members' app's.
  *  Both are this one server, so a token for either works at both; each address names itself as the resource
@@ -73,6 +76,7 @@ function page(lang: Lang, title: string, body: unknown) {
 export function oauthRoutes(deps: OAuthDeps) {
   const app = new Hono();
   const issuer = deps.publicUrl, resources = mcpResources(deps.publicUrl, deps.memberUrl);
+  const secondStep = deps.secondStepTries ?? new RateLimiter(5, 15 * 60_000);
   const club = async () => (await deps.db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
 
   const prm = async (c: Context) => c.json({ resource: mcpResourceOf(resources, c.req.url), authorization_servers: [issuer], scopes_supported: [SCOPE], bearer_methods_supported: ["header"], resource_name: await club() });
@@ -175,6 +179,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     const u = new URL(String(f.back ?? ""), issuer);
     if (u.origin !== new URL(issuer).origin || u.pathname !== "/oauth/authorize") throw new KumiError("error.oauth_request", {}, 400);
     if (!me) throw new KumiError("error.signed_out", {}, 401);
+    if (!secondStep.take(me.id, deps.now().getTime())) throw new KumiError("error.too_many_attempts", {}, 429);
     if (!(await useAuthenticatorCode(deps.db, me.id, String(f.code ?? ""), deps.now()))) throw new KumiError("error.bad_factor_code", {}, 401);
     await deps.db.updateTable("web_session").set({ second_factor: "totp" }).where("token_hash", "=", me.token_hash).execute();
     return c.redirect(`${u.pathname}${u.search}`, 303);

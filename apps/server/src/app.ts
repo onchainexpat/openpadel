@@ -15,7 +15,7 @@ import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@kumi/i18n";
 import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
-import { twoFactorRoutes } from "./two_factor.ts";
+import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, mcpResourceOf, mcpResources, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
@@ -55,6 +55,12 @@ const SignUp = z.object({ ticket: z.string().check(z.minLength(20)), display_nam
 
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
+/** What a half sign-in can still reach: giving the second step, signing in again (as anyone) or out. */
+const HALF_SIGNED_IN = new Set(["/auth/totp/verify", "/auth/recovery", "/auth/passkey/sign-in/options", "/auth/passkey/sign-in/verify", "/auth/sign-out",
+  "/auth/challenge", "/auth/email/start", "/auth/email/verify", "/auth/phone/start", "/auth/phone/verify", "/auth/sign-up"]);
+/** And for someone with no second step yet: setting the first one up. */
+const FIRST_SECOND_STEP = new Set(["/auth/totp/setup", "/auth/totp/confirm", "/auth/passkey/add/options", "/auth/passkey/add/verify"]);
+
 export function makeApp(deps: AppDeps) {
   const { db, mailer } = deps;
   const now = deps.now ?? (() => new Date());
@@ -81,6 +87,7 @@ export function makeApp(deps: AppDeps) {
   });
   // How often one address can try to sign in, join or guess a code.
   const ipOf = deps.clientIp ?? clientIp;
+  const secondStep = secondStepTries();   // wrong authenticator codes per person, in the apps and the assistant's sign-in alike
   const limits = new Map<string, RateLimiter>([
     ["/auth/email/start", new RateLimiter(10, 15 * 60_000)], ["/oauth/sign-in", new RateLimiter(10, 15 * 60_000)],
     ["/auth/email/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/sign-up", new RateLimiter(10, 60 * 60_000)],
@@ -110,11 +117,14 @@ export function makeApp(deps: AppDeps) {
     await next();
   });
   // Someone who must sign in with two steps and hasn't given the second yet can only finish signing in (or
-  // set the second step up): nothing else answers, so no staff page or action works on half a sign-in.
+  // set the second step up): nothing else answers, so no staff page or action works on half a sign-in. Who
+  // already has a second step can only give it: adding another passkey or authenticator on half a sign-in would
+  // let whoever has the mailbox (or the phone) make their own second step.
   app.use("*", async (c, next) => {
     const me = c.get("me"), path = c.req.path;
-    if (me?.gate && !(path === "/me" || path === "/club" || path === "/health" || path.startsWith("/auth/") || path.startsWith("/manifest/")
-      || path === "/my/two-factor" || (path.startsWith("/oauth/") && path !== "/oauth/decide"))) throw new KumiError("error.two_step_needed", {}, 403);
+    if (me?.gate && !(path === "/me" || path === "/club" || path === "/health" || path.startsWith("/manifest/") || path === "/my/two-factor"
+      || HALF_SIGNED_IN.has(path) || path.startsWith("/auth/email-undo/") || (me.gate === "setup" && FIRST_SECOND_STEP.has(path))
+      || (path.startsWith("/oauth/") && path !== "/oauth/decide"))) throw new KumiError("error.two_step_needed", {}, 403);
     await next();
   });
 
@@ -188,9 +198,9 @@ export function makeApp(deps: AppDeps) {
   // ---- The MCP door: OAuth, then tools generated from the registry ----
   const publicUrl = (deps.publicUrl ?? "http://127.0.0.1:8790").replace(/\/$/, "");
   app.route("/", oauthRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, fetchMetadata: deps.fetchMetadata ?? defaultFetchMetadata, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"),
-    texter: deps.texts?.texter ?? null, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}) }));
+    texter: deps.texts?.texter ?? null, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}), secondStepTries: secondStep }));
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
-  app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
+  app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"), tries: secondStep }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", vaultRoutes(db, (c) => c.get("me"), now));
   app.route("/", calendarRoutes(db, (c) => c.get("me")));
