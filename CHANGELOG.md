@@ -5,7 +5,7 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
-## 0.1.0 (not released yet)
+## 0.1.0 (2026-11-02)
 
 The first release: a club can run on it on its own, or run its events with it alongside Playtomic.
 
