@@ -129,8 +129,9 @@ after it, or all of them.
 
 Every payment that goes through, and every refund, gets a numbered receipt for whoever paid, by email and
 in the members' app (Profile, then Receipts). Staff with the club's money see someone's receipts on their
-page and can send one again. Turn off Stripe's own receipt emails so members don't get two
-([accounts/stripe.md](accounts/stripe.md), step 4).
+page and can send one again, and all the club's receipts for any dates (up to a year) under Reports, with a
+spreadsheet file where refunds are negative amounts. Turn off Stripe's own receipt emails so members don't
+get two ([accounts/stripe.md](accounts/stripe.md), step 4).
 
 ### Step 5d: memberships (optional)
 
@@ -381,7 +382,7 @@ watching hears once.
 ### Members' data: a copy, and deleting an account
 
 Nothing to set up. Each member has a "Your data" box in Profile: one button downloads a JSON file of
-everything the club's Kumi holds about them and the juniors they manage (other people appear only by
+everything the club's Kumi holds about them and the juniors they manage, receipts included (other people appear only by
 the names they already see in the app), and the other deletes their account. The owner can do the same
 from a member's page in the staff app when the member asks by email or at the desk; a manager's request
 waits for the owner. The member is told when the club downloads their data, and the club hears of

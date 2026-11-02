@@ -53,3 +53,36 @@ test("staff with the club's money see someone's receipts; a coach doesn't", asyn
   assert.equal((await get(`/staff/receipts?person_id=${people.Ann}`, "Sam")).status, 403);
   assert.equal((await get(`/staff/receipts?person_id=${people.Ann}`, "Ann")).status, 403);
 });
+
+test("the club's receipts by dates, with a file: refunds negative, and a name a spreadsheet would run kept as text", async () => {
+  // An accountant sees them; a coach and a member don't.
+  const acct = ((await run(db, "person.create", { display_name: "Ada", email: "ada@example.test" }, owner)).result as any).person_id;
+  await run(db, "role.assign", { person_id: acct, role: "accountant" }, owner);
+  cookies.Ada = await signIn("ada@example.test");
+  const evil = ((await run(db, "person.create", { display_name: "=HYPERLINK(\"x\")", email: "eve@example.test" }, owner)).result as any).person_id;
+  const pay = uuidv7();
+  await db.insertInto("payment").values({ id: pay, person_id: evil, amount_cents: 2000, method: "cash", provider: "none", provider_ref: null, status: "succeeded" } as any).execute();
+  await db.insertInto("refund").values({ id: uuidv7(), payment_id: pay, amount_cents: 500, status: "sent", destination: "card" } as any).execute();
+  await issueReceipts(db);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
+  const r = await get(`/staff/club-receipts?from=${today}&to=${today}`, "Ada");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json.map((x: any) => [x.kind, x.total_cents, x.paid_by]).sort(), [["payment", 1500, "Ben"], ["payment", 2000, "=HYPERLINK(\"x\")"], ["payment", 4800, "Ann"], ["refund", 500, "=HYPERLINK(\"x\")"]]);
+  assert.equal((await get(`/staff/club-receipts?from=${today}&to=${today}`, "Sam")).status, 403);
+  assert.equal((await get(`/staff/club-receipts?from=${today}&to=${today}`, "Ann")).status, 403);
+  assert.equal((await get(`/staff/club-receipts?from=2025-01-01&to=${today}`, "Ada")).status, 400, "at most a year");
+  const file = await app.request(`/staff/club-receipts.csv?from=${today}&to=${today}`, { headers: { cookie: cookies.Ada! } });
+  assert.match(file.headers.get("content-disposition")!, new RegExp(`kumi-receipts-${today}-to-${today}\\.csv`));
+  const lines = (await file.text()).trim().split("\r\n");
+  assert.equal(lines[0], "receipt,kind,date,paid by,for,what,subtotal,tax,total,method,card");
+  assert.equal(lines.length, 5);
+  const refund = lines.find((l) => l.includes(",refund,"))!;
+  assert.match(refund, /^R-\d{6},refund,\d{4}-\d{2}-\d{2} \d{2}:\d{2},"'=HYPERLINK\(""x""\)",,.*,-5\.00,0\.00,-5\.00,cash,$/);
+});
+
+test("a member's data download includes their receipts", async () => {
+  const { exportData } = await import("@kumi/core");
+  const x = await exportData(db, people.Ann!, new Date(), "en") as any;
+  assert.deepEqual(x.receipts.map((r: any) => [r.kind, r.total_cents, r.method, r.paid_by]), [["payment", 4800, "cash", null]]);
+  assert.match(x.receipts[0].number, /^R-\d{6}$/);
+});

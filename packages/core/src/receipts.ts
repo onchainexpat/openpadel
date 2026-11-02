@@ -225,3 +225,26 @@ export async function receiptsOf(db: Db | Trx, personId: string, o: { asStaff?: 
       what: lines[0]?.what ?? NOTHING, more: Math.max(0, lines.length - 1) };
   });
 }
+
+/** The club's receipts between two club dates (inclusive), newest first, for the money people: who paid, for
+ *  whom, what, and the amounts (refunds as receipts of their own). At most `limit`. */
+export async function clubReceipts(db: Db | Trx, from: string, to: string, o: { limit?: number } = {}) {
+  const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
+  const rows = await db.selectFrom("receipt").leftJoin("person as payer", "payer.id", "receipt.person_id").leftJoin("person as for", "for.id", "receipt.for_person_id")
+    .select(["receipt.id", "receipt.number", "receipt.kind", "receipt.person_id", "payer.display_name as paid_by", "for.display_name as for_name", "receipt.lines", "receipt.subtotal_cents",
+      "receipt.tax_cents", "receipt.total_cents", "receipt.method", "receipt.card", "receipt.paid_at"])
+    .where(sql<boolean>`(receipt.paid_at AT TIME ZONE ${tz})::date BETWEEN ${from}::date AND ${to}::date`)
+    .orderBy("receipt.paid_at", "desc").orderBy("receipt.number", "desc").limit(o.limit ?? 5000).execute();
+  return rows.map((r) => {
+    const lines = r.lines as { what: Text; cents: number }[], card = r.card as Card | null;
+    return { id: r.id, number: receiptNo(r.number), kind: r.kind, person_id: r.person_id, paid_by: r.paid_by ?? "", for: r.for_name, paid_at: r.paid_at,
+      when: { en: receiptDate(r.paid_at, "en", tz), es: receiptDate(r.paid_at, "es", tz) } as Text, local: localStamp(r.paid_at, tz),
+      what: lines[0]?.what ?? NOTHING, more: Math.max(0, lines.length - 1), subtotal_cents: r.subtotal_cents, tax_cents: r.tax_cents, total_cents: r.total_cents,
+      method: r.method, card: card ? `${card.brand} ${card.last4}` : null };
+  });
+}
+/** "2026-11-02 14:05" on the club's clock, for a spreadsheet. */
+function localStamp(d: Date, tz: string): string {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
+}

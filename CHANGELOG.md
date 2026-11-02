@@ -170,6 +170,10 @@ The first version a club can run on its own (court bookings included), or for it
   club's money (owners, managers, front desk, accountants) see someone's receipts on their page and can
   email one again. Receipts start with this version: nothing paid before it gets one. Turn off Stripe's own
   receipt emails (docs/setup/accounts/stripe.md) so members don't get two.
+- All the club's receipts for any dates (up to a year) under Reports, for the same money people, with a
+  spreadsheet file: refunds as negative amounts, so a column adds up to what came in, and a name that starts
+  like a formula kept as text. A member's data download includes their receipts (one a parent paid for them,
+  without the parent's card).
 
 **Memberships**
 - Plans by the month or the year, with member prices on courts and a longer booking window.

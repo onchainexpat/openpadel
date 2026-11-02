@@ -15,6 +15,7 @@ import { KumiError } from "./errors.ts";
 import { juniorsOf, managersOf, nameList, withManagers } from "./households.ts";
 import { decide } from "./permissions.ts";
 import { paymentsWhat } from "./kids.ts";
+import { receiptNo } from "./receipts.ts";
 import { QUIET } from "./messages.ts";
 import { excerpt } from "./questions.ts";
 
@@ -108,6 +109,14 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     .select(["oauth_client.name", "oauth_grant.scopes", "oauth_grant.weekly_cap_cents", "oauth_grant.created_at", "oauth_grant.revoked_at"]).where("oauth_grant.person_id", "=", personId).execute();
   const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").leftJoin("location", "location.id", "person_role.location_id")
     .select(["role.key", "location.name as location", "person_role.active"]).where("person_role.person_id", "=", personId).execute();
+  // Receipts they were given, and ones someone else (a parent) paid for them, without that payer's card.
+  const receipts = (await db.selectFrom("receipt").leftJoin("person as payer", "payer.id", "receipt.person_id").leftJoin("person as for", "for.id", "receipt.for_person_id")
+    .select(["receipt.number", "receipt.kind", "receipt.person_id", "payer.display_name as paid_by", "for.display_name as for_name", "receipt.lines", "receipt.subtotal_cents", "receipt.tax_cents",
+      "receipt.total_cents", "receipt.method", "receipt.card", "receipt.paid_at"])
+    .where((eb) => eb.or([eb("receipt.person_id", "=", personId), eb("receipt.for_person_id", "=", personId)])).orderBy("receipt.paid_at").execute())
+    .map((r) => ({ number: receiptNo(r.number), kind: r.kind, paid_by: r.person_id === personId ? null : r.paid_by, for: r.for_name, at: iso(r.paid_at),
+      lines: (r.lines as { what: Text; cents: number }[]).map((l) => ({ what: say(l.what), cents: l.cents })), subtotal_cents: r.subtotal_cents, tax_cents: r.tax_cents, total_cents: r.total_cents,
+      method: r.method, card: r.person_id === personId ? r.card : null }));
 
   // Bookings and match places: theirs, with the other players by name (what they already saw in the app).
   const seats = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
@@ -221,7 +230,7 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     bookings, match_asks: asks.map((a) => ({ ...a, created_at: iso(a.created_at), decided_at: iso(a.decided_at) })),
     places_offered: offers.map((o) => ({ booking: o.code, status: o.status, yours: o.person_id === personId, offered_to_you: o.to_person_id === personId, taken_by_you: o.taken_by === personId, at: iso(o.created_at), decided_at: iso(o.decided_at) })),
     programs: enrolments.map((e) => ({ ...e, starts_at: iso(e.starts_at), created_at: iso(e.created_at), left_at: iso(e.left_at) })),
-    payments, memberships, covered_by_family_plans: covered,
+    payments, receipts, memberships, covered_by_family_plans: covered,
     level: rating ?? null, level_history: history.map((h) => ({ at: iso(h.at), kind: h.kind, before: h.level_before, after: h.level_after, why: say(h.explanation) })),
     level_reviews: reviews, games, score_answers: answers,
     messages, consents, quiet_hours: { from: `${String(QUIET.from).padStart(2, "0")}:00`, until: `${String(QUIET.until).padStart(2, "0")}:00`, set_by: "club" },

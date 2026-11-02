@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, t } from "@kumi/ui";
 
 type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number };
+type Receipt = { id: string; number: string; kind: "payment" | "refund"; when: string; paid_by: string; for: string | null; what: string; more: number; total_cents: number };
 type Earnings = { coaches: { coach_id: string; coach: string; lessons: number; lesson_minutes: number; net_cents: number; sessions: number; session_minutes: number }[] };
 /** The date on the device's own calendar (not UTC's, which is already tomorrow on a US evening). */
 const ymd = (d: Date) => new Intl.DateTimeFormat("en-CA").format(d);
@@ -17,6 +18,9 @@ export function Reports() {
   const [earn, setEarn] = useState<Earnings | null>(null);
   const seesEarnings = (me.value?.roles ?? []).some((r) => ["owner", "manager", "accountant", "coach"].includes(r.key));
   useEffect(() => { if (seesEarnings && from && to) api<Earnings>(`/staff/coach-earnings?from=${from}&to=${to}`).then(setEarn).catch(() => setEarn(null)); }, [from, to]);
+  // The club's receipts for the same dates (for whoever takes or sees the club's money: the server says who).
+  const [receipts, setReceipts] = useState<Receipt[] | null>(null);
+  useEffect(() => { if (from && to) api<Receipt[]>(`/staff/club-receipts?from=${from}&to=${to}`).then(setReceipts).catch(() => setReceipts(null)); }, [from, to, lang.value]);
   const sum = (k: keyof Row) => (rows ?? []).reduce((n, r) => n + (r[k] as number), 0);
   const usable = sum("court_hours") - sum("blocked_hours"), used = sum("booked_hours") + sum("program_hours") + sum("playtomic_hours");
   const hrs = (n: number) => (Math.round(n * 10) / 10).toLocaleString(lang.value === "es" ? "es-US" : "en-US");
@@ -44,6 +48,16 @@ export function Reports() {
           <tbody>{earn.coaches.map((c) => <tr><td>{c.coach}</td><td>{c.lessons}</td><td>{hrs(c.lesson_minutes / 60)}</td><td>{dollars(c.net_cents, lang.value)}</td><td>{c.sessions}</td><td>{hrs(c.session_minutes / 60)}</td></tr>)}</tbody>
         </table></div>}
         <p><a href={`/staff/coach-earnings.csv?from=${from}&to=${to}`}>{t("ui.download_csv")}</a></p>
+      </section>}
+      {receipts && <section class="card">
+        <h2>{t("ui.receipts_title")}</h2>
+        <p class="meta">{t("ui.club_receipts_help")}</p>
+        {!receipts.length ? <p class="meta">{t("ui.receipts_none")}</p> : <div class="table-scroll"><table>
+          <thead><tr><th>{t("ui.col_receipt")}</th><th>{t("ui.day")}</th><th>{t("ui.col_paid_by")}</th><th>{t("ui.col_what")}</th><th>{t("ui.col_total")}</th></tr></thead>
+          <tbody>{receipts.map((r) => <tr><td>{r.number}</td><td>{r.when}</td><td>{r.paid_by}{r.for ? ` (${r.for})` : ""}</td><td>{r.what}{r.more ? ` +${r.more}` : ""}</td>
+            <td>{r.kind === "refund" ? `-${dollars(r.total_cents, lang.value)}` : dollars(r.total_cents, lang.value)}</td></tr>)}</tbody>
+        </table></div>}
+        <p><a href={`/staff/club-receipts.csv?from=${from}&to=${to}`}>{t("ui.download_csv")}</a></p>
       </section>}
     </main>
   );
