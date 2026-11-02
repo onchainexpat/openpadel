@@ -459,6 +459,8 @@ The first version a club can run on its own (court bookings included), or for it
   amount is called off and a new one asked.
 - Ask the club's answer email waits 5 minutes and isn't sent when the member already saw the answer in the
   app (their question opened after it, or the inbox copy read).
+- The Docker guide writes which commit is installed (`REVISION`) before the first build, so a fresh install
+  shows its commit in /health and doctor instead of "dev".
 - Two addresses: the staff app's (`KUMI_PUBLIC_URL`) and the members' (`KUMI_MEMBER_URL`, which the
   install sets; without it, the staff address without its `staff.`). `kumi doctor` checks both answer.
 - `/health/deep` (on the server itself, or for an owner or manager): the database, the outbox, the last

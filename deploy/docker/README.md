@@ -10,6 +10,7 @@ git clone <this repository> kumi && cd kumi
 cp deploy/docker/env.example .env       # fill in KUMI_HOST and KUMI_DB_PASSWORD (openssl rand -hex 24)
 mkdir -p config backups
 cp club.example.yaml config/club.yaml   # describe the club (docs/setup/README.md, step 4)
+git rev-parse --short HEAD > REVISION     # which commit this is, for /health and kumi doctor
 docker compose up -d --build
 docker compose exec kumi kumi setup plan
 docker compose exec kumi kumi setup apply
