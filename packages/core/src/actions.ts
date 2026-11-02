@@ -80,6 +80,7 @@ const ENTITIES = {
   rating: { table: "rating", key: "person_id", retire: null },
   opening_hours: { table: "opening_hours", key: "id", retire: { opens: null, closes: null } },
   hours_exception: { table: "hours_exception", key: "id", retire: { active: false } },
+  court_hours: { table: "court_hours", key: "id", retire: { active: false } },
   court_block: { table: "court_block", key: "id", retire: { active: false } },
   block_series: { table: "block_series", key: "id", retire: { active: false } },
   booking: { table: "booking", key: "id", retire: { status: "cancelled" } },

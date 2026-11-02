@@ -125,3 +125,14 @@ test("a weekly block on the day's grid: marked as repeating, on each of its date
   const week = localDate(new Date(Date.now() + 10 * 86400_000), TZ);
   assert.ok((await get(`/staff/grid?location_id=${loc}&date=${week}`)).json.courts.find((c: any) => c.id === c1).items.some((x: any) => x.series));
 });
+
+test("a court's own hours: on the day's grid and in settings", async () => {
+  const d = localDate(new Date(Date.now() + 5 * 86400_000), TZ), weekday = new Date(`${d}T12:00:00Z`).getUTCDay();
+  const c2 = (await db.selectFrom("court").select("id").where("name", "=", "Court 2").executeTakeFirstOrThrow()).id;
+  await run(db, "court.hours_set", { court_id: c2, days: [{ weekday, opens: "10:00", closes: "16:00" }] }, owner);
+  const g = (await get(`/staff/grid?location_id=${loc}&date=${d}`)).json;
+  const court = (id: string) => g.courts.find((c: any) => c.id === id);
+  assert.equal(new Date(court(c2).open.opens).getTime() - new Date(court(c1).open.opens).getTime(), 2 * 3600_000);   // 10:00 against the location's 08:00
+  assert.deepEqual((await get("/staff/settings")).json.locations[0].courts.find((c: any) => c.id === c2).hours, [{ weekday, opens: "10:00", closes: "16:00" }]);
+  assert.deepEqual((await get("/staff/settings")).json.locations[0].courts.find((c: any) => c.id === c1).hours, []);
+});

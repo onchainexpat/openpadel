@@ -11,7 +11,8 @@ type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
 type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; balance_cents?: number; booking_kind?: string;
   coach?: string | null; status?: string; players?: string[]; late?: Late[]; block_id?: string; series?: boolean; session_id?: string; program_id?: string; label?: string; empty_places?: Empty[] };
-type Court = { id: string; name: string; kind: string; items: Item[] };
+// `open`: that court's own hours that day (they can differ from the location's); null when it's closed all day.
+type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
 type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; courts: Court[] };
 type Loc = { id: string; name: string; time_zone: string };
 type Alert = { event_id: string; kind: string; subject: string; body: string; link: string | null; at: string };
@@ -50,14 +51,14 @@ export function Courts() {
   const slots: string[] = [];
   if (g.open) for (let s = ms(g.open.opens); s <= ms(g.open.closes); s += HALF) slots.push(new Date(s).toISOString());
   const gaps = (c: Court) => {
-    if (!g.open) return [];
+    if (!c.open) return [];
     const out: { from: string; to: string }[] = [];
-    let cursor = ms(g.open.opens);
+    let cursor = ms(c.open.opens);
     for (const it of [...c.items].sort((a, b) => ms(a.start) - ms(b.start))) {
       if (ms(it.start) > cursor) out.push({ from: new Date(cursor).toISOString(), to: it.start });
       cursor = Math.max(cursor, ms(it.end));
     }
-    if (cursor < ms(g.open.closes)) out.push({ from: new Date(cursor).toISOString(), to: g.open.closes });
+    if (cursor < ms(c.open.closes)) out.push({ from: new Date(cursor).toISOString(), to: c.open.closes });
     return out.filter((x) => ms(x.to) - ms(x.from) >= HALF && new Date(x.to) > new Date());
   };
   const shift = (days: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days); setDate(d.toISOString().slice(0, 10)); };
@@ -145,6 +146,12 @@ const clubTime = (iso: string, tz: string, end = false) => {
 };
 const dayName = (w: number) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
 const WEEK = [1, 2, 3, 4, 5, 6, 0];
+
+/** The parts of the grid's hours a court is closed: before it opens and after it closes, or all of it. */
+function closedBands(c: Court, from: number, to: number) {
+  if (!c.open) return [{ from, to }];
+  return [{ from, to: Math.min(ms(c.open.opens), to) }, { from: Math.max(ms(c.open.closes), from), to }].filter((b) => b.to > b.from);
+}
 
 /** On each court: what's on now, and what starts next, with money owed and any word about running late. */
 function NowNext({ g, clock }: { g: Grid; clock: (s: string) => string }) {
@@ -241,6 +248,8 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
           <div class="tg-body tg-lines" ref={(el) => { cols.current[ci] = el; }} style={`height:${rows * SLOT}px`}
             onClick={(e) => { if (e.target !== e.currentTarget) return; const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); onFree(c, from + Math.floor((e.clientY - r.top) / SLOT) * HALF); }}>
             {nowLine !== null && nowLine >= from && nowLine <= from + rows * HALF && <div class="tg-now" style={`top:${y(nowLine)}px`} />}
+            {/* Times this court is closed (its own hours can differ from the location's), shaded. */}
+            {closedBands(c, from, from + rows * HALF).map((b) => <div class="tg-closed" aria-hidden="true" style={`top:${y(b.from)}px;height:${y(b.to) - y(b.from)}px`} />)}
             {c.items.map((it) => {
               const k = keyOf(it, c.id), top = y(ms(it.start)), h = Math.max(SLOT / 2, y(ms(it.end)) - top - 2);
               const kind = it.booking_id ? (it.kind === "hold" ? "hold" : it.booking_kind === "lesson" ? "lesson" : "booking") : it.kind;

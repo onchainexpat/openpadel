@@ -12,7 +12,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate } from "./clock.ts";
-import { MAX_MINUTES, STEP_MINUTES, occupied, openingOn } from "./bookings.ts";
+import { MAX_MINUTES, STEP_MINUTES, courtOpening, occupied } from "./bookings.ts";
 import { quote } from "./prices.ts";
 import { policyOf, refundPayment, REMINDER_HOURS } from "./booking_pay.ts";
 import { coachBusy, coachNotFree } from "./lessons.ts";
@@ -98,7 +98,7 @@ async function checkTime(ctx: PlanCtx, b: Facts, courtId: string, start: Date, e
   if (court.location_id !== b.location_id) throw new KumiError("error.one_location");
   if (!court.bookable) throw new KumiError("error.court_not_bookable", { court: court.name });
   if (end <= ctx.now) throw new KumiError("error.in_the_past");
-  const open = await openingOn(ctx.db, court.location_id, localDate(start, b.time_zone));
+  const open = await courtOpening(ctx.db, court, localDate(start, b.time_zone));
   if (!open || start < open.opens || end > open.closes) throw new KumiError("error.closed_then", { court: court.name, when: when(start, b.time_zone) });
   if ((await occupied(ctx.db, [courtId], start, end, ctx.now)).some((x) => x.booking_id !== b.id)) throw new KumiError("error.court_taken");
   if (b.kind === "lesson" && b.coach_id) {

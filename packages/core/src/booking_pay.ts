@@ -13,7 +13,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
-import { occupied, openingOn } from "./bookings.ts";
+import { courtOpening, occupied } from "./bookings.ts";
 import { currentPolicy, quote } from "./prices.ts";
 import { memberPlan } from "./memberships.ts";
 import { band, joinRule, levelOf, openMatchOf } from "./match_rules.ts";
@@ -55,7 +55,7 @@ export async function checkSlot(ctx: PlanCtx, policy: Awaited<ReturnType<typeof 
   if (start <= ctx.now) throw new KumiError("error.in_the_past");
   const ahead = await daysAhead(ctx.db, personId, ctx.now);
   if (start.getTime() > ctx.now.getTime() + ahead * 86400_000) throw new KumiError("error.too_far_ahead", { count: ahead });
-  const day = new Intl.DateTimeFormat("en-CA", { timeZone: court.time_zone }).format(start), open = await openingOn(ctx.db, court.location_id, day);
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: court.time_zone }).format(start), open = await courtOpening(ctx.db, court, day);
   if (!open || start < open.opens || end > open.closes) throw new KumiError("error.closed_then", { court: court.name, when: when(start, court.time_zone) });
   if ((await occupied(ctx.db, [s.court_id], start, end, ctx.now)).length) throw new KumiError("error.court_taken");
   return { court, start, end, day };

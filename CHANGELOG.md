@@ -23,6 +23,11 @@ The first version a club can run on its own (court bookings included), or for it
   courts while the payment is going through, that court's part comes back and the rest stay booked.
 - Messages for confirmations, shares paid, cancellations, money owed, and a reminder before playing.
 - Occupancy and revenue by day, with a CSV export.
+- A court's own hours: an outdoor court that closes at dusk, or one that opens later, inside the
+  location's hours or outside them. A day it has no hours of its own follows the location's. The
+  location's special days apply to every court, unless a court has its own for that date. Free courts,
+  desk and member bookings, moves, a lesson's court, the Courts page (shading when a court is closed)
+  and the occupancy report all use each court's own hours; a program date on a closed court is a warning.
 - Courts blocked every week ("Courts 1 and 2 every Tuesday 18:00 to 20:00, for the league"), from a
   date until a date or with no end. Each date is an ordinary block, so nothing else can take the court
   then. Bookings already in the way stay (the block leaves that court free that day) or are cancelled,

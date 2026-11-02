@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, openingOn, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration } from "@kumi/core";
+import { coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { readPeopleCsv } from "./csv.ts";
 
@@ -155,8 +155,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
     const courts = await db.selectFrom("court").select(["id", "location_id", "name", "kind", "bookable", "sort"]).where("archived_at", "is", null).orderBy("sort").orderBy("name").execute();
     const hours = await db.selectFrom("opening_hours").select(["location_id", "weekday", "opens", "closes"]).execute();
+    const own = await db.selectFrom("court_hours").select(["court_id", "weekday", "opens", "closes"]).where("active", "=", true).execute();
     const today = localDate(new Date(), club.time_zone);
-    const special = await db.selectFrom("hours_exception").select(["id", "location_id", "on_date", "opens", "closes", "note"]).where("active", "=", true)
+    const special = await db.selectFrom("hours_exception").select(["id", "location_id", "court_id", "on_date", "opens", "closes", "note"]).where("active", "=", true)
       .where("on_date", ">=", today).orderBy("on_date").execute();
     const t5 = (x: string | null) => (x ? x.slice(0, 5) : null);
     const waiver = await currentWaiver(db);
@@ -164,7 +165,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // Texts: whether they go, and where the carrier registration `kumi texting` runs stands (texting.ts).
     const reg = await textingRegistration(db);
     const texting = { on: textingOn(), status: reg?.status ?? null, number: reg?.phone_number ?? null, said: reg ? textingStatusText(reg, lang(c), club.time_zone) : [] };
-    return c.json({ club, answerer: currentAnswerer().name, texting, policy, plans, waiver: waiver ? { version_no: waiver.version_no, body: waiver.body } : null, locations: locations.map((l) => ({ ...l, courts: courts.filter((x) => x.location_id === l.id),
+    // Each court's own week: a weekday it has no hours of its own for is left out (it follows the location's).
+    const courtWeek = (id: string) => own.filter((x) => x.court_id === id).sort((a, b) => a.weekday - b.weekday).map((x) => ({ weekday: x.weekday, opens: t5(x.opens), closes: t5(x.closes) }));
+    return c.json({ club, answerer: currentAnswerer().name, texting, policy, plans, waiver: waiver ? { version_no: waiver.version_no, body: waiver.body } : null, locations: locations.map((l) => ({ ...l,
+      courts: courts.filter((x) => x.location_id === l.id).map((x) => ({ ...x, hours: courtWeek(x.id) })),
       prices: rules.filter((r) => r.location_id === l.id).map((r) => ({ ...r, starts: t5(r.starts), ends: t5(r.ends) })),
       hours: [0, 1, 2, 3, 4, 5, 6].map((w) => { const h = hours.find((x) => x.location_id === l.id && x.weekday === w); return { weekday: w, opens: t5(h?.opens ?? null), closes: t5(h?.closes ?? null) }; }),
       special_days: special.filter((x) => x.location_id === l.id).map((x) => ({ ...x, opens: t5(x.opens), closes: t5(x.closes) })) })) });
@@ -184,13 +188,18 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .groupBy(["day", "ledger_account.revenue_type"]).execute();
     const rows = [];
     for (const day of days) {
-      const open = await openingOn(db, loc.id, day);
+      // Each court counts its own hours that day (a court's own week, or the location's).
+      const hours = await courtOpenings(db, loc.id, courts.map((x) => x.id), day), open = spanOf([...hours.values()]);
       const openMin = open ? (open.closes.getTime() - open.opens.getTime()) / 60_000 : 0, by: Record<string, number> = {};
+      let capacity = 0;
+      for (const h of hours.values()) if (h) capacity += (h.closes.getTime() - h.opens.getTime()) / 60_000;
       if (open) for (const it of await occupied(db, courts.map((x) => x.id), open.opens, open.closes, new Date(0))) {
-        const m = (Math.min(new Date(it.end).getTime(), open.closes.getTime()) - Math.max(new Date(it.start).getTime(), open.opens.getTime())) / 60_000;
+        const h = hours.get(it.court_id);
+        if (!h) continue;
+        const m = (Math.min(new Date(it.end).getTime(), h.closes.getTime()) - Math.max(new Date(it.start).getTime(), h.opens.getTime())) / 60_000;
         if (m > 0) by[it.kind] = (by[it.kind] ?? 0) + m;
       }
-      const capacity = openMin * courts.length, used = (by.booking ?? 0) + (by.session ?? 0) + (by.mirror ?? 0), blocked = by.block ?? 0;
+      const used = (by.booking ?? 0) + (by.session ?? 0) + (by.mirror ?? 0), blocked = by.block ?? 0;
       const cents = (type: string) => Number(money.find((r) => r.day === day && r.revenue_type === type)?.cents ?? 0);
       rows.push({ date: day, open_hours: openMin / 60, courts: courts.length, court_hours: capacity / 60, booked_hours: (by.booking ?? 0) / 60, program_hours: (by.session ?? 0) / 60,
         playtomic_hours: (by.mirror ?? 0) / 60, blocked_hours: blocked / 60, occupancy_percent: capacity - blocked > 0 ? Math.round(used / (capacity - blocked) * 1000) / 10 : 0,
@@ -222,9 +231,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const loc = await db.selectFrom("location").select(["id", "time_zone"]).where("id", "=", locationId).executeTakeFirst();
     if (!loc) throw new KumiError("error.not_found", { thing: { en: "location", es: "la sede" } }, 404);
     const date = /^\d{4}-\d{2}-\d{2}$/.test(c.req.query("date") ?? "") ? c.req.query("date")! : localDate(now, loc.time_zone);
-    const open = await openingOn(db, loc.id, date);
     const from = new Date(`${date}T00:00:00Z`), dayStart = new Date(from.getTime() - 14 * 3600_000), dayEnd = new Date(from.getTime() + 38 * 3600_000);
     const courts = await db.selectFrom("court").select(["id", "name", "kind"]).where("location_id", "=", loc.id).where("archived_at", "is", null).orderBy("sort").orderBy("name").execute();
+    // Each court's own hours that day, and the day from the earliest opening to the latest closing.
+    const hours = await courtOpenings(db, loc.id, courts.map((x) => x.id), date), open = spanOf([...hours.values()]);
     const items = (await occupied(db, courts.map((x) => x.id), dayStart, dayEnd, now)).filter((t) => localDate(new Date(t.start), loc.time_zone) === date || localDate(new Date(t.end), loc.time_zone) === date);
     const ids = (k: "booking_id" | "block_id" | "session_id") => [...new Set(items.map((t) => t[k]).filter((x): x is string => Boolean(x)))];
     const bookings = ids("booking_id").length ? await db.selectFrom("booking").leftJoin("person", "person.id", "booking.organiser_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
@@ -252,7 +262,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .select(["booking_player.id", "booking_player.booking_id", "booking_player.fill_refund_percent", "person.display_name as name"])
       .where("booking_player.booking_id", "in", ids("booking_id")).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is not", null).orderBy("booking_player.leaving_at").execute() : [];
     const l = lang(c);
-    return c.json({ date, time_zone: loc.time_zone, open, now: now.toISOString(), today: localDate(now, loc.time_zone), courts: courts.map((ct) => ({ ...ct, items: items.filter((x) => x.court_id === ct.id).map((x) => {
+    return c.json({ date, time_zone: loc.time_zone, open, now: now.toISOString(), today: localDate(now, loc.time_zone), courts: courts.map((ct) => ({ ...ct, open: hours.get(ct.id) ?? null, items: items.filter((x) => x.court_id === ct.id).map((x) => {
       const base = { start: x.start, end: x.end, kind: x.kind };
       if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", price_cents: b?.price_cents ?? 0,
         paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0), balance_cents: b?.balance_cents ?? 0, booking_kind: b?.kind ?? "court", coach: b?.coach ?? null, status: b?.status,

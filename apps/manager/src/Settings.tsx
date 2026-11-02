@@ -4,9 +4,10 @@ import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, club as clubSignal, lang, me, t, usePreview, type Club } from "@kumi/ui";
 
-type Court = { id: string; location_id: string; name: string; kind: string; bookable: boolean; sort: number };
 type Hours = { weekday: number; opens: string | null; closes: string | null };
-type Special = { id: string; on_date: string; opens: string | null; closes: string | null; note: string | null };
+// A court's own hours: only the weekdays it has its own for (no times: closed); the rest follow the location.
+type Court = { id: string; location_id: string; name: string; kind: string; bookable: boolean; sort: number; hours: Hours[] };
+type Special = { id: string; court_id: string | null; on_date: string; opens: string | null; closes: string | null; note: string | null };
 type Price = { id: string; name: string; court_ids: string[] | null; weekdays: number[] | null; starts: string | null; ends: string | null; valid_from: string | null; valid_to: string | null; cents_per_hour: number; priority: number; plan_ids: string[] | null };
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
@@ -154,7 +155,7 @@ function LocationCard({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview
         <button>{t("ui.preview")}</button>
       </form>
       <h3>{t("ui.courts")}</h3>
-      <ul class="plain">{l.courts.map((c) => <CourtRow key={JSON.stringify(c)} c={c} send={send} />)}</ul>
+      <ul class="plain">{l.courts.map((c) => <CourtRow key={JSON.stringify(c)} c={c} l={l} send={send} />)}</ul>
       <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("court.create", { location_id: l.id, name: court.name, kind: court.kind }); }}>
         <label>{t("ui.add_court")}<input required placeholder={t("ui.name")} value={court.name} onInput={(e) => setCourt({ ...court, name: e.currentTarget.value })} /></label>
         <select value={court.kind} onChange={(e) => setCourt({ ...court, kind: e.currentTarget.value })}>{KINDS.map((k) => <option value={k}>{t(`ui.kind_${k}` as Key)}</option>)}</select>
@@ -173,7 +174,7 @@ const closing = (v: string) => (v === "00:00" ? "24:00" : v);
 
 function OpeningHours({ l, send }: { l: Loc; send: Preview }) {
   const [days, setDays] = useState(l.hours.map((h) => ({ ...h, closes: h.closes === "24:00" ? "00:00" : h.closes })));
-  const [sp, setSp] = useState({ date: "", closed: true, opens: "09:00", closes: "14:00", note: "" });
+  const [sp, setSp] = useState({ date: "", closed: true, opens: "09:00", closes: "14:00", note: "", court: "" });
   const set = (w: number, patch: Partial<Hours>) => setDays(days.map((d) => (d.weekday === w ? { ...d, ...patch } : d)));
   return (
     <>
@@ -191,10 +192,13 @@ function OpeningHours({ l, send }: { l: Loc; send: Preview }) {
       </form>
       <h3>{t("ui.special_days")}</h3>
       <ul class="plain">{l.special_days.map((x) => (
-        <li class="row"><span>{x.on_date} · {x.opens ? `${x.opens} - ${x.closes}` : t("ui.closed")}{x.note ? ` · ${x.note}` : ""}</span>
+        <li class="row"><span>{x.on_date}{x.court_id ? ` · ${l.courts.find((c) => c.id === x.court_id)?.name ?? ""}` : ""} · {x.opens ? `${x.opens} - ${x.closes}` : t("ui.closed")}{x.note ? ` · ${x.note}` : ""}</span>
           <button type="button" class="small" onClick={() => send("hours.exception_remove", { exception_id: x.id })}>{t("ui.remove")}</button></li>))}</ul>
-      <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("hours.exception_set", { location_id: l.id, date: sp.date, ...(sp.closed ? {} : { opens: sp.opens, closes: closing(sp.closes) }), note: sp.note || undefined }); }}>
+      <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("hours.exception_set", { location_id: l.id, date: sp.date, ...(sp.closed ? {} : { opens: sp.opens, closes: closing(sp.closes) }), note: sp.note || undefined,
+        ...(sp.court ? { court_id: sp.court } : {}) }); }}>
         <label>{t("ui.add_special_day")}<input type="date" required value={sp.date} onInput={(e) => setSp({ ...sp, date: e.currentTarget.value })} /></label>
+        {l.courts.length > 1 && <label>{t("ui.special_day_for")}<select value={sp.court} onChange={(e) => setSp({ ...sp, court: e.currentTarget.value })}>
+          <option value="">{t("ui.every_court")}</option>{l.courts.map((c) => <option value={c.id}>{c.name}</option>)}</select></label>}
         <label class="check"><input type="checkbox" checked={sp.closed} onChange={(e) => setSp({ ...sp, closed: e.currentTarget.checked })} /> {t("ui.closed_all_day")}</label>
         {!sp.closed && <div class="court-row">
           <input type="time" step={1800} aria-label={t("ui.from")} value={sp.opens} onInput={(e) => setSp({ ...sp, opens: e.currentTarget.value })} />
@@ -272,18 +276,46 @@ function BookingRules({ p, send }: { p: Policy; send: Preview }) {
   );
 }
 
-function CourtRow({ c, send }: { c: Court; send: Preview }) {
+function CourtRow({ c, l, send }: { c: Court; l: Loc; send: Preview }) {
   const start = { name: c.name, kind: c.kind };
-  const [f, setF] = useState(start);
+  const [f, setF] = useState(start), [hours, setHours] = useState(false);
   return (
     <li>
       <form class="court-row" onSubmit={(e) => { e.preventDefault(); send("court.update", { court_id: c.id, ...diff(start, f) }); }}>
         <input required aria-label={t("ui.name")} value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} />
         <select aria-label={t("ui.court_kind")} value={f.kind} onChange={(e) => setF({ ...f, kind: e.currentTarget.value })}>{KINDS.map((k) => <option value={k}>{t(`ui.kind_${k}` as Key)}</option>)}</select>
         <button class="small">{t("ui.save")}</button>
+        <button type="button" class="small" onClick={() => setHours(!hours)}>{c.hours.length ? t("ui.court_own_hours") : t("ui.court_hours")}</button>
         <button type="button" class="small" onClick={() => send("court.archive", { court_id: c.id })}>{t("ui.archive")}</button>
       </form>
+      {hours && <CourtHours c={c} l={l} send={send} />}
     </li>
+  );
+}
+
+/** A court's own week: each day the location's hours, closed, or its own times. */
+function CourtHours({ c, l, send }: { c: Court; l: Loc; send: Preview }) {
+  type Day = { weekday: number; mode: "location" | "closed" | "open"; opens: string; closes: string };
+  const [days, setDays] = useState<Day[]>(ORDER.map((w) => {
+    const own = c.hours.find((h) => h.weekday === w), loc = l.hours.find((h) => h.weekday === w);
+    return { weekday: w, mode: !own ? "location" : own.opens ? "open" : "closed", opens: own?.opens ?? loc?.opens ?? "08:00", closes: (own?.closes ?? loc?.closes ?? "22:00").replace("24:00", "00:00") };
+  }));
+  const set = (w: number, patch: Partial<Day>) => setDays(days.map((d) => (d.weekday === w ? { ...d, ...patch } : d)));
+  const locHours = (w: number) => { const h = l.hours.find((x) => x.weekday === w); return h?.opens ? `${h.opens} - ${h.closes}` : t("ui.closed"); };
+  return (
+    <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("court.hours_set", { court_id: c.id, days: days.filter((d) => d.mode !== "location")
+      .map((d) => d.mode === "closed" ? { weekday: d.weekday, opens: null, closes: null } : { weekday: d.weekday, opens: d.opens, closes: closing(d.closes) }) }); }}>
+      {days.map((d) => (
+        <div class="hours-row">
+          <label>{dayName(d.weekday)}<select value={d.mode} onChange={(e) => set(d.weekday, { mode: e.currentTarget.value as Day["mode"] })}>
+            <option value="location">{t("ui.court_follows", { hours: locHours(d.weekday) })}</option><option value="closed">{t("ui.closed")}</option><option value="open">{t("ui.court_open_own")}</option></select></label>
+          {d.mode === "open" && <>
+            <input type="time" step={1800} aria-label={t("ui.from")} value={d.opens} onInput={(e) => set(d.weekday, { opens: e.currentTarget.value })} />
+            <input type="time" step={1800} aria-label={t("ui.to")} value={d.closes} onInput={(e) => set(d.weekday, { closes: e.currentTarget.value })} />
+          </>}
+        </div>))}
+      <button>{t("ui.preview")}</button>
+    </form>
   );
 }
 

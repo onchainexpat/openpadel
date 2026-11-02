@@ -87,7 +87,9 @@ about the app is the club's own announcement. Staff can do the same from People 
 
 ### Step 5c: courts, prices and rules
 
-In the staff app's Settings: each location's opening hours and special days, court prices (by day,
+In the staff app's Settings: each location's opening hours and special days (a court can have its own
+week, such as an outdoor court that closes at dusk, and its own special day; any day it has none of its
+own, it keeps the location's), court prices (by day,
 time and season), the sales tax rate, and the booking rules (how far ahead, how many at once, the
 cancellation window, and the "pay my part" deadline). At that deadline, unpaid shares of a booking go
 on its organiser's saved card; an open match that isn't full is cancelled instead, and everyone in it

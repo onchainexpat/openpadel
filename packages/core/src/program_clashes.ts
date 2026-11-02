@@ -5,14 +5,15 @@
 import { sql } from "kysely";
 import { both, dateTime, type Text } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
-import { atLocal, localParts } from "./clock.ts";
+import { atLocal, localDate, localParts } from "./clock.ts";
+import { courtOpenings } from "./bookings.ts";
 import { isClubBlock } from "./playtomic.ts";
 import { coachBusy } from "./lessons.ts";
 
 /** One date as it would be: when, on which courts, and who runs it. */
 export interface DateSlot { start: Date; end: Date; courtIds: string[]; coachId: string | null }
 /** Something in the way (blocks) or only worth knowing (a warning), in both languages. */
-export interface Clash { blocks: boolean; kind: "court" | "coach_busy" | "coach_off" | "program"; text: Text }
+export interface Clash { blocks: boolean; kind: "court" | "court_closed" | "coach_busy" | "coach_off" | "program"; text: Text }
 
 const when = (d: Date, tz: string): Text => ({ en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) });
 
@@ -45,6 +46,16 @@ export async function dateClashes(db: Db | Trx, o: { programId: string; location
         out.push({ blocks: true, kind: "court", text });
       }
     }
+    // A court closed then (its own hours, or the location's): only a warning, since a club may run an event out of
+    // hours. A location with no hours set yet doesn't use them.
+    if (s.courtIds.length && await hasHours(db, o.locationId)) {
+      const hours = await courtOpenings(db, o.locationId, s.courtIds, localDate(s.start, o.tz));
+      const names = (await db.selectFrom("court").select(["id", "name"]).where("id", "in", s.courtIds).execute());
+      for (const id of s.courtIds) {
+        const h = hours.get(id);
+        if (!h || s.start < h.opens || s.end > h.closes) out.push({ blocks: false, kind: "court_closed", text: both("clash.court_closed", { court: names.find((n) => n.id === id)?.name ?? "", when: at }) });
+      }
+    }
     if (s.coachId) {
       const coach = await coachName(s.coachId);
       const busy = (await coachBusy(db, s.coachId, s.start, s.end, o.now)).filter((b) => b.kind === "lesson" || !o.skipSessions.includes(b.id));
@@ -64,6 +75,10 @@ export async function dateClashes(db: Db | Trx, o: { programId: string; location
     }
   }
   return out;
+}
+
+async function hasHours(db: Db | Trx, locationId: string) {
+  return Boolean(await db.selectFrom("opening_hours").select("id").where("location_id", "=", locationId).where("opens", "is not", null).limit(1).executeTakeFirst());
 }
 
 /** Whether two level bands share players: they overlap, or either is open to all. */

@@ -23,13 +23,41 @@ export async function locationTz(db: Db | Trx, locationId: string): Promise<stri
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : null);
 const dayOf = (date: string, lang: Lang) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }).format(new Date(`${date}T12:00:00Z`));
 
-/** When a location is open on a club date: its special day if it has one, otherwise its weekday. */
-export async function openingOn(db: Db | Trx, locationId: string, day: string): Promise<{ opens: Date; closes: Date } | null> {
+type Open = { opens: Date; closes: Date };
+/** When a location is open on a club date: its special day if it has one, otherwise its weekday. A special day
+ *  for one court only (below) isn't the location's. */
+export async function openingOn(db: Db | Trx, locationId: string, day: string): Promise<Open | null> {
   const tz = await locationTz(db, locationId);
-  const special = await db.selectFrom("hours_exception").select(["opens", "closes"]).where("location_id", "=", locationId).where("on_date", "=", day).where("active", "=", true).executeTakeFirst();
+  const special = await db.selectFrom("hours_exception").select(["opens", "closes"]).where("location_id", "=", locationId).where("court_id", "is", null).where("on_date", "=", day).where("active", "=", true).executeTakeFirst();
   const row = special ?? await db.selectFrom("opening_hours").select(["opens", "closes"]).where("location_id", "=", locationId).where("weekday", "=", weekdayOf(day)).executeTakeFirst();
   if (!row?.opens || !row.closes) return null;
   return { opens: onDate(day, hhmm(row.opens)!, tz), closes: onDate(day, hhmm(row.closes)!, tz) };
+}
+
+/** When each of a location's courts is open on a club date. A court can have its own week (an outdoor court that
+ *  closes at dusk, one that opens later), inside the location's hours or outside them; a weekday it has no hours
+ *  of its own follows the location's. Special days: the court's own for that date, otherwise the location's,
+ *  which apply to every court. */
+export async function courtOpenings(db: Db | Trx, locationId: string, courtIds: string[], day: string): Promise<Map<string, Open | null>> {
+  const tz = await locationTz(db, locationId), w = weekdayOf(day);
+  const special = await db.selectFrom("hours_exception").select(["court_id", "opens", "closes"]).where("location_id", "=", locationId).where("on_date", "=", day).where("active", "=", true).execute();
+  const own = courtIds.length ? await db.selectFrom("court_hours").select(["court_id", "opens", "closes"]).where("court_id", "in", courtIds).where("weekday", "=", w).where("active", "=", true).execute() : [];
+  const week = await db.selectFrom("opening_hours").select(["opens", "closes"]).where("location_id", "=", locationId).where("weekday", "=", w).executeTakeFirst();
+  const out = new Map<string, Open | null>();
+  for (const id of courtIds) {
+    const row = special.find((x) => x.court_id === id) ?? special.find((x) => x.court_id === null) ?? own.find((x) => x.court_id === id) ?? week;
+    out.set(id, row?.opens && row.closes ? { opens: onDate(day, hhmm(row.opens)!, tz), closes: onDate(day, hhmm(row.closes)!, tz) } : null);
+  }
+  return out;
+}
+/** When one court is open on a club date (courtOpenings). */
+export async function courtOpening(db: Db | Trx, court: { id: string; location_id: string }, day: string): Promise<Open | null> {
+  return (await courtOpenings(db, court.location_id, [court.id], day)).get(court.id) ?? null;
+}
+/** From the earliest opening to the latest closing among these: the location's day on the Courts page. */
+export function spanOf(opens: (Open | null)[]): Open | null {
+  const o = opens.filter((x): x is Open => Boolean(x));
+  return o.length ? { opens: new Date(Math.min(...o.map((x) => x.opens.getTime()))), closes: new Date(Math.max(...o.map((x) => x.closes.getTime()))) } : null;
 }
 
 /** What holds courts in a window: everything active, except checkout holds that have run out. */
@@ -42,34 +70,40 @@ export async function occupied(db: Db | Trx, courtIds: string[], from: Date, to:
     .orderBy(sql`lower(during)`).execute();
 }
 
-/** Each bookable court at a location, and every start time on that date when it's free for `minutes`. */
+/** Each bookable court at a location, and every start time on that date when it's free for `minutes`, inside
+ *  that court's own hours. `open` is from the earliest opening to the latest closing. */
 export async function freeCourts(db: Db | Trx, i: { locationId: string; date: string; minutes: number; now: Date }) {
-  const open = await openingOn(db, i.locationId, i.date);
-  if (!open) return { open: null, courts: [] };
   const courts = await db.selectFrom("court").select(["id", "name", "kind"]).where("location_id", "=", i.locationId).where("archived_at", "is", null).where("bookable", "=", true).orderBy("sort").orderBy("name").execute();
+  const hours = await courtOpenings(db, i.locationId, courts.map((c) => c.id), i.date), open = spanOf([...hours.values()]);
+  if (!open) return { open: null, courts: [] };
   const taken = await occupied(db, courts.map((c) => c.id), open.opens, open.closes, i.now);
   const len = i.minutes * 60_000, step = STEP_MINUTES * 60_000;
   return { open, courts: courts.map((c) => {
-    const busy = taken.filter((t) => t.court_id === c.id);
+    const busy = taken.filter((t) => t.court_id === c.id), mine = hours.get(c.id) ?? null;
     const starts: string[] = [];
-    for (let s = open.opens.getTime(); s + len <= open.closes.getTime(); s += step) {
+    if (mine) for (let s = mine.opens.getTime(); s + len <= mine.closes.getTime(); s += step) {
       if (s < i.now.getTime()) continue;
       if (!busy.some((b) => new Date(b.start).getTime() < s + len && new Date(b.end).getTime() > s)) starts.push(new Date(s).toISOString());
     }
-    return { ...c, starts };
+    return { ...c, open: mine, starts };
   }) };
 }
 
 // ---- Hours ----
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 function dayName(w: number, lang: Lang) { return new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w))); }
-/** "Mon to Fri 07:00 to 22:00; Sat, Sun 08:00 to 20:00; closed Tue": days with the same hours together. */
-function hoursText(days: { weekday: number; opens: string | null; closes: string | null }[], lang: Lang): string {
+/** "Mon to Fri 07:00 to 22:00; Sat, Sun 08:00 to 20:00; closed Tue": days with the same hours together. With
+ *  `all` false, only the days listed (a court's own), and only days next to each other share a "to". */
+function hoursText(days: { weekday: number; opens: string | null; closes: string | null }[], lang: Lang, all = true): string {
   const key = (d: { opens: string | null; closes: string | null }) => (d.opens ? `${d.opens} ${lang === "es" ? "a" : "to"} ${d.closes}` : lang === "es" ? "cerrado" : "closed");
   const order = [1, 2, 3, 4, 5, 6, 0], groups: { days: number[]; text: string }[] = [];
-  for (const w of order) {
-    const d = days.find((x) => x.weekday === w) ?? { opens: null, closes: null }, text = key(d), last = groups.at(-1);
-    if (last && last.text === text) last.days.push(w); else groups.push({ days: [w], text });
+  let prev = -1;
+  for (const [n, w] of order.entries()) {
+    const listed = days.find((x) => x.weekday === w);
+    if (!all && !listed) continue;
+    const text = key(listed ?? { opens: null, closes: null }), last = groups.at(-1);
+    if (last && last.text === text && prev === n - 1) last.days.push(w); else groups.push({ days: [w], text });
+    prev = n;
   }
   const span = (ds: number[]) => ds.length > 2 ? `${dayName(ds[0]!, lang)} ${lang === "es" ? "a" : "to"} ${dayName(ds.at(-1)!, lang)}` : ds.map((w) => dayName(w, lang)).join(", ");
   return groups.map((g) => `${span(g.days)} ${g.text}`).join("; ");
@@ -96,20 +130,49 @@ export const hoursSet = defineAction({
   },
 });
 
+/** A court's own week: the weekdays listed are its own (no times: closed that day), the rest follow the location. */
+export const courtHoursSet = defineAction({
+  name: "court.hours_set", version: 1,
+  input: z.object({ court_id: z.uuid(), days: z.array(z.object({ weekday: z.number().check(z.int(), z.minimum(0), z.maximum(6)), opens: z.nullable(clockTime), closes: z.nullable(clockTime) })).check(z.maxLength(7)) }),
+  async plan(ctx, i) {
+    const [court] = await courtsAt(ctx.db, [i.court_id]);
+    const { row: loc } = await readRow(ctx.db, "location", court!.location_id, "thing.location");
+    if (new Set(i.days.map((d) => d.weekday)).size !== i.days.length) throw new KumiError("error.bad_hours");
+    for (const d of i.days) if ((d.opens === null) !== (d.closes === null) || (d.opens && d.closes! <= d.opens)) throw new KumiError("error.bad_hours");
+    const p = { court: court!.name, location: loc.name, hours: { en: hoursText(i.days, "en", false), es: hoursText(i.days, "es", false) } };
+    return { title: both("action.court.hours_set"), summary: both(i.days.length === 0 ? "plan.court.hours_follow" : i.days.length === 7 ? "plan.court.hours_own" : "plan.court.hours_some", p),
+      reads: [], locationId: court!.location_id, undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    for (const w of WEEKDAYS) {
+      const d = i.days.find((x) => x.weekday === w);
+      const have = await ctx.trx.selectFrom("court_hours").select(["id", "opens", "closes", "active"]).where("court_id", "=", i.court_id).where("weekday", "=", w).executeTakeFirst();
+      if (!d) { if (have?.active) await ctx.update("court_hours", have.id, { active: false }); continue; }
+      if (!have) await ctx.insert("court_hours", { id: uuidv7(), court_id: i.court_id, weekday: w, opens: d.opens, closes: d.closes });
+      else if (!have.active || hhmm(have.opens) !== d.opens || hhmm(have.closes) !== d.closes) await ctx.update("court_hours", have.id, { opens: d.opens, closes: d.closes, active: true });
+    }
+    return null;
+  },
+});
+
 export const hoursExceptionSet = defineAction({
   name: "hours.exception_set", version: 1,
-  input: z.object({ location_id: z.uuid(), date: clubDate, opens: z.optional(clockTime), closes: z.optional(clockTime), note: z.optional(z.string().check(z.maxLength(200))) }),
+  // `court_id`: a special day for that court only (rain on an outdoor court is a block; a court let for a day is this).
+  input: z.object({ location_id: z.uuid(), date: clubDate, opens: z.optional(clockTime), closes: z.optional(clockTime), note: z.optional(z.string().check(z.maxLength(200))), court_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row: loc } = await readRow(ctx.db, "location", i.location_id, "thing.location");
     if ((i.opens === undefined) !== (i.closes === undefined) || (i.opens && i.closes! <= i.opens)) throw new KumiError("error.bad_hours");
-    const p = { location: loc.name, date: i.date, opens: i.opens ?? "", closes: i.closes ?? "" };
+    const court = i.court_id ? (await courtsAt(ctx.db, [i.court_id]))[0]! : null;
+    if (court && court.location_id !== i.location_id) throw new KumiError("error.one_location");
+    const p = { location: court ? court.name : loc.name, date: i.date, opens: i.opens ?? "", closes: i.closes ?? "" };
     return { title: both("action.hours.exception_set"), summary: both(i.opens ? "plan.hours.special_open" : "plan.hours.special_closed", p), reads: [], locationId: i.location_id, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
-    const have = await ctx.trx.selectFrom("hours_exception").select("id").where("location_id", "=", i.location_id).where("on_date", "=", i.date).where("active", "=", true).executeTakeFirst();
+    const have = await ctx.trx.selectFrom("hours_exception").select("id").where("location_id", "=", i.location_id).where("on_date", "=", i.date).where("active", "=", true)
+      .$if(Boolean(i.court_id), (q) => q.where("court_id", "=", i.court_id!)).$if(!i.court_id, (q) => q.where("court_id", "is", null)).executeTakeFirst();
     const row = { opens: i.opens ?? null, closes: i.closes ?? null, note: i.note ?? null };
     if (have) await ctx.update("hours_exception", have.id, row);
-    else await ctx.insert("hours_exception", { id: uuidv7(), location_id: i.location_id, on_date: i.date, ...row });
+    else await ctx.insert("hours_exception", { id: uuidv7(), location_id: i.location_id, court_id: i.court_id ?? null, on_date: i.date, ...row });
     return null;
   },
 });
@@ -208,7 +271,7 @@ async function checkSlot(ctx: PlanCtx, courtId: string, start: Date, minutes: nu
   const end = new Date(start.getTime() + minutes * 60_000), tz = await locationTz(ctx.db, court!.location_id);
   if (end <= ctx.now) throw new KumiError("error.in_the_past");
   const day = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(start);
-  const open = await openingOn(ctx.db, court!.location_id, day);
+  const open = await courtOpening(ctx.db, court!, day);
   if (!open || start < open.opens || end > open.closes) throw new KumiError("error.closed_then", { court: court!.name, when: when(start, tz) });
   if ((await occupied(ctx.db, [courtId], start, end, ctx.now)).length) throw new KumiError("error.court_taken");
   return { court: court!, end, tz };
