@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, issueReceipts, paymentProvider, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
-import { memberUrl } from "./addresses.ts";
+import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
 import { PracticeTexter, TwilioTexter, twilioFromEnv } from "./twilio.ts";
 import { handlers } from "./outbox.ts";
@@ -44,6 +44,21 @@ if (stripeKey) {
   console.log(`payments: stripe (${stripe.live ? "live" : "test mode"}${connectMode ? ", the club's connected account" : ""})`);
 }
 const stripeConfig = { publishableKey: process.env.KUMI_STRIPE_PUBLISHABLE_KEY, webhookSecret: process.env.KUMI_STRIPE_WEBHOOK_SECRET };
+// Apple Pay and Google Pay show on the members' card form only on a domain registered with Stripe (on the club's own
+// account under Connect). The jobs below register it until it's done: at start, or once a connected club's
+// account exists. Nothing to do on a laptop or a name Stripe can't register.
+const walletHost = walletDomainOf(membersUrl);
+let walletDone: string | null = null, walletNext = 0;   // the account (or "direct") it's registered on; tried at most hourly
+const registerWallets = async () => {
+  if (!stripe || !walletHost || Date.now() < walletNext) return;
+  const where = stripe.connect ? (await db.selectFrom("club").select("stripe_account_id").executeTakeFirst())?.stripe_account_id ?? null : "direct";
+  if (!where || walletDone === where) return;
+  walletNext = Date.now() + 3600_000;
+  const d = await stripe.registerWalletDomain(walletHost);
+  if (!d) return;
+  walletDone = where;
+  console.log(`payments: ${walletHost} registered for Apple Pay (${d.applePay}) and Google Pay (${d.googlePay})${d.problem ? `: ${d.problem}` : ""}`);
+};
 // Email: with a Resend key, from the club's own domain (KUMI_MAIL_FROM, like "Kestrel Padel <hello@kestrelpadel.com>").
 // Outside production, or with KUMI_PRACTICE=1, it only reaches KUMI_MAIL_TEST_TO (comma-separated); without a key it stays in the log.
 let mailer: Mailer = new MemoryMailer(true);
@@ -133,6 +148,7 @@ const jobs = async () => {
     await tidyVaultUploads(db);
     const fc = await tidyFamilyCards(db);
     if (fc.saved) console.log(`family cards: ${fc.saved} saved (found by checking with the provider)`);
+    await registerWallets().catch((e) => console.error("payments: registering the members' domain for Apple Pay and Google Pay:", (e as Error).message));
     // While the club is still setting up its Stripe account, ask Stripe whether it's ready (a webhook says so too).
     if (stripe?.connect) {
       const club = await db.selectFrom("club").select(["stripe_account_id", "stripe_charges_enabled"]).executeTakeFirstOrThrow();

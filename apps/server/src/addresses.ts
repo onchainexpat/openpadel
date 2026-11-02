@@ -13,3 +13,14 @@ export function memberUrl(staff: string, env: Env = process.env): string {
   if (u.hostname.startsWith("staff.")) u.hostname = u.hostname.slice("staff.".length);
   return u.toString().replace(/\/$/, "");
 }
+
+/** The web domain to register with Stripe so the members' card form can offer Apple Pay and Google Pay: the members'
+ *  address's host, when it's a public HTTPS name (Stripe can't register a laptop, an IP address or a test name). */
+export function walletDomainOf(url: string): string | null {
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  const h = u.hostname;
+  if (u.protocol !== "https:" || !h.includes(".") || /^[\d.]+$/.test(h) || h.includes(":")) return null;
+  if (/(^|\.)(localhost|test|example|invalid|local|internal)$/.test(h)) return null;
+  return h;
+}

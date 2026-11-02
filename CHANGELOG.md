@@ -204,6 +204,9 @@ The first version a club can run on its own (court bookings included), or for it
 - Sign-up and pay by card (Stripe; Apple Pay and Google Pay as cards), with waitlists. A place that
   opens is offered to the next person, held from when they can be told, and passed on if they don't
   take it.
+- Apple Pay and Google Pay show on the card form: the server registers the members' address with Stripe
+  as it starts (on the club's own account under Connect, once it has one), and `kumi doctor` says
+  whether they're on.
 - Taking someone off and refunding are separate decisions; passing a place to a sub (who pays their
   own price: a member price, or one of their included sessions); comped places.
 - Dates added once a week for as many weeks as wanted, at the same club time across clock changes.

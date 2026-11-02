@@ -11,7 +11,7 @@ and runs the tests.
 Stripe charges its usual card fee per payment and keeps it when a payment is refunded. Memberships
 renew from the card the member joined with, charged by Kumi when each period ends, so there's no
 Stripe Billing subscription and no Billing fee on top.
-**`kumi doctor` checks:** `payments`.
+**`kumi doctor` checks:** `payments`, `wallets`.
 
 ## Steps
 
@@ -35,7 +35,12 @@ Stripe Billing subscription and no Billing fee on top.
    payments" and "Refunds" off). Kumi sends a receipt for every payment and refund itself, in the
    member's language and in the app; with Stripe's on too, members get two. Kumi never asks Stripe to
    email one.
-5. **Agent:** `systemctl restart kumi`, then `kumi doctor`: `payments` should say test mode.
+5. **Agent:** `systemctl restart kumi`, then `kumi doctor`: `payments` should say test mode, and
+   `wallets` that Apple Pay and Google Pay are on for the members' address. Stripe shows them on the
+   card form only on a web address registered with it; the server registers the members' address
+   itself when it starts (Settings, then Payment method domains, in Stripe's dashboard lists it), and
+   Stripe does Apple's check, so there's no file to put on the server. Test mode and live mode
+   register separately: after going live, the server registers it for live as it restarts.
 6. **Test:** in the members' app, sign up for a paid clinic and pay with 4242 4242 4242 4242 (any
    future date, any CVC): a receipt arrives within a minute (Profile, then Receipts, and by email). Then
    take that member off in the staff app with a refund, and check the refund in Stripe's dashboard and
@@ -53,3 +58,7 @@ unless `NODE_ENV=production` (the server setup sets it).
 - **"Pay" does nothing for members:** the publishable key is missing or from a different Stripe
   account than the secret key.
 - **Stripe asks for more information:** only the owner can answer, in Stripe's dashboard.
+- **No Apple Pay or Google Pay on the card form:** `kumi doctor`'s `wallets` line says why. They need
+  the members' app on a public HTTPS address, a browser and device that has them set up (Safari with a
+  card in Apple Wallet; Chrome with a card saved in Google Pay), and the domain registered (restart the
+  server to register it again). A domain switched off in Stripe's dashboard is switched back on.

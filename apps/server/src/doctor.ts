@@ -3,11 +3,11 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { readdirSync, statSync } from "node:fs";
 import { both, type Key, type Text } from "@kumi/i18n";
-import { answerCounts, heartbeats, parseSecretKey, pendingMigrations, textCounts, type Db } from "@kumi/core";
+import { answerCounts, clubStripeAccount, heartbeats, parseSecretKey, pendingMigrations, StripeProvider, textCounts, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { checkTwilio, twilioFromEnv } from "./twilio.ts";
 import { answerModels, checkAnswerKeys } from "./answerer.ts";
-import { memberUrl } from "./addresses.ts";
+import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { VERSION } from "./version.ts";
 
 export type CheckState = "ok" | "warn" | "fail" | "off";
@@ -104,6 +104,21 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   else if (!env.KUMI_STRIPE_PUBLISHABLE_KEY) add("payments", "fail", "payments.no_publishable", {}, "docs/setup/accounts/stripe.md");
   else if (!env.KUMI_STRIPE_WEBHOOK_SECRET) add("payments", "warn", "payments.no_webhook", {}, "docs/setup/accounts/stripe.md");
   else add("payments", sk.includes("_live_") ? "ok" : production ? "warn" : "ok", sk.includes("_live_") ? "payments.live" : "payments.test");
+  // Apple Pay and Google Pay: the members' address registered with Stripe (the server does it as it starts). Reading only.
+  const walletHost = (() => { try { return env.KUMI_PUBLIC_URL ? walletDomainOf(memberUrl(env.KUMI_PUBLIC_URL, env)) : null; } catch { return null; } })();
+  if (sk && env.KUMI_STRIPE_PUBLISHABLE_KEY && !(sk.includes("_live_") && !production)) {
+    const stDoc = "docs/setup/accounts/stripe.md";
+    if (!walletHost) add("wallets", "off", "wallets.no_domain", {}, stDoc);
+    else {
+      try {
+        const st = new StripeProvider({ secretKey: sk, ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(env.KUMI_STRIPE_CONNECT === "1" ? { connect: clubStripeAccount(db) } : {}) });
+        const w = await st.walletDomain(walletHost);
+        if (!w || !w.enabled) add("wallets", "warn", "wallets.missing", { domain: walletHost }, stDoc);
+        else if (w.applePay !== "active") add("wallets", "warn", "wallets.apple_inactive", { domain: walletHost, problem: w.problem ?? w.applePay }, stDoc);
+        else add("wallets", "ok", "wallets.ok", { domain: walletHost });
+      } catch (e) { add("wallets", "warn", "wallets.unknown", { domain: walletHost, error: (e as Error).message }, stDoc); }
+    }
+  }
 
   // Playtomic, only for a club that also runs on it.
   if (!env.KUMI_PLAYTOMIC_CLIENT_ID) add("playtomic", "off", "playtomic.off");

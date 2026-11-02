@@ -98,3 +98,24 @@ test("doctor: each check, and what's wrong in production", async () => {
   assert.match(one.backups!.text.en, /kumi-backup timer/); assert.match(dock.backups!.text.en, /docker compose logs backup/);
   assert.equal(one.restore_test!.doc, "deploy/README.md"); assert.equal(dock.restore_test!.doc, "deploy/docker/README.md");
 });
+
+test("doctor: Apple Pay and Google Pay need the members' domain registered with Stripe", async () => {
+  const keys = { KUMI_STRIPE_SECRET_KEY: "sk_test_x", KUMI_STRIPE_PUBLISHABLE_KEY: "pk_test_x", KUMI_PUBLIC_URL: "https://staff.kestrelpadel.com" };
+  let domains: any[] = [];
+  const asked: string[] = [];
+  const fetch = async (u: string) => {
+    asked.push(u);
+    if (u.startsWith("https://api.stripe.com/")) return new Response(JSON.stringify({ data: domains }), { status: 200 });
+    return new Response("{}", { status: 200 });
+  };
+  const wallets = async (env: Record<string, string>) => (await doctor(db, { KUMI_BACKUP_DIR: dir, ...env }, { fetch })).find((c) => c.id === "wallets");
+  assert.equal((await wallets(keys))!.state, "warn");   // not registered yet
+  assert.ok(asked.includes("https://api.stripe.com/v1/payment_method_domains?domain_name=kestrelpadel.com&limit=1"), asked.join(" "));
+  domains = [{ id: "pmd_1", domain_name: "kestrelpadel.com", enabled: true, apple_pay: { status: "inactive", status_details: { error_message: "the domain didn't answer" } }, google_pay: { status: "active" } }];
+  assert.match((await wallets(keys))!.text.en, /Apple Pay isn't on there yet: the domain didn't answer/);
+  domains[0].apple_pay = { status: "active" };
+  const ok = (await wallets(keys))!;
+  assert.deepEqual([ok.state, ok.text.en], ["ok", "Apple Pay and Google Pay: on for kestrelpadel.com."]);
+  assert.equal((await wallets({ ...keys, KUMI_PUBLIC_URL: "http://127.0.0.1:8790" }))!.state, "off");   // a laptop: nothing to register
+  assert.equal(await wallets({ KUMI_PUBLIC_URL: "https://staff.kestrelpadel.com" }), undefined);   // no Stripe, no check
+});

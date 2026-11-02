@@ -144,6 +144,35 @@ export class StripeProvider implements PaymentProvider {
     return c?.brand && /^\d{4}$/.test(String(c.last4 ?? "")) ? { brand: String(c.brand), last4: String(c.last4) } : null;
   }
 
+  // ---- Apple Pay and Google Pay: the members' web address, registered with Stripe ----
+  /** The account a domain is registered on: the one payments are made on (the club's own under Connect, since
+   *  they're direct charges). Undefined while a connected club's account isn't there yet. */
+  private async domainAccount(): Promise<string | null | undefined> {
+    if (!this.o.connect) return null;
+    const a = await this.o.connect();
+    return a.id ?? undefined;
+  }
+  /** Where a web domain stands for the wallets on the card form (null: not registered, or no account yet). */
+  async walletDomain(domain: string): Promise<WalletDomain | null> {
+    const account = await this.domainAccount();
+    if (account === undefined) return null;
+    const d = await this.call("GET", `/v1/payment_method_domains?domain_name=${encodeURIComponent(domain)}&limit=1`, undefined, undefined, account);
+    const pmd = (d?.data ?? [])[0];
+    return pmd ? walletDomainOf(pmd) : null;
+  }
+  /** Register a web domain so the card form can offer Apple Pay and Google Pay there (Stripe needs each domain that
+   *  shows it; it does Apple's merchant check itself, so there's no file to host). Safe to repeat: a registered
+   *  domain is switched back on if it was off, and checked again if Apple Pay isn't active on it yet. */
+  async registerWalletDomain(domain: string): Promise<WalletDomain | null> {
+    const account = await this.domainAccount();
+    if (account === undefined) return null;
+    const found = (await this.call("GET", `/v1/payment_method_domains?domain_name=${encodeURIComponent(domain)}&limit=1`, undefined, undefined, account))?.data?.[0];
+    let pmd = found ?? await this.call("POST", "/v1/payment_method_domains", { domain_name: domain }, `pmd:${domain}`, account);
+    if (!pmd.enabled) pmd = await this.call("POST", `/v1/payment_method_domains/${encodeURIComponent(pmd.id)}`, { enabled: true }, undefined, account);
+    if (found && pmd.apple_pay?.status !== "active") pmd = await this.call("POST", `/v1/payment_method_domains/${encodeURIComponent(pmd.id)}/validate`, {}, undefined, account);
+    return walletDomainOf(pmd);
+  }
+
   // ---- Connect: the club's own Stripe account ----
   /** A new Standard account for the club: its own Stripe account, dashboard and payouts. */
   async createAccount(i: { country: string; email?: string | null; idempotencyKey: string }): Promise<string> {
@@ -163,6 +192,13 @@ export class StripeProvider implements PaymentProvider {
 }
 
 export interface AccountState { id: string; chargesEnabled: boolean; detailsSubmitted: boolean; name: string | null }
+/** A domain registered for the wallets: Stripe's id, whether it's on, and Apple Pay's and Google Pay's state
+ *  ("active", or "inactive" with Stripe's reason). */
+export interface WalletDomain { id: string; domain: string; enabled: boolean; applePay: string; googlePay: string; problem: string | null }
+function walletDomainOf(d: any): WalletDomain {
+  return { id: String(d.id), domain: String(d.domain_name), enabled: Boolean(d.enabled), applePay: String(d.apple_pay?.status ?? "inactive"), googlePay: String(d.google_pay?.status ?? "inactive"),
+    problem: d.apple_pay?.status_details?.error_message ?? d.google_pay?.status_details?.error_message ?? null };
+}
 
 /** Only a payment that went through is paid, and only a cancelled intent has failed: after a declined
  *  card the person can still try another. */

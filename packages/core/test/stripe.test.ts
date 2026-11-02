@@ -90,3 +90,32 @@ test("pay my part: a card saved for later (never held), and the one charge at th
   const broke = new StripeProvider({ secretKey: "sk_test_abc", fetch: fakeStripe(() => ({ status: 402, json: { error: { code: "card_declined", decline_code: "insufficient_funds", message: "Your card has insufficient funds." } } })).fetch });
   assert.deepEqual(await broke.chargeSaved({ customer: "cus_1", paymentMethod: "pm_1", amountCents: 3000, currency: "USD", description: "x", idempotencyKey: "b3" }), { ref: "", status: "failed", failure: "insufficient_funds" });
 });
+
+test("Apple Pay and Google Pay: the members' domain is registered once, switched back on, or checked again", async () => {
+  let existing: any = null;
+  const s = fakeStripe((c) => {
+    if (c.method === "GET") return { json: { data: existing ? [existing] : [] } };
+    if (c.path === "/v1/payment_method_domains") return { json: (existing = { id: "pmd_1", domain_name: c.body.get("domain_name"), enabled: true, apple_pay: { status: "active" }, google_pay: { status: "active" } }) };
+    if (c.path === "/v1/payment_method_domains/pmd_1") return { json: (existing = { ...existing, enabled: c.body.get("enabled") === "true" }) };
+    if (c.path === "/v1/payment_method_domains/pmd_1/validate") return { json: (existing = { ...existing, apple_pay: { status: "active" } }) };
+    return { status: 400, json: {} };
+  });
+  const p = new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch });
+  assert.equal(await p.walletDomain("kestrelpadel.com"), null);
+  assert.deepEqual(await p.registerWalletDomain("kestrelpadel.com"), { id: "pmd_1", domain: "kestrelpadel.com", enabled: true, applePay: "active", googlePay: "active", problem: null });
+  assert.equal(s.calls.filter((c) => c.method === "POST").length, 1);
+  assert.equal(s.calls.find((c) => c.method === "POST")!.headers["idempotency-key"], "pmd:kestrelpadel.com");
+  await p.registerWalletDomain("kestrelpadel.com");   // already there and active: nothing more
+  assert.equal(s.calls.filter((c) => c.method === "POST").length, 1);
+  existing = { ...existing, enabled: false, apple_pay: { status: "inactive" } };   // switched off in the dashboard
+  const back = (await p.registerWalletDomain("kestrelpadel.com"))!;
+  assert.deepEqual([back.enabled, back.applePay], [true, "active"]);
+  assert.deepEqual(s.calls.filter((c) => c.method === "POST").slice(1).map((c) => c.path), ["/v1/payment_method_domains/pmd_1", "/v1/payment_method_domains/pmd_1/validate"]);
+  // Under Connect, on the club's own account; before it has one, nothing.
+  let acct: string | null = null;
+  const c = new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch, connect: async () => ({ id: acct, ready: false }) });
+  assert.equal(await c.registerWalletDomain("kestrelpadel.com"), null);
+  acct = "acct_9";
+  await c.walletDomain("kestrelpadel.com");
+  assert.equal(s.calls.at(-1)!.headers["stripe-account"], "acct_9");
+});
