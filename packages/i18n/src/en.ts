@@ -1718,6 +1718,7 @@ export const en = {
   "plan.membership.family_extra": "; {amount} more for each person beyond that",
   "plan.membership.join_family": { one: "It covers you and {count} more from your family: add them on your Membership page.", other: "It covers you and up to {count} more from your family: add them on your Membership page." },
   "plan.membership.join_family_extra": { one: "It covers you and {count} more from your family, and each one after that is {amount} a {period}: add them on your Membership page.", other: "It covers you and up to {count} more from your family, and each one after that is {amount} a {period}: add them on your Membership page." },
+  "plan.membership.add_back": "Put {name} back on the {plan} membership. They're still covered this period, so there's no charge.",
   "plan.membership.add_person": "Add {name} to the {plan} membership, with its member benefits.",
   "plan.membership.add_included": { one: "It's included: the membership covers {count} person.", other: "It's included: the membership covers {count} people." },
   "plan.membership.add_extra_now": { one: "That's one more than the {count} it covers, so {amount} goes on the card now for this period, and each renewal is {total}.", other: "That's one more than the {count} it covers, so {amount} goes on the card now for this period, and each renewal is {total}." },

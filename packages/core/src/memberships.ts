@@ -615,6 +615,10 @@ export const membershipAddPerson = defineAction({
     const mine = await householdOf(ctx.db, m.person_id), theirs = await householdOf(ctx.db, i.person_id);
     if (i.person_id === m.person_id || !mine || theirs?.household_id !== mine.household_id || who.status !== "active") throw new KumiError("error.not_in_family", { name: who.display_name });
     if (await holds(ctx.db, i.person_id)) throw new KumiError("error.already_member", { name: who.display_name });
+    // Taken off this period and still covered until its end: put back, nothing charged again.
+    const back = (await coveredBy(ctx.db, m.id, ctx.now)).find((x) => x.person_id === i.person_id && x.ends_at);
+    if (back) return { title: both("action.membership.add_person"), summary: both("plan.membership.add_back", { name: who.display_name, plan: textOf(plan.name, plan.translations, "name") }),
+      reads: [read], ownerIds: [m.person_id], moneyCents: 0, undo: { kind: "compensating" }, details: { back: back.id, extra: back.extra, charge: 0 } };
     const people = 1 + (await coveredBy(ctx.db, m.id, ctx.now)).filter((x) => !x.ends_at).length, extra = people + 1 > m.family_size;
     if (extra && m.extra_person_cents == null) throw new KumiError("error.family_full", { name: textOf(plan.name, plan.translations, "name"), count: m.family_size });
     const xc = m.extra_person_cents ?? 0, tz = await clubTz(ctx.db), p = { name: who.display_name, plan: plan.name, count: m.family_size, amount: usdText(xc) };
@@ -629,8 +633,16 @@ export const membershipAddPerson = defineAction({
       details: { extra, charge: extra && m.status !== "upcoming" && m.source === "app" && xc > 0 ? xc : 0 } };
   },
   async apply(ctx, i, plan) {
-    const { extra, charge } = plan.details as { extra: boolean; charge: number };
+    const { extra, charge, back } = plan.details as { extra: boolean; charge: number; back?: string };
     const m = await ctx.trx.selectFrom("membership").selectAll().where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();   // one at a time
+    if (back) {
+      const row = await ctx.trx.selectFrom("membership_member").select(["ends_at"]).where("id", "=", back).forUpdate().executeTakeFirstOrThrow();
+      if (!row.ends_at || row.ends_at <= ctx.now) throw new KumiError("error.changed");
+      try { await ctx.update("membership_member", back, { ends_at: null }); }
+      catch (e: any) { if (e?.code === "23505") throw new KumiError("error.changed"); throw e; }
+      await ctx.emit("membership.person_added", { membership_id: m.id, person_id: i.person_id, charged: 0 });
+      return { membership_member_id: back };
+    }
     const people = 1 + (await coveredBy(ctx.trx, m.id, ctx.now)).filter((x) => !x.ends_at).length;
     if ((people + 1 > (m.family_size ?? 0)) !== extra) throw new KumiError("error.changed");
     const id = uuidv7();

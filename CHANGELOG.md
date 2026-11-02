@@ -226,6 +226,9 @@ to go live.
   and level lists, the waiver is their parents' to accept, memberships are their parents' to look
   after, and friends stay off until a parent turns them on (then nobody can add them, and they can't
   take a place from someone's link). Turning the login off signs them out everywhere.
+  A court or lesson a kid shares "pay my part" counts in full against their monthly limit, since what the
+  others don't pay goes on the family card at the deadline. At the deadline, whatever would take the kid
+  over their limit (or with no card saved) isn't charged: a parent is asked to pay it in the app.
 
 **Receipts**
 - A numbered receipt for every payment that goes through and every refund sent, to whoever paid: by email
@@ -244,6 +247,8 @@ to go live.
   download includes their receipts (one a parent paid for them, without the parent's card).
 
 **Memberships**
+- Someone taken off a family plan stays covered until the period ends; adding them back in that time puts
+  them back with no second charge.
 - Plans by the month or the year, with member prices on courts and a longer booking window.
 - Members join in the app and pay by card; Kumi renews from that card each period at the price they
   joined at, with no subscription fee at Stripe. A declined renewal is tried again twice over five
@@ -499,6 +504,9 @@ to go live.
   $500) or disconnects it, which ends its tokens at once. The owner and managers see a member's assistants on
   their page and can disconnect one there. Staff working for the club through an assistant
   aren't limited. The assistant's "whoami" says what's left.
+  Also counted: one more person on a family plan (charged to the plan's payer), a membership resumed (its
+  next period), a court or lesson shared "pay my part" (in full until the others pay), and anything the
+  assistant books for a junior the person manages.
 - A person's assistant reads what they read in the app: where and how to book, free courts, a court's price,
   open clinics, courses, socials and matches, their bookings and places, level and membership, the club's
   answers, and coaches' lesson times.

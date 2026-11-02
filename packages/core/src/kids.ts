@@ -20,6 +20,7 @@ import { atLocal, localParts } from "./clock.ts";
 import { paymentProvider } from "./money.ts";
 import { ADULT_AGE, householdOf, managersOf } from "./households.ts";
 import { openMatchOf } from "./match_rules.ts";
+import { fullCost } from "./assistant_spend.ts";
 
 /** A junior can have a login of their own from the year they turn this. */
 export const KID_AGE = 13;
@@ -89,7 +90,7 @@ export async function monthSpent(db: Db | Trx, kidId: string, now: Date, except:
 }
 
 /** Whether the kid's rules let this through on their own: null if so, else why not. */
-async function overRules(db: Db | Trx, kid: Kid, kind: KidKind, cents: number, now: Date, except: string[] = []): Promise<{ reason: "off" | "limit"; spent: number } | null> {
+export async function overRules(db: Db | Trx, kid: Kid, kind: KidKind, cents: number, now: Date, except: string[] = []): Promise<{ reason: "off" | "limit"; spent: number } | null> {
   if (!kid[kind]) return { reason: "off", spent: 0 };
   if (cents <= 0) return null;
   const spent = await monthSpent(db, kid.id, now, except);
@@ -103,7 +104,8 @@ setPlanGate(async (db, name, input, actor, p, now) => {
   if (!kid) return null;
   if (PARENTS_ONLY.has(name)) throw new KumiError("error.kid_parents_only");
   const kind = await kindOf(db, name, input);
-  if (!kind || !(await overRules(db, kid, kind, p.moneyCents ?? 0, now))) return null;
+  // A shared court counts in full: what the others don't pay goes on the family card at the deadline.
+  if (!kind || !(await overRules(db, kid, kind, fullCost(name, input, p), now))) return null;
   return { name: "kid.ask_parent", input: { action: name, input } };
 });
 
@@ -443,7 +445,7 @@ export const kidAskParent = defineAction({
     const kind = await kindOf(ctx.db, i.action, i.input);
     if (!kind) throw new KumiError("error.unknown_action", {}, 404);
     // What they're asking for, as the action itself would put it (and only what they could do themselves).
-    const p = await dryPlan(ctx.db, i.action, i.input, ctx.actor, ctx.now), cents = p.moneyCents ?? 0;
+    const p = await dryPlan(ctx.db, i.action, i.input, ctx.actor, ctx.now), cents = fullCost(i.action, i.input, p);
     const reason = (await overRules(ctx.db, kid, kind, cents, ctx.now))?.reason ?? (kid[kind] ? "limit" : "off");
     if (await ctx.db.selectFrom("kid_request").select("id").where("person_id", "=", kid.id).where("status", "=", "asked").where("action", "=", i.action)
       .where(sql<boolean>`input = ${JSON.stringify(i.input)}::jsonb`).executeTakeFirst()) throw new KumiError("error.kid_already_asked");
@@ -532,7 +534,8 @@ export async function approveKidRequest(db: Db, requestId: string, parent: Actor
   let runId: string;
   try {
     const p = await planRun(db, r.action, r.input, kid, { now, parentApproved: true });
-    if ((p.plan.moneyCents ?? 0) > r.cents) throw new KumiError("error.kid_price_changed", { amount: usd(p.plan.moneyCents ?? 0) });
+    const cents = fullCost(r.action, r.input, p.plan);
+    if (cents > r.cents) throw new KumiError("error.kid_price_changed", { amount: usd(cents) });
     if (p.status !== "planned") throw new KumiError("error.changed");
     runId = p.runId;
     await applyRun(db, p.runId, kid, { now });

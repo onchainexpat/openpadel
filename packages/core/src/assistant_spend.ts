@@ -12,25 +12,50 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { atLocal, localParts } from "./clock.ts";
 
-/** Actions whose plan's money is what the person themselves pays, when it's for them. */
+/** Actions whose plan's money is what the person themselves pays, when it's for them or a junior they manage. */
 const PAYS = new Set(["booking.request", "booking.request_courts", "booking.join", "booking.ask", "booking.take_place", "lesson.request",
-  "enrolment.join", "enrolment.join_dates", "enrolment.accept_offer", "membership.join", "membership.add_person"]);
+  "enrolment.join", "enrolment.join_dates", "enrolment.accept_offer", "membership.join"]);
+/** Membership changes the membership's payer pays for: one more person now, or the next period once resumed. */
+const MEMBERSHIP = new Set(["membership.add_person", "membership.resume"]);
 /** Changes to a booking that can add to what its organiser owes. */
 const ADDS = new Set(["booking.extend", "booking.move"]);
 
 interface PlanMoney { moneyCents?: number; details?: unknown }
 
-/** A court shared "pay my part" that isn't an open match: the organiser's card covers what the others don't pay. */
-export const sharedCourt = (name: string, input: any): boolean => name === "booking.request" && input?.pay === "split" && !input?.open;
+/** A court or lesson shared "pay my part" that isn't an open match: the organiser's card covers what the
+ *  others don't pay. */
+export const sharedCourt = (name: string, input: any): boolean =>
+  (name === "booking.request" && input?.pay === "split" && !input?.open) || (name === "lesson.request" && input?.pay === "split");
+
+/** What a change can cost whoever pays for it: for a shared court or lesson the whole price (their share now,
+ *  the others' at the deadline if they don't pay), otherwise what the plan asks. */
+export function fullCost(name: string, input: any, plan: PlanMoney): number {
+  const d = plan.details as { quote?: { total_cents?: number }; total?: number } | undefined;
+  const whole = sharedCourt(name, input) ? d?.quote?.total_cents ?? d?.total : undefined;
+  return Math.max(0, whole ?? plan.moneyCents ?? 0);
+}
+
+/** Whether money asked of `payer` is the person's own: theirs, or a junior's they manage (the same household,
+ *  as households.ts's managersOf; not imported, since actions.ts loads this file first). */
+async function ownMoney(db: Db | Trx, payer: string, personId: string): Promise<boolean> {
+  if (payer === personId) return true;
+  return Boolean(await db.selectFrom("household_member as j").innerJoin("household_member as a", "a.household_id", "j.household_id").select("a.person_id")
+    .where("j.person_id", "=", payer).where("j.role", "=", "junior").where("j.removed_at", "is", null)
+    .where("a.person_id", "=", personId).where("a.role", "=", "adult").where("a.removed_at", "is", null).executeTakeFirst());
+}
 
 /** What this change asks the person to pay themselves, in cents (0 for anything else). For a shared court,
  *  the whole court: their share now, and the others' if they don't pay. */
 export async function chargeOf(db: Db | Trx, name: string, input: any, plan: PlanMoney, personId: string): Promise<number> {
   if (PAYS.has(name)) {
     const payer = typeof input?.person_id === "string" ? input.person_id : personId;
-    if (payer !== personId) return 0;
-    const whole = sharedCourt(name, input) ? (plan.details as { quote?: { total_cents?: number } } | undefined)?.quote?.total_cents : undefined;
-    return Math.max(0, whole ?? plan.moneyCents ?? 0);
+    return await ownMoney(db, payer, personId) ? fullCost(name, input, plan) : 0;
+  }
+  if (MEMBERSHIP.has(name) && typeof input?.membership_id === "string") {
+    const m = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
+      .select(["membership.person_id", "membership.price_cents", "membership_plan.price_cents as plan_price"]).where("membership.id", "=", input.membership_id).executeTakeFirst();
+    if (!m || !(await ownMoney(db, m.person_id, personId))) return 0;
+    return name === "membership.add_person" ? Math.max(0, Number((plan.details as { charge?: number } | undefined)?.charge ?? 0)) : Math.max(0, m.price_cents ?? m.plan_price);
   }
   if (ADDS.has(name) && typeof input?.booking_id === "string") {
     const b = await db.selectFrom("booking").select("organiser_id").where("id", "=", input.booking_id).executeTakeFirst();

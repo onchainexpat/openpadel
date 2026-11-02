@@ -1721,6 +1721,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "plan.membership.family_extra": "; {amount} más por cada persona adicional",
   "plan.membership.join_family": { one: "Te cubre a ti y a {count} persona más de tu familia: agrégala en tu página de Membresía.", other: "Te cubre a ti y hasta a {count} personas más de tu familia: agrégalas en tu página de Membresía." },
   "plan.membership.join_family_extra": { one: "Te cubre a ti y a {count} persona más de tu familia, y cada persona adicional cuesta {amount} por {period}: agrégalas en tu página de Membresía.", other: "Te cubre a ti y hasta a {count} personas más de tu familia, y cada persona adicional cuesta {amount} por {period}: agrégalas en tu página de Membresía." },
+  "plan.membership.add_back": "Volver a incluir a {name} en la membresía {plan}. Sigue cubierto este período, así que no hay cargo.",
   "plan.membership.add_person": "Agregar a {name} a la membresía {plan}, con sus beneficios de miembro.",
   "plan.membership.add_included": { one: "Está incluido: la membresía cubre a {count} persona.", other: "Está incluido: la membresía cubre a {count} personas." },
   "plan.membership.add_extra_now": { one: "Es una persona más de las {count} que cubre, así que se cobran {amount} a la tarjeta ahora por este período, y cada renovación será de {total}.", other: "Es una persona más de las {count} que cubre, así que se cobran {amount} a la tarjeta ahora por este período, y cada renovación será de {total}." },

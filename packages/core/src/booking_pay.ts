@@ -17,7 +17,8 @@ import { courtOpening, occupied } from "./bookings.ts";
 import { currentPolicy, quote } from "./prices.ts";
 import { memberPlan } from "./memberships.ts";
 import { band, joinRule, levelOf, openMatchOf } from "./match_rules.ts";
-import { notJunior, requireWaiver, withManagers } from "./households.ts";
+import { managersOf, notJunior, requireWaiver, withManagers } from "./households.ts";
+import { kidOf, overRules, paymentsWhat } from "./kids.ts";
 
 /** How long a court is held while the organiser pays. */
 export const HOLD_MINUTES = 10;
@@ -359,7 +360,12 @@ export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amou
     await ctx.emit("booking.player_paid", { booking_id: bp.id, booking_player_id: pay.booking_player_id, left: Math.max(0, size.players - Number(seated.n)) });
     return null;
   }
-  if (bp.status !== "held") return null;
+  if (bp.status !== "held") {
+    // The organiser paying what the deadline left owing (a parent paying a kid's court, say): off the balance.
+    const owed = await ctx.trx.selectFrom("booking").select("balance_cents").where("id", "=", bp.id).forUpdate().executeTakeFirstOrThrow();
+    if (bp.status === "confirmed" && owed.balance_cents) await ctx.update("booking", bp.id, { balance_cents: Math.max(0, owed.balance_cents - pay.amount_cents) });
+    return null;
+  }
   for (const t of await ctx.trx.selectFrom("court_time").select(["id", "court_id", "active"]).where("booking_id", "=", bp.id).execute()) {
     await ctx.trx.selectFrom("court").select("id").where("id", "=", t.court_id).forUpdate().execute();
     // A savepoint, so a court that's gone can be answered with a refund rather than failing the payment.
@@ -527,6 +533,23 @@ export const bookingSettleShares = defineAction({
     const organiserPay = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
       .select(["payment.saved_customer", "payment.saved_method", "payment.provider_account", "booking_player.id as bp"])
       .where("booking_player.booking_id", "=", b.id).where("booking_player.person_id", "=", b.organiser_id).where("payment.save_card", "=", true).where("payment.status", "=", "succeeded").executeTakeFirst();
+    // A kid's court: what the others didn't pay goes on the family card only inside the kid's rules. Over them
+    // (or with no card), a parent is asked to pay it in the app, as for anything else the kid can't pay alone.
+    const kid = b.organiser_id ? await kidOf(ctx.trx, b.organiser_id) : null;
+    if (kid) {
+      const over = await overRules(ctx.trx, kid, b.kind === "lesson" ? "lessons" : "courts", unpaid, ctx.now);
+      if (over || !organiserPay?.saved_customer || !organiserPay.saved_method) {
+        const bp = organiserPay?.bp ?? (await ctx.trx.selectFrom("booking_player").select("id").where("booking_id", "=", b.id).where("person_id", "=", kid.id)
+          .where("removed_at", "is", null).executeTakeFirstOrThrow()).id;
+        const id = uuidv7();
+        await ctx.insert("payment", { id, person_id: kid.id, amount_cents: unpaid, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending",
+          booking_player_id: bp, parent_to_pay_at: ctx.now });
+        await ctx.update("booking", b.id, { settled_at: ctx.now, balance_cents: unpaid });
+        await ctx.emit("kid.pay_needed", { payment_id: id, kid: kid.id, to: await managersOf(ctx.trx, kid.id), cents: unpaid,
+          what: await paymentsWhat(ctx.trx, [{ person_id: kid.id, booking_player_id: bp, enrolment_id: null }]), why: over?.reason ?? "no_card", failure: null });
+        return { owed: unpaid, parent: true };
+      }
+    }
     const club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
     const charge = organiserPay?.saved_customer && organiserPay.saved_method
       ? await paymentProvider().chargeSaved({ customer: organiserPay.saved_customer, paymentMethod: organiserPay.saved_method, amountCents: unpaid, currency: club.currency,
