@@ -2805,4 +2805,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.players_join_free": "{organiser} pagó la cancha. Únete como jugador: no hay nada que pagar, y puedes anotar el resultado después del partido.",
   "ui.join_as_player": "Unirme como jugador",
   "error.not_known_player": "Aquí puedes nombrar a gente que conoces: amistades, y gente con quien has jugado. A los demás mándales el enlace para jugadores.",
+  "plan.membership.perks_early": "; reciben sus precios y descuentos de socio desde ya",
+  "plan.membership.perks_from_start": "; sus precios y descuentos de socio empiezan ese día",
+  "plan.membership.perks_kept": "Lo que ya se pagó a precio de socio se queda como está.",
+  "ui.plan_perks_before_start": "Quienes se unan antes de que empiece reciben sus precios y descuentos de socio desde ya",
 };

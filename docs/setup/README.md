@@ -158,7 +158,10 @@ For a founding offer (a new club selling memberships before it opens), give a pl
 date, or both. Members who join before the start date save their card, without being charged, and
 keep their place; Kumi makes the first charge on the start date and renews monthly or yearly from
 there. A place whose card isn't saved within two hours is let go, so the limit only counts real
-members. Members can give up their place before the start, and nothing is charged.
+members. Members can give up their place before the start, and nothing is charged. Once their card is
+saved, founding members get the plan's member prices, program discounts and booking window straight
+away (included sessions start with the membership); untick "Members who join before it starts get its
+member prices and discounts straight away" to keep them for the start date.
 
 The desk gives a membership on the person's page or under Memberships (a founding member, one paid
 in cash, a free one), with an end date or without. Staff can also stop or restart an app

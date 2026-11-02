@@ -185,6 +185,9 @@ The first version a club can run on its own (court bookings included), or for it
   time back to the renewal date.
 - Founding offers: a plan for the first so many members, starting on a date. Joining before then
   saves the card without charging it; the first charge is on the start date.
+- Founding members get the plan's member prices, program discounts and booking window from the day
+  their card is saved, not the start date (a plan setting, on by default; included sessions still
+  start with the membership). Giving up the place before the start keeps what was already paid.
 - The desk gives and ends memberships (with an end date or without), and can stop or restart a
   renewal. Messages for joining, renewals, declined cards, cancelling and ending.
 - Family plans: a plan covers up to so many people from one household on the payer's card, and

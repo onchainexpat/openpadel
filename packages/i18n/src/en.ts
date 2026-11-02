@@ -2803,4 +2803,8 @@ export const en = {
   "ui.players_join_free": "{organiser} paid for the court. Join as a player: there's nothing to pay, and you can enter the score after the game.",
   "ui.join_as_player": "Join as a player",
   "error.not_known_player": "You can name people you know here: friends, and people you've played with. Send anyone else the players link.",
+  "plan.membership.perks_early": "; they get its member prices and discounts straight away",
+  "plan.membership.perks_from_start": "; its member prices and discounts begin that day",
+  "plan.membership.perks_kept": "Anything already paid for at member prices stays as it was.",
+  "ui.plan_perks_before_start": "Members who join before it starts get its member prices and discounts straight away",
 } as const;

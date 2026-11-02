@@ -48,11 +48,13 @@ export async function programPerks(db: Db | Trx, personId: string, at: Date) {
   const m = await memberPlan(db, personId, at);
   if (!m) return null;
   const row = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .select(["membership.id", "membership.started_at", "membership.period", "membership_plan.period as plan_period", "membership_plan.name", "membership_plan.program_percent_off",
+    .select(["membership.id", "membership.status", "membership.started_at", "membership.period", "membership_plan.period as plan_period", "membership_plan.name", "membership_plan.program_percent_off",
       "membership_plan.program_cents_off", "membership_plan.included_sessions", "membership_plan.included_kinds"]).where("membership.id", "=", m.membership_id).executeTakeFirstOrThrow();
   const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
-  const start = row.included_sessions ? periodStart({ started_at: row.started_at, period: row.period ?? row.plan_period }, tz, at) : null;
-  return { ...row, membership_id: row.id, period: row.period ?? row.plan_period, period_start: start, used: start ? await includedUsed(db, row.id, start, personId) : 0 };
+  // A founding member before the start has the discounts, not the included sessions: those come with the first period.
+  const { status, ...rest } = row;
+  const start = rest.included_sessions && status !== "upcoming" ? periodStart({ started_at: rest.started_at, period: rest.period ?? rest.plan_period }, tz, at) : null;
+  return { ...rest, membership_id: rest.id, period: rest.period ?? rest.plan_period, period_start: start, used: start ? await includedUsed(db, rest.id, start, personId) : 0 };
 }
 export type ProgramPerks = NonNullable<Awaited<ReturnType<typeof programPerks>>>;
 

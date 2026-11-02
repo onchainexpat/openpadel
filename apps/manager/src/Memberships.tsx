@@ -5,7 +5,7 @@ import type { Key } from "@kumi/i18n";
 import { api, dollars, lang, t, usePreview } from "@kumi/ui";
 
 export type Plan = { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; days_ahead: number | null; join_in_app?: boolean;
-  max_members?: number | null; starts_on?: string | null; sort: number; members: number;
+  max_members?: number | null; starts_on?: string | null; perks_before_start?: boolean; sort: number; members: number;
   program_percent_off?: number | null; program_cents_off?: number | null; included_sessions?: number | null; included_kinds?: string[]; family_size?: number | null; extra_person_cents?: number | null };
 /** What a plan gives on programs, for its line in the list. */
 const programPerks = (p: Plan) => [p.program_percent_off ? t("ui.plan_programs_percent", { percent: p.program_percent_off }) : p.program_cents_off ? t("ui.plan_programs_amount", { amount: dollars(p.program_cents_off, lang.value) }) : null,
@@ -79,11 +79,11 @@ export function Memberships() {
 }
 
 function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
-  const blank = { plan_id: "", name: "", dollars: "", period: "month" as "month" | "year", days_ahead: "", description: "", join_in_app: true, max_members: "", starts_on: "",
+  const blank = { plan_id: "", name: "", dollars: "", period: "month" as "month" | "year", days_ahead: "", description: "", join_in_app: true, max_members: "", starts_on: "", perks_before_start: true,
     discount: "none" as "none" | "percent" | "dollars", off: "", included: "", kinds: ["clinic", "social"], family: "", extra: "" };
   const [f, setF] = useState(blank);
   const edit = (p: Plan) => setF({ plan_id: p.id, name: p.name, dollars: String(p.price_cents / 100), period: p.period, days_ahead: p.days_ahead ? String(p.days_ahead) : "", description: p.description ?? "", join_in_app: p.join_in_app ?? true,
-    max_members: p.max_members ? String(p.max_members) : "", starts_on: p.starts_on ?? "",
+    max_members: p.max_members ? String(p.max_members) : "", starts_on: p.starts_on ?? "", perks_before_start: p.perks_before_start ?? true,
     discount: p.program_percent_off ? "percent" : p.program_cents_off ? "dollars" : "none", off: p.program_percent_off ? String(p.program_percent_off) : p.program_cents_off ? String(p.program_cents_off / 100) : "",
     included: p.included_sessions ? String(p.included_sessions) : "", kinds: p.included_kinds ?? ["clinic", "social"],
     family: p.family_size ? String(p.family_size) : "", extra: p.extra_person_cents != null ? String(p.extra_person_cents / 100) : "" });
@@ -98,7 +98,7 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
           <span><button type="button" class="small" onClick={() => edit(p)}>{t("ui.change")}</button> <button type="button" class="small" onClick={() => send("membership.plan_remove", { plan_id: p.id })}>{t("ui.stop_offering")}</button></span></li>))}</ul>
       <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("membership.plan_set", { ...(f.plan_id ? { plan_id: f.plan_id } : {}), name: f.name.trim(), price_cents: Math.round(Number(f.dollars.replace(",", ".")) * 100),
         period: f.period, days_ahead: f.days_ahead ? Number(f.days_ahead) : null, description: f.description.trim() || null, join_in_app: f.join_in_app,
-        max_members: f.max_members ? Number(f.max_members) : null, starts_on: f.starts_on || null,
+        max_members: f.max_members ? Number(f.max_members) : null, starts_on: f.starts_on || null, ...(f.starts_on ? { perks_before_start: f.perks_before_start } : {}),
         program_percent_off: f.discount === "percent" && f.off ? Math.round(Number(f.off)) : null,
         program_cents_off: f.discount === "dollars" && f.off ? Math.round(Number(f.off.replace(",", ".")) * 100) : null,
         included_sessions: f.included ? Number(f.included) : null, ...(f.kinds.length ? { included_kinds: f.kinds } : {}),
@@ -111,6 +111,7 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
         <div class="court-row"><label>{t("ui.plan_max_members")}<input type="number" min={1} value={f.max_members} onInput={(e) => setF({ ...f, max_members: e.currentTarget.value })} /></label>
           <label>{t("ui.plan_start_date")}<input type="date" value={f.starts_on} onInput={(e) => setF({ ...f, starts_on: e.currentTarget.value })} /></label></div>
         <p class="meta">{t("ui.presale_hint")}</p>
+        {f.starts_on && <label class="check"><input type="checkbox" checked={f.perks_before_start} onChange={(e) => setF({ ...f, perks_before_start: e.currentTarget.checked })} /> {t("ui.plan_perks_before_start")}</label>}
         <label class="check"><input type="checkbox" checked={f.join_in_app} onChange={(e) => setF({ ...f, join_in_app: e.currentTarget.checked })} /> {t("ui.plan_join_in_app")}</label>
         <div class="court-row"><label>{t("ui.plan_family_size")}<input type="number" min={2} max={12} value={f.family} onInput={(e) => setF({ ...f, family: e.currentTarget.value })} /></label>
           {f.family && <label>{t("ui.plan_extra_person")}<input inputMode="decimal" value={f.extra} onInput={(e) => setF({ ...f, extra: e.currentTarget.value })} /></label>}</div>

@@ -60,7 +60,11 @@ export async function memberPlan(db: Db | Trx, personId: string, at = new Date()
     // Paused: no benefits until it's over.
     .where((eb) => eb.or([eb("membership.paused_until", "is", null), eb("membership.paused_until", "<=", at), eb("membership.paused_from", ">", at)]))
     .where((eb) => eb.or([eb("membership.status", "=", "past_due"),
-      eb.and([eb("membership.status", "=", "active"), eb.or([eb("membership.current_period_end", "is", null), eb("membership.current_period_end", ">", at)])])]))
+      eb.and([eb("membership.status", "=", "active"), eb.or([eb("membership.current_period_end", "is", null), eb("membership.current_period_end", ">", at)])]),
+      // A founding member before the plan starts, card saved (or nothing to pay): its prices and discounts already,
+      // when the plan says so (programPerks keeps included sessions for once it's started).
+      eb.and([eb("membership.status", "=", "upcoming"), eb("membership_plan.perks_before_start", "=", true),
+        eb.or([eb("membership.saved_method", "is not", null), eb("membership.price_cents", "=", 0)])])]))
     .executeTakeFirst()) ?? null;
 }
 
@@ -99,6 +103,7 @@ const planInput = {
   days_ahead: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(365)))), join_in_app: z.optional(z.boolean()), sort: z.optional(z.number().check(z.int())),
   max_members: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1)))),   // a founding offer: the first so many
   starts_on: z.optional(z.nullable(clubDate)),                                      // joining before: card saved, first charge then
+  perks_before_start: z.optional(z.boolean()),                                      // and the plan's prices and discounts already (default yes)
   // On programs (clinics, socials): a discount, a percent or an amount; and single sessions included each period.
   program_percent_off: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(100)))),
   program_cents_off: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1)))),
@@ -123,7 +128,8 @@ export const planSet = defineAction({
       i.family_size ? both("plan.membership.family", { count: i.family_size }) : null,
       i.family_size && i.extra_person_cents != null ? both("plan.membership.family_extra", { amount: { en: money(i.extra_person_cents, "en"), es: money(i.extra_person_cents, "es") } }) : null,
       i.max_members ? both("plan.membership.limit", { count: i.max_members }) : null,
-      i.starts_on ? both("plan.membership.starts", { date: dayText(i.starts_on) }) : null].filter((x): x is Text => Boolean(x));
+      i.starts_on ? both("plan.membership.starts", { date: dayText(i.starts_on) }) : null,
+      i.starts_on ? both(i.perks_before_start === false ? "plan.membership.perks_from_start" : "plan.membership.perks_early") : null].filter((x): x is Text => Boolean(x));
     const window = { en: extra.map((x) => x.en).join(""), es: extra.map((x) => x.es).join("") };
     return { title: both("action.membership.plan_set"), summary: both("plan.membership.plan_set", { name: i.name, price: planPrice(i.price_cents, i.period), window }),
       reads, undo: { kind: "reversible" } };
@@ -131,7 +137,7 @@ export const planSet = defineAction({
   async apply(ctx, i) {
     const { plan_id, ...p } = i;
     const row = { ...p, description: p.description ?? null, days_ahead: p.days_ahead ?? null, join_in_app: p.join_in_app ?? true, sort: p.sort ?? 0,
-      max_members: p.max_members ?? null, starts_on: p.starts_on ?? null, program_percent_off: p.program_percent_off ?? null, program_cents_off: p.program_cents_off ?? null,
+      max_members: p.max_members ?? null, starts_on: p.starts_on ?? null, perks_before_start: p.perks_before_start ?? true, program_percent_off: p.program_percent_off ?? null, program_cents_off: p.program_cents_off ?? null,
       included_sessions: p.included_sessions ?? null, included_kinds: p.included_kinds ?? ["clinic", "social"],
       family_size: p.family_size ?? null, extra_person_cents: p.family_size ? p.extra_person_cents ?? null : null };
     if (plan_id) { await ctx.update("membership_plan", plan_id, row); return { plan_id }; }
@@ -360,9 +366,15 @@ export const membershipCancel = defineAction({
     if (m.source !== "app") throw new KumiError("error.membership_not_renewing");
     if (m.cancel_at_period_end) throw new KumiError("error.membership_already_cancelled");
     const own = ctx.actor.personId === m.person_id;
-    // Before its plan starts, nothing has been charged: the place is given up at once.
-    if (m.status === "upcoming") return { title: both("action.membership.cancel"), summary: both(own ? "plan.membership.release_own" : "plan.membership.release", { name: plan.name, person }),
-      reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
+    // Before its plan starts, nothing has been charged: the place is given up at once. Member prices already had
+    // before then (perks before the start) stay as they were: nothing is charged back.
+    if (m.status === "upcoming") {
+      const early = (await ctx.db.selectFrom("membership_plan").select("perks_before_start").where("id", "=", m.plan_id).executeTakeFirstOrThrow()).perks_before_start;
+      const s = both(own ? "plan.membership.release_own" : "plan.membership.release", { name: plan.name, person }), kept = both("plan.membership.perks_kept");
+      const had = early && (Boolean(m.saved_method) || m.price_cents === 0);   // the perks were theirs already
+      return { title: both("action.membership.cancel"), summary: had ? { en: `${s.en} ${kept.en}`, es: `${s.es} ${kept.es}` } : s,
+        reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
+    }
     const p = { name: plan.name, person, until: dayText(endDay(m, await clubTz(ctx.db))) };
     return { title: both("action.membership.cancel"), summary: both(own ? "plan.membership.cancel_own" : "plan.membership.cancel", p),
       reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };

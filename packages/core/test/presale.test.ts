@@ -29,7 +29,7 @@ before(async () => {
   const s = await runAsSystem(db, "club.setup", { name: "Kestrel Padel", time_zone: TZ, owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
   owner = { personId: (s.result as any).owner_person_id, via: "test", lang: "en" };
   const f = await run(db, "membership.plan_set", { name: "Founding", price_cents: 6000, period: "month", max_members: 2, starts_on: "2027-03-01" }, owner, { now: NOW });
-  assert.equal(f.plan.summary.en, "Offer the Founding membership: $60.00 a month; for the first 2 members; it starts on March 1, 2027, and members who join before then are first charged that day.");
+  assert.equal(f.plan.summary.en, "Offer the Founding membership: $60.00 a month; for the first 2 members; it starts on March 1, 2027, and members who join before then are first charged that day; they get its member prices and discounts straight away.");
   founding = (f.result as any).plan_id;
   foundingYear = ((await run(db, "membership.plan_set", { name: "Founding annual", price_cents: 60000, period: "year", starts_on: "2027-03-01" }, owner, { now: NOW })).result as any).plan_id;
   for (const name of ["Ann", "Ben", "Cal", "Dee", "Eve", "Fay"]) {
@@ -84,7 +84,8 @@ test("giving up a place before the start; a declined first charge; joining once 
   const dee = await join("Dee", foundingYear);
   await saveCard(dee.membership_id!, "Dee");
   const c = await run(db, "membership.cancel", { membership_id: dee.membership_id }, as("Dee"), { now: NOW });
-  assert.equal(c.plan.summary.en, "Give up your place in the Founding annual membership. Nothing has been charged, and nothing will be.");
+  assert.equal(c.plan.summary.en, "Give up your place in the Founding annual membership. Nothing has been charged, and nothing will be. "
+    + "Anything already paid for at member prices stays as it was.");
   assert.deepEqual([(await membership("Dee")).status, (await membership("Dee")).end_reason], ["ended", "gave_up_place"]);
 
   await saveCard((await join("Eve", foundingYear)).membership_id!, "Eve");
