@@ -310,6 +310,8 @@ to go live.
 - Sign-up and pay by card (Stripe; Apple Pay and Google Pay as cards), with waitlists. A place that
   opens is offered to the next person, held from when they can be told, and passed on if they don't
   take it.
+- A place taken and not paid for is held a day (or until 2 hours before its first date, if sooner). The
+  member is reminded once, halfway; then the place goes to the next person on the waitlist and they're told.
 - Apple Pay and Google Pay show on the card form: the server registers the members' address with Stripe
   as it starts (on the club's own account under Connect, once it has one), and `kumi doctor` says
   whether they're on.
@@ -449,8 +451,10 @@ to go live.
   deadline, a booking, lesson or class the club cancelled or moved, a court lost while paying, a match
   that didn't fill. Each starts with the club's name, ends with how to stop and keeps to plain letters
   (one segment where it can). STOP to the club's number turns every message to that member off at once;
-  START turns texts back on; HELP is answered with the club's name. Codes are guarded against SMS
-  pumping (the bot check, no Caribbean or premium numbers, limits per number, person and club). A kid
+  START turns texts back on; HELP is answered with the club's name (both only for US and Canadian numbers,
+  once a day each per number, at most 60 an hour in all, so a flood of them can't use up the club's texts).
+  Codes are guarded against SMS pumping (the bot check, no Caribbean or premium numbers, limits per number,
+  person and club, counted one at a time so codes asked for at the same moment can't slip past them). A kid
   with their own login says yes once a parent turns texts on. Twilio's delivery reports are checked
   against its signature; `kumi doctor` and `/health/deep` report texts. US carriers must approve the
   club's texting registration before real texts reach anyone.

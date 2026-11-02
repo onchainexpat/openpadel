@@ -892,6 +892,70 @@ export async function closeUnfinishedPayments(db: Db, now = new Date(), limit = 
   return { checked: rows.length, closed, paid };
 }
 
+// ---- Places never paid for ----
+/** How long a place taken but not paid for is held: a day, or until 2 hours before its first date if that's sooner
+ *  (never less than an hour). The member is reminded once, halfway. Then the place goes to the waitlist. */
+export const UNPAID_HOLD_HOURS = 24;
+export function unpaidLapseAt(takenAt: Date, start: Date | null): Date {
+  const day = takenAt.getTime() + UNPAID_HOLD_HOURS * 3600_000, floor = takenAt.getTime() + 3600_000;
+  return new Date(start ? Math.max(floor, Math.min(day, start.getTime() - 2 * 3600_000)) : day);
+}
+
+export const enrolmentUnpaid = defineAction({
+  name: "enrolment.unpaid", version: 1, system: true, internal: true,
+  input: z.object({ enrolment_id: z.uuid(), step: z.enum(["remind", "lapse"]), until: z.optional(z.iso.datetime({ offset: true })) }),
+  async plan(ctx, i) {
+    const { read } = await readRow(ctx.db, "enrolment", i.enrolment_id);
+    return { title: both("action.enrolment.unpaid"), summary: both(i.step === "remind" ? "plan.enrolment.unpaid_remind" : "plan.enrolment.unpaid_lapse"), reads: [read], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).forUpdate().executeTakeFirstOrThrow();
+    if (e.status !== "booked" || await paidFor(ctx.trx, e.id) > 0) return { already: true };
+    const owed = await ctx.trx.selectFrom("payment").select("id").where("enrolment_id", "=", e.id).where("status", "=", "pending").where("provider_ref", "is", null).executeTakeFirst();
+    if (!owed) return { already: true };   // being paid right now, or nothing owed
+    if (i.step === "remind") {
+      if (e.pay_reminded_at) return { already: true };
+      await ctx.update("enrolment", e.id, { pay_reminded_at: ctx.now });
+      await ctx.emit("enrolment.unpaid_reminder", { enrolment_id: e.id, until: i.until ?? null });
+      return { reminded: true };
+    }
+    const p = await ctx.trx.selectFrom("program").select("refund_rule_version").where("id", "=", e.program_id).executeTakeFirstOrThrow();
+    await ctx.update("enrolment", e.id, { ...leaving({ outcome: "none", cents: 0, text: both("refund.nothing_paid"), changed: false }, "removed", "other", p.refund_rule_version, "not paid in time"), left_at: ctx.now });
+    await dropUnpaid(ctx, e.id);
+    await ctx.emit("enrolment.lapsed", { enrolment_id: e.id });
+    await placeFreed(ctx, e.program_id, [], e.session_id);
+    return { lapsed: true };
+  },
+});
+
+/** The job: places taken and not paid for, reminded halfway and freed at the end of the hold. A card form opened
+ *  and left is called off at the provider first (or found paid). */
+export async function lapseUnpaidPlaces(db: Db, now = new Date(), limit = 50) {
+  const rows = await db.selectFrom("enrolment").innerJoin("payment", "payment.enrolment_id", "enrolment.id")
+    .select(["enrolment.id", "enrolment.program_id", "enrolment.session_id", "enrolment.pay_reminded_at", "payment.id as payment_id", "payment.provider_ref"])
+    // When the place was taken, by the change's own clock.
+    .select(sql<Date>`coalesce((SELECT coalesce(ar.applied_at, ar.created_at) FROM entity_change ec JOIN action_run ar ON ar.id = ec.action_run_id
+      WHERE ec.entity = 'payment' AND ec.entity_id = payment.id::text AND ec.op = 'insert' LIMIT 1), payment.created_at)`.as("created_at"))
+    .where("enrolment.status", "=", "booked").where("payment.status", "=", "pending").orderBy("payment.created_at").limit(limit).execute();
+  let reminded = 0, lapsed = 0;
+  for (const r of rows) {
+    try {
+      const start = await firstStart(db, r.program_id, r.session_id);
+      if (start && start <= now) continue;   // it's begun: the desk sorts it out
+      const until = unpaidLapseAt(new Date(r.created_at), start), half = new Date(r.created_at).getTime() + (until.getTime() - new Date(r.created_at).getTime()) / 2;
+      if (now >= until) {
+        if (r.provider_ref && (await abandonPayment(db, r.payment_id, "job:places", now)) !== "failed") continue;
+        const x = await runAsSystem(db, "enrolment.unpaid", { enrolment_id: r.id, step: "lapse" }, "job:places", { now });
+        if ((x.result as { lapsed?: boolean } | null)?.lapsed) lapsed++;
+      } else if (!r.pay_reminded_at && now.getTime() >= half) {
+        const x = await runAsSystem(db, "enrolment.unpaid", { enrolment_id: r.id, step: "remind", until: until.toISOString() }, "job:places", { now });
+        if ((x.result as { reminded?: boolean } | null)?.reminded) reminded++;
+      }
+    } catch (e) { console.error(`unpaid place ${r.id}:`, (e as Error).message); }
+  }
+  return { reminded, lapsed };
+}
+
 /** Start a refund: club credit at once; a card refund through the outbox, after this change commits. */
 export async function startRefund(ctx: ApplyContext, enrolmentId: string, personId: string, refund: Refund, status: "pending" | "waiting_for_sub" = "pending") {
   if (refund.cents <= 0 || refund.outcome === "none") return;

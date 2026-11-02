@@ -639,6 +639,15 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const e = await place(db, p.enrolment_id);
     return [{ to: e.person_id, kind: "offer_expired", params: { name: e.name }, purpose: "account", essential: false, email: true, link: "/places", staleAt: e.start }];
   },
+  async "enrolment.unpaid_reminder"({ db, tz }, p: { enrolment_id: string; until: string | null }) {
+    const e = await place(db, p.enrolment_id);
+    return [{ to: e.person_id, kind: "unpaid_reminder", params: { name: e.name, when: when(e.start, tz), amount: amount(await owes(db, e.id)), until: when(p.until ? new Date(p.until) : e.start, tz) },
+      purpose: "account", essential: true, email: true, link: "/places", staleAt: p.until ? new Date(p.until) : e.start }];
+  },
+  async "enrolment.lapsed"({ db, tz }, p: { enrolment_id: string }) {
+    const e = await place(db, p.enrolment_id);
+    return [{ to: e.person_id, kind: "place_lapsed", params: { name: e.name, when: when(e.start, tz) }, purpose: "account", essential: true, email: true, link: "/" }];
+  },
   async "enrolment.left"({ db, tz }, p: { enrolment_id: string; refund_outcome: string; refund_cents: number }) {
     const e = await place(db, p.enrolment_id);
     return [{ to: e.person_id, kind: "left", params: { name: e.name, when: when(e.start, tz), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id)) }, purpose: "account", essential: true, email: true, link: "/places" }];

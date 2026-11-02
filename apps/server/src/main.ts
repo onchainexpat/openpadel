@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, extendBlockSeries, registeredSender, textingOn, TextError, jobFailed, jobWorked, type Texter } from "@kumi/core";
+import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, registeredSender, textingOn, TextError, jobFailed, jobWorked, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -147,6 +147,8 @@ const jobs = async () => {
     } else if (await dropWaitingTexts(db)) console.log("texts: switched off, so the ones waiting were dropped");
     const r = await expireOffers(db);
     if (r.expired) console.log(`waitlist offers: ${r.expired} ran out, ${r.offered} passed on`);
+    const up = await lapseUnpaidPlaces(db);
+    if (up.reminded || up.lapsed) console.log(`program places not paid: ${up.reminded} reminded, ${up.lapsed} freed for the waitlist`);
     const h = await expireHolds(db);
     if (h.lapsed) console.log(`court holds: ${h.lapsed} not paid in time, released`);
     const seats = await releaseSeats(db);
