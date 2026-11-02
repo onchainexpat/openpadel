@@ -2422,6 +2422,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.end_from_here": "Terminar desde esta fecha",
   "ui.end_series": "Terminar todas las fechas que quedan",
   "ui.change_series": "Cambiar horas",
+  "ui.courts_closed_day": "Las pistas elegidas están cerradas este día.",
   "ui.repeating_blocks": "Bloqueos que se repiten",
   "ui.repeating_blocks_none": "No hay pistas bloqueadas cada semana.",
   "ui.series_span": "desde {from} hasta {until}",

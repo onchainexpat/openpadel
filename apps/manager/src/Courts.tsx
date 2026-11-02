@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, club, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
+import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
 
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
@@ -31,7 +32,7 @@ const isBooking = (it: Item) => Boolean(it.booking_id) && it.kind === "booking";
 
 export function Courts() {
   const [locs, setLocs] = useState<Loc[]>([]), [loc, setLoc] = useState(""), [date, setDate] = useState(""), [g, setG] = useState<Grid | null>(null);
-  const [form, setForm] = useState<{ court: Court; starts: string[] } | null>(null), [blocking, setBlocking] = useState(false);
+  const [form, setForm] = useState<{ court: Court; starts: string[]; until: string } | null>(null), [blocking, setBlocking] = useState(false);
   const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null), [done, setDone] = useState(0);
   const load = () => loc && api<Grid>(`/staff/grid?location_id=${loc}${date ? `&date=${date}` : ""}`).then((x) => { setG(x); if (!date) setDate(x.date); });
   const loadAlerts = () => api<Alerts>("/staff/alerts").then(setAlerts).catch(() => setAlerts(null));
@@ -84,7 +85,7 @@ export function Courts() {
     const gap = gaps(c).find((x) => ms(x.from) <= at && at < ms(x.to));
     if (!gap) return;
     const starts = slots.filter((s) => ms(s) >= Math.max(at, ms(gap.from)) && ms(s) + HALF <= ms(gap.to) && new Date(s) > new Date());
-    if (starts.length) setForm({ court: c, starts });
+    if (starts.length) setForm({ court: c, starts, until: gap.to });
   };
   const sel = g.courts.flatMap((c) => c.items.map((it) => ({ it, c }))).find((x) => keyOf(x.it, x.c.id) === picked) ?? null;
 
@@ -112,7 +113,7 @@ export function Courts() {
       {sel && <Details key={`${picked}|${sel.c.id}|${sel.it.start}|${sel.it.end}`} it={sel.it} court={sel.c} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove(sel.it)} canResize={canResize(sel.it)}
         courtFixed={courtsOf(sel.it) > 1} onClose={() => setPicked(null)} />}
       {g.open && mayDo("court.block") && <button onClick={() => setBlocking(!blocking)}>{t("ui.block_courts")}</button>}
-      {form && <DeskBooking court={form.court} starts={form.starts} clock={clock} preview={preview} onClose={() => setForm(null)} />}
+      {form && <DeskBooking court={form.court} starts={form.starts} until={form.until} clock={clock} preview={preview} onClose={() => setForm(null)} />}
       {blocking && <BlockForm courts={g.courts} g={g} slots={slots} clock={clock} preview={preview} />}
       {(mayDo("court.block_repeat_edit") || mayDo("court.block_repeat_end")) && <SeriesList loc={loc} courts={g.courts} stamp={done} preview={preview} />}
       {sheet}
@@ -307,7 +308,7 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
       {it.empty_places?.map((e) => <EmptyPlace e={e} preview={preview} />)}
       {it.whole && mayDo("booking.add_player") && <Players it={it} preview={preview} />}
       {changing && !it.series && <ChangeForm it={it} court={court} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove} canResize={canResize} courtFixed={courtFixed} />}
-      {changing && it.series && <SeriesChange it={it} g={g} slots={slots} clock={clock} preview={preview} />}
+      {changing && it.series && <SeriesChange it={it} g={g} slots={court.open ? courtSlots(court.open) : slots} clock={clock} preview={preview} />}
     </section>
   );
 }
@@ -339,8 +340,10 @@ function ChangeForm({ it, court, g, clock, slots, preview, canMove, canResize, c
   preview: Preview; canMove: boolean; canResize: boolean; courtFixed: boolean }) {
   const was = length(it), [f, setF] = useState({ court: court.id, start: new Date(it.start).toISOString(), minutes: was, reprice: false, refund: "rule" }), [error, setError] = useState("");
   const moved = f.court !== court.id || ms(f.start) !== ms(it.start), resized = f.minutes !== was;
-  const lengths = Array.from({ length: 16 }, (_, i) => (i + 1) * 30).filter((m) => !g.open || ms(f.start) + m * 60_000 <= ms(g.open.closes) || m === was);
-  const starts = slots.filter((s) => new Date(s) > new Date() && (!g.open || ms(s) + f.minutes * 60_000 <= ms(g.open.closes)));
+  // The court it would be on: only the times that court is open that day.
+  const open = g.courts.find((c) => c.id === f.court)?.open ?? null;
+  const lengths = Array.from({ length: 16 }, (_, i) => (i + 1) * 30).filter((m) => (open && ms(f.start) + m * 60_000 <= ms(open.closes)) || m === was);
+  const starts = courtSlots(open).filter((s) => new Date(s) > new Date() && ms(s) + f.minutes * 60_000 <= ms(open!.closes));
   const submit = (e: Event) => {
     e.preventDefault(); setError("");
     if (it.session_id) return void preview("series.edit", { session_id: it.session_id, scope: "this", ...(moved ? { starts_at: f.start } : {}), ...(resized ? { minutes: f.minutes } : {}),
@@ -364,8 +367,10 @@ function ChangeForm({ it, court, g, clock, slots, preview, canMove, canResize, c
   );
 }
 
-function DeskBooking({ court, starts, clock, preview, onClose }: { court: Court; starts: string[]; clock: (s: string) => string; preview: Preview; onClose: () => void }) {
-  const [f, setF] = useState({ start: starts[0] ?? "", minutes: 90, guest: "", price: "" }), [person, setPerson] = useState<{ id: string; display_name: string } | null>(null);
+function DeskBooking({ court, starts, until, clock, preview, onClose }: { court: Court; starts: string[]; until: string; clock: (s: string) => string; preview: Preview; onClose: () => void }) {
+  // The lengths that fit before the court closes (or the next thing on it), from the start chosen.
+  const fits = (start: string) => lengthsFitting(start, until);
+  const [f, setF] = useState({ start: starts[0] ?? "", minutes: fits(starts[0] ?? "").includes(90) ? 90 : fits(starts[0] ?? "")[0] ?? 30, guest: "", price: "" }), [person, setPerson] = useState<{ id: string; display_name: string } | null>(null);
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string; email: string | null }[]>([]);
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
   // What the club's prices say it costs, as the start and length change; the desk can type another price.
@@ -381,8 +386,9 @@ function DeskBooking({ court, starts, clock, preview, onClose }: { court: Court;
   return (
     <form class="card card-form" onSubmit={submit}>
       <h2>{t("ui.book_court", { court: court.name })}</h2>
-      <label>{t("ui.starts")}<select value={f.start} onChange={(e) => setF({ ...f, start: e.currentTarget.value })}>{starts.map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
-      <label>{t("ui.length")}<select value={f.minutes} onChange={(e) => setF({ ...f, minutes: Number(e.currentTarget.value) })}>{[60, 90, 120, 30, 150, 180].map((m) => <option value={m}>{t("ui.minutes", { count: m })}</option>)}</select></label>
+      <label>{t("ui.starts")}<select value={f.start} onChange={(e) => { const start = e.currentTarget.value; setF({ ...f, start, minutes: fits(start).includes(f.minutes) ? f.minutes : fits(start)[0] ?? 30 }); }}>
+        {starts.filter((s) => fits(s).length).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
+      <label>{t("ui.length")}<select value={f.minutes} onChange={(e) => setF({ ...f, minutes: Number(e.currentTarget.value) })}>{fits(f.start).map((m) => <option value={m}>{t("ui.minutes", { count: m })}</option>)}</select></label>
       {person ? <p>{person.display_name} <button type="button" class="link" onClick={() => setPerson(null)}>{t("ui.change")}</button></p> : <>
         <label>{t("ui.search_person")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>
         {found.length > 0 && <ul class="plain">{found.slice(0, 6).map((p) => <li class="row"><span>{p.display_name}</span><button type="button" class="small" onClick={() => { setPerson(p); setFound([]); setQ(""); }}>{t("ui.choose")}</button></li>)}</ul>}
@@ -418,8 +424,16 @@ function EmptyPlace({ e, preview }: { e: Empty; preview: Preview }) {
   );
 }
 
-function BlockForm({ courts, g, slots, clock, preview }: { courts: Court[]; g: Grid; slots: string[]; clock: (s: string) => string; preview: Preview }) {
-  const [ids, setIds] = useState<string[]>([]), [f, setF] = useState({ from: slots[0] ?? "", to: slots.at(-1) ?? "", reason: "maintenance", note: "" });
+function BlockForm({ courts, g, slots: daySlots, clock, preview }: { courts: Court[]; g: Grid; slots: string[]; clock: (s: string) => string; preview: Preview }) {
+  const [ids, setIds] = useState<string[]>([]), [f, setF] = useState({ from: daySlots[0] ?? "", to: daySlots.at(-1) ?? "", reason: "maintenance", note: "" });
+  // The times the chosen courts are open that day (the earliest opening to the latest closing); the location's day
+  // until a court is chosen. A time kept from before a court was chosen moves into the new hours.
+  const slots = ids.length ? courtSlots(spanOfCourts(courts.filter((c) => ids.includes(c.id)))) : daySlots;
+  const pick = (next: string[]) => {
+    setIds(next);
+    const s = next.length ? courtSlots(spanOfCourts(courts.filter((c) => next.includes(c.id)))) : daySlots;
+    if (s.length) setF({ ...f, from: s.includes(f.from) && f.from !== s.at(-1) ? f.from : s[0]!, to: s.includes(f.to) && f.to !== s[0] ? f.to : s.at(-1)! });
+  };
   // Every week: on these weekdays from this date, until a date or with no end; bookings in the way stay, or are called off.
   const [rep, setRep] = useState({ on: false, days: [new Date(`${g.date}T12:00:00Z`).getUTCDay()], until: "", way: "keep", refund: "full" });
   const submit = (e: Event) => {
@@ -431,7 +445,8 @@ function BlockForm({ courts, g, slots, clock, preview }: { courts: Court[]; g: G
   return (
     <form class="card card-form" onSubmit={submit}>
       <h2>{t("ui.block_courts")}</h2>
-      {courts.map((c) => <label class="check"><input type="checkbox" checked={ids.includes(c.id)} onChange={(e) => setIds(e.currentTarget.checked ? [...ids, c.id] : ids.filter((x) => x !== c.id))} /> {c.name}</label>)}
+      {courts.map((c) => <label class="check"><input type="checkbox" checked={ids.includes(c.id)} onChange={(e) => pick(e.currentTarget.checked ? [...ids, c.id] : ids.filter((x) => x !== c.id))} /> {c.name}{!c.open ? ` (${t("ui.closed")})` : ""}</label>)}
+      {ids.length > 0 && !slots.length && <p class="meta">{t("ui.courts_closed_day")}</p>}
       <label>{t("ui.from")}<select value={f.from} onChange={(e) => setF({ ...f, from: e.currentTarget.value })}>{slots.slice(0, -1).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
       <label>{t("ui.to")}<select value={f.to} onChange={(e) => setF({ ...f, to: e.currentTarget.value })}>{slots.slice(1).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
       <label>{t("ui.reason")}<select value={f.reason} onChange={(e) => setF({ ...f, reason: e.currentTarget.value })}>{["maintenance", "fault", "resurfacing", "event", "other"].map((r) => <option value={r}>{t(`block.${r}` as Key)}</option>)}</select></label>
@@ -444,7 +459,7 @@ function BlockForm({ courts, g, slots, clock, preview }: { courts: Court[]; g: G
         <label>{t("ui.block_until")}<input type="date" min={g.date} value={rep.until} onInput={(e) => setRep({ ...rep, until: e.currentTarget.value })} /></label>
         <InTheWay way={rep.way} refund={rep.refund} onChange={(way, refund) => setRep({ ...rep, way, refund })} />
       </>}
-      <button class="primary" disabled={!ids.length || (rep.on && !rep.days.length)}>{t("ui.preview")}</button>
+      <button class="primary" disabled={!ids.length || !slots.length || ms(f.to) <= ms(f.from) || (rep.on && !rep.days.length)}>{t("ui.preview")}</button>
     </form>
   );
 }

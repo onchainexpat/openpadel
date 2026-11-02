@@ -2419,6 +2419,7 @@ export const en = {
   "ui.end_from_here": "End from this date",
   "ui.end_series": "End every date to come",
   "ui.change_series": "Change times",
+  "ui.courts_closed_day": "The courts chosen are closed this day.",
   "ui.repeating_blocks": "Repeating blocks",
   "ui.repeating_blocks_none": "No courts are blocked every week.",
   "ui.series_span": "from {from} until {until}",
