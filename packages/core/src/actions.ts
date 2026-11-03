@@ -213,6 +213,27 @@ async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor
   if (has) throw new KumiError("error.need_passkey", {}, 403);
 }
 
+/** An undo is judged as the change it undoes: that change's permission, strong sign-in and app-only rules, with that
+ *  change's input. Otherwise anyone who may undo could reverse what only the owner, or only the app, may do (a
+ *  manager's assistant putting back the cap the owner lowered). Null for every other action. */
+async function judgedAs(db: Db | Trx, def: ActionDef<any>, input: unknown): Promise<{ def: ActionDef<any>; input: unknown } | null> {
+  if (def.name !== "action.undo") return null;
+  const id = (input as { run_id?: unknown } | null)?.run_id;
+  if (typeof id !== "string") return null;
+  const original = await db.selectFrom("action_run").select(["action", "input"]).where("id", "=", id).executeTakeFirst();
+  return original ? { def: getAction(original.action), input: original.input } : null;
+}
+
+/** Confirming or approving an undo: the person must be allowed the change it undoes outright, with its strong
+ *  sign-in and outside an assistant if it's the app's alone. */
+async function allowedAsJudged(db: Db | Trx, def: ActionDef<any>, input: unknown, actor: Actor, locationId: string | null, ownerIds: string[], at: Date): Promise<void> {
+  const judged = await judgedAs(db, def, input);
+  if (!judged) return;
+  await requireStrongAuth(db, judged.def, actor, judged.input);
+  const d = await decide(db, judged.def.name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId, ownerIds, at, ...how(judged.def, actor) });
+  if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
+}
+
 export interface Planned { runId: string; status: "planned" | "awaiting_approval"; plan: Plan; expiresAt: Date }
 export interface PlanOpts { now?: Date; internal?: boolean; /** A parent approved it: a kid's rules don't stop it again. */ parentApproved?: boolean }
 
@@ -241,6 +262,8 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
   await readOnlyGate(db, name);   // a club its host has made read-only (read_only.ts)
   await requireStrongAuth(db, def, actor, raw);
   const input = validate(def, raw);
+  const judged = await judgedAs(db, def, input);
+  if (judged) await requireStrongAuth(db, judged.def, actor, judged.input);
   const now = opts.now ?? new Date();
   const p = await def.plan({ db, actor, now }, input);
   const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
@@ -299,6 +322,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       if (!approving && !opts.system) {   // permissions may have changed since the preview
         const d = await decide(trx, run.action, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
         if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
+        await allowedAsJudged(trx, def, run.input, actor, run.location_id, p.ownerIds ?? [], now);
       }
       // Checked again as it happens, with the connection locked, so two confirms at once can't both fit.
       // A preview an assistant made dies with it: once it's disconnected, nobody can apply it.
@@ -343,6 +367,7 @@ export async function approve(db: Db, runId: string, approver: Actor, opts: { no
   await requireStrongAuth(db, def, approver, run.input);
   const d = await decide(db, run.action, { personId: approver.personId, agentId: approver.agentId ?? null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now, ...how(def, approver) });
   if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
+  await allowedAsJudged(db, def, run.input, approver, run.location_id, p.ownerIds ?? [], now);
   return apply(db, runId, approver, { now, approvedBy: approver.personId! });
 }
 
@@ -410,7 +435,8 @@ export const undoAction = defineAction({
     const op = original.plan as Plan;
     if (original.undo_kind === "none") throw new KumiError("error.cannot_undo", { reason: op.undo.note ?? both("reason.undo_final") });
     if (original.undo_until && original.undo_until.getTime() < ctx.now.getTime()) throw new KumiError("error.undo_expired");
-    // Undo needs the same permission as the original action, for the same rows.
+    // Undo needs the same permission as the original action, for the same rows: where that's an "ask", the undo
+    // waits for someone allowed it outright (approve), as the change itself would have.
     const d = await decide(ctx.db, original.action, { personId: ctx.actor.personId, agentId: ctx.actor.agentId ?? null, locationId: original.location_id, ownerIds: op.ownerIds ?? [], at: ctx.now, ...how(getAction(original.action), ctx.actor) });
     if (d.mode === "no") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
     const changes = await ctx.db.selectFrom("entity_change").selectAll().where("action_run_id", "=", input.run_id).orderBy("id", "desc").execute();
@@ -427,6 +453,7 @@ export const undoAction = defineAction({
       reads, locationId: original.location_id, ownerIds: op.ownerIds ?? [],
       undo: { kind: "none", note: both("reason.undo_final") },
       details: { undoes: input.run_id, changes: changes.length },
+      secondPerson: d.mode === "ask",
     };
   },
   async apply(ctx, input) {
