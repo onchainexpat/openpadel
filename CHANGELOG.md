@@ -82,6 +82,12 @@ server starts.
   takes it without dropping connections; if Caddy won't take it, the update is undone. Going back puts the
   previous release's config back. A config changed by hand is left as it is, and the update says so.
 
+- Point-in-time backups, as found running them on real servers: an S3 storage on its own port (not 443) gets it
+  as pgBackRest's port setting; the commands run as the postgres user name it in the database address; `sudo kumi
+  pitr test` (and tick, extract) runs as the postgres user, and doctor's hints say so; the monthly test of an
+  archive less than ten minutes old is skipped, not reported as failing; a refused or failed restore leaves no
+  `.part` file or copy from the archive behind; and `kumi held` says it's after a move or a restore.
+
 ### When updating
 - If you ran `server-setup.sh` with Kumi ce7f772 or earlier, run it once more: Postgres's archive command is
   renamed to one pgBackRest accepts (`pgbackrest-archive-push`), or the first base backup fails with error 068.
