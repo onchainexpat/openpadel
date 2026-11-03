@@ -17,6 +17,9 @@ server starts.
   up, and says how many addresses are held back.
 - `kumi leaving on --email-domain=<domain>` says, in the owners' emails, what becomes of the domain the club's email
   comes from: the host's own stays with the host (`--email-domain-host`), the club's own moves to its own email account.
+- **Texting through a host's Twilio account.** A club texting from a subaccount of its host's Twilio account can
+  name its own Secondary Customer Profile (Twilio's Trust Hub) in club.yaml, `texting.customer_profile_sid`, and the
+  toll-free verification uses it (`docs/setup/accounts/twilio.md`).
 
 ### Changed
 - **The usage meter survives a restore.** Restoring a backup, a minute or an update's snapshot, or an export onto the

@@ -64,6 +64,16 @@ real texts won't reach anyone.** Kumi turns texts on by itself when Twilio appro
 `KUMI_TWILIO_FROM=+1...`, one number) in the settings file and point the Messaging Service's incoming texts at
 `https://staff.app.yourclub.com/webhooks/twilio/sms` yourself. A sender in the settings file always wins.
 
+**Texting through a host's Twilio account.** A host that runs Kumi for several clubs can give each club a
+Twilio subaccount of its own account instead of the club making one: the subaccount's Account SID and Auth
+Token go in the club's settings file as above (its token checks what Twilio posts), and `kumi texting` works the
+same, in the subaccount, with the number and the review on it. Twilio reviews the club, not the host:
+club.yaml's `texting` section is still the club's own business, and a verification that carries the host's
+details is turned down. The host's own Primary Business Profile, as an ISV, must be approved by Twilio first. If
+the host made a Secondary Customer Profile for the club in Twilio's Trust Hub, put its id in
+`texting.customer_profile_sid` (`BU...`) and the verification names it; without one, Twilio makes one from the
+details sent.
+
 **Texting a lot more (local numbers, A2P 10DLC).** Toll-free suits a club's volume. A club that texts tens of
 thousands a month, or wants a local number, registers A2P 10DLC in Twilio's console instead: a brand for the
 club (about $4.50, plus $41.50 for the standard vetting), then a campaign (a $15 vetting, then about $10 a

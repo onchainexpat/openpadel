@@ -8,13 +8,13 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { heartbeat, messageHandlers, processOutbox, registeredSender, runAsSystem, textingRegistration, type Db } from "@kumi/core";
-import { applyTexting, checkTextingNumber, explainRejection, refreshTexting, textingNeeds, textingPlan, twilioProblem, volumeStep, type TextingDeps } from "../src/texting.ts";
+import { applyTexting, checkTextingNumber, explainRejection, refreshTexting, textingNeeds, textingPlan, twilioProblem, verificationForm, volumeStep, type TextingDeps } from "../src/texting.ts";
 import { TwilioApi, TwilioApiError } from "../src/twilio_admin.ts";
 import { doctor } from "../src/doctor.ts";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 import { watchHealth } from "../src/health.ts";
-import type { TextingDetails } from "../src/setup.ts";
+import { TextingDetails } from "../src/setup.ts";
 
 const AC = `AC${"1".repeat(32)}`, TOKEN = "0123456789abcdef0123456789abcdef";
 const STAFF = "https://staff.kestrel.example", MEMBERS = "https://kestrel.example";
@@ -167,12 +167,22 @@ test("apply --yes: a toll-free number, a Messaging Service pointed at this serve
   assert.match(f.get("HelpMessageSample")!, /^Kestrel Padel: .* Reply STOP to stop\.$/);
   assert.match(f.get("AdditionalInformation")!, /ticks an unticked box that reads: "Yes, Kestrel Padel may text me/);
   assert.equal(f.get("ExternalReferenceId"), reg.id); assert.equal(f.get("AgeGatedContent"), "false");
+  assert.equal(f.get("CustomerProfileSid"), null);   // Twilio makes one from the business details given
   assert.ok(!/[—]/.test([...f.values()].join(" ")));
   const before = tw.calls.filter((c) => c.method === "POST").length;
   const again = await applyTexting(deps(tw), { yes: true });
   assert.equal(again.done.length, 0);
   assert.equal(tw.calls.filter((c) => c.method === "POST").length, before);
   assert.equal(await registeredSender(db), null);   // not approved yet: nothing texts from it
+});
+
+test("through a host's Twilio account: the club's own Secondary Customer Profile goes with the verification", () => {
+  const bu = `BU${"a".repeat(32)}`;
+  const f = verificationForm({ ...DETAILS, customer_profile_sid: bu }, { club: "Kestrel Padel", memberUrl: MEMBERS, numberSid: sidOf("PN"), reference: "r" });
+  assert.equal(f.CustomerProfileSid, bu);
+  assert.equal(f.BusinessName, "Kestrel Padel LLC");   // the club's business, never the host's: Twilio turns those down
+  assert.equal(verificationForm(DETAILS, { club: "Kestrel Padel", memberUrl: MEMBERS, numberSid: "PN", reference: "r" }).CustomerProfileSid, undefined);
+  assert.equal(TextingDetails.safeParse({ customer_profile_sid: "BU123" }).success, false);
 });
 
 test("the club's own number: used, not bought; one that can't text is refused; a verification made in the console is carried on", async () => {

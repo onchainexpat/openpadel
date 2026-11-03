@@ -27,6 +27,9 @@ export const TextingDetails = z.object({
   monthly_texts: z.optional(z.number().check(z.int(), z.minimum(1))),
   opt_in_image_urls: z.optional(z.array(z.url())),
   use_case_summary: z.optional(z.string().check(z.minLength(40), z.maxLength(1000))),
+  // Texting through a host's Twilio account: the club's own Secondary Customer Profile in Twilio's Trust Hub, if the
+  // host made one (docs/setup/accounts/twilio.md).
+  customer_profile_sid: z.optional(z.string().check(z.regex(/^BU[0-9a-f]{32}$/))),
 });
 export type TextingDetails = z.infer<typeof TextingDetails>;
 export const ClubFile = z.object({

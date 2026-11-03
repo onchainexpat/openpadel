@@ -60,7 +60,7 @@ export function verificationForm(d: TextingDetails, o: { club: string; memberUrl
     OptInType: "WEB_FORM", OptInImageUrls: [`${m}/public/texts`, ...(d.opt_in_image_urls ?? [])],
     AdditionalInformation: t("en", "texting.opt_in_flow", { consent: t("en", "ui.texts_consent", { club: o.club }), page: `${m}/public/texts` }),
     MessageVolume: volumeStep(d.monthly_texts ?? 1000), PrivacyPolicyUrl: d.privacy_policy_url, TermsAndConditionsUrl: d.terms_url,
-    AgeGatedContent: false, TollfreePhoneNumberSid: o.numberSid, ExternalReferenceId: o.reference,
+    AgeGatedContent: false, TollfreePhoneNumberSid: o.numberSid, ExternalReferenceId: o.reference, CustomerProfileSid: d.customer_profile_sid,
   };
 }
 
@@ -144,7 +144,7 @@ export async function applyTexting(d: TextingDeps, o: { yes: boolean; reason?: s
         break;
       }
       case "resubmit": {
-        const { TollfreePhoneNumberSid: _pn, ExternalReferenceId: _ref, ...form } = verificationForm(d.details!, { club: d.club, memberUrl: d.memberUrl, numberSid: reg!.phone_number_sid!, reference: reg!.id });
+        const { TollfreePhoneNumberSid: _pn, ExternalReferenceId: _ref, CustomerProfileSid: _bu, ...form } = verificationForm(d.details!, { club: d.club, memberUrl: d.memberUrl, numberSid: reg!.phone_number_sid!, reference: reg!.id });
         const v = await d.api.updateVerification(reg!.verification_sid!, { ...form, EditReason: o.reason ?? t("en", "texting.edit_reason") });
         await record(d.db, { ...fromVerification(v, now()), status: STATUS[v.status] === "rejected" ? "rejected" : "submitted", submitted: submittedCopy(d, reg!), submitted_at: now().toISOString() });
         break;

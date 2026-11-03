@@ -42,3 +42,4 @@ texting:
   monthly_texts: 1000                             # about how many a month; a guess is fine
   # number: "+18885550123"                        # a toll-free number the club already has in Twilio (else Kumi buys one)
   # opt_in_image_urls: [https://kestrelpadel.example/texts-opt-in.png]   # screenshots of your own, besides Kumi's page
+  # customer_profile_sid: BU...                   # only when texting through a host's Twilio account: the club's own Trust Hub profile
