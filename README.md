@@ -91,7 +91,7 @@ A live key (`sk_live_`) is refused unless `NODE_ENV=production`. A payment is re
 news arrives first: the app checking right after the card form, Stripe's webhook, or a job every
 30 seconds that asks Stripe about card forms opened in the last two days. Each asks Stripe directly
 rather than trusting a message, so the order and repeats don't matter. Test card: 4242 4242 4242 4242,
-any future date, any CVC. For webhooks locally: `stripe listen --forward-to localhost:8790/webhooks/stripe`.
+any future date, any CVC. For webhooks locally: `stripe listen --forward-to 127.0.0.1:8790/webhooks/stripe`.
 
 Payments are cards only. Apple Pay and Google Pay are cards underneath, so every payment refunds the
 same way, straight back to the card.

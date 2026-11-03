@@ -11,15 +11,20 @@ import { newestLocalAge } from "./backups.ts";
 import { handledTopics } from "./outbox.ts";
 import { s3FromEnv } from "./s3.ts";
 import { answerModels } from "./answerer.ts";
+import { onSocket } from "./listen.ts";
 import { REVISION, VERSION } from "./version.ts";
 
 type Env = Record<string, string | undefined>;
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
-/** A request straight from this machine: a loopback address and no proxy's forwarding header. */
-export function fromThisServer(c: Context<any>): boolean {
-  const remote: string | undefined = c.env?.incoming?.socket?.remoteAddress;
-  return Boolean(remote && LOOPBACK.has(remote) && !c.req.header("x-forwarded-for") && !c.req.header("x-forwarded-host"));
+/** A request straight from this machine: a loopback address (or the club's own unix socket, which only its proxy
+ *  and root can open) and no proxy's forwarding header. */
+export function fromThisServer(c: Context<any>, env: Env = process.env): boolean {
+  const socket = c.env?.incoming?.socket;
+  if (!socket || c.req.header("x-forwarded-for") || c.req.header("x-forwarded-host")) return false;
+  if (onSocket(env)) return true;
+  const remote: string | undefined = socket.remoteAddress;
+  return Boolean(remote && LOOPBACK.has(remote));
 }
 
 function disk(path: string) {

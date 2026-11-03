@@ -1,6 +1,7 @@
 // How fast one address can try things. Kept in memory: a club runs one server process, and a restart
 // forgetting the counts is fine. Per-email limits (codes per hour, tries per code) live with sign-in.
 import type { Context } from "hono";
+import { onSocket } from "./listen.ts";
 
 export class RateLimiter {
   private readonly hits = new Map<string, number[]>();
@@ -20,12 +21,17 @@ export class RateLimiter {
 /** The address a request came from. Behind Caddy, Caddy's X-Forwarded-For says who it was (Caddy replaces
  *  any the client sent, and the last entry is the one it adds). It's trusted from Caddy on the same machine,
  *  and from any peer when KUMI_TRUST_PROXY=1: Docker's Caddy is another container, and the server's port is
- *  reachable only from the compose network. From anywhere else the header isn't trusted. */
+ *  reachable only from the compose network. From anywhere else the header isn't trusted. On a server shared by
+ *  several clubs, each listens on its own unix socket (KUMI_SOCKET) and has no port at all: only its proxy (and
+ *  root) can open the socket, so the header is believed, and without one there's no address to count. */
 export function clientIp(c: Context<any>, env: Record<string, string | undefined> = process.env): string | null {
-  const remote: string | undefined = c.env?.incoming?.socket?.remoteAddress;
-  if (!remote) return null;   // in-process requests (tests) have no address
+  const socket = c.env?.incoming?.socket;
+  if (!socket) return null;   // in-process requests (tests) have no connection
+  const forwarded = c.req.header("x-forwarded-for")?.split(",").map((s) => s.trim()).filter(Boolean).at(-1);
+  if (onSocket(env)) return forwarded ?? null;
+  const remote: string | undefined = socket.remoteAddress;
+  if (!remote) return null;   // a connection already closed
   const local = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
   const trusted = local || env.KUMI_TRUST_PROXY === "1";
-  const forwarded = c.req.header("x-forwarded-for")?.split(",").map((s) => s.trim()).filter(Boolean).at(-1);
   return trusted && forwarded ? forwarded : remote;
 }

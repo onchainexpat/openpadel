@@ -27,7 +27,8 @@ RUN apt-get update -q && apt-get install -yq --no-install-recommends ca-certific
  && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
  && apt-get update -q && apt-get install -yq --no-install-recommends postgresql-client-17 \
  && apt-get purge -yq curl && apt-get autoremove -yq && rm -rf /var/lib/apt/lists/*
-ENV NODE_ENV=production PORT=8790 KUMI_CLUB_FILE=/etc/kumi/club.yaml KUMI_PG_BIN=/usr/lib/postgresql/17/bin KUMI_INSTALL=docker
+# Every address in the container: Caddy is another container (the port isn't published outside the compose network).
+ENV NODE_ENV=production PORT=8790 KUMI_LISTEN_ADDRESS=0.0.0.0 KUMI_CLUB_FILE=/etc/kumi/club.yaml KUMI_PG_BIN=/usr/lib/postgresql/17/bin KUMI_INSTALL=docker
 WORKDIR /app
 COPY --from=runtime-deps --chown=node:node /app /app
 RUN printf '#!/bin/sh\nexec node /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/kumi && chmod 755 /usr/local/bin/kumi

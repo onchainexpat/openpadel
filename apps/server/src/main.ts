@@ -1,4 +1,3 @@
-import { serve } from "@hono/node-server";
 import { resealAll, setSecretKeys, tidyVaultUploads, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
@@ -11,6 +10,7 @@ import { handlers } from "./outbox.ts";
 import { tidySignIns } from "./oauth.ts";
 import { answererFromEnv, answerModels } from "./answerer.ts";
 import { setTranslator, translatorFromEnv } from "./translate.ts";
+import { describeListen, listen, listenFrom, type Listen } from "./listen.ts";
 
 // The server's key for the secrets it keeps (authenticators, the push key, the vault: sealed.ts). Production
 // refuses to start without one; elsewhere secrets are kept as they are, and it says so.
@@ -41,7 +41,10 @@ if (newTopics.length) console.log(`messages: now telling people about ${newTopic
 const sealed = await resealAll(db);
 if (sealed.sealed || sealed.resealed) console.log(`secrets: ${sealed.sealed} sealed, ${sealed.resealed} moved to the current key`);
 if (sealed.unreadable) console.error(`secrets: ${sealed.unreadable} sealed under a key this server doesn't have (set KUMI_SECRET_KEY_PREVIOUS to the old key)`);
-const port = Number(process.env.PORT ?? 8790);
+// Where it listens (listen.ts): 127.0.0.1 and PORT unless the settings say otherwise.
+let listenAt: Listen;
+try { listenAt = listenFrom(process.env); } catch (e) { console.error((e as Error).message); process.exit(1); }
+const port = "port" in listenAt ? listenAt.port : 8790;
 const publicUrl = process.env.KUMI_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
 // What members are sent: the members' app's address, not the staff app's (addresses.ts).
 const membersUrl = memberUrl(publicUrl);
@@ -126,9 +129,9 @@ setTranslator(translatorFromEnv(process.env));
 // machine (scripts that sign in over the API); production refuses to start that way.
 const botCheck = process.env.KUMI_BOT_CHECK !== "0";
 if (!botCheck && production) { console.error("KUMI_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
-serve({ fetch: makeApp({ db, mailer, publicUrl, memberUrl: membersUrl, secureCookies: production, production, stripe: stripeConfig, botCheck, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
-  ...(texter && twilio ? { texts: { texter, authToken: twilio.authToken } } : {}) }).fetch, port });
-console.log(`kumi server on http://127.0.0.1:${port}`);
+const server = await listen(makeApp({ db, mailer, publicUrl, memberUrl: membersUrl, secureCookies: production, production, stripe: stripeConfig, botCheck, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
+  ...(texter && twilio ? { texts: { texter, authToken: twilio.authToken } } : {}) }).fetch, listenAt);
+console.log(`kumi server on ${describeListen(listenAt, server)}`);
 
 // The jobs, every 30 seconds: refunds and messages leave through the outbox, and due emails go out;
 // waitlist offers that ran out pass on; card payments nobody told us about are checked with the provider.
