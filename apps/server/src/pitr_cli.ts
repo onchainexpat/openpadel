@@ -129,6 +129,8 @@ export async function pitrMain(sub: string | undefined, args: string[], lang: La
         return r.ok ? 0 : 1;
       } catch (e) {
         const msg = e instanceof PitrRefused ? t(lang, `cli.pitr_${e.why}` as any, e.values) : (e as Error).message;
+        // An archive less than ten minutes old has nothing to test yet: not a failure, nothing recorded.
+        if (e instanceof PitrRefused && e.why === "too_new_to_test") { if (json) out({ ok: true, skipped: e.why, why: msg }); else console.log(msg); return 0; }
         await jobFailed(db, "pitr_test", msg);
         if (json) out({ ok: false, error: msg }); else console.error(t(lang, "cli.pitr_test_failed", { error: msg }));
         return 1;
