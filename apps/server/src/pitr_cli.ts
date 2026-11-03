@@ -12,7 +12,7 @@ import { connect, heartbeat, jobFailed, jobWorked, localParts } from "@kumi/core
 import { backupKey, clubTimeZone, dbNameOf, scheduledDue } from "./backups.ts";
 import {
   archiveInfo, archiverFailing, archiverState, basePlan, baseBackups, baseSlot, checkTarget, clubMinute, confOffsite, confRepos, extractAt,
-  offsiteArchivePath, PITR_CONF, pitrConf, pitrTestRun, PitrRefused, restorableFrom, scratchBase, type ArchiveInfo,
+  offsiteArchivePath, PITR_CONF, pitrConf, STANZA, pitrTestRun, PitrRefused, restorableFrom, scratchBase, type ArchiveInfo,
 } from "./pitr.ts";
 
 type Env = Record<string, string | undefined>;
@@ -40,7 +40,8 @@ export function toArg(args: string[]): string | undefined {
 export async function pitrMain(sub: string | undefined, args: string[], lang: Lang, json: boolean, env: Env = process.env): Promise<number> {
   const out = (v: unknown) => console.log(JSON.stringify(v, null, 2));
   const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
-  const conf = env.KUMI_PITR_CONF ?? PITR_CONF;
+  // A server several clubs share (kumi-hosted) has one archive for all of them: its own stanza and settings file.
+  const conf = env.KUMI_PITR_CONF ?? PITR_CONF, stanza = env.KUMI_PITR_STANZA?.trim() || STANZA, at = { conf, stanza };
   const refused = (e: PitrRefused) => { if (json) out({ ok: false, refused: e.why, ...e.values }); else console.error(t(lang, `cli.pitr_${e.why}` as any, e.values)); return 2; };
 
   if (sub === "conf") {
@@ -61,15 +62,15 @@ export async function pitrMain(sub: string | undefined, args: string[], lang: La
       const last = await heartbeat(db, "pitr");
       if (!force && last?.last_ok_at && !last.last_error && last.last_ok_at >= baseSlot(now, tz) && sameRepos(last.details, repos)) { if (json) out({ ok: true, due: [] }); return 0; }
       try {
-        const before = await archiveInfo({ conf });
+        const before = await archiveInfo(at);
         const due = force ? repos.map((n) => ({ repo: n, type: before.backups.some((b) => b.repo === n && b.type === "full") ? "diff" as const : "full" as const })) : basePlan(before, repos, now, tz);
         if (!due.length) {
           await jobWorked(db, "pitr", { ...summary(before, repos, confOffsite(text)), taken: [] });
           if (json) out({ ok: true, due: [] });
           return 0;
         }
-        const taken = await baseBackups(due, { conf });
-        const info = await archiveInfo({ conf });
+        const taken = await baseBackups(due, at);
+        const info = await archiveInfo(at);
         await jobWorked(db, "pitr", { ...summary(info, repos, confOffsite(text)), taken });
         if (json) out({ ok: true, taken, restorable_from: restorableFrom(info)?.toISOString() ?? null });
         else console.log(t(lang, "cli.pitr_taken", { taken: taken.join(", "), from: restorableFrom(info) ? show(restorableFrom(info)!, tz) : "-" }));
@@ -100,9 +101,9 @@ export async function pitrMain(sub: string | undefined, args: string[], lang: La
       try {
         const target = clubMinute(to, tz);
         if (!args.includes("--yes")) { console.error(t(lang, "cli.pitr_confirm", { time: to })); return 2; }
-        const info = await archiveInfo({ conf, ...(archivePath ? { archivePath } : {}) });
+        const info = await archiveInfo({ ...at, ...(archivePath ? { archivePath } : {}) });
         checkTarget(target, info, new Date(), tz, archivePath ? 2 : repo);
-        const r = await extractAt(target, dbname, file, { conf, base: scratchBase(), ...(repo ? { repo } : {}), ...(archivePath ? { archivePath } : {}) });
+        const r = await extractAt(target, dbname, file, { ...at, base: scratchBase(), ...(repo ? { repo } : {}), ...(archivePath ? { archivePath } : {}) });
         if (json) out({ ok: true, file, target: target.toISOString(), last_change: r.lastChange, seconds: r.seconds });
         else console.log(t(lang, "cli.pitr_extracted", { time: to, last: r.lastChange ? show(new Date(r.lastChange), tz) : "-", seconds: r.seconds }));
         return 0;
@@ -118,8 +119,8 @@ export async function pitrMain(sub: string | undefined, args: string[], lang: La
         if (!d.due) { if (json) out({ ok: true, due: false, time_zone: d.tz }); return 0; }
       }
       try {
-        const info = await archiveInfo({ conf });
-        const r = await pitrTestRun(db, dbname, info, { conf, base: scratchBase() });
+        const info = await archiveInfo(at);
+        const r = await pitrTestRun(db, dbname, info, { ...at, base: scratchBase() });
         if (r.ok) await jobWorked(db, "pitr_test", { target: r.target, seconds: r.seconds, kept: r.kept });
         else await jobFailed(db, "pitr_test", `restored to ${r.target} but: ${r.problems.slice(0, 3).join("; ")}`);
         if (json) { out(r); return r.ok ? 0 : 1; }
