@@ -128,6 +128,10 @@ export function App() {
   if (me.value === null) return <SignIn />;
   if (me.value.gate) return <ErrorBoundary><TwoFactor /></ErrorBoundary>;
   const signOut = async () => { await api("/auth/sign-out", {}); me.value = null; };
+  // Signed in with no staff role (a member, or support access that has ended): say so, rather than pages that can't load.
+  if (!me.value.support && !me.value.roles.some((r) => r.key !== "member")) return (
+    <main class="card"><p>{t(me.value.support_ended ? "ui.support_ended_you" : "ui.no_staff_role")}</p><button onClick={signOut}>{t("ui.sign_out")}</button></main>
+  );
   const { coach, desk, changes, areas, coachOnly, show, home } = access(me.value);
   // A page outside those areas says so, rather than failing to load.
   const only = (area: string, page: any) => (show(area) ? page : NotForRole);

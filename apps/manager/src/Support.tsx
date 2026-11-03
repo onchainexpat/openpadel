@@ -2,13 +2,14 @@
 // like a manager, and see everything each one opened and changed. The owner gives it (a manager's request goes to the
 // owner) and anyone here can end it early, through the preview like every change.
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import type { Key } from "@kumi/i18n";
+import { api, lang, loadMe, t, usePreview } from "@kumi/ui";
 
 type Level = "view" | "manager";
 type Grant = { id: string; name: string; email: string; reason: string; level: Level; starts_at: string; ends_at: string; ended_at: string | null; first_seen_at: string | null;
   granted_by: string | null; ended_by: string | null; reads: number; changes: number; active: boolean };
 type Data = { owner: boolean; default_hours: number; max_hours: number; grants: Grant[] };
-type Activity = { reads: { at: string; method: string; path: string; status: number | null }[]; changes: { id: string; action: string; status: string; summary: string | null; at: string }[] };
+type Activity = { reads: { at: string; method: string; path: string; status: number | null; what: string }[]; changes: { id: string; action: string; status: string; summary: string | null; at: string }[] };
 
 const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
 export const levelText = (l: Level) => (l === "view" ? t("msg.support_level_view") : t("msg.support_level_manager"));
@@ -16,7 +17,8 @@ export const levelText = (l: Level) => (l === "view" ? t("msg.support_level_view
 export function Support() {
   const [d, setD] = useState<Data | null>(null);
   const load = () => api<Data>("/staff/support").then(setD);
-  const { preview, sheet } = usePreview(load);
+  // After a change here the banner at the top (support under way) is read again too, so an ended one goes at once.
+  const { preview, sheet } = usePreview(() => { void load(); void loadMe(); });
   useEffect(() => { load(); }, [lang.value]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const now = d.grants.filter((g) => g.active), before = d.grants.filter((g) => !g.active);
@@ -68,9 +70,9 @@ function GrantRow({ g, end }: { g: Grant; end?: () => void }) {
         <details onToggle={open}><summary>{t("ui.support_activity")}</summary>
           {!a ? <p class="meta">{t("ui.loading")}</p> : <>
             <h3>{t("ui.support_changed")}</h3>
-            <ul class="plain">{a.changes.map((c) => <li class="meta">{when(c.at)} · {c.summary ?? c.action} · {c.status}</li>)}</ul>
+            <ul class="plain">{a.changes.map((c) => <li class="meta">{when(c.at)} · {c.summary ?? c.action} · {t(`ui.status_${c.status}` as Key)}</li>)}</ul>
             <h3>{t("ui.support_opened")}</h3>
-            <ul class="plain">{a.reads.map((r) => <li class="meta">{when(r.at)} · {r.method} {r.path}{r.status && r.status >= 400 ? ` (${r.status})` : ""}</li>)}</ul>
+            <ul class="plain">{a.reads.map((r) => <li class="meta" title={`${r.method} ${r.path}`}>{when(r.at)} · {r.what}{r.status && r.status >= 400 ? ` (${t("ui.support_read_refused")})` : ""}</li>)}</ul>
           </>}
         </details>
       </div>

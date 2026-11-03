@@ -45,13 +45,22 @@ export async function isReadOnly(db: Db | Trx): Promise<boolean> {
   return Boolean(c?.read_only_since || c?.moved_at);
 }
 
+/** Why nothing new is taken here, said as it is: moved (with the new address, when the owner gave one), or read-only. */
+async function refusal(db: Db | Trx): Promise<KumiError | null> {
+  const c = await db.selectFrom("club").select(["read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
+  if (c?.moved_at) return c.moved_to ? new KumiError("error.moved_to", { url: c.moved_to }, 403) : new KumiError("error.moved", {}, 403);
+  return c?.read_only_since ? new KumiError("error.read_only", {}, 403) : null;
+}
+
 /** The action contract's check: refuses an action that doesn't work while read-only. */
 export async function readOnlyGate(db: Db | Trx, action: string): Promise<void> {
   if (READ_ONLY_ALLOWED.has(action)) return;
-  if (await isReadOnly(db)) throw new KumiError("error.read_only", {}, 403);
+  const e = await refusal(db);
+  if (e) throw e;
 }
 
 /** For the code that opens a card form or charges a saved card outside an action: nothing new is charged. */
 export async function refuseWhenReadOnly(db: Db | Trx): Promise<void> {
-  if (await isReadOnly(db)) throw new KumiError("error.read_only", {}, 403);
+  const e = await refusal(db);
+  if (e) throw e;
 }

@@ -6,7 +6,7 @@
 // recorded here and every change they make is marked in the change log. The owner hears when they first sign in
 // and when the access ends, which it does by itself, mid-session too.
 import * as z from "zod/mini";
-import { both, t, type Lang } from "@kumi/i18n";
+import { both, t, type Key, type Lang } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -180,7 +180,27 @@ export async function supportActivity(db: Db | Trx, grantId: string, lang: Lang)
   if (!grant) throw new KumiError("error.not_found", { thing: both("thing.support_grant") }, 404);
   const reads = await db.selectFrom("support_access_log").select(["at", "method", "path", "status"]).where("grant_id", "=", grantId).orderBy("id", "desc").limit(300).execute();
   const changes = await db.selectFrom("action_run").select(["id", "action", "status", "plan", "created_at", "applied_at"]).where("support_grant_id", "=", grantId).orderBy("id", "desc").limit(200).execute();
-  return { grant, reads, changes: changes.map((c) => ({ id: c.id, action: c.action, status: c.status, summary: (c.plan as { summary?: Record<Lang, string> } | null)?.summary?.[lang] ?? null, at: c.applied_at ?? c.created_at })) };
+  return { grant, reads: reads.map((r) => ({ ...r, what: pageWords(r.method, r.path, lang) })), changes: changes.map((c) => ({ id: c.id, action: c.action, status: c.status, summary: (c.plan as { summary?: Record<Lang, string> } | null)?.summary?.[lang] ?? null, at: c.applied_at ?? c.created_at })) };
+}
+
+/** The staff app's areas, by the address the data came from: what the owner reads in the record of support access,
+ *  in the words of the staff app's menu (support_access_log keeps the exact address). */
+const AREAS: [RegExp, Key][] = [
+  [/^(people|person|tags|segments|students|households?)$/, "ui.nav_people"], [/^(grid|block-series|locations|courts|alerts|quote)$/, "ui.courts"],
+  [/^(programs|sessions|roster)$/, "ui.nav_programs"], [/^memberships$/, "ui.nav_memberships"], [/^(coaches|coach-earnings|my-schedule|calendar-link)$/, "ui.nav_coaches"],
+  [/^scores$/, "ui.nav_scores"], [/^levels$/, "ui.nav_levels"], [/^(questions|facts)$/, "ui.nav_questions"], [/^(broadcasts|broadcast-options|templates|translate)$/, "ui.nav_messages"],
+  [/^mirror$/, "ui.nav_playtomic"], [/^(payments|receipts|club-receipts)$/, "ui.nav_payments"], [/^reports$/, "ui.nav_reports"],
+  [/^(settings|roles)$/, "ui.nav_settings"], [/^usage$/, "ui.nav_usage"], [/^changes$/, "ui.nav_changes"],
+];
+export function pageWords(method: string, path: string, lang: Lang): string {
+  const action = /^\/actions\/([a-z_.]+)\/plan$/.exec(path)?.[1];
+  const title = action ? t(lang, `action.${action}` as Key) : null;
+  if (title && title !== `action.${action}`) return t(lang, "ui.support_read_preview", { what: title });
+  const run = /^\/runs\/[^/]+\/(apply|approve|decline)$/.exec(path)?.[1];
+  if (run) return t(lang, run === "apply" ? "ui.support_read_confirm" : run === "approve" ? "ui.support_read_approve" : "ui.support_read_decline");
+  const area = /^\/staff\/([a-z-]+)/.exec(path)?.[1];
+  const key = area ? AREAS.find(([re]) => re.test(area))?.[1] : undefined;
+  return key ? t(lang, method === "GET" ? "ui.support_read_page" : "ui.support_read_sent", { area: t(lang, key) }) : t(lang, "ui.support_read_other");
 }
 
 /** The support access under way, for the banner the owner and managers see. */

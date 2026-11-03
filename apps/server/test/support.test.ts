@@ -108,7 +108,7 @@ test("ending it closes the staff screens at once, mid-session; access that runs 
   assert.equal(ended.status, 200, JSON.stringify(ended.json));
   assert.deepEqual([(await req("/staff/people", bo)).status, (await req("/staff/people", bo)).json.error], [403, "error.staff_only"]);
   const me = await req("/me", bo);
-  assert.deepEqual([me.json.roles, me.json.support], [[], null]);
+  assert.deepEqual([me.json.roles, me.json.support, me.json.support_ended], [[], null, true]);   // the staff app says it ended
   // Ada's runs out while she's signed in.
   const ada = await twoStep("ada@help.test");
   assert.equal((await req("/staff/people", ada)).status, 200);

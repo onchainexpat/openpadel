@@ -22,7 +22,9 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   /** Signed in with support access the owner gave (it reads as a manager; what it may change is the server's call). */
   support?: { name: string; level: "view" | "manager"; ends_at: string } | null;
   /** For owners and managers: support access under way at the club, for the banner. */
-  support_now?: { name: string; level: "view" | "manager"; ends_at: string }[] };
+  support_now?: { name: string; level: "view" | "manager"; ends_at: string }[];
+  /** An account made for support access, whose access has ended. */
+  support_ended?: boolean };
 export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
   /** The club's host made it read-only (read_only.ts): both apps say so at the top. */
   read_only?: boolean;
@@ -71,6 +73,8 @@ export async function api<T = any>(path: string, body?: unknown, headers: Record
   const res = await fetch(path, { method: body === undefined ? "GET" : "POST", credentials: "same-origin",
     headers: { "content-type": "application/json", "accept-language": lang.value, ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
   const json = await res.json().catch(() => ({}));
+  // Support access that ended mid-session: who they are now is read again, so the app says it ended.
+  if (res.status === 403 && json.error === "error.staff_only" && me.value?.support && path !== "/me") void loadMe();
   if (!res.ok) throw new ApiError(json.error ?? "error", json.message ?? res.statusText, res.status);
   return json as T;
 }

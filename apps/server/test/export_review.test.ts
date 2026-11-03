@@ -104,7 +104,7 @@ test("moved: the old server sends members nothing and takes nothing new; an expo
   await assert.rejects(plan(src.db, "club.moved", { on: true }, { personId: m.person_id, via: "test", lang: "en", auth: "two_factor" }), (e: any) => e.code === "error.export_owner_only");
   await run(src.db, "club.moved", { on: true, to: "https://kestrelpadel.com" }, src.owner);
   assert.equal(await isReadOnly(src.db), true);
-  await assert.rejects(plan(src.db, "person.create", { display_name: "Late", email: "late@example.test" }, src.owner), (e: any) => e.code === "error.read_only");
+  await assert.rejects(plan(src.db, "person.create", { display_name: "Late", email: "late@example.test" }, src.owner), (e: any) => e.code === "error.moved_to" && e.text.en.includes("https://kestrelpadel.com"));
   await waitingEmail(src, "See you Saturday");
   const sentOld: string[] = [];
   await sendEmails(src.db, { async send(x: { subject: string }) { sentOld.push(x.subject); } }, NOW);

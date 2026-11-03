@@ -94,3 +94,15 @@ test("a shared court's deadline while read-only: no card is charged; what's unpa
   assert.match(told.body, /the club's app is read-only for now, so no card was charged/);
   await readOnly(false);
 });
+
+test("moved, without read-only: the refusal says the club moved, and where to, when the owner said", async () => {
+  await readOnly(false);
+  const moved = (to: string | null) => db.updateTable("club").set({ moved_at: NOW, moved_to: to }).execute();
+  const booking = () => plan(db, "booking.create", { court_id: court, starts_at: at("2026-12-02", "10:00"), minutes: 60, person_id: people.Ann! }, owner, { now: NOW });
+  await moved("https://kestrelpadel.com");
+  await assert.rejects(booking(), (e: unknown) => e instanceof KumiError && e.code === "error.moved_to" && e.text.en.includes("https://kestrelpadel.com") && e.text.es.includes("se mudó"));
+  await moved(null);
+  await assert.rejects(booking(), (e: unknown) => e instanceof KumiError && e.code === "error.moved");
+  await db.updateTable("club").set({ moved_at: null, moved_to: null }).execute();
+  await booking();
+});
