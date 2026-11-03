@@ -5,7 +5,11 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
-## Unreleased
+## 0.2.0 (2026-11-03)
+
+A club can leave its host with everything, and share a hosted server safely: one monthly cap on what
+outside services cost, Download everything, going back to a minute, support access only when the owner
+gives it, and restores and moves that never send or charge twice.
 
 ### Added
 - One monthly cap for what outside services cost the club: AI (answers from the club's facts, and drafts in
@@ -39,7 +43,6 @@ server starts.
   server, they're held there instead of going twice; the restore and `kumi doctor` say how many. Once the old
   server is off, `kumi held send --yes` sends them as they would have gone, or `kumi held drop --yes` drops
   them (`kumi held` lists them first).
-
 - **Going back to a minute** (point-in-time backups): Postgres's log goes to pgBackRest at least once a minute,
   with a base backup every night, on the server (14 days) and offsite beside the nightly copies (30 days,
   sealed with a key made from `KUMI_BACKUP_KEY`). `sudo kumi restore --to="2026-11-03 14:05" --yes` puts the
@@ -116,7 +119,6 @@ server starts.
   `server-setup.sh` again. Caddy checks it before anything switches (a config it refuses changes nothing) and
   takes it without dropping connections; if Caddy won't take it, the update is undone. Going back puts the
   previous release's config back. A config changed by hand is left as it is, and the update says so.
-
 - Point-in-time backups, as found running them on real servers: an S3 storage on its own port (not 443) gets it
   as pgBackRest's port setting; the commands run as the postgres user name it in the database address; `sudo kumi
   pitr test` (and tick, extract) runs as the postgres user, and doctor's hints say so; the monthly test of an
@@ -131,9 +133,10 @@ server starts.
 - If you ran `server-setup.sh` with Kumi ce7f772 or earlier, run it once more: Postgres's archive command is
   renamed to one pgBackRest accepts (`pgbackrest-archive-push`), or the first base backup fails with error 068.
   Postgres only reloads; it doesn't start again.
-- Point-in-time backups need `server-setup.sh` run once more on a one-server install (it starts Postgres again
-  once, which the club's apps ride through); the update after that sets pgBackRest up. Docker installs don't
-  have them yet.
+- Point-in-time backups need `server-setup.sh` run once more on a one-server install, after the update
+  (`KUMI_HOST=app.yourclub.com bash /opt/kumi/app/deploy/server-setup.sh`): it turns them on and starts Postgres
+  again once, which the club's apps ride through. Run before the update, the next update sets pgBackRest up.
+  Docker installs don't have them yet.
 - Nothing else to do. The cap starts at $50 a month, whatever the text cap was. Prices are list prices; set
   `KUMI_PRICES` if your providers charge you differently (`docs/settings.md`).
 - If something other than Caddy on the same machine reaches the server's port, set

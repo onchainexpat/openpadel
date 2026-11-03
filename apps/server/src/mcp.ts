@@ -7,6 +7,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { both, en, isLang, type Key, type Lang, type Text } from "@kumi/i18n";
 import { money } from "@kumi/i18n";
 import { actions, apply, appOnly, mayEverDo, plan, weekSpent, APP_ONLY_YES, KumiError, type Actor, type Db } from "@kumi/core";
+import { VERSION } from "./version.ts";
 
 const toolBase = (action: string) => action.replace(/\./g, "_");
 
@@ -72,7 +73,7 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
   read?: (path: string) => Promise<unknown>): Promise<McpServer> {
   const lang: Lang = isLang(who.locale) ? who.locale : "en";
   const actor: Actor = { personId: who.id, via: `mcp:${who.client_name ?? "client"}`, lang, auth: "oauth", grantId: who.grant_id };
-  const server = new McpServer({ name: "kumi", version: "0.1.0" }, { instructions: `You act for ${who.display_name} at their padel club. Every change is two steps: call a *_preview tool, show the person the summary in their words, and only after they agree call the matching *_confirm tool with the run_id. Anything that costs them money must fit the weekly limit they set for you (whoami says what's left); over it, the preview fails and they do it in the club's app. Some things are only ever done in the app: their limit for you, how they sign in, accepting a waiver, moving their own level, downloading their data, the family card and saying yes to texts or club news. Reply in ${lang === "es" ? "Spanish" : "English"}.` });
+  const server = new McpServer({ name: "kumi", version: VERSION }, { instructions: `You act for ${who.display_name} at their padel club. Every change is two steps: call a *_preview tool, show the person the summary in their words, and only after they agree call the matching *_confirm tool with the run_id. Anything that costs them money must fit the weekly limit they set for you (whoami says what's left); over it, the preview fails and they do it in the club's app. Some things are only ever done in the app: their limit for you, how they sign in, accepting a waiver, moving their own level, downloading their data, the family card and saying yes to texts or club news. Reply in ${lang === "es" ? "Spanish" : "English"}.` });
   const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v) }] });
   const fail = (e: unknown) => {
     if (e instanceof KumiError) return { isError: true, content: [{ type: "text" as const, text: e.text[lang] }] };

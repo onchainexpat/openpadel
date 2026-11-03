@@ -30,7 +30,7 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
    server gets the certificates itself.
 3. **Agent: set up the server**, from a copy of the released code:
    ```bash
-   git clone https://github.com/<your-org>/kumi && cd kumi && git checkout v0.1.0
+   git clone https://github.com/<your-org>/kumi && cd kumi && git checkout v0.2.0
    ssh root@SERVER 'KUMI_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
    deploy/ship.sh root@SERVER
    ```

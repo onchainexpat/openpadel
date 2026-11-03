@@ -105,7 +105,7 @@ sudo kumi restore /var/backups/kumi/kumi-export-20261130T1900Z.kumi --yes
 
 ## Health
 
-- `/health` is cheap and open: `{"ok":true,"version":"0.1.0","revision":"<commit>"}`.
+- `/health` is cheap and open: `{"ok":true,"version":"0.2.0","revision":"<commit>"}`.
 - `/health/deep` answers only on the server itself (`curl -s 127.0.0.1:8790/health/deep`) or for a
   signed-in owner or manager: the database, how far behind the outbox is, the last backup, its offsite copy
   and restore test, and disk space. It answers 503 when something needs a look, and names it in `problems`.
