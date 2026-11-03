@@ -12,7 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
-import { connect, isSealedText, migrate, openBytes, openText, runAsSystem, sealBytes, sealText, SEALED_COLUMNS, SealedError, type Db } from "@kumi/core";
+import { connect, holdPending, isSealedText, migrate, openBytes, openText, runAsSystem, sealBytes, sealText, SEALED_COLUMNS, SealedError, type Db, type HeldCounts } from "@kumi/core";
 import { makeBackup, readOpsRecords, safeRestore, writeOpsRecords, type Manifest } from "./backups.ts";
 import { REVISION, VERSION } from "./version.ts";
 
@@ -163,13 +163,14 @@ const hostOf = (url: string | null | undefined) => { try { return url ? new URL(
 
 export interface ImportReport {
   club: string; from: { version: string; created_at: string }; safety_copy: string; migrations_run: string[]; secrets: number; secrets_lost: number;
-  passkeys_retired: number; was_read_only: boolean; was_leaving: string | null; settings: Record<string, string>; set_elsewhere: string[]; club_file: Buffer | null;
+  passkeys_retired: number; was_read_only: boolean; was_leaving: string | null; held: HeldCounts; settings: Record<string, string>; set_elsewhere: string[]; club_file: Buffer | null;
   stripe_account: string | null; texting_registered: boolean;
 }
 
 /** Replace this server's database with an export, then bring it up to this Kumi: its migrations, the secrets
  *  sealed with this server's key, passkeys retired if the club's address changed (a passkey belongs to its web
- *  address), and read-only and any day its Kumi was to end there taken off (this server's owner decides those). The server must be stopped, as for a restore;
+ *  address), what was still waiting to go out held (held.ts: the old server may still send it), and read-only and
+ *  any day its Kumi was to end there taken off (this server's owner decides those). The server must be stopped, as for a restore;
  *  the database as it was is kept first (safeRestore), and put back if the restore fails. */
 export async function importExport(o: { url: string; file: Buffer; passphrase: string; dir: string; env?: Env; now?: Date }): Promise<ImportReport> {
   const env = o.env ?? process.env, now = o.now ?? new Date();
@@ -190,6 +191,9 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
     await sql`DELETE FROM ops_heartbeat`.execute(db).catch(() => undefined);
     await writeOpsRecords(o.url, kept);
     const migrationsRun = await migrate(db);
+    // What was still waiting to go out on the old server, which may still be sending it: held here until this
+    // server's owner says (held.ts). First, so nothing below (read-only and the leaving day going off) is held.
+    const held = await holdPending(db, now);
     // Key material, written as resealAll writes it: sealed again with this server's key.
     const secrets = JSON.parse(entries.get("secrets.json")?.toString("utf8") ?? "[]") as Secret[];
     let carried = 0;
@@ -218,7 +222,7 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
     if (club.leaving_on) await runAsSystem(db, "club.leaving", { on: null, tell: false }, "import", { now });
     const texting = await db.selectFrom("texting_registration").select("id").executeTakeFirst();
     return { club: club.name, from: { version: manifest.kumi.version, created_at: manifest.created_at }, safety_copy: safetyCopy, migrations_run: migrationsRun, secrets: carried,
-      secrets_lost: lost, passkeys_retired: retired, was_read_only: Boolean(club.read_only_since), was_leaving: club.leaving_on, settings: manifest.settings, set_elsewhere: manifest.set_elsewhere,
+      secrets_lost: lost, passkeys_retired: retired, was_read_only: Boolean(club.read_only_since), was_leaving: club.leaving_on, held, settings: manifest.settings, set_elsewhere: manifest.set_elsewhere,
       club_file: entries.get("club.yaml") ?? null, stripe_account: club.stripe_account_id, texting_registered: Boolean(texting) };
   } finally { await db.destroy(); }
 }

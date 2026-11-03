@@ -16,6 +16,8 @@
 //   kumi read-only on|off|status   the host's switch for an account that isn't paid (read_only.ts)
 //   kumi leaving on --date=YYYY-MM-DD [--kept-days=N] | off | status   the day the club's Kumi ends (leaving.ts): the
 //                                  owner is told at once, and a week and a day before, to download everything first
+//   kumi held [send|drop] --yes    after a club's export is restored here: what was still waiting to go out on the old
+//                                  server, held so it isn't sent twice (held.ts); send it on, or drop it, once that one is off
 //   kumi restore-test              restore the newest backup into a scratch database and check it
 //                                  (--scheduled: only when it's due, the 1st at 4:17 on the club's clock)
 //   kumi rotate-key                seal every secret with KUMI_SECRET_KEY (the old one in KUMI_SECRET_KEY_PREVIOUS)
@@ -27,7 +29,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { money, t, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { connect, dayText, KumiError, leavingStatus, migrate, monthOf, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
+import { connect, dayText, heldSummary, KumiError, leavingStatus, migrate, monthOf, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
@@ -259,6 +261,29 @@ async function main(): Promise<number> {
       return 0;
     } finally { await db.destroy(); }
   }
+  if (cmd === "held" && (sub === undefined || sub === "status" || sub === "send" || sub === "drop")) {
+    const db = connect();
+    try {
+      const yes = args.includes("--yes");
+      if (sub === "send" || sub === "drop") {
+        if (!yes) { if (json) out({ ok: false, error: t(lang, "cli.held_need_yes") }); else console.error(t(lang, "cli.held_need_yes")); return 2; }
+        const r = (await runAsSystem(db, "club.held_release", { send: sub === "send" }, "cli")).result as { sent?: { messages: number; events: number }; dropped?: { messages: number; events: number } };
+        const n = r.sent ?? r.dropped!;
+        if (json) { out({ ok: true, ...r }); return 0; }
+        console.log(t(lang, sub === "send" ? "cli.held_sent" : "cli.held_dropped", { count: n.messages + n.events }));
+        return 0;
+      }
+      const h = await heldSummary(db);
+      if (json) { out({ ok: true, ...h }); return 0; }
+      if (!h.messages && !h.events) { console.log(t(lang, "cli.held_none")); return 0; }
+      const day = (d: Date) => d.toISOString().slice(0, 10);
+      console.log(t(lang, "cli.held_status", { count: h.messages + h.events }));
+      for (const m of h.by_message) console.log(`  ${t(lang, "cli.held_message_line", { kind: m.kind, channel: m.channel, count: m.count, oldest: day(m.oldest) })}`);
+      for (const e of h.by_event) console.log(`  ${t(lang, "cli.held_event_line", { topic: e.topic, count: e.count, oldest: day(e.oldest) })}`);
+      console.log(t(lang, "cli.held_hint"));
+      return 0;
+    } finally { await db.destroy(); }
+  }
   if (cmd === "doctor") {
     const db = connect();
     try {
@@ -407,6 +432,7 @@ async function importClub(path: string): Promise<number> {
     if (r.passkeys_retired) console.log(`  - ${t(lang, "cli.import_passkeys", { count: r.passkeys_retired })}`);
     if (r.was_read_only) console.log(`  - ${t(lang, "cli.import_read_only")}`);
     if (r.was_leaving) console.log(`  - ${t(lang, "cli.import_leaving", { date: r.was_leaving })}`);
+    if (r.held.messages + r.held.events) console.log(`  - ${t(lang, "cli.import_held", { count: r.held.messages + r.held.events })}`);
     if (settings.length) console.log(`  - ${t(lang, "cli.import_settings", { list: settings.join(", ") })}`);
     if (r.set_elsewhere.length) console.log(`  - ${t(lang, "cli.import_elsewhere", { list: r.set_elsewhere.join(", ") })}`);
     if (r.stripe_account && process.env.KUMI_STRIPE_CONNECT !== "1") console.log(`  - ${t(lang, "cli.import_stripe", { account: r.stripe_account })}`);

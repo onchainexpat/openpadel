@@ -474,6 +474,15 @@ with a code and add one again. A club that took card payments on its own Stripe 
 Kumi puts that account's keys in `KUMI_STRIPE_SECRET_KEY` and `KUMI_STRIPE_PUBLISHABLE_KEY`, so refunds
 of earlier payments still work.
 
+The file also carries what was still waiting to go out on the old server: emails, texts and notices not
+yet sent. The old server, if it's still running, sends those itself, so the new one holds them instead of
+sending them a second time; the restore says how many, and so does `kumi doctor` until you decide. Once
+the old server is off, `kumi held` lists them, `kumi held drop --yes` drops them if the old server sent
+them, and `kumi held send --yes` sends them if it never got to them (each goes as it would have: quiet
+hours apply, and an offer that ran out meanwhile is dropped). A receipt that's dropped is still in the
+member's app, and the staff can send it again. Refunds are never held: Kumi asks Stripe for each refund
+before sending it, so one the old server already sent is recorded, not sent twice.
+
 **Read-only** is a host's switch for an account that isn't paid: `kumi read-only on` (and `off`, and
 `status`). Nothing is held back: everyone still signs in, sees everything, looks after their account
 and downloads their data, and the owner can download everything. People can still cancel and leave,

@@ -46,8 +46,12 @@ test("refunds: sent, pending, refused by Stripe, or Stripe unreachable (tried ag
   const make = (status: number, json: unknown) => new StripeProvider({ secretKey: "sk_test_abc", fetch: fakeStripe(() => ({ status, json })).fetch });
   const s = fakeStripe(() => ({ json: { id: "re_1", status: "succeeded" } }));
   assert.deepEqual(await new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch }).refund({ paymentRef: "pi_1", amountCents: 1000, idempotencyKey: "ref-1" }), { ref: "re_1", ok: true });
-  assert.equal(s.calls[0]!.headers["idempotency-key"], "refund:ref-1");
-  assert.equal(s.calls[0]!.body.get("payment_intent"), "pi_1"); assert.equal(s.calls[0]!.body.get("amount"), "1000");
+  // First Stripe is asked for a refund it already has with Kumi's id for this one (none here), then it's sent, with that id.
+  assert.deepEqual([s.calls[0]!.method, s.calls[0]!.path], ["GET", "/v1/refunds"]);
+  const sent = s.calls[1]!;
+  assert.equal(sent.headers["idempotency-key"], "refund:ref-1");
+  assert.equal(sent.body.get("payment_intent"), "pi_1"); assert.equal(sent.body.get("amount"), "1000");
+  assert.equal(sent.body.get("metadata[kumi_refund_id]"), "ref-1");
   assert.equal((await make(200, { id: "re_2", status: "pending" }).refund({ paymentRef: "pi_1", amountCents: 1, idempotencyKey: "k" })).ok, true);
   assert.deepEqual(await make(400, { error: { code: "charge_already_refunded", message: "already" } }).refund({ paymentRef: "pi_1", amountCents: 1, idempotencyKey: "k" }), { ref: "", ok: false, failure: "charge_already_refunded" });
   await assert.rejects(make(500, { error: { message: "down" } }).refund({ paymentRef: "pi_1", amountCents: 1, idempotencyKey: "k" }), StripeError);

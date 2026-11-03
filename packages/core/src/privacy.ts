@@ -446,7 +446,7 @@ async function erasePerson(ctx: ApplyCtx, personId: string): Promise<number> {
   }
   // Messages to them: kept as a record that something was sent, without the words; anything not sent yet isn't.
   await db.updateTable("outbound_message").set({ subject: REMOVED, body: REMOVED, link: null }).where("person_id", "=", personId).execute();
-  await db.updateTable("outbound_message").set({ status: "dropped", failure: "account deleted" }).where("person_id", "=", personId).where("status", "=", "waiting").execute();
+  await db.updateTable("outbound_message").set({ status: "dropped", failure: "account deleted" }).where("person_id", "=", personId).where("status", "in", ["waiting", "held"]).execute();
   // A new friend code nobody has, so an old friend link leads nowhere.
   // The club's tags come off; a new news key, so an old unsubscribe link leads nowhere.
   for (const pt of await db.selectFrom("person_tag").select("id").where("person_id", "=", personId).where("removed_at", "is", null).execute()) await ctx.update("person_tag", pt.id, { removed_at: ctx.now });

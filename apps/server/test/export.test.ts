@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { leavingOn, messageHandlers, openText, processOutbox, pushKeys, readOnlySince, run, runAsSystem, sealText, setSecretKeys, type Actor, type Db } from "@kumi/core";
+import { heldSummary, leavingOn, messageHandlers, openText, processOutbox, pushKeys, readOnlySince, run, runAsSystem, sealText, sendEmails, setSecretKeys, uuidv7, type Actor, type Db } from "@kumi/core";
 import { pgTool } from "../src/backups.ts";
 import { ExportRefused, importExport, makeExport, openExport, packExport, sealExport } from "../src/export.ts";
 import { makeApp } from "../src/app.ts";
@@ -69,6 +69,9 @@ test("the export opens only with its passphrase, and holds the database, the sec
 
 test("restored into a fresh install: the same data, secrets sealed with the new key, passkeys retired, read-only and leaving off", { skip }, async () => {
   const before = await counts(src.db, TABLES);
+  // A receipt's email still waiting to go when the export is made: the old server will send it.
+  await src.db.insertInto("outbound_message").values({ id: uuidv7(), event_id: null, person_id: owner.personId!, kind: "receipt.issued", channel: "email", purpose: "account",
+    essential: true, lang: "en", subject: "Your receipt", body: "Thanks", link: null, status: "waiting", send_after: NOW, stale_at: null, failure: null, sent_at: null, read_at: null }).execute();
   const made = await makeExport(src.db, { url: srcUrl, env: { KUMI_PUBLIC_URL: SOURCE_URL, KUMI_PG_BIN: process.env.KUMI_PG_BIN }, now: NOW });
   // The new server, its own key, at the club's own domain now.
   setSecretKeys({ current: KEY_NEW });
@@ -89,6 +92,19 @@ test("restored into a fresh install: the same data, secrets sealed with the new 
   // Nobody here is told the old server's date went: it was never this server's.
   await processOutbox(dst.db, messageHandlers);
   assert.equal((await dst.db.selectFrom("outbound_message").select("id").where("kind", "like", "club_leaving%").execute()).length, 0);
+  // What was still waiting on the old server is held here, not sent a second time, until this server's owner says.
+  assert.ok(r.held.messages >= 1 && r.held.events >= 1, "the receipt's email and the old server's unhandled events are held");
+  const mails: string[] = [];
+  const mailer = { async send(m: { subject: string }) { mails.push(m.subject); } };
+  await sendEmails(dst.db, mailer, NOW);
+  assert.equal(mails.length, 0, "nothing sent here yet");
+  assert.equal((await heldSummary(dst.db)).messages, r.held.messages);
+  // Sent on (the old server never got to it): the receipt goes, and still nobody hears about the old leaving day.
+  await runAsSystem(dst.db, "club.held_release", { send: true }, "test", { now: NOW });
+  await processOutbox(dst.db, messageHandlers);
+  await sendEmails(dst.db, mailer, NOW);
+  assert.ok(mails.includes("Your receipt"));
+  assert.equal((await dst.db.selectFrom("outbound_message").select("id").where("kind", "like", "club_leaving%").where("channel", "=", "email").where("status", "=", "sent").execute()).length, 0);
   setSecretKeys({ current: KEY_OLD });
 });
 

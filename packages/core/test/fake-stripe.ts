@@ -3,7 +3,7 @@
 export function fakeStripe() {
   const accounts = new Map<string, { charges_enabled: boolean; details_submitted: boolean; key: string }>();
   const intents = new Map<string, { account: string | null; status: string; amount: number; key: string }>();
-  const refunds: { id: string; account: string | null; payment_intent: string; amount: number }[] = [];
+  const refunds: { id: string; account: string | null; payment_intent: string; amount: number; kumi_refund_id: string | null; status: string }[] = [];
   const calls: { method: string; path: string; account: string | null; key: string | null; body: URLSearchParams }[] = [];
   const fetch = async (url: string, init?: RequestInit) => {
     const u = new URL(url), h = init?.headers as Record<string, string>, body = new URLSearchParams(String(init?.body ?? ""));
@@ -31,11 +31,17 @@ export function fakeStripe() {
       if (!it || it.account !== account) return Response.json({ error: { message: "No such payment_intent", code: "resource_missing" } }, { status: 404 });
       return Response.json({ id: pi[1], client_secret: `${pi[1]}_secret`, status: it.status });
     }
+    if (method === "GET" && u.pathname === "/v1/refunds") {
+      // A payment's refunds, on the account it was made on, with Kumi's id for each.
+      const it = intents.get(u.searchParams.get("payment_intent") ?? "");
+      if (!it || it.account !== account) return Response.json({ error: { message: "No such payment_intent", code: "resource_missing" } }, { status: 404 });
+      return Response.json({ data: refunds.filter((r) => r.payment_intent === u.searchParams.get("payment_intent")).map((r) => ({ id: r.id, status: r.status, amount: r.amount, metadata: r.kumi_refund_id ? { kumi_refund_id: r.kumi_refund_id } : {} })) });
+    }
     if (method === "POST" && u.pathname === "/v1/refunds") {
       const it = intents.get(body.get("payment_intent") ?? "");
       if (!it || it.account !== account) return Response.json({ error: { message: "No such payment_intent", code: "resource_missing" } }, { status: 404 });
       const id = `re_${refunds.length + 1}`;
-      refunds.push({ id, account, payment_intent: body.get("payment_intent")!, amount: Number(body.get("amount")) });
+      refunds.push({ id, account, payment_intent: body.get("payment_intent")!, amount: Number(body.get("amount")), kumi_refund_id: body.get("metadata[kumi_refund_id]"), status: "succeeded" });
       return Response.json({ id, status: "succeeded" });
     }
     return Response.json({ error: { message: `unexpected ${method} ${u.pathname}` } }, { status: 400 });

@@ -114,7 +114,9 @@ and settings, sealed with a passphrase; `kumi restore <file>` puts it into anoth
 Kumi or a newer one. A host can make a club read-only (`kumi read-only on`) when its account isn't paid:
 everyone still signs in, cancels and downloads their data, and nothing new is booked or charged. Before a
 club's Kumi ends, `kumi leaving on --date=...` tells the owners at once, and again a week and a day before, to
-download everything. See [docs/setup](docs/setup/README.md#moving-the-club-and-read-only).
+download everything. On the new server, what was still waiting to go out on the old one is held, so
+nobody hears it twice, until `kumi held send` or `kumi held drop`. See
+[docs/setup](docs/setup/README.md#moving-the-club-and-read-only).
 
 ### Running beside Playtomic
 

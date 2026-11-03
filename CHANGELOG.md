@@ -34,6 +34,11 @@ server starts.
   deleting people or data, the vault, the usage cap or anything that needs a strong sign-in, and never work
   through an assistant. Everything they open and change is recorded for the owner, who hears when it's
   first used and when it ends, and can end it at once. It ends by itself, mid-session too.
+- **What was waiting to go out is held after a move.** An export carries the emails, texts and notices the
+  old server hadn't sent yet, and the old server, still running, sends them itself. Restored on another
+  server, they're held there instead of going twice; the restore and `kumi doctor` say how many. Once the old
+  server is off, `kumi held send --yes` sends them as they would have gone, or `kumi held drop --yes` drops
+  them (`kumi held` lists them first).
 
 ### Changed
 - Saying yes to a change that needs a strong sign-in (an owner approving a manager's request) needs one too.
@@ -41,6 +46,11 @@ server starts.
 - A club that ran on a hosted Kumi (Stripe Connect) and moves to its own server reaches its earlier
   payments with its own Stripe keys, so refunds of them work.
 - The Docker backup service knows the club's address (for exports).
+- A refund asks Stripe for the one it already has, by Kumi's own id for it, before sending: one sent before (by
+  a club's old server, or long enough ago that Stripe has forgotten the request) is recorded, never sent
+  twice. Refunds Kumi sends carry that id. Refunds sent by Kumi 0.1.0 don't, so this can't see them.
+- An account Kumi made for support access, with no role at the club, can't connect an assistant: there's no
+  consent screen for it, and a connection it already had stops working.
 - The server listens on 127.0.0.1 only (`KUMI_LISTEN_ADDRESS`), not every address; the Docker image sets
   `0.0.0.0`, since Caddy is another container there. For a server several clubs share, `KUMI_SOCKET` makes a
   club listen on a unix socket instead of a port, so no other club's process can reach it or pass itself off

@@ -43,7 +43,7 @@ export async function deepHealth(db: Db, o: { env?: Env; now?: Date; backupDir?:
 
   // Only events the worker picks up: one nobody handles (club.set_up, say) waits forever and is no sign of
   // trouble. One it gave up on after every retry is, for a week.
-  const waiting = db.selectFrom("event_outbox").where("delivered_at", "is", null).where("topic", "in", handledTopics);
+  const waiting = db.selectFrom("event_outbox").where("delivered_at", "is", null).where("held_at", "is", null).where("topic", "in", handledTopics);
   const oldestEvent = (await waiting.select((e) => e.fn.min("created_at").as("at")).where("attempts", "<", MAX_ATTEMPTS).executeTakeFirst())?.at ?? null;
   const givenUp = Number((await waiting.select((e) => e.fn.countAll().as("n")).where("attempts", ">=", MAX_ATTEMPTS)
     .where("created_at", ">", new Date(now.getTime() - 7 * 86_400_000)).executeTakeFirst())?.n ?? 0);

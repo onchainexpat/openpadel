@@ -10,7 +10,7 @@ import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setCookie } from "hono/cookie";
 import { money, t, type Lang } from "@kumi/i18n";
-import { activeFactor, KumiError, usPhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
+import { activeFactor, KumiError, supportOnly, usPhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 import { RateLimiter } from "./limits.ts";
@@ -204,6 +204,9 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
 <label>${t(lang, "consent.two_step_label")}<input name="code" inputmode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code"></label><button class="primary">${t(lang, "consent.verify")}</button></form>`));
       return c.html(page(lang, t(lang, "consent.two_step_title"), html`<p>${t(lang, "consent.two_step_in_app", { club: clubName })}</p>`));
     }
+    // An account made only for support access has nothing of its own for an assistant, and support access is never
+    // through one (support.ts): no consent screen for it.
+    if (await supportOnly(deps.db, me.id)) return c.html(page(lang, t(lang, "consent.support_title"), html`<p>${t(lang, "consent.support_only", { club: clubName })}</p>`), 403);
     const id = b64url(randomBytes(16));
     pending.set(id, { at: Date.now(), clientName: client.name, published: client.published ? client : undefined, params: { client_id: client.client_id, redirect_uri: q.redirect_uri, code_challenge: q.code_challenge, state: q.state, scope: SCOPE, resource: q.resource || resources[0]! } });
     const host = new URL(q.redirect_uri).host;
@@ -266,6 +269,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     pending.delete(String(f.req ?? ""));
     if (!p || Date.now() - p.at > 600_000) throw new KumiError("error.oauth_expired", {}, 400);
     if (!me) throw new KumiError("error.signed_out", {}, 401);
+    if (await supportOnly(deps.db, me.id)) throw new KumiError("error.support_no_assistant", {}, 403);
     const u = new URL(p.params.redirect_uri);
     if (p.params.state) u.searchParams.set("state", p.params.state);
     u.searchParams.set("iss", issuer);
@@ -339,10 +343,13 @@ export async function bearerPerson(db: Db, header: string | undefined, resources
   if (!header?.startsWith("Bearer ")) return null;
   const r = await db.selectFrom("oauth_token").innerJoin("oauth_grant", "oauth_grant.id", "oauth_token.grant_id").innerJoin("oauth_client", "oauth_client.client_id", "oauth_grant.client_id")
     .innerJoin("person", "person.id", "oauth_grant.person_id")
-    .select(["person.id", "person.display_name", "person.locale", "oauth_client.name as client_name", "oauth_token.resource", "oauth_grant.id as grant_id"])
+    .select(["person.id", "person.display_name", "person.locale", "person.created_via", "oauth_client.name as client_name", "oauth_token.resource", "oauth_grant.id as grant_id"])
     .where("oauth_token.token_hash", "=", sha(header.slice(7))).where("oauth_token.kind", "=", "access").where("oauth_token.revoked_at", "is", null)
     .where("oauth_grant.revoked_at", "is", null).where("oauth_token.expires_at", ">", now).where("person.status", "!=", "archived").executeTakeFirst();
-  return r && resources.includes(r.resource) ? r : null;
+  if (!r || !resources.includes(r.resource)) return null;
+  // One connected before support-only accounts were refused at the consent screen is refused here.
+  if (r.created_via === "support" && await supportOnly(db, r.id)) return null;
+  return r;
 }
 
 /** What sign-in leaves behind, tidied: codes and passkey challenges a day past their end, and assistants that

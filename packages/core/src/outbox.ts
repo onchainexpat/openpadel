@@ -19,7 +19,7 @@ export async function processOutbox(db: Db, handlers: Record<string, Handler>, l
   const tried = new Set<string>();
   while (delivered + failed < limit) {
     const ev = await db.transaction().execute(async (trx) => {
-      const e = await trx.selectFrom("event_outbox").selectAll().where("delivered_at", "is", null).where("topic", "in", Object.keys(handlers))
+      const e = await trx.selectFrom("event_outbox").selectAll().where("delivered_at", "is", null).where("held_at", "is", null).where("topic", "in", Object.keys(handlers))
         .where((w) => w.or([w("attempts", "<", MAX_ATTEMPTS), w("topic", "in", [...MONEY_TOPICS])]))
         .where((w) => w.or([w("next_attempt_at", "is", null), w("next_attempt_at", "<=", now)]))
         .$if(tried.size > 0, (q) => q.where("id", "not in", [...tried])).orderBy("id").limit(1).forUpdate().skipLocked().executeTakeFirst();

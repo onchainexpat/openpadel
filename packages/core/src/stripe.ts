@@ -126,11 +126,16 @@ export class StripeProvider implements PaymentProvider {
   }
 
   async refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string; account?: string | null }) {
+    // "pending" is normal for some cards: Stripe has it and will send it.
+    const answer = (d: any) => { const ok = ["succeeded", "pending", "requires_action"].includes(d.status); return { ref: String(d.id), ok, ...(ok ? {} : { failure: String(d.failure_reason ?? d.status) }) }; };
     try {
-      const d = await this.call("POST", "/v1/refunds", { payment_intent: i.paymentRef, amount: i.amountCents }, `refund:${i.idempotencyKey}`, i.account);
-      // "pending" is normal for some cards: Stripe has it and will send it.
-      const ok = ["succeeded", "pending", "requires_action"].includes(d.status);
-      return { ref: String(d.id), ok, ...(ok ? {} : { failure: String(d.failure_reason ?? d.status) }) };
+      // Stripe remembers an idempotency key for a day. Asked again later (a club's export restored on another server
+      // while the old one sent it, or the staff sending it again), the refund Stripe already has for this one, by
+      // Kumi's own id for it, is the answer: never a second. One that failed or was cancelled can go again.
+      const had = await this.call("GET", `/v1/refunds?payment_intent=${encodeURIComponent(i.paymentRef)}&limit=100`, undefined, undefined, i.account);
+      const found = (had?.data ?? []).find((r: any) => r?.metadata?.kumi_refund_id === i.idempotencyKey && !["failed", "canceled"].includes(r.status));
+      if (found) return answer(found);
+      return answer(await this.call("POST", "/v1/refunds", { payment_intent: i.paymentRef, amount: i.amountCents, metadata: { kumi_refund_id: i.idempotencyKey } }, `refund:${i.idempotencyKey}`, i.account));
     } catch (e) {
       // Stripe said no (already refunded, more than was paid...): a failed refund for staff to see.
       // Anything else (the network, Stripe down) is thrown, so the outbox tries again later.

@@ -125,6 +125,14 @@ export async function supportRoleKeys(db: Db | Trx, personId: string, now = new 
   return (await activeSupport(db, personId, now)) ? ["manager"] : [];
 }
 
+/** An account Kumi made for support access (they had no account here) and nothing more: no role at the club. It
+ *  can't connect an assistant: there's nothing of its own to act on, and support access is never for assistants. */
+export async function supportOnly(db: Db | Trx, personId: string): Promise<boolean> {
+  const p = await db.selectFrom("person").select("created_via").where("id", "=", personId).executeTakeFirst();
+  if (p?.created_via !== "support") return false;
+  return !(await db.selectFrom("person_role").select("person_role.person_id").where("person_id", "=", personId).where("active", "=", true).executeTakeFirst());
+}
+
 /** A page they opened, for the owner. */
 export async function logSupportRead(db: Db, grantId: string, method: string, path: string, status: number | null): Promise<void> {
   await db.insertInto("support_access_log").values({ grant_id: grantId, method, path: path.slice(0, 500), status }).execute();
