@@ -3,9 +3,10 @@
 # `kumi update` run it from the NEW release, so this script always comes with the code it installs.
 #
 #   release.sh update <release.tar> [revision]   install it beside the running release, snapshot the database,
-#                                                switch, check; if it doesn't come up, put everything back
-#   release.sh rollback --yes                    the previous release, and the database as it was before the
-#                                                last update (everything since is lost: hence --yes)
+#                                                switch, check, and give Caddy the release's config (the paths
+#                                                it answers on); if it doesn't come up, put everything back
+#   release.sh rollback --yes                    the previous release, its Caddy config, and the database as it
+#                                                was before the last update (everything since is lost: hence --yes)
 #   release.sh status                            which release runs, which is kept, and the snapshots
 #
 # Releases live in $ROOT/releases/<revision>; $ROOT/app is a link to the running one. The last 3 releases and
@@ -26,6 +27,10 @@ STOP=${KUMI_STOP:-systemctl stop kumi}
 INSTALL=${KUMI_INSTALL:-npm ci --no-audit --no-fund --loglevel=error}
 BUILD=${KUMI_BUILD:-npm run build -w @kumi/member -w @kumi/manager --silent}
 SYSTEM_FILES=${KUMI_SYSTEM_FILES:-1}
+# Caddy's config, rewritten from each release (its API paths and the apps' policy) unless it was changed by hand.
+CADDYFILE=${KUMI_CADDYFILE:-/etc/caddy/Caddyfile}
+CADDY=${KUMI_CADDY:-caddy}
+CADDY_RELOAD=${KUMI_CADDY_RELOAD:-systemctl reload caddy}
 KUMI_HOME=${KUMI_HOME_DIR:-/var/lib/kumi}   # the kumi user's own folder (npm's cache), outside the code
 # Commands that touch the app or the database run as the kumi user; the tests set KUMI_AS= to run them as themselves.
 AS=${KUMI_AS-sudo -u kumi HOME=$KUMI_HOME}
@@ -86,12 +91,18 @@ harden_layout() {
 }
 switch_to() { ln -sfn "releases/$1" "$ROOT/app.next" && mv -Tf "$ROOT/app.next" "$ROOT/app"; }
 
+# A request to the server itself: on its port on this machine, or on its unix socket (KUMI_SOCKET).
+ask() {
+  local path=$1; shift
+  if [ -n "${KUMI_SOCKET:-}" ]; then curl --unix-socket "$KUMI_SOCKET" "$@" "http://localhost$path"; else curl "$@" "http://127.0.0.1:$PORT$path"; fi
+}
+
 # Up and answering, as the release we expect: /health names its revision, and /club answers.
 check() {
   local want=$1 i=0 body
   while [ "$i" -lt "$CHECK_SECONDS" ]; do
-    if body=$(curl -fsS --max-time 5 "http://127.0.0.1:$PORT/health" 2>/dev/null) && echo "$body" | grep -q "\"revision\":\"$want\""; then
-      local code; code=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/club" 2>/dev/null || echo 000)
+    if body=$(ask /health -fsS --max-time 5 2>/dev/null) && echo "$body" | grep -q "\"revision\":\"$want\""; then
+      local code; code=$(ask /club -sS --max-time 5 -o /dev/null -w '%{http_code}' 2>/dev/null || echo 000)
       [ "$code" -ge 200 ] && [ "$code" -lt 500 ] || { say "/club answers $code"; return 1; }
       [ -f "$ROOT/app/apps/member/dist/index.html" ] && [ -f "$ROOT/app/apps/manager/dist/index.html" ] || { say "the apps aren't built"; return 1; }
       return 0
@@ -99,6 +110,84 @@ check() {
     sleep 1; i=$((i + 1))
   done
   say "the server didn't answer as $want within ${CHECK_SECONDS}s"
+  return 1
+}
+
+# --- caddy sites (the same in server-setup.sh and release.sh) ---
+# One of Kumi's sites: $1 its address, $2 the app (member or manager), $3 where the server listens (127.0.0.1:PORT,
+# or unix/ and KUMI_SOCKET's path) and $4 the link to the running release. The API's paths ($api) go to the server;
+# everything else is the app, with the apps' security headers ($csp).
+site() {
+  cat <<SITE
+$1 {
+	encode zstd gzip
+	@api path $api
+	handle @api {
+		reverse_proxy $3
+	}
+	handle {
+		header {
+			Content-Security-Policy "$csp"
+			Strict-Transport-Security "max-age=31536000"
+			X-Content-Type-Options nosniff
+			X-Frame-Options DENY
+			Referrer-Policy strict-origin-when-cross-origin
+			Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		}
+		root * $4/apps/$2/dist
+		try_files {path} /index.html
+		file_server
+	}
+}
+SITE
+}
+# Caddy's whole config: the members' site at $1 and the staff's at $2, the server at $3, the running release at $4.
+kumi_sites() {
+  echo "# Kumi's sites. Each update writes this file again from its own release (deploy/release.sh), unless it has"
+  echo "# been changed by hand: then it's left as it is, and paths a new release answers on need adding here."
+  site "$1" member "$3" "$4"
+  site "$2" manager "$3" "$4"
+}
+# --- end caddy sites ---
+host_of() { local h=${1#*://}; printf '%s' "${h%%/*}"; }
+# Caddy's config for release $1: the API's paths and the apps' policy from that release's own server-setup.sh, the
+# addresses from the settings file, and where the server listens. Fails if any of them is missing.
+caddy_for() {
+  local f="$ROOT/releases/$1/deploy/server-setup.sh" api csp member staff upstream
+  [ -f "$f" ] || return 1
+  api=$(sed -n "s/^api='\(.*\)'\$/\1/p" "$f" | head -1); csp=$(sed -n 's/^csp="\(.*\)"$/\1/p' "$f" | head -1)
+  member=$(host_of "${KUMI_MEMBER_URL:-}"); staff=$(host_of "${KUMI_PUBLIC_URL:-}")
+  [ -n "$api" ] && [ -n "$csp" ] && [ -n "$member" ] && [ -n "$staff" ] || return 1
+  if [ -n "${KUMI_SOCKET:-}" ]; then upstream="unix/$KUMI_SOCKET"; else upstream="127.0.0.1:$PORT"; fi
+  kumi_sites "$member" "$staff" "$upstream" "$ROOT/app"
+}
+# Whether Caddy's config is the one Kumi wrote for release $1, unchanged since (comments aside). Only then is it
+# written again: a config changed by hand is left alone.
+caddy_ours() {
+  local want
+  [ -f "$CADDYFILE" ] && want=$(caddy_for "$1") || return 1
+  [ "$(grep -v '^#' "$CADDYFILE")" = "$(printf '%s\n' "$want" | grep -v '^#')" ]
+}
+# Release $1's config, written beside Caddy's and checked by Caddy itself; prints its path. Nothing is switched yet.
+caddy_next() {
+  local next="$CADDYFILE.kumi-$1" out
+  caddy_for "$1" > "$next" || { rm -f "$next"; return 1; }
+  if ! out=$($CADDY validate --config "$next" --adapter caddyfile 2>&1); then
+    rm -f "$next"; echo "$out" | tail -2 >&2; return 1
+  fi
+  echo "$next"
+}
+# Puts a checked config in place, and Caddy takes it without dropping connections. If Caddy won't, the old config
+# goes back and this fails.
+caddy_use() {
+  local next=$1
+  [ -n "$next" ] || return 0
+  if cmp -s "$next" "$CADDYFILE"; then rm -f "$next"; return 0; fi
+  cp -p "$CADDYFILE" "$CADDYFILE.kumi-before"
+  chmod 644 "$next"; mv -f "$next" "$CADDYFILE"
+  if $CADDY_RELOAD; then rm -f "$CADDYFILE.kumi-before"; say "Caddy now has this release's config"; return 0; fi
+  mv -f "$CADDYFILE.kumi-before" "$CADDYFILE"; $CADDY_RELOAD || true
+  say "Caddy didn't take the new config, so it has its old one back"
   return 1
 }
 
@@ -240,15 +329,25 @@ update() {
   [ -z "$AS" ] || { chown -R root:root "$dir.new"; chmod -R u+rwX,go+rX,go-w "$dir.new"; }
   rm -rf "$dir"; mv "$dir.new" "$dir"
 
-  # 2. A snapshot of the database as it is now, named for the update.
+  # 2. Caddy's config from the new release (the paths it answers on), checked before anything switches. A config
+  #    changed by hand is left as it is.
+  local caddy=""
+  if caddy_ours "$old" || caddy_ours "$new"; then
+    caddy=$(caddy_next "$new") || die "Caddy refused $new's config (above); nothing changed, still on $old"
+  elif [ -f "$CADDYFILE" ]; then
+    say "Caddy's config ($CADDYFILE) was changed by hand, so it's left as it is: paths $new answers on that aren't there need adding (or run server-setup.sh again)"
+  fi
+
+  # 3. A snapshot of the database as it is now, named for the update.
   local snap; snap="$BACKUPS/update-$old-to-$new-$(date -u +%Y%m%dT%H%M%SZ).dump"
-  snapshot "$snap" || die "couldn't take a snapshot of the database; nothing changed, still on $old"
+  snapshot "$snap" || { [ -z "$caddy" ] || rm -f "$caddy"; die "couldn't take a snapshot of the database; nothing changed, still on $old"; }
   say "database snapshot: $snap"
 
-  # 3. Switch and start: database changes apply as the server starts. 4. Check it answers as the new release.
+  # 4. Switch and start: database changes apply as the server starts. 5. Check it answers as the new release, then
+  #    Caddy takes the new config.
   state_set "$new" "$old" "$snap"
   switch_to "$new"
-  if $RESTART && check "$new"; then
+  if $RESTART && check "$new" && caddy_use "$caddy"; then
     install_system_files
     tidy
     say "now running $new (was $old). If something's wrong: sudo kumi rollback --yes"
@@ -256,6 +355,7 @@ update() {
   fi
 
   # It didn't come up: the old release, and the database from the snapshot (the new one may have changed it).
+  [ -z "$caddy" ] || rm -f "$caddy"
   say "$new didn't come up; putting $old back"
   [ "$old" != "none" ] && [ -d "$ROOT/releases/$old" ] || die "there's no previous release to go back to"
   switch_to "$old"
@@ -281,6 +381,10 @@ Everything since then (bookings, payments, sign-ups, changes) is lost. To go ahe
   restore "$snap" || die "restoring $snap failed; the server is stopped. Restore it by hand: kumi restore $snap --yes"
   state_set "$prev" "" ""
   $RESTART && check "$prev" || die "$prev didn't come up: check journalctl -u kumi"
+  # Caddy back on the previous release's config (its paths), if the one there is still Kumi's.
+  if caddy_ours "$cur"; then
+    local caddy; caddy=$(caddy_next "$prev") && caddy_use "$caddy" || say "Caddy keeps the config $cur had (see above)"
+  fi
   say "back on $prev. $cur is still kept in $ROOT/releases."
 }
 

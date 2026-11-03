@@ -36,6 +36,19 @@ test("a fresh server and an updated one get the same kumi command, backup and re
   for (const want of ["kumi-backup.timer", "kumi-restore-test.timer", "cli.ts backup", "cli.ts restore-test", "kumi_restore_test", "rollback|releases"]) assert.ok(setup.includes(want), want);
 });
 
+test("a fresh server and an updated one get the same Caddy sites, and an update writes them from its own release", () => {
+  const block = (text: string) => { const m = /# --- caddy sites \(the same in server-setup\.sh and release\.sh\) ---\n([\s\S]*?)# --- end caddy sites ---/.exec(text); assert.ok(m, "no caddy sites block"); return m[1]!; };
+  const setup = read("deploy/server-setup.sh"), release = read("deploy/release.sh");
+  assert.equal(block(setup), block(release));
+  assert.match(setup, /kumi_sites "\$KUMI_HOST" "staff\.\$KUMI_HOST" "\$upstream" \/opt\/kumi\/app > \/etc\/caddy\/Caddyfile/);
+  // The API's paths and the apps' policy come from the release being installed (its own server-setup.sh), checked
+  // by Caddy before the switch, and taken without dropping connections.
+  assert.match(release, /local f="\$ROOT\/releases\/\$1\/deploy\/server-setup\.sh"/);
+  assert.match(release, /\$CADDY validate --config "\$next" --adapter caddyfile/);
+  assert.match(release, /CADDY_RELOAD=\$\{KUMI_CADDY_RELOAD:-systemctl reload caddy\}/);
+  assert.match(release, /if \$RESTART && check "\$new" && caddy_use "\$caddy"; then/);
+});
+
 test("ship.sh hands the release to its own release.sh", () => {
   const ship = read("deploy/ship.sh");
   assert.match(ship, /tar -xOf .*deploy\/release\.sh/);

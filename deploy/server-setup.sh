@@ -95,13 +95,17 @@ api='/auth/* /me /me/* /my/* /club /actions /actions/* /runs /runs/* /changes /c
 # The apps' own security headers (the API sets its own): scripts only from here and Stripe (its card
 # form), never framed by another site, and HTTPS remembered for a year.
 csp="default-src 'self'; script-src 'self' https://js.stripe.com https://*.js.stripe.com; frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com; connect-src 'self' https://api.stripe.com; img-src 'self' data: https://*.stripe.com; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+# --- caddy sites (the same in server-setup.sh and release.sh) ---
+# One of Kumi's sites: $1 its address, $2 the app (member or manager), $3 where the server listens (127.0.0.1:PORT,
+# or unix/ and KUMI_SOCKET's path) and $4 the link to the running release. The API's paths ($api) go to the server;
+# everything else is the app, with the apps' security headers ($csp).
 site() {
   cat <<SITE
 $1 {
 	encode zstd gzip
 	@api path $api
 	handle @api {
-		reverse_proxy 127.0.0.1:8790
+		reverse_proxy $3
 	}
 	handle {
 		header {
@@ -112,14 +116,25 @@ $1 {
 			Referrer-Policy strict-origin-when-cross-origin
 			Permissions-Policy "camera=(), microphone=(), geolocation=()"
 		}
-		root * /opt/kumi/app/apps/$2/dist
+		root * $4/apps/$2/dist
 		try_files {path} /index.html
 		file_server
 	}
 }
 SITE
 }
-{ site "$KUMI_HOST" member; site "staff.$KUMI_HOST" manager; } > /etc/caddy/Caddyfile
+# Caddy's whole config: the members' site at $1 and the staff's at $2, the server at $3, the running release at $4.
+kumi_sites() {
+  echo "# Kumi's sites. Each update writes this file again from its own release (deploy/release.sh), unless it has"
+  echo "# been changed by hand: then it's left as it is, and paths a new release answers on need adding here."
+  site "$1" member "$3" "$4"
+  site "$2" manager "$3" "$4"
+}
+# --- end caddy sites ---
+# Where the server listens, as its settings say (listen.ts): its port on this machine, or its unix socket.
+port=$(sed -n 's/^PORT=//p' /etc/kumi/kumi.env | tail -1); sock=$(sed -n 's/^KUMI_SOCKET=//p' /etc/kumi/kumi.env | tail -1)
+if [ -n "$sock" ]; then upstream="unix/$sock"; else upstream="127.0.0.1:${port:-8790}"; fi
+kumi_sites "$KUMI_HOST" "staff.$KUMI_HOST" "$upstream" /opt/kumi/app > /etc/caddy/Caddyfile
 # Caddy serves the built apps from /opt/kumi, which everyone can read. It isn't in the kumi group, so it can't read
 # the settings file (a server set up before 0.1.0 had it there: take it out).
 if id -nG caddy | tr ' ' '\n' | grep -qx kumi; then gpasswd -d caddy kumi >/dev/null; systemctl restart caddy; fi

@@ -28,10 +28,22 @@ server starts.
 - A club that ran on a hosted Kumi (Stripe Connect) and moves to its own server reaches its earlier
   payments with its own Stripe keys, so refunds of them work.
 - The Docker backup service knows the club's address (for exports).
+- The server listens on 127.0.0.1 only (`KUMI_LISTEN_ADDRESS`), not every address; the Docker image sets
+  `0.0.0.0`, since Caddy is another container there. For a server several clubs share, `KUMI_SOCKET` makes a
+  club listen on a unix socket instead of a port, so no other club's process can reach it or pass itself off
+  as the club's proxy (which got around the sign-in limits, and could read `/health/deep`).
+- An update gives Caddy the new release's config, so paths a release adds reach the server without running
+  `server-setup.sh` again. Caddy checks it before anything switches (a config it refuses changes nothing) and
+  takes it without dropping connections; if Caddy won't take it, the update is undone. Going back puts the
+  previous release's config back. A config changed by hand is left as it is, and the update says so.
 
 ### When updating
 - Nothing to do. The cap starts at $50 a month, whatever the text cap was. Prices are list prices; set
   `KUMI_PRICES` if your providers charge you differently (`docs/settings.md`).
+- If something other than Caddy on the same machine reaches the server's port, set
+  `KUMI_LISTEN_ADDRESS=0.0.0.0` (or that machine's address) in the settings first.
+- If you changed Caddy's config (`/etc/caddy/Caddyfile`) by hand, updates leave it as it is: add new paths
+  there yourself, or run `server-setup.sh` again (which writes Kumi's own).
 
 ## 0.1.0 (2026-11-02)
 
