@@ -2844,6 +2844,7 @@ export const en = {
   "cli.restore_failed": "Nothing was restored and the database is unchanged: {error}",
   "cli.restore_safety_copy": "The database as it was before is kept in {file}.",
   "cli.restore_carried": "{count} messages waiting in that copy had already gone before it was restored: they won't go again.",
+  "cli.restore_repeats": { one: "1 email, text or push had gone out after that copy was made. For a week, if the jobs make it again, it won't go twice.", other: "{count} emails, texts and pushes had gone out after that copy was made. For a week, if the jobs make one of them again, it won't go twice." },
   "cli.restore_held_some": "{count} notices in that copy were handled after it was made, so whatever they sent may have gone already: they're held. kumi held shows them; kumi held send --yes or kumi held drop --yes.",
   "cli.restore_held_all": "{count} things were still waiting to go out in that copy, and this server can't tell which went after it was made: they're held. kumi held shows them; kumi held send --yes or kumi held drop --yes.",
   "cli.restore_put_back": "Restoring failed, so the database was put back as it was before (nothing is lost): {error}",

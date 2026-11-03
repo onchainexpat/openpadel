@@ -163,7 +163,9 @@ It recovers the archive into a scratch copy of its own (the live database isn't 
 takes the club's database from it, and restores that the usual way: a copy of the database as it is now is made
 first. Messages the club had already sent since that minute aren't sent again (notices it had handled are held:
 `kumi held` lists them, and `kumi held send --yes` or `kumi held drop --yes` decides), and card charges and
-refunds ask Stripe first, so none is made twice.
+refunds ask Stripe first, so none is made twice. A reminder or notice the jobs make again, because the record that
+it was said is newer than that minute, doesn't go twice either: for a week, an email, text or push with exactly
+the words, link and person of one sent before the restore is marked as sent then, instead of going again.
 
 Once a month (the 1st, 5:17 club time) a random minute of the last week is restored into scratch and checked: the
 change made a minute before it is there, nothing from a minute after it is. `kumi doctor` shows the result.

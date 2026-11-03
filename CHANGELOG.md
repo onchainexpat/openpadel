@@ -51,6 +51,12 @@ server starts.
   don't go again; a notice it had handled is held for `kumi held send|drop`, since its messages may have gone.
   Where the database before it can't vouch (a new server after losing the old one), everything waiting is held,
   as after a move.
+- **Nor what the jobs make again.** A reminder, notice or club news whose "already said" record was written after
+  the backup isn't in the backup, so after a restore the job makes it again: a new message with the same words.
+  The restore keeps a fingerprint of every email, text and push the database before it had sent that the backup
+  has no row for (the person, the kind, the channel, the exact words and link). For a week, a message made again
+  with that fingerprint is marked as sent at its earlier time instead of going twice, once per fingerprint; the
+  in-app inbox copy stays. After the week the same words go as new. `kumi restore` says how many it kept.
 
 ### Changed
 - A card charge (a renewal, a booking's deadline, a family card) asks Stripe for the one it already has, by Kumi's

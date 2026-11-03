@@ -19,6 +19,7 @@ import { TEXT_KINDS, textable, textingOn } from "./texts.ts";
 import { receiptParams } from "./receipts.ts";
 import { roleLabel } from "./roles.ts";
 import { needsTwoFactor } from "./two_factor.ts";
+import { skipRepeatsAfterRestore } from "./repeats.ts";
 import type { OpsJob } from "./ops.ts";
 import { currentPrices, monthOf, nextMonthStart, usageAllows } from "./usage.ts";
 import { lastClubExport } from "./club_exit.ts";
@@ -914,6 +915,8 @@ async function refused(db: Db | Trx, personId: string, channel: string, purpose:
  *  every club news email carries that link at the foot and in its headers, for mail apps' one-click button. */
 export async function sendEmails(db: Db, mailer: Mailer, now = new Date(), limit = 50, o: { unsubscribeUrl?: (token: string) => string } = {}): Promise<{ sent: number; dropped: number; failed: number; waiting: number }> {
   const out = { sent: 0, dropped: 0, failed: 0, waiting: 0 };
+  // After a restore, what the jobs made again that the database before it had sent doesn't go twice (repeats.ts).
+  await skipRepeatsAfterRestore(db, now);
   let clubName: string | null = null;
   for (let i = 0; i < limit; i++) {
     const done = await db.transaction().execute(async (trx) => {

@@ -201,17 +201,19 @@ snapshot() {
 # taken, which the snapshot still has waiting: read before it's replaced and carried over after (after_restore.ts
 # does the same for kumi restore), so nothing goes twice. A message that had gone keeps that answer; a notice it
 # had handled is held for `kumi held send|drop`, since its messages may have gone (refunds aren't held: a refund
-# asks Stripe first).
+# asks Stripe first). An email, text or push it had sent that the snapshot has no row for at all (made since) is kept
+# as a fingerprint for a week, so a job that makes it again doesn't send it twice (Kumi's repeats.ts, from migration 069).
 psql_kumi() { $AS "$(tool psql)" -X -q -v ON_ERROR_STOP=1 -d "$DATABASE_URL" "$@"; }
 restore() {
-  local file=$1 sent done
-  sent=$(mktemp); done=$(mktemp)
+  local file=$1 sent done fps
+  sent=$(mktemp); done=$(mktemp); fps=$(mktemp)
   psql_kumi -c "COPY (SELECT id, status, sent_at, failure FROM outbound_message WHERE status IN ('sent', 'failed', 'dropped') AND created_at >= now() - interval '400 days') TO STDOUT" > "$sent" 2>/dev/null || : > "$sent"
   psql_kumi -c "COPY (SELECT id FROM event_outbox WHERE delivered_at IS NOT NULL AND created_at >= now() - interval '400 days') TO STDOUT" > "$done" 2>/dev/null || : > "$done"
-  psql_kumi -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;' || { rm -f "$sent" "$done"; return 1; }
-  $AS "$(tool pg_restore)" --no-owner --no-acl --exit-on-error -d "$DATABASE_URL" "$file" || { rm -f "$sent" "$done"; return 1; }
-  carry_over "$sent" "$done" || say "what had been sent since the snapshot couldn't be carried over (above): see kumi held before starting it"
-  rm -f "$sent" "$done"
+  psql_kumi -c "COPY (SELECT id, encode(sha256(convert_to(concat_ws(chr(31), person_id::text, kind, channel, subject, body, coalesce(link, '')), 'UTF8')), 'hex'), sent_at FROM outbound_message WHERE status = 'sent' AND channel <> 'inbox' AND sent_at IS NOT NULL AND created_at >= now() - interval '400 days') TO STDOUT" > "$fps" 2>/dev/null || : > "$fps"
+  psql_kumi -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;' || { rm -f "$sent" "$done" "$fps"; return 1; }
+  $AS "$(tool pg_restore)" --no-owner --no-acl --exit-on-error -d "$DATABASE_URL" "$file" || { rm -f "$sent" "$done" "$fps"; return 1; }
+  carry_over "$sent" "$done" "$fps" || say "what had been sent since the snapshot couldn't be carried over (above): see kumi held before starting it"
+  rm -f "$sent" "$done" "$fps"
 }
 carry_over() {
   if [ -s "$1" ]; then
@@ -222,6 +224,11 @@ carry_over() {
   if [ -s "$2" ] && psql_kumi -Atc "SELECT 1 FROM information_schema.columns WHERE table_name = 'event_outbox' AND column_name = 'held_at'" | grep -q 1; then
     psql_kumi -c "CREATE TEMP TABLE kumi_done (id bigint)" -c "COPY kumi_done FROM STDIN" \
       -c "UPDATE event_outbox e SET held_at = now() FROM kumi_done d WHERE e.id = d.id AND e.delivered_at IS NULL AND e.held_at IS NULL AND e.topic NOT IN ('refund.requested')" < "$2" || return 1
+  fi
+  # Fingerprints only where the snapshot's Kumi looks for them (from migration 069).
+  if [ -s "${3:-}" ] && psql_kumi -Atc "SELECT 1 FROM information_schema.tables WHERE table_name = 'sent_before_restore'" | grep -q 1; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_fp (id uuid, fp text, sent_at timestamptz)" -c "COPY kumi_fp FROM STDIN" \
+      -c "INSERT INTO sent_before_restore (fp, message_id, sent_at, restored_at, until) SELECT f.fp, f.id, f.sent_at, now(), now() + interval '7 days' FROM kumi_fp f WHERE NOT EXISTS (SELECT 1 FROM outbound_message m WHERE m.id = f.id)" < "$3" || return 1
   fi
 }
 

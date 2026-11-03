@@ -375,6 +375,7 @@ async function main(): Promise<number> {
       else {
         console.log(t(lang, "cli.restore_done", { source })); console.log(t(lang, "cli.restore_safety_copy", { file: safetyCopy }));
         if (after.carried.messages) console.log(t(lang, "cli.restore_carried", { count: after.carried.messages }));
+        if (after.carried.repeats) console.log(t(lang, "cli.restore_repeats", { count: after.carried.repeats }));
         const held = after.held.messages + after.held.events;
         if (held) console.log(t(lang, after.vouched ? "cli.restore_held_some" : "cli.restore_held_all", { count: held }));
       }

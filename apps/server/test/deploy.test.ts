@@ -87,3 +87,10 @@ test("putting a snapshot back holds the same notices as kumi restore: everything
   const kept = /e\.topic NOT IN \(([^)]*)\)/.exec(read("deploy/release.sh"))![1]!.split(",").map((x) => x.trim().replace(/'/g, "")).sort();
   assert.deepEqual(kept, [...MONEY_TOPICS].sort());
 });
+
+test("putting a snapshot back keeps fingerprints the way kumi restore does: the same fingerprint, for the same week", async () => {
+  const { MESSAGE_FP, REPEAT_WINDOW_DAYS } = await import("../../../packages/core/src/repeats.ts");
+  const release = read("deploy/release.sh");
+  assert.ok(release.includes(`COPY (SELECT id, ${MESSAGE_FP}, sent_at FROM outbound_message WHERE status = 'sent' AND channel <> 'inbox'`), "release.sh reads the same fingerprint");
+  assert.match(release, new RegExp(`now\\(\\) \\+ interval '${REPEAT_WINDOW_DAYS} days'`));
+});

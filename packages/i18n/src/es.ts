@@ -2847,6 +2847,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "cli.restore_failed": "No se restauró nada y la base de datos sigue igual: {error}",
   "cli.restore_safety_copy": "La base de datos como estaba antes queda guardada en {file}.",
   "cli.restore_carried": "{count} mensajes que esperaban en esa copia ya habían salido antes de restaurarla: no saldrán otra vez.",
+  "cli.restore_repeats": { one: "1 correo, mensaje de texto o notificación había salido después de hacer esa copia. Durante una semana, si los trabajos lo vuelven a crear, no saldrá dos veces.", other: "{count} correos, mensajes de texto y notificaciones habían salido después de hacer esa copia. Durante una semana, si los trabajos vuelven a crear alguno, no saldrá dos veces.", many: "{count} correos, mensajes de texto y notificaciones habían salido después de hacer esa copia. Durante una semana, si los trabajos vuelven a crear alguno, no saldrá dos veces." },
   "cli.restore_held_some": "{count} avisos de esa copia se procesaron después de hacerla, así que lo que enviaron puede haber salido ya: quedan retenidos. kumi held los muestra; kumi held send --yes o kumi held drop --yes.",
   "cli.restore_held_all": "{count} cosas esperaban salir en esa copia, y este servidor no puede saber cuáles salieron después de hacerla: quedan retenidas. kumi held las muestra; kumi held send --yes o kumi held drop --yes.",
   "cli.restore_put_back": "La restauración falló, así que la base de datos volvió a quedar como estaba (no se pierde nada): {error}",
