@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, lazy, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor } from "@kumi/ui";
+import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts } from "./Courts.tsx";
 
@@ -72,11 +72,11 @@ function access(m: Me) {
 }
 
 /** Support access under way: the person who has it, and the owner and managers, are told at the top of every page. */
-function SupportBanners({ m }: { m: Me }) {
+function supportNotices(m: Me) {
   const until = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
   const level = (l: "view" | "manager") => (l === "view" ? t("msg.support_level_view") : t("msg.support_level_manager"));
-  if (m.support) return <p class="note banner" role="status">{t("ui.support_banner_you", { level: level(m.support.level), until: until(m.support.ends_at) })}</p>;
-  return <>{(m.support_now ?? []).map((g) => <p class="note banner" role="status">{t("ui.support_banner_owner", { name: g.name, level: level(g.level), until: until(g.ends_at) })} <a href="/support">{t("ui.support_banner_see")}</a></p>)}</>;
+  if (m.support) return [t("ui.support_banner_you", { level: level(m.support.level), until: until(m.support.ends_at) })];
+  return (m.support_now ?? []).map((g) => <>{t("ui.support_banner_owner", { name: g.name, level: level(g.level), until: until(g.ends_at) })} <a href="/support">{t("ui.support_banner_see")}</a></>);
 }
 
 /** For someone whose role (one the club made) doesn't cover a page. */
@@ -96,9 +96,9 @@ function QuestionsLink() {
 }
 
 /** The day the club's Kumi ends (leaving.ts), for the owner and managers: the owner's link goes to Download everything. */
-function LeavingBanner({ on, owner }: { on: string; owner: boolean }) {
+function leavingNotice(on: string, owner: boolean) {
   const date = new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${on}T12:00:00Z`));
-  return <p class="note banner" role="status">{t(owner ? "ui.leaving_banner_owner" : "ui.leaving_banner_staff", { date })}{owner && <> <a href="/settings#download-everything">{t("ui.leaving_download")}</a></>}</p>;
+  return <>{t(owner ? "ui.leaving_banner_owner" : "ui.leaving_banner_staff", { date })}{owner && <> <a href="/settings#download-everything">{t("ui.leaving_download")}</a></>}</>;
 }
 
 export function App() {
@@ -141,10 +141,12 @@ export function App() {
         <strong>{club.value?.name}</strong>
         <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}{show("programs") && <a href="/programs">{t("ui.nav_programs")}</a>}{show("members") && <a href="/people">{t("ui.nav_people")}</a>}{show("memberships") && <a href="/memberships">{t("ui.nav_memberships")}</a>}{(coach || desk || areas?.includes("coaches")) && <a href="/coaches">{t("ui.nav_coaches")}</a>}{show("bookings") && <a href="/courts">{t("ui.courts")}</a>}{show("levels") && <a href="/scores">{t("ui.nav_scores")}</a>}{show("levels") && <a href="/levels">{t("ui.nav_levels")}</a>}{(desk || areas?.includes("messages")) && <QuestionsLink />}{(desk || areas?.includes("messages")) && <a href="/messages">{t("ui.nav_messages")}</a>}{show("bookings") && <a href="/playtomic">{t("ui.nav_playtomic")}</a>}{show("money") && <a href="/payments">{t("ui.nav_payments")}</a>}{(show("money") || coachOnly) && <a href="/reports">{t("ui.nav_reports")}</a>}{show("settings") && <a href="/settings">{t("ui.nav_settings")}</a>}{changes && <a href="/usage">{t("ui.nav_usage")}</a>}<InboxLink />{changes && <a href="/changes">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
-      {club.value?.moved ? <p class="note banner" role="status">{t("ui.moved_banner_staff")} {club.value.moved_to && <a href={club.value.moved_to}>{club.value.moved_to}</a>}</p>
-        : club.value?.read_only && <p class="note banner" role="status">{t("ui.read_only_banner_staff")}</p>}
-      {me.value.leaving && <LeavingBanner on={me.value.leaving} owner={me.value.roles.some((r) => r.key === "owner")} />}
-      <SupportBanners m={me.value} />
+      <Notices items={[
+        club.value?.moved ? <>{t("ui.moved_banner_staff")} {club.value.moved_to && <a href={club.value.moved_to}>{club.value.moved_to}</a>}</>
+          : club.value?.read_only && t("ui.read_only_banner_staff"),
+        me.value.leaving && leavingNotice(me.value.leaving, me.value.roles.some((r) => r.key === "owner")),
+        ...supportNotices(me.value),
+      ]} />
       <Router>
         <Route path="/" component={home} />
         <Route path="/changes" component={changes ? Changes : NotForRole} />

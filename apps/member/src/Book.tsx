@@ -3,7 +3,7 @@
 // court, more courts the same day can be added and paid together. Times are the club's, whatever the
 // phone's clock says.
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, me, t, usePreview } from "@kumi/ui";
+import { api, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
 type Options = { locations: { id: string; name: string; time_zone: string }[]; lengths: number[]; days_ahead: number; split_deadline_hours: number; same_day_cutoff_hours: number; free_cancel_hours: number; late_refund_percent: number };
@@ -82,7 +82,7 @@ export function Book() {
         <ul class="plain">{cart.map((x, k) => <li class="row"><span>{x.name} · {fmt(x.start, { hour: "numeric", minute: "2-digit" })} · {t("ui.minutes", { count: x.minutes })} · {dollars(x.cents, lang.value)}</span>
           <button class="small" onClick={() => setCart(cart.filter((_, j) => j !== k))}>{t("ui.remove")}</button></li>)}</ul>
         <p class="meta">{t(o.late_refund_percent ? "ui.cancel_rule" : "ui.cancel_rule_none", { hours: t("count.hours", { count: o.free_cancel_hours }), percent: o.late_refund_percent })}</p>
-        <button class="primary" onClick={bookCart}>{cart.length === 1 ? t("ui.book_now") : t("ui.book_courts", { count: cart.length, amount: dollars(cartTotal, lang.value) })}</button>
+        <NewOnly><button class="primary" onClick={bookCart}>{cart.length === 1 ? t("ui.book_now") : t("ui.book_courts", { count: cart.length, amount: dollars(cartTotal, lang.value) })}</button></NewOnly>
       </section>}
       {free && !free.open && <p class="card">{t("ui.closed_this_day")}</p>}
       {free?.open && !times.length && <p class="card">{t("ui.no_free_times")}</p>}
@@ -111,8 +111,8 @@ export function Book() {
               </fieldset>}
             </>}
             <p class="meta">{t(o.late_refund_percent ? "ui.cancel_rule" : "ui.cancel_rule_none", { hours: t("count.hours", { count: o.free_cancel_hours }), percent: o.late_refund_percent })}</p>
-            <button class="primary" onClick={book}>{t("ui.book_now")}</button>{" "}
-            {pay === "whole" && <button class="link" onClick={add}>{t("ui.add_another_court")}</button>}
+            <NewOnly><button class="primary" onClick={book}>{t("ui.book_now")}</button>{" "}
+            {pay === "whole" && <button class="link" onClick={add}>{t("ui.add_another_court")}</button>}</NewOnly>
             </>}
           </> : <p class="meta">{t("error.no_price")}</p>)}
           <button class="link" onClick={() => setPick(null)}>{t("ui.other_time")}</button>

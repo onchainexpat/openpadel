@@ -33,7 +33,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { money, t, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { connect, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
+import { connect, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS, type Db } from "@kumi/core";
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
@@ -58,6 +58,12 @@ const backupDir = process.env.KUMI_BACKUP_DIR ?? "/var/backups/kumi";
 const dbUrl = () => { const u = process.env.DATABASE_URL; if (!u) throw new Error("DATABASE_URL isn't set"); return u; };
 const out = (v: unknown) => console.log(JSON.stringify(v, null, 2));
 const serverKeys = () => setSecretKeys({ current: process.env.KUMI_SECRET_KEY, previous: process.env.KUMI_SECRET_KEY_PREVIOUS });
+/** A moment on the club's own clock ("Nov 3, 2026, 2:05 PM"), for the status lines. */
+async function clubClock(db: Db): Promise<(d: Date) => string> {
+  const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
+  const f = new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short", timeZone: tz });
+  return (d) => f.format(d);
+}
 
 /** A passphrase: typed at a prompt that doesn't show it, or the first line of what's piped in (never an argument,
  *  which the process list and the shell's history would keep). */
@@ -226,7 +232,8 @@ async function main(): Promise<number> {
       if (sub !== "status") await runAsSystem(db, "club.moved_host", { on: sub === "on", ...(sub === "on" && to ? { to } : {}) }, "cli");
       const m = await movedAway(db);
       if (json) { out({ ok: true, moved: Boolean(m), since: m?.at ?? null, to: m?.to ?? null }); return 0; }
-      console.log(sub === "off" ? t(lang, "cli.moved_off") : m ? t(lang, m.to ? "cli.moved_since_to" : "cli.moved_since", { since: m.at.toISOString(), to: m.to ?? "" }) : t(lang, "cli.moved_not"));
+      const when = await clubClock(db);
+      console.log(sub === "off" ? t(lang, "cli.moved_off") : m ? t(lang, m.to ? "cli.moved_since_to" : "cli.moved_since", { since: when(m.at), to: m.to ?? "" }) : t(lang, "cli.moved_not"));
       return 0;
     } catch (e) {
       if (json) out({ ok: false, error: (e as Error).message }); else console.error((e as Error).message);
@@ -239,7 +246,8 @@ async function main(): Promise<number> {
       if (sub !== "status") await runAsSystem(db, "club.read_only", { on: sub === "on" }, "cli");
       const since = await readOnlySince(db);
       if (json) { out({ ok: true, read_only: Boolean(since), since }); return 0; }
-      console.log(sub === "on" ? t(lang, "cli.read_only_on") : sub === "off" ? t(lang, "cli.read_only_off") : since ? t(lang, "cli.read_only_since", { since: since.toISOString() }) : t(lang, "cli.read_only_not"));
+      const when = await clubClock(db);
+      console.log(sub === "on" ? t(lang, "cli.read_only_on") : sub === "off" ? t(lang, "cli.read_only_off") : since ? t(lang, "cli.read_only_since", { since: when(since) }) : t(lang, "cli.read_only_not"));
       return 0;
     } finally { await db.destroy(); }
   }
@@ -266,13 +274,14 @@ async function main(): Promise<number> {
       const s = await leavingStatus(db);
       if (json) { out({ ok: true, ...(changed === null ? {} : { changed }), ...s }); return 0; }
       const day = (d: string) => dayText(d)[lang];
-      const stamp = (d: Date) => `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+      const stamp = await clubClock(db);
       if (sub === "on") console.log(t(lang, changed ? "cli.leaving_on" : "cli.leaving_same", { date: day(s.on!) }));
       if (sub === "off") console.log(t(lang, changed ? "cli.leaving_off" : "cli.leaving_not"));
       if (sub === "status") {
         if (!s.on) console.log(t(lang, "cli.leaving_not"));
         else {
           console.log(t(lang, "cli.leaving_status", { date: day(s.on), left: s.days_left === 0 ? t(lang, "cli.leaving_left_today") : t(lang, "cli.leaving_left", { count: s.days_left! }) }));
+          if (s.notices.length) console.log(t(lang, "cli.leaving_notices"));
           for (const n of s.notices) {
             const state = !n.said_at ? t(lang, "cli.leaving_due") : n.covered ? t(lang, "cli.leaving_covered", { when: stamp(n.said_at) }) : t(lang, "cli.leaving_said", { when: stamp(n.said_at) });
             console.log(`  ${t(lang, `cli.leaving_notice_${n.kind}`, { state })}`);

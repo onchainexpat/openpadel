@@ -3,7 +3,7 @@
 // offer) is joined by saving a card, first charged on its start date. Dates are the club's.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, dollars, lang, me, t, usePreview } from "@kumi/ui";
+import { api, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
 import { confirmPaid, PaySheet } from "./Pay.tsx";
 
 type Perks = { days_ahead: number | null; member_prices: boolean; period: "month" | "year"; program_percent_off: number | null; program_cents_off: number | null;
@@ -116,8 +116,8 @@ export function Membership() {
           {(o.starts_on || o.places_left !== null) && <p class="meta">{[o.starts_on ? t("ui.plan_starts_on", { date: clubDay(o.starts_on) }) : null,
             o.places_left ? t("ui.places_left", { count: o.places_left }) : null].filter(Boolean).join(" · ")}</p>}
           {o.places_left === 0 ? <p class="meta">{t("ui.plan_full")}</p>
-            : <button class="primary" onClick={() => { setChosen(o); void preview("membership.join", { plan_id: o.id, person_id: me.value!.person.id }); }}>
-              {o.starts_on ? t("ui.join_presale") : t("ui.join_plan", { amount: dollars(o.price_cents, lang.value) })}</button>}
+            : <NewOnly><button class="primary" onClick={() => { setChosen(o); void preview("membership.join", { plan_id: o.id, person_id: me.value!.person.id }); }}>
+              {o.starts_on ? t("ui.join_presale") : t("ui.join_plan", { amount: dollars(o.price_cents, lang.value) })}</button></NewOnly>}
         </section>
       ))}
     </main>

@@ -2,7 +2,7 @@
 // and who pays (all of it, or each player their part), and pay. Times are the club's; a time is only offered
 // when the coach gives lessons then and a court is free. Loaded only when opened, to keep the app small.
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, me, t, usePreview } from "@kumi/ui";
+import { api, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { ForWhom } from "./ForWhom.tsx";
 
@@ -90,7 +90,7 @@ export function Lessons() {
             {pay === "split" && <p class="meta">{t("ui.lesson_split_explain", { mine: money(mine), hours: t("count.hours", { count: d.split_deadline_hours }) })}</p>}
           </>}
           <p class="meta">{t(d.late_refund_percent ? "ui.cancel_rule" : "ui.cancel_rule_none", { hours: t("count.hours", { count: d.free_cancel_hours }), percent: d.late_refund_percent })}</p>
-          <button class="primary" onClick={book}>{t("ui.book_the_lesson")}</button>{" "}
+          <NewOnly><button class="primary" onClick={book}>{t("ui.book_the_lesson")}</button></NewOnly>{" "}
           <button class="link" onClick={() => setPick(null)}>{t("ui.other_time")}</button>
         </section>
       )}

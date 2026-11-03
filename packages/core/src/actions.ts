@@ -282,18 +282,32 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
       p.summary = { en: `${p.summary.en} ${note.en}`, es: `${p.summary.es} ${note.es}` };
     }
   }
-  const status = d.mode === "ask" || p.secondPerson ? "awaiting_approval" : "planned";
+  const status: Planned["status"] = d.mode === "ask" || p.secondPerson ? "awaiting_approval" : "planned";
   const expiresAt = new Date(now.getTime() + (status === "planned" ? PLAN_MINUTES * 60_000 : APPROVAL_DAYS * 864e5));
   const runId = uuidv7(now.getTime());
-  await db.insertInto("action_run").values({
+  const row = {
     id: runId, action: name, action_version: def.version, actor_person_id: actor.personId, agent_id: actor.agentId ?? null, via: actor.via,
     location_id: p.locationId ?? null, input: JSON.stringify(input), plan: JSON.stringify(p), status, undo_kind: p.undo.kind,
     undo_note: p.undo.note ? JSON.stringify(p.undo.note) : null, read_versions: JSON.stringify(Object.fromEntries(p.reads.map((r) => [keyOf(r.entity, r.id), r.version]))),
     plan_expires_at: expiresAt, money_cents: String(p.moneyCents ?? 0), undo_of: (input as any)?.run_id && name === "action.undo" ? (input as any).run_id : null,
     oauth_grant_id: actor.grantId ?? null, support_grant_id: d.support ?? null,
-  }).execute();
-  // Whoever can say yes hears it's waiting (messages.ts), once for this ask.
-  if (status === "awaiting_approval") await db.insertInto("event_outbox").values({ action_run_id: runId, topic: "approval.waiting", payload: JSON.stringify({ run_id: runId }) }).execute();
+  };
+  if (status === "planned") { await db.insertInto("action_run").values(row).execute(); return { runId, status, plan: p, expiresAt }; }
+  await db.transaction().execute(async (trx) => {
+    // The same change asked for again while the first ask still waits, by anyone, isn't asked twice: everyone who can
+    // say yes would be told again, and two yeses would do it twice. One ask of each action at a time gets this far.
+    await sql`SELECT pg_advisory_xact_lock(hashtext(${`ask:${name}`}))`.execute(trx);
+    const waiting = await trx.selectFrom("action_run").select("created_at").where("action", "=", name).where("status", "=", "awaiting_approval")
+      .where("plan_expires_at", ">", now).where(sql<boolean>`input = ${JSON.stringify(input)}::jsonb`).orderBy("created_at").executeTakeFirst();
+    if (waiting) {
+      const tz = (await trx.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
+      const at = (l: string) => new Intl.DateTimeFormat(l, { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(waiting.created_at);
+      throw new KumiError("error.ask_waiting", { when: { en: at("en-US"), es: at("es-US") } }, 409);
+    }
+    await trx.insertInto("action_run").values(row).execute();
+    // Whoever can say yes hears it's waiting (messages.ts), once for this ask.
+    await trx.insertInto("event_outbox").values({ action_run_id: runId, topic: "approval.waiting", payload: JSON.stringify({ run_id: runId }) }).execute();
+  });
   return { runId, status, plan: p, expiresAt };
 }
 

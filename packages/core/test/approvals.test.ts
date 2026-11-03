@@ -2,6 +2,7 @@
 // needs the change's own permission and strong sign-in; no changes nothing and tells the person who asked.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { sql } from "kysely";
 import { freshDb } from "./helpers.ts";
 import { fakeStripe } from "./fake-stripe.ts";
 import { approve, clubStripeAccount, connectStripe, decline, mayAnswer, messageHandlers, plan, processOutbox, registerMessageTopics, run, runAsSystem,
@@ -84,6 +85,26 @@ test("saying no: nothing changes, it's kept as declined with who and why, and on
   assert.deepEqual(no.map((n) => n.person_id), [mia.personId]);
   assert.match(no[0]!.body, /Sam rechazó lo que pediste/);
   assert.match(no[0]!.body, /Motivo: Too much for November/);
+});
+
+test("the same ask again while the first still waits is refused, saying when; once it's answered it can be asked again", async () => {
+  const first = await capAsk(7000);
+  await rejects(capAsk(7000), "error.ask_waiting");
+  // Anyone asking for the same change: another manager's ask would tell the owners again, and two yeses would do it twice.
+  const ana = await staff("Ana", "manager");
+  await assert.rejects(plan(db, "club.usage_cap_set", { over_cents: 0, cap_cents: 7000 }, ana), (e: unknown) => {
+    assert.ok(e instanceof KumiError && e.code === "error.ask_waiting");
+    assert.match(e.text.en, /^This was asked for already on \w{3}, \w{3} \d+, \d+:\d\d [AP]M, and it's still waiting for a yes\.$/);
+    assert.match(e.text.es, /^Esto ya se pidió el .+ y sigue esperando un sí\.$/);
+    return true;
+  });
+  // A different change is its own ask, and nothing more waits for the refused ones.
+  const other = await capAsk(7100);
+  assert.equal(other.status, "awaiting_approval");
+  assert.equal((await db.selectFrom("action_run").select("id").where("action", "=", "club.usage_cap_set").where("status", "=", "awaiting_approval")
+    .where(sql<boolean>`input->>'cap_cents' = '7000'`).execute()).length, 1);
+  await decline(db, first.runId, second);
+  assert.equal((await capAsk(7000)).status, "awaiting_approval");
 });
 
 test("the other asks work the same way: a manager connecting Stripe waits for an owner's yes", async () => {

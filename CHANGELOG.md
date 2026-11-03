@@ -28,6 +28,16 @@ server starts.
   count, and an 80% or cap message already said isn't said again. Where the database before it can't vouch (a new
   server after losing the old one), the restore says this month's count may be short, and so do `kumi usage` (`gaps`
   in `--json`) and `kumi doctor` until the month ends.
+- **Asked once.** Asking for something that waits for a yes (the usage cap, support access, a refund that needs a
+  second person) while the same ask already waits, by anyone, is refused with when it was asked: everyone who can say
+  yes was told again, and two yeses did it twice.
+- **Nothing offered that won't work.** While the club's app is read-only or has moved, the members' app says so in
+  place of the buttons that book, join or sign up, instead of a refusal after the tap.
+- **One notice at a time on a phone.** The notices at the top of both apps (read-only, moved, the day the club's Kumi
+  ends, support access, a waiver, an email to add) show the first on a phone, with how many more there are.
+- `kumi read-only status`, `kumi moved status` and `kumi leaving status` give times on the club's clock, not as raw
+  UTC, and `kumi doctor` gives the club's own day. The leaving status lists the emails to the owners under their own
+  heading, and the moved switch in Settings says "We're staying on this server".
 
 ### When updating
 - Set up Resend's reports (`docs/setup/accounts/resend.md`, step 6): until then, `kumi doctor` warns, and nothing else

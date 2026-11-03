@@ -39,10 +39,10 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   add("club", "ok", "club.ok", { name: club.name, tz: club.time_zone });
   // Read-only (read_only.ts), the host's switch: said while it's on, and nothing when it's off.
   const readOnly = await readOnlySince(db).catch(() => null);
-  if (readOnly) add("read_only", "warn", "read_only.on", { since: readOnly.toISOString().slice(0, 10) });
+  if (readOnly) add("read_only", "warn", "read_only.on", { since: dayText(localDate(readOnly, club.time_zone)) });
   // Moved (club_exit.ts): this server sends members nothing and takes nothing new; said while it's on.
   const moved = await movedAway(db).catch(() => null);
-  if (moved) add("moved", "warn", moved.to ? "moved.on_to" : "moved.on", { since: moved.at.toISOString().slice(0, 10), to: moved.to ?? "" });
+  if (moved) add("moved", "warn", moved.to ? "moved.on_to" : "moved.on", { since: dayText(localDate(moved.at, club.time_zone)), to: moved.to ?? "" });
   // The day the club's Kumi ends (leaving.ts), set by whoever runs its server: said while there is one.
   const leaving = await leavingOn(db).catch(() => null);
   if (leaving) add("leaving", "warn", "leaving.on", { date: dayText(leaving) });

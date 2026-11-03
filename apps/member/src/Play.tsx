@@ -2,7 +2,7 @@
 // host, pay a held place, say you can't make it or are running late, or (for the host) answer requests,
 // save places for friends (each has added the other), share the link and mark who didn't come.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, dollars, lang, me, shortTime, t, usePreview } from "@kumi/ui";
+import { api, ApiError, dollars, lang, me, NewOnly, shortTime, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
 export type Match = {
@@ -92,12 +92,12 @@ export function MatchPage({ id }: { id: string }) {
         {payNow && <div class="note"><p>{m.me!.held_until ? t("ui.pay_to_keep", { amount: dollars(m.share_cents, lang.value), time: shortTime(m.me!.held_until) })
           : t("ui.place_saved_for_you", { host: m.host ?? "", amount: dollars(m.share_cents, lang.value) })}</p>
           <button class="primary" onClick={() => setPaying(payNow)}>{t("ui.pay_now", { amount: dollars(m.share_cents, lang.value) })}</button></div>}
-        {m.can === "join" && <button class="primary" onClick={() => preview("booking.join", { booking_id: m.id, person_id: pid })}>{t("ui.join_and_pay", { amount: dollars(m.share_cents, lang.value) })}</button>}
+        {m.can === "join" && <NewOnly><button class="primary" onClick={() => preview("booking.join", { booking_id: m.id, person_id: pid })}>{t("ui.join_and_pay", { amount: dollars(m.share_cents, lang.value) })}</button></NewOnly>}
         {m.can === "ask" && (m.request?.status === "requested"
           ? <p class="meta">{t("ui.asked_waiting", { host: m.host ?? "" })} <button class="link" onClick={() => preview("booking.withdraw_ask", { request_id: m.request!.id })}>{t("ui.take_back")}</button></p>
           : <>
             <p class="meta">{t("ui.outside_band_can_ask", { level: lv(m.my_level), band: band(m) })}{m.request?.status === "declined" ? ` ${t("ui.host_said_no")}` : ""}</p>
-            {m.request?.status !== "declined" && <button class="primary" onClick={() => preview("booking.ask", { booking_id: m.id, person_id: pid })}>{t("ui.ask_to_join")}</button>}
+            {m.request?.status !== "declined" && <NewOnly><button class="primary" onClick={() => preview("booking.ask", { booking_id: m.id, person_id: pid })}>{t("ui.ask_to_join")}</button></NewOnly>}
           </>)}
         {m.can === "closed" && <p class="meta">{t("ui.outside_band_closed", { level: lv(m.my_level), band: band(m) })}</p>}
         {m.cancelled ? <p class="meta">{t("ui.match_cancelled")}</p> : !m.open && !m.me && <p class="meta">{t("ui.match_closed")}</p>}

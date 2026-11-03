@@ -1,6 +1,6 @@
 // Joining a booking from its link: what it is, what your part costs, then pay it.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
+import { api, ApiError, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
 type Invite = { id: string; open_match: boolean; kind: string; pay_mode: string; coach: string | null; code: string; court: string; location: string; time_zone: string; organiser: string | null; start: string; end: string; share_cents: number; spots_left: number; open: boolean };
@@ -30,10 +30,10 @@ export function Join({ code }: { code: string }) {
         <p>{inv.court}, {inv.location} · {when}</p>
         {inv.open && inv.pay_mode === "whole" ? <>
           <p>{t("ui.players_join_free", { organiser: inv.organiser ?? "" })}</p>
-          <button class="primary" onClick={() => preview("booking.join_players", { invite_code: code, person_id: me.value!.person.id })}>{t("ui.join_as_player")}</button>
+          <NewOnly><button class="primary" onClick={() => preview("booking.join_players", { invite_code: code, person_id: me.value!.person.id })}>{t("ui.join_as_player")}</button></NewOnly>
         </> : inv.open ? <>
           <p>{t("ui.your_part", { amount: dollars(inv.share_cents, lang.value) })}</p>
-          <button class="primary" onClick={() => preview("booking.join", { invite_code: code, person_id: me.value!.person.id })}>{t("ui.join_and_pay", { amount: dollars(inv.share_cents, lang.value) })}</button>
+          <NewOnly><button class="primary" onClick={() => preview("booking.join", { invite_code: code, person_id: me.value!.person.id })}>{t("ui.join_and_pay", { amount: dollars(inv.share_cents, lang.value) })}</button></NewOnly>
         </> : <p class="meta">{t("error.invite_closed")}</p>}
       </section>
     </main>
