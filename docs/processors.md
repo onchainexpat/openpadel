@@ -1,6 +1,7 @@
 # Services that see member data
 
-What each outside service Kumi can use gets, so a club can list them in its privacy policy. Self-hosted, each is the
+What each outside service Kumi can use gets, so a club can list them in its privacy policy (a template to adapt is
+in [templates/member-privacy-policy.md](templates/member-privacy-policy.md)). Self-hosted, each is the
 club's own account, set up only if the club wants it; with none of the optional ones, nothing about a member
 leaves the club's server except what the club's own email and payments need.
 

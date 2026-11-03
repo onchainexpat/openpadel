@@ -32,7 +32,9 @@ real texts won't reach anyone.** Kumi turns texts on by itself when Twilio appro
    field): the legal name exactly as registered, the EIN, the address, the website, who Twilio contacts, and
    about how many texts a month. No keys go in club.yaml. **The club's website and privacy policy must be
    live and public first**, and the privacy policy should say members' mobile numbers aren't shared with
-   anyone for marketing; carriers turn registrations down for that more than anything.
+   anyone for marketing; carriers turn registrations down for that more than anything. A privacy policy and
+   terms to adapt, with that clause and the texts' opt-in, STOP and HELP already written, are in
+   [`docs/templates`](../../templates/README.md) (drafts: have a lawyer read the club's version).
 4. **Agent: `kumi texting plan`.** It says what it would do and what club.yaml is still missing, and
    changes nothing. Show it to the owner: the verification it sends is the owner's word about the business.
 5. **Agent, once the owner agrees: `kumi texting apply --yes`.** It:
