@@ -163,13 +163,13 @@ const hostOf = (url: string | null | undefined) => { try { return url ? new URL(
 
 export interface ImportReport {
   club: string; from: { version: string; created_at: string }; safety_copy: string; migrations_run: string[]; secrets: number; secrets_lost: number;
-  passkeys_retired: number; was_read_only: boolean; settings: Record<string, string>; set_elsewhere: string[]; club_file: Buffer | null;
+  passkeys_retired: number; was_read_only: boolean; was_leaving: string | null; settings: Record<string, string>; set_elsewhere: string[]; club_file: Buffer | null;
   stripe_account: string | null; texting_registered: boolean;
 }
 
 /** Replace this server's database with an export, then bring it up to this Kumi: its migrations, the secrets
  *  sealed with this server's key, passkeys retired if the club's address changed (a passkey belongs to its web
- *  address), and read-only off (this server's owner decides that). The server must be stopped, as for a restore;
+ *  address), and read-only and any day its Kumi was to end there taken off (this server's owner decides those). The server must be stopped, as for a restore;
  *  the database as it was is kept first (safeRestore), and put back if the restore fails. */
 export async function importExport(o: { url: string; file: Buffer; passphrase: string; dir: string; env?: Env; now?: Date }): Promise<ImportReport> {
   const env = o.env ?? process.env, now = o.now ?? new Date();
@@ -212,11 +212,13 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
     const from = hostOf(manifest.addresses.public_url), to = hostOf(env.KUMI_PUBLIC_URL ?? "http://127.0.0.1:8790");
     let retired = 0;
     if (from !== to) retired = Number((await sql`UPDATE passkey SET revoked_at = ${now}, version = version + 1 WHERE revoked_at IS NULL`.execute(db)).numAffectedRows ?? 0);
-    const club = await db.selectFrom("club").select(["name", "read_only_since", "stripe_account_id"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "read_only_since", "stripe_account_id", "leaving_on"]).executeTakeFirstOrThrow();
     if (club.read_only_since) await runAsSystem(db, "club.read_only", { on: false }, "import", { now });
+    // Nor the day its Kumi was to end there: that was the old server's. Nobody is told; this server's owner decides.
+    if (club.leaving_on) await runAsSystem(db, "club.leaving", { on: null, tell: false }, "import", { now });
     const texting = await db.selectFrom("texting_registration").select("id").executeTakeFirst();
     return { club: club.name, from: { version: manifest.kumi.version, created_at: manifest.created_at }, safety_copy: safetyCopy, migrations_run: migrationsRun, secrets: carried,
-      secrets_lost: lost, passkeys_retired: retired, was_read_only: Boolean(club.read_only_since), settings: manifest.settings, set_elsewhere: manifest.set_elsewhere,
+      secrets_lost: lost, passkeys_retired: retired, was_read_only: Boolean(club.read_only_since), was_leaving: club.leaving_on, settings: manifest.settings, set_elsewhere: manifest.set_elsewhere,
       club_file: entries.get("club.yaml") ?? null, stripe_account: club.stripe_account_id, texting_registered: Boolean(texting) };
   } finally { await db.destroy(); }
 }

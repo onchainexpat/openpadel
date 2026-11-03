@@ -488,6 +488,23 @@ don't change. Both apps say so at the top, and `kumi doctor` shows it. While it'
 - payments already under way at Stripe, refunds, receipts, reminders, sign-in codes and club news
   already scheduled still go out; assistants follow the same rules as the apps.
 
+**The day the club's Kumi ends.** Whoever runs the club's server, moving the club off a host or shutting
+the server down, says so first with `kumi leaving on --date=2026-12-15`:
+
+- every owner is emailed at once, in their own language, to download everything before then, and told
+  that the file's passphrase is shown only to them, so to save it;
+- they're reminded a week before and a day before, in the club's daytime, each said once for that date,
+  even while the club is read-only or past its monthly cap; each reminder says when everything was last
+  downloaded, and by whom;
+- the top of the staff app shows the date to the owner (with a link to Download everything) and to
+  managers.
+
+`--kept-days=30` adds what happens after ("a copy of the club's data is kept for 30 days, then deleted");
+`--kept-days=0` says it's deleted; without it, the email only says to download before then.
+`kumi leaving status` shows the date, which emails went and the last download of everything (`--json`
+for a host); `kumi leaving off` takes the date away, and the owners are told. Moving the date tells them
+again. An export restored on another server doesn't bring the date with it.
+
 ### Notifications
 
 Nothing to set up. Each member turns notifications on for their own phone in Profile, and from then
@@ -547,5 +564,6 @@ an export ask for something: the file's passphrase, typed by the owner (it isn't
 | `kumi rotate-key` | Seals every secret with `KUMI_SECRET_KEY` (the old key in `KUMI_SECRET_KEY_PREVIOUS`). |
 | `kumi export [--out=<folder>]` | Everything the club needs to run somewhere else, in one file sealed with a passphrase the owner types. |
 | `kumi read-only on \| off \| status` | The host's switch for an account that isn't paid: nothing new is booked or charged; everyone keeps their data. |
+| `kumi leaving on --date=YYYY-MM-DD [--kept-days=N] \| off \| status` | The day the club's Kumi ends: the owners are told at once, and a week and a day before, to download everything. |
 | `sudo kumi restore <file \| offsite:latest> --yes` | Replaces the database with a backup, or with a club's export: stops the server, restores, starts it. Everything since is lost. |
 | `sudo kumi releases`, `sudo kumi rollback --yes` | Which release runs; going back to the previous one and its database (see `deploy/README.md`). |

@@ -86,6 +86,12 @@ function QuestionsLink() {
   return <a href="/questions">{t("ui.nav_questions")}{n > 0 && <span class="badge warn">{n}</span>}</a>;
 }
 
+/** The day the club's Kumi ends (leaving.ts), for the owner and managers: the owner's link goes to Download everything. */
+function LeavingBanner({ on, owner }: { on: string; owner: boolean }) {
+  const date = new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${on}T12:00:00Z`));
+  return <p class="note banner" role="status">{t(owner ? "ui.leaving_banner_owner" : "ui.leaving_banner_staff", { date })}{owner && <> <a href="/settings#download-everything">{t("ui.leaving_download")}</a></>}</p>;
+}
+
 export function App() {
   useEffect(() => {
     api<Club>("/club").then((c) => { club.value = c; document.documentElement.style.setProperty("--brand", c.brand_colour); }).catch(() => {});
@@ -123,6 +129,7 @@ export function App() {
         <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}{show("programs") && <a href="/programs">{t("ui.nav_programs")}</a>}{show("members") && <a href="/people">{t("ui.nav_people")}</a>}{show("memberships") && <a href="/memberships">{t("ui.nav_memberships")}</a>}{(coach || desk || areas?.includes("coaches")) && <a href="/coaches">{t("ui.nav_coaches")}</a>}{show("bookings") && <a href="/courts">{t("ui.courts")}</a>}{show("levels") && <a href="/scores">{t("ui.nav_scores")}</a>}{show("levels") && <a href="/levels">{t("ui.nav_levels")}</a>}{(desk || areas?.includes("messages")) && <QuestionsLink />}{(desk || areas?.includes("messages")) && <a href="/messages">{t("ui.nav_messages")}</a>}{show("bookings") && <a href="/playtomic">{t("ui.nav_playtomic")}</a>}{show("money") && <a href="/payments">{t("ui.nav_payments")}</a>}{(show("money") || coachOnly) && <a href="/reports">{t("ui.nav_reports")}</a>}{show("settings") && <a href="/settings">{t("ui.nav_settings")}</a>}{changes && <a href="/usage">{t("ui.nav_usage")}</a>}<InboxLink />{changes && <a href="/changes">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       {club.value?.read_only && <p class="note banner" role="status">{t("ui.read_only_banner_staff")}</p>}
+      {me.value.leaving && <LeavingBanner on={me.value.leaving} owner={me.value.roles.some((r) => r.key === "owner")} />}
       <Router>
         <Route path="/" component={home} />
         <Route path="/changes" component={changes ? Changes : NotForRole} />

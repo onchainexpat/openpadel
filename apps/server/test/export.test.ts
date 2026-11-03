@@ -1,6 +1,7 @@
 // A club can always leave (export.ts): the owner's "Download everything" and `kumi export` make one sealed
 // file, and `kumi restore <file>` puts it into a fresh install: the same data, the secrets sealed again with the
-// new server's key, passkeys retired when the address changes, and read-only off. Needs pg_dump and pg_restore
+// new server's key, passkeys retired when the address changes, and read-only and the day its Kumi was to end there
+// both off. Needs pg_dump and pg_restore
 // 17, like the backup tests.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -9,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { openText, pushKeys, readOnlySince, run, runAsSystem, sealText, setSecretKeys, type Actor, type Db } from "@kumi/core";
+import { leavingOn, messageHandlers, openText, processOutbox, pushKeys, readOnlySince, run, runAsSystem, sealText, setSecretKeys, type Actor, type Db } from "@kumi/core";
 import { pgTool } from "../src/backups.ts";
 import { ExportRefused, importExport, makeExport, openExport, packExport, sealExport } from "../src/export.ts";
 import { makeApp } from "../src/app.ts";
@@ -42,6 +43,7 @@ before(async () => {
   await pushKeys(src.db);
   await src.db.insertInto("passkey").values({ credential_id: "cred-1", person_id: owner.personId!, public_key: Buffer.from("pk"), counter: "0", transports: null, name: "Robin's phone" }).execute();
   await runAsSystem(src.db, "club.read_only", { on: true }, "test");   // an unpaid hosted account, leaving
+  await runAsSystem(src.db, "club.leaving", { on: "2026-12-15", kept_days: 30 }, "test", { now: NOW });   // on this day
 });
 after(async () => { if (skip) return; setSecretKeys({}); rmSync(dir, { recursive: true, force: true }); await src.drop(); await dst.drop(); });
 
@@ -65,17 +67,17 @@ test("the export opens only with its passphrase, and holds the database, the sec
   assert.equal(openExport(auto.file, auto.passphrase!.toLowerCase().replace(/-/g, " ")).manifest.club.name, "Kestrel Padel");
 });
 
-test("restored into a fresh install: the same data, secrets sealed with the new key, passkeys retired, read-only off", { skip }, async () => {
+test("restored into a fresh install: the same data, secrets sealed with the new key, passkeys retired, read-only and leaving off", { skip }, async () => {
   const before = await counts(src.db, TABLES);
   const made = await makeExport(src.db, { url: srcUrl, env: { KUMI_PUBLIC_URL: SOURCE_URL, KUMI_PG_BIN: process.env.KUMI_PG_BIN }, now: NOW });
   // The new server, its own key, at the club's own domain now.
   setSecretKeys({ current: KEY_NEW });
   const r = await importExport({ url: dstUrl, file: made.file, passphrase: made.passphrase!, dir, env: { KUMI_PUBLIC_URL: "https://staff.kestrelpadel.com", KUMI_PG_BIN: process.env.KUMI_PG_BIN }, now: NOW });
-  assert.deepEqual([r.club, r.secrets, r.secrets_lost, r.passkeys_retired, r.was_read_only], ["Kestrel Padel", 2, 0, 1, true]);
+  assert.deepEqual([r.club, r.secrets, r.secrets_lost, r.passkeys_retired, r.was_read_only, r.was_leaving], ["Kestrel Padel", 2, 0, 1, true, "2026-12-15"]);
   assert.ok(existsSync(r.safety_copy), "the fresh install's database was kept first");
   const after = await counts(dst.db, TABLES);
-  // The same rows, plus the import's own record of read-only going off.
-  assert.deepEqual({ ...after, action_run: after.action_run! - 1, entity_change: after.entity_change! - 1 }, before);
+  // The same rows, plus the import's own records of read-only and the leaving day going off.
+  assert.deepEqual({ ...after, action_run: after.action_run! - 2, entity_change: after.entity_change! - 2 }, before);
   const factor = await dst.db.selectFrom("staff_factor").select("secret").executeTakeFirstOrThrow();
   assert.equal(openText(factor.secret), "JBSWY3DPEHPK3PXP");   // opens with the new key alone
   setSecretKeys({ current: KEY_OLD });
@@ -83,6 +85,10 @@ test("restored into a fresh install: the same data, secrets sealed with the new 
   setSecretKeys({ current: KEY_NEW });
   assert.ok((await dst.db.selectFrom("passkey").select("revoked_at").executeTakeFirstOrThrow()).revoked_at);
   assert.equal(await readOnlySince(dst.db), null);
+  assert.equal(await leavingOn(dst.db), null);
+  // Nobody here is told the old server's date went: it was never this server's.
+  await processOutbox(dst.db, messageHandlers);
+  assert.equal((await dst.db.selectFrom("outbound_message").select("id").where("kind", "like", "club_leaving%").execute()).length, 0);
   setSecretKeys({ current: KEY_OLD });
 });
 
@@ -129,6 +135,10 @@ test("the staff app: the owner confirms, gets the passphrase once and the file; 
   assert.equal(bytes.length, made.json.bytes);
   assert.equal(openExport(bytes, made.json.passphrase).manifest.club.name, "Kestrel Padel");
   assert.equal((await app.request(made.json.download, { headers: { cookie: cookies["ann@example.test"]! } })).status, 403);
+  // The staff app's notice of the day the club's Kumi ends: the owner's (and managers') to see, not members'.
+  const leaving = async (who: string) => (await (await app.request("/me", { headers: { cookie: cookies[who]! } })).json() as any).leaving;
+  assert.deepEqual([await leaving("robin@example.test"), await leaving("ann@example.test")], ["2026-12-15", null]);
+  assert.equal((await (await app.request("/club")).json() as any).leaving, undefined, "not on the club's public page");
   // The club's page says when it's read-only, for both apps' banner.
   assert.equal((await (await app.request("/club")).json() as any).read_only, false);
   await runAsSystem(src.db, "club.read_only", { on: true }, "test");

@@ -6,7 +6,7 @@ import { both, dateTime, money, t, pickLang, type Key, type Lang, type Params, t
 import type { Db, Trx } from "./db.ts";
 import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
-import { atLocal, localDate, localParts } from "./clock.ts";
+import { atLocal, localDate, localParts, onDate } from "./clock.ts";
 import { dayText, endDay, kindList, lastTryAt } from "./memberships.ts";
 import { band } from "./match_rules.ts";
 import { gameView } from "./results.ts";
@@ -21,6 +21,7 @@ import { roleLabel } from "./roles.ts";
 import { needsTwoFactor } from "./two_factor.ts";
 import type { OpsJob } from "./ops.ts";
 import { currentPrices, monthOf, nextMonthStart, usageAllows } from "./usage.ts";
+import { lastClubExport } from "./club_exit.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -112,6 +113,17 @@ async function managers(db: Db): Promise<string[]> {
   const rows = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
     .where("role.key", "in", ["owner", "manager"]).where("person_role.active", "=", true).distinct().execute();
   return rows.map((r) => r.person_id);
+}
+/** The club's owners: who's told the day the club's Kumi ends (leaving.ts). */
+async function owners(db: Db): Promise<string[]> {
+  const rows = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
+    .where("role.key", "=", "owner").where("person_role.active", "=", true).distinct().execute();
+  return rows.map((r) => r.person_id);
+}
+/** What happens to the club's data after its Kumi ends, as the server's owner said (null: not said). */
+function keptText(on: string, days: number | null): Text {
+  const date = dayText(on);
+  return days === null ? both("msg.leaving_kept_unsaid", { date }) : days === 0 ? both("msg.leaving_kept_none", { date }) : both("msg.leaving_kept_days", { date, count: days });
 }
 async function nameOf(db: Db, personId: string): Promise<string> {
   return (await db.selectFrom("person").select("display_name").where("id", "=", personId).executeTakeFirst())?.display_name ?? "";
@@ -467,6 +479,32 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const resets = nextMonthStart(p.month, tz);
     const params = { spent: amount(p.spent_cents), cap: amount(p.cap_cents), over: amount(p.over_cents), limit: amount(p.cap_cents + p.over_cents), resets: dayText(localDate(resets, tz)) };
     return (await managers(db)).map((to) => ({ to, kind: `usage_${p.level}_staff`, params, purpose: "staff" as const, essential: true, email: true, link: "/usage", staleAt: resets }));
+  },
+  // The day the club's Kumi ends (leaving.ts): the owner hears at once, a week before and a day before, to download
+  // everything before then. Said whatever the club's state (read-only, past its cap), and at once: these are staff's.
+  // Each only while that's still the day: not once it's moved or taken away (or this server is another one, an
+  // export put in here with the old server's news still waiting).
+  async "club.leaving_set"({ db, tz }, p: { on: string; kept_days: number | null; tell?: boolean }) {
+    const c = await db.selectFrom("club").select(["name", "leaving_on"]).executeTakeFirstOrThrow();
+    if (p.tell === false || c.leaving_on !== p.on) return [];
+    const club = c.name;
+    const params = { club, date: dayText(p.on), kept: keptText(p.on, p.kept_days) };
+    return (await owners(db)).map((to) => ({ to, kind: "club_leaving_staff", params, purpose: "staff" as const, essential: true, email: true, link: "/settings#download-everything",
+      staleAt: onDate(p.on, "24:00", tz) }));
+  },
+  async "club.leaving_reminder"({ db, tz }, p: { on: string; kind: "week" | "day"; kept_days: number | null }) {
+    const c = await db.selectFrom("club").select(["name", "leaving_on"]).executeTakeFirstOrThrow();
+    if (c.leaving_on !== p.on) return [];
+    const club = c.name, last = await lastClubExport(db);
+    const done = last ? both("msg.leaving_done", { when: when(last.at, tz), by: last.by }) : both("msg.leaving_not_done");
+    const params = { club, date: dayText(p.on), kept: keptText(p.on, p.kept_days), done };
+    return (await owners(db)).map((to) => ({ to, kind: `club_leaving_${p.kind}_staff`, params, purpose: "staff" as const, essential: true, email: true, link: "/settings#download-everything",
+      staleAt: onDate(p.on, "24:00", tz) }));
+  },
+  async "club.leaving_off"({ db }, p: { was: string | null; tell?: boolean }) {
+    if (p.tell === false || !p.was) return [];
+    const club = (await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
+    return (await owners(db)).map((to) => ({ to, kind: "club_leaving_off_staff", params: { club, date: dayText(p.was!) }, purpose: "staff" as const, essential: true, email: true, link: "/" }));
   },
   async "question.assigned"(_c, p: { question_id: string; to: string; by: string; person: string; question: string }) {
     return [{ to: p.to, kind: "question_assigned_staff", params: { by: p.by, person: p.person, question: p.question }, purpose: "staff" as const, essential: false, email: false, link: `/questions/${p.question_id}` }];

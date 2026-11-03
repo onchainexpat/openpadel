@@ -14,6 +14,8 @@
 //   kumi export [--out=<folder>]   the club's export: everything it needs to run somewhere else (export.ts), sealed
 //                                  with a passphrase typed at the prompt (or piped in); never printed
 //   kumi read-only on|off|status   the host's switch for an account that isn't paid (read_only.ts)
+//   kumi leaving on --date=YYYY-MM-DD [--kept-days=N] | off | status   the day the club's Kumi ends (leaving.ts): the
+//                                  owner is told at once, and a week and a day before, to download everything first
 //   kumi restore-test              restore the newest backup into a scratch database and check it
 //                                  (--scheduled: only when it's due, the 1st at 4:17 on the club's clock)
 //   kumi rotate-key                seal every secret with KUMI_SECRET_KEY (the old one in KUMI_SECRET_KEY_PREVIOUS)
@@ -25,7 +27,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { money, t, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { connect, migrate, monthOf, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
+import { connect, dayText, KumiError, leavingStatus, migrate, monthOf, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
@@ -218,6 +220,45 @@ async function main(): Promise<number> {
       return 0;
     } finally { await db.destroy(); }
   }
+  if (cmd === "leaving" && (sub === "on" || sub === "off" || sub === "status")) {
+    const db = connect();
+    try {
+      const date = flag("date") ?? rest.find((x) => /^\d{4}-\d{2}-\d{2}$/.test(x));
+      const keptFlag = flag("kept-days"), kept = keptFlag === undefined ? undefined : Number(keptFlag);
+      if (sub === "on" && !date) { if (json) out({ ok: false, error: t(lang, "cli.leaving_bad_date") }); else console.error(t(lang, "cli.leaving_bad_date")); return 2; }
+      if (kept !== undefined && !(Number.isInteger(kept) && kept >= 0)) { console.error(t(lang, "cli.usage")); return 2; }
+      let changed: boolean | null = null;
+      if (sub !== "status") {
+        try {
+          const r = await runAsSystem(db, "club.leaving", { on: sub === "on" ? date! : null, ...(kept !== undefined ? { kept_days: kept } : {}) }, "cli");
+          changed = (r.result as { changed: boolean }).changed;
+        } catch (e) {
+          if (!(e instanceof KumiError)) throw e;
+          const why = e.text[lang];
+          if (json) out({ ok: false, error: why }); else console.error(why);
+          return 2;
+        }
+      }
+      const s = await leavingStatus(db);
+      if (json) { out({ ok: true, ...(changed === null ? {} : { changed }), ...s }); return 0; }
+      const day = (d: string) => dayText(d)[lang];
+      const stamp = (d: Date) => `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+      if (sub === "on") console.log(t(lang, changed ? "cli.leaving_on" : "cli.leaving_same", { date: day(s.on!) }));
+      if (sub === "off") console.log(t(lang, changed ? "cli.leaving_off" : "cli.leaving_not"));
+      if (sub === "status") {
+        if (!s.on) console.log(t(lang, "cli.leaving_not"));
+        else {
+          console.log(t(lang, "cli.leaving_status", { date: day(s.on), left: s.days_left === 0 ? t(lang, "cli.leaving_left_today") : t(lang, "cli.leaving_left", { count: s.days_left! }) }));
+          for (const n of s.notices) {
+            const state = !n.said_at ? t(lang, "cli.leaving_due") : n.covered ? t(lang, "cli.leaving_covered", { when: stamp(n.said_at) }) : t(lang, "cli.leaving_said", { when: stamp(n.said_at) });
+            console.log(`  ${t(lang, `cli.leaving_notice_${n.kind}`, { state })}`);
+          }
+        }
+        console.log(s.last_export ? t(lang, "cli.leaving_export", { when: stamp(s.last_export.at), by: s.last_export.by }) : t(lang, "cli.leaving_no_export"));
+      }
+      return 0;
+    } finally { await db.destroy(); }
+  }
   if (cmd === "doctor") {
     const db = connect();
     try {
@@ -365,6 +406,7 @@ async function importClub(path: string): Promise<number> {
     if (r.secrets_lost) console.log(`  - ${t(lang, "cli.import_lost", { count: r.secrets_lost })}`);
     if (r.passkeys_retired) console.log(`  - ${t(lang, "cli.import_passkeys", { count: r.passkeys_retired })}`);
     if (r.was_read_only) console.log(`  - ${t(lang, "cli.import_read_only")}`);
+    if (r.was_leaving) console.log(`  - ${t(lang, "cli.import_leaving", { date: r.was_leaving })}`);
     if (settings.length) console.log(`  - ${t(lang, "cli.import_settings", { list: settings.join(", ") })}`);
     if (r.set_elsewhere.length) console.log(`  - ${t(lang, "cli.import_elsewhere", { list: r.set_elsewhere.join(", ") })}`);
     if (r.stripe_account && process.env.KUMI_STRIPE_CONNECT !== "1") console.log(`  - ${t(lang, "cli.import_stripe", { account: r.stripe_account })}`);

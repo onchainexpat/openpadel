@@ -54,3 +54,10 @@ export async function exportClubRun(db: Db, runId: string, actorId: string, now:
     || now.getTime() - run.applied_at.getTime() > CLUB_EXPORT_MINUTES * 60_000) throw new KumiError("error.club_export_gone", {}, 404);
   if (!(await isOwner(db, actorId))) throw new KumiError("error.export_owner_only", {}, 403);
 }
+
+/** The last time someone downloaded everything (club.export, from the audit log), and who. */
+export async function lastClubExport(db: Db | Trx): Promise<{ at: Date; by: string } | null> {
+  const r = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").select(["action_run.applied_at", "person.display_name"])
+    .where("action_run.action", "=", "club.export").where("action_run.status", "=", "applied").orderBy("action_run.applied_at", "desc").limit(1).executeTakeFirst();
+  return r?.applied_at ? { at: r.applied_at, by: r.display_name ?? "" } : null;
+}

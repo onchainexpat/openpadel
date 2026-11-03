@@ -1,6 +1,6 @@
 // The owner's "Download everything" (club_exit.ts, export_routes.ts): confirm it like any change, then the file
 // is made and its passphrase shown, once, beside the download. The passphrase isn't kept anywhere.
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError, t } from "@kumi/ui";
 
 type Made = { passphrase: string; name: string; bytes: number; download: string; minutes: number };
@@ -20,8 +20,11 @@ export function ClubExport() {
     setPending(null); setMaking(true);
     try { setMade(await api<Made>(`/staff/export/${runId}`, {})); } finally { setMaking(false); }
   });
+  // Opened from the staff app's notice of the day the club's Kumi ends (/settings#download-everything).
+  const here = useRef<HTMLElement>(null);
+  useEffect(() => { if (location.hash === "#download-everything") here.current?.scrollIntoView(); }, []);
   return (
-    <section class="card">
+    <section class="card" id="download-everything" ref={here}>
       <h2>{t("ui.export_title")}</h2>
       <p class="meta">{t("ui.export_help")}</p>
       {!made && <button disabled={busy} onClick={ask}>{t("ui.export_start")}</button>}

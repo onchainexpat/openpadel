@@ -22,6 +22,11 @@ server starts.
 - **Read-only**, a host's switch for an account that isn't paid (`kumi read-only on|off|status`). Everyone
   still signs in, sees everything, cancels with the usual refunds and downloads their data; nothing new is
   booked, joined, sold or charged, renewals wait, and both apps say so at the top.
+- **The day the club's Kumi ends** (`kumi leaving on --date=YYYY-MM-DD`, for a club moving off its host or
+  shutting its server down). Every owner is emailed at once, in their language, to download everything
+  before then and save the passphrase, and reminded a week and a day before, each once, even while
+  read-only or past the cap. The staff app shows the date to the owner and managers. `kumi leaving status`
+  shows which emails went and when everything was last downloaded.
 
 ### Changed
 - The monthly text cap in segments is folded into the one cap. Settings, Texts still shows the month's texts.

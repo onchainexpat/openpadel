@@ -3,7 +3,7 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { readdirSync, statSync } from "node:fs";
 import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
-import { answerCounts, clubStripeAccount, heartbeats, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageView, type Db } from "@kumi/core";
+import { answerCounts, clubStripeAccount, dayText, heartbeats, leavingOn, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageView, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { offsitePrunes } from "./backups.ts";
 import { checkTwilio, hasSender, twilioFromEnv } from "./twilio.ts";
@@ -38,6 +38,9 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   // Read-only (read_only.ts), the host's switch: said while it's on, and nothing when it's off.
   const readOnly = await readOnlySince(db).catch(() => null);
   if (readOnly) add("read_only", "warn", "read_only.on", { since: readOnly.toISOString().slice(0, 10) });
+  // The day the club's Kumi ends (leaving.ts), set by whoever runs its server: said while there is one.
+  const leaving = await leavingOn(db).catch(() => null);
+  if (leaving) add("leaving", "warn", "leaving.on", { date: dayText(leaving) });
   const owner = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").innerJoin("person", "person.id", "person_role.person_id")
     .select(["person.display_name", "person.email"]).where("role.key", "=", "owner").where("person_role.active", "=", true).where("person.email", "is not", null).executeTakeFirst();
   add("owner", owner ? "ok" : "fail", owner ? "owner.ok" : "owner.missing", owner ? { name: owner.display_name, email: owner.email! } : {});

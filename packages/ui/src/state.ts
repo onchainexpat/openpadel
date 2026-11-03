@@ -15,7 +15,9 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   /** For those people: which of the staff screens' changes their roles allow (null: everyone else, as their role always has). */
   can?: string[] | null;
   /** A junior with a login of their own: their parents' rules apply, and payments go on the family card. */
-  kid?: { friends: boolean } | null };
+  kid?: { friends: boolean } | null;
+  /** The day the club's Kumi ends (leaving.ts), for owners and managers: the staff app says so at the top. */
+  leaving?: string | null };
 export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
   /** The club's host made it read-only (read_only.ts): both apps say so at the top. */
   read_only?: boolean };

@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { actions, apply, approve, plan, decide, kidOf, KumiError, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, type Actor, type Db, type Texter } from "@kumi/core";
+import { actions, apply, approve, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
@@ -358,8 +358,10 @@ export function makeApp(deps: AppDeps) {
     const can = areas ? await customCan(db, me.id, CLIENT_ACTIONS) : null;
     // An account with no email (it joined by phone): the apps ask, never require, for one.
     const email = (await db.selectFrom("person").select("email").where("id", "=", me.id).executeTakeFirst())?.email ?? null;
+    // The day the club's Kumi ends (leaving.ts): for the top of the staff app, the owner's and managers' to see.
+    const leaving = !me.gate && roles.some((r) => r.key === "owner" || r.key === "manager") ? await leavingOn(db) : null;
     return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can,
-      has_email: Boolean(email), email });
+      has_email: Boolean(email), email, leaving });
   });
 
   // ---- Actions: one description each, the same one the MCP tools and forms use ----

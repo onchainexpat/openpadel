@@ -112,8 +112,9 @@ from connected accounts.
 The owner's "Download everything" (Settings) and `kumi export` make one file with all of the club's data
 and settings, sealed with a passphrase; `kumi restore <file>` puts it into another install of the same
 Kumi or a newer one. A host can make a club read-only (`kumi read-only on`) when its account isn't paid:
-everyone still signs in, cancels and downloads their data, and nothing new is booked or charged. See
-[docs/setup](docs/setup/README.md#moving-the-club-and-read-only).
+everyone still signs in, cancels and downloads their data, and nothing new is booked or charged. Before a
+club's Kumi ends, `kumi leaving on --date=...` tells the owners at once, and again a week and a day before, to
+download everything. See [docs/setup](docs/setup/README.md#moving-the-club-and-read-only).
 
 ### Running beside Playtomic
 

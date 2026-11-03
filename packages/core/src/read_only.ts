@@ -12,6 +12,8 @@ import { KumiError } from "./errors.ts";
 export const READ_ONLY_ALLOWED = new Set([
   // The switch itself, and the owner's download of everything.
   "club.read_only", "club.export",
+  // The day the club's Kumi ends, and the owner's reminders to download everything before then (leaving.ts).
+  "club.leaving", "club.leaving_remind",
   // Signing in and keeping the account safe.
   "person.sign_up", "person.sign_in_undo", "person.reset_sign_in", "email.add", "email.change", "phone.confirm", "person.update_profile",
   "person.factor_add", "person.factor_codes", "person.factor_remove", "person.passkey_add", "person.passkey_remove", "assistant.disconnect",
