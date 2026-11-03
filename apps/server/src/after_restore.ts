@@ -31,6 +31,8 @@ export interface SentBefore {
   support_ended?: Array<{ id: string; ended_at: Date; ended_by: string | null; end_told_at: Date | null }>;
   /** Its usage meter (usage.ts): what was spent since the copy stays counted. */
   usage?: MeterBefore;
+  /** Addresses the email service said can't take the club's email (email_suppression.ts), and the desk's clears. */
+  suppressions?: Array<{ address: string; reason: string; detail: string | null; first_at: Date; last_at: Date; times: number; cleared_at: Date | null; cleared_by: string | null }>;
 }
 /** The usage meter a database had: each club month's counts by kind, and the 80%, cap and paused messages said. */
 export interface MeterBefore {
@@ -122,7 +124,10 @@ export async function readSentBefore(url: string): Promise<SentBefore | null> {
     // Its own query: a database from before support access (migration 067) has no such table, and can still vouch.
     const support_ended = (await sql<NonNullable<SentBefore["support_ended"]>[number]>`SELECT id::text, ended_at, ended_by::text, end_told_at FROM support_grant
       WHERE ended_at IS NOT NULL`.execute(db).catch(() => ({ rows: [] }))).rows;
-    return { timeline: t, messages, events, fingerprints, support_ended, usage: await readMeter(db) };
+    // Its own query too: a database from before migration 072 has none.
+    const suppressions = (await sql<NonNullable<SentBefore["suppressions"]>[number]>`SELECT address, reason, detail, first_at, last_at, times, cleared_at, cleared_by::text
+      FROM email_suppression`.execute(db).catch(() => ({ rows: [] }))).rows;
+    return { timeline: t, messages, events, fingerprints, support_ended, usage: await readMeter(db), suppressions };
   } catch { return null; } finally { await db.destroy(); }
 }
 
@@ -170,6 +175,15 @@ export async function afterRestore(url: string, before: SentBefore | null, now =
         supportEnded = Number(r.numAffectedRows ?? 0);
       }
       const usage = { months: await carryMeter(trx, before.usage), gap: false };
+      // An address reported since the copy (or cleared since) stays as the database before it had it: whichever
+      // happened last wins. With no database to vouch, nothing is carried: the next email bounces and is reported again.
+      if (before.suppressions?.length)
+        await sql`INSERT INTO email_suppression AS e (address, reason, detail, first_at, last_at, times, cleared_at, cleared_by)
+          SELECT s.address, s.reason, s.detail, s.first_at, s.last_at, s.times, s.cleared_at, (SELECT p.id FROM person p WHERE p.id = s.cleared_by)
+          FROM jsonb_to_recordset(${JSON.stringify(before.suppressions)}::jsonb) AS s(address text, reason text, detail text, first_at timestamptz, last_at timestamptz, times int, cleared_at timestamptz, cleared_by uuid)
+          ON CONFLICT (address) DO UPDATE SET reason = EXCLUDED.reason, detail = EXCLUDED.detail, first_at = least(e.first_at, EXCLUDED.first_at), last_at = EXCLUDED.last_at,
+            times = greatest(e.times, EXCLUDED.times), cleared_at = EXCLUDED.cleared_at, cleared_by = EXCLUDED.cleared_by, version = e.version + 1
+          WHERE greatest(EXCLUDED.last_at, coalesce(EXCLUDED.cleared_at, '-infinity')) > greatest(e.last_at, coalesce(e.cleared_at, '-infinity'))`.execute(trx);
       return { carried: { messages, events_held: eventsHeld, repeats }, held: { messages: 0, events: eventsHeld }, vouched: true, support_ended: supportEnded, usage };
     });
   } finally { await db.destroy(); }

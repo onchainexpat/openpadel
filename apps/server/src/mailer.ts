@@ -37,6 +37,9 @@ export class ResendMailer implements Mailer {
       const d = await r.json().catch(() => ({})) as { message?: string; name?: string };
       throw new Error(`resend ${r.status}: ${d.message ?? d.name ?? "no detail"}`);
     }
+    // Resend's id for it: its reports of a bounce or a complaint name the email by it (email_events.ts).
+    const d = await r.json().catch(() => ({})) as { id?: unknown };
+    return { ref: typeof d.id === "string" ? d.id : null };
   }
 }
 
@@ -61,7 +64,28 @@ export class MeteredMailer implements Mailer {
   private readonly now: () => Date;
   constructor(inner: Mailer, db: Db, now: () => Date = () => new Date()) { this.inner = inner; this.db = db; this.now = now; }
   async send(mail: Mail) {
-    await this.inner.send(mail);
+    const took = await this.inner.send(mail);
     await countEmail(this.db, this.now()).catch((e) => console.error(`usage: an email wasn't counted: ${(e as Error).message}`));
+    return took;
   }
+}
+
+/** Whether the club's sending domain is verified (for `kumi doctor`). A full-access key asks Resend; a sending-only
+ *  key, as the setup guide makes, can't, so the domain's DKIM record in DNS is checked instead. */
+export async function checkSendingDomain(apiKey: string, domain: string, o: { fetch?: Fetch; resolveTxt?: (name: string) => Promise<string[][]> } = {}):
+  Promise<{ state: "verified" } | { state: "status"; status: string } | { state: "missing" } | { state: "dkim"; found: boolean } | { state: "unknown"; error: string }> {
+  const fetchFn = o.fetch ?? globalThis.fetch.bind(globalThis);
+  try {
+    const r = await fetchFn("https://api.resend.com/domains", { method: "GET", signal: AbortSignal.timeout(8000), headers: { authorization: `Bearer ${apiKey}` } });
+    const d = await r.json().catch(() => ({})) as { data?: Array<{ name?: string; status?: string }>; name?: string; message?: string };
+    if (r.ok) {
+      const mine = (d.data ?? []).find((x) => x.name?.toLowerCase() === domain);
+      return !mine ? { state: "missing" } : mine.status === "verified" ? { state: "verified" } : { state: "status", status: mine.status ?? "unknown" };
+    }
+    if (r.status !== 401 && r.status !== 403) return { state: "unknown", error: `resend ${r.status}: ${d.message ?? d.name ?? "no detail"}` };
+  } catch (e) { return { state: "unknown", error: (e as Error).message }; }
+  // A sending-only key: Resend's DKIM record is a TXT at resend._domainkey.<domain> with the key ("p=...").
+  const resolve = o.resolveTxt ?? (async (name: string) => (await import("node:dns/promises")).resolveTxt(name));
+  const txt = await resolve(`resend._domainkey.${domain}`).catch(() => [] as string[][]);
+  return { state: "dkim", found: txt.some((parts) => parts.join("").includes("p=")) };
 }

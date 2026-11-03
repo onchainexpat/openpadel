@@ -40,7 +40,10 @@ async function note(trx: Trx, on: string, kinds: Kind[], at: Date, covered: bool
  *  date comes from somewhere else (an export put into this server), so nobody is told about it. */
 export const clubLeaving = defineAction({
   name: "club.leaving", version: 1, system: true, internal: true,
-  input: z.object({ on: z.nullable(date), kept_days: z.optional(z.nullable(z.number().check(z.int(), z.minimum(0), z.maximum(3650)))), tell: z.optional(z.boolean()) }),
+  input: z.object({ on: z.nullable(date), kept_days: z.optional(z.nullable(z.number().check(z.int(), z.minimum(0), z.maximum(3650)))), tell: z.optional(z.boolean()),
+    // The domain the club's email comes from, so the owners' emails say what becomes of it: the host's (it stays with
+    // the host) or the club's own (it moves to the club's own email account). Left out: as it was.
+    email_domain: z.optional(z.nullable(z.string().check(z.regex(/^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/)))), email_domain_host: z.optional(z.boolean()) }),
   async plan(ctx, i) {
     if (i.on === null) return { title: both("action.club.leaving"), summary: both("plan.club.leaving_off"), reads: [], undo: { kind: "none", note: both("reason.leaving_host") } };
     const c = await ctx.db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow();
@@ -49,10 +52,17 @@ export const clubLeaving = defineAction({
     return { title: both("action.club.leaving"), summary: both("plan.club.leaving_on", { date: dayText(i.on) }), reads: [], undo: { kind: "none", note: both("reason.leaving_host") } };
   },
   async apply(ctx, i) {
-    const c = await ctx.trx.selectFrom("club").select(["leaving_on", "leaving_kept_days", "time_zone"]).forUpdate().executeTakeFirstOrThrow();
+    const c = await ctx.trx.selectFrom("club").select(["leaving_on", "leaving_kept_days", "leaving_email_domain", "leaving_email_domain_host", "time_zone"]).forUpdate().executeTakeFirstOrThrow();
     const kept = i.kept_days === undefined ? c.leaving_kept_days : i.kept_days;
-    if (c.leaving_on === i.on && (i.on === null || kept === c.leaving_kept_days)) return { changed: false, on: i.on };
-    await ctx.update("club", "singleton", { leaving_on: i.on, leaving_kept_days: i.on === null ? null : kept });
+    const domain = i.on === null ? null : i.email_domain === undefined ? c.leaving_email_domain : i.email_domain;
+    const host = domain === null ? false : i.email_domain_host ?? (i.email_domain === undefined ? c.leaving_email_domain_host : false);
+    const sameMail = domain === c.leaving_email_domain && host === c.leaving_email_domain_host;
+    if (c.leaving_on === i.on && (i.on === null || kept === c.leaving_kept_days)) {
+      // Only what's said about the club's email changed: kept for the reminders, nobody told again now.
+      if (i.on !== null && !sameMail) await ctx.update("club", "singleton", { leaving_email_domain: domain, leaving_email_domain_host: host });
+      return { changed: false, on: i.on };
+    }
+    await ctx.update("club", "singleton", { leaving_on: i.on, leaving_kept_days: i.on === null ? null : kept, leaving_email_domain: domain, leaving_email_domain_host: host });
     const tell = i.tell !== false;
     if (i.on === null) {
       await ctx.emit("club.leaving_off", { was: c.leaving_on, tell });

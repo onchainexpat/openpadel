@@ -7,6 +7,17 @@ server starts.
 
 ## Unreleased
 
+### Added
+- **Email that can't arrive stops.** Resend's reports of a hard bounce, a spam complaint, or an address it won't send to
+  any more reach the club through a signed webhook (`/webhooks/resend`, with `KUMI_RESEND_WEBHOOK_SECRET`), and that
+  address gets no more of the club's email: sending to it again only hurts the club's sending name. The in-app copy of
+  every message stays. The member's app says their email isn't arriving and asks them to change it; the person's page in
+  the staff app says why, and the desk can send email to it again once it's fixed. Sign-in codes still go, since the
+  person has just asked for one. `kumi doctor` checks that the sending domain is verified and that the reports are set
+  up, and says how many addresses are held back.
+- `kumi leaving on --email-domain=<domain>` says, in the owners' emails, what becomes of the domain the club's email
+  comes from: the host's own stays with the host (`--email-domain-host`), the club's own moves to its own email account.
+
 ### Changed
 - **The usage meter survives a restore.** Restoring a backup, a minute or an update's snapshot, or an export onto the
   server the club ran on before, puts the meter back to the copy's counts, so what AI, texts and email cost after the
@@ -14,6 +25,10 @@ server starts.
   count, and an 80% or cap message already said isn't said again. Where the database before it can't vouch (a new
   server after losing the old one), the restore says this month's count may be short, and so do `kumi usage` (`gaps`
   in `--json`) and `kumi doctor` until the month ends.
+
+### When updating
+- Set up Resend's reports (`docs/setup/accounts/resend.md`, step 6): until then, `kumi doctor` warns, and nothing else
+  changes.
 
 ## 0.2.0 (2026-11-03)
 

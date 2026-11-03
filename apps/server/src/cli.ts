@@ -15,8 +15,9 @@
 //                                  with a passphrase typed at the prompt (or piped in); never printed
 //   kumi read-only on|off|status   the host's switch for an account that isn't paid (read_only.ts)
 //   kumi moved on [--to=<url>] | off | status   the club runs elsewhere now: this server sends members nothing (club_exit.ts)
-//   kumi leaving on --date=YYYY-MM-DD [--kept-days=N] | off | status   the day the club's Kumi ends (leaving.ts): the
-//                                  owner is told at once, and a week and a day before, to download everything first
+//   kumi leaving on --date=YYYY-MM-DD [--kept-days=N] [--email-domain=<domain> [--email-domain-host]] | off | status
+//                                  the day the club's Kumi ends (leaving.ts): the owner is told at once, and a week and
+//                                  a day before, to download everything first (and what becomes of the email domain)
 //   kumi held [send|drop] --yes    after a club's export is restored here: what was still waiting to go out on the old
 //                                  server, held so it isn't sent twice (held.ts); send it on, or drop it, once that one is off
 //   kumi restore-test              restore the newest backup into a scratch database and check it
@@ -247,12 +248,13 @@ async function main(): Promise<number> {
     try {
       const date = flag("date") ?? rest.find((x) => /^\d{4}-\d{2}-\d{2}$/.test(x));
       const keptFlag = flag("kept-days"), kept = keptFlag === undefined ? undefined : Number(keptFlag);
+      const mailFlag = flag("email-domain"), mail = mailFlag === undefined ? {} : { email_domain: mailFlag.trim().toLowerCase() || null, email_domain_host: args.includes("--email-domain-host") };
       if (sub === "on" && !date) { if (json) out({ ok: false, error: t(lang, "cli.leaving_bad_date") }); else console.error(t(lang, "cli.leaving_bad_date")); return 2; }
       if (kept !== undefined && !(Number.isInteger(kept) && kept >= 0)) { console.error(t(lang, "cli.usage")); return 2; }
       let changed: boolean | null = null;
       if (sub !== "status") {
         try {
-          const r = await runAsSystem(db, "club.leaving", { on: sub === "on" ? date! : null, ...(kept !== undefined ? { kept_days: kept } : {}) }, "cli");
+          const r = await runAsSystem(db, "club.leaving", { on: sub === "on" ? date! : null, ...(kept !== undefined ? { kept_days: kept } : {}), ...(sub === "on" ? mail : {}) }, "cli");
           changed = (r.result as { changed: boolean }).changed;
         } catch (e) {
           if (!(e instanceof KumiError)) throw e;

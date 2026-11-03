@@ -29,6 +29,7 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 | `KUMI_MAIL_FROM` | The sender, on the club's verified domain: `"Your Club <hello@mail.yourclub.com>"`. Needed with the key. | not set |
 | `KUMI_MAIL_REPLY_TO` | Where replies to Kumi's emails go. | not set |
 | `KUMI_MAIL_TEST_TO` | Comma-separated addresses that get real email in practice mode. | none |
+| `KUMI_RESEND_WEBHOOK_SECRET` | The signing secret of the club's Resend webhook (`whsec_...`): Resend's reports of bounces and spam complaints reach `/webhooks/resend`, and those addresses get no more email. Without it, the webhook isn't there. | not set |
 
 ## Texts (Twilio, optional)
 

@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { actions, apply, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { actions, apply, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
@@ -31,11 +31,12 @@ import { memberUrl } from "./addresses.ts";
 import { memberRoutes } from "./member.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import { textRoutes } from "./texts.ts";
+import { emailEventRoutes } from "./email_events.ts";
 import { receiptRoutes } from "./receipts.ts";
 import type { Mailer } from "./mailer.ts";
 
 /** The changes a staff screen offers a button for, which /me reports for people with only the club's own roles. */
-const CLIENT_ACTIONS = ["person.create", "person.import", "booking.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "booking.refund", "court.block", "court.unblock", "court.block_repeat", "court.block_repeat_end", "court.block_repeat_edit", "booking.add_player", "booking.remove_player", "alert.handle", "series.edit"];
+const CLIENT_ACTIONS = ["person.create", "person.import", "booking.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "booking.refund", "court.block", "court.unblock", "court.block_repeat", "court.block_repeat_end", "court.block_repeat_edit", "booking.add_player", "booking.remove_player", "alert.handle", "series.edit", "person.email_unsuppress"];
 
 export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string;
   /** The members' app's address (addresses.ts), for the public page's own links; from publicUrl when not given. */
@@ -45,7 +46,9 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   /** Texts, when the club's Twilio account is set up (twilio.ts): what sends them, and the token Twilio signs its posts with. */
   texts?: { texter: Texter; authToken: string | null }
   /** The database's address for the tools that copy it whole (the owner's "Download everything"). */
-  databaseUrl?: string }
+  databaseUrl?: string
+  /** The email service's webhook (email_events.ts): the secret its posts are signed with, and the club's sender. */
+  emailEvents?: { secret: string | null; from: string | null } }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
 type Me = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
@@ -245,6 +248,7 @@ export function makeApp(deps: AppDeps) {
     if (!staff && (await botGuard(c)) !== "ok") throw new KumiError("error.bot_check", {}, 400);
   };
   app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe, checkoutGuard));
+  app.route("/", emailEventRoutes(db, { secret: deps.emailEvents?.secret ?? null, from: deps.emailEvents?.from ?? null, now }));
   // Texts: a member's number and their yes, and what Twilio posts back (texts.ts).
   app.route("/", textRoutes({ db, texter: deps.texts?.texter ?? null, authToken: deps.texts?.authToken ?? null, publicUrl, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}),
     me: (c) => c.get("me"), lang: (c) => c.get("lang"), now, botGuard, mailer, undoUrl: (t) => `${deps.memberUrl ?? memberUrl(publicUrl, {})}/auth/email-undo/${t}` }));
@@ -383,7 +387,7 @@ export function makeApp(deps: AppDeps) {
     // The day the club's Kumi ends (leaving.ts): for the top of the staff app, the owner's and managers' to see.
     const leaving = !me.gate && roles.some((r) => r.key === "owner" || r.key === "manager") ? await leavingOn(db) : null;
     return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can,
-      has_email: Boolean(email), email, leaving, support: support ? { name: support.name, level: support.level, ends_at: support.ends_at } : null, support_now: supportNow,
+      has_email: Boolean(email), email, email_problem: email ? await personEmailProblem(db, me.id) : null, leaving, support: support ? { name: support.name, level: support.level, ends_at: support.ends_at } : null, support_now: supportNow,
       // An account made for support access whose access has ended: the staff app says so, rather than showing empty pages.
       support_ended: !support && row?.created_via === "support" });
   });

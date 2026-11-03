@@ -25,11 +25,13 @@ import type { OpsJob } from "./ops.ts";
 import { currentPrices, monthOf, nextMonthStart, usageAllows } from "./usage.ts";
 import { lastClubExport } from "./club_exit.ts";
 import { mayAnswer } from "./actions.ts";
+import { emailSuppressed } from "./email_suppression.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
 export interface Mail { to: string; subject: string; text: string; id?: string; headers?: Record<string, string> }
-export interface Mailer { send(mail: Mail): Promise<void> }
+/** `ref`: the email service's id for it, so its reports (bounces, complaints) find the message. */
+export interface Mailer { send(mail: Mail): Promise<void | { ref?: string | null }> }
 
 /** Quiet hours in the club's time, by default 9 pm to 8 am (messages.md). */
 export const QUIET = { from: 21, until: 8 };
@@ -124,9 +126,13 @@ async function owners(db: Db): Promise<string[]> {
   return rows.map((r) => r.person_id);
 }
 /** What happens to the club's data after its Kumi ends, as the server's owner said (null: not said). */
-function keptText(on: string, days: number | null): Text {
+function keptText(on: string, days: number | null, mail?: { leaving_email_domain: string | null; leaving_email_domain_host: boolean }): Text {
   const date = dayText(on);
-  return days === null ? both("msg.leaving_kept_unsaid", { date }) : days === 0 ? both("msg.leaving_kept_none", { date }) : both("msg.leaving_kept_days", { date, count: days });
+  const kept = days === null ? both("msg.leaving_kept_unsaid", { date }) : days === 0 ? both("msg.leaving_kept_none", { date }) : both("msg.leaving_kept_days", { date, count: days });
+  // What becomes of the domain the club's email comes from (`kumi leaving on --email-domain`), when it was said.
+  const domain = mail?.leaving_email_domain;
+  if (!domain) return kept;
+  return both("msg.leaving_with_mail", { kept, mail: both(mail!.leaving_email_domain_host ? "msg.leaving_mail_host" : "msg.leaving_mail_own", { domain }) });
 }
 /** Support access (support.ts), as the messages about it say it. */
 async function supportInfo(db: Db, grantId: string, tz: string) {
@@ -495,19 +501,19 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   // Each only while that's still the day: not once it's moved or taken away (or this server is another one, an
   // export put in here with the old server's news still waiting).
   async "club.leaving_set"({ db, tz }, p: { on: string; kept_days: number | null; tell?: boolean }) {
-    const c = await db.selectFrom("club").select(["name", "leaving_on"]).executeTakeFirstOrThrow();
+    const c = await db.selectFrom("club").select(["name", "leaving_on", "leaving_email_domain", "leaving_email_domain_host"]).executeTakeFirstOrThrow();
     if (p.tell === false || c.leaving_on !== p.on) return [];
     const club = c.name;
-    const params = { club, date: dayText(p.on), kept: keptText(p.on, p.kept_days) };
+    const params = { club, date: dayText(p.on), kept: keptText(p.on, p.kept_days, c) };
     return (await owners(db)).map((to) => ({ to, kind: "club_leaving_staff", params, purpose: "staff" as const, essential: true, email: true, link: "/settings#download-everything",
       staleAt: onDate(p.on, "24:00", tz) }));
   },
   async "club.leaving_reminder"({ db, tz }, p: { on: string; kind: "week" | "day"; kept_days: number | null }) {
-    const c = await db.selectFrom("club").select(["name", "leaving_on"]).executeTakeFirstOrThrow();
+    const c = await db.selectFrom("club").select(["name", "leaving_on", "leaving_email_domain", "leaving_email_domain_host"]).executeTakeFirstOrThrow();
     if (c.leaving_on !== p.on) return [];
     const club = c.name, last = await lastClubExport(db);
     const done = last ? both("msg.leaving_done", { when: when(last.at, tz), by: last.by }) : both("msg.leaving_not_done");
-    const params = { club, date: dayText(p.on), kept: keptText(p.on, p.kept_days), done };
+    const params = { club, date: dayText(p.on), kept: keptText(p.on, p.kept_days, c), done };
     return (await owners(db)).map((to) => ({ to, kind: `club_leaving_${p.kind}_staff`, params, purpose: "staff" as const, essential: true, email: true, link: "/settings#download-everything",
       staleAt: onDate(p.on, "24:00", tz) }));
   },
@@ -966,7 +972,11 @@ export async function sendEmails(db: Db, mailer: Mailer, now = new Date(), limit
       // Consent is checked now, at the send: a member who said no to email since still isn't emailed,
       // except what they can't do without (sign-ins, confirmations, money).
       const seen = UNLESS_READ.has(m.kind) && await seenInApp(trx, m);
-      const why = !m.email ? "no email" : !m.essential && m.purpose !== "staff" && await refused(trx, m.person_id, "email", m.purpose) ? "no consent" : m.stale_at && m.stale_at <= now ? "stale"
+      // An address the email service said can't take the club's email (email_suppression.ts) gets none, essential or
+      // not: it wouldn't arrive, and sending it hurts the club's sending name. The in-app copy stays.
+      const held = m.email ? await emailSuppressed(trx, m.email) : null;
+      const why = !m.email ? "no email" : held ? `held back: ${held.reason === "bounce" ? "bounced" : held.reason === "complaint" ? "marked as spam" : "the email service won't send to it"}`
+        : !m.essential && m.purpose !== "staff" && await refused(trx, m.person_id, "email", m.purpose) ? "no consent" : m.stale_at && m.stale_at <= now ? "stale"
         : seen ? "read in the app" : null;
       if (why) {
         await trx.updateTable("outbound_message").set({ status: "dropped", failure: why }).where("id", "=", m.id).execute();
@@ -987,8 +997,8 @@ export async function sendEmails(db: Db, mailer: Mailer, now = new Date(), limit
         headers = { "List-Unsubscribe": `<${url}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" };
       }
       try {
-        await mailer.send({ to: m.email!, subject: m.subject, text, id: m.id, ...(headers ? { headers } : {}) });
-        await trx.updateTable("outbound_message").set({ status: "sent", sent_at: now, attempts: sql`attempts + 1` }).where("id", "=", m.id).execute();
+        const took = await mailer.send({ to: m.email!, subject: m.subject, text, id: m.id, ...(headers ? { headers } : {}) });
+        await trx.updateTable("outbound_message").set({ status: "sent", sent_at: now, attempts: sql`attempts + 1`, ...(took?.ref ? { provider_ref: took.ref } : {}) }).where("id", "=", m.id).execute();
         return "sent" as const;
       } catch (e) {
         const gaveUp = m.attempts + 1 >= MAX_SEND_ATTEMPTS;

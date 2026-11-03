@@ -8,6 +8,7 @@ import { GiveMembership, MembershipButtons, membershipLine, type Plan } from "./
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
 type P = {
   id: string; display_name: string; email: string | null; locale: string; created_via: string; created_at: string;
+  email_problem: { reason: "bounce" | "complaint" | "provider"; since: string; detail: string | null } | null;
   roles: Role[]; places: { id: string; status: string; program_id: string; name: string; first_start: string | null }[];
   bookings: { id: string; code: string; kind: string; status: string; court: string; starts_at: string; price_cents: number; organiser: boolean; paid_cents: number;
     refundable: { payment_id: string; left_cents: number }[] }[];
@@ -54,6 +55,8 @@ export function Person({ id }: { id: string }) {
       <h1>{p.display_name}</h1>
       <section class="card">
         <p>{p.email ?? t("ui.no_email")}</p>
+        {p.email_problem && <p class="note" role="status">{t(`ui.email_held_${p.email_problem.reason}` as Key, { date: date(p.email_problem.since) })}{p.email_problem.detail ? ` (${p.email_problem.detail})` : ""}{" "}
+          {mayDo("person.email_unsuppress") && <button class="small" onClick={() => preview("person.email_unsuppress", { person_id: p.id })}>{t("ui.email_held_clear")}</button>}</p>}
         <p class="meta">{t("ui.joined", { date: date(p.created_at), how: t(`ui.via_${p.created_via}` as Key) })} · {p.locale === "es" ? "Español" : "English"}</p>
         {!p.junior && <p class="meta">{t("ui.club_news_email")}: {news ? t(news.granted ? "ui.consent_yes" : "ui.consent_no") : t("ui.consent_unknown")}</p>}
         {texts && <p class="meta">{t("ui.texts_staff")}: {t(texts.granted ? "ui.consent_yes" : "ui.consent_no")}</p>}

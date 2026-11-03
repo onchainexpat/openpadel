@@ -32,6 +32,8 @@ export const READ_ONLY_ALLOWED = new Set([
   "membership.card_saved", "family_card.saved", "booking.lapse", "booking.release_seat", "booking.settle_shares", "booking.remind", "waitlist.expire_offers",
   "enrolment.unpaid", "membership.lapse", "program.decide", "program.min_heads_up", "result.auto_confirm", "question.alert", "question.decide",
   "ops.report_failure", "ops.report_cleared", "club.usage_alert", "mirror.apply", "block_series.extend", "broadcast.deliver",
+  // The email service's reports, and the desk letting email go to an address again (email_suppression.ts).
+  "email.report", "person.email_unsuppress",
 ]);
 
 /** Since when the club is read-only, or null. */

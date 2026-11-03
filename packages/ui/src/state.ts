@@ -6,6 +6,8 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   /** False for an account that joined by phone and hasn't added an email: the members' app asks for one, never requires it. */
   has_email?: boolean;
   email?: string | null;
+  /** The club's email can't reach their address (email_suppression.ts): a bounce, a spam complaint, or the email service's own list. */
+  email_problem?: { reason: "bounce" | "complaint" | "provider"; since: string; detail: string | null } | null;
   /** A role the club made has its own name; the built-in ones are worded by key. */
   roles: { key: string; name?: string | null; location_id: string | null }[];
   /** This session still owes its second step ("verify"), or has none set up yet ("setup"): the apps show only that. */

@@ -122,6 +122,7 @@ const ENTITIES = {
   oauth_grant: { table: "oauth_grant", key: "id", retire: { revoked_at: "now" } },
   texting_registration: { table: "texting_registration", key: "id", retire: null },
   support_grant: { table: "support_grant", key: "id", retire: { ended_at: "now" } },
+  email_suppression: { table: "email_suppression", key: "address", retire: { cleared_at: "now" } },
   vault_item: { table: "vault_item", key: "id", retire: { active: false } },
 } as const;
 export type Entity = keyof typeof ENTITIES;

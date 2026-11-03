@@ -23,7 +23,7 @@ export const EXPORT_MAGIC = Buffer.from("KUMIEX1\n");
 /** Settings carried as they are: where the club is on the web and how it writes. None is secret. */
 const CARRIED = ["KUMI_PUBLIC_URL", "KUMI_MEMBER_URL", "KUMI_LANG", "KUMI_MAIL_FROM", "KUMI_MAIL_REPLY_TO", "KUMI_STRIPE_CONNECT", "KUMI_PLAYTOMIC_TENANT_ID"];
 /** Settings only named: the new server's owner sets up their own (keys are the old server's, or its host's). */
-const NAMED = ["KUMI_RESEND_API_KEY", "KUMI_TWILIO_ACCOUNT_SID", "KUMI_TWILIO_MESSAGING_SERVICE_SID", "KUMI_TWILIO_FROM", "KUMI_STRIPE_SECRET_KEY", "KUMI_STRIPE_WEBHOOK_SECRET",
+const NAMED = ["KUMI_RESEND_API_KEY", "KUMI_RESEND_WEBHOOK_SECRET", "KUMI_TWILIO_ACCOUNT_SID", "KUMI_TWILIO_MESSAGING_SERVICE_SID", "KUMI_TWILIO_FROM", "KUMI_STRIPE_SECRET_KEY", "KUMI_STRIPE_WEBHOOK_SECRET",
   "KUMI_TYPESAFE_API_KEY", "KUMI_ANTHROPIC_API_KEY", "KUMI_PLAYTOMIC_CLIENT_ID", "KUMI_OFFSITE_ENDPOINT", "KUMI_BACKUP_KEY"];
 /** Secrets in tables that only last minutes (an authenticator being set up): not carried, cleared on the way in. */
 const PASSING = new Set(["auth_challenge"]);

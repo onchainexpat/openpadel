@@ -24,6 +24,9 @@ const ReceiptPage = lazy(() => import("./Receipts.tsx").then((m) => m.ReceiptPag
 /** Someone who joined by phone is asked to add an email, until they add one or say "not now" on this device. */
 function EmailBanner() {
   const [later, setLater] = useState(() => { try { return localStorage.getItem("kumi.email_later") === "1"; } catch { return false; } });
+  // The club's email can't reach their address (email_suppression.ts): said until they change it or the desk clears it.
+  const problem = me.value?.email_problem;
+  if (problem) return <p class="note banner" role="status">{t(problem.reason === "complaint" ? "ui.email_problem_complaint" : "ui.email_problem_bounce", { email: me.value?.email ?? "" })} <a href="/profile#email">{t("ui.email_problem_change")}</a></p>;
   if (me.value?.has_email !== false || later) return null;
   const notNow = () => { try { localStorage.setItem("kumi.email_later", "1"); } catch { /* private window: it asks again next time */ } setLater(true); };
   return <p class="note banner" role="status">{t("ui.email_banner")} <a href="/profile#email">{t("ui.email_banner_add")}</a> <button class="link" onClick={notNow}>{t("ui.email_banner_later")}</button></p>;

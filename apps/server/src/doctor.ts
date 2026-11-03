@@ -3,11 +3,12 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
-import { answerCounts, clubStripeAccount, dayText, heartbeats, heldSummary, leavingOn, localDate, localParts, movedAway, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageGaps, usageView, type Db } from "@kumi/core";
+import { answerCounts, clubStripeAccount, dayText, emailDomain, suppressionCounts, heartbeats, heldSummary, leavingOn, localDate, localParts, movedAway, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageGaps, usageView, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { offsitePrunes } from "./backups.ts";
 import { archiverFailing, archiverState, PITR_CONF } from "./pitr.ts";
 import { checkTwilio, hasSender, twilioFromEnv } from "./twilio.ts";
+import { checkSendingDomain } from "./mailer.ts";
 import { answerModels, checkAnswerKeys } from "./answerer.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { VERSION } from "./version.ts";
@@ -17,7 +18,7 @@ export interface Check { id: string; state: CheckState; text: Text; doc?: string
 type Env = Record<string, string | undefined>;
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
-export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fetch; now?: Date } = {}): Promise<Check[]> {
+export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fetch; now?: Date; resolveTxt?: (name: string) => Promise<string[][]> } = {}): Promise<Check[]> {
   const checks: Check[] = [], now = deps.now ?? new Date(), production = env.NODE_ENV === "production";
   // Docker installs (the image sets KUMI_INSTALL=docker) run backups from a service, not systemd timers.
   const docker = env.KUMI_INSTALL === "docker", opsDoc = docker ? "deploy/docker/README.md" : "deploy/README.md", d = docker ? "_docker" : "";
@@ -80,6 +81,24 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   else if (!env.KUMI_MAIL_FROM) add("email", "fail", "email.no_from", {}, "docs/setup/accounts/resend.md");
   else if (!production || env.KUMI_PRACTICE === "1") add("email", "warn", "email.practice", { from: env.KUMI_MAIL_FROM, count: (env.KUMI_MAIL_TEST_TO ?? "").split(",").filter((a) => a.trim()).length });
   else add("email", "ok", "email.ok", { from: env.KUMI_MAIL_FROM });
+  // Live, the domain the email comes from must be verified (or it's refused, or lands in spam), and the email
+  // service's reports must reach the club (email_events.ts), or it keeps emailing addresses that bounce.
+  const mailDomain = env.KUMI_MAIL_FROM ? emailDomain(env.KUMI_MAIL_FROM) : null;
+  if (production && env.KUMI_RESEND_API_KEY && mailDomain) {
+    const s = await checkSendingDomain(env.KUMI_RESEND_API_KEY, mailDomain, { fetch: deps.fetch, resolveTxt: deps.resolveTxt });
+    if (s.state === "verified") add("email_domain", "ok", "email_domain.verified", { domain: mailDomain });
+    else if (s.state === "status") add("email_domain", "fail", "email_domain.status", { domain: mailDomain, status: s.status }, "docs/setup/accounts/resend.md");
+    else if (s.state === "missing") add("email_domain", "fail", "email_domain.missing", { domain: mailDomain }, "docs/setup/accounts/resend.md");
+    else if (s.state === "dkim") add("email_domain", s.found ? "ok" : "warn", s.found ? "email_domain.dkim" : "email_domain.no_dkim", { domain: mailDomain }, s.found ? undefined : "docs/setup/accounts/resend.md");
+    else add("email_domain", "warn", "email_domain.unknown", { domain: mailDomain, error: s.error }, "docs/setup/accounts/resend.md");
+  }
+  if (env.KUMI_RESEND_API_KEY) {
+    const held = await suppressionCounts(db, now).catch(() => null);
+    const counts = { held: held?.held ?? 0, bounce: held?.bounce ?? 0, complaint: held?.complaint ?? 0 };
+    if (!env.KUMI_RESEND_WEBHOOK_SECRET) add("email_reports", production ? "warn" : "off", "email_reports.off", {}, "docs/setup/accounts/resend.md");
+    // Spam complaints are what get a sending account stopped: more than a few in a month is worth a look.
+    else add("email_reports", counts.complaint >= 3 ? "warn" : "ok", counts.held ? "email_reports.held" : "email_reports.ok", counts);
+  }
 
   // Texts: optional. Set up, Twilio is asked whether it takes the account and token (reading only), and the
   // last day's texts say whether they're getting through (an unapproved registration shows up as failures).
