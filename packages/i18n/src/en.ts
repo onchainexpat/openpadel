@@ -140,7 +140,7 @@ export const en = {
   "ui.approve_sheet": "Say yes to this, and it happens now, as if you'd made the change: {summary}",
   "ui.decline_sheet": "Say no to this: nothing changes, and {by} hears. {summary}",
   "ui.decline_reason": "Why (optional, {by} sees it)",
-  "ui.declined_by": "declined by {name}",
+  "ui.declined_by": "by {name}",
   "ui.approved_by": "approved by {name}",
   "ui.changes_waiting": "Waiting for your yes",
   "ui.profile_title": "Your profile",

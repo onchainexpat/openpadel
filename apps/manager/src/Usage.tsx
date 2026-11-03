@@ -51,13 +51,15 @@ function CapForm({ u, send }: { u: U; send: (action: string, input: unknown) => 
   const [cap, setCap] = useState((u.cap_cents / 100).toFixed(2)), [over, setOver] = useState((u.over_cents / 100).toFixed(2));
   const cents = (s: string) => Math.round(Number(s) * 100), ok = (s: string) => s.trim() !== "" && Number.isFinite(Number(s)) && Number(s) >= 0;
   const changed = ok(cap) && ok(over) && (cents(cap) !== u.cap_cents || cents(over) !== u.over_cents);
+  // Support access never changes the cap, nor asks to: it's told so, with nothing to fill in.
+  if (support) return <section class="card"><h2>{t("ui.usage_cap_title")}</h2><p class="meta">{t("ui.usage_cap_support")}</p></section>;
   return (
     <section class="card card-form">
       <h2>{t("ui.usage_cap_title")}</h2>
       <label>{t("ui.usage_cap")}<input type="number" min={0} step={1} value={cap} onInput={(e) => setCap(e.currentTarget.value)} /></label>
       <label>{t("ui.usage_over")}<input type="number" min={0} step={1} value={over} onInput={(e) => setOver(e.currentTarget.value)} /></label>
-      {!owner && <p class="meta">{t(support ? "ui.usage_cap_support" : "ui.usage_cap_ask")}</p>}
-      {!support && <button class="primary" disabled={!changed} onClick={() => send("club.usage_cap_set", { cap_cents: cents(cap), ...(cents(over) !== u.over_cents ? { over_cents: cents(over) } : {}) })}>{t("ui.preview")}</button>}
+      {!owner && <p class="meta">{t("ui.usage_cap_ask")}</p>}
+      <button class="primary" disabled={!changed} onClick={() => send("club.usage_cap_set", { cap_cents: cents(cap), ...(cents(over) !== u.over_cents ? { over_cents: cents(over) } : {}) })}>{t("ui.preview")}</button>
     </section>
   );
 }

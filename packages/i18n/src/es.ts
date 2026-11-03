@@ -143,7 +143,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.approve_sheet": "Si lo apruebas, se hace ahora, como si hicieras tú el cambio: {summary}",
   "ui.decline_sheet": "Rechazarlo: no cambia nada y {by} recibe un aviso. {summary}",
   "ui.decline_reason": "Motivo (opcional, {by} lo ve)",
-  "ui.declined_by": "rechazado por {name}",
+  "ui.declined_by": "por {name}",
   "ui.approved_by": "aprobado por {name}",
   "ui.changes_waiting": "Esperan tu aprobación",
   "ui.profile_title": "Tu perfil",

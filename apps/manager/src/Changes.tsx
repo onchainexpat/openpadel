@@ -50,7 +50,8 @@ export function Changes() {
     <main>
       <h1>{t("ui.nav_changes")}</h1>
       {error && <p class="error" role="alert">{error}</p>}
-      {open && (
+      {/* Docked at the bottom of the screen, as every preview is: the button that opened it may be far down the list. */}
+      {open && <div class="dock">
         <div class="card sheet" role="dialog" aria-modal="true">
           {open.kind === "undo" && <p>{open.summary}</p>}
           {open.kind === "approve" && <p>{t("ui.approve_sheet", { summary: open.row.summary ?? open.row.action })}</p>}
@@ -60,7 +61,7 @@ export function Changes() {
           </>}
           <button class="primary" disabled={busy} onClick={confirm}>{t("ui.confirm")}</button> <button disabled={busy} onClick={() => setOpen(null)}>{t("ui.cancel")}</button>
         </div>
-      )}
+      </div>}
       {waiting.length > 0 && <section><h2>{t("ui.changes_waiting")}</h2><ul class="changes">{waiting.map(row)}</ul></section>}
       {rows.length === 0 && <p>{t("ui.changes_empty")}</p>}
       <ul class="changes">{rest.map(row)}</ul>
