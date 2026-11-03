@@ -2,7 +2,7 @@
 // and every call recorded with the account it was made on.
 export function fakeStripe() {
   const accounts = new Map<string, { charges_enabled: boolean; details_submitted: boolean; key: string }>();
-  const intents = new Map<string, { account: string | null; status: string; amount: number; key: string }>();
+  const intents = new Map<string, { account: string | null; status: string; amount: number; key: string; customer?: string | null; kumi_charge_id?: string | null }>();
   const refunds: { id: string; account: string | null; payment_intent: string; amount: number; kumi_refund_id: string | null; status: string }[] = [];
   const calls: { method: string; path: string; account: string | null; key: string | null; body: URLSearchParams }[] = [];
   const fetch = async (url: string, init?: RequestInit) => {
@@ -21,8 +21,15 @@ export function fakeStripe() {
     if (method === "POST" && u.pathname === "/v1/payment_intents") {
       const known = [...intents].find(([, i]) => i.key === key && i.account === account);
       const id = known?.[0] ?? `pi_${intents.size + 1}`;
-      if (!known) intents.set(id, { account, status: "requires_payment_method", amount: Number(body.get("amount")), key: key ?? "" });
+      // A charge of a saved card (confirm=true) goes through at once; an intent for the card form waits for it.
+      if (!known) intents.set(id, { account, status: body.get("confirm") === "true" ? "succeeded" : "requires_payment_method", amount: Number(body.get("amount")), key: key ?? "",
+        customer: body.get("customer"), kumi_charge_id: body.get("metadata[kumi_charge_id]") });
       return Response.json({ id, client_secret: `${id}_secret`, status: intents.get(id)!.status });
+    }
+    if (method === "GET" && u.pathname === "/v1/payment_intents") {
+      // A customer's payments, on the account they were made on, newest first, with Kumi's id for each charge.
+      const mine = [...intents].filter(([, i]) => i.account === account && i.customer === u.searchParams.get("customer")).reverse();
+      return Response.json({ data: mine.map(([id, i]) => ({ id, status: i.status, amount: i.amount, metadata: i.kumi_charge_id ? { kumi_charge_id: i.kumi_charge_id } : {} })) });
     }
     const pi = u.pathname.match(/^\/v1\/payment_intents\/(.+)$/);
     if (pi) {

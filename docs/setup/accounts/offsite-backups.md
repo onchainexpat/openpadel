@@ -134,6 +134,40 @@ so none of this gets in its way.
 
 `kumi doctor` says which way the server works.
 
+## Going back to a minute (point-in-time backups)
+
+The nightly backup can only take the club back to 3:17 last night. Point-in-time backups can take it back to
+**any minute**: a mistake at 14:06 is undone by going back to 14:05. The target: **lose at most about a minute**
+of the club's changes, and **be back within an hour** (the monthly test measures how long a restore takes, and
+`kumi doctor` shows it; a small club's takes seconds).
+
+How it works: Postgres writes every change to its log first, and pgBackRest (the PostgreSQL community's backup
+tool, from the same repository as Postgres) copies each finished piece of that log away at least once a minute
+while the club is busy, and takes a base backup every night at 3:37 club time (a full one weekly). Two copies:
+- **on the server** (`/var/lib/pgbackrest`), any minute of the last 14 days: the quick one, for mistakes;
+- **offsite**, in the same bucket as the nightly copies (`kumi/pitr/<the cluster's id>/`), any minute of the
+  last 30 days, sealed with a key made from `KUMI_BACKUP_KEY`, so the key in the password manager opens it too.
+  pgBackRest deletes its own old pieces, so with `KUMI_OFFSITE_PRUNE=0` (a key that can't delete) the offsite
+  copy stays off and only the server's runs; `kumi doctor` says so.
+
+`server-setup.sh` turns it on (it starts Postgres again once, to archive); the next update (or the first ship)
+sets pgBackRest up and takes the first base backup. On a server set up before this, run `server-setup.sh` again
+once. `KUMI_PITR=0`, in the environment of `server-setup.sh` and in `/etc/kumi/kumi.env`, leaves it off.
+
+To go back:
+```bash
+kumi pitr status                                   # how far back it reaches, and whether it's keeping up
+sudo kumi restore --to="2026-11-03 14:05" --yes    # the club's clock; everything since is lost
+```
+It recovers the archive into a scratch copy of its own (the live database isn't touched), stops at that minute,
+takes the club's database from it, and restores that the usual way: a copy of the database as it is now is made
+first. Messages the club had already sent since that minute aren't sent again (notices it had handled are held:
+`kumi held` lists them, and `kumi held send --yes` or `kumi held drop --yes` decides), and card charges and
+refunds ask Stripe first, so none is made twice.
+
+Once a month (the 1st, 5:17 club time) a random minute of the last week is restored into scratch and checked: the
+change made a minute before it is there, nothing from a minute after it is. `kumi doctor` shows the result.
+
 ## Restoring after losing the server
 
 1. Set up a new server with `server-setup.sh` and ship the code (see [server.md](server.md)).
@@ -142,3 +176,7 @@ so none of this gets in its way.
    `KUMI_SECRET_KEY_PREVIOUS` (the new server made its own `KUMI_SECRET_KEY`).
 3. `sudo kumi restore offsite:latest --yes` (it stops the server, restores, and starts it again), then
    `kumi rotate-key` and `kumi doctor`.
+4. To go to a later minute than last night's backup: the old server's point-in-time archive is offsite, in its
+   own folder `kumi/pitr/<id>/` (look in the bucket for the id). Once the new server is set up and running,
+   `sudo kumi restore --to="2026-11-03 14:05" --archive=<id> --yes`. Everything that was waiting to go out is held
+   then, since this server can't know what the old one sent: `kumi held` lists it.

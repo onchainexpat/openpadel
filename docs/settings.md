@@ -97,6 +97,8 @@ month's lines by kind (calls, tokens, segments, emails and cents to four places)
 | `KUMI_OFFSITE_BUCKET` | The bucket. | |
 | `KUMI_OFFSITE_ACCESS_KEY_ID`, `KUMI_OFFSITE_SECRET_ACCESS_KEY` | A key for that bucket only, allowed to read, write and list, and to delete unless `KUMI_OFFSITE_PRUNE=0`. | |
 | `KUMI_OFFSITE_PRUNE` | `0`: Kumi never deletes offsite copies; the storage's own lifecycle rules expire them, and its key needs no right to delete (so a stolen server can't wipe them). See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md). | Kumi keeps 30 days and 12 months itself |
+| `KUMI_PITR` | `0`: no point-in-time backups on this server (`server-setup.sh` and updates leave Postgres and pgBackRest alone). See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md#going-back-to-a-minute-point-in-time-backups). | on |
+| `KUMI_PITR_HOST` | `1` on a server that many clubs share, where the host runs the point-in-time archive for all of them: `kumi doctor` says so instead of checking it. | |
 | `KUMI_OFFSITE_REGION` | The region the storage signs for: `auto` for R2, the bucket's region elsewhere (`us-west-004`, `us-east-1`). | `auto` |
 | `KUMI_OFFSITE_PREFIX` | The folder in the bucket. | `kumi/` |
 | `KUMI_OFFSITE_PATH_STYLE` | `0` for addresses like `bucket.endpoint` instead of `endpoint/bucket`. | path style |

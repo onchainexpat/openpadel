@@ -115,8 +115,14 @@ export class StripeProvider implements PaymentProvider {
 
   async chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; currency: string; description: string; idempotencyKey: string; account?: string | null }) {
     try {
-      const d = await this.call("POST", "/v1/payment_intents", { amount: i.amountCents, currency: i.currency.toLowerCase(), description: i.description, customer: i.customer,
-        payment_method: i.paymentMethod, payment_method_types: ["card"], off_session: true, confirm: true }, `charge:${i.idempotencyKey}`, i.account);
+      // Stripe remembers an idempotency key for a day. Asked again later (the database restored to before this
+      // charge, from a backup or a minute in the archive; a club's export restored on another server), the charge
+      // Stripe already has for this one, by Kumi's own id for it, is the answer: never a second. The key is the
+      // same for a retry of the same charge (a renewal's period and attempt, a booking's deadline).
+      const had = await this.call("GET", `/v1/payment_intents?customer=${encodeURIComponent(i.customer)}&limit=100`, undefined, undefined, i.account);
+      const found = (had?.data ?? []).find((p: any) => p?.metadata?.kumi_charge_id === i.idempotencyKey);
+      const d = found ?? await this.call("POST", "/v1/payment_intents", { amount: i.amountCents, currency: i.currency.toLowerCase(), description: i.description, customer: i.customer,
+        payment_method: i.paymentMethod, payment_method_types: ["card"], off_session: true, confirm: true, metadata: { kumi_charge_id: i.idempotencyKey } }, `charge:${i.idempotencyKey}`, i.account);
       return { ref: String(d.id), status: intentStatus(d.status), ...(d.status === "succeeded" ? {} : { failure: String(d.status) }) };
     } catch (e) {
       // A declined card, or one that needs its owner to confirm: a failed charge, for the desk to settle.

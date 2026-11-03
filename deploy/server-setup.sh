@@ -34,6 +34,31 @@ if ! node --version 2>/dev/null | grep -q '^v24\.'; then
 fi
 node --version
 
+# Point-in-time backups (apps/server/src/pitr.ts): Postgres hands each finished piece of its write-ahead log to
+# pgBackRest, at least once a minute while the club is busy, from the PostgreSQL project's own repository (the same
+# one Postgres comes from). archive_mode is read only when Postgres starts, so it's set here, never by an update;
+# pgBackRest's own settings are written once the code is here (the system files below, and every update), and until
+# then each piece is let go, as before. KUMI_PITR=0 leaves it all off.
+if [ "${KUMI_PITR:-1}" != 0 ]; then
+  apt-get install -yq pgbackrest
+  install -d -m 750 -o postgres -g postgres /var/lib/pgbackrest /var/spool/pgbackrest /var/log/pgbackrest
+  install -d -m 755 /usr/local/lib/kumi /etc/pgbackrest
+  cat > /usr/local/lib/kumi/archive-wal <<'SH'
+#!/bin/sh
+# Postgres's archive_command (server-setup.sh): each finished piece of the write-ahead log goes to pgBackRest once
+# it's set up (/etc/pgbackrest/pgbackrest.conf); until then it's let go, as without point-in-time backups.
+[ -f /etc/pgbackrest/pgbackrest.conf ] || exit 0
+exec pgbackrest --stanza=kumi archive-push "$1"
+SH
+  chmod 755 /usr/local/lib/kumi/archive-wal
+  pitr_pg=/etc/postgresql/17/main/conf.d/kumi-pitr.conf
+  pitr_want=$(printf '%s\n' "# Kumi's point-in-time backups (deploy/server-setup.sh)" "archive_mode = on" "archive_command = '/usr/local/lib/kumi/archive-wal %p'" "archive_timeout = 60")
+  if [ "$(cat "$pitr_pg" 2>/dev/null)" != "$pitr_want" ]; then
+    printf '%s\n' "$pitr_want" > "$pitr_pg"
+    systemctl restart postgresql   # Postgres starts again once, to archive
+  fi
+fi
+
 # The kumi user runs the server and owns its database (it signs in to Postgres as itself, over the local socket).
 # Its home is /var/lib/kumi; the code in /opt/kumi is root's, which kumi reads but can't change.
 id kumi >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/kumi --shell /usr/sbin/nologin kumi
@@ -160,7 +185,16 @@ case "${1:-}" in
     [ -f /usr/local/lib/kumi/release.sh ] || { echo "kumi: no release installed yet (ship one with deploy/ship.sh)" >&2; exit 1; }
     exec bash /usr/local/lib/kumi/release.sh "$@";;
   restore)
-    root restore; systemctl stop kumi
+    root restore
+    case " $* " in *" --to"*)
+      # A minute, not a file (pitr.ts): the database as it was then, from the point-in-time archive, as the postgres
+      # user (whose archive it is), into a file; then that file is restored the usual safe way, below.
+      shift; f=/var/lib/postgresql/kumi-pitr-$(date -u +%Y%m%dT%H%M%SZ).dump
+      (cd /opt/kumi/app && runuser -u postgres -- env DATABASE_URL='postgresql:///kumi?host=/var/run/postgresql' /usr/local/bin/node apps/server/src/cli.ts pitr extract --out="$f" "$@") || { rm -f "$f"; exit 2; }
+      d=/var/backups/kumi/$(basename "$f"); install -m 600 -o kumi -g kumi "$f" "$d"; rm -f "$f"
+      set -- restore "$d" --yes;;
+    esac
+    systemctl stop kumi
     cd /opt/kumi/app && sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
     # 4: the restore failed and the database may be empty: the server stays stopped (starting would set up an
     # empty club). Any other outcome left the database whole (restored, put back, or never touched).
@@ -219,6 +253,68 @@ sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'kumi_rest
 systemctl daemon-reload
 systemctl enable kumi-backup.timer kumi-restore-test.timer
 systemctl restart kumi-backup.timer kumi-restore-test.timer   # a changed schedule takes effect now
+# Point-in-time backups (pitr.ts), once Postgres archives its log (server-setup.sh turns that on): the base backup
+# when it's due, checked hourly (3:37 on the club's clock), and the monthly test (the 1st at 5:17), as the postgres
+# user, whose archive it is.
+cat > /etc/systemd/system/kumi-pitr.service <<'UNIT'
+[Unit]
+Description=Kumi point-in-time archive: the nightly base backup, when it's due
+After=postgresql.service
+ConditionPathExists=/etc/pgbackrest/pgbackrest.conf
+[Service]
+Type=oneshot
+User=postgres
+WorkingDirectory=/opt/kumi/app
+Environment=DATABASE_URL=postgresql:///kumi?host=/var/run/postgresql
+ExecStart=/usr/local/bin/node apps/server/src/cli.ts pitr tick
+UNIT
+cat > /etc/systemd/system/kumi-pitr.timer <<'UNIT'
+[Unit]
+Description=Kumi point-in-time archive, nightly base backup at 3:37 club time (checked hourly)
+[Timer]
+OnCalendar=*-*-* *:37:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+cat > /etc/systemd/system/kumi-pitr-test.service <<'UNIT'
+[Unit]
+Description=Kumi point-in-time test: a recent minute restored in scratch and checked
+After=postgresql.service
+ConditionPathExists=/etc/pgbackrest/pgbackrest.conf
+[Service]
+Type=oneshot
+User=postgres
+WorkingDirectory=/opt/kumi/app
+Environment=DATABASE_URL=postgresql:///kumi?host=/var/run/postgresql
+ExecStart=/usr/local/bin/node apps/server/src/cli.ts pitr test --scheduled
+UNIT
+cat > /etc/systemd/system/kumi-pitr-test.timer <<'UNIT'
+[Unit]
+Description=Kumi point-in-time test, monthly on the 1st at 5:17 club time (checked hourly)
+[Timer]
+OnCalendar=*-*-* *:52:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable kumi-pitr.timer kumi-pitr-test.timer
+systemctl restart kumi-pitr.timer kumi-pitr-test.timer
+# pgBackRest's settings from this server's (where offsite copies go, the backup key), written again by every update.
+if [ -f /etc/postgresql/17/main/conf.d/kumi-pitr.conf ] && [ -f /opt/kumi/app/apps/server/src/pitr_cli.ts ]; then
+  t=$(mktemp)
+  # The offsite archive has a folder per Postgres cluster (its system id): a server set up again after losing the old
+  # one archives beside the old one's, which stays there to go back into (kumi restore --to ... --archive=<id>).
+  sid=$(runuser -u postgres -- psql -XAtc 'SELECT system_identifier FROM pg_control_system()' 2>/dev/null || true)
+  if (cd /opt/kumi/app && sudo -u kumi KUMI_PITR_SYSTEM_ID="$sid" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts pitr conf') > "$t"; then
+    install -d -m 755 /etc/pgbackrest
+    install -m 640 -o root -g postgres "$t" /etc/pgbackrest/pgbackrest.conf
+    runuser -u postgres -- pgbackrest --stanza=kumi --log-level-console=warn stanza-create || echo "kumi: the point-in-time archive isn't ready (above); kumi doctor says what's wrong"
+    systemctl start --no-block kumi-pitr.service || true   # the first base backup, if there's none yet
+  fi
+  rm -f "$t"
+fi
 # --- end system files ---
 systemctl enable kumi
 echo "set up. Ship the code: deploy/ship.sh root@<this server>"

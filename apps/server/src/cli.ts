@@ -25,6 +25,8 @@
 //                                  Twilio account, toll-free (texting.ts); apply --yes to buy a number or start over
 //   kumi usage [--month=YYYY-MM]   what AI, texts and email cost the club in a month, by kind, against its cap
 //                                  (usage.ts); --json for a host's bill
+//   kumi pitr conf|tick|status|extract|test   point-in-time backups (pitr_cli.ts); `sudo kumi restore --to=
+//                                  "YYYY-MM-DD HH:MM" --yes` puts the database back as it was at that minute
 //   (on a one-server install, as root: kumi update <release.tar>, kumi rollback --yes, kumi releases)
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -40,6 +42,8 @@ import { applyTexting, refreshTexting, textingPlan, textingStatusText, twilioPro
 import { twilioFromEnv } from "./twilio.ts";
 import { TwilioApi } from "./twilio_admin.ts";
 import { memberUrl } from "./addresses.ts";
+import { pitrMain, toArg } from "./pitr_cli.ts";
+import { afterRestore, readSentBefore } from "./after_restore.ts";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
@@ -337,6 +341,10 @@ async function main(): Promise<number> {
     for (const o of objects) console.log(`  ${o.key}  ${(o.size / 1048576).toFixed(1)} MB  ${o.lastModified}`);
     return 0;
   }
+  if (cmd === "pitr") return pitrMain(sub, args, lang, json);
+  // A minute, not a file: the root wrapper (sudo kumi restore --to=...) gets that copy from the archive as the
+  // postgres user first, then restores it here as a file. Run without it, say so.
+  if (cmd === "restore" && toArg(args) !== undefined) { console.error(t(lang, "cli.pitr_needs_root")); return 2; }
   if (cmd === "restore" && sub) {
     const source = sub;
     if (!args.includes("--yes")) { console.error(t(lang, "cli.restore_confirm", { source })); return 2; }
@@ -357,12 +365,19 @@ async function main(): Promise<number> {
         }
         got = await fetchOffsite(s3, objectKey, key);
       } else got = readableDump(resolve(process.env.KUMI_CALLER_DIR ?? ".", source));
-      const kept = await readOpsRecords(dbUrl());
+      const kept = await readOpsRecords(dbUrl()), sent = await readSentBefore(dbUrl());
       let safetyCopy: string;
       try { ({ safetyCopy } = await safeRestore(dbUrl(), got.file, { dir: backupDir })); } finally { got.cleanup(); }
       await writeOpsRecords(dbUrl(), kept);
-      if (json) out({ ok: true, source, safety_copy: safetyCopy });
-      else { console.log(t(lang, "cli.restore_done", { source })); console.log(t(lang, "cli.restore_safety_copy", { file: safetyCopy })); }
+      // Nothing the database before it had sent goes again (after_restore.ts).
+      const after = await afterRestore(dbUrl(), sent);
+      if (json) out({ ok: true, source, safety_copy: safetyCopy, ...after });
+      else {
+        console.log(t(lang, "cli.restore_done", { source })); console.log(t(lang, "cli.restore_safety_copy", { file: safetyCopy }));
+        if (after.carried.messages) console.log(t(lang, "cli.restore_carried", { count: after.carried.messages }));
+        const held = after.held.messages + after.held.events;
+        if (held) console.log(t(lang, after.vouched ? "cli.restore_held_some" : "cli.restore_held_all", { count: held }));
+      }
       return 0;
     } catch (e) {
       // The exit code tells `sudo kumi restore` whether the server may start again: 4 only when the database may

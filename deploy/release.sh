@@ -197,10 +197,32 @@ snapshot() {
   mkdir -p "$BACKUPS"
   $AS sh -c 'umask 077; "$0" -Fc --no-owner --no-acl -d "$2" -f "$1.part" && mv -f "$1.part" "$1"' "$(tool pg_dump)" "$file" "$DATABASE_URL"
 }
+# Putting a snapshot back (a failed update, or kumi rollback). The database had sent things since the snapshot was
+# taken, which the snapshot still has waiting: read before it's replaced and carried over after (after_restore.ts
+# does the same for kumi restore), so nothing goes twice. A message that had gone keeps that answer; a notice it
+# had handled is held for `kumi held send|drop`, since its messages may have gone (refunds aren't held: a refund
+# asks Stripe first).
+psql_kumi() { $AS "$(tool psql)" -X -q -v ON_ERROR_STOP=1 -d "$DATABASE_URL" "$@"; }
 restore() {
-  local file=$1
-  $AS "$(tool psql)" -q -v ON_ERROR_STOP=1 -d "$DATABASE_URL" -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'
-  $AS "$(tool pg_restore)" --no-owner --no-acl --exit-on-error -d "$DATABASE_URL" "$file"
+  local file=$1 sent done
+  sent=$(mktemp); done=$(mktemp)
+  psql_kumi -c "COPY (SELECT id, status, sent_at, failure FROM outbound_message WHERE status IN ('sent', 'failed', 'dropped') AND created_at >= now() - interval '400 days') TO STDOUT" > "$sent" 2>/dev/null || : > "$sent"
+  psql_kumi -c "COPY (SELECT id FROM event_outbox WHERE delivered_at IS NOT NULL AND created_at >= now() - interval '400 days') TO STDOUT" > "$done" 2>/dev/null || : > "$done"
+  psql_kumi -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;' || { rm -f "$sent" "$done"; return 1; }
+  $AS "$(tool pg_restore)" --no-owner --no-acl --exit-on-error -d "$DATABASE_URL" "$file" || { rm -f "$sent" "$done"; return 1; }
+  carry_over "$sent" "$done" || say "what had been sent since the snapshot couldn't be carried over (above): see kumi held before starting it"
+  rm -f "$sent" "$done"
+}
+carry_over() {
+  if [ -s "$1" ]; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_sent (id uuid, status text, sent_at timestamptz, failure text)" -c "COPY kumi_sent FROM STDIN" \
+      -c "UPDATE outbound_message m SET status = s.status, sent_at = s.sent_at, failure = s.failure FROM kumi_sent s WHERE m.id = s.id AND m.status = 'waiting'" < "$1" || return 1
+  fi
+  # Held only where the snapshot's Kumi can hold (from migration 068); a snapshot from before that has no hold.
+  if [ -s "$2" ] && psql_kumi -Atc "SELECT 1 FROM information_schema.columns WHERE table_name = 'event_outbox' AND column_name = 'held_at'" | grep -q 1; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_done (id bigint)" -c "COPY kumi_done FROM STDIN" \
+      -c "UPDATE event_outbox e SET held_at = now() FROM kumi_done d WHERE e.id = d.id AND e.delivered_at IS NULL AND e.held_at IS NULL AND e.topic NOT IN ('refund.requested')" < "$2" || return 1
+  fi
 }
 
 # Keep the running release, the one before it and one more; and the newest update snapshots.
@@ -239,7 +261,16 @@ case "${1:-}" in
     [ -f /usr/local/lib/kumi/release.sh ] || { echo "kumi: no release installed yet (ship one with deploy/ship.sh)" >&2; exit 1; }
     exec bash /usr/local/lib/kumi/release.sh "$@";;
   restore)
-    root restore; systemctl stop kumi
+    root restore
+    case " $* " in *" --to"*)
+      # A minute, not a file (pitr.ts): the database as it was then, from the point-in-time archive, as the postgres
+      # user (whose archive it is), into a file; then that file is restored the usual safe way, below.
+      shift; f=/var/lib/postgresql/kumi-pitr-$(date -u +%Y%m%dT%H%M%SZ).dump
+      (cd /opt/kumi/app && runuser -u postgres -- env DATABASE_URL='postgresql:///kumi?host=/var/run/postgresql' /usr/local/bin/node apps/server/src/cli.ts pitr extract --out="$f" "$@") || { rm -f "$f"; exit 2; }
+      d=/var/backups/kumi/$(basename "$f"); install -m 600 -o kumi -g kumi "$f" "$d"; rm -f "$f"
+      set -- restore "$d" --yes;;
+    esac
+    systemctl stop kumi
     cd /opt/kumi/app && sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
     # 4: the restore failed and the database may be empty: the server stays stopped (starting would set up an
     # empty club). Any other outcome left the database whole (restored, put back, or never touched).
@@ -298,6 +329,68 @@ sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'kumi_rest
 systemctl daemon-reload
 systemctl enable kumi-backup.timer kumi-restore-test.timer
 systemctl restart kumi-backup.timer kumi-restore-test.timer   # a changed schedule takes effect now
+# Point-in-time backups (pitr.ts), once Postgres archives its log (server-setup.sh turns that on): the base backup
+# when it's due, checked hourly (3:37 on the club's clock), and the monthly test (the 1st at 5:17), as the postgres
+# user, whose archive it is.
+cat > /etc/systemd/system/kumi-pitr.service <<'UNIT'
+[Unit]
+Description=Kumi point-in-time archive: the nightly base backup, when it's due
+After=postgresql.service
+ConditionPathExists=/etc/pgbackrest/pgbackrest.conf
+[Service]
+Type=oneshot
+User=postgres
+WorkingDirectory=/opt/kumi/app
+Environment=DATABASE_URL=postgresql:///kumi?host=/var/run/postgresql
+ExecStart=/usr/local/bin/node apps/server/src/cli.ts pitr tick
+UNIT
+cat > /etc/systemd/system/kumi-pitr.timer <<'UNIT'
+[Unit]
+Description=Kumi point-in-time archive, nightly base backup at 3:37 club time (checked hourly)
+[Timer]
+OnCalendar=*-*-* *:37:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+cat > /etc/systemd/system/kumi-pitr-test.service <<'UNIT'
+[Unit]
+Description=Kumi point-in-time test: a recent minute restored in scratch and checked
+After=postgresql.service
+ConditionPathExists=/etc/pgbackrest/pgbackrest.conf
+[Service]
+Type=oneshot
+User=postgres
+WorkingDirectory=/opt/kumi/app
+Environment=DATABASE_URL=postgresql:///kumi?host=/var/run/postgresql
+ExecStart=/usr/local/bin/node apps/server/src/cli.ts pitr test --scheduled
+UNIT
+cat > /etc/systemd/system/kumi-pitr-test.timer <<'UNIT'
+[Unit]
+Description=Kumi point-in-time test, monthly on the 1st at 5:17 club time (checked hourly)
+[Timer]
+OnCalendar=*-*-* *:52:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable kumi-pitr.timer kumi-pitr-test.timer
+systemctl restart kumi-pitr.timer kumi-pitr-test.timer
+# pgBackRest's settings from this server's (where offsite copies go, the backup key), written again by every update.
+if [ -f /etc/postgresql/17/main/conf.d/kumi-pitr.conf ] && [ -f /opt/kumi/app/apps/server/src/pitr_cli.ts ]; then
+  t=$(mktemp)
+  # The offsite archive has a folder per Postgres cluster (its system id): a server set up again after losing the old
+  # one archives beside the old one's, which stays there to go back into (kumi restore --to ... --archive=<id>).
+  sid=$(runuser -u postgres -- psql -XAtc 'SELECT system_identifier FROM pg_control_system()' 2>/dev/null || true)
+  if (cd /opt/kumi/app && sudo -u kumi KUMI_PITR_SYSTEM_ID="$sid" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts pitr conf') > "$t"; then
+    install -d -m 755 /etc/pgbackrest
+    install -m 640 -o root -g postgres "$t" /etc/pgbackrest/pgbackrest.conf
+    runuser -u postgres -- pgbackrest --stanza=kumi --log-level-console=warn stanza-create || echo "kumi: the point-in-time archive isn't ready (above); kumi doctor says what's wrong"
+    systemctl start --no-block kumi-pitr.service || true   # the first base backup, if there's none yet
+  fi
+  rm -f "$t"
+fi
 # --- end system files ---
   # Root's own copy of this script, for `sudo kumi rollback` and `sudo kumi releases`. It comes from the release
   # file (ship.sh and `kumi update` run it from there), never from the built release the kumi user worked in.

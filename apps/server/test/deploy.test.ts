@@ -81,3 +81,9 @@ test("Docker: the server connects as kumi_app, not the database's superuser; old
   assert.match(update, /move_to_app_role\(\)/);
   assert.match(update, /chmod 600 \.env/);
 });
+
+test("putting a snapshot back holds the same notices as kumi restore: everything but refunds", async () => {
+  const { MONEY_TOPICS } = await import("../../../packages/core/src/outbox.ts");
+  const kept = /e\.topic NOT IN \(([^)]*)\)/.exec(read("deploy/release.sh"))![1]!.split(",").map((x) => x.trim().replace(/'/g, "")).sort();
+  assert.deepEqual(kept, [...MONEY_TOPICS].sort());
+});

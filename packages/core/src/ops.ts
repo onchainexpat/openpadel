@@ -1,5 +1,5 @@
 // The server looking after itself: when its own jobs (the nightly backup, the offsite copy, the monthly restore
-// test) last ran and last worked, and what it watches (texts getting through, ask the club's model answering, the
+// test, the point-in-time archive's base backups and its monthly test) last ran and last worked, and what it watches (texts getting through, ask the club's model answering, the
 // club's registered texting number). The owner and managers hear once when one starts failing, not again each
 // time it keeps failing, and once more when it works again (its alert on Today closes by itself then).
 import { sql } from "kysely";
@@ -9,10 +9,10 @@ import { defineAction, runAsSystem } from "./actions.ts";
 import type { Db } from "./db.ts";
 import { uuidv7 } from "./ids.ts";
 
-export type OpsJob = "backup" | "offsite" | "restore_test" | "texts" | "answers" | "texting_number";
+export type OpsJob = "backup" | "offsite" | "restore_test" | "pitr" | "pitr_test" | "texts" | "answers" | "texting_number";
 /** The scheduled jobs (backups); the rest are watched. */
-export const OPS_JOBS: OpsJob[] = ["backup", "offsite", "restore_test"];
-const ALL_JOBS = ["backup", "offsite", "restore_test", "texts", "answers", "texting_number"] as const;
+export const OPS_JOBS: OpsJob[] = ["backup", "offsite", "restore_test", "pitr", "pitr_test"];
+const ALL_JOBS = ["backup", "offsite", "restore_test", "pitr", "pitr_test", "texts", "answers", "texting_number"] as const;
 
 export async function heartbeat(db: Db, name: OpsJob) {
   const r = await db.selectFrom("ops_heartbeat").selectAll().where("name", "=", name).executeTakeFirst();

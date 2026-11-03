@@ -1,11 +1,12 @@
 // `kumi doctor`: is this Kumi set up and working? Each check says what it found and, when it isn't fine,
 // the next step. An agent setting up a club runs it first and after every step, and works on the first
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
-import { answerCounts, clubStripeAccount, dayText, heartbeats, heldSummary, leavingOn, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageView, type Db } from "@kumi/core";
+import { answerCounts, clubStripeAccount, dayText, heartbeats, heldSummary, leavingOn, localParts, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageView, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { offsitePrunes } from "./backups.ts";
+import { archiverFailing, archiverState, PITR_CONF } from "./pitr.ts";
 import { checkTwilio, hasSender, twilioFromEnv } from "./twilio.ts";
 import { answerModels, checkAnswerKeys } from "./answerer.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
@@ -180,5 +181,33 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   if (rt?.last_error) add("restore_test", "fail", "restore_test.failing", { error: rt.last_error }, opsDoc);
   else if (!rt?.last_ok_at) add("restore_test", production ? "warn" : "off", "restore_test.never", {}, opsDoc);
   else { const days = Math.round(ago(rt.last_ok_at)! / 24); add("restore_test", days > 40 ? "warn" : "ok", days > 40 ? `restore_test.old${d}` : "restore_test.ok", { days }); }
+
+  // Point-in-time backups (pitr.ts): Postgres handing its log to the archive, and the nightly base backups as the
+  // postgres user's job recorded them (the kumi user can't read the archive itself).
+  const pitrDoc = "docs/setup/accounts/offsite-backups.md";
+  if (env.KUMI_PITR_HOST === "1") { add("pitr", "ok", "pitr.hosted"); return checks; }
+  if (docker) { add("pitr", "off", "pitr.off_docker", {}, pitrDoc); return checks; }
+  const a = await archiverState(db).catch(() => null), p = hb.pitr;
+  const pd = (p?.details ?? {}) as { newest_at?: string | null; restorable_from?: string | null; repos?: number[]; offsite?: string };
+  if (!a || a.mode !== "on" || env.KUMI_PITR?.trim() === "0") { add("pitr", production ? "warn" : "off", "pitr.off", {}, pitrDoc); return checks; }
+  if (!existsSync(env.KUMI_PITR_CONF ?? PITR_CONF)) add("pitr", "warn", "pitr.not_set_up", {}, pitrDoc);
+  else if (archiverFailing(a)) add("pitr", "fail", "pitr.archive_failing", { wal: a.lastFailedWal ?? "" }, pitrDoc);
+  else if (p?.last_error) add("pitr", "fail", "pitr.base_failing", { error: p.last_error }, pitrDoc);
+  else if (!pd.newest_at || !pd.restorable_from) add("pitr", "warn", "pitr.waiting", {}, pitrDoc);
+  else {
+    const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirst().catch(() => undefined))?.time_zone ?? "UTC";
+    const lp = localParts(new Date(pd.restorable_from), tz), z = (n: number) => String(n).padStart(2, "0");
+    const from = `${lp.y}-${z(lp.m)}-${z(lp.d)} ${z(lp.h)}:${z(lp.min)}`, h = Math.round(ago(new Date(pd.newest_at))!);
+    if (h > 36) add("pitr", "warn", "pitr.old", { hours: h }, pitrDoc);
+    else if (pd.offsite === "no_prune") add("pitr", "ok", "pitr.ok_local_no_prune", { from });
+    else add("pitr", "ok", "pitr.ok", { from, copies: both((pd.repos ?? []).includes(2) ? "doctor.pitr.copies_both" : "doctor.pitr.copies_local") });
+  }
+  const pt = hb.pitr_test;
+  if (pt?.last_error) add("pitr_test", "fail", "pitr_test.failing", { error: pt.last_error }, pitrDoc);
+  else if (!pt?.last_ok_at) add("pitr_test", production ? "warn" : "off", "pitr_test.never", {}, pitrDoc);
+  else {
+    const days = Math.round(ago(pt.last_ok_at)! / 24), minutes = Math.max(1, Math.round(Number((pt.details as { seconds?: number }).seconds ?? 0) / 60));
+    add("pitr_test", days > 40 ? "warn" : "ok", days > 40 ? "pitr_test.old" : "pitr_test.ok", { days, minutes });
+  }
   return checks;
 }

@@ -33,7 +33,7 @@ function toolTarget(url: string): { url: string; env: Env } {
   return { url: `${m[1]}${m[2]}@${m[4]}`, env: { PGPASSWORD: decodeURIComponent(m[3]) } };
 }
 /** The database a connection URL names, and the same URL naming another one. */
-const dbNameOf = (url: string) => decodeURIComponent(/^[a-z]+:\/\/[^/]*\/([^?]*)/.exec(url)?.[1] ?? "");
+export const dbNameOf = (url: string) => decodeURIComponent(/^[a-z]+:\/\/[^/]*\/([^?]*)/.exec(url)?.[1] ?? "");
 const withDbName = (url: string, name: string) => url.replace(/^([a-z]+:\/\/[^/]*\/)([^?]*)/, `$1${name}`);
 function runTool(cmd: string, args: string[], env: Env): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -70,7 +70,7 @@ export function parseStem(stem: string): { date: string; sortKey: string } | nul
 }
 const stemOf = (name: string) => name.replace(/\.(dump|json)(\.enc)?$/, "");
 const byAge = (a: string, b: string) => parseStem(stemOf(basename(a)))!.sortKey.localeCompare(parseStem(stemOf(basename(b)))!.sortKey);
-async function clubTimeZone(db: Db): Promise<string> {
+export async function clubTimeZone(db: Db): Promise<string> {
   return (await db.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
 }
 
@@ -375,9 +375,11 @@ export async function writeOpsRecords(url: string, rows: OpsRecord[]): Promise<v
 }
 
 // ---- When they run ----
-/** The nightly backup at 3:17 and the restore test on the 1st at 4:17, both on the club's clock. The server's
- *  timer (or the Docker backup service) ticks every hour; each tick asks whether its job is due. */
-export const SCHEDULE: Record<"backup" | "restore_test", { hour: number; monthDay?: number }> = { backup: { hour: 3 }, restore_test: { hour: 4, monthDay: 1 } };
+/** The nightly backup at 3:17, the restore test on the 1st at 4:17 and the point-in-time test on the 1st at 5:17,
+ *  all on the club's clock. The server's timer (or the Docker backup service) ticks every hour; each tick asks
+ *  whether its job is due. */
+export type ScheduledJob = "backup" | "restore_test" | "pitr_test";
+export const SCHEDULE: Record<ScheduledJob, { hour: number; monthDay?: number }> = { backup: { hour: 3 }, restore_test: { hour: 4, monthDay: 1 }, pitr_test: { hour: 5, monthDay: 1 } };
 
 /** The latest time a job was meant to run, on the club's clock: today's (or this month's) slot once it has come,
  *  otherwise the one before. A job is due when it hasn't run since then, so a server that was off at 3 AM catches
@@ -392,8 +394,8 @@ export function lastSlot(now: Date, tz: string, at: { hour: number; monthDay?: n
   return today <= now ? today : atLocal(p.y, p.m, p.d - 1, at.hour, tz);
 }
 
-/** Is the nightly backup (or the monthly restore test) due now? The club's time zone, or UTC before a club exists. */
-export async function scheduledDue(db: Db, job: "backup" | "restore_test", now = new Date()): Promise<{ due: boolean; tz: string; slot: Date }> {
+/** Is the nightly backup (or a monthly test) due now? The club's time zone, or UTC before a club exists. */
+export async function scheduledDue(db: Db, job: ScheduledJob, now = new Date()): Promise<{ due: boolean; tz: string; slot: Date }> {
   const tz = await clubTimeZone(db);
   const slot = lastSlot(now, tz, SCHEDULE[job]);
   const last = (await heartbeat(db, job as OpsJob))?.last_run_at ?? null;

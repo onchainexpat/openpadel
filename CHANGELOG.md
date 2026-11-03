@@ -40,7 +40,23 @@ server starts.
   server is off, `kumi held send --yes` sends them as they would have gone, or `kumi held drop --yes` drops
   them (`kumi held` lists them first).
 
+- **Going back to a minute** (point-in-time backups): Postgres's log goes to pgBackRest at least once a minute,
+  with a base backup every night, on the server (14 days) and offsite beside the nightly copies (30 days,
+  sealed with a key made from `KUMI_BACKUP_KEY`). `sudo kumi restore --to="2026-11-03 14:05" --yes` puts the
+  database back as it was at that minute on the club's clock, through a scratch copy and the usual safe restore.
+  `kumi pitr status` says how far back it reaches; `kumi doctor` checks it, and a monthly test restores a random
+  recent minute and checks it stopped there. The target: lose at most about a minute, back within an hour.
+- **Nothing goes out twice after any restore.** Restoring a backup, a minute, or an update's snapshot (a failed
+  update, or `kumi rollback`) carries over what the database before it had already sent, so those messages
+  don't go again; a notice it had handled is held for `kumi held send|drop`, since its messages may have gone.
+  Where the database before it can't vouch (a new server after losing the old one), everything waiting is held,
+  as after a move.
+
 ### Changed
+- A card charge (a renewal, a booking's deadline, a family card) asks Stripe for the one it already has, by Kumi's
+  own id for it, before charging: the database put back to before a charge (a backup, a minute, an export
+  elsewhere) can't charge the card again, even after Stripe has forgotten the request. Charges Kumi makes carry
+  that id; charges made by Kumi 0.1.0 don't, so this can't see them.
 - Saying yes to a change that needs a strong sign-in (an owner approving a manager's request) needs one too.
 - The monthly text cap in segments is folded into the one cap. Settings, Texts still shows the month's texts.
 - A club that ran on a hosted Kumi (Stripe Connect) and moves to its own server reaches its earlier
@@ -61,7 +77,10 @@ server starts.
   previous release's config back. A config changed by hand is left as it is, and the update says so.
 
 ### When updating
-- Nothing to do. The cap starts at $50 a month, whatever the text cap was. Prices are list prices; set
+- Point-in-time backups need `server-setup.sh` run once more on a one-server install (it starts Postgres again
+  once, which the club's apps ride through); the update after that sets pgBackRest up. Docker installs don't
+  have them yet.
+- Nothing else to do. The cap starts at $50 a month, whatever the text cap was. Prices are list prices; set
   `KUMI_PRICES` if your providers charge you differently (`docs/settings.md`).
 - If something other than Caddy on the same machine reaches the server's port, set
   `KUMI_LISTEN_ADDRESS=0.0.0.0` (or that machine's address) in the settings first.

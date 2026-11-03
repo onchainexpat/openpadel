@@ -107,6 +107,14 @@ they have one. Each payment remembers its account, so a refund goes back through
 club changes accounts. Stripe's webhook should send `account.updated` and `payment_intent.*` events
 from connected accounts.
 
+### Going back to a minute
+
+Besides the nightly backup (kept 14 days on the server, and 30 days and 12 months offsite, sealed), Postgres's
+log goes to pgBackRest at least once a minute, so `sudo kumi restore --to="2026-11-03 14:05" --yes` can put the
+database back as it was at any minute of the last two weeks (a month, offsite). Nothing the club had already sent
+goes out again after a restore, and no card is charged or refunded twice. The target: lose at most about a minute,
+back within an hour. See [offsite backups](docs/setup/accounts/offsite-backups.md#going-back-to-a-minute-point-in-time-backups).
+
 ### A club can always leave
 
 The owner's "Download everything" (Settings) and `kumi export` make one file with all of the club's data

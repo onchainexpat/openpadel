@@ -17,8 +17,11 @@ export interface HeldCounts { messages: number; events: number }
 /** Hold everything still waiting: messages not yet sent, and events not yet turned into messages (one nobody
  *  handles, like club.set_up, waits forever anyway; refunds aren't held). Run by the restore of an export, right
  *  after its migrations and before this server does anything of its own. */
+/** The events that can be held: those that become messages, refunds aside. */
+export const holdableTopics = () => Object.keys(messageHandlers).filter((t) => !MONEY_TOPICS.has(t));
+
 export async function holdPending(db: Db | Trx, now = new Date()): Promise<HeldCounts> {
-  const topics = Object.keys(messageHandlers).filter((t) => !MONEY_TOPICS.has(t));
+  const topics = holdableTopics();
   const events = await db.updateTable("event_outbox").set({ held_at: now }).where("delivered_at", "is", null).where("held_at", "is", null)
     .where("topic", "in", topics).executeTakeFirst();
   const messages = await db.updateTable("outbound_message").set({ status: "held" }).where("status", "=", "waiting").executeTakeFirst();
