@@ -94,3 +94,10 @@ test("putting a snapshot back keeps fingerprints the way kumi restore does: the 
   assert.ok(release.includes(`COPY (SELECT id, ${MESSAGE_FP}, sent_at FROM outbound_message WHERE status = 'sent' AND channel <> 'inbox'`), "release.sh reads the same fingerprint");
   assert.match(release, new RegExp(`now\\(\\) \\+ interval '${REPEAT_WINDOW_DAYS} days'`));
 });
+
+test("a restore to a minute takes its extract away afterwards, and sudo kumi pitr test runs as the postgres user", () => {
+  const setup = read("deploy/server-setup.sh");
+  assert.match(setup, /if \[ "\$rc" = 4 \]; then echo "kumi: the database as it was at that minute is in \$extract" >&2; else rm -f "\$extract"; fi/);
+  assert.match(setup, /case "\$\{2:-\}" in tick\|test\|extract\)\n\s+root pitr; cd \/opt\/kumi\/app && exec runuser -u postgres --/);
+  for (const lang of ["en", "es"]) assert.ok(!read(`packages/i18n/src/${lang}.ts`).includes("sudo -u postgres kumi"), "the kumi command can't run as postgres (its own sudo -u kumi asks for a password)");
+});

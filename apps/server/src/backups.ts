@@ -88,12 +88,15 @@ export async function makeBackup(db: Db, o: { url: string; dir: string; now?: Da
   // ./backups is a plain folder the owner made). pg_dump keeps the mode of a file that's already there.
   const owner = (f: string) => { if (existsSync(f)) chmodSync(f, 0o600); };
   writeFileSync(part, "", { mode: 0o600 }); owner(part);
-  // Repeatable read: the counts and pg_dump (handed the same snapshot) see exactly the same rows.
-  await db.transaction().setIsolationLevel("repeatable read").execute(async (trx) => {
-    const snapshot = (await sql<{ s: string }>`SELECT pg_export_snapshot() AS s`.execute(trx)).rows[0]!.s;
-    tables = await tableCounts(trx);
-    await runTool(pgTool("pg_dump", env), ["-Fc", "--no-owner", "--no-acl", `--snapshot=${snapshot}`, "-f", part, "-d", target.url], target.env);
-  });
+  // Repeatable read: the counts and pg_dump (handed the same snapshot) see exactly the same rows. A dump that fails
+  // (a table this user can't read, say) leaves nothing behind.
+  try {
+    await db.transaction().setIsolationLevel("repeatable read").execute(async (trx) => {
+      const snapshot = (await sql<{ s: string }>`SELECT pg_export_snapshot() AS s`.execute(trx)).rows[0]!.s;
+      tables = await tableCounts(trx);
+      await runTool(pgTool("pg_dump", env), ["-Fc", "--no-owner", "--no-acl", `--snapshot=${snapshot}`, "-f", part, "-d", target.url], target.env);
+    });
+  } catch (e) { rmSync(part, { force: true }); throw e; }
   const bytes = readFileSync(part);
   writeFileSync(file, bytes, { mode: 0o600 }); owner(file);
   rmSync(part, { force: true });

@@ -268,20 +268,29 @@ case "${1:-}" in
     [ -f /usr/local/lib/kumi/release.sh ] || { echo "kumi: no release installed yet (ship one with deploy/ship.sh)" >&2; exit 1; }
     exec bash /usr/local/lib/kumi/release.sh "$@";;
   restore)
-    root restore
+    root restore; extract=""
     case " $* " in *" --to"*)
       # A minute, not a file (pitr.ts): the database as it was then, from the point-in-time archive, as the postgres
       # user (whose archive it is), into a file; then that file is restored the usual safe way, below.
       shift; f=/var/lib/postgresql/kumi-pitr-$(date -u +%Y%m%dT%H%M%SZ).dump
       (cd /opt/kumi/app && runuser -u postgres -- env DATABASE_URL='postgresql://postgres@/kumi?host=/var/run/postgresql' /usr/local/bin/node apps/server/src/cli.ts pitr extract --out="$f" "$@") || { rm -f "$f"; exit 2; }
-      d=/var/backups/kumi/$(basename "$f"); install -m 600 -o kumi -g kumi "$f" "$d"; rm -f "$f"
-      set -- restore "$d" --yes;;
+      extract=/var/backups/kumi/$(basename "$f"); install -m 600 -o kumi -g kumi "$f" "$extract"; rm -f "$f"
+      set -- restore "$extract" --yes;;
     esac
     systemctl stop kumi
     cd /opt/kumi/app && sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
     # 4: the restore failed and the database may be empty: the server stays stopped (starting would set up an
     # empty club). Any other outcome left the database whole (restored, put back, or never touched).
-    rc=$?; if [ "$rc" = 4 ]; then echo "kumi: the server stays stopped; see above" >&2; else systemctl start kumi; fi; exit $rc;;
+    rc=$?; if [ "$rc" = 4 ]; then echo "kumi: the server stays stopped; see above" >&2; else systemctl start kumi; fi
+    # The copy taken from the archive has done its job (or wasn't used): gone, unless the database may be empty, when
+    # it's one of the ways back.
+    if [ -n "$extract" ]; then if [ "$rc" = 4 ]; then echo "kumi: the database as it was at that minute is in $extract" >&2; else rm -f "$extract"; fi; fi
+    exit $rc;;
+  pitr)
+    # The archive is the postgres user's: its jobs run as that user (kumi pitr status and conf don't need to).
+    case "${2:-}" in tick|test|extract)
+      root pitr; cd /opt/kumi/app && exec runuser -u postgres -- env DATABASE_URL='postgresql://postgres@/kumi?host=/var/run/postgresql' /usr/local/bin/node apps/server/src/cli.ts "$@";;
+    esac;;
 esac
 cd /opt/kumi/app || exit 1
 exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
