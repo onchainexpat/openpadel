@@ -83,6 +83,9 @@ server starts.
   previous release's config back. A config changed by hand is left as it is, and the update says so.
 
 ### When updating
+- If you ran `server-setup.sh` with Kumi ce7f772 or earlier, run it once more: Postgres's archive command is
+  renamed to one pgBackRest accepts (`pgbackrest-archive-push`), or the first base backup fails with error 068.
+  Postgres only reloads; it doesn't start again.
 - Point-in-time backups need `server-setup.sh` run once more on a one-server install (it starts Postgres again
   once, which the club's apps ride through); the update after that sets pgBackRest up. Docker installs don't
   have them yet.

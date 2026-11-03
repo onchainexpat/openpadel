@@ -138,7 +138,13 @@ test("a minute the archive doesn't reach yet says so, and leaves no scratch copy
 
 test("setup turns archiving on once, and the units run as the postgres user", () => {
   const setup = readFileSync(new URL("../../../deploy/server-setup.sh", import.meta.url), "utf8");
-  for (const want of ["apt-get install -yq pgbackrest", "archive_mode = on", "archive_command = '/usr/local/lib/kumi/archive-wal %p'", "archive_timeout = 60", "systemctl restart postgresql",
+  // pgBackRest refuses to back up unless archive_command has "pgbackrest" in it (its check, error 068): the trial's
+  // first base backup failed on a wrapper named archive-wal.
+  const command = /archive_command = '([^']*)'/.exec(setup)![1]!;
+  assert.match(command, /pgbackrest/, "pgBackRest's check wants pgbackrest in archive_command");
+  assert.match(setup, new RegExp(`cat > ${command.split(" ")[0]!.replace(/[/.-]/g, "\\$&")} <<'SH'\n[\\s\\S]*?exec pgbackrest --stanza=kumi archive-push "\\$1"`), "the wrapper it names is the one setup writes");
+  for (const want of ["apt-get install -yq pgbackrest", "archive_mode = on", "archive_timeout = 60", 'systemctl "$pitr_apply" postgresql',
+    "[ -f /etc/pgbackrest/pgbackrest.conf ] || exit 0",
     "kumi-pitr.timer", "kumi-pitr-test.timer", "User=postgres", "cli.ts pitr tick", "cli.ts pitr test --scheduled", "cli.ts pitr conf", "stanza-create", "pitr extract --out="]) assert.ok(setup.includes(want), want);
   const release = readFileSync(new URL("../../../deploy/release.sh", import.meta.url), "utf8");
   assert.ok(!/restart postgresql/.test(release), "an update never restarts Postgres");

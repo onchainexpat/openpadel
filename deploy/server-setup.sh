@@ -43,20 +43,24 @@ if [ "${KUMI_PITR:-1}" != 0 ]; then
   apt-get install -yq pgbackrest
   install -d -m 750 -o postgres -g postgres /var/lib/pgbackrest /var/spool/pgbackrest /var/log/pgbackrest
   install -d -m 755 /usr/local/lib/kumi /etc/pgbackrest
-  cat > /usr/local/lib/kumi/archive-wal <<'SH'
+  # pgBackRest's checks (and its backups) want "pgbackrest" in archive_command, so the wrapper's name has it.
+  cat > /usr/local/lib/kumi/pgbackrest-archive-push <<'SH'
 #!/bin/sh
 # Postgres's archive_command (server-setup.sh): each finished piece of the write-ahead log goes to pgBackRest once
 # it's set up (/etc/pgbackrest/pgbackrest.conf); until then it's let go, as without point-in-time backups.
 [ -f /etc/pgbackrest/pgbackrest.conf ] || exit 0
 exec pgbackrest --stanza=kumi archive-push "$1"
 SH
-  chmod 755 /usr/local/lib/kumi/archive-wal
+  chmod 755 /usr/local/lib/kumi/pgbackrest-archive-push
   pitr_pg=/etc/postgresql/17/main/conf.d/kumi-pitr.conf
-  pitr_want=$(printf '%s\n' "# Kumi's point-in-time backups (deploy/server-setup.sh)" "archive_mode = on" "archive_command = '/usr/local/lib/kumi/archive-wal %p'" "archive_timeout = 60")
+  pitr_want=$(printf '%s\n' "# Kumi's point-in-time backups (deploy/server-setup.sh)" "archive_mode = on" "archive_command = '/usr/local/lib/kumi/pgbackrest-archive-push %p'" "archive_timeout = 60")
   if [ "$(cat "$pitr_pg" 2>/dev/null)" != "$pitr_want" ]; then
+    # archive_mode needs Postgres to start again; once it's on, a new archive_command only needs a reload.
+    if grep -q '^archive_mode = on$' "$pitr_pg" 2>/dev/null; then pitr_apply=reload; else pitr_apply=restart; fi
     printf '%s\n' "$pitr_want" > "$pitr_pg"
-    systemctl restart postgresql   # Postgres starts again once, to archive
+    systemctl "$pitr_apply" postgresql
   fi
+  rm -f /usr/local/lib/kumi/archive-wal   # its name before (pgBackRest refused it)
 fi
 
 # The kumi user runs the server and owns its database (it signs in to Postgres as itself, over the local socket).
