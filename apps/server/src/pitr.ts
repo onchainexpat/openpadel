@@ -239,12 +239,16 @@ export class PitrRefused extends Error {
   constructor(why: string, values: Record<string, string> = {}) { super(`${why} ${JSON.stringify(values)}`); this.why = why; this.values = values; }
 }
 
-export interface Scratch { dir: string; sock: string; port: number; dbname: string }
+export interface Scratch { dir: string; sock: string; port: number; dbname: string; owner: string }
+
+/** A database's or role's name as it may go into a scratch copy's settings and commands. */
+const PG_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 /** The archive recovered into a scratch folder as it was at `target`, and a private Postgres started on it (on a
  *  socket in that folder, no network), waiting until it has replayed up to the target and opened. Only the club's
  *  own database is recovered (the others are left empty), so on a server with many clubs it's quick too. */
 export async function recoverScratch(target: Date, dbname: string, o: PitrOptions & { repo?: number; base?: string; timeoutSeconds?: number; archivePath?: string } = {}): Promise<Scratch> {
   const r = o.runner ?? localRunner, pg = bin(o);
+  if (!PG_NAME.test(dbname)) throw new Error(`"${dbname}" isn't a database name the point-in-time restore takes`);
   const dir = join(o.base ?? join((o.paths ?? DEFAULT_PATHS).pgPath, ".."), `kumi-pitr-${randomBytes(4).toString("hex")}`);
   const sock = join(dir, "run"), port = 54000 + Math.floor(Math.random() * 900);
   await r.mkdir(dir);
@@ -255,29 +259,39 @@ export async function recoverScratch(target: Date, dbname: string, o: PitrOption
     await must(r, "pgbackrest", br(o, ...which, "--type=time", `--target=${pgTime(target)}`, "--target-action=promote",
       "--archive-mode=off", `--pg1-path=${dir}`, `--db-include=${dbname}`, "--log-level-console=warn", "restore"), "pgbackrest restore");
     await r.mkdir(sock);
-    // Debian keeps Postgres's settings outside the data folder, so the scratch copy gets its own, and only the
-    // postgres user, over that socket, may connect. No hot standby: nobody reads it before it reaches the target
-    // (pg_ctl waits until it has, and opens), and it needn't match the live server's connection limits.
+    // Debian keeps Postgres's settings outside the data folder, so the scratch copy gets its own. Only the postgres
+    // user can reach its socket (a folder of its own, 700). Postgres's superuser only asks Postgres's own questions,
+    // in the postgres database; everything in the club's database is read as the role that owns it. The club's
+    // database is the club's: a superuser session there would run whatever its role left in it (a trigger, a
+    // function, a search_path) with the superuser's rights. No hot standby: nobody reads it before it reaches the
+    // target (pg_ctl waits until it has, and opens), and it needn't match the live server's connection limits.
     await r.write(join(dir, "postgresql.conf"), [
       `port = ${port}`, "listen_addresses = ''", `unix_socket_directories = '${sock}'`, "archive_mode = off",
       "shared_buffers = 64MB", "hot_standby = off", "",
     ].join("\n"), 0o600);
-    await r.write(join(dir, "pg_hba.conf"), "local all postgres peer\n", 0o600);
+    await r.write(join(dir, "pg_hba.conf"), `local all postgres peer\nlocal ${dbname} all trust\n`, 0o600);
     await r.write(join(dir, "pg_ident.conf"), "", 0o600);
     const started = await r.run(pg("pg_ctl"), ["-D", dir, "-l", join(dir, "recovery.log"), "-w", "-t", String(o.timeoutSeconds ?? 3600), "start"]);
     if (started.code !== 0) throw new Error(await recoveryProblem(r, dir) ?? `the scratch copy didn't start: ${started.stderr.trim()}`);
     // It replays the archive up to the target, then leaves recovery and opens: until then connections are refused.
     const until = Date.now() + (o.timeoutSeconds ?? 3600) * 1000;
     for (;;) {
-      const q = await r.run(pg("psql"), ["-h", sock, "-p", String(port), "-d", "postgres", "-Atc", "SELECT pg_is_in_recovery()"]);
+      const q = await r.run(pg("psql"), ["-X", "-h", sock, "-p", String(port), "-d", "postgres", "-Atc", "SELECT pg_catalog.pg_is_in_recovery()"]);
       if (q.code === 0 && q.stdout.trim() === "f") break;
       if (q.code !== 0 && (await r.run(pg("pg_ctl"), ["-D", dir, "status"])).code !== 0) throw new Error(await recoveryProblem(r, dir) ?? "the scratch copy stopped while replaying the archive");
       if (Date.now() > until) throw new Error("the scratch copy didn't finish replaying the archive in time");
       await new Promise((d) => setTimeout(d, 1000));
     }
-    return { dir, sock, port, dbname };
+    // Who owns the club's database (in the restored copy): the role its checks and its dump run as. Never a
+    // superuser: one that is would make those superuser sessions in the club's database after all.
+    const who = (await must(r, pg("psql"), ["-X", "-h", sock, "-p", String(port), "-d", "postgres", "-Atc",
+      `SELECT r.rolname || ' ' || r.rolsuper::text FROM pg_catalog.pg_database d JOIN pg_catalog.pg_roles r ON r.oid = d.datdba WHERE d.datname = '${dbname}'`], "finding who owns the club's database")).trim();
+    const [owner, superuser] = who.split(" ");
+    if (!owner || !PG_NAME.test(owner)) throw new Error(`the restored copy has no database ${dbname}, or its owner's name is unexpected (${who || "none"})`);
+    if (superuser !== "false") throw new Error(`${dbname} belongs to ${owner}, a superuser: the point-in-time restore reads a club's database only as an ordinary role (give the database to the club's own role)`);
+    return { dir, sock, port, dbname, owner };
   } catch (e) {
-    await dropScratch({ dir, sock, port, dbname }, o);
+    await dropScratch({ dir, sock, port, dbname, owner: "" }, o);
     throw e;
   }
 }
@@ -295,9 +309,12 @@ export async function dropScratch(s: Scratch, o: PitrOptions = {}) {
   await r.run(bin(o)("pg_ctl"), ["-D", s.dir, "-m", "immediate", "-w", "stop"]).catch(() => undefined);
   await r.remove(s.dir);
 }
-/** A query in the scratch copy's club database, its rows as text. */
+/** A query in the scratch copy's club database, as the role that owns it (never the superuser), with nothing but
+ *  Postgres's own catalog on the search path (a function the club's role made can't stand in for one of Postgres's):
+ *  its rows as text. Tables are named with their schema. */
 export async function scratchQuery(s: Scratch, query: string, o: PitrOptions = {}): Promise<string[]> {
-  return (await must(o.runner ?? localRunner, bin(o)("psql"), ["-h", s.sock, "-p", String(s.port), "-d", s.dbname, "-v", "ON_ERROR_STOP=1", "-Atc", query], "a check in the scratch copy")).split("\n").filter(Boolean);
+  return (await must(o.runner ?? localRunner, bin(o)("psql"), ["-X", "-h", s.sock, "-p", String(s.port), "-U", s.owner, "-d", s.dbname, "-v", "ON_ERROR_STOP=1", "-Atc", query], "a check in the scratch copy",
+    { PGOPTIONS: "-c search_path=pg_catalog" })).split("\n").filter(Boolean);
 }
 
 /** The club's database as it was at `target`, dumped to `out` (custom format, for `kumi restore`). Returns the last
@@ -305,8 +322,10 @@ export async function scratchQuery(s: Scratch, query: string, o: PitrOptions = {
 export async function extractAt(target: Date, dbname: string, out: string, o: PitrOptions & { repo?: number; base?: string; archivePath?: string } = {}): Promise<{ lastChange: string | null; seconds: number }> {
   const t0 = Date.now(), s = await recoverScratch(target, dbname, o);
   try {
-    const last = (await scratchQuery(s, "SELECT coalesce(max(created_at)::text, '') FROM action_run", o))[0] || null;
-    await must(o.runner ?? localRunner, bin(o)("pg_dump"), ["-Fc", "--no-owner", "--no-acl", "-h", s.sock, "-p", String(s.port), "-d", dbname, "-f", out], "pg_dump of the scratch copy");
+    const last = (await scratchQuery(s, "SELECT coalesce(max(created_at)::text, '') FROM public.action_run", o))[0] || null;
+    // As the database's owner too. The file is the club's whole database: `kumi pitr` runs with umask 077, so only
+    // its maker can read it (and the folder it goes in is the postgres user's alone).
+    await must(o.runner ?? localRunner, bin(o)("pg_dump"), ["-Fc", "--no-owner", "--no-acl", "-h", s.sock, "-p", String(s.port), "-U", s.owner, "-d", dbname, "-f", out], "pg_dump of the scratch copy");
     return { lastChange: last, seconds: Math.round((Date.now() - t0) / 1000) };
   } finally { await dropScratch(s, o); }
 }
@@ -338,12 +357,12 @@ export async function pitrTestRun(live: Kysely<any>, dbname: string, info: Archi
   const t0 = Date.now(), s = await recoverScratch(target, dbname, o), problems: string[] = [];
   let kept: string | null = null;
   try {
-    const has = (await scratchQuery(s, `SELECT count(*) FROM action_run WHERE id = '${want ?? "00000000-0000-0000-0000-000000000000"}'`, o))[0];
+    const has = (await scratchQuery(s, `SELECT count(*) FROM public.action_run WHERE id = '${want ?? "00000000-0000-0000-0000-000000000000"}'`, o))[0];
     if (want && has !== "1") problems.push(`the last change before ${before.toISOString()} (${want}) isn't in the restored copy`);
-    const later = (await scratchQuery(s, `SELECT count(*) FROM action_run WHERE created_at > '${after.toISOString()}'`, o))[0];
+    const later = (await scratchQuery(s, `SELECT count(*) FROM public.action_run WHERE created_at > '${after.toISOString()}'`, o))[0];
     if (later !== "0") problems.push(`the restored copy has ${later} changes from after ${after.toISOString()}: it didn't stop at the minute asked`);
     for (const t of await scratchQuery(s, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'", o)) if (!liveTables.has(t)) problems.push(`${t} isn't in the live database`);
-    kept = (await scratchQuery(s, "SELECT coalesce(max(created_at)::text, '') FROM action_run", o))[0] || null;
+    kept = (await scratchQuery(s, "SELECT coalesce(max(created_at)::text, '') FROM public.action_run", o))[0] || null;
   } finally { await dropScratch(s, o); }
   return { ok: problems.length === 0, target: target.toISOString(), seconds: Math.round((Date.now() - t0) / 1000), problems, kept };
 }

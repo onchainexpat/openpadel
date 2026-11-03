@@ -51,6 +51,9 @@ export async function pitrMain(sub: string | undefined, args: string[], lang: La
     return 0;
   }
 
+  // What these make (a scratch copy of the club's database, a dump of it) is for the postgres user's eyes only,
+  // whatever umask it was started with.
+  process.umask(0o077);
   const db = connect();
   try {
     const tz = await clubTimeZone(db), dbname = dbNameOf(env.DATABASE_URL ?? "");

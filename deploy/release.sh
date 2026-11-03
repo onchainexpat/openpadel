@@ -151,13 +151,20 @@ kumi_sites() {
 # --- end caddy sites ---
 host_of() { local h=${1#*://}; printf '%s' "${h%%/*}"; }
 # Caddy's config for release $1: the API's paths and the apps' policy from that release's own server-setup.sh, the
-# addresses from the settings file, and where the server listens. Fails if any of them is missing.
+# addresses from the settings file, and where the server listens. Fails if any of them is missing, or odd: the
+# release was built by the kumi user, so what it says goes into root's Caddyfile only if it's paths (letters, digits
+# and / * . _ -) and a policy with nothing that could end Caddy's quoted string or open a block of its own.
 caddy_for() {
   local f="$ROOT/releases/$1/deploy/server-setup.sh" api csp member staff upstream
   [ -f "$f" ] || return 1
   api=$(sed -n "s/^api='\(.*\)'\$/\1/p" "$f" | head -1); csp=$(sed -n 's/^csp="\(.*\)"$/\1/p' "$f" | head -1)
   member=$(host_of "${KUMI_MEMBER_URL:-}"); staff=$(host_of "${KUMI_PUBLIC_URL:-}")
   [ -n "$api" ] && [ -n "$csp" ] && [ -n "$member" ] && [ -n "$staff" ] || return 1
+  if ! printf '%s\n' "$api" | LC_ALL=C grep -Eqx '[A-Za-z0-9/*._-]+( [A-Za-z0-9/*._-]+)*' \
+    || ! printf '%s\n' "$csp" | LC_ALL=C grep -Eqx "[ -~]+" || printf '%s\n' "$csp" | grep -q '["\\{}]'; then
+    echo "kumi: release $1's api= or csp= line (deploy/server-setup.sh) has what Caddy's config can't safely take" >&2
+    return 1
+  fi
   if [ -n "${KUMI_SOCKET:-}" ]; then upstream="unix/$KUMI_SOCKET"; else upstream="127.0.0.1:$PORT"; fi
   kumi_sites "$member" "$staff" "$upstream" "$ROOT/app"
 }
@@ -272,8 +279,9 @@ case "${1:-}" in
     case " $* " in *" --to"*)
       # A minute, not a file (pitr.ts): the database as it was then, from the point-in-time archive, as the postgres
       # user (whose archive it is), into a file; then that file is restored the usual safe way, below.
-      shift; f=/var/lib/postgresql/kumi-pitr-$(date -u +%Y%m%dT%H%M%SZ).dump
-      (cd /opt/kumi/app && runuser -u postgres -- env DATABASE_URL='postgresql://postgres@/kumi?host=/var/run/postgresql' /usr/local/bin/node apps/server/src/cli.ts pitr extract --out="$f" "$@") || { rm -f "$f"; exit 2; }
+      # The file is the club's whole database: in a folder only the postgres user can open (kumi pitr makes it 600 too).
+      shift; install -d -m 700 -o postgres -g postgres /var/lib/postgresql/kumi-pitr; f=/var/lib/postgresql/kumi-pitr/kumi-pitr-$(date -u +%Y%m%dT%H%M%SZ).dump
+      (cd /opt/kumi/app && runuser -u postgres -- env DATABASE_URL='postgresql://kumi@/kumi?host=/var/run/postgresql' /usr/local/bin/node apps/server/src/cli.ts pitr extract --out="$f" "$@") || { rm -f "$f"; exit 2; }
       extract=/var/backups/kumi/$(basename "$f"); install -m 600 -o kumi -g kumi "$f" "$extract"; rm -f "$f"
       set -- restore "$extract" --yes;;
     esac
@@ -287,9 +295,10 @@ case "${1:-}" in
     if [ -n "$extract" ]; then if [ "$rc" = 4 ]; then echo "kumi: the database as it was at that minute is in $extract" >&2; else rm -f "$extract"; fi; fi
     exit $rc;;
   pitr)
-    # The archive is the postgres user's: its jobs run as that user (kumi pitr status and conf don't need to).
+    # The archive is the postgres user's: its jobs run as that user (kumi pitr status and conf don't need to). In the
+    # club's database they're the kumi role, never Postgres's superuser (the ident map below lets them be).
     case "${2:-}" in tick|test|extract)
-      root pitr; cd /opt/kumi/app && exec runuser -u postgres -- env DATABASE_URL='postgresql://postgres@/kumi?host=/var/run/postgresql' /usr/local/bin/node apps/server/src/cli.ts "$@";;
+      root pitr; cd /opt/kumi/app && exec runuser -u postgres -- env DATABASE_URL='postgresql://kumi@/kumi?host=/var/run/postgresql' /usr/local/bin/node apps/server/src/cli.ts "$@";;
     esac;;
 esac
 cd /opt/kumi/app || exit 1
@@ -297,7 +306,8 @@ exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env;
 SH
 chmod 755 /usr/local/bin/kumi
 # Nightly backup at 3:17 on the club's clock (off the hour): the dump and its manifest, kept 14 days, and the
-# offsite copy if set up. The timer ticks hourly and `--scheduled` runs it only when it's due, so the time follows
+# offsite copy if set up. The backup and the restore test run the club's code as the kumi user, so they get the
+# server's sandbox: they write only in the backups folder, with a /tmp of their own. The timer ticks hourly and `--scheduled` runs it only when it's due, so the time follows
 # the club's time zone, whatever the server's clock is, and a server that was off at 3:17 catches up.
 install -d -m 750 -o kumi -g kumi /var/backups/kumi
 cat > /etc/systemd/system/kumi-backup.service <<'UNIT'
@@ -309,7 +319,12 @@ Type=oneshot
 User=kumi
 WorkingDirectory=/opt/kumi/app
 EnvironmentFile=/etc/kumi/kumi.env
+ReadWritePaths=/var/backups/kumi
 ExecStart=/usr/local/bin/node apps/server/src/cli.ts backup --scheduled
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
 UNIT
 cat > /etc/systemd/system/kumi-backup.timer <<'UNIT'
 [Unit]
@@ -330,7 +345,12 @@ Type=oneshot
 User=kumi
 WorkingDirectory=/opt/kumi/app
 EnvironmentFile=/etc/kumi/kumi.env
+ReadWritePaths=/var/backups/kumi
 ExecStart=/usr/local/bin/node apps/server/src/cli.ts restore-test --scheduled
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
 UNIT
 cat > /etc/systemd/system/kumi-restore-test.timer <<'UNIT'
 [Unit]
@@ -347,7 +367,29 @@ systemctl enable kumi-backup.timer kumi-restore-test.timer
 systemctl restart kumi-backup.timer kumi-restore-test.timer   # a changed schedule takes effect now
 # Point-in-time backups (pitr.ts), once Postgres archives its log (server-setup.sh turns that on): the base backup
 # when it's due, checked hourly (3:37 on the club's clock), and the monthly test (the 1st at 5:17), as the postgres
-# user, whose archive it is.
+# user, whose archive it is. They read and write the club's database as the kumi role, never as Postgres's superuser:
+# a superuser session in a database the kumi role owns would run whatever it left there (a trigger, a function) with
+# the superuser's rights. Postgres lets the postgres user sign in as kumi, to the kumi database only (Kumi's own
+# pg_hba and pg_ident files, which Postgres's own include; Postgres 16 and later read include lines). The files are
+# written beside Postgres's with install, which replaces a link rather than following it.
+pg_etc=/etc/postgresql/17/main
+if [ -f "$pg_etc/pg_hba.conf" ] && [ -f "$pg_etc/pg_ident.conf" ]; then
+  t=$(mktemp)
+  printf '%s\n' "# Kumi (deploy/server-setup.sh): the postgres user's point-in-time jobs sign in to the kumi database as kumi." "local kumi kumi peer map=kumi" > "$t"
+  install -m 640 -o postgres -g postgres "$t" "$pg_etc/kumi_hba.conf"
+  printf '%s\n' "# Kumi (deploy/server-setup.sh): kumi as itself, and the postgres user as kumi (pg_hba.conf allows it only for the kumi database)." "kumi kumi kumi" "kumi postgres kumi" > "$t"
+  install -m 640 -o postgres -g postgres "$t" "$pg_etc/kumi_ident.conf"
+  rm -f "$t"
+  # First in pg_hba.conf (its first matching line wins); anywhere in pg_ident.conf. sed -i replaces the file, never a link's target.
+  grep -qx 'include_if_exists kumi_hba.conf' "$pg_etc/pg_hba.conf" || sed -i '1i include_if_exists kumi_hba.conf' "$pg_etc/pg_hba.conf"
+  if ! grep -qx 'include_if_exists kumi_ident.conf' "$pg_etc/pg_ident.conf"; then
+    if [ -s "$pg_etc/pg_ident.conf" ]; then sed -i '1i include_if_exists kumi_ident.conf' "$pg_etc/pg_ident.conf"
+    else t=$(mktemp); echo 'include_if_exists kumi_ident.conf' > "$t"; install -m 640 -o postgres -g postgres "$t" "$pg_etc/pg_ident.conf"; rm -f "$t"; fi
+  fi
+  systemctl reload postgresql
+  runuser -u postgres -- psql -XAtc 'SELECT 1' 'postgresql://kumi@/kumi?host=/var/run/postgresql' >/dev/null 2>&1 \
+    || echo "kumi: the postgres user can't sign in to the kumi database as kumi (pg_hba.conf, pg_ident.conf), so the point-in-time jobs will fail; kumi doctor says so"
+fi
 cat > /etc/systemd/system/kumi-pitr.service <<'UNIT'
 [Unit]
 Description=Kumi point-in-time archive: the nightly base backup, when it's due
@@ -357,7 +399,7 @@ ConditionPathExists=/etc/pgbackrest/pgbackrest.conf
 Type=oneshot
 User=postgres
 WorkingDirectory=/opt/kumi/app
-Environment=DATABASE_URL=postgresql://postgres@/kumi?host=/var/run/postgresql
+Environment=DATABASE_URL=postgresql://kumi@/kumi?host=/var/run/postgresql
 ExecStart=/usr/local/bin/node apps/server/src/cli.ts pitr tick
 UNIT
 cat > /etc/systemd/system/kumi-pitr.timer <<'UNIT'
@@ -378,7 +420,7 @@ ConditionPathExists=/etc/pgbackrest/pgbackrest.conf
 Type=oneshot
 User=postgres
 WorkingDirectory=/opt/kumi/app
-Environment=DATABASE_URL=postgresql://postgres@/kumi?host=/var/run/postgresql
+Environment=DATABASE_URL=postgresql://kumi@/kumi?host=/var/run/postgresql
 ExecStart=/usr/local/bin/node apps/server/src/cli.ts pitr test --scheduled
 UNIT
 cat > /etc/systemd/system/kumi-pitr-test.timer <<'UNIT'
@@ -434,8 +476,9 @@ update() {
   [ -z "$AS" ] || chown -R kumi:kumi "$dir.new"
   say "installing $new beside $old"
   if ! (cd "$dir.new" && $AS $INSTALL && $AS $BUILD); then rm -rf "$dir.new"; die "installing $new failed; nothing changed, still on $old"; fi
-  # Built: now root's, read-only to everyone else, before anything uses it (chown -R doesn't follow links in it).
-  [ -z "$AS" ] || { chown -R root:root "$dir.new"; chmod -R u+rwX,go+rX,go-w "$dir.new"; }
+  # Built: now root's, read-only to everyone else, nothing setuid, before anything uses it (chown -R doesn't follow
+  # links in it).
+  [ -z "$AS" ] || { chown -R root:root "$dir.new"; chmod -R u+rwX,go+rX,go-w,ug-s "$dir.new"; }
   rm -rf "$dir"; mv "$dir.new" "$dir"
 
   # 2. Caddy's config from the new release (the paths it answers on), checked before anything switches. A config

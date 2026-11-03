@@ -68,7 +68,10 @@ before(() => {
     pg_restore: `for a; do last="$a"; done; cp "$last" "$STUB_DB"`,
     // Starting the server: a release marked MIGRATE changes the database as it starts (once, as migrations do).
     restart: `rev=$(basename "$(readlink "$STUB_ROOT/app")"); [ -f "$STUB_ROOT/app/MIGRATE" ] && ! grep -q "migrated by $rev" "$STUB_DB" && echo "migrated by $rev" >> "$STUB_DB"; echo "$rev" > "$STUB_ROOT/.up"; true`,
-    build: `[ -f FAILBUILD ] && exit 1; mkdir -p apps/member/dist apps/manager/dist; touch apps/member/dist/index.html apps/manager/dist/index.html`,
+    // A release marked INJECT stands for a build (the kumi user's) that rewrote the release's own server-setup.sh:
+    // a policy that ends Caddy's quoted string and opens a site of its own in root's Caddyfile.
+    build: `[ -f FAILBUILD ] && exit 1; mkdir -p apps/member/dist apps/manager/dist; touch apps/member/dist/index.html apps/manager/dist/index.html
+      [ -f INJECT ] && printf '%s\\n' "api='/auth/* /club /health'" "csp=\\"default-src 'self'\\" } evil.example { respond \\"pwned\\"" > deploy/server-setup.sh; true`,
     curl: `for a; do url="$a"; done; [ "$1" = --unix-socket ] && echo "$2 $url" >> "$STUB_ROOT/.socket"
       rev=$(cat "$STUB_ROOT/.up" 2>/dev/null); [ -f "$STUB_ROOT/releases/$rev/BROKEN" ] && exit 7
       case "$url" in *health) printf '{"ok":true,"version":"0.1.0","revision":"%s"}' "$rev";; *club) printf 200;; esac`,
@@ -222,4 +225,16 @@ test("on its unix socket: the update asks the server there, and Caddy sends the 
   assert.equal(caddy(), sites("r15", `unix/${sock}`));
   assert.match(caddy(), /reverse_proxy unix\/\/run\/kumi-kestrel\/http\.sock\n/);
   assert.match(readFileSync(join(root, ".socket"), "utf8"), /^\/run\/kumi-kestrel\/http\.sock http:\/\/localhost\/health$/m);
+});
+
+test("what the kumi user's build says goes into root's Caddyfile only if it's plain paths and a policy", () => {
+  const before = caddy(), was = running(), n = reloads();
+  const r = sh("update", release("r16", ["INJECT"]), "r16");
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /r16's api= or csp= line .* can't safely take/);
+  assert.match(r.out, /nothing changed/);
+  assert.equal(caddy(), before);
+  assert.ok(!caddy().includes("evil.example"));
+  assert.equal(running(), was);
+  assert.equal(reloads(), n);
 });

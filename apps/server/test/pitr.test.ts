@@ -95,15 +95,17 @@ test("the minute asked for is on the club's clock, and one that can't be gone ba
 });
 
 /** A pretend postgres user: every command written down, and Postgres replaying for one check before it opens. */
-function pretend(o: { startFails?: string } = {}) {
-  const calls: string[] = [], files = new Map<string, string>(), removed: string[] = [];
+function pretend(o: { startFails?: string; owner?: string } = {}) {
+  const calls: string[] = [], files = new Map<string, string>(), removed: string[] = [], envs: Array<Record<string, string | undefined> | undefined> = [];
   let polls = 0;
   const runner: Runner = {
-    async run(cmd, args) {
+    async run(cmd, args, ro) {
       calls.push(`${cmd.split("/").at(-1)} ${args.join(" ")}`);
+      envs.push(ro?.env);
       if (cmd.endsWith("pg_ctl") && args.at(-1) === "start" && o.startFails) return { code: 1, stdout: "", stderr: "failed" };
       if (cmd === "tail") return { code: 0, stdout: o.startFails ?? "", stderr: "" };
-      if (cmd.endsWith("psql") && args.includes("SELECT pg_is_in_recovery()")) return polls++ ? { code: 0, stdout: "f\n", stderr: "" } : { code: 2, stdout: "", stderr: "starting up" };
+      if (cmd.endsWith("psql") && args.includes("SELECT pg_catalog.pg_is_in_recovery()")) return polls++ ? { code: 0, stdout: "f\n", stderr: "" } : { code: 2, stdout: "", stderr: "starting up" };
+      if (cmd.endsWith("psql") && args.some((a) => a.includes("pg_catalog.pg_database d JOIN pg_catalog.pg_roles"))) return { code: 0, stdout: `${o.owner ?? "kumi false"}\n`, stderr: "" };
       if (cmd.endsWith("psql")) return { code: 0, stdout: "2026-11-03 19:04:12+00\n", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     },
@@ -111,7 +113,7 @@ function pretend(o: { startFails?: string } = {}) {
     async mkdir() {},
     async remove(path) { removed.push(path); },
   };
-  return { runner, calls, files, removed };
+  return { runner, calls, files, removed, envs };
 }
 
 test("going back to a minute: the archive recovered into a scratch folder up to it, the club's database dumped, the scratch removed", async () => {
@@ -125,11 +127,27 @@ test("going back to a minute: the archive recovered into a scratch folder up to 
   assert.match(conf, /listen_addresses = ''/);
   assert.match(conf, /archive_mode = off/);
   assert.match(conf, /hot_standby = off/);
-  assert.equal([...p.files].find(([k]) => k.endsWith("/pg_hba.conf"))![1], "local all postgres peer\n");
-  assert.ok(p.calls.some((c) => c.startsWith("pg_dump -Fc --no-owner --no-acl") && c.includes("-d kumi -f /var/lib/postgresql/at.dump")));
+  // Postgres's superuser only asks Postgres's own questions, in the postgres database; the club's database is read,
+  // and dumped, as the role that owns it (a superuser session there would run whatever that role left in it).
+  assert.equal([...p.files].find(([k]) => k.endsWith("/pg_hba.conf"))![1], "local all postgres peer\nlocal kumi all trust\n");
+  for (const [i, c] of p.calls.entries()) {
+    if (!c.startsWith("psql") && !c.startsWith("pg_dump")) continue;
+    if (c.includes("-d postgres")) { assert.ok(!c.includes("-U "), c); continue; }
+    assert.ok(c.includes("-U kumi -d kumi"), `as the owner: ${c}`);
+    if (c.startsWith("psql")) { assert.match(c, /FROM public\.action_run/); assert.equal(p.envs[i]?.PGOPTIONS, "-c search_path=pg_catalog"); }
+  }
+  assert.ok(p.calls.some((c) => c.startsWith("pg_dump -Fc --no-owner --no-acl") && c.includes("-U kumi -d kumi -f /var/lib/postgresql/at.dump")));
   assert.ok(p.calls.at(-1)!.startsWith("pg_ctl -D /var/lib/postgresql/17/kumi-pitr-") && p.calls.at(-1)!.includes("stop"));
   assert.equal(p.removed.length, 1);
   assert.match(p.removed[0]!, /kumi-pitr-[0-9a-f]{8}$/);
+});
+
+test("a club database owned by a superuser is refused: nothing in it is read or dumped as one, and the scratch goes", async () => {
+  const p = pretend({ owner: "postgres true" });
+  await assert.rejects(extractAt(new Date("2026-11-03T19:05:00Z"), "kumi", "/x.dump", { runner: p.runner, base: "/b" }), /a superuser/);
+  assert.ok(!p.calls.some((c) => c.startsWith("pg_dump") || c.includes("-d kumi")), p.calls.join("\n"));
+  assert.equal(p.removed.length, 1);
+  await assert.rejects(extractAt(new Date("2026-11-03T19:05:00Z"), "kumi; DROP", "/x.dump", { runner: pretend().runner, base: "/b" }), /isn't a database name/);
 });
 
 test("a minute the archive doesn't reach yet says so, and leaves no scratch copy behind", async () => {
@@ -149,9 +167,18 @@ test("setup turns archiving on once, and the units run as the postgres user", ()
   for (const want of ["apt-get install -yq pgbackrest", "archive_mode = on", "archive_timeout = 60", 'systemctl "$pitr_apply" postgresql',
     "[ -f /etc/pgbackrest/pgbackrest.conf ] || exit 0",
     "kumi-pitr.timer", "kumi-pitr-test.timer", "User=postgres", "cli.ts pitr tick", "cli.ts pitr test --scheduled", "cli.ts pitr conf", "stanza-create", "pitr extract --out="]) assert.ok(setup.includes(want), want);
-  // As the postgres user the address names it: a command started with a fresh environment has no USER to go by
-  // (kumi-hosted's restore failed on that before Postgres heard a user name).
-  assert.ok(!/postgresql:\/\/\/kumi/.test(setup) && setup.includes("postgresql://postgres@/kumi?host=/var/run/postgresql"));
+  // The address names the role: a command started with a fresh environment has no USER to go by (kumi-hosted's
+  // restore failed on that before Postgres heard a user name). And it's the kumi role, never Postgres's superuser:
+  // a superuser session in the club's database would run whatever the kumi role left there (a trigger on the
+  // heartbeat these jobs write, say, running COPY ... TO PROGRAM) with the superuser's rights.
+  assert.ok(!/postgresql:\/\/\/kumi/.test(setup) && !setup.includes("postgresql://postgres@"), "no superuser address for the club's database");
+  assert.equal(setup.match(/postgresql:\/\/kumi@\/kumi\?host=\/var\/run\/postgresql/g)?.length, 6, "the settings file, the two units, the wrapper's two, and setup's check");
+  // ...which Postgres allows through Kumi's own ident map: the postgres user as kumi, to the kumi database only.
+  for (const want of ['"local kumi kumi peer map=kumi"', '"kumi kumi kumi" "kumi postgres kumi"', "sed -i '1i include_if_exists kumi_hba.conf'", "include_if_exists kumi_ident.conf", "systemctl reload postgresql"])
+    assert.ok(setup.includes(want), want);
+  // The restore's dump is the club's whole database: made in a folder only the postgres user opens.
+  assert.ok(setup.includes("install -d -m 700 -o postgres -g postgres /var/lib/postgresql/kumi-pitr; f=/var/lib/postgresql/kumi-pitr/kumi-pitr-"));
   const release = readFileSync(new URL("../../../deploy/release.sh", import.meta.url), "utf8");
   assert.ok(!/restart postgresql/.test(release), "an update never restarts Postgres");
+  assert.ok(!release.includes("postgresql://postgres@"), "nor does an update write a superuser address");
 });

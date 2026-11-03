@@ -80,6 +80,19 @@ server starts.
   restore carries over what the database before it had ended, and where it can't vouch, all of it ends.
 - An export's passphrase is stretched with scrypt at 2^17 (it was 2^15), and a file says what it was made with,
   so older files still open; a file asking for more than Kumi ever uses is refused.
+- Point-in-time backups never open the club's database as Postgres's superuser. Their jobs (as the postgres user,
+  whose archive it is) sign in as the `kumi` role, which Kumi's own `pg_hba` and `pg_ident` files now allow for
+  the `kumi` database only; in the scratch copy a restore makes, the club's database is read and dumped as the role
+  that owns it (refused if that's a superuser), with only Postgres's catalog on the search path. Before, a trigger
+  or function the `kumi` role had left in its database would have run with the superuser's rights when the hourly
+  job wrote its heartbeat or the monthly test read the copy. The dump of a minute is made under umask 077 in a
+  folder only the postgres user opens (`/var/lib/postgresql/kumi-pitr`); it was readable by everyone while it was
+  made.
+- An update reads the API paths and policy it gives Caddy from the release it just built, which the kumi user
+  built: they now go into root's Caddyfile only if they're plain paths and a policy with nothing that could end
+  Caddy's quoted string or open a block of its own, or the update stops with nothing changed.
+- The nightly backup and the monthly restore test get the server's sandbox (`ProtectSystem=strict`, a /tmp of
+  their own, writing only in the backups folder), and a built release is left with nothing setuid.
 - A card charge (a renewal, a booking's deadline, a family card) asks Stripe for the one it already has, by Kumi's
   own id for it, before charging: the database put back to before a charge (a backup, a minute, an export
   elsewhere) can't charge the card again, even after Stripe has forgotten the request. Charges Kumi makes carry
@@ -110,6 +123,10 @@ server starts.
   `.part` file or copy from the archive behind; and `kumi held` says it's after a move or a restore.
 
 ### When updating
+- Nothing to do for the point-in-time jobs' new sign-in: the update writes Kumi's `kumi_hba.conf` and
+  `kumi_ident.conf` beside Postgres's, puts an include line at the top of `pg_hba.conf` and `pg_ident.conf`, and
+  reloads Postgres (it doesn't start again). If the update says the postgres user can't sign in as kumi,
+  `kumi doctor` will show the point-in-time jobs failing: check those two files.
 - If you ran `server-setup.sh` with Kumi ce7f772 or earlier, run it once more: Postgres's archive command is
   renamed to one pgBackRest accepts (`pgbackrest-archive-push`), or the first base backup fails with error 068.
   Postgres only reloads; it doesn't start again.

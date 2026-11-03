@@ -171,6 +171,15 @@ Once a month (the 1st, 5:17 club time) a random minute of the last week is resto
 change made a minute before it is there, nothing from a minute after it is. `kumi doctor` shows the result, and
 `sudo kumi pitr test` runs it now.
 
+These jobs run as the postgres user, whose archive it is, but they never open the club's database as Postgres's
+superuser: they sign in as the `kumi` role (which owns it), and in the scratch copy as whoever owns it there (never
+a superuser), with only Postgres's own catalog on the search path. A superuser session in a database the `kumi`
+role owns would run whatever that role had left in it (a trigger, a function) with the superuser's rights.
+`server-setup.sh` and every update let the postgres user sign in as `kumi`, to the `kumi` database only, through
+Kumi's own `pg_hba` and `pg_ident` files (`kumi_hba.conf`, `kumi_ident.conf` beside Postgres's, which include
+them; Postgres 16 or later). The dump taken from the scratch copy is made under umask 077, in a folder only the
+postgres user can open.
+
 ## Restoring after losing the server
 
 1. Set up a new server with `server-setup.sh` and ship the code (see [server.md](server.md)).
