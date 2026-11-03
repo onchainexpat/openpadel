@@ -203,7 +203,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page", "read_only_since"]).executeTakeFirst();
+    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page", "read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
     // Not set up yet (kumi setup apply): nothing to show, which isn't the server failing.
     if (!club) throw new KumiError("error.club_not_set_up", {}, 404);
     // Whether there's a membership to join in the app.
@@ -214,8 +214,9 @@ export function makeApp(deps: AppDeps) {
     // The members' address, for the staff app's links members open (the public page, a booking's players link).
     // Whether the staff forms offer a draft in the club's other language (translate.ts).
     // Read-only (read_only.ts): both apps say so at the top.
-    const { read_only_since, ...shown } = club;
-    return c.json({ ...shown, read_only: Boolean(read_only_since), memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
+    // Moved to another server (club_exit.ts): both apps say where, instead of read-only.
+    const { read_only_since, moved_at, moved_to, ...shown } = club;
+    return c.json({ ...shown, read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
       member_url: deps.memberUrl ?? memberUrl(publicUrl, {}) });
   });
 

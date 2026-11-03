@@ -18,6 +18,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { countHeld, countText, textAllowed, textPrice } from "./text_usage.ts";
 import { skipRepeatsAfterRestore } from "./repeats.ts";
+import { movedAway } from "./club_exit.ts";
 
 /** The version of the words a member says yes to. A new wording gets a new version, and the old yes stands. */
 export const TEXTS_FORM = "texts-2026-11-01";
@@ -258,6 +259,7 @@ const MAX_SEND_ATTEMPTS = 5;
 export async function sendTexts(db: Db, texter: Texter, o: { memberUrl: string; statusCallback?: string; now?: Date; limit?: number }): Promise<{ sent: number; dropped: number; failed: number }> {
   const now = o.now ?? new Date(), out = { sent: 0, dropped: 0, failed: 0 };
   await skipRepeatsAfterRestore(db, now);   // after a restore, nothing the database before it had sent goes twice
+  if (await movedAway(db)) return out;      // moved to another server (club_exit.ts): that one texts members now
   const due = await db.selectFrom("outbound_message").select(["id", "person_id", "body", "link", "lang", "stale_at", "attempts"])
     .where("status", "=", "waiting").where("channel", "=", "sms").where("send_after", "<=", now).orderBy("send_after").limit(o.limit ?? 50).execute();
   if (!due.length) return out;

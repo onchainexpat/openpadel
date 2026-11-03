@@ -3,7 +3,7 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
-import { answerCounts, clubStripeAccount, dayText, heartbeats, heldSummary, leavingOn, localParts, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageView, type Db } from "@kumi/core";
+import { answerCounts, clubStripeAccount, dayText, heartbeats, heldSummary, leavingOn, localParts, movedAway, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageView, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { offsitePrunes } from "./backups.ts";
 import { archiverFailing, archiverState, PITR_CONF } from "./pitr.ts";
@@ -39,6 +39,9 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   // Read-only (read_only.ts), the host's switch: said while it's on, and nothing when it's off.
   const readOnly = await readOnlySince(db).catch(() => null);
   if (readOnly) add("read_only", "warn", "read_only.on", { since: readOnly.toISOString().slice(0, 10) });
+  // Moved (club_exit.ts): this server sends members nothing and takes nothing new; said while it's on.
+  const moved = await movedAway(db).catch(() => null);
+  if (moved) add("moved", "warn", moved.to ? "moved.on_to" : "moved.on", { since: moved.at.toISOString().slice(0, 10), to: moved.to ?? "" });
   // The day the club's Kumi ends (leaving.ts), set by whoever runs its server: said while there is one.
   const leaving = await leavingOn(db).catch(() => null);
   if (leaving) add("leaving", "warn", "leaving.on", { date: dayText(leaving) });

@@ -12,8 +12,9 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, st
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { sql, type Kysely } from "kysely";
-import { atLocal, connect, heartbeat, jobFailed, jobWorked, localParts, parseSecretKey, type Db, type OpsJob } from "@kumi/core";
+import { atLocal, connect, heartbeat, jobFailed, jobWorked, localParts, migrate, parseSecretKey, type Db, type OpsJob } from "@kumi/core";
 import { S3Client, type S3Config } from "./s3.ts";
+import { expectedShape, putSettingsBack, schemaShape, settingsNow, shapeDifferences, type Shape } from "./shape.ts";
 
 export const LOCAL_DAYS = 14, OFFSITE_DAILY = 30, OFFSITE_MONTHLY = 12;
 type Env = Record<string, string | undefined>;
@@ -212,24 +213,62 @@ export class RestoreFailed extends Error {
 
 /** Replace the live database with a backup, without ever leaving the club empty: the file is checked first, a
  *  copy of the database as it is now is made (kumi-<time>-before-restore.dump, kept, not tidied), and if the
- *  restore fails that copy is put back. The server must not be using the database (stop it first). */
+ *  restore fails that copy is put back. What the file brings besides rows must be what Kumi's own migrations make
+ *  (shape.ts): a file with a function, trigger, rule, view, policy or setting of anyone else's is refused, and the
+ *  database goes back as it was. The server must not be using the database (stop it first). The restored copy
+ *  leaves here with this Kumi's migrations applied. */
 export async function safeRestore(url: string, dumpFile: string, o: { dir: string; now?: Date; env?: Env }): Promise<{ safetyCopy: string }> {
   const env = o.env ?? process.env, now = o.now ?? new Date();
   await checkDump(dumpFile, env);
   const label = `${now.toISOString().slice(0, 16).replace(/[-:]/g, "")}Z-before-restore`;
   const db = connect(url);
-  let safetyCopy: string;
-  try { safetyCopy = (await makeBackup(db, { url, dir: o.dir, label, env, now })).file; }
+  let safetyCopy: string, before: Shape, settings: Awaited<ReturnType<typeof settingsNow>>;
+  try {
+    safetyCopy = (await makeBackup(db, { url, dir: o.dir, label, env, now })).file;
+    // What this server's database already has that Kumi doesn't make (a managed Postgres's own schema, say) isn't
+    // the file's doing: it's allowed back.
+    before = await schemaShape(db); settings = await settingsNow(db);
+  }
   catch (e) { throw new RestoreRefused(`a copy of the database as it is couldn't be made first, so nothing was changed (${(e as Error).message})`); }
   finally { await db.destroy(); }
-  try { await restoreInto(url, dumpFile, env); }
-  catch (e) {
-    const why = (e as Error).message;
+  const putBack = async (why: string): Promise<never> => {
     try { await restoreInto(url, safetyCopy, env); }
     catch (e2) { throw new RestoreFailed(`${why}; putting the database back failed too: ${(e2 as Error).message}`, safetyCopy, false); }
+    finally { const d = connect(url); try { await putSettingsBack(d, settings); } finally { await d.destroy(); } }
     throw new RestoreFailed(why, safetyCopy, true);
+  };
+  try { await restoreInto(url, dumpFile, env); }
+  catch (e) { return putBack((e as Error).message); }
+  let foreign: string[];
+  try { foreign = await foreignShape(url, before); }
+  catch (e) { return putBack((e as Error).message); }
+  if (foreign.length) {
+    await putBack("refused").catch((e: unknown) => { if (!(e instanceof RestoreFailed) || !e.putBack) throw e; });
+    throw new RestoreRefused(`${basename(dumpFile)} holds things Kumi's own migrations don't make, so it wasn't restored and the database is as it was: ${foreign.slice(0, 6).join("; ")}${foreign.length > 6 ? ` (and ${foreign.length - 6} more)` : ""}`);
   }
   return { safetyCopy };
+}
+
+/** Rules, triggers and functions earlier Kumis made and a later migration took away: a copy from before then has them. */
+const EARLIER_KUMI = new Set(["rule public.rating_event.rating_event_no_update"]);
+/** What the restored copy has that's neither Kumi's nor this server's own (shape.ts): first by name, before Kumi's
+ *  migrations run on it, then in full once they have. Empty when it's Kumi's. */
+async function foreignShape(url: string, before: Shape): Promise<string[]> {
+  const db = connect(url);
+  try {
+    const name = (l: string) => l.split(" | ")[0]!;
+    const want = expectedShape(), here = new Set(before.objects);
+    const known = new Set([...want.objects, ...before.objects].map(name));
+    const early = (await schemaShape(db)).objects.map(name).filter((n) => !known.has(n) && !EARLIER_KUMI.has(n));
+    if (early.length) return early.map((n) => `not Kumi's: ${n}`);
+    await migrate(db);
+    const got = await schemaShape(db);
+    // Definitions compare on the Postgres shape.json was recorded on; this server's own objects, exactly as they were.
+    const key = got.postgres === want.postgres ? (l: string) => l : name;
+    const should = new Set(want.objects.map(key)), have = new Set(got.objects.map(key));
+    return [...got.objects.filter((l) => !should.has(key(l)) && !here.has(l)).map((l) => `not Kumi's: ${name(l)}`),
+      ...want.objects.filter((l) => !have.has(key(l))).map((l) => `missing: ${name(l)}`)];
+  } finally { await db.destroy(); }
 }
 
 /** Empty a database's public schema and restore a dump into it. The server must not be using it (stop it first).

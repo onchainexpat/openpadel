@@ -8,6 +8,7 @@ import { uuidv7 } from "./ids.ts";
 import { generateVapidKeys, isPushEndpoint, sendPush, type VapidKeys } from "./webpush.ts";
 import { openText, sealText } from "./sealed.ts";
 import { skipRepeatsAfterRestore } from "./repeats.ts";
+import { movedAway } from "./club_exit.ts";
 
 /** The club's push keys, made (once, whichever server process gets there first) the first time they're needed.
  *  The private half is sealed with the server's key (sealed.ts). */
@@ -41,6 +42,7 @@ const MAX_ATTEMPTS = 5;
 export async function sendPushes(db: Db, o: { subject: string; now?: Date; fetch?: Fetch; limit?: number }): Promise<{ sent: number; dropped: number; failed: number }> {
   const now = o.now ?? new Date(), out = { sent: 0, dropped: 0, failed: 0 };
   await skipRepeatsAfterRestore(db, now);   // after a restore, nothing the database before it had sent goes twice
+  if (await movedAway(db)) return out;      // moved to another server (club_exit.ts): that one reaches members now
   const due = await db.selectFrom("outbound_message").select(["id", "person_id", "purpose", "kind", "subject", "body", "link", "stale_at", "attempts"])
     .where("status", "=", "waiting").where("channel", "=", "push").where("send_after", "<=", now).orderBy("send_after").limit(o.limit ?? 50).execute();
   if (!due.length) return out;

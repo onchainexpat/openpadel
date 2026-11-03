@@ -113,6 +113,28 @@ export const supportExpire = defineAction({
   },
 });
 
+/** A move or a restore: support access still open in the database is ended, and the owners hear. Access given on
+ *  the old server is the old server's, and a copy made before the owner ended a grant mustn't bring it back. */
+export const supportEndAll = defineAction({
+  name: "support.end_all", version: 1, system: true, internal: true,
+  input: z.object({ why: z.enum(["moved", "restored"]) }),
+  async plan(_ctx) { return { title: both("action.support.end_all"), summary: both("plan.support.end_all"), reads: [], undo: { kind: "none", note: both("reason.undo_final") } }; },
+  async apply(ctx, i) {
+    const open = await ctx.trx.selectFrom("support_grant").select("id").where("ended_at", "is", null).where("ends_at", ">", ctx.now).forUpdate().execute();
+    for (const g of open) {
+      await ctx.update("support_grant", g.id, { ended_at: ctx.now, ended_by: null, end_told_at: ctx.now });
+      await ctx.emit("support.ended", { grant_id: g.id, how: i.why, by: null });
+    }
+    return { ended: open.length };
+  },
+});
+
+/** Support access still open (and not yet run out): what a move or a restore ends. */
+export async function openSupportCount(db: Db | Trx, now = new Date()): Promise<number> {
+  const r = await db.selectFrom("support_grant").select((e) => e.fn.countAll<string>().as("n")).where("ended_at", "is", null).where("ends_at", ">", now).executeTakeFirstOrThrow();
+  return Number(r.n);
+}
+
 /** The job: support access whose time ran out, told to the owner. Access itself ended on time without it. */
 export async function expireSupport(db: Db, now = new Date()): Promise<number> {
   const due = await db.selectFrom("support_grant").select("id").where("ended_at", "is", null).where("end_told_at", "is", null).where("ends_at", "<=", now).limit(50).execute();

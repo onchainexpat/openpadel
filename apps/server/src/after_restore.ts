@@ -13,7 +13,7 @@
 // one was lost), everything still waiting is held, as after a move (held.ts).
 // Refunds and card charges ask the provider first (stripe.ts), so they're never held and never repeated.
 import { sql } from "kysely";
-import { connect, holdableTopics, holdPending, migrate, MESSAGE_FP, REPEAT_WINDOW_DAYS, type HeldCounts } from "@kumi/core";
+import { connect, holdableTopics, holdPending, migrate, MESSAGE_FP, openSupportCount, REPEAT_WINDOW_DAYS, runAsSystem, type HeldCounts } from "@kumi/core";
 
 export interface SentBefore {
   timeline: string;
@@ -21,8 +21,10 @@ export interface SentBefore {
   events: Array<{ id: string; delivered_at: Date }>;
   /** Emails, texts and pushes it had sent, by fingerprint (repeats.ts): kept for those the copy doesn't have. */
   fingerprints?: Array<{ id: string; fp: string; sent_at: Date }>;
+  /** Support access it had ended (support.ts): a copy from before then mustn't bring it back. */
+  support_ended?: Array<{ id: string; ended_at: Date; ended_by: string | null; end_told_at: Date | null }>;
 }
-export interface AfterRestore { carried: { messages: number; events_held: number; repeats: number }; held: HeldCounts; vouched: boolean }
+export interface AfterRestore { carried: { messages: number; events_held: number; repeats: number }; held: HeldCounts; vouched: boolean; support_ended: number }
 
 /** The club's first recorded change: two databases with the same one are the same club's, one an earlier copy of
  *  the other. */
@@ -42,7 +44,10 @@ export async function readSentBefore(url: string): Promise<SentBefore | null> {
     const events = (await sql<SentBefore["events"][number]>`SELECT id::text, delivered_at FROM event_outbox WHERE delivered_at IS NOT NULL AND created_at >= ${since}`.execute(db)).rows;
     const fingerprints = (await sql<NonNullable<SentBefore["fingerprints"]>[number]>`SELECT id::text, ${sql.raw(MESSAGE_FP)} AS fp, sent_at FROM outbound_message
       WHERE status = 'sent' AND channel <> 'inbox' AND sent_at IS NOT NULL AND created_at >= ${since}`.execute(db)).rows;
-    return { timeline: t, messages, events, fingerprints };
+    // Its own query: a database from before support access (migration 067) has no such table, and can still vouch.
+    const support_ended = (await sql<NonNullable<SentBefore["support_ended"]>[number]>`SELECT id::text, ended_at, ended_by::text, end_told_at FROM support_grant
+      WHERE ended_at IS NOT NULL`.execute(db).catch(() => ({ rows: [] }))).rows;
+    return { timeline: t, messages, events, fingerprints, support_ended };
   } catch { return null; } finally { await db.destroy(); }
 }
 
@@ -52,7 +57,13 @@ export async function afterRestore(url: string, before: SentBefore | null, now =
   const db = connect(url);
   try {
     await migrate(db);
-    if (!before || before.timeline !== await timeline(db)) return { carried: { messages: 0, events_held: 0, repeats: 0 }, held: await holdPending(db, now), vouched: false };
+    if (!before || before.timeline !== await timeline(db)) {
+      const held = await holdPending(db, now);
+      // It can't say which support access was ended since: all of it ends, and the owners hear (support.ts).
+      const open = await openSupportCount(db, now);
+      if (open) await runAsSystem(db, "support.end_all", { why: "restored" }, "restore", { now });
+      return { carried: { messages: 0, events_held: 0, repeats: 0 }, held, vouched: false, support_ended: open };
+    }
     return await db.transaction().execute(async (trx) => {
       let messages = 0, eventsHeld = 0, repeats = 0;
       if (before.messages.length) {
@@ -74,7 +85,15 @@ export async function afterRestore(url: string, before: SentBefore | null, now =
           WHERE NOT EXISTS (SELECT 1 FROM outbound_message m WHERE m.id = s.id)`.execute(trx);
         repeats = Number(r.numAffectedRows ?? 0);
       }
-      return { carried: { messages, events_held: eventsHeld, repeats }, held: { messages: 0, events: eventsHeld }, vouched: true };
+      // Support access the database before it had ended stays ended (the owner already heard when it ended).
+      let supportEnded = 0;
+      if (before.support_ended?.length) {
+        const r = await sql`UPDATE support_grant g SET ended_at = s.ended_at, ended_by = (SELECT p.id FROM person p WHERE p.id = s.ended_by), end_told_at = coalesce(s.end_told_at, s.ended_at), version = g.version + 1
+          FROM jsonb_to_recordset(${JSON.stringify(before.support_ended)}::jsonb) AS s(id uuid, ended_at timestamptz, ended_by uuid, end_told_at timestamptz)
+          WHERE g.id = s.id AND g.ended_at IS NULL`.execute(trx);
+        supportEnded = Number(r.numAffectedRows ?? 0);
+      }
+      return { carried: { messages, events_held: eventsHeld, repeats }, held: { messages: 0, events: eventsHeld }, vouched: true, support_ended: supportEnded };
     });
   } finally { await db.destroy(); }
 }

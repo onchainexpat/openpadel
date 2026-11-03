@@ -1,0 +1,18 @@
+{
+  "postgres": 17,
+  "objects": [
+    "extension btree_gist in public",
+    "extension plpgsql in pg_catalog",
+    "function ledger_txn_balances() | 9f9e864db0094e727bbd6f1e54f39663",
+    "function rating_event_words_only() | 5be0826ff89960b2a8ff3d482c703710",
+    "rule public.channel_consent.channel_consent_no_delete | d56c015cfb1a94f69ab79681fee5dae3",
+    "rule public.channel_consent.channel_consent_no_update | eb70a1107a1f4ea29cecb526aa0e40df",
+    "rule public.ledger_entry.ledger_entry_no_delete | 500546d92833fe615cee9514ea728270",
+    "rule public.ledger_entry.ledger_entry_no_update | b5ae930ecf039aa3b6b14ac437d8b491",
+    "rule public.rating_event.rating_event_no_delete | eb70c346e04cb029fc9773267f874fd7",
+    "schema public",
+    "trigger ledger_entry.ledger_entry_balances | bb5b00b9f2e670a356ce4df0bdb55d56",
+    "trigger rating_event.rating_event_words_only | b703ff85af4703bacf76258646405119",
+    "view public.member_credit_balance | a0d8ade1dc36d4cecc57eade828a0bca"
+  ]
+}

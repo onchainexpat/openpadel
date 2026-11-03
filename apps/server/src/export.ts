@@ -12,7 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
-import { connect, holdPending, isSealedText, migrate, openBytes, openText, runAsSystem, sealBytes, sealText, SEALED_COLUMNS, SealedError, type Db, type HeldCounts } from "@kumi/core";
+import { connect, holdPending, isSealedText, migrate, openBytes, openSupportCount, openText, runAsSystem, sealBytes, sealText, SEALED_COLUMNS, SealedError, type Db, type HeldCounts } from "@kumi/core";
 import { makeBackup, readOpsRecords, safeRestore, writeOpsRecords, type Manifest } from "./backups.ts";
 import { REVISION, VERSION } from "./version.ts";
 
@@ -48,8 +48,20 @@ export function newPassphrase(): string {
 /** One Kumi made reads the same however it's typed back (any case, spaces or dashes). */
 const normal = (p: string, made: boolean) => (made ? p.toUpperCase().replace(/[\s-]/g, "") : p.normalize("NFC").trim());
 export const PASSPHRASE_MIN = 12;
-const KDF = { N: 32768, r: 8, p: 1 };
-const keyFor = (p: string, made: boolean, salt: Buffer) => scryptSync(normal(p, made), salt, 32, { ...KDF, maxmem: 64 * 1024 * 1024 });
+/** scrypt's work for new files: 2^17 (OWASP's minimum), about 128 MB for a moment. A passphrase the owner chooses
+ *  is the weak point; one Kumi makes (150 bits) would be safe with far less. */
+export const KDF = { N: 131072, r: 8, p: 1 };
+type Kdf = { N: number; r: number; p: number };
+/** What a file's header may ask for: files made with 2^15 still open; nothing that would take the server's memory. */
+function kdfOf(h: Partial<Kdf>): Kdf {
+  const { N, r, p } = h;
+  const pow2 = typeof N === "number" && Number.isInteger(N) && N >= 16384 && N <= 1048576 && (N & (N - 1)) === 0;
+  if (!pow2 || !Number.isInteger(r) || r! < 1 || r! > 16 || !Number.isInteger(p) || p! < 1 || p! > 4 || 128 * N! * r! * p! > 512 * 1024 * 1024)
+    throw new ExportRefused("this file asks for a passphrase stretching Kumi doesn't use (it may be damaged)");
+  return { N: N!, r: r!, p: p! };
+}
+const keyFor = (p: string, made: boolean, salt: Buffer, kdf: Kdf = KDF) =>
+  scryptSync(normal(p, made), salt, 32, { ...kdf, maxmem: 128 * kdf.N * kdf.r * kdf.p + 32 * 1024 * 1024 });
 
 // ---- The file: a header anyone can read, then the sealed contents ----
 export function packExport(entries: { name: string; data: Buffer }[]): Buffer {
@@ -95,7 +107,9 @@ export function openExport(file: Buffer, passphrase: string): { manifest: Export
   const header = exportHeader(file);
   if (header.format !== 1 || header.cipher !== "aes-256-gcm" || header.kdf.name !== "scrypt") throw new ExportRefused("this export was made by a newer Kumi: update this one first");
   const start = EXPORT_MAGIC.length + 4 + file.readUInt32BE(EXPORT_MAGIC.length);
-  const d = createDecipheriv("aes-256-gcm", keyFor(passphrase, header.passphrase === "made", Buffer.from(header.kdf.salt, "base64")), Buffer.from(header.iv, "base64"));
+  // The stretching the file was made with: its header says, within kdfOf's bounds (and the header is checked with the
+  // contents, so a changed one fails to open).
+  const d = createDecipheriv("aes-256-gcm", keyFor(passphrase, header.passphrase === "made", Buffer.from(header.kdf.salt, "base64"), kdfOf(header.kdf)), Buffer.from(header.iv, "base64"));
   d.setAAD(file.subarray(0, start));
   d.setAuthTag(file.subarray(file.length - 16));
   let payload: Buffer;
@@ -163,7 +177,7 @@ const hostOf = (url: string | null | undefined) => { try { return url ? new URL(
 
 export interface ImportReport {
   club: string; from: { version: string; created_at: string }; safety_copy: string; migrations_run: string[]; secrets: number; secrets_lost: number;
-  passkeys_retired: number; was_read_only: boolean; was_leaving: string | null; held: HeldCounts; settings: Record<string, string>; set_elsewhere: string[]; club_file: Buffer | null;
+  passkeys_retired: number; was_read_only: boolean; was_leaving: string | null; was_moved: boolean; held: HeldCounts; support_ended: number; settings: Record<string, string>; set_elsewhere: string[]; club_file: Buffer | null;
   stripe_account: string | null; texting_registered: boolean;
 }
 
@@ -193,7 +207,14 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
     const migrationsRun = await migrate(db);
     // What was still waiting to go out on the old server, which may still be sending it: held here until this
     // server's owner says (held.ts). First, so nothing below (read-only and the leaving day going off) is held.
-    const held = await holdPending(db, now);
+    // Unless the old server had been told the club moved before the file was made (club_exit.ts): it sends members
+    // nothing since, so what waited is this server's to send, once, and nothing is held.
+    const moved = (await db.selectFrom("club").select("moved_at").executeTakeFirstOrThrow()).moved_at;
+    const held = moved ? { messages: 0, events: 0 } : await holdPending(db, now);
+    if (moved) await runAsSystem(db, "club.moved_host", { on: false }, "import", { now });
+    // Support access given on the old server is that server's: it ends here, and the owners hear (support.ts).
+    const supportOpen = await openSupportCount(db, now);
+    if (supportOpen) await runAsSystem(db, "support.end_all", { why: "moved" }, "import", { now });
     // Key material, written as resealAll writes it: sealed again with this server's key.
     const secrets = JSON.parse(entries.get("secrets.json")?.toString("utf8") ?? "[]") as Secret[];
     let carried = 0;
@@ -222,7 +243,7 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
     if (club.leaving_on) await runAsSystem(db, "club.leaving", { on: null, tell: false }, "import", { now });
     const texting = await db.selectFrom("texting_registration").select("id").executeTakeFirst();
     return { club: club.name, from: { version: manifest.kumi.version, created_at: manifest.created_at }, safety_copy: safetyCopy, migrations_run: migrationsRun, secrets: carried,
-      secrets_lost: lost, passkeys_retired: retired, was_read_only: Boolean(club.read_only_since), was_leaving: club.leaving_on, held, settings: manifest.settings, set_elsewhere: manifest.set_elsewhere,
+      secrets_lost: lost, passkeys_retired: retired, was_read_only: Boolean(club.read_only_since), was_leaving: club.leaving_on, was_moved: Boolean(moved), held, support_ended: supportOpen, settings: manifest.settings, set_elsewhere: manifest.set_elsewhere,
       club_file: entries.get("club.yaml") ?? null, stripe_account: club.stripe_account_id, texting_registered: Boolean(texting) };
   } finally { await db.destroy(); }
 }

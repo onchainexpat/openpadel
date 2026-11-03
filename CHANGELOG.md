@@ -57,8 +57,29 @@ server starts.
   has no row for (the person, the kind, the channel, the exact words and link). For a week, a message made again
   with that fingerprint is marked as sent at its earlier time instead of going twice, once per fingerprint; the
   in-app inbox copy stays. After the week the same words go as new. `kumi restore` says how many it kept.
+- **Moved** (`kumi moved on [--to=<url>]`, or the owner's "We're moving" under Download everything): the club's
+  Kumi now runs elsewhere, so this server sends members nothing (emails, texts, notifications), takes nothing
+  new, as when read-only, and both apps point to the new address. Turned on before the export, only one server
+  ever talks to members: what was still waiting travels in the file, and the new server sends it, once, with
+  nothing held.
 
 ### Changed
+- **A restore takes only what Kumi makes.** Restoring a backup, an export or a minute replays the file's database
+  as Kumi's own database role, so a file made by someone else (a host the club is leaving) could have brought a
+  trigger that copies members' messages out, or one that keeps support access open, running unseen. Now, after
+  the restore and Kumi's migrations, the database's functions, triggers, rules, views, row policies, schemas,
+  extensions, operators, types, table grants and role or database settings must be exactly those Kumi's
+  migrations make (`apps/server/src/shape.json`; what the server's own database already had, such as a managed
+  Postgres's extras, is allowed back). If not, the database as it was goes back in and the file is refused,
+  naming what wasn't Kumi's.
+- **Undo is judged as the change it undoes.** Undoing a change needs what the change itself needs: an owner's
+  change (the usage cap, removing a manager) can't be put back by a manager, whose undo waits for the owner, as
+  asking for the change would; and an undo of something that's the app's alone or needs a strong sign-in
+  can't come from an assistant, or without that sign-in.
+- **Support access ends on a move**, and the owners are told why. A restore keeps ended access ended: the
+  restore carries over what the database before it had ended, and where it can't vouch, all of it ends.
+- An export's passphrase is stretched with scrypt at 2^17 (it was 2^15), and a file says what it was made with,
+  so older files still open; a file asking for more than Kumi ever uses is refused.
 - A card charge (a renewal, a booking's deadline, a family card) asks Stripe for the one it already has, by Kumi's
   own id for it, before charging: the database put back to before a charge (a backup, a minute, an export
   elsewhere) can't charge the card again, even after Stripe has forgotten the request. Charges Kumi makes carry

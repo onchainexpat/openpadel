@@ -458,8 +458,12 @@ sealed (staff authenticators, the push key, the vault). The file is sealed with 
 shows once, beside the download, and doesn't keep: put it in a password manager. On the server,
 `kumi export` makes the same file, with a passphrase the owner types.
 
-To run the club somewhere else, install Kumi there (the same version or a newer one), put the file on the
-new server and restore it instead of setting the club up:
+To run the club somewhere else, first tell this server the club is moving: the owner's **We're moving**
+under Download everything, or `kumi moved on --to=https://new.address` on the server. From then on it sends
+members nothing (emails, texts, notifications) and takes nothing new, as when read-only, and both apps point
+to the new address, so only one server ever talks to members. Then download everything, install Kumi on the
+new server (the same version or a newer one), put the file there and restore it instead of setting the club
+up:
 
 ```bash
 sudo install -o kumi -m 600 kumi-export-20261130T1900Z.kumi /var/backups/kumi/
@@ -475,13 +479,18 @@ Kumi puts that account's keys in `KUMI_STRIPE_SECRET_KEY` and `KUMI_STRIPE_PUBLI
 of earlier payments still work.
 
 The file also carries what was still waiting to go out on the old server: emails, texts and notices not
-yet sent. The old server, if it's still running, sends those itself, so the new one holds them instead of
-sending them a second time; the restore says how many, and so does `kumi doctor` until you decide. Once
+yet sent. If the old server had been told the club moved, it never sends them, and the new one does, once.
+If it hadn't, it may still send them itself, so the new one holds them instead of sending them a second time; the restore says how many, and so does `kumi doctor` until you decide. Once
 the old server is off, `kumi held` lists them, `kumi held drop --yes` drops them if the old server sent
 them, and `kumi held send --yes` sends them if it never got to them (each goes as it would have: quiet
 hours apply, and an offer that ran out meanwhile is dropped). A receipt that's dropped is still in the
 member's app, and the staff can send it again. Refunds are never held: Kumi asks Stripe for each refund
-before sending it, so one the old server already sent is recorded, not sent twice.
+before sending it, so one the old server already sent is recorded, not sent twice. Support access given on
+the old server ends on the way in, and the owners are told.
+
+A restore, of an export or a backup, takes only what Kumi's own migrations make: a file whose database
+brings a function, trigger, rule, view, row policy, schema or setting of anyone else's (or a changed one of
+Kumi's) is refused, the database as it was goes back, and the refusal names what wasn't Kumi's.
 
 **Read-only** is a host's switch for an account that isn't paid: `kumi read-only on` (and `off`, and
 `status`). Nothing is held back: everyone still signs in, sees everything, looks after their account

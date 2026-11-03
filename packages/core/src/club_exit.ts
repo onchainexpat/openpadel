@@ -7,6 +7,37 @@ import { defineAction } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 
+/** The club's Kumi now runs elsewhere: this server sends members nothing more (the senders check, messages.ts,
+ *  texts.ts, push.ts) and takes nothing new (read_only.ts), and both apps say where it went. Turned on before the
+ *  export, it means only one server ever talks to members: what was still waiting travels in the file and the new
+ *  server sends it (export.ts holds nothing then). The owner says so in the staff app; the host, `kumi moved`. */
+const movedInput = z.object({ on: z.boolean(), to: z.optional(z.url({ protocol: /^https?$/ })) });
+const movedPlan = (i: z.infer<typeof movedInput>) => ({ title: both("action.club.moved"),
+  summary: i.on ? both(i.to ? "plan.club.moved_on_to" : "plan.club.moved_on", { to: i.to ?? "" }) : both("plan.club.moved_off"), reads: [],
+  undo: { kind: "none" as const, note: both("reason.moved_switch") } });
+async function setMoved(ctx: { update: (e: "club", id: string, v: Record<string, unknown>) => Promise<unknown>; now: Date }, i: z.infer<typeof movedInput>) {
+  await ctx.update("club", "singleton", { moved_at: i.on ? ctx.now : null, moved_to: i.on ? i.to ?? null : null });
+  return null;
+}
+export const clubMoved = defineAction({
+  name: "club.moved", version: 1, strongAuth: true, input: movedInput,
+  async plan(ctx, i) {
+    if (!(await isOwner(ctx.db, ctx.actor.personId))) throw new KumiError("error.export_owner_only", {}, 403);
+    return movedPlan(i);
+  },
+  apply: (ctx, i) => setMoved(ctx, i),
+});
+export const clubMovedHost = defineAction({
+  name: "club.moved_host", version: 1, system: true, internal: true, input: movedInput,
+  async plan(_ctx, i) { return movedPlan(i); },
+  apply: (ctx, i) => setMoved(ctx, i),
+});
+/** Where the club went, if it has: this server then sends members nothing. */
+export async function movedAway(db: Db | Trx): Promise<{ at: Date; to: string | null } | null> {
+  const c = await db.selectFrom("club").select(["moved_at", "moved_to"]).executeTakeFirst();
+  return c?.moved_at ? { at: c.moved_at, to: c.moved_to } : null;
+}
+
 /** Minutes the owner has to make the file once they've confirmed, as for a person's own data. */
 export const CLUB_EXPORT_MINUTES = 15;
 

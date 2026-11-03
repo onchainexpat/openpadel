@@ -137,7 +137,8 @@ export function App() {
         <strong>{club.value?.name}</strong>
         <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}{show("programs") && <a href="/programs">{t("ui.nav_programs")}</a>}{show("members") && <a href="/people">{t("ui.nav_people")}</a>}{show("memberships") && <a href="/memberships">{t("ui.nav_memberships")}</a>}{(coach || desk || areas?.includes("coaches")) && <a href="/coaches">{t("ui.nav_coaches")}</a>}{show("bookings") && <a href="/courts">{t("ui.courts")}</a>}{show("levels") && <a href="/scores">{t("ui.nav_scores")}</a>}{show("levels") && <a href="/levels">{t("ui.nav_levels")}</a>}{(desk || areas?.includes("messages")) && <QuestionsLink />}{(desk || areas?.includes("messages")) && <a href="/messages">{t("ui.nav_messages")}</a>}{show("bookings") && <a href="/playtomic">{t("ui.nav_playtomic")}</a>}{show("money") && <a href="/payments">{t("ui.nav_payments")}</a>}{(show("money") || coachOnly) && <a href="/reports">{t("ui.nav_reports")}</a>}{show("settings") && <a href="/settings">{t("ui.nav_settings")}</a>}{changes && <a href="/usage">{t("ui.nav_usage")}</a>}<InboxLink />{changes && <a href="/changes">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
-      {club.value?.read_only && <p class="note banner" role="status">{t("ui.read_only_banner_staff")}</p>}
+      {club.value?.moved ? <p class="note banner" role="status">{t("ui.moved_banner_staff")} {club.value.moved_to && <a href={club.value.moved_to}>{club.value.moved_to}</a>}</p>
+        : club.value?.read_only && <p class="note banner" role="status">{t("ui.read_only_banner_staff")}</p>}
       {me.value.leaving && <LeavingBanner on={me.value.leaving} owner={me.value.roles.some((r) => r.key === "owner")} />}
       <SupportBanners m={me.value} />
       <Router>

@@ -10,12 +10,12 @@ import { KumiError } from "./errors.ts";
 
 /** What still works while read-only. Everything else is refused, whoever asks. */
 export const READ_ONLY_ALLOWED = new Set([
-  // The switch itself, and the owner's download of everything.
-  "club.read_only", "club.export",
+  // The switch itself, the owner's download of everything, and saying the club has moved (club_exit.ts).
+  "club.read_only", "club.export", "club.moved", "club.moved_host",
   // The day the club's Kumi ends, and the owner's reminders to download everything before then (leaving.ts).
   "club.leaving", "club.leaving_remind",
   // Letting someone in to help (leaving, say), ending it, and recording it (support.ts).
-  "support.grant", "support.end", "support.seen", "support.expire",
+  "support.grant", "support.end", "support.seen", "support.expire", "support.end_all",
   // Signing in and keeping the account safe.
   "person.sign_up", "person.sign_in_undo", "person.reset_sign_in", "email.add", "email.change", "phone.confirm", "person.update_profile",
   "person.factor_add", "person.factor_codes", "person.factor_remove", "person.passkey_add", "person.passkey_remove", "assistant.disconnect",
@@ -39,7 +39,11 @@ export async function readOnlySince(db: Db | Trx): Promise<Date | null> {
   const c = await db.selectFrom("club").select("read_only_since").executeTakeFirst();
   return c?.read_only_since ?? null;
 }
-export async function isReadOnly(db: Db | Trx): Promise<boolean> { return (await readOnlySince(db)) !== null; }
+/** Read-only, or moved to another server (club_exit.ts): nothing new is taken here either way. */
+export async function isReadOnly(db: Db | Trx): Promise<boolean> {
+  const c = await db.selectFrom("club").select(["read_only_since", "moved_at"]).executeTakeFirst();
+  return Boolean(c?.read_only_since || c?.moved_at);
+}
 
 /** The action contract's check: refuses an action that doesn't work while read-only. */
 export async function readOnlyGate(db: Db | Trx, action: string): Promise<void> {

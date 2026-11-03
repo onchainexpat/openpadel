@@ -20,6 +20,7 @@ import { receiptParams } from "./receipts.ts";
 import { roleLabel } from "./roles.ts";
 import { needsTwoFactor } from "./two_factor.ts";
 import { skipRepeatsAfterRestore } from "./repeats.ts";
+import { movedAway } from "./club_exit.ts";
 import type { OpsJob } from "./ops.ts";
 import { currentPrices, monthOf, nextMonthStart, usageAllows } from "./usage.ts";
 import { lastClubExport } from "./club_exit.ts";
@@ -822,9 +823,10 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const { params } = await supportInfo(db, p.grant_id, tz);
     return (await owners(db)).map((to) => ({ to, kind: "support_first_seen_owner", params: { ...params, when: when(new Date(p.at), tz) }, purpose: "staff" as const, essential: true, email: true, link: "/support" }));
   },
-  async "support.ended"({ db, tz }, p: { grant_id: string; how: "ended" | "expired"; by: string | null }) {
+  async "support.ended"({ db, tz }, p: { grant_id: string; how: "ended" | "expired" | "moved" | "restored"; by: string | null }) {
     const { params } = await supportInfo(db, p.grant_id, tz);
-    const how = p.how === "expired" ? both("msg.support_ended_expired") : both("msg.support_ended_by", { by: p.by ? await nameOf(db, p.by) : "" });
+    const how = p.how === "expired" ? both("msg.support_ended_expired") : p.how === "moved" ? both("msg.support_ended_moved")
+      : p.how === "restored" ? both("msg.support_ended_restored") : both("msg.support_ended_by", { by: p.by ? await nameOf(db, p.by) : "" });
     return (await owners(db)).map((to) => ({ to, kind: "support_ended_owner", params: { ...params, how }, purpose: "staff" as const, essential: true, email: true, link: "/support" }));
   },
 };
@@ -917,6 +919,8 @@ export async function sendEmails(db: Db, mailer: Mailer, now = new Date(), limit
   const out = { sent: 0, dropped: 0, failed: 0, waiting: 0 };
   // After a restore, what the jobs made again that the database before it had sent doesn't go twice (repeats.ts).
   await skipRepeatsAfterRestore(db, now);
+  // Moved to another server (club_exit.ts): that one talks to members now; what waits here stays waiting.
+  if (await movedAway(db)) return out;
   let clubName: string | null = null;
   for (let i = 0; i < limit; i++) {
     const done = await db.transaction().execute(async (trx) => {

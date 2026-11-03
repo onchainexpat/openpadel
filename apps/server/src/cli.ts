@@ -14,6 +14,7 @@
 //   kumi export [--out=<folder>]   the club's export: everything it needs to run somewhere else (export.ts), sealed
 //                                  with a passphrase typed at the prompt (or piped in); never printed
 //   kumi read-only on|off|status   the host's switch for an account that isn't paid (read_only.ts)
+//   kumi moved on [--to=<url>] | off | status   the club runs elsewhere now: this server sends members nothing (club_exit.ts)
 //   kumi leaving on --date=YYYY-MM-DD [--kept-days=N] | off | status   the day the club's Kumi ends (leaving.ts): the
 //                                  owner is told at once, and a week and a day before, to download everything first
 //   kumi held [send|drop] --yes    after a club's export is restored here: what was still waiting to go out on the old
@@ -31,7 +32,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { money, t, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { connect, dayText, heldSummary, KumiError, leavingStatus, migrate, monthOf, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
+import { connect, dayText, heldSummary, KumiError, leavingStatus, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
@@ -216,6 +217,20 @@ async function main(): Promise<number> {
       return e instanceof ExportRefused ? 2 : 1;
     } finally { await db.destroy(); }
   }
+  if (cmd === "moved" && (sub === "on" || sub === "off" || sub === "status")) {
+    const db = connect();
+    try {
+      const to = flag("to");
+      if (sub !== "status") await runAsSystem(db, "club.moved_host", { on: sub === "on", ...(sub === "on" && to ? { to } : {}) }, "cli");
+      const m = await movedAway(db);
+      if (json) { out({ ok: true, moved: Boolean(m), since: m?.at ?? null, to: m?.to ?? null }); return 0; }
+      console.log(sub === "off" ? t(lang, "cli.moved_off") : m ? t(lang, m.to ? "cli.moved_since_to" : "cli.moved_since", { since: m.at.toISOString(), to: m.to ?? "" }) : t(lang, "cli.moved_not"));
+      return 0;
+    } catch (e) {
+      if (json) out({ ok: false, error: (e as Error).message }); else console.error((e as Error).message);
+      return 1;
+    } finally { await db.destroy(); }
+  }
   if (cmd === "read-only" && (sub === "on" || sub === "off" || sub === "status")) {
     const db = connect();
     try {
@@ -378,6 +393,7 @@ async function main(): Promise<number> {
         if (after.carried.repeats) console.log(t(lang, "cli.restore_repeats", { count: after.carried.repeats }));
         const held = after.held.messages + after.held.events;
         if (held) console.log(t(lang, after.vouched ? "cli.restore_held_some" : "cli.restore_held_all", { count: held }));
+        if (after.support_ended) console.log(t(lang, after.vouched ? "cli.restore_support_kept_ended" : "cli.restore_support_ended", { count: after.support_ended }));
       }
       return 0;
     } catch (e) {
@@ -448,7 +464,9 @@ async function importClub(path: string): Promise<number> {
     if (r.passkeys_retired) console.log(`  - ${t(lang, "cli.import_passkeys", { count: r.passkeys_retired })}`);
     if (r.was_read_only) console.log(`  - ${t(lang, "cli.import_read_only")}`);
     if (r.was_leaving) console.log(`  - ${t(lang, "cli.import_leaving", { date: r.was_leaving })}`);
+    if (r.was_moved) console.log(`  - ${t(lang, "cli.import_moved")}`);
     if (r.held.messages + r.held.events) console.log(`  - ${t(lang, "cli.import_held", { count: r.held.messages + r.held.events })}`);
+    if (r.support_ended) console.log(`  - ${t(lang, "cli.import_support_ended", { count: r.support_ended })}`);
     if (settings.length) console.log(`  - ${t(lang, "cli.import_settings", { list: settings.join(", ") })}`);
     if (r.set_elsewhere.length) console.log(`  - ${t(lang, "cli.import_elsewhere", { list: r.set_elsewhere.join(", ") })}`);
     if (r.stripe_account && process.env.KUMI_STRIPE_CONNECT !== "1") console.log(`  - ${t(lang, "cli.import_stripe", { account: r.stripe_account })}`);
