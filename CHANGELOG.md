@@ -65,6 +65,11 @@ gives it, and restores and moves that never send or charge twice.
   new, as when read-only, and both apps point to the new address. Turned on before the export, only one server
   ever talks to members: what was still waiting travels in the file, and the new server sends it, once, with
   nothing held.
+- **Approve or decline what someone asked for.** When a manager asks for something only the owner does (support
+  access, the usage cap, connecting Stripe), or a refund needs a second person, everyone who can say yes is told
+  once, in the app and by email, and Changes shows it at the top with Approve and Decline. The person who asked
+  hears the answer, with the reason if one was given. Saying yes needs what the change itself needs, a strong
+  sign-in included.
 
 ### Changed
 - **A restore takes only what Kumi makes.** Restoring a backup, an export or a minute replays the file's database
@@ -124,6 +129,12 @@ gives it, and restores and moves that never send or charge twice.
   pitr test` (and tick, extract) runs as the postgres user, and doctor's hints say so; the monthly test of an
   archive less than ten minutes old is skipped, not reported as failing; a refused or failed restore leaves no
   `.part` file or copy from the archive behind; and `kumi held` says it's after a move or a restore.
+- A club that has moved says so when it refuses something, with its new address if the owner gave one.
+- In Spanish, the staff app's settings are called Configuración everywhere, as in its menu.
+- Support access, as seen in a browser: the owner's record says what was opened in the staff app's words, not
+  addresses; Usage tells support it can't change the cap; ending it takes the banner away at once; and someone
+  whose access has ended (or a member in the staff app) is told so, instead of pages that don't load.
+- The staff app's Changes page can be opened or reloaded directly (its data moved to `/staff/changes`).
 
 ### When updating
 - Nothing to do for the point-in-time jobs' new sign-in: the update writes Kumi's `kumi_hba.conf` and
@@ -142,7 +153,8 @@ gives it, and restores and moves that never send or charge twice.
 - If something other than Caddy on the same machine reaches the server's port, set
   `KUMI_LISTEN_ADDRESS=0.0.0.0` (or that machine's address) in the settings first.
 - If you changed Caddy's config (`/etc/caddy/Caddyfile`) by hand, updates leave it as it is: add new paths
-  there yourself, or run `server-setup.sh` again (which writes Kumi's own).
+  there yourself, or run `server-setup.sh` again (which writes Kumi's own). This release also takes `/changes
+  /changes/*` out of the API's paths.
 
 ## 0.1.0 (2026-11-02)
 
