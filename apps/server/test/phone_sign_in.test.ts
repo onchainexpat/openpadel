@@ -112,7 +112,7 @@ test("a junior's number signs them in only once their parents have given them a 
   const v = await post("/auth/phone/verify", { phone: "503 555 0176", code: lastCode("+15035550176") });
   const me = (await get("/me", v.cookie)).json;
   assert.deepEqual([me.signed_in_with, me.gate], ["phone_code", "setup"]);
-  assert.equal((await get("/changes", v.cookie)).json.error, "error.two_step_needed");
+  assert.equal((await get("/staff/changes", v.cookie)).json.error, "error.two_step_needed");
   await db.updateTable("club").set({ two_factor: "off" }).execute();
 });
 

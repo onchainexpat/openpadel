@@ -24,6 +24,7 @@ import { movedAway } from "./club_exit.ts";
 import type { OpsJob } from "./ops.ts";
 import { currentPrices, monthOf, nextMonthStart, usageAllows } from "./usage.ts";
 import { lastClubExport } from "./club_exit.ts";
+import { mayAnswer } from "./actions.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -829,7 +830,39 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       : p.how === "restored" ? both("msg.support_ended_restored") : both("msg.support_ended_by", { by: p.by ? await nameOf(db, p.by) : "" });
     return (await owners(db)).map((to) => ({ to, kind: "support_ended_owner", params: { ...params, how }, purpose: "staff" as const, essential: true, email: true, link: "/support" }));
   },
+  // A change someone asked for (a manager asking the owner, or money that needs a second person): everyone on the staff
+  // who could say yes hears once, with what it is and who asked; the person who asked hears the answer.
+  async "approval.waiting"({ db }, p: { run_id: string }) {
+    const r = await askedRun(db, p.run_id);
+    if (!r || r.run.status !== "awaiting_approval") return [];
+    const staff = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
+      .where("role.key", "!=", "member").where("person_role.active", "=", true).distinct().execute();
+    const to: string[] = [];
+    for (const s of staff) if (await mayAnswer(db, r.run, s.person_id, new Date())) to.push(s.person_id);
+    return to.map((id) => ({ to: id, kind: "approval_waiting", params: { by: r.by, what: r.what }, purpose: "staff" as const, essential: false, email: true, link: "/changes" }));
+  },
+  async "approval.approved"({ db }, p: { run_id: string; by: string }) {
+    const r = await askedRun(db, p.run_id);
+    if (!r?.run.actor_person_id) return [];
+    return [{ to: r.run.actor_person_id, kind: "approval_approved", params: { by: await nameOf(db, p.by), what: r.what }, purpose: "staff" as const, essential: false, email: true, link: "/changes" }];
+  },
+  async "approval.declined"({ db }, p: { run_id: string; by: string; reason: string | null }) {
+    const r = await askedRun(db, p.run_id);
+    if (!r?.run.actor_person_id) return [];
+    const why = p.reason ? both("msg.approval_declined_why", { reason: p.reason }) : NOTHING;
+    return [{ to: r.run.actor_person_id, kind: "approval_declined", params: { by: await nameOf(db, p.by), what: r.what, why }, purpose: "staff" as const, essential: false, email: true, link: "/changes" }];
+  },
 };
+
+/** An ask, what it would do in both languages, and who asked (support access says so, with the name the owner gave). */
+async function askedRun(db: Db, runId: string) {
+  const run = await db.selectFrom("action_run").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
+    .select(["action_run.id", "action_run.action", "action_run.input", "action_run.plan", "action_run.location_id", "action_run.actor_person_id", "action_run.status", "support_grant.name as support_name"])
+    .where("action_run.id", "=", runId).executeTakeFirst();
+  if (!run) return null;
+  const by: Params[string] = run.support_name ? both("ui.support_by", { name: run.support_name }) : run.actor_person_id ? await nameOf(db, run.actor_person_id) : "Kumi";
+  return { run, by, what: (run.plan as { summary: Text }).summary };
+}
 
 /** Who gave or took a role, which role, where, and the club's name: for the staff role messages. */
 async function roleParams(db: Db, p: { role: string; location_id?: string | null; by?: string | null }) {

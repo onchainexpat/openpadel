@@ -104,7 +104,7 @@ test("preview, then confirm once, through the API; the change shows in Changes",
   const key = uuidv7();
   assert.equal((await call(`/runs/${p.json.run_id}/apply`, { method: "POST", cookie, headers: { "idempotency-key": key } })).status, 200);
   assert.equal((await call(`/runs/${p.json.run_id}/apply`, { method: "POST", cookie, headers: { "idempotency-key": key } })).status, 200);
-  const changes = await call("/changes", { cookie });
+  const changes = await call("/staff/changes", { cookie });
   assert.equal(changes.json[0].summary, "Change the name."); assert.equal(changes.json[0].by, "Robin Hale");
 });
 
@@ -116,7 +116,7 @@ test("a member is refused in Spanish and can't read Changes", async () => {
   const cookie = await signIn(email);
   const r = await call("/actions/club.update/plan", { body: { name: "Mío" }, cookie });
   assert.equal(r.status, 403); assert.equal(r.json.message, "No puedes hacer eso: no tienes un rol que lo permita.");
-  assert.equal((await call("/changes", { cookie })).json.message, "Solo el personal puede ver esto.");
+  assert.equal((await call("/staff/changes", { cookie })).json.message, "Solo el personal puede ver esto.");
   const own = await call("/actions/person.update_profile/plan", { body: { person_id: id, display_name: "Ana R." }, cookie });
   assert.equal(own.json.summary, "Cambiar tu nombre visible en tu perfil.");
 });

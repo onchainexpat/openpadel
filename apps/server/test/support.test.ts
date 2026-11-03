@@ -75,7 +75,7 @@ test("support signs in with two steps (though this club's staff don't need them)
   const tried = await req("/actions/tag.create/plan", cookie, { name: "Beginners" });
   assert.equal(tried.status, 403);
   assert.match(tried.json.message, /to look only/);
-  assert.equal((await req("/changes", cookie)).status, 200);
+  assert.equal((await req("/staff/changes", cookie)).status, 200);
   const log = await db.selectFrom("support_access_log").select(["method", "path", "status"]).where("grant_id", "=", grants["ada@help.test"]!).orderBy("id").execute();
   assert.ok(log.some((l) => l.method === "GET" && l.path === "/staff/people" && l.status === 200));
   assert.ok(log.some((l) => l.method === "POST" && l.path === "/actions/tag.create/plan" && l.status === 403));
@@ -90,7 +90,7 @@ test("like a manager: a change made through the app, the owner's banner, and the
   const om = await req("/me", ownerCookie);
   assert.deepEqual(om.json.support_now.map((g: { name: string }) => g.name).sort(), ["ada", "bo"]);
   assert.equal(om.json.support, null);
-  const log = (await req("/changes", ownerCookie)).json as { action: string; status: string; by: string; support: boolean }[];
+  const log = (await req("/staff/changes", ownerCookie)).json as { action: string; status: string; by: string; support: boolean }[];
   assert.deepEqual(log.filter((r) => r.action === "tag.create").map((r) => [r.by, r.status, r.support]).sort(), [["Support: ada", "failed", true], ["Support: bo", "applied", true]]);
   const list = await req("/staff/support", ownerCookie);
   assert.equal(list.json.owner, true);

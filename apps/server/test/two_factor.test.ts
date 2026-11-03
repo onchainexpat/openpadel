@@ -46,7 +46,7 @@ test("a manager signed in by emailed code can't do anything until a second step 
   const mia = await signIn("mia@example.test");
   const me = await req("/me", mia);
   assert.deepEqual([me.status, me.json.gate, me.json.signed_in_with], [200, "setup", "email_code"]);
-  for (const path of ["/staff/people", "/my/inbox", "/changes"]) assert.deepEqual([(await req(path, mia)).status, (await req(path, mia)).json.error], [403, "error.two_step_needed"], path);
+  for (const path of ["/staff/people", "/my/inbox", "/staff/changes"]) assert.deepEqual([(await req(path, mia)).status, (await req(path, mia)).json.error], [403, "error.two_step_needed"], path);
   assert.equal((await req("/actions/club.update/plan", mia, { name: "X" })).json.error, "error.two_step_needed");
   // A member isn't asked.
   assert.equal((await req("/me", await signIn("sam@example.test"))).json.gate, null);

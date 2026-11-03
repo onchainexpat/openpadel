@@ -291,6 +291,8 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     plan_expires_at: expiresAt, money_cents: String(p.moneyCents ?? 0), undo_of: (input as any)?.run_id && name === "action.undo" ? (input as any).run_id : null,
     oauth_grant_id: actor.grantId ?? null, support_grant_id: d.support ?? null,
   }).execute();
+  // Whoever can say yes hears it's waiting (messages.ts), once for this ask.
+  if (status === "awaiting_approval") await db.insertInto("event_outbox").values({ action_run_id: runId, topic: "approval.waiting", payload: JSON.stringify({ run_id: runId }) }).execute();
   return { runId, status, plan: p, expiresAt };
 }
 
@@ -356,6 +358,18 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
   }
 }
 
+type AskedRun = { id: string; action: string; input: unknown; plan: unknown; location_id: string | null; actor_person_id: string | null };
+
+/** Whether this person could say yes to an ask (or no): allowed the change outright, and not the person who asked.
+ *  An undo is judged as the change it undoes. The strong sign-in is checked when they say yes, not here. */
+export async function mayAnswer(db: Db | Trx, run: AskedRun, personId: string | null, at: Date): Promise<boolean> {
+  if (!personId || run.actor_person_id === personId) return false;
+  const p = run.plan as Plan, def = getAction(run.action), s = { personId, agentId: null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at };
+  if ((await decide(db, run.action, { ...s, assistant: false, strongAuth: Boolean(def.strongAuth) })).mode !== "allow") return false;
+  const judged = await judgedAs(db, def, run.input);
+  return !judged || (await decide(db, judged.def.name, { ...s, assistant: false, strongAuth: Boolean(judged.def.strongAuth) })).mode === "allow";
+}
+
 /** An "ask" waits for someone allowed to do it, who isn't the person who asked. */
 export async function approve(db: Db, runId: string, approver: Actor, opts: { now?: Date } = {}): Promise<unknown> {
   const now = opts.now ?? new Date();
@@ -368,7 +382,29 @@ export async function approve(db: Db, runId: string, approver: Actor, opts: { no
   const d = await decide(db, run.action, { personId: approver.personId, agentId: approver.agentId ?? null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now, ...how(def, approver) });
   if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
   await allowedAsJudged(db, def, run.input, approver, run.location_id, p.ownerIds ?? [], now);
-  return apply(db, runId, approver, { now, approvedBy: approver.personId! });
+  const result = await apply(db, runId, approver, { now, approvedBy: approver.personId! });
+  // The person who asked hears it's done.
+  await db.insertInto("event_outbox").values({ action_run_id: runId, topic: "approval.approved", payload: JSON.stringify({ run_id: runId, by: approver.personId }) }).execute();
+  return result;
+}
+
+/** Saying no to an ask: by someone who could have said yes. Nothing changes; the ask is kept in the change log as a
+ *  change that didn't happen, with who said no and why, and the person who asked hears. */
+export async function decline(db: Db, runId: string, decliner: Actor, opts: { now?: Date; reason?: string | null } = {}): Promise<void> {
+  const now = opts.now ?? new Date();
+  const run = await db.selectFrom("action_run").selectAll().where("id", "=", runId).executeTakeFirst();
+  if (!run) throw new KumiError("error.not_found", { thing: both("thing.change") }, 404);
+  if (run.actor_person_id === decliner.personId) throw new KumiError("error.own_approval", {}, 403);
+  if (run.status !== "awaiting_approval") throw new KumiError("error.not_planned", { status: run.status });
+  if (decliner.auth === "oauth" || decliner.grantId) throw new KumiError("error.assistant_in_app", {}, 403);
+  if (!(await mayAnswer(db, run, decliner.personId, now))) throw new KumiError("error.forbidden_reason", { reason: both("reason.no_role") }, 403);
+  const reason = opts.reason?.trim().slice(0, 300) || null;
+  await db.transaction().execute(async (trx) => {
+    const r = await trx.updateTable("action_run").set({ status: "failed", error: JSON.stringify({ code: "error.declined", params: { by: decliner.personId, reason } }) })
+      .where("id", "=", runId).where("status", "=", "awaiting_approval").executeTakeFirst();
+    if (!Number(r.numUpdatedRows)) throw new KumiError("error.not_planned", { status: "failed" });
+    await trx.insertInto("event_outbox").values({ action_run_id: runId, topic: "approval.declined", payload: JSON.stringify({ run_id: runId, by: decliner.personId, reason }) }).execute();
+  });
 }
 
 function applyCtx(trx: Trx, actor: Actor, now: Date, runId: string, approvedBy: string | null = null): ApplyCtx {

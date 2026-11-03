@@ -18,7 +18,7 @@ test("every API route reaches the server through Caddy, and the apps' pages don'
   const paths = [...new Set(app.routes.map((r) => r.path.replace(/:[a-z_]+/g, "x")).filter((p) => p !== "/*" && !p.endsWith("/*")))];
   assert.ok(paths.length > 40);
   for (const p of paths) assert.ok(routed(p), `${p} isn't sent to the server by Caddy`);
-  for (const page of ["/membership", "/memberships", "/book", "/places", "/people", "/courts", "/settings", "/join/abc", "/play", "/match/abc", "/scores", "/vault"]) assert.ok(!routed(page), `${page} is an app page`);
+  for (const page of ["/changes", "/membership", "/memberships", "/book", "/places", "/people", "/courts", "/settings", "/join/abc", "/play", "/match/abc", "/scores", "/vault"]) assert.ok(!routed(page), `${page} is an app page`);
 });
 
 test("container images are pinned to exact versions", () => {

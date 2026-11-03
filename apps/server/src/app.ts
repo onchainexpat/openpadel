@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { actions, apply, approve, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { actions, apply, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
@@ -147,7 +147,7 @@ export function makeApp(deps: AppDeps) {
     if (SUPPORT_CLOSED_PATHS.test(path)) { await record(403); throw new KumiError("error.support_closed", {}, 403); }
     if (!g.first_seen_at) await runAsSystem(db, "support.seen", { grant_id: g.id }, "web", { now: now() }).catch((e) => console.error("support: first use:", (e as Error).message));
     await next();
-    if (/^\/(staff\/|changes$|actions\/|runs\/)/.test(path)) await record(c.res.status);
+    if (/^\/(staff\/|actions\/|runs\/)/.test(path)) await record(c.res.status);
   });
 
   // A deleted account's stored name is one string; a Spanish reader gets the Spanish one, wherever it shows.
@@ -404,19 +404,42 @@ export function makeApp(deps: AppDeps) {
     return c.json({ result: family ? { ...(result && typeof result === "object" ? result : {}), payment_id: undefined, family } : result });
   });
   app.post("/runs/:id/approve", async (c) => c.json({ result: await approve(db, c.req.param("id"), actor(c), { now: now() }) }));
+  // Saying no to an ask: nothing changes, and the person who asked hears (with the reason, if one is given).
+  app.post("/runs/:id/decline", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { reason?: unknown };
+    await decline(db, c.req.param("id"), actor(c), { now: now(), reason: typeof body.reason === "string" ? body.reason : null });
+    return c.json({ ok: true });
+  });
 
-  // ---- Changes: the audit log, for the people allowed to see it ----
-  app.get("/changes", async (c) => {
+  // ---- Changes: the audit log, for the people allowed to see it. Under /staff/ like the staff app's other data, so the
+  // staff app's own /changes page loads as a page when it's opened or reloaded.
+  app.get("/staff/changes", async (c) => {
     const a = actor(c);
     const d = await decide(db, "changes.view", { personId: a.personId, at: now() });
     if (d.mode !== "allow") throw new KumiError("error.staff_only", {}, 403);
     const lang = c.get("lang");
     const rows = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
-      .select(["action_run.id", "action_run.action", "action_run.status", "action_run.plan", "action_run.via", "action_run.created_at", "action_run.applied_at", "person.display_name", "support_grant.name as support_name"])
+      .leftJoin("person as approver", "approver.id", "action_run.approved_by")
+      .select(["action_run.id", "action_run.action", "action_run.status", "action_run.plan", "action_run.input", "action_run.location_id", "action_run.actor_person_id", "action_run.error", "action_run.via",
+        "action_run.created_at", "action_run.applied_at", "person.display_name", "support_grant.name as support_name", "approver.display_name as approver_name"])
       .orderBy("action_run.id", "desc").limit(Number(c.req.query("limit") ?? 50)).execute();
     // A change made under support access says so, with the name the owner gave.
     const by = (r: (typeof rows)[number]) => (r.support_name ? t(lang, "ui.support_by", { name: r.support_name }) : r.display_name ?? "Kumi");
-    return c.json(rows.map((r) => ({ id: r.id, action: r.action, status: r.status, by: by(r), support: Boolean(r.support_name), via: r.via, summary: (r.plan as any)?.summary?.[lang] ?? null, at: r.applied_at ?? r.created_at })));
+    // An ask someone said no to: who it was, and why if they said.
+    const declinedBy = new Map<string, string>();
+    for (const r of rows) {
+      const e = r.error as { code?: string; params?: { by?: string } } | null;
+      if (e?.code === "error.declined" && e.params?.by) declinedBy.set(r.id, (await db.selectFrom("person").select("display_name").where("id", "=", e.params.by).executeTakeFirst())?.display_name ?? "");
+    }
+    const out = [];
+    for (const r of rows) {
+      const waiting = r.status === "awaiting_approval";
+      out.push({ id: r.id, action: r.action, status: declinedBy.has(r.id) ? "declined" : r.status, by: by(r), support: Boolean(r.support_name), via: r.via,
+        summary: (r.plan as any)?.summary?.[lang] ?? null, at: r.applied_at ?? r.created_at,
+        can_answer: waiting && await mayAnswer(db, r, a.personId, now()), approved_by: r.approver_name ?? null, declined_by: declinedBy.get(r.id) ?? null,
+        reason: declinedBy.has(r.id) ? (r.error as { params?: { reason?: string | null } }).params?.reason ?? null : null });
+    }
+    return c.json(out);
   });
 
   return app;

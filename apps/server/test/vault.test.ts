@@ -50,7 +50,7 @@ test("the owner keeps a secret: sent first, then previewed and confirmed; the li
   assert.match(list, /"last4":"4729"/);
   assert.ok(!list.includes("58114729"));
   // The change log a manager can read has no value in it either.
-  assert.ok(!(await (await get("/changes", "mia@example.test")).text()).includes("58114729"));
+  assert.ok(!(await (await get("/staff/changes", "mia@example.test")).text()).includes("58114729"));
 });
 
 test("only the owner: a manager and a member are told no", async () => {
