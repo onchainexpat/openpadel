@@ -29,6 +29,7 @@ const Mirror = lazy(() => import("./Mirror.tsx").then((m) => m.Mirror));
 const Roles = lazy(() => import("./Roles.tsx").then((m) => m.Roles));
 const Vault = lazy(() => import("./Vault.tsx").then((m) => m.Vault));
 const Usage = lazy(() => import("./Usage.tsx").then((m) => m.Usage));
+const Support = lazy(() => import("./Support.tsx").then((m) => m.Support));
 // A coach's lists, opened from the schedule.
 const Roster = lazy(() => import("./Roster.tsx").then((m) => m.Roster));
 const Students = lazy(() => import("./Students.tsx").then((m) => m.Students));
@@ -68,6 +69,14 @@ function access(m: Me) {
   add(show("settings"), Settings);
   add(changes, Changes, Usage);
   return { coach, desk, changes, areas, coachOnly, show, home, later };
+}
+
+/** Support access under way: the person who has it, and the owner and managers, are told at the top of every page. */
+function SupportBanners({ m }: { m: Me }) {
+  const until = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+  const level = (l: "view" | "manager") => (l === "view" ? t("msg.support_level_view") : t("msg.support_level_manager"));
+  if (m.support) return <p class="note banner" role="status">{t("ui.support_banner_you", { level: level(m.support.level), until: until(m.support.ends_at) })}</p>;
+  return <>{(m.support_now ?? []).map((g) => <p class="note banner" role="status">{t("ui.support_banner_owner", { name: g.name, level: level(g.level), until: until(g.ends_at) })} <a href="/support">{t("ui.support_banner_see")}</a></p>)}</>;
 }
 
 /** For someone whose role (one the club made) doesn't cover a page. */
@@ -130,6 +139,7 @@ export function App() {
       </header>
       {club.value?.read_only && <p class="note banner" role="status">{t("ui.read_only_banner_staff")}</p>}
       {me.value.leaving && <LeavingBanner on={me.value.leaving} owner={me.value.roles.some((r) => r.key === "owner")} />}
+      <SupportBanners m={me.value} />
       <Router>
         <Route path="/" component={home} />
         <Route path="/changes" component={changes ? Changes : NotForRole} />
@@ -146,6 +156,7 @@ export function App() {
         <Route path="/inbox" component={Inbox} />
         <Route path="/settings" component={only("settings", Settings)} />
         <Route path="/usage" component={changes ? Usage : NotForRole} />
+        <Route path="/support" component={changes && !me.value.support ? Support : NotForRole} />
         <Route path="/roles" component={only("settings", Roles)} />
         <Route path="/vault" component={only("settings", Vault)} />
         <Route path="/courts" component={only("bookings", Courts)} />

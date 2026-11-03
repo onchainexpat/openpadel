@@ -5,7 +5,7 @@
 import { statfsSync } from "node:fs";
 import type { Context } from "hono";
 import { sql } from "kysely";
-import { answerCounts, heartbeats, jobFailed, jobWorked, KumiError, MAX_ATTEMPTS, textCounts, textingOn, textUsage, usageView, type Db } from "@kumi/core";
+import { answerCounts, heartbeats, jobFailed, jobWorked, KumiError, supportRoleKeys, MAX_ATTEMPTS, textCounts, textingOn, textUsage, usageView, type Db } from "@kumi/core";
 import { both } from "@kumi/i18n";
 import { newestLocalAge } from "./backups.ts";
 import { handledTopics } from "./outbox.ts";
@@ -114,5 +114,5 @@ export async function mayReadDeepHealth(db: Db, c: Context<any>, personId: strin
   if (!personId) throw new KumiError("error.signed_out", {}, 401);
   const r = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
     .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.key", "in", ["owner", "manager"]).executeTakeFirst();
-  if (!r) throw new KumiError("error.staff_only", {}, 403);
+  if (!r && !(await supportRoleKeys(db, personId)).length) throw new KumiError("error.staff_only", {}, 403);
 }

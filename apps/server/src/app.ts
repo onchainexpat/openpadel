@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { actions, apply, approve, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, type Actor, type Db, type Texter } from "@kumi/core";
+import { actions, apply, approve, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
@@ -22,6 +22,7 @@ import { bearerPerson, defaultFetchMetadata, mcpResourceOf, mcpResources, oauthR
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
 import { readRoutes } from "./reads.ts";
+import { supportRoutes } from "./support_routes.ts";
 import { calendarRoutes } from "./calendar.ts";
 import { translateRoutes, translatorOn } from "./translate.ts";
 import { broadcastRoutes } from "./broadcasts.ts";
@@ -135,6 +136,20 @@ export function makeApp(deps: AppDeps) {
     await next();
   });
 
+  // Support access (support.ts), looked up on every request so it ends on time, mid-session too: its first use
+  // tells the owner, the pages it never opens are refused, and every staff page and change it touches is recorded.
+  app.use("*", async (c, next) => {
+    const me = c.get("me");
+    const g = me && !me.gate ? await activeSupport(db, me.id, now()) : null;
+    if (!g) return next();
+    const path = c.req.path, shown = `${path}${new URL(c.req.url).search}`;
+    const record = (status: number) => logSupportRead(db, g.id, c.req.method, shown, status).catch((e) => console.error("support: recording a page:", (e as Error).message));
+    if (SUPPORT_CLOSED_PATHS.test(path)) { await record(403); throw new KumiError("error.support_closed", {}, 403); }
+    if (!g.first_seen_at) await runAsSystem(db, "support.seen", { grant_id: g.id }, "web", { now: now() }).catch((e) => console.error("support: first use:", (e as Error).message));
+    await next();
+    if (/^\/(staff\/|changes$|actions\/|runs\/)/.test(path)) await record(c.res.status);
+  });
+
   // A deleted account's stored name is one string; a Spanish reader gets the Spanish one, wherever it shows.
   app.use("*", async (c, next) => {
     await next();
@@ -211,6 +226,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"), tries: secondStep }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
+  app.route("/", supportRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), now));
   app.route("/", vaultRoutes(db, (c) => c.get("me"), now));
   app.route("/", exportRoutes(db, (c) => c.get("me"), { databaseUrl: deps.databaseUrl ?? null, now }));
   app.route("/", calendarRoutes(db, (c) => c.get("me")));
@@ -351,6 +367,11 @@ export function makeApp(deps: AppDeps) {
     const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id")
       .select(["role.key", "role.name", "person_role.location_id"]).where("person_role.person_id", "=", a.personId!).where("person_role.active", "=", true).where("role.active", "=", true).execute();
     const me = c.get("me")!;
+    // Support access reads the staff screens as a manager would, for as long as it lasts (what it may change is the
+    // server's to decide); the owner and managers see when anyone has it.
+    const support = me.gate ? null : await activeSupport(db, me.id, now());
+    if (support) roles.push({ key: "manager", name: null, location_id: null });
+    const supportNow = !support && roles.some((r) => r.key === "owner" || r.key === "manager") ? await supportUnderWay(db, now()) : [];
     const kid = await kidOf(db, me.id);
     // Someone whose only staff roles are ones the club made sees the areas those roles cover.
     const areas = me.gate ? null : await customAreas(db, me.id);
@@ -361,7 +382,7 @@ export function makeApp(deps: AppDeps) {
     // The day the club's Kumi ends (leaving.ts): for the top of the staff app, the owner's and managers' to see.
     const leaving = !me.gate && roles.some((r) => r.key === "owner" || r.key === "manager") ? await leavingOn(db) : null;
     return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can,
-      has_email: Boolean(email), email, leaving });
+      has_email: Boolean(email), email, leaving, support: support ? { name: support.name, level: support.level, ends_at: support.ends_at } : null, support_now: supportNow });
   });
 
   // ---- Actions: one description each, the same one the MCP tools and forms use ----
@@ -389,10 +410,12 @@ export function makeApp(deps: AppDeps) {
     const d = await decide(db, "changes.view", { personId: a.personId, at: now() });
     if (d.mode !== "allow") throw new KumiError("error.staff_only", {}, 403);
     const lang = c.get("lang");
-    const rows = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id")
-      .select(["action_run.id", "action_run.action", "action_run.status", "action_run.plan", "action_run.via", "action_run.created_at", "action_run.applied_at", "person.display_name"])
+    const rows = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
+      .select(["action_run.id", "action_run.action", "action_run.status", "action_run.plan", "action_run.via", "action_run.created_at", "action_run.applied_at", "person.display_name", "support_grant.name as support_name"])
       .orderBy("action_run.id", "desc").limit(Number(c.req.query("limit") ?? 50)).execute();
-    return c.json(rows.map((r) => ({ id: r.id, action: r.action, status: r.status, by: r.display_name ?? "Kumi", via: r.via, summary: (r.plan as any)?.summary?.[lang] ?? null, at: r.applied_at ?? r.created_at })));
+    // A change made under support access says so, with the name the owner gave.
+    const by = (r: (typeof rows)[number]) => (r.support_name ? t(lang, "ui.support_by", { name: r.support_name }) : r.display_name ?? "Kumi");
+    return c.json(rows.map((r) => ({ id: r.id, action: r.action, status: r.status, by: by(r), support: Boolean(r.support_name), via: r.via, summary: (r.plan as any)?.summary?.[lang] ?? null, at: r.applied_at ?? r.created_at })));
   });
 
   return app;

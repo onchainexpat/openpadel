@@ -3,7 +3,7 @@
 // whoever takes or sees the club's money.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { clubReceipts, customAreas, KumiError, receiptsOf, receiptView, type Db } from "@kumi/core";
+import { clubReceipts, customAreas, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db } from "@kumi/core";
 import { csvCell } from "./csv.ts";
 
 type Me = { id: string } | null;
@@ -27,6 +27,7 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
     if (areas) { if (!areas.includes("money")) throw new KumiError("error.staff_only", {}, 403); return; }
     const roles = (await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
       .where("person_role.person_id", "=", id).where("person_role.active", "=", true).where("role.active", "=", true).execute()).map((r) => r.key);
+    roles.push(...await supportRoleKeys(db, id));   // support access reads as a manager would (support.ts)
     if (!roles.some((r) => MONEY_ROLES.includes(r))) throw new KumiError("error.staff_only", {}, 403);
   };
 

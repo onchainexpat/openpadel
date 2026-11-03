@@ -151,6 +151,26 @@ can wait reach members in the app and by email instead. Answers from the club's 
 confirmations and cancellations keep going, up to twice that, so a bill can pass the cap by cents but never
 run away. Prices are list prices unless `KUMI_PRICES` says otherwise (`docs/settings.md`).
 
+### Support access, only when the owner gives it
+
+The owner can let someone from outside the staff in for a while (the club's host, or a contractor) from
+Settings, Support access: by email, with a reason, for 24 hours unless they choose otherwise (7 days at
+most), to look only or to work like a manager. A manager can ask; the owner says yes. The person signs in
+with their own account and always with two steps, whatever the club's own rule, and shows as "Support"
+with their name in the change log and wherever staff names show.
+
+- **To look only** reads the staff screens as a manager does and changes nothing.
+- **Like a manager** does what a manager does; what a manager asks the owner for still waits for the owner.
+- **Never, at either level:** the club's payment account, roles and owners, Download everything, a member's
+  data file, deleting people or data, a person's sign-in, the vault, the usage cap, the host's read-only and
+  leaving switches, support access itself, anything that needs a strong sign-in, and anything through an
+  assistant (MCP).
+
+Every staff page they open and every change they make is recorded; the owner sees it in Settings, Support
+access, and can end it there at once. The owner hears when it's first used and when it ends. It ends by
+itself when its time is up, mid-session too, and while it lasts the owner and managers see a note at the top
+of the staff app.
+
 ## Taking part
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for changes, [`SECURITY.md`](SECURITY.md) for security problems,

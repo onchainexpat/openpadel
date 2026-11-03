@@ -103,6 +103,7 @@ function SignInCard({ rule, send }: { rule: ClubRow["two_factor"]; send: Preview
       <button class="primary" disabled={v === rule || v === "off"} onClick={() => send("club.update", { two_factor: v })}>{t("ui.preview")}</button>
       <p><a href="/roles">{t("ui.roles_link")}</a></p>
       {me.value?.roles.some((r) => r.key === "owner") && <p><a href="/vault">{t("ui.vault_link")}</a></p>}
+      {!me.value?.support && me.value?.roles.some((r) => r.key === "owner" || r.key === "manager") && <p><a href="/support">{t("ui.support_link")}</a></p>}
     </section>
   );
 }

@@ -5,8 +5,11 @@ import type { Key } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
 
 export type Mode = "allow" | "ask" | "no";
-export interface Decision { mode: Mode; reason?: Key }
-export interface Subject { personId: string | null; agentId?: string | null; locationId?: string | null; ownerIds?: string[]; at: Date }
+/** `support`: the support access (support.ts) the answer came from. */
+export interface Decision { mode: Mode; reason?: Key; support?: string }
+/** `assistant`: asked through an assistant (MCP), where support access never reaches. `strongAuth`: the action
+ *  needs a strong sign-in (actions.ts), which support access never stretches to. */
+export interface Subject { personId: string | null; agentId?: string | null; locationId?: string | null; ownerIds?: string[]; at: Date; assistant?: boolean; strongAuth?: boolean }
 
 const rank: Record<Mode, number> = { no: 0, ask: 1, allow: 2 };
 
@@ -56,9 +59,49 @@ async function decidePerson(db: Db | Trx, action: string, s: Subject & { personI
   return best;
 }
 
+// ---- Support access (support.ts): the owner let someone in for a while, to look or to work like a manager ----
+
+/** Never through support access, at any level: where the club's money goes, who holds which role (and who owns
+ *  the club), every member's details in one file, deleting people or data, a person's sign-in, the club's secrets,
+ *  the usage cap, the host's read-only and leaving switches, and support access itself. */
+export const SUPPORT_NEVER = ["support.*", "role.*", "club.payment_*", "club.export", "club.setup", "club.read_only", "club.leaving*", "club.usage_cap_set",
+  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*"];
+/** Their own account, which they look after like anyone (their second sign-in step first of all). */
+const SUPPORT_OWN = ["person.factor_*", "person.passkey_*", "person.update_profile"];
+
+/** The support access a person holds right now, if any. */
+export async function activeSupport(db: Db | Trx, personId: string, at: Date) {
+  return (await db.selectFrom("support_grant").selectAll().where("person_id", "=", personId).where("ended_at", "is", null)
+    .where("starts_at", "<=", at).where("ends_at", ">", at).orderBy("ends_at", "desc").executeTakeFirst()) ?? null;
+}
+
+/** What support access gives for an action, or null when the person holds none. */
+async function decideSupport(db: Db | Trx, action: string, s: Subject & { personId: string }): Promise<Decision | null> {
+  const g = await activeSupport(db, s.personId, s.at);
+  if (!g) return null;
+  const hit = (patterns: string[]) => patterns.some((p) => specificity(p, action) >= 0);
+  if (s.assistant || s.agentId) return { mode: "no", reason: "reason.support_no_assistant", support: g.id };
+  // Reading the change log is a manager's read, at either level.
+  if (action === "changes.view") return { mode: "allow", support: g.id };
+  if (hit(SUPPORT_OWN)) return (s.ownerIds ?? []).includes(s.personId) ? { mode: "allow", support: g.id } : { mode: "no", reason: "reason.own_only", support: g.id };
+  if (s.strongAuth || hit(SUPPORT_NEVER)) return { mode: "no", reason: "reason.support_never", support: g.id };
+  if (g.level === "view") return { mode: "no", reason: "reason.support_view_only", support: g.id };
+  // Like a manager: the manager role's grants as the club has them, asking the owner where a manager asks.
+  const grants = await db.selectFrom("role_grant").innerJoin("role", "role.id", "role_grant.role_id").select(["role_grant.pattern", "role_grant.mode"])
+    .where("role.key", "=", "manager").where("role.active", "=", true).where("role_grant.active", "=", true).execute();
+  const best = grants.filter((x) => specificity(x.pattern, action) >= 0).sort((a, b) => specificity(b.pattern, action) - specificity(a.pattern, action))[0];
+  if (!best || best.mode === "no") return { mode: "no", reason: "reason.owner_only", support: g.id };
+  return { mode: best.mode as Mode, support: g.id };
+}
+
 export async function decide(db: Db | Trx, action: string, s: Subject): Promise<Decision> {
   if (!s.personId) return { mode: "no", reason: "reason.no_role" };
-  const person = await decidePerson(db, action, { ...s, personId: s.personId });
+  const own = await decidePerson(db, action, { ...s, personId: s.personId });
+  // Support access adds to what the person holds themselves; it never takes anything away.
+  const support = await decideSupport(db, action, { ...s, personId: s.personId });
+  const chosen = support && (rank[support.mode] > rank[own.mode] || (own.mode === "no" && own.reason === "reason.no_role")) ? support : own;
+  // Whatever answered, a change made while holding support access is marked as support's in the change log.
+  const person: Decision = support ? { ...chosen, support: support.support } : chosen;
   if (!s.agentId) return person;
   // An agent gets the answer for the person it acts for, then its own cap: the lower wins.
   const agent = await db.selectFrom("agent").select(["capped_role_id"]).where("id", "=", s.agentId).executeTakeFirst();

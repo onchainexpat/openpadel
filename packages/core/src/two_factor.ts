@@ -27,6 +27,8 @@ export async function activeFactor(db: Db | Trx, personId: string) {
 /** Whether this person has to give a second step at sign-in. */
 export async function needsTwoFactor(db: Db | Trx, personId: string): Promise<boolean> {
   if (await activeFactor(db, personId)) return true;   // they chose it: an authenticator always counts
+  // Support access (support.ts) always needs two steps, whatever the club's rule for its own staff.
+  if (await db.selectFrom("support_grant").select("id").where("person_id", "=", personId).where("ended_at", "is", null).where("ends_at", ">", new Date()).executeTakeFirst()) return true;
   const club = await db.selectFrom("club").select("two_factor").executeTakeFirst();
   const rule = (club?.two_factor ?? "owner_manager") as TwoFactorRule;
   if (rule === "off") return false;

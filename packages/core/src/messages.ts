@@ -114,7 +114,7 @@ async function managers(db: Db): Promise<string[]> {
     .where("role.key", "in", ["owner", "manager"]).where("person_role.active", "=", true).distinct().execute();
   return rows.map((r) => r.person_id);
 }
-/** The club's owners: who's told the day the club's Kumi ends (leaving.ts). */
+/** The club's owners: who's told the day the club's Kumi ends (leaving.ts), and about support access (support.ts). */
 async function owners(db: Db): Promise<string[]> {
   const rows = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
     .where("role.key", "=", "owner").where("person_role.active", "=", true).distinct().execute();
@@ -124,6 +124,13 @@ async function owners(db: Db): Promise<string[]> {
 function keptText(on: string, days: number | null): Text {
   const date = dayText(on);
   return days === null ? both("msg.leaving_kept_unsaid", { date }) : days === 0 ? both("msg.leaving_kept_none", { date }) : both("msg.leaving_kept_days", { date, count: days });
+}
+/** Support access (support.ts), as the messages about it say it. */
+async function supportInfo(db: Db, grantId: string, tz: string) {
+  const g = await db.selectFrom("support_grant").selectAll().where("id", "=", grantId).executeTakeFirstOrThrow();
+  const club = (await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
+  return { g, params: { club, name: g.name, email: g.email, reason: g.reason, until: when(new Date(g.ends_at), tz),
+    level: both(g.level === "view" ? "msg.support_level_view" : "msg.support_level_manager") } };
 }
 async function nameOf(db: Db, personId: string): Promise<string> {
   return (await db.selectFrom("person").select("display_name").where("id", "=", personId).executeTakeFirst())?.display_name ?? "";
@@ -804,6 +811,20 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const params = { when: when(new Date(p.at), tz), how: p.self ? both("msg.privacy_erased_self") : both("msg.privacy_erased_by", { by }),
       juniors: p.juniors ? both("msg.privacy_erased_juniors", { count: p.juniors }) : NOTHING };
     return (await managers(db)).filter((to) => to !== p.by).map((to) => ({ to, kind: "privacy_erased_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/people" }));
+  },
+  // Support access: the person let in hears where to sign in; the owners hear when it's first used and when it ends.
+  async "support.granted"({ db, tz }, p: { grant_id: string }) {
+    const { g, params } = await supportInfo(db, p.grant_id, tz);
+    return [{ to: g.person_id, kind: "support_granted_you", params: { ...params, url: staffAddress ?? both("msg.staff_app") }, purpose: "staff" as const, essential: true, email: true, push: false, link: "/" }];
+  },
+  async "support.first_seen"({ db, tz }, p: { grant_id: string; at: string }) {
+    const { params } = await supportInfo(db, p.grant_id, tz);
+    return (await owners(db)).map((to) => ({ to, kind: "support_first_seen_owner", params: { ...params, when: when(new Date(p.at), tz) }, purpose: "staff" as const, essential: true, email: true, link: "/support" }));
+  },
+  async "support.ended"({ db, tz }, p: { grant_id: string; how: "ended" | "expired"; by: string | null }) {
+    const { params } = await supportInfo(db, p.grant_id, tz);
+    const how = p.how === "expired" ? both("msg.support_ended_expired") : both("msg.support_ended_by", { by: p.by ? await nameOf(db, p.by) : "" });
+    return (await owners(db)).map((to) => ({ to, kind: "support_ended_owner", params: { ...params, how }, purpose: "staff" as const, essential: true, email: true, link: "/support" }));
   },
 };
 

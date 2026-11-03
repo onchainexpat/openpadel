@@ -5,7 +5,7 @@
 // counts on the club's monthly meter (usage.ts), and past the club's limit there are none until the 1st.
 import Anthropic from "@anthropic-ai/sdk";
 import { Hono, type Context } from "hono";
-import { countAi, KumiError, usageAllows, type Db } from "@kumi/core";
+import { countAi, KumiError, supportRoleKeys, usageAllows, type Db } from "@kumi/core";
 import { isLang, type Lang } from "@kumi/i18n";
 import { HAIKU_MODEL } from "./answerer.ts";
 
@@ -52,7 +52,7 @@ export function translateRoutes(db: Db, me: (c: Context<any>) => Me, opts: { now
     if (!m) throw new KumiError("error.signed_out", {}, 401);
     const staff = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
       .where("person_role.person_id", "=", m.id).where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst();
-    if (!staff) throw new KumiError("error.staff_only", {}, 403);
+    if (!staff && !(await supportRoleKeys(db, m.id)).length) throw new KumiError("error.staff_only", {}, 403);
     if (!current) throw new KumiError("error.no_drafts", {}, 404);
     const b = await c.req.json().catch(() => ({})) as { text?: unknown; from?: unknown; to?: unknown };
     const text = typeof b.text === "string" ? b.text.trim() : "";

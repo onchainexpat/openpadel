@@ -27,8 +27,16 @@ server starts.
   before then and save the passphrase, and reminded a week and a day before, each once, even while
   read-only or past the cap. The staff app shows the date to the owner and managers. `kumi leaving status`
   shows which emails went and when everything was last downloaded.
+- **Support access, only when the owner gives it** (Settings, Support access): someone from outside the
+  staff, such as the club's host or a contractor, for a set time (24 hours unless the owner says otherwise,
+  7 days at most), to look only or to work like a manager. A manager can ask; the owner says yes. They sign in
+  with their own account and two steps, never reach the club's money settings, roles, Download everything,
+  deleting people or data, the vault, the usage cap or anything that needs a strong sign-in, and never work
+  through an assistant. Everything they open and change is recorded for the owner, who hears when it's
+  first used and when it ends, and can end it at once. It ends by itself, mid-session too.
 
 ### Changed
+- Saying yes to a change that needs a strong sign-in (an owner approving a manager's request) needs one too.
 - The monthly text cap in segments is folded into the one cap. Settings, Texts still shows the month's texts.
 - A club that ran on a hosted Kumi (Stripe Connect) and moves to its own server reaches its earlier
   payments with its own Stripe keys, so refunds of them work.

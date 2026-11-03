@@ -2,7 +2,7 @@
 // through can arrive three ways (the app checking, Stripe's webhook, the minute job). Each one asks the
 // provider rather than trusting the message, so the order and repeats don't matter.
 import { Hono, type Context } from "hono";
-import { checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
+import { checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, supportRoleKeys, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
 
 type Me = { id: string } | null;
 export interface StripeConfig { publishableKey?: string; webhookSecret?: string }
@@ -93,7 +93,7 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
     const id = who(c);
     const s = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
       .where("person_role.person_id", "=", id).where("person_role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst();
-    if (!s) throw new KumiError("error.staff_only", {}, 403);
+    if (!s && !(await supportRoleKeys(db, id)).length) throw new KumiError("error.staff_only", {}, 403);
   };
   app.get("/staff/payments", async (c) => {
     await staff(c);

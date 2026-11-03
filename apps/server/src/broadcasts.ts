@@ -5,7 +5,7 @@
 import { Hono, type Context } from "hono";
 import * as z from "zod/mini";
 import { t, type Lang } from "@kumi/i18n";
-import { audience, broadcastCounts, customAreas, describeFilters, filtersInput, KumiError, segmentMembers, unsubscribe, unsubscribeTarget, type Db, type Filters } from "@kumi/core";
+import { audience, broadcastCounts, customAreas, describeFilters, filtersInput, KumiError, supportRoleKeys, segmentMembers, unsubscribe, unsubscribeTarget, type Db, type Filters } from "@kumi/core";
 import { readArea } from "./reads.ts";
 
 type Me = { id: string } | null;
@@ -20,7 +20,8 @@ export function broadcastRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: C
       .where("person_role.person_id", "=", m.id).where("person_role.active", "=", true).where("role.key", "in", ["owner", "manager", "front_desk"]).executeTakeFirst();
     // Or a role the club made that covers this page's area (the tags people are given, the messages sent).
     const area = readArea(c.req.path);
-    if (!ok && !(area && (await customAreas(db, m.id))?.includes(area))) throw new KumiError("error.staff_only", {}, 403);
+    // Or support access the owner gave (support.ts), which reads as a manager would.
+    if (!ok && !(await supportRoleKeys(db, m.id)).length && !(area && (await customAreas(db, m.id))?.includes(area))) throw new KumiError("error.staff_only", {}, 403);
     return m.id;
   };
   const tagCounts = async () => {

@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { assistantsOf, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView } from "@kumi/core";
+import { assistantsOf, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { translatorOn } from "./translate.ts";
@@ -31,7 +31,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     if (!m) throw new KumiError("error.signed_out", {}, 401);
     const staff = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
       .where("person_role.person_id", "=", m.id).where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst();
-    if (!staff) throw new KumiError("error.staff_only", {}, 403);
+    // Support access the owner gave (support.ts) reads as a manager would, while it lasts.
+    if (!staff && !(await supportRoleKeys(db, m.id)).length) throw new KumiError("error.staff_only", {}, 403);
     // Someone whose only staff roles are ones the club made reads only the areas those roles cover.
     const areas = await customAreas(db, m.id), area = readArea(c.req.path);
     if (areas && area && !areas.includes(area)) throw new KumiError("error.staff_only", {}, 403);
@@ -45,8 +46,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   });
   const coachOnly = async (id: string) => { const k = (await rolesOf(id)).filter((r) => r !== "member"); return k.length > 0 && k.every((r) => r === "coach"); };
 
-  const rolesOf = async (id: string) => (await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
-    .where("person_role.person_id", "=", id).where("person_role.active", "=", true).execute()).map((r) => r.key);
+  const rolesOf = async (id: string) => [...(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
+    .where("person_role.person_id", "=", id).where("person_role.active", "=", true).execute()).map((r) => r.key), ...await supportRoleKeys(db, id)];
   const deskUp = (roles: string[]) => roles.some((r) => ["owner", "manager", "front_desk"].includes(r));
 
   // ---- Coaches ----
@@ -330,7 +331,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const tags = (eb: any) => eb.selectFrom("person_tag").innerJoin("tag", "tag.id", "person_tag.tag_id").select(sql<string[]>`array_agg(tag.name ORDER BY tag.name)`.as("t"))
       .whereRef("person_tag.person_id", "=", "person.id").where("person_tag.removed_at", "is", null).where("tag.active", "=", true);
     if (within && !within.length) return c.json([]);
-    return c.json(await db.selectFrom("person").select(["id", "display_name", "email", "junior", "created_at"]).select((eb) => [roles(eb).as("roles"), tags(eb).as("tags")]).where("status", "!=", "archived")
+    // An account made for support access (support.ts) isn't one of the club's people.
+    return c.json(await db.selectFrom("person").select(["id", "display_name", "email", "junior", "created_at"]).select((eb) => [roles(eb).as("roles"), tags(eb).as("tags")]).where("status", "!=", "archived").where("created_via", "!=", "support")
       .where((eb) => eb.or([eb("display_name", "ilike", q), eb("email", "ilike", q), ...(digits.length >= 3 ? [eb(sql<string>`regexp_replace(coalesce(phone, ''), '\\D', '', 'g')`, "like", `%${digits}%`)] : [])]))
       .$if(Boolean(role), (qb) => qb.where((eb) => eb.exists(eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id")
         .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true)

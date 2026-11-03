@@ -62,3 +62,4 @@ export * from "./usage.ts";
 export * from "./read_only.ts";
 export * from "./club_exit.ts";
 export * from "./leaving.ts";
+export * from "./support.ts";

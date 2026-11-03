@@ -34,6 +34,8 @@ export interface PlanCtx { db: Db | Trx; actor: Actor; now: Date }
 export interface ApplyCtx extends PlanCtx {
   trx: Trx;
   runId: string;
+  /** Who said yes, when it waited for approval (the run's actor is who asked). */
+  approvedBy?: string | null;
   insert<E extends Entity>(entity: E, row: Record<string, unknown>): Promise<Record<string, unknown>>;
   update<E extends Entity>(entity: E, id: string, patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   emit(topic: string, payload: unknown): Promise<void>;
@@ -119,6 +121,7 @@ const ENTITIES = {
   staff_alert: { table: "staff_alert", key: "id", retire: null },
   oauth_grant: { table: "oauth_grant", key: "id", retire: { revoked_at: "now" } },
   texting_registration: { table: "texting_registration", key: "id", retire: null },
+  support_grant: { table: "support_grant", key: "id", retire: { ended_at: "now" } },
   vault_item: { table: "vault_item", key: "id", retire: { active: false } },
 } as const;
 export type Entity = keyof typeof ENTITIES;
@@ -172,8 +175,8 @@ function validate<S extends z.ZodMiniObject>(def: ActionDef<S>, raw: unknown): z
 }
 
 async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor, plan: Plan | null, d: Decision): Promise<never> {
-  // Every "no" is logged (permissions.md).
-  await db.insertInto("action_run").values({
+  // Every "no" is logged (permissions.md), with the support access it was tried under.
+  await db.insertInto("action_run").values({ support_grant_id: d.support ?? null,
     id: uuidv7(), action: def.name, action_version: def.version, actor_person_id: actor.personId, agent_id: actor.agentId ?? null,
     via: actor.via, location_id: plan?.locationId ?? null, input: JSON.stringify(input), plan: JSON.stringify(plan ?? {}), status: "failed",
     undo_kind: "none", read_versions: JSON.stringify({}), plan_expires_at: new Date(), error: JSON.stringify({ code: "error.forbidden_reason", reason: d.reason }),
@@ -197,6 +200,10 @@ export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news"]);
 export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
   return APP_ONLY.has(def.name) || Boolean(def.strongAuth) || (APP_ONLY_YES.has(def.name) && (input as { granted?: unknown } | undefined)?.granted === true);
 }
+
+/** What the permission check needs to know about how it was asked: through an assistant, and for an action that
+ *  needs a strong sign-in (support access reaches neither). */
+const how = (def: ActionDef<any>, actor: Actor) => ({ assistant: actor.auth === "oauth" || Boolean(actor.grantId), strongAuth: Boolean(def.strongAuth) });
 
 /** Sensitive changes: a person with a passkey makes them signed in with it, or with two steps. */
 async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor, input: unknown): Promise<void> {
@@ -222,7 +229,7 @@ export async function dryPlan(db: Db | Trx, name: string, raw: unknown, actor: A
   if (def.system || def.internal) throw new KumiError("error.unknown_action", {}, 404);
   const input = validate(def, raw);
   const p = await def.plan({ db, actor, now }, input);
-  const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now });
+  const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
   if (d.mode === "no") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
   return p;
 }
@@ -236,7 +243,7 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
   const input = validate(def, raw);
   const now = opts.now ?? new Date();
   const p = await def.plan({ db, actor, now }, input);
-  const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now });
+  const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
   if (d.mode === "no") return refuse(db, def, input, actor, p, d);
   if (planGate && !opts.parentApproved) {
     const instead = await planGate(db, name, input, actor, p, now);
@@ -259,7 +266,7 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     location_id: p.locationId ?? null, input: JSON.stringify(input), plan: JSON.stringify(p), status, undo_kind: p.undo.kind,
     undo_note: p.undo.note ? JSON.stringify(p.undo.note) : null, read_versions: JSON.stringify(Object.fromEntries(p.reads.map((r) => [keyOf(r.entity, r.id), r.version]))),
     plan_expires_at: expiresAt, money_cents: String(p.moneyCents ?? 0), undo_of: (input as any)?.run_id && name === "action.undo" ? (input as any).run_id : null,
-    oauth_grant_id: actor.grantId ?? null,
+    oauth_grant_id: actor.grantId ?? null, support_grant_id: d.support ?? null,
   }).execute();
   return { runId, status, plan: p, expiresAt };
 }
@@ -290,7 +297,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       if (!approving && !opts.system) await requireStrongAuth(trx, def, actor, run.input);
       if (opts.system && !def.system) throw new KumiError("error.forbidden_reason", { reason: both("reason.no_role") }, 403);
       if (!approving && !opts.system) {   // permissions may have changed since the preview
-        const d = await decide(trx, run.action, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now });
+        const d = await decide(trx, run.action, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
         if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
       }
       // Checked again as it happens, with the connection locked, so two confirms at once can't both fit.
@@ -307,7 +314,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
         if ((await currentVersion(trx, entity as Entity, rest.join(":"))) !== v) throw new KumiError("error.changed");
       }
       const runActor: Actor = { personId: run.actor_person_id, agentId: run.agent_id, via: run.via, lang: actor.lang, grantId: run.oauth_grant_id };
-      const ctx = applyCtx(trx, runActor, now, runId);
+      const ctx = applyCtx(trx, runActor, now, runId, opts.approvedBy ?? null);
       const result = (await def.apply(ctx, run.input, p)) ?? null;
       await trx.updateTable("action_run").set({
         status: "applied", applied_at: now, result: JSON.stringify(result), idempotency_key: opts.idempotencyKey ?? null,
@@ -331,17 +338,19 @@ export async function approve(db: Db, runId: string, approver: Actor, opts: { no
   const run = await db.selectFrom("action_run").selectAll().where("id", "=", runId).executeTakeFirst();
   if (!run) throw new KumiError("error.not_found", { thing: both("thing.change") }, 404);
   if (run.actor_person_id === approver.personId) throw new KumiError("error.own_approval", {}, 403);
-  const p = run.plan as Plan;
-  const d = await decide(db, run.action, { personId: approver.personId, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now });
+  const p = run.plan as Plan, def = getAction(run.action);
+  // Saying yes to a change that needs a strong sign-in needs one too: the approver is the one making it happen.
+  await requireStrongAuth(db, def, approver, run.input);
+  const d = await decide(db, run.action, { personId: approver.personId, agentId: approver.agentId ?? null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now, ...how(def, approver) });
   if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
   return apply(db, runId, approver, { now, approvedBy: approver.personId! });
 }
 
-function applyCtx(trx: Trx, actor: Actor, now: Date, runId: string): ApplyCtx {
+function applyCtx(trx: Trx, actor: Actor, now: Date, runId: string, approvedBy: string | null = null): ApplyCtx {
   const record = (entity: Entity, id: string, op: "insert" | "update", before: unknown, after: unknown) =>
     trx.insertInto("entity_change").values({ action_run_id: runId, entity, entity_id: id, op, before: before === null ? null : JSON.stringify(unkept(entity, before)), after: JSON.stringify(unkept(entity, after)) }).execute();
   return {
-    db: trx, trx, actor, now, runId,
+    db: trx, trx, actor, now, runId, approvedBy,
     async insert(entity, row) {
       const { table, key } = ENTITIES[entity];
       const r = await (trx as any).insertInto(table).values(row).returningAll().executeTakeFirstOrThrow();
@@ -402,7 +411,7 @@ export const undoAction = defineAction({
     if (original.undo_kind === "none") throw new KumiError("error.cannot_undo", { reason: op.undo.note ?? both("reason.undo_final") });
     if (original.undo_until && original.undo_until.getTime() < ctx.now.getTime()) throw new KumiError("error.undo_expired");
     // Undo needs the same permission as the original action, for the same rows.
-    const d = await decide(ctx.db, original.action, { personId: ctx.actor.personId, agentId: ctx.actor.agentId ?? null, locationId: original.location_id, ownerIds: op.ownerIds ?? [], at: ctx.now });
+    const d = await decide(ctx.db, original.action, { personId: ctx.actor.personId, agentId: ctx.actor.agentId ?? null, locationId: original.location_id, ownerIds: op.ownerIds ?? [], at: ctx.now, ...how(getAction(original.action), ctx.actor) });
     if (d.mode === "no") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
     const changes = await ctx.db.selectFrom("entity_change").selectAll().where("action_run_id", "=", input.run_id).orderBy("id", "desc").execute();
     const reads: Read[] = [];
