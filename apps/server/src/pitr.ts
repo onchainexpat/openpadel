@@ -84,7 +84,9 @@ export function pitrConf(env: Env, o: { backupKey: Buffer | null; paths?: PitrPa
     lines.push(
       "repo2-type=s3",
       `repo2-path=${offsiteArchivePath(env, o.systemId)}`,
-      `repo2-s3-endpoint=${endpoint.host}`,
+      `repo2-s3-endpoint=${endpoint.hostname}`,
+      // A storage on its own port (MinIO's 9000, say): pgBackRest takes the port as a setting of its own.
+      ...(endpoint.port ? [`repo2-storage-port=${endpoint.port}`] : []),
       `repo2-s3-bucket=${s3.bucket}`,
       `repo2-s3-region=${s3.region}`,
       `repo2-s3-key=${s3.accessKeyId}`,

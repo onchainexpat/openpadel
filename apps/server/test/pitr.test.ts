@@ -27,6 +27,9 @@ test("pgBackRest's settings: this server's copy always, the offsite one beside t
   assert.deepEqual(confRepos(both.text), [1, 2]);
   assert.equal(confOffsite(both.text), "on");
   assert.ok(pitrConf({ ...offsite, KUMI_OFFSITE_PREFIX: "clubs/kestrel" }, { backupKey: key }).text.includes("repo2-path=/clubs/kestrel/pitr"));
+  const own = pitrConf({ ...offsite, KUMI_OFFSITE_ENDPOINT: "https://10.124.0.3:9000" }, { backupKey: key }).text;
+  assert.ok(own.includes("repo2-s3-endpoint=10.124.0.3\n") && own.includes("repo2-storage-port=9000"), "a storage on its own port");
+  assert.ok(!both.text.includes("repo2-storage-port"), "none on 443");
   // One folder per Postgres cluster: a server set up again archives beside the one it replaced.
   assert.ok(pitrConf(offsite, { backupKey: key, systemId: "7703746194498146349" }).text.includes("repo2-path=/kumi/pitr/7703746194498146349"));
 });
