@@ -129,7 +129,7 @@ test("going back to a minute: the archive recovered into a scratch folder up to 
   assert.match(conf, /hot_standby = off/);
   // Postgres's superuser only asks Postgres's own questions, in the postgres database; the club's database is read,
   // and dumped, as the role that owns it (a superuser session there would run whatever that role left in it).
-  assert.equal([...p.files].find(([k]) => k.endsWith("/pg_hba.conf"))![1], "local all postgres peer\nlocal kumi all trust\n");
+  assert.equal([...p.files].find(([k]) => k.endsWith("/pg_hba.conf"))![1], "local postgres postgres peer\nlocal all postgres reject\nlocal kumi all trust\n");
   for (const [i, c] of p.calls.entries()) {
     if (!c.startsWith("psql") && !c.startsWith("pg_dump")) continue;
     if (c.includes("-d postgres")) { assert.ok(!c.includes("-U "), c); continue; }

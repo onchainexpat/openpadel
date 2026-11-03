@@ -269,7 +269,9 @@ export async function recoverScratch(target: Date, dbname: string, o: PitrOption
       `port = ${port}`, "listen_addresses = ''", `unix_socket_directories = '${sock}'`, "archive_mode = off",
       "shared_buffers = 64MB", "hot_standby = off", "",
     ].join("\n"), 0o600);
-    await r.write(join(dir, "pg_hba.conf"), `local all postgres peer\nlocal ${dbname} all trust\n`, 0o600);
+    // Postgres's superuser gets the postgres database only: a superuser session in the club's database is refused by
+    // Postgres itself, not just never asked for.
+    await r.write(join(dir, "pg_hba.conf"), `local postgres postgres peer\nlocal all postgres reject\nlocal ${dbname} all trust\n`, 0o600);
     await r.write(join(dir, "pg_ident.conf"), "", 0o600);
     const started = await r.run(pg("pg_ctl"), ["-D", dir, "-l", join(dir, "recovery.log"), "-w", "-t", String(o.timeoutSeconds ?? 3600), "start"]);
     if (started.code !== 0) throw new Error(await recoveryProblem(r, dir) ?? `the scratch copy didn't start: ${started.stderr.trim()}`);

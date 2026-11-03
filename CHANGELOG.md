@@ -83,7 +83,8 @@ server starts.
 - Point-in-time backups never open the club's database as Postgres's superuser. Their jobs (as the postgres user,
   whose archive it is) sign in as the `kumi` role, which Kumi's own `pg_hba` and `pg_ident` files now allow for
   the `kumi` database only; in the scratch copy a restore makes, the club's database is read and dumped as the role
-  that owns it (refused if that's a superuser), with only Postgres's catalog on the search path. Before, a trigger
+  that owns it (refused if that's a superuser), with only Postgres's catalog on the search path, and the scratch
+  copy lets Postgres's superuser into its postgres database only. Before, a trigger
   or function the `kumi` role had left in its database would have run with the superuser's rights when the hourly
   job wrote its heartbeat or the monthly test read the copy. The dump of a minute is made under umask 077 in a
   folder only the postgres user opens (`/var/lib/postgresql/kumi-pitr`); it was readable by everyone while it was
