@@ -194,7 +194,7 @@ case "${1:-}" in
       # A minute, not a file (pitr.ts): the database as it was then, from the point-in-time archive, as the postgres
       # user (whose archive it is), into a file; then that file is restored the usual safe way, below.
       shift; f=/var/lib/postgresql/kumi-pitr-$(date -u +%Y%m%dT%H%M%SZ).dump
-      (cd /opt/kumi/app && runuser -u postgres -- env DATABASE_URL='postgresql:///kumi?host=/var/run/postgresql' /usr/local/bin/node apps/server/src/cli.ts pitr extract --out="$f" "$@") || { rm -f "$f"; exit 2; }
+      (cd /opt/kumi/app && runuser -u postgres -- env DATABASE_URL='postgresql://postgres@/kumi?host=/var/run/postgresql' /usr/local/bin/node apps/server/src/cli.ts pitr extract --out="$f" "$@") || { rm -f "$f"; exit 2; }
       d=/var/backups/kumi/$(basename "$f"); install -m 600 -o kumi -g kumi "$f" "$d"; rm -f "$f"
       set -- restore "$d" --yes;;
     esac
@@ -269,7 +269,7 @@ ConditionPathExists=/etc/pgbackrest/pgbackrest.conf
 Type=oneshot
 User=postgres
 WorkingDirectory=/opt/kumi/app
-Environment=DATABASE_URL=postgresql:///kumi?host=/var/run/postgresql
+Environment=DATABASE_URL=postgresql://postgres@/kumi?host=/var/run/postgresql
 ExecStart=/usr/local/bin/node apps/server/src/cli.ts pitr tick
 UNIT
 cat > /etc/systemd/system/kumi-pitr.timer <<'UNIT'
@@ -290,7 +290,7 @@ ConditionPathExists=/etc/pgbackrest/pgbackrest.conf
 Type=oneshot
 User=postgres
 WorkingDirectory=/opt/kumi/app
-Environment=DATABASE_URL=postgresql:///kumi?host=/var/run/postgresql
+Environment=DATABASE_URL=postgresql://postgres@/kumi?host=/var/run/postgresql
 ExecStart=/usr/local/bin/node apps/server/src/cli.ts pitr test --scheduled
 UNIT
 cat > /etc/systemd/system/kumi-pitr-test.timer <<'UNIT'

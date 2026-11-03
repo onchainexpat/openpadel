@@ -149,6 +149,9 @@ test("setup turns archiving on once, and the units run as the postgres user", ()
   for (const want of ["apt-get install -yq pgbackrest", "archive_mode = on", "archive_timeout = 60", 'systemctl "$pitr_apply" postgresql',
     "[ -f /etc/pgbackrest/pgbackrest.conf ] || exit 0",
     "kumi-pitr.timer", "kumi-pitr-test.timer", "User=postgres", "cli.ts pitr tick", "cli.ts pitr test --scheduled", "cli.ts pitr conf", "stanza-create", "pitr extract --out="]) assert.ok(setup.includes(want), want);
+  // As the postgres user the address names it: a command started with a fresh environment has no USER to go by
+  // (kumi-hosted's restore failed on that before Postgres heard a user name).
+  assert.ok(!/postgresql:\/\/\/kumi/.test(setup) && setup.includes("postgresql://postgres@/kumi?host=/var/run/postgresql"));
   const release = readFileSync(new URL("../../../deploy/release.sh", import.meta.url), "utf8");
   assert.ok(!/restart postgresql/.test(release), "an update never restarts Postgres");
 });
