@@ -5,6 +5,16 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
+## Unreleased
+
+### Changed
+- **The usage meter survives a restore.** Restoring a backup, a minute or an update's snapshot, or an export onto the
+  server the club ran on before, puts the meter back to the copy's counts, so what AI, texts and email cost after the
+  copy was made went uncounted: a host billed too little and the cap let more through. Now each month keeps the larger
+  count, and an 80% or cap message already said isn't said again. Where the database before it can't vouch (a new
+  server after losing the old one), the restore says this month's count may be short, and so do `kumi usage` (`gaps`
+  in `--json`) and `kumi doctor` until the month ends.
+
 ## 0.2.0 (2026-11-03)
 
 A club can leave its host with everything, and share a hosted server safely: one monthly cap on what

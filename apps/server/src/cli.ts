@@ -32,7 +32,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { money, t, pickLang, type Lang, type Text } from "@kumi/i18n";
-import { connect, dayText, heldSummary, KumiError, leavingStatus, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
+import { connect, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS } from "@kumi/core";
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
@@ -197,6 +197,7 @@ async function main(): Promise<number> {
         const x = u.kinds[k];
         console.log(`  ${t(lang, `cli.usage_${k}`, { count: k === "texts" ? x.segments : x.count })}: ${cents(x.cents)}`);
       }
+      for (const g of u.gaps) console.log(t(lang, "cli.usage_gap", { date: dayText(localDate(new Date(g.restored_at), club.time_zone)) }));
       return 0;
     } finally { await db.destroy(); }
   }
@@ -394,6 +395,8 @@ async function main(): Promise<number> {
         const held = after.held.messages + after.held.events;
         if (held) console.log(t(lang, after.vouched ? "cli.restore_held_some" : "cli.restore_held_all", { count: held }));
         if (after.support_ended) console.log(t(lang, after.vouched ? "cli.restore_support_kept_ended" : "cli.restore_support_ended", { count: after.support_ended }));
+        if (after.usage.months.length) console.log(t(lang, "cli.restore_usage_carried", { months: after.usage.months.map((m) => m.slice(0, 7)).join(", ") }));
+        if (after.usage.gap) console.log(t(lang, "cli.restore_usage_gap"));
       }
       return 0;
     } catch (e) {
@@ -467,6 +470,7 @@ async function importClub(path: string): Promise<number> {
     if (r.was_moved) console.log(`  - ${t(lang, "cli.import_moved")}`);
     if (r.held.messages + r.held.events) console.log(`  - ${t(lang, "cli.import_held", { count: r.held.messages + r.held.events })}`);
     if (r.support_ended) console.log(`  - ${t(lang, "cli.import_support_ended", { count: r.support_ended })}`);
+    if (r.usage_carried.length) console.log(`  - ${t(lang, "cli.import_usage_carried", { months: r.usage_carried.map((m) => m.slice(0, 7)).join(", ") })}`);
     if (settings.length) console.log(`  - ${t(lang, "cli.import_settings", { list: settings.join(", ") })}`);
     if (r.set_elsewhere.length) console.log(`  - ${t(lang, "cli.import_elsewhere", { list: r.set_elsewhere.join(", ") })}`);
     if (r.stripe_account && process.env.KUMI_STRIPE_CONNECT !== "1") console.log(`  - ${t(lang, "cli.import_stripe", { account: r.stripe_account })}`);

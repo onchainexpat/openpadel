@@ -210,17 +210,22 @@ snapshot() {
 # had handled is held for `kumi held send|drop`, since its messages may have gone (refunds aren't held: a refund
 # asks Stripe first). An email, text or push it had sent that the snapshot has no row for at all (made since) is kept
 # as a fingerprint for a week, so a job that makes it again doesn't send it twice (Kumi's repeats.ts, from migration 069).
+# The usage meter keeps what was spent since the snapshot (each club month and kind the larger count), and an 80% or
+# cap message said since stays said, as after kumi restore.
 psql_kumi() { $AS "$(tool psql)" -X -q -v ON_ERROR_STOP=1 -d "$DATABASE_URL" "$@"; }
 restore() {
-  local file=$1 sent done fps
-  sent=$(mktemp); done=$(mktemp); fps=$(mktemp)
+  local file=$1 sent done fps use alerts
+  sent=$(mktemp); done=$(mktemp); fps=$(mktemp); use=$(mktemp); alerts=$(mktemp)
   psql_kumi -c "COPY (SELECT id, status, sent_at, failure FROM outbound_message WHERE status IN ('sent', 'failed', 'dropped') AND created_at >= now() - interval '400 days') TO STDOUT" > "$sent" 2>/dev/null || : > "$sent"
   psql_kumi -c "COPY (SELECT id FROM event_outbox WHERE delivered_at IS NOT NULL AND created_at >= now() - interval '400 days') TO STDOUT" > "$done" 2>/dev/null || : > "$done"
   psql_kumi -c "COPY (SELECT id, encode(sha256(convert_to(concat_ws(chr(31), person_id::text, kind, channel, subject, body, coalesce(link, '')), 'UTF8')), 'hex'), sent_at FROM outbound_message WHERE status = 'sent' AND channel <> 'inbox' AND sent_at IS NOT NULL AND created_at >= now() - interval '400 days') TO STDOUT" > "$fps" 2>/dev/null || : > "$fps"
-  psql_kumi -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;' || { rm -f "$sent" "$done" "$fps"; return 1; }
-  $AS "$(tool pg_restore)" --no-owner --no-acl --exit-on-error -d "$DATABASE_URL" "$file" || { rm -f "$sent" "$done" "$fps"; return 1; }
+  psql_kumi -c "COPY (SELECT month, kind, count, input_tokens, output_tokens, segments, cents, updated_at FROM usage_month) TO STDOUT" > "$use" 2>/dev/null || : > "$use"
+  psql_kumi -c "COPY (SELECT month, near_cap, reached_cap, paused_limit FROM usage_alert) TO STDOUT" > "$alerts" 2>/dev/null || : > "$alerts"
+  psql_kumi -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;' || { rm -f "$sent" "$done" "$fps" "$use" "$alerts"; return 1; }
+  $AS "$(tool pg_restore)" --no-owner --no-acl --exit-on-error -d "$DATABASE_URL" "$file" || { rm -f "$sent" "$done" "$fps" "$use" "$alerts"; return 1; }
   carry_over "$sent" "$done" "$fps" || say "what had been sent since the snapshot couldn't be carried over (above): see kumi held before starting it"
-  rm -f "$sent" "$done" "$fps"
+  carry_meter "$use" "$alerts" || say "the usage meter couldn't be carried over (above): this month's count may be short (kumi usage)"
+  rm -f "$sent" "$done" "$fps" "$use" "$alerts"
 }
 carry_over() {
   if [ -s "$1" ]; then
@@ -236,6 +241,18 @@ carry_over() {
   if [ -s "${3:-}" ] && psql_kumi -Atc "SELECT 1 FROM information_schema.tables WHERE table_name = 'sent_before_restore'" | grep -q 1; then
     psql_kumi -c "CREATE TEMP TABLE kumi_fp (id uuid, fp text, sent_at timestamptz)" -c "COPY kumi_fp FROM STDIN" \
       -c "INSERT INTO sent_before_restore (fp, message_id, sent_at, restored_at, until) SELECT f.fp, f.id, f.sent_at, now(), now() + interval '7 days' FROM kumi_fp f WHERE NOT EXISTS (SELECT 1 FROM outbound_message m WHERE m.id = f.id)" < "$3" || return 1
+  fi
+}
+carry_meter() {
+  # Only where the snapshot's Kumi has the meter (from migration 064).
+  psql_kumi -Atc "SELECT 1 FROM information_schema.tables WHERE table_name = 'usage_month'" | grep -q 1 || return 0
+  if [ -s "$1" ]; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_use (month date, kind text, count int, input_tokens bigint, output_tokens bigint, segments int, cents numeric, updated_at timestamptz)" -c "COPY kumi_use FROM STDIN" \
+      -c "INSERT INTO usage_month AS u (month, kind, count, input_tokens, output_tokens, segments, cents, updated_at) SELECT month, kind, count, input_tokens, output_tokens, segments, cents, updated_at FROM kumi_use WHERE kind IN ('ai_decisions', 'ai_drafts', 'texts', 'email') ON CONFLICT (month, kind) DO UPDATE SET count = greatest(u.count, excluded.count), input_tokens = greatest(u.input_tokens, excluded.input_tokens), output_tokens = greatest(u.output_tokens, excluded.output_tokens), segments = greatest(u.segments, excluded.segments), cents = greatest(u.cents, excluded.cents), updated_at = greatest(u.updated_at, excluded.updated_at)" < "$1" || return 1
+  fi
+  if [ -s "$2" ]; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_alert (month date, near_cap int, reached_cap int, paused_limit int)" -c "COPY kumi_alert FROM STDIN" \
+      -c "INSERT INTO usage_alert AS a (month, near_cap, reached_cap, paused_limit) SELECT month, near_cap, reached_cap, paused_limit FROM kumi_alert ON CONFLICT (month) DO UPDATE SET near_cap = coalesce(a.near_cap, excluded.near_cap), reached_cap = coalesce(a.reached_cap, excluded.reached_cap), paused_limit = coalesce(a.paused_limit, excluded.paused_limit)" < "$2" || return 1
   fi
 }
 

@@ -12,8 +12,14 @@
 // When the database before it can't vouch (it's empty, unreadable, or another club's: a new server after the old
 // one was lost), everything still waiting is held, as after a move (held.ts).
 // Refunds and card charges ask the provider first (stripe.ts), so they're never held and never repeated.
+//
+// The usage meter (usage.ts) is carried over too: the copy's counts are older, so what AI, texts and email cost since
+// would go uncounted, and the host would bill too little and the cap let more through. Each club month and kind
+// keeps the larger of the two counts, and an 80% or cap message either had said stays said. When the database before
+// it can't vouch, what was spent between the copy's last count and the restore isn't known: the restore says so, and
+// keeps it (usage_gap) for `kumi usage` and `kumi doctor`.
 import { sql } from "kysely";
-import { connect, holdableTopics, holdPending, migrate, MESSAGE_FP, openSupportCount, REPEAT_WINDOW_DAYS, runAsSystem, type HeldCounts } from "@kumi/core";
+import { connect, holdableTopics, holdPending, migrate, MESSAGE_FP, openSupportCount, REPEAT_WINDOW_DAYS, runAsSystem, USAGE_KINDS, type Db, type HeldCounts, type Trx } from "@kumi/core";
 
 export interface SentBefore {
   timeline: string;
@@ -23,13 +29,82 @@ export interface SentBefore {
   fingerprints?: Array<{ id: string; fp: string; sent_at: Date }>;
   /** Support access it had ended (support.ts): a copy from before then mustn't bring it back. */
   support_ended?: Array<{ id: string; ended_at: Date; ended_by: string | null; end_told_at: Date | null }>;
+  /** Its usage meter (usage.ts): what was spent since the copy stays counted. */
+  usage?: MeterBefore;
 }
-export interface AfterRestore { carried: { messages: number; events_held: number; repeats: number }; held: HeldCounts; vouched: boolean; support_ended: number }
+/** The usage meter a database had: each club month's counts by kind, and the 80%, cap and paused messages said. */
+export interface MeterBefore {
+  months: Array<{ month: string; kind: string; count: number; input_tokens: string; output_tokens: string; segments: number; cents: string; updated_at: Date }>;
+  alerts: Array<{ month: string; near_cap: number | null; reached_cap: number | null; paused_limit: number | null }>;
+}
+export interface AfterRestore {
+  carried: { messages: number; events_held: number; repeats: number }; held: HeldCounts; vouched: boolean; support_ended: number;
+  /** The club months whose meter kept what was spent since the copy; gap: it couldn't (the database before can't vouch). */
+  usage: { months: string[]; gap: boolean };
+}
 
 /** The club's first recorded change: two databases with the same one are the same club's, one an earlier copy of
  *  the other. */
 async function timeline(db: ReturnType<typeof connect>): Promise<string | null> {
   return (await sql<{ id: string | null }>`SELECT (SELECT id::text FROM action_run ORDER BY created_at, id LIMIT 1) AS id`.execute(db)).rows[0]?.id ?? null;
+}
+
+/** Its own queries: a database from before the meter (migration 064) has none, and can still vouch. */
+async function readMeter(db: Db): Promise<MeterBefore> {
+  const months = (await sql<MeterBefore["months"][number]>`SELECT month::text AS month, kind, count, input_tokens::text AS input_tokens,
+    output_tokens::text AS output_tokens, segments, cents::text AS cents, updated_at FROM usage_month`.execute(db).catch(() => ({ rows: [] }))).rows;
+  const alerts = (await sql<MeterBefore["alerts"][number]>`SELECT month::text AS month, near_cap, reached_cap, paused_limit FROM usage_alert`
+    .execute(db).catch(() => ({ rows: [] }))).rows;
+  return { months, alerts };
+}
+
+/** Each club month and kind keeps the larger count (the meter only ever goes up within a month), and a message either
+ *  database had said for a month stays said, so the carried count doesn't bring the 80% or cap message again. The
+ *  months whose meter went up. */
+async function carryMeter(db: Db | Trx, u: MeterBefore | undefined): Promise<string[]> {
+  if (!u) return [];
+  const months = new Set<string>();
+  if (u.months.length) {
+    const r = await sql<{ month: string }>`INSERT INTO usage_month AS u (month, kind, count, input_tokens, output_tokens, segments, cents, updated_at)
+      SELECT s.month, s.kind, s.count, s.input_tokens, s.output_tokens, s.segments, s.cents, s.updated_at
+      FROM jsonb_to_recordset(${JSON.stringify(u.months)}::jsonb) AS s(month date, kind text, count int, input_tokens bigint, output_tokens bigint, segments int, cents numeric, updated_at timestamptz)
+      WHERE s.kind = ANY(${USAGE_KINDS})
+      ON CONFLICT (month, kind) DO UPDATE SET count = greatest(u.count, excluded.count), input_tokens = greatest(u.input_tokens, excluded.input_tokens),
+        output_tokens = greatest(u.output_tokens, excluded.output_tokens), segments = greatest(u.segments, excluded.segments),
+        cents = greatest(u.cents, excluded.cents), updated_at = greatest(u.updated_at, excluded.updated_at)
+      WHERE excluded.count > u.count OR excluded.input_tokens > u.input_tokens OR excluded.output_tokens > u.output_tokens
+        OR excluded.segments > u.segments OR excluded.cents > u.cents
+      RETURNING u.month::text AS month`.execute(db);
+    for (const row of r.rows) months.add(row.month);
+  }
+  if (u.alerts.length) {
+    await sql`INSERT INTO usage_alert AS a (month, near_cap, reached_cap, paused_limit)
+      SELECT s.month, s.near_cap, s.reached_cap, s.paused_limit FROM jsonb_to_recordset(${JSON.stringify(u.alerts)}::jsonb) AS s(month date, near_cap int, reached_cap int, paused_limit int)
+      ON CONFLICT (month) DO UPDATE SET near_cap = coalesce(a.near_cap, excluded.near_cap), reached_cap = coalesce(a.reached_cap, excluded.reached_cap),
+        paused_limit = coalesce(a.paused_limit, excluded.paused_limit)`.execute(db);
+  }
+  return [...months].sort();
+}
+
+/** Nothing to carry the meter over from: what was spent between the copy's last count and now isn't known. */
+async function recordGap(db: Db, now: Date): Promise<void> {
+  const last = (await sql<{ at: Date | null }>`SELECT max(updated_at) AS at FROM usage_month`.execute(db)).rows[0]?.at ?? null;
+  await sql`INSERT INTO usage_gap (restored_at, counted_until) VALUES (${now}, ${last}) ON CONFLICT (restored_at) DO NOTHING`.execute(db);
+}
+
+/** For an import (export.ts): the meter of the database about to be replaced, with whose club it is. */
+export async function readMeterBefore(url: string): Promise<(MeterBefore & { timeline: string }) | null> {
+  const db = connect(url);
+  try {
+    const t = await timeline(db);
+    return t ? { timeline: t, ...await readMeter(db) } : null;
+  } catch { return null; } finally { await db.destroy(); }
+}
+/** An export put onto the server the club ran on before: the meter keeps what that database had counted (the club
+ *  may have come back, or the file be older than this server's copy). Another club's, or none: nothing to carry. */
+export async function carryMeterAfterImport(db: Db, before: (MeterBefore & { timeline: string }) | null): Promise<string[]> {
+  if (!before || before.timeline !== await timeline(db)) return [];
+  return db.transaction().execute((trx) => carryMeter(trx, before));
 }
 
 /** What the database about to be replaced had sent and handled (the last 400 days). Null when it can't say. */
@@ -47,7 +122,7 @@ export async function readSentBefore(url: string): Promise<SentBefore | null> {
     // Its own query: a database from before support access (migration 067) has no such table, and can still vouch.
     const support_ended = (await sql<NonNullable<SentBefore["support_ended"]>[number]>`SELECT id::text, ended_at, ended_by::text, end_told_at FROM support_grant
       WHERE ended_at IS NOT NULL`.execute(db).catch(() => ({ rows: [] }))).rows;
-    return { timeline: t, messages, events, fingerprints, support_ended };
+    return { timeline: t, messages, events, fingerprints, support_ended, usage: await readMeter(db) };
   } catch { return null; } finally { await db.destroy(); }
 }
 
@@ -62,7 +137,8 @@ export async function afterRestore(url: string, before: SentBefore | null, now =
       // It can't say which support access was ended since: all of it ends, and the owners hear (support.ts).
       const open = await openSupportCount(db, now);
       if (open) await runAsSystem(db, "support.end_all", { why: "restored" }, "restore", { now });
-      return { carried: { messages: 0, events_held: 0, repeats: 0 }, held, vouched: false, support_ended: open };
+      await recordGap(db, now);
+      return { carried: { messages: 0, events_held: 0, repeats: 0 }, held, vouched: false, support_ended: open, usage: { months: [], gap: true } };
     }
     return await db.transaction().execute(async (trx) => {
       let messages = 0, eventsHeld = 0, repeats = 0;
@@ -93,7 +169,8 @@ export async function afterRestore(url: string, before: SentBefore | null, now =
           WHERE g.id = s.id AND g.ended_at IS NULL`.execute(trx);
         supportEnded = Number(r.numAffectedRows ?? 0);
       }
-      return { carried: { messages, events_held: eventsHeld, repeats }, held: { messages: 0, events: eventsHeld }, vouched: true, support_ended: supportEnded };
+      const usage = { months: await carryMeter(trx, before.usage), gap: false };
+      return { carried: { messages, events_held: eventsHeld, repeats }, held: { messages: 0, events: eventsHeld }, vouched: true, support_ended: supportEnded, usage };
     });
   } finally { await db.destroy(); }
 }

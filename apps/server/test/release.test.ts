@@ -61,10 +61,12 @@ before(() => {
     // pg_dump ... -f <file> ...: the database file, copied.
     pg_dump: `while [ $# -gt 0 ]; do [ "$1" = -f ] && out="$2"; shift; done; cp "$STUB_DB" "$out"`,
     // psql: emptying the database (before a restore), and the carry-over of what was sent since the snapshot
-    // (one message that had gone, and its fingerprint; the snapshot's Kumi looks for fingerprints), each call
-    // written down.
+    // (one message that had gone, and its fingerprint; the snapshot's Kumi looks for fingerprints) and of the usage
+    // meter (a month's texts, and its 80% message; the snapshot's Kumi has the meter), each call written down.
     psql: `echo "$*" >> "$STUB_ROOT/.psql"; case "$*" in *"DROP SCHEMA"*) : > "$STUB_DB";; *"COPY (SELECT id, status"*) printf 'm1\\tsent\\t2026-11-03 10:00:00+00\\t\\\\N\\n';;
-      *"COPY (SELECT id, encode"*) printf 'm1\\tf1\\t2026-11-03 10:00:00+00\\n';; *"table_name = 'sent_before_restore'"*) echo 1;; esac`,
+      *"COPY (SELECT id, encode"*) printf 'm1\\tf1\\t2026-11-03 10:00:00+00\\n';; *"table_name = 'sent_before_restore'"*) echo 1;;
+      *"COPY (SELECT month, kind"*) printf '2026-11-01\\ttexts\\t3\\t0\\t0\\t3\\t3.78\\t2026-11-03 10:00:00+00\\n';; *"COPY (SELECT month, near_cap"*) printf '2026-11-01\\t5000\\t\\\\N\\t\\\\N\\n';;
+      *"table_name = 'usage_month'"*) echo 1;; esac`,
     pg_restore: `for a; do last="$a"; done; cp "$last" "$STUB_DB"`,
     // Starting the server: a release marked MIGRATE changes the database as it starts (once, as migrations do).
     restart: `rev=$(basename "$(readlink "$STUB_ROOT/app")"); [ -f "$STUB_ROOT/app/MIGRATE" ] && ! grep -q "migrated by $rev" "$STUB_DB" && echo "migrated by $rev" >> "$STUB_DB"; echo "$rev" > "$STUB_ROOT/.up"; true`,
@@ -118,6 +120,9 @@ test("a release that doesn't come up is taken back: the old release and the data
   assert.ok(calls.indexOf("COPY (SELECT id, status") < calls.indexOf("DROP SCHEMA") && calls.indexOf("DROP SCHEMA") < calls.indexOf("UPDATE outbound_message"), calls);
   // And what it had sent that the snapshot has no row for: fingerprints, so a job making it again doesn't send it.
   assert.ok(calls.indexOf("COPY (SELECT id, encode") < calls.indexOf("DROP SCHEMA") && calls.indexOf("DROP SCHEMA") < calls.indexOf("INSERT INTO sent_before_restore"), calls);
+  // And the usage meter: what was spent since the snapshot stays counted, and the 80% message said since stays said.
+  assert.ok(calls.indexOf("COPY (SELECT month, kind") < calls.indexOf("DROP SCHEMA") && calls.indexOf("DROP SCHEMA") < calls.indexOf("INSERT INTO usage_month"), calls);
+  assert.ok(calls.indexOf("COPY (SELECT month, near_cap") < calls.indexOf("DROP SCHEMA") && calls.indexOf("DROP SCHEMA") < calls.indexOf("INSERT INTO usage_alert"), calls);
   assert.equal(caddy(), sites("r2"));
   assert.equal(reloads(), 1);
   assert.ok(!readdirSync(t).some((f) => f.startsWith("Caddyfile.")));

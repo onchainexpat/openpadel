@@ -130,12 +130,23 @@ async function monthsOf(db: Db | Trx, months?: string[]) {
 const total = (kinds: Record<UsageKind, Line>) => USAGE_KINDS.reduce((n, k) => n + kinds[k].cents, 0);
 const cents4 = (n: number) => Math.round(n * 10_000) / 10_000;
 
-/** One month's lines by kind, in cents to four places, for the host's bill (`kumi usage`). */
+/** Restores that couldn't carry the meter over (after_restore.ts) and touch this club month: what was spent between
+ *  the copy's last count and the restore isn't counted, so the month may be short. */
+export async function usageGaps(db: Db | Trx, month: string, tz: string): Promise<Array<{ restored_at: Date; counted_until: Date | null }>> {
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  return db.selectFrom("usage_gap").select(["restored_at", "counted_until"])
+    .where("restored_at", ">=", atLocal(y, m, 1, 0, tz)).where(sql<Date>`coalesce(counted_until, restored_at)`, "<", nextMonthStart(month, tz))
+    .orderBy("restored_at").execute();
+}
+
+/** One month's lines by kind, in cents to four places, for the host's bill (`kumi usage`); gaps, when a restore left
+ *  part of the month uncounted. */
 export async function usageMonth(db: Db | Trx, month: string) {
   const c = await capOf(db);
   const kinds = (await monthsOf(db, [month])).get(month) ?? Object.fromEntries(USAGE_KINDS.map((k) => [k, empty()])) as Record<UsageKind, Line>;
+  const gaps = c ? (await usageGaps(db, month, c.tz)).map((g) => ({ restored_at: g.restored_at.toISOString(), counted_until: g.counted_until?.toISOString() ?? null })) : [];
   return { month, time_zone: c?.tz ?? null, cap_cents: c?.cap ?? null, over_cents: c?.over ?? null, total_cents: cents4(total(kinds)),
-    kinds: Object.fromEntries(USAGE_KINDS.map((k) => [k, { ...kinds[k], cents: cents4(kinds[k].cents) }])) as Record<UsageKind, Line> };
+    kinds: Object.fromEntries(USAGE_KINDS.map((k) => [k, { ...kinds[k], cents: cents4(kinds[k].cents) }])) as Record<UsageKind, Line>, gaps };
 }
 
 /** This month by kind against the cap, and the twelve months before it, newest first (the Usage page). */

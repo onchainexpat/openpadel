@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
 import { connect, holdPending, isSealedText, migrate, openBytes, openSupportCount, openText, runAsSystem, sealBytes, sealText, SEALED_COLUMNS, SealedError, type Db, type HeldCounts } from "@kumi/core";
+import { carryMeterAfterImport, readMeterBefore } from "./after_restore.ts";
 import { makeBackup, readOpsRecords, safeRestore, writeOpsRecords, type Manifest } from "./backups.ts";
 import { REVISION, VERSION } from "./version.ts";
 
@@ -177,7 +178,9 @@ const hostOf = (url: string | null | undefined) => { try { return url ? new URL(
 
 export interface ImportReport {
   club: string; from: { version: string; created_at: string }; safety_copy: string; migrations_run: string[]; secrets: number; secrets_lost: number;
-  passkeys_retired: number; was_read_only: boolean; was_leaving: string | null; was_moved: boolean; held: HeldCounts; support_ended: number; settings: Record<string, string>; set_elsewhere: string[]; club_file: Buffer | null;
+  passkeys_retired: number; was_read_only: boolean; was_leaving: string | null; was_moved: boolean; held: HeldCounts; support_ended: number;
+  /** Club months whose usage meter kept what this server's database had counted (the club ran here before). */
+  usage_carried: string[]; settings: Record<string, string>; set_elsewhere: string[]; club_file: Buffer | null;
   stripe_account: string | null; texting_registered: boolean;
 }
 
@@ -192,11 +195,12 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
   const known = knownMigrations(), newer = manifest.migrations.filter((m) => !known.has(m));
   if (newer.length) throw new ExportRefused(`this export comes from a newer Kumi (${manifest.kumi.version}, ${newer.length} changes this one doesn't have): update this server first`);
   const tmp = mkdtempSync(join(tmpdir(), "kumi-import-"));
-  let safetyCopy: string, kept: Awaited<ReturnType<typeof readOpsRecords>> = [];
+  let safetyCopy: string, kept: Awaited<ReturnType<typeof readOpsRecords>> = [], meter: Awaited<ReturnType<typeof readMeterBefore>> = null;
   try {
     const dumpFile = join(tmp, "database.dump");
     writeFileSync(dumpFile, entries.get("database.dump")!, { mode: 0o600 });
     kept = await readOpsRecords(o.url);
+    meter = await readMeterBefore(o.url);
     ({ safetyCopy } = await safeRestore(o.url, dumpFile, { dir: o.dir, env, now }));
   } finally { rmSync(tmp, { recursive: true, force: true }); }
   const db = connect(o.url);
@@ -205,6 +209,8 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
     await sql`DELETE FROM ops_heartbeat`.execute(db).catch(() => undefined);
     await writeOpsRecords(o.url, kept);
     const migrationsRun = await migrate(db);
+    // Back on a server the club ran on before: what this one's meter had counted stays counted (after_restore.ts).
+    const usageCarried = await carryMeterAfterImport(db, meter);
     // What was still waiting to go out on the old server, which may still be sending it: held here until this
     // server's owner says (held.ts). First, so nothing below (read-only and the leaving day going off) is held.
     // Unless the old server had been told the club moved before the file was made (club_exit.ts): it sends members
@@ -243,7 +249,7 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
     if (club.leaving_on) await runAsSystem(db, "club.leaving", { on: null, tell: false }, "import", { now });
     const texting = await db.selectFrom("texting_registration").select("id").executeTakeFirst();
     return { club: club.name, from: { version: manifest.kumi.version, created_at: manifest.created_at }, safety_copy: safetyCopy, migrations_run: migrationsRun, secrets: carried,
-      secrets_lost: lost, passkeys_retired: retired, was_read_only: Boolean(club.read_only_since), was_leaving: club.leaving_on, was_moved: Boolean(moved), held, support_ended: supportOpen, settings: manifest.settings, set_elsewhere: manifest.set_elsewhere,
+      secrets_lost: lost, passkeys_retired: retired, was_read_only: Boolean(club.read_only_since), was_leaving: club.leaving_on, was_moved: Boolean(moved), held, support_ended: supportOpen, usage_carried: usageCarried, settings: manifest.settings, set_elsewhere: manifest.set_elsewhere,
       club_file: entries.get("club.yaml") ?? null, stripe_account: club.stripe_account_id, texting_registered: Boolean(texting) };
   } finally { await db.destroy(); }
 }

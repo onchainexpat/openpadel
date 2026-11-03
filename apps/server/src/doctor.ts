@@ -3,7 +3,7 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
-import { answerCounts, clubStripeAccount, dayText, heartbeats, heldSummary, leavingOn, localParts, movedAway, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageView, type Db } from "@kumi/core";
+import { answerCounts, clubStripeAccount, dayText, heartbeats, heldSummary, leavingOn, localDate, localParts, movedAway, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageGaps, usageView, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { offsitePrunes } from "./backups.ts";
 import { archiverFailing, archiverState, PITR_CONF } from "./pitr.ts";
@@ -109,6 +109,10 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
     const usd = (cents: number) => ({ en: money(cents, "en"), es: money(cents, "es") });
     const p = { spent: usd(use.spent_cents), cap: usd(use.cap_cents), share: use.share === null ? 100 : Math.round(use.share * 100) };
     add("usage", use.state === "ok" ? "ok" : "warn", use.state === "paused" ? "usage.paused" : "usage.month", p);
+    // A restore with nothing to carry the meter over from (after_restore.ts): this month may be short.
+    const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone;
+    const gap = tz ? (await usageGaps(db, use.month, tz).catch(() => [])).at(-1) : undefined;
+    if (gap && tz) add("usage", "warn", "usage.gap", { date: dayText(localDate(gap.restored_at, tz)) });
   }
 
   // Ask the club: optional. Each model is asked whether it takes its key (listing models, which costs nothing), and
