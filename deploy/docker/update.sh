@@ -3,7 +3,7 @@
 # snapshot of the database, switch, and check the server answers as the new release. If it doesn't, the old
 # images and the snapshot go back. Run from the checkout, next to compose.yaml and .env.
 #
-#   deploy/docker/update.sh <git ref>        a release tag (v0.2.0) or a branch
+#   deploy/docker/update.sh <git ref>        a release tag (v0.2.1) or a branch
 #   deploy/docker/update.sh rollback --yes   the previous release, and the database as it was just before
 #                                            the last update (everything since is lost: hence --yes)
 #

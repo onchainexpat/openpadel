@@ -5,7 +5,12 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
-## Unreleased
+## 0.2.1 (2026-11-0X)
+
+Money taken at the desk for memberships, program places and courts, with the desk's day for counting the
+drawer; the club's own terms and privacy policy shown to its members, with what each one agreed to; lighter
+first screens; what a real phone showed (the rest to pay, times on the club's clock, files that download, dark mode
+that reads); and fixes to money bugs, several of them already in 0.2.0 and 0.1.0. Every club should update.
 
 ### Added
 - **Email that can't arrive stops.** Resend's reports of a hard bounce, a spam complaint, or an address it won't send to
@@ -123,7 +128,8 @@ Found by trying Kumi on a real Android phone:
 - **A coach's Reports page showed "Occupancy and revenue" at $0.00.** A coach doesn't see the club's money; their page
   is now their own lessons and sessions.
 
-Found by a review of the money paid at the desk (above), most of it in code older than that change.
+Found by a review of the money paid at the desk (above), most of it in code older than that change. Those
+marked "in 0.2.0" or "since 0.1.0" are in the release a club runs now: update.
 - **A payment called off while its card form was open could still be paid, and the money went unrecorded (in
   0.2.0).** Cancelling a booking (or a program, or a friend's share at the deadline) marked its payment failed but
   left the card form open at Stripe: the member could pay, the card was charged, and Kumi neither counted nor
@@ -192,6 +198,30 @@ Found by a review of the money paid at the desk (above), most of it in code olde
   release with `update.sh rollback --yes` stops the `pitr` service and Postgres stops archiving; the archive is kept,
   and the next update to this one takes a base backup at once (the service takes one each time it starts), so the
   minutes since are reachable again; those in between aren't.
+- **If the club texts,** link its privacy policy (and its terms) in Settings: carriers look for it beside the
+  yes to texts, and `kumi doctor` warns until it's set. Templates to adapt are in `docs/templates`.
+- Nothing else to do on a one-server install. The database changes apply when the server starts, and
+  Caddy's paths are the same as 0.2.0's.
+
+### Known limits
+- Self-hosted only; a hosted service is planned.
+- US clubs: US dollars and US formats, English and US Spanish, texts to US and Canadian numbers only.
+- Cards only (Apple Pay and Google Pay included), and what the desk takes for bookings, memberships and
+  program places (cash, the club's own card reader, another way); no credit, gift cards, vouchers or drop-in
+  passes.
+- A program place partly paid at the desk is kept, never let go for being unpaid, and the rest of it is never
+  reminded: it shows as owed on the roster and in the member's app.
+- A card that goes through after its payment was called off always goes back in full, even when the place it
+  was for stays booked at a new price (a date cancelled from a course): the member then pays the new price.
+- The desk's day counts the whole club, not each location's drawer.
+- Members who joined before the club linked its terms and privacy policy, or before it changed them, aren't
+  asked to agree again. Kumi keeps the links, not the pages' words: keep a dated copy of a page you change at
+  the same address.
+- Tournaments and leagues run as programs, without draws or fixtures. No chat between players, no
+  recurring bookings, and no app store apps (the members' app installs from the browser).
+- Playtomic is read only, and needs one of its top two plans for the API keys.
+- Texting registration is automatic for a toll-free number (`kumi texting`); a local number (10DLC) is
+  registered by hand in Twilio.
 
 ## 0.2.0 (2026-11-03)
 
@@ -379,11 +409,7 @@ to go live.
 - Self-hosted only; a hosted service is planned.
 - US clubs: US dollars and US formats, English and US Spanish, texts to US and Canadian numbers only.
 - Cards only (Apple Pay and Google Pay included); no credit, gift cards, vouchers or drop-in passes. The
-  desk records cash for bookings (and, after 0.2.0, for memberships and program places too: Unreleased, above).
-  A program place partly paid at the desk is kept, never let go for being unpaid, and the rest of it is never
-  reminded: it shows as owed on the roster and in the member's app.
-  A card that goes through after its payment was called off is always sent back in full, even when the place it
-  was for stays booked at a new price (a date cancelled from a course): the member then pays the new price.
+  desk records cash for bookings, not yet for memberships or program places.
 - Tournaments and leagues run as programs, without draws or fixtures. No chat between players, no
   recurring bookings, and no app store apps (the members' app installs from the browser).
 - Playtomic is read only, and needs one of its top two plans for the API keys.
