@@ -12,7 +12,7 @@ import { connect, heartbeat, jobFailed, jobWorked, localParts } from "@kumi/core
 import { backupKey, clubTimeZone, dbNameOf, scheduledDue } from "./backups.ts";
 import {
   archiveInfo, archiverFailing, archiverState, basePlan, baseBackups, baseSlot, checkTarget, clubMinute, confOffsite, confRepos, extractAt,
-  offsiteArchivePath, PITR_CONF, pitrConf, STANZA, pitrTestRun, PitrRefused, restorableFrom, scratchBase, type ArchiveInfo,
+  offsiteArchivePath, PITR_CONF, pitrConf, pitrPaths, STANZA, pitrTestRun, PitrRefused, restorableFrom, scratchBase, type ArchiveInfo,
 } from "./pitr.ts";
 
 type Env = Record<string, string | undefined>;
@@ -37,16 +37,18 @@ export function toArg(args: string[]): string | undefined {
   return i >= 0 ? args[i + 1] ?? "" : undefined;
 }
 
-export async function pitrMain(sub: string | undefined, args: string[], lang: Lang, json: boolean, env: Env = process.env): Promise<number> {
+/** `quiet`: say nothing when it works (`kumi restore --to` in Docker's pitr service says what it did itself). */
+export async function pitrMain(sub: string | undefined, args: string[], lang: Lang, json: boolean, env: Env = process.env, o: { quiet?: boolean } = {}): Promise<number> {
   const out = (v: unknown) => console.log(JSON.stringify(v, null, 2));
   const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
   // A server several clubs share (kumi-hosted) has one archive for all of them: its own stanza and settings file.
-  const conf = env.KUMI_PITR_CONF ?? PITR_CONF, stanza = env.KUMI_PITR_STANZA?.trim() || STANZA, at = { conf, stanza };
+  // Docker's pitr service names its own paths and Postgres's superuser (pitrPaths).
+  const conf = env.KUMI_PITR_CONF ?? PITR_CONF, stanza = env.KUMI_PITR_STANZA?.trim() || STANZA, paths = pitrPaths(env), at = { conf, stanza, paths };
   const refused = (e: PitrRefused) => { if (json) out({ ok: false, refused: e.why, ...e.values }); else console.error(t(lang, `cli.pitr_${e.why}` as any, e.values)); return 2; };
 
   if (sub === "conf") {
     if (env.KUMI_PITR?.trim() === "0") return 3;   // turned off on this server: setup and updates leave pgBackRest alone
-    const c = pitrConf(env, { backupKey: backupKey(env), systemId: env.KUMI_PITR_SYSTEM_ID?.trim() || null });
+    const c = pitrConf(env, { backupKey: backupKey(env), paths, systemId: env.KUMI_PITR_SYSTEM_ID?.trim() || null });
     process.stdout.write(c.text);
     return 0;
   }
@@ -106,7 +108,8 @@ export async function pitrMain(sub: string | undefined, args: string[], lang: La
         if (!args.includes("--yes")) { console.error(t(lang, "cli.pitr_confirm", { time: to })); return 2; }
         const info = await archiveInfo({ ...at, ...(archivePath ? { archivePath } : {}) });
         checkTarget(target, info, new Date(), tz, archivePath ? 2 : repo);
-        const r = await extractAt(target, dbname, file, { ...at, base: scratchBase(), ...(repo ? { repo } : {}), ...(archivePath ? { archivePath } : {}) });
+        const r = await extractAt(target, dbname, file, { ...at, base: scratchBase(paths, env), ...(repo ? { repo } : {}), ...(archivePath ? { archivePath } : {}) });
+        if (o.quiet) return 0;
         if (json) out({ ok: true, file, target: target.toISOString(), last_change: r.lastChange, seconds: r.seconds });
         else console.log(t(lang, "cli.pitr_extracted", { time: to, last: r.lastChange ? show(new Date(r.lastChange), tz) : "-", seconds: r.seconds }));
         return 0;
@@ -123,7 +126,7 @@ export async function pitrMain(sub: string | undefined, args: string[], lang: La
       }
       try {
         const info = await archiveInfo(at);
-        const r = await pitrTestRun(db, dbname, info, { ...at, base: scratchBase() });
+        const r = await pitrTestRun(db, dbname, info, { ...at, base: scratchBase(paths, env) });
         if (r.ok) await jobWorked(db, "pitr_test", { target: r.target, seconds: r.seconds, kept: r.kept });
         else await jobFailed(db, "pitr_test", `restored to ${r.target} but: ${r.problems.slice(0, 3).join("; ")}`);
         if (json) { out(r); return r.ok ? 0 : 1; }

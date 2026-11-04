@@ -74,12 +74,49 @@ test("root runs only root's files: its own copy of release.sh, releases made roo
 test("Docker: the server connects as kumi_app, not the database's superuser; older setups move over once", () => {
   const compose = read("compose.yaml"), init = read("deploy/docker/db-init.sh"), update = read("deploy/docker/update.sh");
   assert.ok(!/postgresql:\/\/kumi:/.test(compose), "no service connects as the superuser kumi");
-  assert.equal((compose.match(/postgresql:\/\/kumi_app:/g) ?? []).length, 2);   // the server and the backup service
+  assert.equal((compose.match(/postgresql:\/\/kumi_app:/g) ?? []).length, 3);   // the server, the backup and the pitr services
   assert.match(compose, /db-init\.sh:\/docker-entrypoint-initdb\.d\//);
   assert.match(init, /CREATE ROLE kumi_app LOGIN NOSUPERUSER NOCREATEROLE CREATEDB/);
   assert.match(init, /ALTER DATABASE kumi OWNER TO kumi_app/);
   assert.match(update, /move_to_app_role\(\)/);
   assert.match(update, /chmod 600 \.env/);
+});
+
+test("Docker: point-in-time backups beside Postgres, as its own user, never in the server's container", () => {
+  const compose = read("compose.yaml"), docker = read("Dockerfile"), update = read("deploy/docker/update.sh");
+  const push = read("deploy/docker/pgbackrest-archive-push"), pitr = read("deploy/docker/pitr.sh");
+  // A service's own lines: up to the next service, or the comment above it.
+  const service = (name: string) => new RegExp(`\\n  ${name}:\\n([\\s\\S]*?)(?=\\n  (?:#|[a-z]+:\\n)|\\nvolumes:)`).exec(compose)![1]!;
+  const db = service("db"), kumi = service("kumi"), backup = service("backup"), p = service("pitr");
+  // The same Postgres as before (Alpine's): another image would bring other files' owner and another text ordering.
+  assert.match(docker, /FROM postgres:17\.9-alpine AS db\n/);
+  assert.match(docker, /apk add --no-cache --virtual postgresql libpq && apk add --no-cache pgbackrest=2\.57\.0-r0/);
+  // Postgres archives through the wrapper (pgBackRest's check wants its name in archive_command), which lets each
+  // piece go until the pitr service has written the settings.
+  assert.match(db, /"archive_mode=on", "-c", "archive_command=\/usr\/local\/bin\/kumi-pgbackrest-archive-push %p", "-c", "archive_timeout=60"/);
+  assert.match(docker, /COPY deploy\/docker\/pgbackrest-archive-push \/usr\/local\/bin\/kumi-pgbackrest-archive-push/);
+  assert.match(push, /\[ -f \/etc\/pgbackrest\/pgbackrest\.conf \] \|\| exit 0\nexec pgbackrest --stanza=kumi archive-push "\$1"/);
+  assert.match(db, /pitr-conf:\/etc\/pgbackrest:ro/);
+  // The pitr service: the db image's postgres user, the database's folder read-only, Postgres's socket, the archive.
+  assert.match(docker, /FROM db AS pitr\n[\s\S]*USER postgres\n/);
+  for (const want of ["db:/var/lib/postgresql/data:ro", "pgrun:/var/run/postgresql", "pitr:/var/lib/pgbackrest", "pitr-conf:/etc/pgbackrest", "pitr-work:/var/lib/kumi-pitr", "init: true", "KUMI_PITR_PG_USER: kumi"])
+    assert.ok(p.includes(want), want);
+  assert.match(p, /DATABASE_URL: postgresql:\/\/kumi_app:/, "the club's database as kumi_app, like the server");
+  // Nothing of it reaches the server's container: no socket (local connections there are Postgres's superuser), no
+  // archive, no settings with the offsite key. The server's image stays the node user's.
+  for (const s of [kumi, backup]) assert.ok(!/pgrun|pitr|pgbackrest/.test(s), s);
+  assert.match(docker, /FROM node:24\.22\.0-bookworm-slim AS server\n[\s\S]*?USER node\n/);
+  // The service writes the settings, makes the archive before Postgres is told to use it, then ticks hourly at :37.
+  assert.match(pitr, /KUMI_PITR_SYSTEM_ID=\$sid kumi pitr conf > "\$conf\.new"; rc=\$\?/);
+  assert.match(pitr, /pgbackrest --config="\$conf\.new" --stanza=kumi --log-level-console=warn stanza-create[\s\S]*mv -f "\$conf\.new" "\$conf"/);
+  // A base backup at every start: after a stretch without archiving, the minutes since are reachable at once.
+  assert.match(pitr, /tick=--now\nwhile :; do\n\s+kumi pitr tick \$tick; tick=\n\s+kumi pitr test --scheduled/);
+  assert.match(pitr, /\(2220 - \$\(date \+%s\) % 3600/);
+  // Updates: the pitr image is kept under the old commit's tag; it's stopped for a snapshot's restore only where the
+  // checkout's compose.yaml has it; going back to a release without it stops it too.
+  assert.match(update, /for i in kumi-server kumi-web kumi-pitr; do/);
+  assert.match(update, /stop_app\(\) \{ docker compose stop kumi backup \$\(docker compose config --services 2>\/dev\/null \| grep -x pitr \|\| true\); \}/);
+  assert.match(update, /docker compose up -d --remove-orphans; \}/);
 });
 
 test("putting a snapshot back holds the same notices as kumi restore: everything but refunds", async () => {

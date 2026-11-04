@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
-  basePlan, baseSlot, checkTarget, clubMinute, confOffsite, confRepos, extractAt, parseInfo, pgTime, pitrCipherPass, pitrConf, PitrRefused, restorableFrom, type ArchiveInfo, type Runner,
+  basePlan, baseSlot, checkTarget, clubMinute, confOffsite, confRepos, DEFAULT_PATHS, extractAt, parseInfo, pgTime, pitrCipherPass, pitrConf, pitrPaths, PitrRefused, restorableFrom,
+  scratchBase, type ArchiveInfo, type Runner,
 } from "../src/pitr.ts";
 import { toArg } from "../src/pitr_cli.ts";
 
@@ -140,6 +141,25 @@ test("going back to a minute: the archive recovered into a scratch folder up to 
   assert.ok(p.calls.at(-1)!.startsWith("pg_ctl -D /var/lib/postgresql/17/kumi-pitr-") && p.calls.at(-1)!.includes("stop"));
   assert.equal(p.removed.length, 1);
   assert.match(p.removed[0]!, /kumi-pitr-[0-9a-f]{8}$/);
+});
+
+test("in Docker: the Postgres image's paths and its superuser kumi, by name, for pgBackRest and the scratch copy", async () => {
+  const env = { KUMI_PITR_PG_PATH: "/var/lib/postgresql/data", KUMI_PG_BIN: "/usr/local/bin", KUMI_PITR_PG_USER: "kumi" };
+  const paths = pitrPaths(env);
+  assert.deepEqual(pitrPaths({}), DEFAULT_PATHS);
+  assert.equal(paths.pgPath, "/var/lib/postgresql/data"); assert.equal(paths.superuser, "kumi"); assert.equal(paths.repoPath, "/var/lib/pgbackrest");
+  const conf = pitrConf(offsite, { backupKey: key, paths }).text;
+  assert.ok(conf.includes("pg1-path=/var/lib/postgresql/data\npg1-socket-path=/var/run/postgresql\npg1-user=kumi\n"), conf);
+  assert.ok(!pitrConf(offsite, { backupKey: key }).text.includes("pg1-user"), "postgres is pgBackRest's own default");
+  assert.equal(scratchBase(paths, { KUMI_PITR_SCRATCH: "/var/lib/kumi-pitr/scratch" }), "/var/lib/kumi-pitr/scratch");
+  const p = pretend();
+  await extractAt(new Date("2026-11-03T19:05:00Z"), "kumi", "/var/lib/kumi-pitr/at.dump", { runner: p.runner, paths, base: "/var/lib/kumi-pitr/scratch" });
+  // The postgres user is kumi only through the scratch copy's own map, in the postgres database only.
+  assert.equal([...p.files].find(([k]) => k.endsWith("/pg_hba.conf"))![1], "local postgres kumi peer map=scratch\nlocal all kumi reject\nlocal kumi all trust\n");
+  assert.equal([...p.files].find(([k]) => k.endsWith("/pg_ident.conf"))![1], "scratch postgres kumi\n");
+  for (const c of p.calls.filter((c) => c.includes("-d postgres"))) assert.ok(c.includes("-U kumi -d postgres"), c);
+  assert.ok(p.calls.some((c) => c.startsWith("pg_ctl -D /var/lib/kumi-pitr/scratch/kumi-pitr-")), "Postgres's own programs, from KUMI_PG_BIN");
+  await assert.rejects(extractAt(new Date("2026-11-03T19:05:00Z"), "kumi", "/x.dump", { runner: pretend().runner, paths: { ...paths, superuser: "kumi'; x" }, base: "/b" }), /isn't a role name/);
 });
 
 test("a club database owned by a superuser is refused: nothing in it is read or dumped as one, and the scratch goes", async () => {

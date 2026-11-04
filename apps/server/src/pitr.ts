@@ -37,11 +37,22 @@ export const LOCAL_DAYS = 14, OFFSITE_DAYS = 30;
  *  newest full backup in that copy is FULL_EVERY_DAYS old or more. */
 export const BASE_AT = { hour: 3, minute: 37 }, FULL_EVERY_DAYS = 6.5;
 
-export interface PitrPaths { pgPath: string; socket: string; repoPath: string; spool: string; log: string; pgBin: string }
+/** Where things are, and the name of Postgres's superuser (pgBackRest's, and a scratch copy's): `postgres` on a
+ *  one-server install, `kumi` in Docker, where the Postgres image names it after POSTGRES_USER. */
+export interface PitrPaths { pgPath: string; socket: string; repoPath: string; spool: string; log: string; pgBin: string; superuser: string }
 export const DEFAULT_PATHS: PitrPaths = {
   pgPath: "/var/lib/postgresql/17/main", socket: "/var/run/postgresql", repoPath: "/var/lib/pgbackrest",
-  spool: "/var/spool/pgbackrest", log: "/var/log/pgbackrest", pgBin: "/usr/lib/postgresql/17/bin",
+  spool: "/var/spool/pgbackrest", log: "/var/log/pgbackrest", pgBin: "/usr/lib/postgresql/17/bin", superuser: "postgres",
 };
+/** This server's paths: the defaults, or what Docker's pitr service says (its data folder, Postgres's own programs and
+ *  superuser are the Postgres image's). */
+export const pitrPaths = (env: Env): PitrPaths => ({
+  ...DEFAULT_PATHS,
+  ...(env.KUMI_PITR_PG_PATH?.trim() ? { pgPath: env.KUMI_PITR_PG_PATH.trim() } : {}),
+  ...(env.KUMI_PITR_PG_SOCKET?.trim() ? { socket: env.KUMI_PITR_PG_SOCKET.trim() } : {}),
+  ...(env.KUMI_PG_BIN?.trim() ? { pgBin: env.KUMI_PG_BIN.trim() } : {}),
+  ...(env.KUMI_PITR_PG_USER?.trim() ? { superuser: env.KUMI_PITR_PG_USER.trim() } : {}),
+});
 
 /** The passphrase the offsite archive is sealed with: from KUMI_BACKUP_KEY, so the key that opens the nightly
  *  offsite copies opens this too, and nothing new needs keeping. */
@@ -71,8 +82,8 @@ export function pitrConf(env: Env, o: { backupKey: Buffer | null; paths?: PitrPa
     offsite = !prunes ? "no_prune" : !o.backupKey ? "no_key" : endpoint?.protocol !== "https:" ? "not_https" : "on";
   }
   const lines = [
-    "# Point-in-time backups (Kumi's apps/server/src/pitr.ts). Written from /etc/kumi/kumi.env by server-setup.sh",
-    "# and by every update: change those settings, not this file.",
+    "# Point-in-time backups (Kumi's apps/server/src/pitr.ts). Written from the server's settings (/etc/kumi/kumi.env,",
+    "# or Docker's .env) by setup, every update and Docker's pitr service: change those settings, not this file.",
     `# offsite: ${offsite}`,
     "[global]",
     `repo1-path=${p.repoPath}`,
@@ -115,6 +126,8 @@ export function pitrConf(env: Env, o: { backupKey: Buffer | null; paths?: PitrPa
     `[${stanza}]`,
     `pg1-path=${p.pgPath}`,
     `pg1-socket-path=${p.socket}`,
+    // pgBackRest asks Postgres's own questions (in the postgres database) as its superuser, postgres unless named.
+    ...(p.superuser !== "postgres" ? [`pg1-user=${p.superuser}`] : []),
     "",
   );
   return { text: lines.join("\n"), repos, offsite };
@@ -247,8 +260,12 @@ const PG_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
  *  socket in that folder, no network), waiting until it has replayed up to the target and opened. Only the club's
  *  own database is recovered (the others are left empty), so on a server with many clubs it's quick too. */
 export async function recoverScratch(target: Date, dbname: string, o: PitrOptions & { repo?: number; base?: string; timeoutSeconds?: number; archivePath?: string } = {}): Promise<Scratch> {
-  const r = o.runner ?? localRunner, pg = bin(o);
+  const r = o.runner ?? localRunner, pg = bin(o), su = (o.paths ?? DEFAULT_PATHS).superuser;
   if (!PG_NAME.test(dbname)) throw new Error(`"${dbname}" isn't a database name the point-in-time restore takes`);
+  if (!PG_NAME.test(su)) throw new Error(`"${su}" isn't a role name the point-in-time restore takes`);
+  // Postgres's superuser by name where it isn't the postgres user's own (Docker's is kumi): psql asks for it with -U,
+  // and the postgres user may be it only through the scratch copy's own ident map.
+  const asSu = su === "postgres" ? [] : ["-U", su];
   const dir = join(o.base ?? join((o.paths ?? DEFAULT_PATHS).pgPath, ".."), `kumi-pitr-${randomBytes(4).toString("hex")}`);
   const sock = join(dir, "run"), port = 54000 + Math.floor(Math.random() * 900);
   await r.mkdir(dir);
@@ -271,14 +288,14 @@ export async function recoverScratch(target: Date, dbname: string, o: PitrOption
     ].join("\n"), 0o600);
     // Postgres's superuser gets the postgres database only: a superuser session in the club's database is refused by
     // Postgres itself, not just never asked for.
-    await r.write(join(dir, "pg_hba.conf"), `local postgres postgres peer\nlocal all postgres reject\nlocal ${dbname} all trust\n`, 0o600);
-    await r.write(join(dir, "pg_ident.conf"), "", 0o600);
+    await r.write(join(dir, "pg_hba.conf"), `local postgres ${su} peer${su === "postgres" ? "" : " map=scratch"}\nlocal all ${su} reject\nlocal ${dbname} all trust\n`, 0o600);
+    await r.write(join(dir, "pg_ident.conf"), su === "postgres" ? "" : `scratch postgres ${su}\n`, 0o600);
     const started = await r.run(pg("pg_ctl"), ["-D", dir, "-l", join(dir, "recovery.log"), "-w", "-t", String(o.timeoutSeconds ?? 3600), "start"]);
     if (started.code !== 0) throw new Error(await recoveryProblem(r, dir) ?? `the scratch copy didn't start: ${started.stderr.trim()}`);
     // It replays the archive up to the target, then leaves recovery and opens: until then connections are refused.
     const until = Date.now() + (o.timeoutSeconds ?? 3600) * 1000;
     for (;;) {
-      const q = await r.run(pg("psql"), ["-X", "-h", sock, "-p", String(port), "-d", "postgres", "-Atc", "SELECT pg_catalog.pg_is_in_recovery()"]);
+      const q = await r.run(pg("psql"), ["-X", "-h", sock, "-p", String(port), ...asSu, "-d", "postgres", "-Atc", "SELECT pg_catalog.pg_is_in_recovery()"]);
       if (q.code === 0 && q.stdout.trim() === "f") break;
       if (q.code !== 0 && (await r.run(pg("pg_ctl"), ["-D", dir, "status"])).code !== 0) throw new Error(await recoveryProblem(r, dir) ?? "the scratch copy stopped while replaying the archive");
       if (Date.now() > until) throw new Error("the scratch copy didn't finish replaying the archive in time");
@@ -286,7 +303,7 @@ export async function recoverScratch(target: Date, dbname: string, o: PitrOption
     }
     // Who owns the club's database (in the restored copy): the role its checks and its dump run as. Never a
     // superuser: one that is would make those superuser sessions in the club's database after all.
-    const who = (await must(r, pg("psql"), ["-X", "-h", sock, "-p", String(port), "-d", "postgres", "-Atc",
+    const who = (await must(r, pg("psql"), ["-X", "-h", sock, "-p", String(port), ...asSu, "-d", "postgres", "-Atc",
       `SELECT r.rolname || ' ' || r.rolsuper::text FROM pg_catalog.pg_database d JOIN pg_catalog.pg_roles r ON r.oid = d.datdba WHERE d.datname = '${dbname}'`], "finding who owns the club's database")).trim();
     const [owner, superuser] = who.split(" ");
     if (!owner || !PG_NAME.test(owner)) throw new Error(`the restored copy has no database ${dbname}, or its owner's name is unexpected (${who || "none"})`);
@@ -369,5 +386,7 @@ export async function pitrTestRun(live: Kysely<any>, dbname: string, info: Archi
   return { ok: problems.length === 0, target: target.toISOString(), seconds: Math.round((Date.now() - t0) / 1000), problems, kept };
 }
 
-/** Where scratch copies go by default: beside the cluster (the postgres user's), else the temporary folder. */
-export const scratchBase = (paths: PitrPaths = DEFAULT_PATHS) => (existsSync(join(paths.pgPath, "..")) ? join(paths.pgPath, "..") : tmpdir());
+/** Where scratch copies go: KUMI_PITR_SCRATCH (Docker's pitr service: a volume of its own, since the cluster's folder
+ *  is mounted read-only there), else beside the cluster (the postgres user's), else the temporary folder. */
+export const scratchBase = (paths: PitrPaths = DEFAULT_PATHS, env: Env = {}) =>
+  env.KUMI_PITR_SCRATCH?.trim() || (existsSync(join(paths.pgPath, "..")) ? join(paths.pgPath, "..") : tmpdir());

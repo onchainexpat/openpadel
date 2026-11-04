@@ -154,6 +154,10 @@ while the club is busy, and takes a base backup every night at 3:37 club time (a
 sets pgBackRest up and takes the first base backup. On a server set up before this, run `server-setup.sh` again
 once. `KUMI_PITR=0`, in the environment of `server-setup.sh` and in `/etc/kumi/kumi.env`, leaves it off.
 
+**With Docker**, the `pitr` service does all of this beside Postgres, with the same two copies, the same test and the
+same checks; going back is `docker compose exec pitr kumi restore --to=... --yes` with `kumi` stopped
+([deploy/docker/README.md](../../../deploy/docker/README.md#going-back-to-a-minute)).
+
 To go back:
 ```bash
 kumi pitr status                                   # how far back it reaches, and whether it's keeping up

@@ -209,31 +209,32 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   else { const days = Math.round(ago(rt.last_ok_at)! / 24); add("restore_test", days > 40 ? "warn" : "ok", days > 40 ? `restore_test.old${d}` : "restore_test.ok", { days }); }
 
   // Point-in-time backups (pitr.ts): Postgres handing its log to the archive, and the nightly base backups as the
-  // postgres user's job recorded them (the kumi user can't read the archive itself).
-  const pitrDoc = "docs/setup/accounts/offsite-backups.md";
+  // postgres user's job recorded them (the kumi user can't read the archive itself). In Docker that job is the pitr
+  // service, which holds pgBackRest's settings itself: the server's container never sees them.
+  const pitrDoc = docker ? "deploy/docker/README.md" : "docs/setup/accounts/offsite-backups.md";
   if (env.KUMI_PITR_HOST === "1") { add("pitr", "ok", "pitr.hosted"); return checks; }
-  if (docker) { add("pitr", "off", "pitr.off_docker", {}, pitrDoc); return checks; }
   const a = await archiverState(db).catch(() => null), p = hb.pitr;
   const pd = (p?.details ?? {}) as { newest_at?: string | null; restorable_from?: string | null; repos?: number[]; offsite?: string };
-  if (!a || a.mode !== "on" || env.KUMI_PITR?.trim() === "0") { add("pitr", production ? "warn" : "off", "pitr.off", {}, pitrDoc); return checks; }
-  if (!existsSync(env.KUMI_PITR_CONF ?? PITR_CONF)) add("pitr", "warn", "pitr.not_set_up", {}, pitrDoc);
-  else if (archiverFailing(a)) add("pitr", "fail", "pitr.archive_failing", { wal: a.lastFailedWal ?? "" }, pitrDoc);
+  if (env.KUMI_PITR?.trim() === "0") { add("pitr", production ? "warn" : "off", "pitr.off_setting", {}, pitrDoc); return checks; }
+  if (!a || a.mode !== "on") { add("pitr", production ? "warn" : "off", `pitr.off${d}`, {}, pitrDoc); return checks; }
+  if (!docker && !existsSync(env.KUMI_PITR_CONF ?? PITR_CONF)) add("pitr", "warn", "pitr.not_set_up", {}, pitrDoc);
+  else if (archiverFailing(a)) add("pitr", "fail", `pitr.archive_failing${d}`, { wal: a.lastFailedWal ?? "" }, pitrDoc);
   else if (p?.last_error) add("pitr", "fail", "pitr.base_failing", { error: p.last_error }, pitrDoc);
-  else if (!pd.newest_at || !pd.restorable_from) add("pitr", "warn", "pitr.waiting", {}, pitrDoc);
+  else if (!pd.newest_at || !pd.restorable_from) add("pitr", "warn", `pitr.waiting${d}`, {}, pitrDoc);
   else {
     const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirst().catch(() => undefined))?.time_zone ?? "UTC";
     const lp = localParts(new Date(pd.restorable_from), tz), z = (n: number) => String(n).padStart(2, "0");
     const from = `${lp.y}-${z(lp.m)}-${z(lp.d)} ${z(lp.h)}:${z(lp.min)}`, h = Math.round(ago(new Date(pd.newest_at))!);
-    if (h > 36) add("pitr", "warn", "pitr.old", { hours: h }, pitrDoc);
+    if (h > 36) add("pitr", "warn", `pitr.old${d}`, { hours: h }, pitrDoc);
     else if (pd.offsite === "no_prune") add("pitr", "ok", "pitr.ok_local_no_prune", { from });
     else add("pitr", "ok", "pitr.ok", { from, copies: both((pd.repos ?? []).includes(2) ? "doctor.pitr.copies_both" : "doctor.pitr.copies_local") });
   }
   const pt = hb.pitr_test;
   if (pt?.last_error) add("pitr_test", "fail", "pitr_test.failing", { error: pt.last_error }, pitrDoc);
-  else if (!pt?.last_ok_at) add("pitr_test", production ? "warn" : "off", "pitr_test.never", {}, pitrDoc);
+  else if (!pt?.last_ok_at) add("pitr_test", production ? "warn" : "off", `pitr_test.never${d}`, {}, pitrDoc);
   else {
     const days = Math.round(ago(pt.last_ok_at)! / 24), minutes = Math.max(1, Math.round(Number((pt.details as { seconds?: number }).seconds ?? 0) / 60));
-    add("pitr_test", days > 40 ? "warn" : "ok", days > 40 ? "pitr_test.old" : "pitr_test.ok", { days, minutes });
+    add("pitr_test", days > 40 ? "warn" : "ok", days > 40 ? `pitr_test.old${d}` : "pitr_test.ok", { days, minutes });
   }
   return checks;
 }

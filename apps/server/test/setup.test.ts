@@ -97,6 +97,10 @@ test("doctor: each check, and what's wrong in production", async () => {
   const one = await checks({}), dock = await checks({ KUMI_INSTALL: "docker" });
   assert.match(one.backups!.text.en, /kumi-backup timer/); assert.match(dock.backups!.text.en, /docker compose logs backup/);
   assert.equal(one.restore_test!.doc, "deploy/README.md"); assert.equal(dock.restore_test!.doc, "deploy/docker/README.md");
+  // Point-in-time backups off (this database doesn't archive): each says how to turn them on its own way.
+  assert.match(one.pitr!.text.en, /server-setup\.sh/); assert.match(dock.pitr!.text.en, /deploy\/docker\/update\.sh/);
+  assert.equal(dock.pitr!.doc, "deploy/docker/README.md");
+  for (const install of [{}, { KUMI_INSTALL: "docker" }] as Array<Record<string, string>>) assert.match((await checks({ ...install, KUMI_PITR: "0" })).pitr!.text.en, /as KUMI_PITR=0 in the settings says/);
   // Live without email, sign-in codes would only reach the log: the server refuses to start, and doctor fails.
   assert.equal(one.email!.state, "fail"); assert.match(one.email!.text.en, /won't start/);
   assert.equal((await checks({ KUMI_PRACTICE: "1" })).email!.state, "warn");

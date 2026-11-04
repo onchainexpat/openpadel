@@ -1,15 +1,25 @@
-# Kumi in Docker: Postgres, the server, Caddy with HTTPS, and a nightly backup. Settings come from .env
-# (copy deploy/docker/env.example). See deploy/docker/README.md.
+# Kumi in Docker: Postgres, the server, Caddy with HTTPS, a nightly backup and point-in-time backups. Settings come
+# from .env (copy deploy/docker/env.example). See deploy/docker/README.md.
 name: kumi
 services:
   db:
-    image: postgres:17.9-alpine
+    # The Postgres image with pgBackRest (the Dockerfile's db stage). Its tag names what's in it, so an update that
+    # doesn't change it leaves Postgres running.
+    image: kumi-db:17.9-pgbackrest-2.57.0
+    build: { context: ., target: db }
+    # Each finished piece of the write-ahead log goes to the archive, at least once a minute while the club is busy.
+    command: ["postgres", "-c", "archive_mode=on", "-c", "archive_command=/usr/local/bin/kumi-pgbackrest-archive-push %p", "-c", "archive_timeout=60"]
     environment:
       POSTGRES_USER: kumi
       POSTGRES_DB: kumi
       POSTGRES_PASSWORD: ${KUMI_DB_PASSWORD:?set KUMI_DB_PASSWORD in .env}
       KUMI_DB_PASSWORD: ${KUMI_DB_PASSWORD}   # for kumi_app, the role the server connects as (db-init.sh)
-    volumes: [db:/var/lib/postgresql/data, ./deploy/docker/db-init.sh:/docker-entrypoint-initdb.d/10-kumi-app.sh:ro]
+    volumes:
+      - db:/var/lib/postgresql/data
+      - ./deploy/docker/db-init.sh:/docker-entrypoint-initdb.d/10-kumi-app.sh:ro
+      - pgrun:/var/run/postgresql          # its socket, for the pitr service
+      - pitr:/var/lib/pgbackrest           # the archive on this machine
+      - pitr-conf:/etc/pgbackrest:ro       # pgBackRest's settings, which the pitr service writes
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U kumi -d kumi"], interval: 5s, timeout: 5s, retries: 20 }
     restart: unless-stopped
 
@@ -54,4 +64,28 @@ services:
     depends_on: { db: { condition: service_healthy }, kumi: { condition: service_started } }
     restart: unless-stopped
 
-volumes: { db: {}, caddy-data: {}, caddy-config: {} }
+  # Point-in-time backups (deploy/docker/pitr.sh): any minute of the last 14 days on this machine, and of the last 30
+  # offsite once offsite backups are set up, sealed with KUMI_BACKUP_KEY. A base backup every night at 3:37 club
+  # time, the monthly test on the 1st, and `kumi restore --to` here. It runs as Postgres's own user, with the database's
+  # folder read-only and Postgres's socket, so pgBackRest can ask Postgres for its backups; the club's database
+  # itself it opens as kumi_app, like the server.
+  pitr:
+    image: kumi-pitr:${KUMI_TAG:-local}
+    build: { context: ., target: pitr }
+    init: true                           # reaps the scratch copies' Postgres and passes on docker compose stop
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://kumi_app:${KUMI_DB_PASSWORD}@db/kumi
+      KUMI_PUBLIC_URL: https://staff.${KUMI_HOST}
+      KUMI_MEMBER_URL: https://${KUMI_HOST}
+      KUMI_PITR_PG_USER: kumi            # Postgres's superuser here (POSTGRES_USER above): pgBackRest's, never the club's
+    volumes:
+      - db:/var/lib/postgresql/data:ro
+      - pgrun:/var/run/postgresql
+      - pitr:/var/lib/pgbackrest
+      - pitr-conf:/etc/pgbackrest
+      - pitr-work:/var/lib/kumi-pitr     # scratch copies, and the copy a restore takes (and the one it keeps)
+    depends_on: { db: { condition: service_healthy } }
+    restart: unless-stopped
+
+volumes: { db: {}, caddy-data: {}, caddy-config: {}, pgrun: {}, pitr: {}, pitr-conf: {}, pitr-work: {} }

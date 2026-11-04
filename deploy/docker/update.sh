@@ -15,7 +15,10 @@ die() { echo "kumi: $*" >&2; exit 1; }
 setenv() { if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi; }
 # Database commands run inside the db container, over its own socket (the tests swap in their own container).
 DBX=${KUMI_DBX:-docker compose exec -T db}
-STOP_APP=${KUMI_STOP_APP:-docker compose stop kumi backup}
+# Everything that opens the club's database: the pitr service only where this checkout's compose.yaml has it (an older
+# release's doesn't, and stopping a service it doesn't name would end the update halfway).
+stop_app() { docker compose stop kumi backup $(docker compose config --services 2>/dev/null | grep -x pitr || true); }
+STOP_APP=${KUMI_STOP_APP:-stop_app}
 # .env holds every key the club has: only its owner should read it.
 case "$(stat -c %a .env)" in *00) ;; *) say "warning: .env can be read by other users on this machine; run: chmod 600 .env";; esac
 
@@ -65,7 +68,8 @@ SQL
   return 1
 }
 [ "${1:-}" = move-to-app-role ] && { move_to_app_role && exit 0; exit 1; }   # for the tests
-up_as() { setenv KUMI_TAG "$1"; KUMI_TAG=$1 docker compose up -d; }
+# --remove-orphans: going back to a release without one of these services (the pitr service, before it) stops it too.
+up_as() { setenv KUMI_TAG "$1"; KUMI_TAG=$1 docker compose up -d --remove-orphans; }
 
 if [ "${1:-}" = rollback ]; then
   [ "${2:-}" = "--yes" ] || die "going back puts the previous release back AND the database as it was just before the last update.
@@ -96,7 +100,7 @@ echo "$new" > REVISION
 
 # The running images, kept under the old commit's tag so going back doesn't need a rebuild.
 cur=$(sed -n 's/^KUMI_TAG=//p' .env); cur=${cur:-local}
-for i in kumi-server kumi-web; do if docker image inspect "$i:$cur" >/dev/null 2>&1; then docker tag "$i:$cur" "$i:$old"; fi; done
+for i in kumi-server kumi-web kumi-pitr; do if docker image inspect "$i:$cur" >/dev/null 2>&1; then docker tag "$i:$cur" "$i:$old"; fi; done
 say "building $new beside $old"
 KUMI_TAG=$new docker compose build || { echo "$old" > REVISION; git checkout -q "$old"; die "building $new failed; nothing changed, still on $old"; }
 

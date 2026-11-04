@@ -17,6 +17,13 @@ server starts.
   up, and says how many addresses are held back.
 - `kumi leaving on --email-domain=<domain>` says, in the owners' emails, what becomes of the domain the club's email
   comes from: the host's own stays with the host (`--email-domain-host`), the club's own moves to its own email account.
+- **Going back to a minute, in Docker too.** Docker installs get the point-in-time backups one-server installs have:
+  any minute of the last 14 days on the machine, and of the last 30 offsite (in the nightly copies' bucket, sealed with
+  `KUMI_BACKUP_KEY`), a base backup every night at 3:37 club time, the monthly test, and the same `kumi doctor` checks.
+  A new `pitr` service runs them beside Postgres, as Postgres's own user; the server's container sees none of it. With
+  `kumi` stopped, `docker compose exec pitr kumi restore --to="2026-11-03 14:05" --yes` puts the database back as it
+  was at that minute, with everything a restore keeps: nothing sent twice, the usage meter carried over, support
+  access ended, a copy of the database as it was made first (`deploy/docker/README.md`).
 - **Texting through a host's Twilio account.** A club texting from a subaccount of its host's Twilio account can
   name its own Secondary Customer Profile (Twilio's Trust Hub) in club.yaml, `texting.customer_profile_sid`, and the
   toll-free verification uses it (`docs/setup/accounts/twilio.md`).
@@ -42,6 +49,14 @@ server starts.
 ### When updating
 - Set up Resend's reports (`docs/setup/accounts/resend.md`, step 6): until then, `kumi doctor` warns, and nothing else
   changes.
+- **Docker installs:** update as usual, `deploy/docker/update.sh <release>`. Postgres starts again once, on its new
+  image (the same Postgres, with pgBackRest), now archiving its log; the server waits for it, as at any start. The new
+  `pitr` service writes pgBackRest's settings from `.env`, makes the archive and takes the first base backup at once,
+  and `kumi doctor` says how far back it reaches. The database's files stay as they are. Running the update again
+  changes nothing. To leave point-in-time backups off, put `KUMI_PITR=0` in `.env` first. Going back to an earlier
+  release with `update.sh rollback --yes` stops the `pitr` service and Postgres stops archiving; the archive is kept,
+  and the next update to this one takes a base backup at once (the service takes one each time it starts), so the
+  minutes since are reachable again; those in between aren't.
 
 ## 0.2.0 (2026-11-03)
 

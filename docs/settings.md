@@ -98,13 +98,13 @@ month's lines by kind (calls, tokens, segments, emails and cents to four places)
 | `KUMI_OFFSITE_BUCKET` | The bucket. | |
 | `KUMI_OFFSITE_ACCESS_KEY_ID`, `KUMI_OFFSITE_SECRET_ACCESS_KEY` | A key for that bucket only, allowed to read, write and list, and to delete unless `KUMI_OFFSITE_PRUNE=0`. | |
 | `KUMI_OFFSITE_PRUNE` | `0`: Kumi never deletes offsite copies; the storage's own lifecycle rules expire them, and its key needs no right to delete (so a stolen server can't wipe them). See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md). | Kumi keeps 30 days and 12 months itself |
-| `KUMI_PITR` | `0`: no point-in-time backups on this server (`server-setup.sh` and updates leave Postgres and pgBackRest alone). See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md#going-back-to-a-minute-point-in-time-backups). | on |
+| `KUMI_PITR` | `0`: no point-in-time backups on this server (`server-setup.sh` and updates leave Postgres and pgBackRest alone; in Docker the pitr service takes pgBackRest's settings away, so Postgres lets its log go). See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md#going-back-to-a-minute-point-in-time-backups). | on |
 | `KUMI_PITR_HOST` | `1` on a server that many clubs share, where the host runs the point-in-time archive for all of them: `kumi doctor` says so instead of checking it. | |
 | `KUMI_OFFSITE_REGION` | The region the storage signs for: `auto` for R2, the bucket's region elsewhere (`us-west-004`, `us-east-1`). | `auto` |
 | `KUMI_OFFSITE_PREFIX` | The folder in the bucket. | `kumi/` |
 | `KUMI_OFFSITE_PATH_STYLE` | `0` for addresses like `bucket.endpoint` instead of `endpoint/bucket`. | path style |
 | `KUMI_RESTORE_TEST_DATABASE_URL` | The scratch database the monthly restore test fills and empties. | the live server's `kumi_restore_test` |
-| `KUMI_PG_BIN` | Where `pg_dump` and `pg_restore` 17 are. | `/usr/lib/postgresql/17/bin`, else the `PATH` |
+| `KUMI_PG_BIN` | Where Postgres 17's programs are: `pg_dump` and `pg_restore`, and for point-in-time backups `pg_ctl` and `psql`. | `/usr/lib/postgresql/17/bin`, else the `PATH` |
 
 ## The kumi command
 
@@ -122,6 +122,10 @@ month's lines by kind (calls, tokens, segments, emails and cents to four places)
 | `KUMI_DB_PASSWORD` | The database password (`openssl rand -hex 24`). | required |
 | `KUMI_TAG` | Which built release the containers run; `deploy/docker/update.sh` sets it. | `local` |
 | `KUMI_HTTP_PORT`, `KUMI_HTTPS_PORT` | The ports Caddy is reached on. | `80`, `443` |
+
+The images set the rest themselves: the pitr image's `KUMI_PITR_INLINE`, `KUMI_PITR_PG_PATH`, `KUMI_PITR_SCRATCH`,
+`KUMI_PG_BIN` and `KUMI_BACKUP_DIR`, and compose.yaml's `KUMI_PITR_PG_USER` (Postgres's superuser there, `kumi`).
+They aren't set by hand.
 
 ## Development and tests only
 

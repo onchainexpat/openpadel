@@ -1,0 +1,6 @@
+#!/bin/sh
+# Postgres's archive_command in Docker (compose.yaml): each finished piece of the write-ahead log goes to pgBackRest
+# once the pitr service has written its settings; until then, or with KUMI_PITR=0, it's let go, as without
+# point-in-time backups. pgBackRest's checks want "pgbackrest" in archive_command, so this file's name has it.
+[ -f /etc/pgbackrest/pgbackrest.conf ] || exit 0
+exec pgbackrest --stanza=kumi archive-push "$1"

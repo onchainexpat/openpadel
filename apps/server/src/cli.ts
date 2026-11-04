@@ -30,7 +30,7 @@
 //   kumi pitr conf|tick|status|extract|test   point-in-time backups (pitr_cli.ts); `sudo kumi restore --to=
 //                                  "YYYY-MM-DD HH:MM" --yes` puts the database back as it was at that minute
 //   (on a one-server install, as root: kumi update <release.tar>, kumi rollback --yes, kumi releases)
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { money, t, pickLang, type Lang, type Text } from "@kumi/i18n";
 import { connect, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS, type Db } from "@kumi/core";
@@ -369,58 +369,24 @@ async function main(): Promise<number> {
     return 0;
   }
   if (cmd === "pitr") return pitrMain(sub, args, lang, json);
-  // A minute, not a file: the root wrapper (sudo kumi restore --to=...) gets that copy from the archive as the
-  // postgres user first, then restores it here as a file. Run without it, say so.
-  if (cmd === "restore" && toArg(args) !== undefined) { console.error(t(lang, "cli.pitr_needs_root")); return 2; }
+  // A minute, not a file. On a one-server install the root wrapper (sudo kumi restore --to=...) takes that copy from the
+  // archive as the postgres user first, then restores it here as a file. Docker's pitr service is that user already
+  // (KUMI_PITR_INLINE=1): it takes the copy and restores it here, with the server stopped first.
+  if (cmd === "restore" && toArg(args) !== undefined) {
+    if (process.env.KUMI_PITR_INLINE !== "1") { console.error(t(lang, process.env.KUMI_INSTALL === "docker" ? "cli.pitr_needs_pitr_service" : "cli.pitr_needs_root")); return 2; }
+    if (!args.includes("--yes")) { console.error(t(lang, "cli.pitr_confirm", { time: toArg(args) ?? "" })); return 2; }
+    const file = join(backupDir, `kumi-pitr-${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z.dump`);
+    // With --json, the restore's answer is the one said (the minute's own line is for a person).
+    const got = await pitrMain("extract", [...args, `--out=${file}`], lang, json, process.env, { quiet: json });
+    if (got !== 0) { rmSync(file, { force: true }); return got; }
+    const rc = await restoreFrom(file);
+    // The copy taken from the archive has done its job, unless the database may be empty: then it's one of the ways back.
+    if (rc === 4) console.error(t(lang, "cli.pitr_extract_kept", { file })); else rmSync(file, { force: true });
+    return rc;
+  }
   if (cmd === "restore" && sub) {
-    const source = sub;
-    if (!args.includes("--yes")) { console.error(t(lang, "cli.restore_confirm", { source })); return 2; }
-    const local = source.startsWith("offsite:") ? null : resolve(process.env.KUMI_CALLER_DIR ?? ".", source);
-    if (local && isExportFile(local)) return importClub(local);
-    let got: { file: string; cleanup: () => void };
-    try {
-      if (source.startsWith("offsite:")) {
-        const cfg = s3FromEnv(process.env), key = backupKey();
-        if (!cfg) { console.error(t(lang, "cli.offsite_off")); return 2; }
-        if (!key) { console.error(t(lang, "cli.restore_no_backup_key")); return 2; }
-        const s3 = new S3Client(cfg);
-        let objectKey = source.slice("offsite:".length);
-        if (objectKey === "latest") {
-          const latest = await offsiteLatest(s3, offsitePrefix());
-          if (!latest) { console.error(t(lang, "cli.restore_none_offsite")); return 2; }
-          objectKey = latest.dump;
-        }
-        got = await fetchOffsite(s3, objectKey, key);
-      } else got = readableDump(resolve(process.env.KUMI_CALLER_DIR ?? ".", source));
-      const kept = await readOpsRecords(dbUrl()), sent = await readSentBefore(dbUrl());
-      let safetyCopy: string;
-      try { ({ safetyCopy } = await safeRestore(dbUrl(), got.file, { dir: backupDir })); } finally { got.cleanup(); }
-      await writeOpsRecords(dbUrl(), kept);
-      // Nothing the database before it had sent goes again (after_restore.ts).
-      const after = await afterRestore(dbUrl(), sent);
-      if (json) out({ ok: true, source, safety_copy: safetyCopy, ...after });
-      else {
-        console.log(t(lang, "cli.restore_done", { source })); console.log(t(lang, "cli.restore_safety_copy", { file: safetyCopy }));
-        if (after.carried.messages) console.log(t(lang, "cli.restore_carried", { count: after.carried.messages }));
-        if (after.carried.repeats) console.log(t(lang, "cli.restore_repeats", { count: after.carried.repeats }));
-        const held = after.held.messages + after.held.events;
-        if (held) console.log(t(lang, after.vouched ? "cli.restore_held_some" : "cli.restore_held_all", { count: held }));
-        if (after.support_ended) console.log(t(lang, after.vouched ? "cli.restore_support_kept_ended" : "cli.restore_support_ended", { count: after.support_ended }));
-        if (after.usage.months.length) console.log(t(lang, "cli.restore_usage_carried", { months: after.usage.months.map((m) => m.slice(0, 7)).join(", ") }));
-        if (after.usage.gap) console.log(t(lang, "cli.restore_usage_gap"));
-      }
-      return 0;
-    } catch (e) {
-      // The exit code tells `sudo kumi restore` whether the server may start again: 4 only when the database may
-      // be empty (the restore failed and the copy made before it couldn't be put back).
-      if (e instanceof RestoreFailed) {
-        if (json) out({ ok: false, error: e.message, safety_copy: e.safetyCopy, put_back: e.putBack });
-        else console.error(t(lang, e.putBack ? "cli.restore_put_back" : "cli.restore_not_put_back", { error: e.message, file: e.safetyCopy }));
-        return e.putBack ? 3 : 4;
-      }
-      if (json) out({ ok: false, error: (e as Error).message, changed: false }); else console.error(t(lang, "cli.restore_failed", { error: (e as Error).message }));
-      return 1;
-    }
+    if (!args.includes("--yes")) { console.error(t(lang, "cli.restore_confirm", { source: sub })); return 2; }
+    return restoreFrom(sub);
   }
   if (cmd === "restore-test") {
     const db = connect();
@@ -454,6 +420,57 @@ async function main(): Promise<number> {
   }
   console.log(t(lang, "cli.usage"));
   return cmd ? 2 : 0;
+}
+
+/** `kumi restore <file|offsite:...>` (confirmed): a backup or a club's export in place of the database. The exit code
+ *  tells `sudo kumi restore` whether the server may start again: 4 only when the database may be empty. */
+async function restoreFrom(source: string): Promise<number> {
+  const local = source.startsWith("offsite:") ? null : resolve(process.env.KUMI_CALLER_DIR ?? ".", source);
+  if (local && isExportFile(local)) return importClub(local);
+  let got: { file: string; cleanup: () => void };
+  try {
+    if (source.startsWith("offsite:")) {
+      const cfg = s3FromEnv(process.env), key = backupKey();
+      if (!cfg) { console.error(t(lang, "cli.offsite_off")); return 2; }
+      if (!key) { console.error(t(lang, "cli.restore_no_backup_key")); return 2; }
+      const s3 = new S3Client(cfg);
+      let objectKey = source.slice("offsite:".length);
+      if (objectKey === "latest") {
+        const latest = await offsiteLatest(s3, offsitePrefix());
+        if (!latest) { console.error(t(lang, "cli.restore_none_offsite")); return 2; }
+        objectKey = latest.dump;
+      }
+      got = await fetchOffsite(s3, objectKey, key);
+    } else got = readableDump(resolve(process.env.KUMI_CALLER_DIR ?? ".", source));
+    const kept = await readOpsRecords(dbUrl()), sent = await readSentBefore(dbUrl());
+    let safetyCopy: string;
+    try { ({ safetyCopy } = await safeRestore(dbUrl(), got.file, { dir: backupDir })); } finally { got.cleanup(); }
+    await writeOpsRecords(dbUrl(), kept);
+    // Nothing the database before it had sent goes again (after_restore.ts).
+    const after = await afterRestore(dbUrl(), sent);
+    if (json) out({ ok: true, source, safety_copy: safetyCopy, ...after });
+    else {
+      console.log(t(lang, "cli.restore_done", { source })); console.log(t(lang, "cli.restore_safety_copy", { file: safetyCopy }));
+      if (after.carried.messages) console.log(t(lang, "cli.restore_carried", { count: after.carried.messages }));
+      if (after.carried.repeats) console.log(t(lang, "cli.restore_repeats", { count: after.carried.repeats }));
+      const held = after.held.messages + after.held.events;
+      if (held) console.log(t(lang, after.vouched ? "cli.restore_held_some" : "cli.restore_held_all", { count: held }));
+      if (after.support_ended) console.log(t(lang, after.vouched ? "cli.restore_support_kept_ended" : "cli.restore_support_ended", { count: after.support_ended }));
+      if (after.usage.months.length) console.log(t(lang, "cli.restore_usage_carried", { months: after.usage.months.map((m) => m.slice(0, 7)).join(", ") }));
+      if (after.usage.gap) console.log(t(lang, "cli.restore_usage_gap"));
+    }
+    return 0;
+  } catch (e) {
+    // The exit code tells `sudo kumi restore` whether the server may start again: 4 only when the database may
+    // be empty (the restore failed and the copy made before it couldn't be put back).
+    if (e instanceof RestoreFailed) {
+      if (json) out({ ok: false, error: e.message, safety_copy: e.safetyCopy, put_back: e.putBack });
+      else console.error(t(lang, e.putBack ? "cli.restore_put_back" : "cli.restore_not_put_back", { error: e.message, file: e.safetyCopy }));
+      return e.putBack ? 3 : 4;
+    }
+    if (json) out({ ok: false, error: (e as Error).message, changed: false }); else console.error(t(lang, "cli.restore_failed", { error: (e as Error).message }));
+    return 1;
+  }
 }
 
 /** `kumi restore <export>`: the club's export into this server (export.ts), and what's left to set up here. */
