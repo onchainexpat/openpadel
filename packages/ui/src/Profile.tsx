@@ -3,6 +3,7 @@ import { startRegistration } from "@simplewebauthn/browser";
 import type { Key, Lang } from "@kumi/i18n";
 import { api, ApiError, club, farewell, loadMe, me, t } from "./state.ts";
 import { AccountData } from "./AccountData.tsx";
+import { PolicyLinks } from "./Policies.tsx";
 import { protectedPost } from "./pow.ts";
 import { lazy } from "preact-iso";
 
@@ -104,6 +105,7 @@ function Texts({ personId }: { personId: string }) {
         <p>{t(s.answer ? "ui.texts_on" : "ui.texts_off", { phone: s.phone })}</p>
         {!pending && (s.answer ? <button disabled={busy} onClick={ask(false)}>{t("ui.texts_turn_off")}</button> : <>
           <label class="check"><input type="checkbox" checked={yes} onChange={(e) => setYes(e.currentTarget.checked)} /> {s.form.words}</label>
+          <PolicyLinks />
           <button class="primary" disabled={busy || !yes} onClick={ask(true)}>{t("ui.texts_turn_on")}</button>
         </>)}
         {!pending && <p><button class="link" onClick={() => setEditing(true)}>{t("ui.texts_change_number")}</button></p>}
@@ -208,6 +210,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
       </section>
       <Assistants />
       <TwoStepSettings />
+      {app === "member" && (club.value?.terms_url || club.value?.privacy_policy_url) && <section class="card"><h2>{t("ui.club_policies_title")}</h2><PolicyLinks /></section>}
       <AccountData personId={m.person.id} self kid={Boolean(m.kid)} onDeleted={() => { farewell.value = true; me.value = null; }} />
       {note && <p class="note" role="status">{note}</p>}
       {error && <p class="error" role="alert">{error}</p>}

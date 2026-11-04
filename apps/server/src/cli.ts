@@ -40,7 +40,7 @@ import { S3Client, s3FromEnv } from "./s3.ts";
 import { readPeopleCsv } from "./csv.ts";
 import { doctor, type Check } from "./doctor.ts";
 import { ClubFileError, ownerActor, readClubFile, setupClub } from "./setup.ts";
-import { applyTexting, refreshTexting, textingPlan, textingStatusText, twilioProblem, verificationForm, type TextingDeps, type TextingPlan } from "./texting.ts";
+import { applyTexting, refreshTexting, textingPlan, textingStatusText, twilioProblem, verificationForm, withClubLinks, type TextingDeps, type TextingPlan } from "./texting.ts";
 import { twilioFromEnv } from "./twilio.ts";
 import { TwilioApi } from "./twilio_admin.ts";
 import { memberUrl } from "./addresses.ts";
@@ -150,10 +150,10 @@ async function main(): Promise<number> {
     const db = connect();
     try {
       await migrate(db);
-      const club = await db.selectFrom("club").select(["name", "time_zone"]).executeTakeFirst();
+      const club = await db.selectFrom("club").select(["name", "time_zone", "terms_url", "privacy_policy_url"]).executeTakeFirst();
       if (!club) { console.error(t(lang, "doctor.club.missing")); return 2; }
       const publicUrl = process.env.KUMI_PUBLIC_URL ?? "http://127.0.0.1:8790";
-      const deps: TextingDeps = { db, api: new TwilioApi(tw.accountSid, tw.authToken), club: club.name, details: file.texting, publicUrl, memberUrl: memberUrl(publicUrl) };
+      const deps: TextingDeps = { db, api: new TwilioApi(tw.accountSid, tw.authToken), club: club.name, details: withClubLinks(file.texting, club), publicUrl, memberUrl: memberUrl(publicUrl) };
       const show = (p: TextingPlan) => ({ needs: p.needs.map(say), steps: p.steps.map((s) => ({ step: s.id, text: say(s.text), ...(s.costs ? { costs: true } : {}) })),
         status: p.registration?.status ?? null, number: p.registration?.phone_number ?? null, said: textingStatusText(p.registration, lang, club.time_zone) });
       try {
@@ -166,8 +166,8 @@ async function main(): Promise<number> {
         if (sub === "plan") {
           const p = await textingPlan(deps);
           // What the verification would say, for the owner to read first (or to reuse for a local number's campaign).
-          const reg = p.registration, submission = file.texting && !p.needs.length ? (({ TollfreePhoneNumberSid: _n, ExternalReferenceId: _r, ...f }) => f)(
-            verificationForm(file.texting, { club: club.name, memberUrl: deps.memberUrl, numberSid: reg?.phone_number_sid ?? "", reference: reg?.id ?? "" })) : null;
+          const reg = p.registration, submission = deps.details && !p.needs.length ? (({ TollfreePhoneNumberSid: _n, ExternalReferenceId: _r, ...f }) => f)(
+            verificationForm(deps.details, { club: club.name, memberUrl: deps.memberUrl, numberSid: reg?.phone_number_sid ?? "", reference: reg?.id ?? "" })) : null;
           if (json) { out({ ok: true, ...show(p), submission }); return 0; }
           for (const l of show(p).said) console.log(l);
           if (p.needs.length) { console.log(t(lang, "texting.needs_heading", { file: path })); for (const n of p.needs) console.log(`  - ${say(n)}`); }

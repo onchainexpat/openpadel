@@ -23,6 +23,12 @@ does, so a club only has to add its own details and rules:
 6. Publish them on the club's own website. Twilio's reviewers look for the privacy policy before they approve the
    club's texts (`docs/setup/accounts/twilio.md`, step 3), and they turn registrations down most often when the policy
    doesn't say members' mobile numbers aren't shared for marketing. Keep that sentence word for word.
+7. **Put the links into Kumi:** the staff app's Settings, "Terms for members" and "Privacy policy" (or `terms_url` and
+   `privacy_policy_url` under `club:` in club.yaml, for `kumi setup`). Members then see them where they join, beside
+   the yes to texts, on their profile and at the foot of the public pages, and joining agrees to them: Kumi keeps
+   which links each new member agreed to, and when, and it's in their Download data. Members who joined before the
+   links were set aren't asked again. The texting registration gives Twilio the same links, and `kumi doctor` warns
+   while the club texts without a privacy policy linked.
 
 ## Keep them true
 

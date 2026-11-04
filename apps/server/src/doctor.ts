@@ -34,7 +34,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   add("migrations", m.pending.length ? "warn" : "ok", m.pending.length ? "migrations.pending" : "migrations.ok", { count: m.pending.length || m.applied });
   if (m.applied === 0) { add("club", "fail", "club.missing", {}, "docs/setup/README.md"); return checks; }
 
-  const club = await db.selectFrom("club").select(["name", "time_zone"]).executeTakeFirst();
+  const club = await db.selectFrom("club").select(["name", "time_zone", "terms_url", "privacy_policy_url"]).executeTakeFirst();
   if (!club) { add("club", "fail", "club.missing", {}, "docs/setup/README.md"); return checks; }
   add("club", "ok", "club.ok", { name: club.name, tz: club.time_zone });
   // Read-only (read_only.ts), the host's switch: said while it's on, and nothing when it's off.
@@ -121,6 +121,12 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
     else if (!production || env.KUMI_PRACTICE === "1") add("texts", "warn", "texts.practice", { count: (env.KUMI_SMS_TEST_TO ?? "").split(",").filter((n) => n.trim()).length });
     else add("texts", "ok", "texts.ok", { sent: sent.sent, failed: sent.failed });
   }
+  // The club's own terms and privacy policy for members (Settings, docs/templates): optional, except that carriers
+  // look for the privacy policy beside the yes to texts.
+  const polDoc = "docs/templates/README.md";
+  if (tw && !club.privacy_policy_url) add("policies", "warn", "policies.texts_no_privacy", {}, polDoc);
+  else if (club.terms_url || club.privacy_policy_url) add("policies", "ok", "policies.ok");
+  else add("policies", "off", "policies.off", {}, polDoc);
   // This month on the club's meter (usage.ts): what AI, texts and email cost against the owner's cap. A look once
   // 80% of it is used; past the limit, what can wait waits for the 1st.
   const use = await usageView(db, now).catch(() => null);

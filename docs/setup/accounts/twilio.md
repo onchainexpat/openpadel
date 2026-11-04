@@ -34,7 +34,10 @@ real texts won't reach anyone.** Kumi turns texts on by itself when Twilio appro
    live and public first**, and the privacy policy should say members' mobile numbers aren't shared with
    anyone for marketing; carriers turn registrations down for that more than anything. A privacy policy and
    terms to adapt, with that clause and the texts' opt-in, STOP and HELP already written, are in
-   [`docs/templates`](../../templates/README.md) (drafts: have a lawyer read the club's version).
+   [`docs/templates`](../../templates/README.md) (drafts: have a lawyer read the club's version). Link both in
+   the staff app's Settings (or `terms_url` and `privacy_policy_url` under `club:` in club.yaml): the app shows
+   them beside the yes to texts, as carriers expect, and on the opt-in page below, and the verification gives
+   Twilio the same links.
 4. **Agent: `kumi texting plan`.** It says what it would do and what club.yaml is still missing, and
    changes nothing. Show it to the owner: the verification it sends is the owner's word about the business.
 5. **Agent, once the owner agrees: `kumi texting apply --yes`.** It:
@@ -45,7 +48,7 @@ real texts won't reach anyone.** Kumi turns texts on by itself when Twilio appro
    - sends the toll-free verification: account notices and sign-in codes to the club's own members, who opt
      in on a web form in the app. Kumi writes the use case, a real sample text and the opt-in description
      itself, and points the reviewers at `https://app.yourclub.com/public/texts`, a page on the members' address
-     showing the exact words members tick. Add screenshots of your own with `texting.opt_in_image_urls`.
+     showing the exact words members tick, with the club's terms and privacy links beside them. Add screenshots of your own with `texting.opt_in_image_urls`.
 
    Running it again carries on where it stopped and never buys or sends anything twice. Without `--yes` it
    stops before anything that costs money.

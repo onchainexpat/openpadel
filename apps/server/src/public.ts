@@ -34,7 +34,13 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl:
   const app = new Hono();
   const base = memberUrl.replace(/\/$/, "");
   const pick = (c: Context<any>): Lang => { const q = c.req.query("lang"); return isLang(q) ? q : lang(c); };
-  const club = () => db.selectFrom("club").select(["name", "brand_colour", "time_zone", "currency", "public_page", "about", "translations", "sign_up_open"]).executeTakeFirstOrThrow();
+  const club = () => db.selectFrom("club").select(["name", "brand_colour", "time_zone", "currency", "public_page", "about", "translations", "sign_up_open", "terms_url", "privacy_policy_url"]).executeTakeFirstOrThrow();
+  /** The club's own terms and privacy policy, when it has set them (Settings): at the foot of each page, and beside
+   *  the yes to texts on the texts page, as in the app. */
+  type Links = { terms_url: string | null; privacy_policy_url: string | null };
+  const policies = (l: Lang, cl: Links) => [cl.terms_url && `<a href="${h(cl.terms_url)}">${h(t(l, "ui.club_terms"))}</a>`,
+    cl.privacy_policy_url && `<a href="${h(cl.privacy_policy_url)}">${h(t(l, "ui.club_privacy"))}</a>`].filter(Boolean).join(" · ");
+  const footer = (l: Lang, cl: Links) => `<footer>${policies(l, cl) ? `<p>${policies(l, cl)}</p>` : ""}${h(t(l, "pub.footer"))}</footer>`;
   const off = (c: Context<any>) => c.text("Not found", 404);
   const html = (c: Context<any>, body: string) => { c.header("content-type", "text/html; charset=utf-8"); c.header("cache-control", "public, max-age=300"); return c.body(body); };
 
@@ -121,7 +127,7 @@ ${list ? `<h3>${h(t(l, "ui.prices_title"))}</h3><ul>${list}</ul>` : ""}</section
     const join = cl.sign_up_open ? t(l, "pub.join") : t(l, "pub.sign_in");
     const about = inLang(cl.about, cl.translations, "about", l);
     const body = `<header><h1>${h(cl.name)}</h1>${about ? `<p>${h(about)}</p>` : ""}<p><a class="button" href="/">${h(join)}</a> <a href="/public?lang=${l === "es" ? "en" : "es"}">${l === "es" ? "English" : "Español"}</a></p></header>
-${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}<footer>${h(t(l, "pub.footer"))}</footer>`;
+${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}${footer(l, cl)}`;
     const clubLd = { "@context": "https://schema.org", "@type": "SportsActivityLocation", name: cl.name, url: `${base}/public`, ...(about ? { description: about } : {}),
       ...(locations[0]?.address ? { address: locations[0].address } : {}),
       openingHoursSpecification: hours.filter((x) => x.location_id === locations[0]?.id && x.opens).map((x) => ({ "@type": "OpeningHoursSpecification",
@@ -149,7 +155,7 @@ ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}<footer>${h(t(l, "pub.f
     const levels = e.level_min || e.level_max ? `<p>${h(t(l, "pub.levels", { min: e.level_min ?? "", max: e.level_max ?? "" }))}</p>` : "";
     const body = `<header><p><a href="/public${l === "es" ? "?lang=es" : ""}">${h(cl.name)}</a></p><h1>${h(e.name)}</h1><p class="meta">${eventLine(l, e)}</p></header>
 <section><p>${h(t(l, `kind.${e.kind}` as Key))}${e.format ? ` · ${h(e.format)}` : ""}${e.rated ? ` · ${h(t(l, "ui.match_rated"))}` : ""}</p>${levels}<h2>${h(t(l, "pub.dates"))}</h2><ul>${dates}</ul>
-<p>${h(e.location)}${e.address ? `, ${h(e.address)}` : ""}</p><p><a class="button" href="/">${h(t(l, "pub.sign_up_event"))}</a></p></section><footer>${h(t(l, "pub.footer"))}</footer>`;
+<p>${h(e.location)}${e.address ? `, ${h(e.address)}` : ""}</p><p><a class="button" href="/">${h(t(l, "pub.sign_up_event"))}</a></p></section>${footer(l, cl)}`;
     return html(c, page({ lang: l, title: `${e.name} · ${cl.name}`, description: `${e.name}: ${fmt(l, e.time_zone, e.first, { dateStyle: "long", timeStyle: "short" })}, ${cl.name}`,
       canonical: `${base}/public/events/${e.id}${l === "es" ? "?lang=es" : ""}`, other: `${base}/public/events/${e.id}${l === "es" ? "" : "?lang=es"}`, brand: cl.brand_colour, body, jsonLd: [eventLd(e, cl.name, cl.currency)] }));
   });
@@ -175,9 +181,9 @@ ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}<footer>${h(t(l, "pub.f
     const what = (["pub.texts_what1", "pub.texts_what2", "pub.texts_what3"] as const).map((k) => `<li>${h(t(l, k))}</li>`).join("");
     const body = `<header><h1>${h(t(l, "pub.texts_title", { club: cl.name }))}</h1><p class="meta">${h(t(l, "pub.texts_intro", { club: cl.name }))}</p></header>
 <section><h2>${h(t(l, "pub.texts_how"))}</h2><ol>${steps}</ol>
-<p><label><input type="checkbox" disabled> ${h(t(l, "ui.texts_consent", { club: cl.name }))}</label></p><p class="meta">${h(t(l, "pub.texts_version", { version: TEXTS_FORM }))}</p></section>
+<p><label><input type="checkbox" disabled> ${h(t(l, "ui.texts_consent", { club: cl.name }))}</label></p>${policies(l, cl) ? `<p class="meta">${policies(l, cl)}</p>` : ""}<p class="meta">${h(t(l, "pub.texts_version", { version: TEXTS_FORM }))}</p></section>
 <section><h2>${h(t(l, "pub.texts_what"))}</h2><ul>${what}</ul><p>${h(t(l, "pub.texts_never"))}</p></section>
-<section><p>${h(t(l, "pub.texts_stop"))}</p><p>${h(t(l, "pub.texts_privacy", { club: cl.name }))}</p></section><footer>${h(t(l, "pub.footer"))}</footer>`;
+<section><p>${h(t(l, "pub.texts_stop"))}</p><p>${h(t(l, "pub.texts_privacy", { club: cl.name }))}</p></section>${footer(l, cl)}`;
     return html(c, page({ lang: l, title: t(l, "pub.texts_title", { club: cl.name }), description: t(l, "pub.texts_intro", { club: cl.name }), canonical: `${base}/public/texts${l === "es" ? "?lang=es" : ""}`,
       other: `${base}/public/texts${l === "es" ? "" : "?lang=es"}`, brand: cl.brand_colour, body, jsonLd: [] }));
   });

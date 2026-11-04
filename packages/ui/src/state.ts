@@ -31,7 +31,9 @@ export type Club = { name: string; brand_colour: string; languages: string[]; de
   /** The club's host made it read-only (read_only.ts): both apps say so at the top. */
   read_only?: boolean;
   /** The club's Kumi moved to another server (club_exit.ts): this one says where, and sends nothing. */
-  moved?: boolean; moved_to?: string | null };
+  moved?: boolean; moved_to?: string | null;
+  /** The club's own terms and privacy policy for members (Policies.tsx), when it has set them. */
+  terms_url?: string | null; privacy_policy_url?: string | null };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
 /** Whether to offer a button for a change: a role the club made may not allow it (the server decides either way). */

@@ -13,7 +13,7 @@ type Price = { id: string; name: string; translations?: unknown; court_ids: stri
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
+type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
 type Usage = { cents_per_segment: number; paused: boolean; resets: string; current: Month; history: Month[] };
@@ -126,12 +126,14 @@ function WaiverForm({ w, send }: { w: S["waiver"]; send: Preview }) {
 
 function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: Preview }) {
   const { translations, ...rest } = c, aboutTr0 = savedIn(translations, "about");
-  const start = { ...rest, legal_name: c.legal_name ?? "", about: c.about ?? "" };
+  const start = { ...rest, legal_name: c.legal_name ?? "", about: c.about ?? "", terms_url: c.terms_url ?? "", privacy_policy_url: c.privacy_policy_url ?? "" };
   const [f, setF] = useState(start), [aboutTr, setAboutTr] = useState(aboutTr0);
   const set = (k: keyof ClubRow, v: unknown) => setF({ ...f, [k]: v });
+  // A link left empty takes it off: members then see none.
+  const links = (d: Partial<typeof f>) => ({ ...d, ...(d.terms_url !== undefined ? { terms_url: d.terms_url.trim() || null } : {}), ...(d.privacy_policy_url !== undefined ? { privacy_policy_url: d.privacy_policy_url.trim() || null } : {}) });
   const toggleLang = (l: string, on: boolean) => set("languages", on ? [...new Set([...f.languages, l])].sort() : f.languages.filter((x) => x !== l));
   return (
-    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("club.update", { ...diff(start, f), ...(aboutTr.trim() !== aboutTr0 ? { translations: translationsOf({ about: aboutTr }) } : {}) }); }}>
+    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("club.update", { ...links(diff(start, f)), ...(aboutTr.trim() !== aboutTr0 ? { translations: translationsOf({ about: aboutTr }) } : {}) }); }}>
       <h2>{t("ui.club_details")}</h2>
       <label>{t("ui.name")}<input required value={f.name} onInput={(e) => set("name", e.currentTarget.value)} /></label>
       <label>{t("ui.legal_name")}<input value={f.legal_name} onInput={(e) => set("legal_name", e.currentTarget.value)} /></label>
@@ -150,6 +152,9 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       {c.public_page && <p class="meta"><a href={`${clubSignal.value?.member_url ?? ""}/public`} target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
       <label>{t("ui.about_club")}<textarea maxLength={600} rows={3} value={f.about ?? ""} onInput={(e) => set("about", e.currentTarget.value)} /></label>
       <OtherLang value={aboutTr} onInput={setAboutTr} source={f.about ?? ""} multiline rows={3} maxLength={600} />
+      <label>{t("ui.terms_url")}<input type="url" inputMode="url" placeholder="https://" maxLength={2000} value={f.terms_url} onInput={(e) => set("terms_url", e.currentTarget.value)} /></label>
+      <label>{t("ui.privacy_policy_url")}<input type="url" inputMode="url" placeholder="https://" maxLength={2000} value={f.privacy_policy_url} onInput={(e) => set("privacy_policy_url", e.currentTarget.value)} /></label>
+      <p class="meta">{t("ui.policies_hint")}</p>
       <label>{t("ui.question_alert_hours")}<input type="number" min="0" max="72" step="1" value={String(f.question_alert_hours)} onChange={(e) => set("question_alert_hours", Math.max(0, Math.min(72, Math.round(Number(e.currentTarget.value) || 0))))} /></label>
       {/* Ask the club: on by default, and only does anything once the server has a decision model. */}
       <label class="check"><input type="checkbox" checked={f.auto_answers} onChange={(e) => set("auto_answers", e.currentTarget.checked)} /> {t("ui.auto_answers")}</label>

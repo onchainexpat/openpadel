@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import * as z from "zod/mini";
 import { parse } from "yaml";
 import { both, type Key, type Lang, type Text } from "@kumi/i18n";
-import { run, runAsSystem, type Actor, type Db } from "@kumi/core";
+import { pageUrl, run, runAsSystem, type Actor, type Db } from "@kumi/core";
 
 const name = z.string().check(z.minLength(1));
 const court = z.union([name, z.object({ name, kind: z.optional(z.enum(["indoor", "covered_outdoor", "outdoor"])) })]);
@@ -33,7 +33,8 @@ export const TextingDetails = z.object({
 });
 export type TextingDetails = z.infer<typeof TextingDetails>;
 export const ClubFile = z.object({
-  club: z.object({ name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])) }),
+  // The club's own terms and privacy policy for members, on its website (docs/templates): the app links them.
+  club: z.object({ name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])), terms_url: z.optional(pageUrl), privacy_policy_url: z.optional(pageUrl) }),
   owner: z.object({ name, email: z.email() }),
   locations: z.optional(z.array(z.object({ name, address: z.optional(z.string()), time_zone: z.optional(name), courts: z.optional(z.array(court)) }))),
   staff: z.optional(z.array(z.object({ name, email: z.email(), role: z.enum(["owner", "manager", "front_desk", "coach", "accountant"]), location: z.optional(name) }))),
@@ -93,6 +94,20 @@ export async function setupClub(db: Db, file: ClubFile, opts: { apply: boolean; 
   // database's own access, so it counts as a strong sign-in.
   const owner: Actor = { personId: ownerId, via: "setup", lang: opts.lang, auth: "system" };
   const tz = file.club.time_zone;
+
+  // The terms and privacy links: set when the club has none yet. Older files named them only under texting, so
+  // those count too. A club that has its own already changes them in Settings.
+  const have = club ? await db.selectFrom("club").select(["terms_url", "privacy_policy_url"]).executeTakeFirstOrThrow() : { terms_url: null, privacy_policy_url: null };
+  const want = { terms_url: file.club.terms_url ?? file.texting?.terms_url, privacy_policy_url: file.club.privacy_policy_url ?? file.texting?.privacy_policy_url };
+  const links: { terms_url?: string; privacy_policy_url?: string } = {};
+  for (const k of ["terms_url", "privacy_policy_url"] as const) {
+    const w = want[k];
+    if (!w || w === have[k]) continue;
+    if (have[k]) notes.push(both("cli.note.policies_differ", { field: both(`field.${k}`) }));
+    else if (pageUrl.safeParse(w).success) links[k] = w;
+  }
+  if (links.terms_url || links.privacy_policy_url) await step("club.update", both("cli.step.club_policies", { links: [links.terms_url, links.privacy_policy_url].filter(Boolean).join(", ") }),
+    async () => ok(await run(db, "club.update", links, owner)));
 
   const locations = club ? await db.selectFrom("location").select(["id", "name"]).where("archived_at", "is", null).execute() : [];
   const locationIds = new Map<string, string | null>();

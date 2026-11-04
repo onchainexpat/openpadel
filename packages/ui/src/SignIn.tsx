@@ -1,8 +1,9 @@
 import { useState } from "preact/hooks";
 import { startAuthentication } from "@simplewebauthn/browser";
 import type { Lang } from "@kumi/i18n";
-import { api, ApiError, club, farewell, lang, loadMe, t } from "./state.ts";
+import { api, ApiError, club, farewell, lang, loadMe, t, type Club } from "./state.ts";
 import { protectedPost } from "./pow.ts";
+import { PolicyLinks, shownPolicies } from "./Policies.tsx";
 
 export function SignIn() {
   // By email, or by a code texted to a mobile number when the club texts.
@@ -28,7 +29,12 @@ export function SignIn() {
     await loadMe();
   }); };
   const join = (e: Event) => { e.preventDefault(); attempt(async () => {
-    await protectedPost("/auth/sign-up", { ticket, display_name: name, locale, club_news: ticketBy === "email" && news }, website);
+    try { await protectedPost("/auth/sign-up", { ticket, display_name: name, locale, club_news: ticketBy === "email" && news, policies: shownPolicies() }, website); }
+    catch (x) {
+      // The club may have changed its terms or privacy policy while the page was open: the new links show, to look at first.
+      if (x instanceof ApiError && x.status === 409) club.value = await api<Club>("/club");
+      throw x;
+    }
     lang.value = locale; await loadMe();
   }); };
   const passkey = () => attempt(async () => {
@@ -53,6 +59,7 @@ export function SignIn() {
           <label class="check"><input type="checkbox" checked={news} onChange={(e) => setNews(e.currentTarget.checked)} /> {t("ui.club_news_consent", { club: clubName })}</label>
           <p class="meta">{t("ui.account_emails_note")}</p>
         </> : <p class="meta">{t("ui.join_by_phone_note")}</p>}
+        <PolicyLinks join />
         {trap}
         <button class="primary" disabled={busy}>{t("ui.join_club")}</button>
       </form>

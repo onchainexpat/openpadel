@@ -150,8 +150,10 @@ export const consentTexts = defineAction({
   },
   async apply(ctx, i, plan) {
     const phone = (plan.details as { phone: string | null }).phone, lang: Lang = ctx.actor.lang === "es" ? "es" : "en";
-    // What they said yes to, word for word, with what they said it on.
-    const evidence = { phone, app: i.app ?? null, device: i.device ?? null, via: ctx.actor.via, lang, ...(i.granted ? { words: t(lang, "ui.texts_consent", { club: await clubName(ctx.trx) }) } : {}) };
+    // What they said yes to, word for word, with what they said it on, and the club's terms and privacy links shown beside it.
+    const club = i.granted ? await ctx.trx.selectFrom("club").select(["name", "terms_url", "privacy_policy_url"]).executeTakeFirstOrThrow() : null;
+    const evidence = { phone, app: i.app ?? null, device: i.device ?? null, via: ctx.actor.via, lang,
+      ...(club ? { words: t(lang, "ui.texts_consent", { club: club.name }), ...(club.terms_url || club.privacy_policy_url ? { terms_url: club.terms_url, privacy_policy_url: club.privacy_policy_url } : {}) } : {}) };
     await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: i.person_id, channel: "sms", purpose: "account", granted: i.granted, source: "profile",
       form_version: i.granted ? TEXTS_FORM : null, evidence: JSON.stringify(evidence), at: ctx.now }).execute();
     return null;

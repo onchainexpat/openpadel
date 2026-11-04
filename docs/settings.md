@@ -5,6 +5,10 @@ Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they 
 (then `docker compose up -d`). Keys and secrets go only there: never in `club.yaml`, a commit or a chat.
 `kumi doctor` checks the ones that matter.
 
+What the club decides for itself isn't here: its name, languages, sign-up, public page, and the links to its own
+terms and privacy policy for members (`docs/templates`) are in the staff app's Settings, or `club:` in club.yaml for
+`kumi setup` (`club.example.yaml`).
+
 ## The server
 
 | Setting | What it does | Default |

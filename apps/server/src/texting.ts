@@ -30,6 +30,14 @@ const STATUS: Record<string, TextingStatus> = { PENDING_REVIEW: "submitted", IN_
 const base = (u: string) => u.replace(/\/$/, "");
 const record = (db: Db, patch: Record<string, unknown>) => runAsSystem(db, "texting.registration_record", patch, "texting");
 
+/** The texting details with the club's own terms and privacy links (Settings), which Twilio's reviewers open. A
+ *  link named only under texting in club.yaml (where they were before the club had its own) still counts. */
+export function withClubLinks(d: TextingDetails | undefined, club: { terms_url: string | null; privacy_policy_url: string | null }): TextingDetails | undefined {
+  if (!d) return d;
+  const terms_url = club.terms_url ?? d.terms_url, privacy_policy_url = club.privacy_policy_url ?? d.privacy_policy_url;
+  return { ...d, ...(terms_url ? { terms_url } : {}), ...(privacy_policy_url ? { privacy_policy_url } : {}) };
+}
+
 /** What club.yaml's texting section still needs before the verification can go. */
 export function textingNeeds(d: TextingDetails | undefined, urls: { publicUrl: string; memberUrl: string }): Text[] {
   const need = (field: string) => both("texting.needs", { field: `texting.${field}`, what: both(`texting.field.${field}` as Key) });

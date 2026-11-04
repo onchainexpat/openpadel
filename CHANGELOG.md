@@ -24,6 +24,15 @@ server starts.
   `kumi` stopped, `docker compose exec pitr kumi restore --to="2026-11-03 14:05" --yes` puts the database back as it
   was at that minute, with everything a restore keeps: nothing sent twice, the usage meter carried over, support
   access ended, a copy of the database as it was made first (`deploy/docker/README.md`).
+- **The club's own terms and privacy policy reach its members.** Link them in Settings ("Terms for members" and
+  "Privacy policy", or `terms_url` and `privacy_policy_url` under `club:` in club.yaml) and the members' app shows them
+  where someone joins ("By joining, you agree to..."), beside the yes to texts (as carriers expect) and on the profile;
+  the public pages link them at the foot, and the texts opt-in page beside the words members tick. Joining agrees to
+  them: Kumi keeps the links each new member agreed to, in which language and when, and they're in the member's
+  Download data; a yes to texts keeps the links shown beside it. A page opened before the club changed its links asks
+  the member to look again. The texting registration gives Twilio the same links, and `kumi doctor` warns while the
+  club texts with no privacy policy linked. With no links set, nothing changes. Templates to adapt are in
+  `docs/templates`.
 - **Texting through a host's Twilio account.** A club texting from a subaccount of its host's Twilio account can
   name its own Secondary Customer Profile (Twilio's Trust Hub) in club.yaml, `texting.customer_profile_sid`, and the
   toll-free verification uses it (`docs/setup/accounts/twilio.md`).
@@ -55,6 +64,9 @@ server starts.
   signed out by the update; a host whose clubs never had it sets `KUMI_LEGACY_SESSION_COOKIE=0`.
 
 ### When updating
+- If club.yaml names a privacy policy or terms under `texting:`, `kumi setup apply` links them for members too (while
+  the club has none set), and the texting registration uses them either way. Members who joined before the links were
+  set aren't asked to agree to them.
 - Set up Resend's reports (`docs/setup/accounts/resend.md`, step 6): until then, `kumi doctor` warns, and nothing else
   changes.
 - **Docker installs:** update as usual, `deploy/docker/update.sh <release>`. Postgres starts again once, on its new

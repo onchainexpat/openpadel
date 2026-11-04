@@ -91,6 +91,14 @@ test("saying yes: only to a confirmed number, to the wording as it is now, never
   assert.match((c.evidence as any).words, /^Yes, Kestrel Padel may text me about my bookings and places\. Message and data rates may apply\. Reply STOP to stop, HELP for help\.$/);
   assert.deepEqual(await textable(db, people.Ann!), { phone: PHONE.Ann });
   assert.deepEqual(await textable(db, people.Bo!), { why: "no number" });
+  // With the club's own terms and privacy policy linked, the proof names the links shown beside the yes.
+  await run(db, "consent.texts", { person_id: people.Ann, granted: false }, as("Ann"), { now: NOW });
+  await run(db, "club.update", { terms_url: "https://kestrel.example/terms", privacy_policy_url: "https://kestrel.example/privacy" }, owner);
+  await sayYes("Ann");
+  const yeses = await db.selectFrom("channel_consent").select("evidence").where("person_id", "=", people.Ann!).where("channel", "=", "sms").where("granted", "=", true).execute();
+  assert.deepEqual(yeses.map((r) => JSON.stringify([(r.evidence as any).terms_url ?? null, (r.evidence as any).privacy_policy_url ?? null])).sort(),
+    ['["https://kestrel.example/terms","https://kestrel.example/privacy"]', "[null,null]"]);
+  await run(db, "club.update", { terms_url: null, privacy_policy_url: null }, owner);
 });
 
 test("the club cancels a booking: a text, in plain letters, with how to stop; a member who cancels their own gets none", async () => {

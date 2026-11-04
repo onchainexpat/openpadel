@@ -60,7 +60,9 @@ const EmailVerify = z.object({ email: z.email(), code: z.string().check(z.regex(
 const PhoneStart = z.object({ phone: z.string().check(z.maxLength(40)) });
 const PhoneVerify = z.object({ phone: z.string().check(z.maxLength(40)), code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
 const CodeOnly = z.object({ code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
-const SignUp = z.object({ ticket: z.string().check(z.minLength(20)), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: z.enum(["en", "es"]), club_news: z.boolean() });
+const shownLink = z.nullable(z.string().check(z.maxLength(2000)));
+const SignUp = z.object({ ticket: z.string().check(z.minLength(20)), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: z.enum(["en", "es"]), club_news: z.boolean(),
+  policies: z.optional(z.object({ terms_url: shownLink, privacy_policy_url: shownLink })) });
 
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
@@ -212,7 +214,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page", "read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
+    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page", "terms_url", "privacy_policy_url", "read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
     // Not set up yet (kumi setup apply): nothing to show, which isn't the server failing.
     if (!club) throw new KumiError("error.club_not_set_up", {}, 404);
     // Whether there's a membership to join in the app.
@@ -224,6 +226,7 @@ export function makeApp(deps: AppDeps) {
     // Whether the staff forms offer a draft in the club's other language (translate.ts).
     // Read-only (read_only.ts): both apps say so at the top.
     // Moved to another server (club_exit.ts): both apps say where, instead of read-only.
+    // The club's own terms and privacy policy: linked where people join, beside the yes to texts and on the profile.
     const { read_only_since, moved_at, moved_to, ...shown } = club;
     return c.json({ ...shown, read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
       member_url: deps.memberUrl ?? memberUrl(publicUrl, {}) });
@@ -363,7 +366,7 @@ export function makeApp(deps: AppDeps) {
   app.post("/auth/sign-up", async (c) => {
     const b = await body(c, SignUp);
     if ((await botGuard(c)) !== "ok") throw new KumiError("error.bot_check", {}, 400);
-    const { token } = await completeSignUp(db, b.ticket, { display_name: b.display_name, locale: b.locale, club_news: b.club_news }, c.req.header("user-agent") ?? null, now());
+    const { token } = await completeSignUp(db, b.ticket, { display_name: b.display_name, locale: b.locale, club_news: b.club_news, policies: b.policies }, c.req.header("user-agent") ?? null, now());
     setSession(c, token, cookieMode);
     return c.json({ signed_in: true });
   });

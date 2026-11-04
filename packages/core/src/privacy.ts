@@ -174,6 +174,8 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
 
   const messages = await db.selectFrom("outbound_message").select(["created_at", "channel", "kind", "subject", "body", "status", "sent_at", "read_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
   const consents = await db.selectFrom("channel_consent").select(["channel", "purpose", "granted", "source", "at"]).where("person_id", "=", personId).orderBy("at").execute();
+  // The club's terms and privacy policy they agreed to on joining (the links, not the pages: those are the club's).
+  const agreed = await db.selectFrom("policy_acceptance").select(["terms_url", "privacy_policy_url", "lang", "source", "accepted_at"]).where("person_id", "=", personId).orderBy("accepted_at").execute();
   const waivers = await db.selectFrom("waiver_acceptance").innerJoin("waiver", "waiver.id", "waiver_acceptance.waiver_id").innerJoin("person as by", "by.id", "waiver_acceptance.accepted_by")
     .select(["waiver.version_no", "waiver_acceptance.accepted_at", "by.display_name as accepted_by"]).where("waiver_acceptance.person_id", "=", personId).orderBy("waiver_acceptance.accepted_at").execute();
   const friendRows = await db.selectFrom("friend").select(["person_id", "friend_id", "created_at", "removed_at"]).where((w) => w.or([w("person_id", "=", personId), w("friend_id", "=", personId)])).execute();
@@ -233,7 +235,7 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     payments, receipts, memberships, covered_by_family_plans: covered,
     level: rating ?? null, level_history: history.map((h) => ({ at: iso(h.at), kind: h.kind, before: h.level_before, after: h.level_after, why: say(h.explanation) })),
     level_reviews: reviews, games, score_answers: answers,
-    messages, consents, quiet_hours: { from: `${String(QUIET.from).padStart(2, "0")}:00`, until: `${String(QUIET.until).padStart(2, "0")}:00`, set_by: "club" },
+    messages, consents, policies_agreed: agreed.map((a) => ({ ...a, accepted_at: iso(a.accepted_at) })), quiet_hours: { from: `${String(QUIET.from).padStart(2, "0")}:00`, until: `${String(QUIET.until).padStart(2, "0")}:00`, set_by: "club" },
     waivers, friends, family, kid_rules: kidRules ?? null, kid_requests: kidRequests.map((k) => ({ ...k, what: say(k.what) })),
     // A device's address names the push service, not the device: only the service is kept here.
     push_devices: devices.map((d) => ({ app: d.app, service: (() => { try { return new URL(d.endpoint).host; } catch { return null; } })(), user_agent: d.user_agent, created_at: iso(d.created_at), last_ok_at: iso(d.last_ok_at), revoked_at: iso(d.revoked_at) })),

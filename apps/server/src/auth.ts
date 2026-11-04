@@ -243,12 +243,13 @@ export async function undoEmailChange(db: Db, mailer: Mailer, token: string, now
   return true;
 }
 
-/** The last step of joining: their name, language and (with an email) club-news answer, with the ticket from the code. */
-export async function completeSignUp(db: Db, ticket: string, input: { display_name: string; locale: Lang; club_news: boolean }, userAgent: string | null, now = new Date()): Promise<{ token: string; personId: string }> {
+/** The last step of joining: their name, language and (with an email) club-news answer, with the ticket from the code,
+ *  and the club's terms and privacy links the page showed them (person.sign_up keeps them). */
+export async function completeSignUp(db: Db, ticket: string, input: { display_name: string; locale: Lang; club_news: boolean; policies?: { terms_url: string | null; privacy_policy_url: string | null } }, userAgent: string | null, now = new Date()): Promise<{ token: string; personId: string }> {
   const ch = await db.selectFrom("auth_challenge").selectAll().where("kind", "=", "sign_up").where("code_hash", "=", sha(ticket)).where("consumed_at", "is", null).executeTakeFirst();
   if (!ch || ch.expires_at.getTime() < now.getTime()) throw new KumiError("error.sign_up_expired", {}, 401);
   const byPhone = /^\+1\d{10}$/.test(ch.target);
-  const r = await runAsSystem(db, "person.sign_up", { ...(byPhone ? { phone: ch.target, club_news: false } : { email: ch.target, club_news: input.club_news }), display_name: input.display_name, locale: input.locale }, "sign_up", { now });
+  const r = await runAsSystem(db, "person.sign_up", { ...(byPhone ? { phone: ch.target, club_news: false } : { email: ch.target, club_news: input.club_news }), display_name: input.display_name, locale: input.locale, ...(input.policies ? { policies: input.policies } : {}) }, "sign_up", { now });
   const personId = (r.result as { person_id: string }).person_id;
   return { token: await startSession(db, personId, userAgent, now, ch.id, byPhone ? "phone_code" : "email_code"), personId };
 }

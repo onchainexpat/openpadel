@@ -12,6 +12,8 @@ import { showPhone } from "./texts.ts";
 const isTimeZone = (v: string) => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } };
 const timeZone = z.string().check(z.refine(isTimeZone, { message: "Not a time zone (use an IANA name such as America/Los_Angeles)" }));
 const lang = z.enum(["en", "es"]);
+/** A page on the club's own website (its terms, its privacy policy): http or https only, since members open it. */
+export const pageUrl = z.url({ protocol: /^https?$/, hostname: z.regexes.domain }).check(z.maxLength(2000));
 export const ROLE_KEYS = ["owner", "manager", "front_desk", "coach", "accountant", "member"] as const;
 // A built-in role (ROLE_KEYS) or one the club made (custom_...).
 const roleKey = z.string().check(z.minLength(1), z.maxLength(40));
@@ -62,6 +64,9 @@ export const clubUpdate = defineAction({
     brand_colour: z.optional(z.string().check(z.regex(/^#[0-9A-Fa-f]{6}$/))), sign_up_open: z.optional(z.boolean()),
     court_bookings: z.optional(z.boolean()), tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
     public_page: z.optional(z.boolean()), about: z.optional(z.nullable(z.string().check(z.maxLength(600)))),
+    // The club's own terms and privacy policy for members (docs/templates): linked where members join, beside the
+    // yes to texts, on the profile and the public pages. Someone who joins after they're set agrees to them.
+    terms_url: z.optional(z.nullable(pageUrl)), privacy_policy_url: z.optional(z.nullable(pageUrl)),
     // The public page's blurb in the other language: { es: { about } }.
     translations: translationsInput("club"),
     question_alert_hours: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(72))),
@@ -176,31 +181,40 @@ async function newPeople(ctx: PlanCtx, rows: { display_name: string; email?: str
 
 /** Someone joins by themselves, after proving their email address or (by a texted code) their mobile number.
  *  Their answer about club news is kept as consent evidence, when they were asked: someone who joined by phone
- *  has no email to send news to, so they weren't. Messages about their own sign-ups and payments need no consent. */
+ *  has no email to send news to, so they weren't. Messages about their own sign-ups and payments need no consent.
+ *  When the club links its own terms and privacy policy, joining agrees to them: `policies` is what the page
+ *  showed, which must still be the club's (or the page is behind and they look again), and it's kept with the time. */
 export const SIGN_UP_FORM = "sign-up-1";
+const shownLink = z.nullable(z.string().check(z.maxLength(2000)));
 export const personSignUp = defineAction({
   name: "person.sign_up", version: 1, system: true, internal: true,
   input: z.object({ email: z.optional(z.email()), phone: z.optional(z.string().check(z.regex(/^\+1\d{10}$/))), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: lang,
-    club_news: z.boolean() }),
+    club_news: z.boolean(), policies: z.optional(z.object({ terms_url: shownLink, privacy_policy_url: shownLink })) }),
   async plan(ctx, i) {
     if (Boolean(i.email) === Boolean(i.phone)) throw new KumiError("error.invalid_input", { details: "an email or a phone number, not both" });
     const name = i.display_name.trim();
+    const policies = await ctx.db.selectFrom("club").select(["terms_url", "privacy_policy_url"]).executeTakeFirstOrThrow();
+    const linked = Boolean(policies.terms_url || policies.privacy_policy_url);
+    if (linked && (i.policies?.terms_url !== policies.terms_url || i.policies?.privacy_policy_url !== policies.privacy_policy_url)) throw new KumiError("error.policies_changed", {}, 409);
+    const details = { policies: linked ? policies : null };
     if (i.phone) {
       if (await ctx.db.selectFrom("auth_identity").select("id").where("kind", "=", "phone").where("value", "=", i.phone).executeTakeFirst()
         || await ctx.db.selectFrom("person").select("id").where("phone", "=", i.phone).executeTakeFirst()) throw new KumiError("error.phone_taken");
-      return { title: both("action.person.sign_up"), summary: both("plan.person.sign_up_phone", { name, phone: showPhone(i.phone) }), reads: [], undo: { kind: "none" } };
+      return { title: both("action.person.sign_up"), summary: both("plan.person.sign_up_phone", { name, phone: showPhone(i.phone) }), reads: [], undo: { kind: "none" }, details };
     }
     const email = i.email!.trim().toLowerCase();
     if (await ctx.db.selectFrom("person").select("id").where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).executeTakeFirst()) throw new KumiError("error.duplicate_email");
-    return { title: both("action.person.sign_up"), summary: both("plan.person.sign_up", { name, email }), reads: [], undo: { kind: "none" } };
+    return { title: both("action.person.sign_up"), summary: both("plan.person.sign_up", { name, email }), reads: [], undo: { kind: "none" }, details };
   },
-  async apply(ctx, i) {
+  async apply(ctx, i, plan) {
     const id = uuidv7(), email = i.email ? i.email.trim().toLowerCase() : null;
     await ctx.insert("person", { id, display_name: i.display_name.trim(), email, phone: i.phone ?? null, locale: i.locale, created_via: "signup" });
     await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: id, kind: email ? "email" : "phone", value: email ?? i.phone!, verified_at: ctx.now }).execute();
     const member = await ctx.trx.selectFrom("role").select("id").where("key", "=", "member").executeTakeFirstOrThrow();
     await ctx.insert("person_role", { id: uuidv7(), person_id: id, role_id: member.id, location_id: null });
     if (email) await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: id, channel: "email", purpose: "club_news", granted: i.club_news, source: "sign_up", form_version: SIGN_UP_FORM, evidence: JSON.stringify({ at: ctx.now.toISOString() }) }).execute();
+    const agreed = (plan.details as { policies: { terms_url: string | null; privacy_policy_url: string | null } | null }).policies;
+    if (agreed) await ctx.trx.insertInto("policy_acceptance").values({ id: uuidv7(), person_id: id, ...agreed, lang: i.locale, source: "sign_up", accepted_at: ctx.now }).execute();
     await ctx.emit("person.signed_up", { person_id: id });
     return { person_id: id };
   },

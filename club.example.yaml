@@ -8,6 +8,10 @@ club:
   name: Kestrel Padel
   time_zone: America/Los_Angeles     # an IANA name: America/New_York, America/Chicago, Europe/Madrid...
   default_language: en               # en or es; each person can choose their own
+  # The club's own terms and privacy policy for members, on its website (templates in docs/templates). The app
+  # links them where members join, beside the yes to texts and on the profile; joining agrees to them.
+  # terms_url: https://kestrelpadel.example/terms
+  # privacy_policy_url: https://kestrelpadel.example/privacy
 
 owner:                               # signs in by a code sent to this address
   name: Robin Hale
@@ -35,8 +39,7 @@ texting:
   business_type: private_profit                   # private_profit, public_profit, non_profit, government or sole_proprietor
   registration_number: "12-3456789"               # the EIN (a Canadian club: its business number); not for a sole proprietor
   website: https://kestrelpadel.example           # live and public, about this club
-  privacy_policy_url: https://kestrelpadel.example/privacy   # should say mobile numbers aren't shared for marketing
-  # terms_url: https://kestrelpadel.example/terms
+  # The privacy policy and terms Twilio's reviewers read are the club's own, under club: above (or in Settings).
   address: { street: 100 Example St, city: Springfield, state: OR, postal_code: "97477" }   # country: US (or CA)
   contact: { first_name: Robin, last_name: Hale, email: robin@kestrelpadel.example, phone: "+15035550123" }
   monthly_texts: 1000                             # about how many a month; a guess is fine
