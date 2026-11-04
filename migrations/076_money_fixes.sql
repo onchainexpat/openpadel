@@ -5,10 +5,13 @@
 ALTER TABLE membership ADD COLUMN period_no int NOT NULL DEFAULT 1;
 ALTER TABLE payment ADD COLUMN for_period_no int;
 -- A card payment already asked for a period keeps the count it was asked at: the current one, unless that period
--- was paid another way since (the period end moved on, and another payment for the membership went through after
--- it was asked); a pause alone moved the end without paying anything, so it's still the current period.
+-- was paid another way since (the period end moved on, and a payment for a period went through after it was
+-- asked: a renewal or card payment for the membership, not one more person's price, or the next period taken at
+-- the desk, not the rest of this one). A pause alone moved the end without paying anything: still the current one.
 UPDATE payment SET for_period_no = CASE WHEN payment.for_period_end <> m.current_period_end AND EXISTS (SELECT 1 FROM payment q
-    WHERE q.membership_id = m.id AND q.status = 'succeeded' AND q.id <> payment.id AND q.created_at > payment.created_at)
+    WHERE q.membership_id = m.id AND q.status = 'succeeded' AND q.id <> payment.id AND q.created_at > payment.created_at AND q.membership_member_id IS NULL
+      AND (q.provider <> 'none' OR EXISTS (SELECT 1 FROM entity_change ec JOIN action_run ar ON ar.id = ec.action_run_id
+        WHERE ec.entity = 'payment' AND ec.op = 'insert' AND ec.entity_id = q.id::text AND ar.action = 'membership.record_payment' AND ar.plan->'details'->>'next' = 'true')))
   THEN m.period_no - 1 ELSE m.period_no END
   FROM membership m WHERE m.id = payment.membership_id AND payment.for_period_end IS NOT NULL;
 ALTER TABLE payment DROP COLUMN for_period_end;

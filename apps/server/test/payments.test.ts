@@ -98,3 +98,11 @@ test("Stripe's webhook settles a payment, but only when Stripe signed it", async
   const other = JSON.stringify({ id: "evt_2", type: "customer.created", data: { object: { id: "cus_1", object: "customer" } } });
   assert.equal((await webhook(other, sign(other))).status, 200, "events Kumi doesn't use are acknowledged");
 });
+
+test("checking a payment from the app is limited per person: each check can be a question to Stripe", async () => {
+  const cara = await member("Cara"), cookie = await signIn("cara@example.test");
+  const pay = await joinUnpaid(cookie, cara);
+  const answers: number[] = [];
+  for (let k = 0; k < 31; k++) answers.push((await call(`/my/payments/${pay}/check`, cookie, {})).status);
+  assert.deepEqual([answers.filter((s) => s === 200).length, answers.at(-1)], [30, 429]);
+});

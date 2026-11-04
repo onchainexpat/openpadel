@@ -80,13 +80,17 @@ export const lazyPage = <T extends ComponentType<any>>(load: () => Promise<T>) =
   lazy(() => loadPage(load).catch(async () => (await newRelease() && reloadOnce() ? new Promise<never>(() => {}) : unloaded(load)) as Promise<T> | T));
 const twice = <R>(f: () => Promise<R>) => f().catch(() => f());
 const loadPage = <T,>(load: () => Promise<T>) => Promise.all([twice(load), twice(() => loadWording(lang.peek()))]).then(([c]) => c);
-/** Whether the server runs another release than this page came from: its page names another entry file. False
- *  when it can't be reached, or names this one. */
+/** Whether the server runs another release than this page came from: its page answers and names another entry
+ *  file. False when it can't be reached, answers with an error or with no app page, or names this one. */
 async function newRelease(): Promise<boolean> {
   const mine = document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute("src");
   if (!mine || !navigator.onLine) return false;
-  try { return !(await (await fetch("/", { cache: "no-store", credentials: "same-origin" })).text()).includes(mine); }
-  catch { return false; }
+  try {
+    const res = await fetch("/", { cache: "no-store", credentials: "same-origin" });
+    if (!res.ok) return false;
+    const entry = /<script[^>]*type="module"[^>]*src="([^"]+)"/.exec(await res.text())?.[1];
+    return Boolean(entry) && entry !== mine;
+  } catch { return false; }
 }
 const RELOADED = "kumi:reloaded";
 function reloadOnce(): boolean {

@@ -679,9 +679,10 @@ export const membershipAddPerson = defineAction({
       const club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
       const r = m.saved_customer && m.saved_method
         ? await paymentProvider().chargeSaved({ customer: m.saved_customer, paymentMethod: m.saved_method, amountCents: charge, currency: club.currency, description: `${planRow.name} membership: one more person`,
-            // One key per try (the new cover's id): Stripe answers a reused key with its first answer, a decline
-            // included, so a key per person and period would refuse every retry after a declined card.
-            idempotencyKey: `extra:${id}`, account: m.provider_account })
+            // One key per try (this change's own id): Stripe answers a reused key with its first answer, a decline
+            // included, so a key per person and period would refuse every retry after a declined card. The same
+            // change applied again after a deadlock gets the same answer, never a second charge.
+            idempotencyKey: `extra:${ctx.runId}`, account: m.provider_account })
         : { ref: "", status: "failed" as const, failure: "no saved card" };
       if (r.status !== "succeeded") throw new KumiError("error.extra_declined", { reason: declineReason(r.failure) });
       await ctx.insert("payment", { id: uuidv7(), person_id: m.person_id, amount_cents: charge, method: "card", provider: paymentProvider().name, provider_ref: r.ref,

@@ -323,7 +323,10 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
   }
   let after: (() => Promise<unknown>) | null = null;
   try {
-    const result = await db.transaction().execute(async (trx) => {
+    // Once more if Postgres broke a deadlock by ending this change (two changes taking the same rows in another
+    // order): nothing of it was kept, and a call to a provider inside a change carries a key that gives the same
+    // answer again.
+    const result = await onceMoreOnDeadlock(() => db.transaction().execute(async (trx) => {
       const run = await trx.selectFrom("action_run").selectAll().where("id", "=", runId).forUpdate().executeTakeFirst();
       if (!run) throw new KumiError("error.not_found", { thing: both("thing.change") }, 404);
       const approving = Boolean(opts.approvedBy);
@@ -366,7 +369,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       }).where("id", "=", runId).execute();
       if (def.after) after = () => def.after!(db, run.input, result, { actor: runActor, now });
       return result;
-    });
+    }));
     return after ? await (after as () => Promise<unknown>)() : result;
   } catch (e) {
     if (e instanceof KumiError && ["error.changed", "error.forbidden_reason"].includes(e.code)) {
@@ -449,6 +452,8 @@ function applyCtx(trx: Trx, actor: Actor, now: Date, runId: string, approvedBy: 
     },
   };
 }
+
+const onceMoreOnDeadlock = <R>(f: () => Promise<R>): Promise<R> => f().catch((e) => { if ((e as { code?: string })?.code === "40P01") return f(); throw e; });
 
 /** Kumi itself runs a system action: still planned, recorded and applied, with no person. */
 export async function runAsSystem(db: Db, name: string, raw: unknown, via: string, opts: { now?: Date } = {}) {

@@ -2,6 +2,8 @@
 // through can arrive three ways (the app checking, Stripe's webhook, the minute job). Each one asks the
 // provider rather than trusting the message, so the order and repeats don't matter.
 import { Hono, type Context } from "hono";
+import { sql } from "kysely";
+import { RateLimiter } from "./limits.ts";
 import { checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, supportRoleKeys, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
 
 type Me = { id: string } | null;
@@ -42,7 +44,13 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
     const r = await openPayment(db, id, pid);
     return c.json({ provider: r.provider, client_secret: r.clientSecret, publishable_key: r.provider === "stripe" ? stripe.publishableKey ?? null : null, stripe_account: r.account });
   });
-  app.post("/my/payments/:id/check", async (c) => c.json({ status: await checkPayment(db, await mine(c)) }));
+  // Each check can be a question to Stripe, so a person gets a few a minute (the app asks 8 times after a card form).
+  const checks = new RateLimiter(30, 5 * 60_000);
+  app.post("/my/payments/:id/check", async (c) => {
+    const id = await mine(c);
+    if (!checks.take(who(c))) throw new KumiError("error.too_many_requests", {}, 429);
+    return c.json({ status: await checkPayment(db, id, "payments", undefined, { recentOnly: true }) });
+  });
   // Saving the card for a membership joined before its plan starts: a card setup, nothing charged.
   app.post("/my/memberships/:id/card", async (c) => {
     const r = await openCardSetup(db, c.req.param("id"), who(c));
@@ -75,7 +83,8 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
     if (cp && ev.type === "account.updated") { await refreshStripeAccount(db, cp); return c.json({ received: true }); }
     const intent = ev.data?.object?.object === "payment_intent" ? ev.data.object.id : null;
     if (intent) {
-      const pay = await db.selectFrom("payment").select("id").where("provider", "=", "stripe").where("provider_ref", "=", intent).executeTakeFirst();
+      // One intent can pay several (courts or dates paid together): one still waiting, if any is.
+      const pay = await db.selectFrom("payment").select("id").where("provider", "=", "stripe").where("provider_ref", "=", intent).orderBy(sql`status = 'pending'`, "desc").orderBy("id").executeTakeFirst();
       if (pay) await checkPayment(db, pay.id, "webhook:stripe");
     }
     const setup = ev.data?.object?.object === "setup_intent" ? ev.data.object.id : null;

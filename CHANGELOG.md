@@ -104,7 +104,16 @@ Found by a review of the money paid at the desk (above), most of it in code olde
   0.2.0).** Cancelling a booking (or a program, or a friend's share at the deadline) marked its payment failed but
   left the card form open at Stripe: the member could pay, the card was charged, and Kumi neither counted nor
   refunded it. Now the card payment is called off at Stripe too, and if the card goes through first, the money is
-  recorded and all of it goes back to the card.
+  recorded and all of it goes back to the card. A call-off that can't reach Stripe keeps trying (it was given up
+  after eight tries), and the minute job asks Stripe about one not through yet, so a card paid meanwhile with its
+  webhook lost is still found and sent back. The members' app asks about a called-off payment only for a few days,
+  and how often anyone can ask the server to check a payment is limited.
+- **A court booking whose hold ran out left its card payment open (since 0.1.0).** It's called off now, as when the
+  booking is cancelled; with several courts in one card payment, once none of them is still wanted.
+- **The desk cancelling a booking at the moment its card went through could stop one of them with a database
+  deadlock (since 0.1.0).** Both now take the booking's payments first and then the booking, and any change ended to
+  break a deadlock is tried once more (a charge made inside it carries a key that gives the same answer again, so
+  one more person on a family plan is never charged twice for it).
 - **A card payment settled twice at once was counted twice (in 0.2.0).** The card form's return, Stripe's webhook and
   the minute job can each settle a payment, and two at the same moment both did: the books counted it twice, a late
   renewal paid in the app could add two periods, a new member could get the membership and all of the payment back,
@@ -349,6 +358,8 @@ to go live.
   desk records cash for bookings (and, after 0.2.0, for memberships and program places too: Unreleased, above).
   A program place partly paid at the desk is kept, never let go for being unpaid, and the rest of it is never
   reminded: it shows as owed on the roster and in the member's app.
+  A card that goes through after its payment was called off is always sent back in full, even when the place it
+  was for stays booked at a new price (a date cancelled from a course): the member then pays the new price.
 - Tournaments and leagues run as programs, without draws or fixtures. No chat between players, no
   recurring bookings, and no app store apps (the members' app installs from the browser).
 - Playtomic is read only, and needs one of its top two plans for the API keys.

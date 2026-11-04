@@ -939,17 +939,18 @@ async function opened(db: Db, paymentId: string, it: { ref: string; account?: st
 
 /** Ask the provider how a payment stands and record it once it's settled. Safe to call any number of times:
  *  after the card form, from a webhook, and from the minute job that catches what both missed. */
-export async function checkPayment(db: Db, paymentId: string, via = "payments", now?: Date): Promise<"pending" | "succeeded" | "failed" | null> {
+export async function checkPayment(db: Db, paymentId: string, via = "payments", now?: Date, o: { recentOnly?: boolean } = {}): Promise<"pending" | "succeeded" | "failed" | null> {
   const pay = await db.selectFrom("payment").select(["id", "status", "provider_ref", "provider_account"]).where("id", "=", paymentId).executeTakeFirst();
   if (!pay) return null;
   if (pay.status === "succeeded" || !pay.provider_ref) return pay.status;
+  // The member's app asks about one called off only for a few days after (the jobs and webhooks always may).
+  if (pay.status === "failed" && o.recentOnly && !(await calledOffSince(db, pay.id, new Date((now ?? new Date()).getTime() - CALL_OFF_DAYS * 864e5)))) return "failed";
   const it = await paymentProvider().getIntent(pay.provider_ref, pay.provider_account);
   // Called off here with its card form open: it stays failed unless the card went through anyway (recorded, then
   // what it was for decides what goes back: payment.settle).
   if (pay.status === "failed" && it.status !== "succeeded") return "failed";
   if (it.status !== "pending") {
-    const settle = () => runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: it.status as "succeeded" | "failed", ...(it.paymentMethod ? { saved_method: it.paymentMethod } : {}), ...(it.customer ? { saved_customer: it.customer } : {}) }, via, now ? { now } : {});
-    try { await settle().catch((e) => { if ((e as { code?: string })?.code === "40P01") return settle(); throw e; }); }   // a deadlock is tried once more
+    try { await runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: it.status, ...(it.paymentMethod ? { saved_method: it.paymentMethod } : {}), ...(it.customer ? { saved_customer: it.customer } : {}) }, via, now ? { now } : {}); }
     catch (e) { if (!(e instanceof KumiError && e.code === "error.changed")) throw e; }   // settled at that moment by another of the three: the same answer
   }
   return it.status;
@@ -968,9 +969,26 @@ export async function abandonPayment(db: Db, paymentId: string, via = "payments"
 }
 
 /** The minute job: card forms opened in the last two days and not yet settled here. */
+/** How long a payment called off with its card form open is still asked about. Its call-off (payment.call_off)
+ *  never gives up, so by then Stripe has it. */
+export const CALL_OFF_DAYS = 3;
+/** Whether a payment was called off with its card form open since `since`: the outbox event that calls it off. */
+async function calledOffSince(db: Db, paymentId: string, since: Date): Promise<boolean> {
+  return Boolean(await db.selectFrom("event_outbox").select("id").where("topic", "=", "payment.call_off").where(sql<string>`payload->>'payment_id'`, "=", paymentId)
+    .where("created_at", ">", since).executeTakeFirst());
+}
+
 export async function reconcilePayments(db: Db, now = new Date(), limit = 50) {
-  const rows = await db.selectFrom("payment").select("id").where("status", "=", "pending").where("provider", "=", paymentProvider().name)
+  const pending = await db.selectFrom("payment").select("id").where("status", "=", "pending").where("provider", "=", paymentProvider().name)
     .where("provider_ref", "is not", null).where("created_at", ">", new Date(now.getTime() - 2 * 864e5)).orderBy("created_at").limit(limit).execute();
+  // Called off with its card form open, and the call-off not at Stripe yet (it can't reach Stripe, say): paid
+  // meanwhile with its webhook lost, it's still found, recorded and sent back.
+  const calledOff = await db.selectFrom("payment").select("payment.id").where("payment.status", "=", "failed").where("payment.provider", "=", paymentProvider().name)
+    .where("payment.provider_ref", "is not", null)
+    .where((eb) => eb.exists(eb.selectFrom("event_outbox").select("event_outbox.id").where("event_outbox.topic", "=", "payment.call_off").where("event_outbox.delivered_at", "is", null)
+      .where("event_outbox.created_at", ">", new Date(now.getTime() - CALL_OFF_DAYS * 864e5)).where(sql<boolean>`event_outbox.payload->>'payment_id' = payment.id::text`)))
+    .orderBy("payment.created_at").limit(limit).execute();
+  const rows = [...pending, ...calledOff];
   let settled = 0;
   for (const r of rows) {
     try { if ((await checkPayment(db, r.id, "job:payments")) !== "pending") settled++; }

@@ -5,17 +5,22 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { appOnly, apply, checkPayment, getAction, lapseUnpaidPlaces, messageHandlers, moneyHandlers, openPayment, paidFor, plan, processOutbox, renewMemberships, run, runAsSystem,
+import { appOnly, apply, checkPayment, expireHolds, getAction, lapseUnpaidPlaces, reconcilePayments, messageHandlers, moneyHandlers, openPayment, paidFor, plan, processOutbox, renewMemberships, run, runAsSystem,
   setPaymentProvider, toGiveBack, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 /** A provider whose card form can be held open on its way there, as a slow network would. */
 class SlowProvider extends TestProvider {
   gate: Promise<void> | null = null;
   entered: (() => void) | null = null;
+  /** Stripe out of reach for calling a payment off. */
+  down = false;
+  reads = 0;
   override async createIntent(i: Parameters<TestProvider["createIntent"]>[0]) {
     if (this.gate) { this.entered?.(); await this.gate; }
     return super.createIntent(i);
   }
+  override async cancelIntent(ref: string) { if (this.down) throw new Error("stripe 503"); return super.cancelIntent(ref); }
+  override async getIntent(ref: string) { this.reads++; return super.getIntent(ref); }
 }
 let db: Db, drop: () => Promise<void>, owner: Actor, desk: Actor, monthly: string, family: string, loc: string, west: string, court: string, westCourt: string;
 const stripe = new SlowProvider();
@@ -56,7 +61,7 @@ before(async () => {
   owner = { personId: (s.result as any).owner_person_id, via: "test", lang: "en" };
   monthly = ((await run(db, "membership.plan_set", { name: "Monthly", price_cents: 8000, period: "month" }, owner, opts)).result as any).plan_id;
   family = ((await run(db, "membership.plan_set", { name: "Family", price_cents: 12000, period: "month", family_size: 2, extra_person_cents: 3000 }, owner, opts)).result as any).plan_id;
-  for (const name of ["Lee", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kit", "Max", "Ned", "Oli", "Rae", "Sol", "Tia", "Uma", "Vic", "Wes", "Xan", "Yul", "Zed", "Abe"])
+  for (const name of ["Lee", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kit", "Max", "Ned", "Oli", "Rae", "Sol", "Tia", "Uma", "Vic", "Wes", "Xan", "Yul", "Zed", "Abe", "Bo", "Cy", "Di", "Ed", "Flo", "Gil"])
     people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner, opts)).result as { person_id: string }).person_id;
   await run(db, "role.assign", { person_id: people.Lee, role: "front_desk" }, owner, opts);
   desk = as("Lee");
@@ -336,4 +341,96 @@ test("memberships belong to no location: a front desk kept to one does every mem
   await rejects(plan(db, "booking.record_payment", { booking_id: there, cents: 100, method: "cash" }, hal, opts), "error.forbidden_reason");
   const e = await enrol(await clinic("Westside clinic", west, westCourt), "Jo");
   await rejects(plan(db, "enrolment.record_payment", { enrolment_id: e.enrolment_id, cents: 100, method: "cash" }, hal, opts), "error.forbidden_reason");
+});
+
+test("a call-off that can't reach Stripe keeps trying, and a card paid meanwhile with its webhook lost is still found and sent back", async () => {
+  const r = (await run(db, "booking.request", { court_id: court, starts_at: "2026-11-14T10:00:00-08:00", minutes: 90, pay: "whole", person_id: people.Bo }, as("Bo"), opts)).result as { booking_id: string; payment_id: string };
+  await openPayment(db, r.payment_id, people.Bo!);
+  await run(db, "booking.cancel", { booking_id: r.booking_id }, desk, opts);
+  const event = () => db.selectFrom("event_outbox").select(["attempts", "delivered_at"]).where("topic", "=", "payment.call_off").where(({ ref }) => ref("payload", "->>").key("payment_id" as never), "=", r.payment_id as never).executeTakeFirstOrThrow();
+  stripe.down = true;
+  try { for (let k = 0; k < 12; k++) await processOutbox(db, moneyHandlers, 100, new Date(NOW.getTime() + k * 3600_000)); } finally { stripe.down = false; }
+  const e = await event();
+  assert.equal(e.delivered_at, null);
+  assert.ok(e.attempts > 8, `still trying after ${e.attempts}`);
+  stripe.settle(await refOf(r.payment_id), "succeeded");   // Bo pays; the webhook never comes
+  await reconcilePayments(db, NOW);
+  assert.deepEqual((await refunds(r.payment_id)).map((x) => x.status), ["pending"]);
+  await processOutbox(db, moneyHandlers, 100, new Date(NOW.getTime() + 13 * 3600_000));   // Stripe back: the call-off finds it paid, the refund goes
+  assert.ok((await event()).delivered_at);
+  assert.deepEqual((await refunds(r.payment_id)).map((x) => x.status), ["sent"]);
+});
+
+test("two courts in one card payment: one cancelled, the other's hold runs out, and the card payment is called off", async () => {
+  await run(db, "club.update", { court_bookings: true }, owner, opts);
+  const court2 = ((await run(db, "court.create", { location_id: loc, name: "Court 2" }, owner, opts)).result as { court_id: string }).court_id;
+  const slot = (c: string) => ({ court_id: c, starts_at: "2026-11-15T10:00:00-08:00", minutes: 90 });
+  await run(db, "booking.request_courts", { courts: [slot(court), slot(court2)], person_id: people.Cy }, as("Cy"), opts);
+  const rows = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "booking_player.booking_id"])
+    .where("payment.person_id", "=", people.Cy!).orderBy("payment.id").execute();
+  await openPayment(db, rows[0]!.id, people.Cy!);
+  const ref = await refOf(rows[0]!.id);
+  await run(db, "booking.cancel", { booking_id: rows[0]!.booking_id }, desk, opts);
+  await processOutbox(db, moneyHandlers, 100, NOW);
+  assert.equal(stripe.intents.get(ref)!.status, "pending", "still wanted for the other court");
+  const later = new Date(NOW.getTime() + 3600_000);
+  await expireHolds(db, later);
+  await processOutbox(db, moneyHandlers, 100, later);
+  assert.equal(stripe.intents.get(ref)!.status, "failed", "neither court wants it now");
+  assert.deepEqual((await db.selectFrom("payment").select("status").where("id", "in", rows.map((x) => x.id)).execute()).map((x) => x.status), ["failed", "failed"]);
+});
+
+test("the desk cancels a held booking as its card goes through: no deadlock, and the money is kept once or given back once", async () => {
+  for (const [k, who] of ["Di", "Ed", "Flo", "Gil"].entries()) {
+    const r = (await run(db, "booking.request", { court_id: westCourt, starts_at: `2026-11-${String(8 + k).padStart(2, "0")}T12:00:00-08:00`, minutes: 90, pay: "whole", person_id: people[who] }, as(who), opts)).result as { booking_id: string; payment_id: string };
+    await openPayment(db, r.payment_id, people[who]!);
+    const c = await plan(db, "booking.cancel", { booking_id: r.booking_id }, desk, opts);
+    stripe.settle(await refOf(r.payment_id), "succeeded");
+    const res = await Promise.allSettled([apply(db, c.runId, desk, opts), checkPayment(db, r.payment_id, "webhook", NOW)]);
+    for (const x of res) if (x.status === "rejected") assert.equal((x.reason as KumiError).code, "error.changed", `${who}: ${String(x.reason)}`);
+    await processOutbox(db, moneyHandlers, 100, NOW);
+    const b = await db.selectFrom("booking").select("status").where("id", "=", r.booking_id).executeTakeFirstOrThrow();
+    const pay = await db.selectFrom("payment").select(["status", "amount_cents"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
+    const back = (await refunds(r.payment_id)).reduce((n, x) => n + x.amount_cents, 0);
+    assert.equal(pay.status, "succeeded", who);
+    assert.equal(back, b.status === "cancelled" ? pay.amount_cents : 0, `${who}: ${b.status}`);
+  }
+});
+
+test("the app asks Stripe about a called-off payment only for a few days after; the jobs always may", async () => {
+  const r = (await run(db, "booking.request", { court_id: court, starts_at: "2026-11-16T10:00:00-08:00", minutes: 90, pay: "whole", person_id: people.Bo }, as("Bo"), opts)).result as { booking_id: string; payment_id: string };
+  await openPayment(db, r.payment_id, people.Bo!);
+  await run(db, "booking.cancel", { booking_id: r.booking_id }, desk, opts);
+  let reads = stripe.reads;
+  await checkPayment(db, r.payment_id, "payments", NOW, { recentOnly: true });
+  assert.equal(stripe.reads, reads + 1, "just called off: asked");
+  reads = stripe.reads;
+  assert.equal(await checkPayment(db, r.payment_id, "payments", new Date(NOW.getTime() + 4 * 864e5), { recentOnly: true }), "failed");
+  assert.equal(stripe.reads, reads, "four days on: not asked");
+});
+
+test("076's count, when one more person was charged after the ask and then a pause: still the current period", async () => {
+  for (const [name, year] of [["Ema", 2014], ["Eli", 2016]] as const)
+    people[name] = ((await run(db, "household.add_junior", { person_id: people.Ed, display_name: name, birth_year: year }, as("Ed"), opts)).result as { person_id: string }).person_id;
+  const join = (await run(db, "membership.join", { plan_id: family, person_id: people.Ed }, as("Ed"), opts)).result as { payment_id: string };
+  await cardPaid(join.payment_id, "Ed");
+  const m0 = await membership("Ed");
+  await run(db, "membership.add_person", { membership_id: m0.id, person_id: people.Ema }, as("Ed"), opts);   // the second: included
+  stripe.failNextCharge = "card_declined";
+  await renewMemberships(db, m0.current_period_end!);
+  const at = { now: new Date(m0.current_period_end!.getTime() + 3600_000) };
+  const ask = await db.selectFrom("payment").select("id").where("membership_id", "=", m0.id).where("status", "=", "pending").executeTakeFirstOrThrow();
+  await openPayment(db, ask.id, people.Ed!);
+  await run(db, "membership.add_person", { membership_id: m0.id, person_id: people.Eli }, as("Ed"), at);   // the third: charged on the saved card
+  assert.ok(await db.selectFrom("payment").select("id").where("membership_id", "=", m0.id).where("membership_member_id", "is not", null).where("status", "=", "succeeded").executeTakeFirst());
+  await run(db, "membership.pause", { membership_id: m0.id, until: "2026-12-30" }, desk, at);
+  const { sql } = await import("kysely");
+  const m076 = (await import("node:fs")).readFileSync(new URL("../../../migrations/076_money_fixes.sql", import.meta.url), "utf8");
+  const from = m076.indexOf("UPDATE payment SET for_period_no"), backfill = m076.slice(from, m076.indexOf(";", from));
+  await sql`ALTER TABLE payment ADD COLUMN for_period_end timestamptz`.execute(db);
+  try {
+    await sql`UPDATE payment SET for_period_end = ${m0.current_period_end}, for_period_no = NULL WHERE id = ${ask.id}`.execute(db);
+    await sql.raw(backfill).execute(db);
+  } finally { await sql`ALTER TABLE payment DROP COLUMN for_period_end`.execute(db); }
+  assert.equal((await db.selectFrom("payment").select("for_period_no").where("id", "=", ask.id).executeTakeFirstOrThrow()).for_period_no, (await membership("Ed")).period_no);
 });

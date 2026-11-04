@@ -389,6 +389,15 @@ export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amou
   return "confirmed";
 }
 
+/** A booking locked for a change that moves its money: its payments first, in id order, then the booking, the
+ *  order payment.settle takes them in (the payments, then what they're for). A cancel and a card going through at
+ *  that moment then wait for each other instead of deadlocking. */
+async function lockBooking(trx: Trx, bookingId: string) {
+  await trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
+    .where("booking_player.booking_id", "=", bookingId).orderBy("payment.id").forUpdate("payment").execute();
+  return trx.selectFrom("booking").selectAll().where("id", "=", bookingId).forUpdate().executeTakeFirstOrThrow();
+}
+
 // ---- Cancelling: what comes back is the booking's own rules (rule 2: staff can choose otherwise) ----
 /** What each payment gets back. In an open match, under the rule, the players who joined get everything
  *  back whatever the timing (the host called it off, not them); the late rule is for the host's own payment. */
@@ -435,7 +444,7 @@ export const bookingCancel = defineAction({
   },
   async apply(ctx, i, plan) {
     const planned = (plan.details as { refunds: { payment_id: string; cents: number }[] }).refunds;
-    const b = await ctx.trx.selectFrom("booking").select("status").where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
+    const b = await lockBooking(ctx.trx, i.booking_id);
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
     // Someone who paid after the preview was made never agreed to its rule: all of theirs back.
     const late = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "payment.amount_cents", backSql.as("back")])
@@ -523,10 +532,14 @@ export const bookingLapse = defineAction({
     return { title: both("action.booking.lapse"), summary: both("plan.booking.lapse", { code: row.code }), reads: [read], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
-    const b = await ctx.trx.selectFrom("booking").select("status").where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
+    const b = await lockBooking(ctx.trx, i.booking_id);
     if (b.status !== "held") return { already: b.status };
     await ctx.update("booking", i.booking_id, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: "not_paid" });
     for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", i.booking_id).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
+    // Its payment can't be paid any more: a card form opened for it is called off (or, one card payment for
+    // several courts, once none of them is still wanted).
+    for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
+      .where("booking_player.booking_id", "=", i.booking_id).where("payment.status", "=", "pending").execute()) await callOff(ctx, p.id);
     return null;
   },
 });
@@ -539,7 +552,7 @@ export const bookingSettleShares = defineAction({
     return { title: both("action.booking.settle_shares"), summary: both("plan.booking.settle_shares", { code: row.code }), reads: [read], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
-    const b = await ctx.trx.selectFrom("booking").selectAll().where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
+    const b = await lockBooking(ctx.trx, i.booking_id);
     if (b.settled_at || b.status !== "confirmed") return { already: true };
     if (await openMatchOf(ctx.trx, b.id) && await paidPlaces(ctx.trx, b.id) < b.players) return cancelUnfilled(ctx, b.id);
     // What's been paid for the places still taken (a place let go was paid back, if it was paid at all).

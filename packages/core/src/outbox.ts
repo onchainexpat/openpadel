@@ -9,10 +9,10 @@ import { checkPayment } from "./programs.ts";
 export interface OutboxEvent { id: string; topic: string; payload: any; created_at: Date; attempts: number }
 export type Handler = (db: Db, payload: any, event?: OutboxEvent) => Promise<void>;
 export const MAX_ATTEMPTS = 8;
-/** Money on its way back to a card isn't given up after eight quick tries: it waits 30 seconds, doubling to an
- *  hour, until its handler settles it (a refund that can't reach the provider for an hour is marked failed, so
- *  the staff hear and can send it again). */
-export const MONEY_TOPICS = new Set(["refund.requested"]);
+/** Money on its way back to a card, and a card payment being called off, aren't given up after eight quick tries:
+ *  each waits 30 seconds, doubling to an hour, until its handler settles it (a refund that can't reach the
+ *  provider for an hour is marked failed, so the staff hear and can send it again; a call-off keeps trying). */
+export const MONEY_TOPICS = new Set(["refund.requested", "payment.call_off"]);
 export const backoffMs = (attempts: number) => Math.min(3600_000, 30_000 * 2 ** Math.max(0, attempts - 1));
 
 export async function processOutbox(db: Db, handlers: Record<string, Handler>, limit = 100, now = new Date()): Promise<{ delivered: number; failed: number }> {
