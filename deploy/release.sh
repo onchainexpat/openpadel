@@ -14,6 +14,10 @@
 # itself, so nothing an npm package runs gets root), then the release becomes root's before it's used, so the
 # server and Caddy read it and nothing running as kumi can change what root runs later. Every path and command can be swapped by the environment (the tests
 # run it against a scratch folder with stand-ins for systemctl, curl and the Postgres tools).
+#
+# All of it is one block, read in full before any of it runs, and it ends in exit: bash reads a script as it goes, and
+# an update installs this file as root's copy, the one `sudo kumi rollback` runs.
+{
 set -euo pipefail
 
 ROOT=${KUMI_ROOT:-/opt/kumi}
@@ -276,7 +280,9 @@ tidy() {
 install_system_files() {
   [ "$SYSTEM_FILES" = "1" ] || return 0
 # --- system files (the same in server-setup.sh and release.sh) ---
-cat > /usr/local/bin/kumi <<'SH'
+# The kumi command: written beside it and moved into place, so a running one (sudo kumi update runs this) keeps
+# reading its own text.
+cat > /usr/local/bin/kumi.new <<'SH'
 #!/bin/sh
 # The kumi command, as the kumi user with the server's settings. Updating, going back and restoring stop and
 # start the server, so those run as root (sudo kumi ...).
@@ -321,7 +327,7 @@ esac
 cd /opt/kumi/app || exit 1
 exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
 SH
-chmod 755 /usr/local/bin/kumi
+chmod 755 /usr/local/bin/kumi.new && mv -f /usr/local/bin/kumi.new /usr/local/bin/kumi
 # Nightly backup at 3:17 on the club's clock (off the hour): the dump and its manifest, kept 14 days, and the
 # offsite copy if set up. The backup and the restore test run the club's code as the kumi user, so they get the
 # server's sandbox: they write only in the backups folder, with a /tmp of their own. The timer ticks hourly and `--scheduled` runs it only when it's due, so the time follows
@@ -570,3 +576,5 @@ case "${1:-}" in
   status) status;;
   *) die "usage: release.sh update <release.tar> [revision] | rollback --yes | status";;
 esac
+exit
+}

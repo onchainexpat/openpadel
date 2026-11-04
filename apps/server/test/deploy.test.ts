@@ -1,8 +1,49 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const read = (p: string) => readFileSync(new URL(`../../../${p}`, import.meta.url), "utf8");
+
+/** Runs a copy of a script twice: as it is, and with its first use of `command` rewriting the copy in place (as an
+ *  update can rewrite the file a script runs from). Bash reads a script as it goes, so one that hasn't read itself in
+ *  full before running anything goes on with the new text; one that has behaves the same both times. */
+function rewrittenWhileRunning(script: string, args: string[], command: string, answer = "") {
+  const once = (rewrite: boolean) => {
+    const dir = mkdtempSync(join(tmpdir(), "kumi-selfread-")), copy = join(dir, "script.sh"), bin = join(dir, "bin");
+    try {
+      writeFileSync(copy, read(script));
+      // release.sh reads the server's settings before anything else: a scratch file of them.
+      writeFileSync(join(dir, "kumi.env"), "KUMI_SECRET_KEY=test\nDATABASE_URL=postgresql://nobody@/none\n");
+      const junk = "echo REWRITTEN-RAN; exit 9\n".repeat(Math.ceil((statSync(copy).size * 3) / 27));
+      spawnSync("mkdir", [bin]);
+      // In place (the same file, truncated and written), never a new one: a new file wouldn't reach the running copy.
+      writeFileSync(join(bin, command), `#!/bin/sh\n${rewrite ? `printf '%s' "$KUMI_JUNK" > "$KUMI_COPY"` : ":"}\n${answer}\n`, { mode: 0o755 });
+      const r = spawnSync("bash", [copy, ...args], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, KUMI_JUNK: junk, KUMI_COPY: copy, KUMI_ROOT: dir, KUMI_ENV_FILE: join(dir, "kumi.env") } });
+      return { out: `${r.stdout}${r.stderr}`.replaceAll(dir, "<dir>"), status: r.status };
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  };
+  return { as: once(false), rewritten: once(true) };
+}
+
+test("the update scripts run only their own text, whatever happens to their file while they run", () => {
+  // update.sh switches its own checkout (git checkout) as it goes; release.sh installs itself as root's copy.
+  const update = rewrittenWhileRunning("deploy/docker/update.sh", ["v9.9.9"], "git", '[ "$1" = rev-parse ] && pwd');
+  assert.equal(update.as.status, 1); assert.match(update.as.out, /no \.env here/);
+  assert.deepEqual(update.rewritten, update.as);
+  const release = rewrittenWhileRunning("deploy/release.sh", ["status"], "ls");
+  assert.equal(release.as.status, 0); assert.match(release.as.out, /running: +none/);
+  assert.deepEqual(release.rewritten, release.as);
+  // The kumi command is rewritten by every update while `sudo kumi update` runs it: a new file moved into place, so
+  // the running one keeps reading its own.
+  for (const f of ["deploy/server-setup.sh", "deploy/release.sh"]) {
+    const s = read(f);
+    assert.ok(!s.includes("cat > /usr/local/bin/kumi <<"), f);
+    assert.match(s, /cat > \/usr\/local\/bin\/kumi\.new <<'SH'\n[\s\S]*?\nSH\nchmod 755 \/usr\/local\/bin\/kumi\.new && mv -f \/usr\/local\/bin\/kumi\.new \/usr\/local\/bin\/kumi\n/, f);
+  }
+});
 
 test("both ways of running Kumi give the apps the same security policy and the same API paths", () => {
   const script = read("deploy/server-setup.sh"), caddy = read("deploy/docker/Caddyfile");

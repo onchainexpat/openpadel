@@ -6,6 +6,10 @@
 #   deploy/docker/update.sh <git ref>        a release tag (v0.2.0) or a branch
 #   deploy/docker/update.sh rollback --yes   the previous release, and the database as it was just before
 #                                            the last update (everything since is lost: hence --yes)
+#
+# All of it is one block, read in full before any of it runs, and it ends in exit: bash reads a script as it goes,
+# and this one checks out another release over itself, so without that it could run on into the other one's text.
+{
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 [ -f .env ] || { echo "kumi: no .env here (copy deploy/docker/env.example)" >&2; exit 1; }
@@ -131,3 +135,5 @@ up_as "$old"
 if [ -n "$kept" ]; then printf '%s\n' "$kept" > "$STATE"; else printf 'current=%s\nprevious=\nsnapshot=\n' "$old" > "$STATE"; fi
 check "$old" && die "update to $new failed; back on $old with the database as it was before (snapshot $snap)"
 die "update to $new failed, and $old didn't come back up either: docker compose logs kumi"
+exit
+}

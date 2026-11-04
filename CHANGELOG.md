@@ -42,6 +42,9 @@ server starts.
   place of the buttons that book, join or sign up, instead of a refusal after the tap.
 - **One notice at a time on a phone.** The notices at the top of both apps (read-only, moved, the day the club's Kumi
   ends, support access, a waiver, an email to add) show the first on a phone, with how many more there are.
+- An update only ever runs its own script. `deploy/docker/update.sh` and `release.sh` read themselves in full before
+  running anything (bash reads a script as it goes, and both change their own file while they run), and an update
+  writes the `kumi` command beside it and moves it into place instead of rewriting the one `sudo kumi update` runs.
 - `kumi read-only status`, `kumi moved status` and `kumi leaving status` give times on the club's clock, not as raw
   UTC, and `kumi doctor` gives the club's own day. The leaving status lists the emails to the owners under their own
   heading, and the moved switch in Settings says "We're staying on this server".
