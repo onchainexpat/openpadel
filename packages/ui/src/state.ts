@@ -1,6 +1,8 @@
 // Who is signed in, the club, and the language: the three things every screen reads.
 import { signal, computed, effect } from "@preact/signals";
-import { format, pickLang, type Catalog, type Key, type Lang, type Params } from "@kumi/i18n/format";
+import type { ComponentType } from "preact";
+import { lazy } from "preact-iso";
+import { format, LANGS, pickLang, type Catalog, type Key, type Lang, type Params } from "@kumi/i18n/format";
 
 export type Me = { person: { id: string; display_name: string; locale: string }; signed_in_with: "email_code" | "phone_code" | "passkey" | "two_factor"; lang: Lang;
   /** False for an account that joined by phone and hasn't added an email: the members' app asks for one, never requires it. */
@@ -44,20 +46,39 @@ export const club = signal<Club | null>(null);
 export const lang = signal<Lang>(pickLang(navigator.language));
 
 // The wording: only this app's keys, one language at a time, fetched when it's first needed (the build
-// makes the modules: packages/i18n/src/vite.ts). Until a new language arrives, text stays in the old one.
-const wordingIn: Record<Lang, () => Promise<{ default: Catalog }>> = { en: () => import("virtual:kumi-wording/en"), es: () => import("virtual:kumi-wording/es") };
+// makes the modules: packages/i18n/src/vite.ts). Each language comes in two parts: what the first screen says,
+// and the rest, which the pages loaded later wait for (lazyPage). Until a new language arrives whole, text stays
+// in the old one.
+type Part = () => Promise<{ default: Catalog }>;
+const wordingIn: Record<Lang, { first: Part; rest: Part }> = {
+  en: { first: () => import("virtual:kumi-wording/en"), rest: () => import("virtual:kumi-wording/en/rest") },
+  es: { first: () => import("virtual:kumi-wording/es"), rest: () => import("virtual:kumi-wording/es/rest") },
+};
 const catalogs = signal<Partial<Record<Lang, Catalog>>>({});
-const fetching = new Map<Lang, Promise<void>>();
-function loadWording(l: Lang): Promise<void> {
-  if (!fetching.has(l)) fetching.set(l, wordingIn[l]().then((m) => { catalogs.value = { ...catalogs.peek(), [l]: m.default }; }, (e) => { fetching.delete(l); throw e; }));
-  return fetching.get(l)!;
+const fetching = new Map<string, Promise<Catalog>>();
+function part(l: Lang, p: "first" | "rest"): Promise<Catalog> {
+  const k = `${l}/${p}`;
+  if (!fetching.has(k)) fetching.set(k, wordingIn[l][p]().then((m) => m.default, (e) => { fetching.delete(k); throw e; }));
+  return fetching.get(k)!;
 }
-/** Settles once the first language's wording is in; the apps draw their first screen after it. */
-export const wordingReady: Promise<void> = loadWording(lang.peek()).catch(() => undefined);
-effect(() => { loadWording(lang.value).catch(() => undefined); });
+const add = (l: Lang, c: Catalog) => { catalogs.value = { ...catalogs.peek(), [l]: { ...catalogs.peek()[l], ...c } }; };
+/** Just what the first screen says, in this language. */
+const firstWording = (l: Lang): Promise<void> => part(l, "first").then((c) => add(l, c));
+/** All of a language's wording, put in at once. */
+const loadWording = (l: Lang): Promise<void> => Promise.all([part(l, "first"), part(l, "rest")]).then(([a, b]) => add(l, { ...a, ...b }));
+/** Settles once the first language's first-screen wording is in; the apps draw their first screen after it. */
+export const wordingReady: Promise<void> = firstWording(lang.peek()).catch(() => undefined);
+// The rest of the wording follows once the app knows who's here (loadMe), in their language, not the browser's.
+let following = false;
+const followLanguage = () => { if (!following) { following = true; effect(() => { loadWording(lang.value).catch(() => undefined); }); } };
+/** A page loaded when it's first opened (preact-iso's lazy), which also waits for the rest of the wording. */
+export const lazyPage = <T extends ComponentType<any>>(load: () => Promise<T>) =>
+  lazy(() => Promise.all([load(), loadWording(lang.peek()).catch(() => undefined)]).then(([c]) => c));
 export const t = (key: Key, params?: Params) => {
   const all = catalogs.value, l = all[lang.value] ? lang.value : lang.value === "en" ? "es" : "en";
-  return format(all[l] ?? {}, l, key, params);
+  // A key the language's first part doesn't have yet (a page opened before the rest arrived) comes from the other.
+  const has = (x: Lang) => all[x]?.[key] !== undefined, from = has(l) ? l : LANGS.find(has) ?? l;
+  return format(all[from] ?? {}, from, key, params);
 };
 /** A moment: the time when it's today, the day and time when it isn't (a place offered at night is held into the next day). */
 export function shortTime(iso: string): string {
@@ -84,6 +105,7 @@ export async function api<T = any>(path: string, body?: unknown, headers: Record
 }
 
 export async function loadMe(): Promise<void> {
-  try { const m = await api<Me>("/me"); await loadWording(m.lang).catch(() => undefined); me.value = m; lang.value = m.lang; }
+  try { const m = await api<Me>("/me"); await firstWording(m.lang).catch(() => undefined); me.value = m; lang.value = m.lang; }
   catch { me.value = null; }
+  followLanguage();
 }

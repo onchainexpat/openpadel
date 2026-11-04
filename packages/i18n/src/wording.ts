@@ -1,8 +1,9 @@
 // Which keys an app's code can ask for, so the app ships only those. Two kinds of use count: a string that
 // is a key ("ui.book"), and the fixed start of a template string, which takes every key it begins
 // (`kind.${k}` takes kind.clinic, kind.social and the rest). wording.test.ts checks every t() call is one of these.
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
 
 /** Every .ts and .tsx file under these folders. */
 export function sourceFiles(dirs: string[]): string[] {
@@ -34,4 +35,33 @@ export function keysUsed(files: string[], keys: readonly string[]): { keys: stri
     }
   }
   return { keys: [...used].sort(), prefixes };
+}
+
+// `import ... from "x"`, `import "x"` and `export ... from "x"` at the start of a line, types included (a type's keys
+// are cheap to ship, and a union of keys can come in that way); `import("x")` isn't one.
+const STATIC = /^\s*(?:import|export)\s+(?:[\w*{}\s,$]+?\s+from\s+)?["']([^"']+)["']/gm;
+
+/** The file an import names, if it's one of ours (.ts or .tsx): a path from this file, or a package by its exports. */
+function resolveImport(from: string, spec: string): string | null {
+  if (!spec.startsWith(".")) { try { return createRequire(from).resolve(spec); } catch { return null; } }
+  const base = resolve(dirname(from), spec);
+  for (const f of [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts"), join(base, "index.tsx")]) if (/\.tsx?$/.test(f) && existsSync(f) && statSync(f).isFile()) return f;
+  return null;
+}
+
+/** The files under these folders that load with the app's first screen: the entry and everything it imports, and
+ *  so on, but not what's only imported with import() (the pages loaded when they're first opened). */
+export function firstScreenFiles(entry: string, dirs: string[]): string[] {
+  // Real paths throughout: a package resolves to its real folder, which a linked checkout's dirs may not spell the same.
+  const real = dirs.map((d) => `${realpathSync(d)}/`), seen = new Set<string>(), todo = [realpathSync(entry)];
+  while (todo.length) {
+    const f = todo.pop()!;
+    if (seen.has(f)) continue;
+    seen.add(f);
+    for (const m of readFileSync(f, "utf8").matchAll(STATIC)) {
+      const found = resolveImport(f, m[1]!), to = found && realpathSync(found);
+      if (to && /\.tsx?$/.test(to) && real.some((d) => to.startsWith(d))) todo.push(to);
+    }
+  }
+  return [...seen].sort();
 }

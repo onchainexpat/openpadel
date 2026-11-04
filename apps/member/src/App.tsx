@@ -1,6 +1,6 @@
-import { ErrorBoundary, LocationProvider, Router, Route, lazy } from "preact-iso";
+import { ErrorBoundary, LocationProvider, Router, Route } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor } from "@kumi/ui";
+import { api, club, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor } from "@kumi/ui";
 import { WhatsOn } from "./WhatsOn.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
 import { MyLevel } from "./MyLevel.tsx";
@@ -11,15 +11,15 @@ import { FriendLink, Friends } from "./Friends.tsx";
 import { TakePlace } from "./Take.tsx";
 import { loadFamily, waiverDue } from "./ForWhom.tsx";
 // Pages few members open, loaded when they do.
-const Membership = lazy(() => import("./Membership.tsx").then((m) => m.Membership));
-const Lessons = lazy(() => import("./Lessons.tsx").then((m) => m.Lessons));
-const Family = lazy(() => import("./Family.tsx").then((m) => m.Family));
-const FamilyJoin = lazy(() => import("./Family.tsx").then((m) => m.FamilyJoin));
-const Waiver = lazy(() => import("./Family.tsx").then((m) => m.Waiver));
-const Ask = lazy(() => import("./Ask.tsx").then((m) => m.Ask));
-const AskThread = lazy(() => import("./Ask.tsx").then((m) => m.AskThread));
-const Receipts = lazy(() => import("./Receipts.tsx").then((m) => m.Receipts));
-const ReceiptPage = lazy(() => import("./Receipts.tsx").then((m) => m.ReceiptPage));
+const Membership = lazyPage(() => import("./Membership.tsx").then((m) => m.Membership));
+const Lessons = lazyPage(() => import("./Lessons.tsx").then((m) => m.Lessons));
+const Family = lazyPage(() => import("./Family.tsx").then((m) => m.Family));
+const FamilyJoin = lazyPage(() => import("./Family.tsx").then((m) => m.FamilyJoin));
+const Waiver = lazyPage(() => import("./Family.tsx").then((m) => m.Waiver));
+const Ask = lazyPage(() => import("./Ask.tsx").then((m) => m.Ask));
+const AskThread = lazyPage(() => import("./Ask.tsx").then((m) => m.AskThread));
+const Receipts = lazyPage(() => import("./Receipts.tsx").then((m) => m.Receipts));
+const ReceiptPage = lazyPage(() => import("./Receipts.tsx").then((m) => m.ReceiptPage));
 
 /** Someone who joined by phone is asked to add an email, until they add one or say "not now" on this device. */
 function useEmailNotice() {

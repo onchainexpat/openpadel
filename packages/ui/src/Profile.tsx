@@ -1,16 +1,15 @@
 import { useEffect, useState } from "preact/hooks";
 import { startRegistration } from "@simplewebauthn/browser";
 import type { Key, Lang } from "@kumi/i18n";
-import { api, ApiError, club, farewell, loadMe, me, t } from "./state.ts";
+import { api, ApiError, club, farewell, lazyPage, loadMe, me, t } from "./state.ts";
 import { AccountData } from "./AccountData.tsx";
 import { PolicyLinks } from "./Policies.tsx";
 import { protectedPost } from "./pow.ts";
-import { lazy } from "preact-iso";
 
 // Two-step sign-in, loaded when the profile opens.
-const TwoStepSettings = lazy(() => import("./TwoFactor.tsx").then((m) => m.TwoStepSettings));
+const TwoStepSettings = lazyPage(() => import("./TwoFactor.tsx").then((m) => m.TwoStepSettings));
 // Connected assistants and their weekly limits, loaded when the profile opens.
-const Assistants = lazy(() => import("./Assistants.tsx").then((m) => m.Assistants));
+const Assistants = lazyPage(() => import("./Assistants.tsx").then((m) => m.Assistants));
 
 /** Notifications on this device: the browser's own permission, then a subscription the club's server pushes
  *  to. `app` says which app's messages it gets (staff alerts in the staff app, the rest in the members'). */

@@ -1,47 +1,47 @@
-import { ErrorBoundary, LocationProvider, Router, Route, lazy, useLocation } from "preact-iso";
+import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, Inbox, InboxLink, lang, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor } from "@kumi/ui";
+import { api, club, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts } from "./Courts.tsx";
 
 // Pages loaded when first opened (Courts and a coach's schedule are in the first screen: they're where most staff start).
-const Changes = lazy(() => import("./Changes.tsx").then((m) => m.Changes));
-const Programs = lazy(() => import("./Programs.tsx").then((m) => m.Programs));
-const Night = lazy(() => import("./Night.tsx").then((m) => m.Night));
-const Level = lazy(() => import("./Level.tsx").then((m) => m.Level));
-const People = lazy(() => import("./People.tsx").then((m) => m.People));
-const Person = lazy(() => import("./Person.tsx").then((m) => m.Person));
-const Memberships = lazy(() => import("./Memberships.tsx").then((m) => m.Memberships));
-const Scores = lazy(() => import("./Scores.tsx").then((m) => m.Scores));
-const Levels = lazy(() => import("./Levels.tsx").then((m) => m.Levels));
-const SessionLevels = lazy(() => import("./SessionLevels.tsx").then((m) => m.SessionLevels));
+const Changes = lazyPage(() => import("./Changes.tsx").then((m) => m.Changes));
+const Programs = lazyPage(() => import("./Programs.tsx").then((m) => m.Programs));
+const Night = lazyPage(() => import("./Night.tsx").then((m) => m.Night));
+const Level = lazyPage(() => import("./Level.tsx").then((m) => m.Level));
+const People = lazyPage(() => import("./People.tsx").then((m) => m.People));
+const Person = lazyPage(() => import("./Person.tsx").then((m) => m.Person));
+const Memberships = lazyPage(() => import("./Memberships.tsx").then((m) => m.Memberships));
+const Scores = lazyPage(() => import("./Scores.tsx").then((m) => m.Scores));
+const Levels = lazyPage(() => import("./Levels.tsx").then((m) => m.Levels));
+const SessionLevels = lazyPage(() => import("./SessionLevels.tsx").then((m) => m.SessionLevels));
 
 // What a coach with no other staff role sees (the server's COACH_READS): their schedule, programs, courts and levels.
 const COACH_SEES = ["bookings", "programs", "levels", "coaches"];
 // Set-up pages, opened now and then, loaded when they are.
-const Settings = lazy(() => import("./Settings.tsx").then((m) => m.Settings));
-const Program = lazy(() => import("./Program.tsx").then((m) => m.Program));
-const Coaches = lazy(() => import("./Coaches.tsx").then((m) => m.Coaches));
-const Reports = lazy(() => import("./Reports.tsx").then((m) => m.Reports));
-const Payments = lazy(() => import("./Payments.tsx").then((m) => m.Payments));
-const Mirror = lazy(() => import("./Mirror.tsx").then((m) => m.Mirror));
+const Settings = lazyPage(() => import("./Settings.tsx").then((m) => m.Settings));
+const Program = lazyPage(() => import("./Program.tsx").then((m) => m.Program));
+const Coaches = lazyPage(() => import("./Coaches.tsx").then((m) => m.Coaches));
+const Reports = lazyPage(() => import("./Reports.tsx").then((m) => m.Reports));
+const Payments = lazyPage(() => import("./Payments.tsx").then((m) => m.Payments));
+const Mirror = lazyPage(() => import("./Mirror.tsx").then((m) => m.Mirror));
 // The club's own roles, and the owner's vault, from Settings.
-const Roles = lazy(() => import("./Roles.tsx").then((m) => m.Roles));
-const Vault = lazy(() => import("./Vault.tsx").then((m) => m.Vault));
-const Usage = lazy(() => import("./Usage.tsx").then((m) => m.Usage));
-const Support = lazy(() => import("./Support.tsx").then((m) => m.Support));
+const Roles = lazyPage(() => import("./Roles.tsx").then((m) => m.Roles));
+const Vault = lazyPage(() => import("./Vault.tsx").then((m) => m.Vault));
+const Usage = lazyPage(() => import("./Usage.tsx").then((m) => m.Usage));
+const Support = lazyPage(() => import("./Support.tsx").then((m) => m.Support));
 // A coach's lists, opened from the schedule.
-const Roster = lazy(() => import("./Roster.tsx").then((m) => m.Roster));
-const Students = lazy(() => import("./Students.tsx").then((m) => m.Students));
+const Roster = lazyPage(() => import("./Roster.tsx").then((m) => m.Roster));
+const Students = lazyPage(() => import("./Students.tsx").then((m) => m.Students));
 // Members' questions and the club's facts.
-const Questions = lazy(() => import("./Questions.tsx").then((m) => m.Questions));
-const QuestionPage = lazy(() => import("./Questions.tsx").then((m) => m.QuestionPage));
-const Facts = lazy(() => import("./Questions.tsx").then((m) => m.Facts));
+const Questions = lazyPage(() => import("./Questions.tsx").then((m) => m.Questions));
+const QuestionPage = lazyPage(() => import("./Questions.tsx").then((m) => m.QuestionPage));
+const Facts = lazyPage(() => import("./Questions.tsx").then((m) => m.Facts));
 // Writing to members: messages, groups and templates.
-const Messages = lazy(() => import("./Messages.tsx").then((m) => m.Messages));
-const Compose = lazy(() => import("./Messages.tsx").then((m) => m.Compose));
-const Groups = lazy(() => import("./Messages.tsx").then((m) => m.Groups));
-const Templates = lazy(() => import("./Messages.tsx").then((m) => m.Templates));
+const Messages = lazyPage(() => import("./Messages.tsx").then((m) => m.Messages));
+const Compose = lazyPage(() => import("./Messages.tsx").then((m) => m.Compose));
+const Groups = lazyPage(() => import("./Messages.tsx").then((m) => m.Groups));
+const Templates = lazyPage(() => import("./Messages.tsx").then((m) => m.Templates));
 
 /** What someone's roles let them see, and the page they start on. */
 function access(m: Me) {

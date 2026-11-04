@@ -9,9 +9,9 @@ export function PolicyLinks({ join }: { join?: boolean }) {
   return (
     <p class="meta">
       {join && `${t("ui.policies_join", { club: c.name })} `}
-      {terms && <a href={terms} target="_blank">{t("ui.club_terms")}</a>}
+      {terms && <a href={terms} target="_blank" rel="noopener">{t("ui.club_terms")}</a>}
       {terms && privacy && " · "}
-      {privacy && <a href={privacy} target="_blank">{t("ui.club_privacy")}</a>}
+      {privacy && <a href={privacy} target="_blank" rel="noopener">{t("ui.club_privacy")}</a>}
     </p>
   );
 }
