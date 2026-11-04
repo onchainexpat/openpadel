@@ -86,3 +86,42 @@ test("a member's data download includes their receipts", async () => {
   assert.deepEqual(x.receipts.map((r: any) => [r.kind, r.total_cents, r.method, r.paid_by]), [["payment", 4800, "cash", null]]);
   assert.match(x.receipts[0].number, /^R-\d{6}$/);
 });
+
+test("the desk's day for the club's money people: a line a day, each day's payments with who recorded them, and a file", async () => {
+  const plan = ((await run(db, "membership.plan_set", { name: "Desk", price_cents: 5000, period: "month", join_in_app: false }, owner)).result as any).plan_id;
+  const ned = ((await run(db, "person.create", { display_name: "Ned", email: "ned@example.test" }, owner)).result as any).person_id;
+  await run(db, "membership.sell", { person_id: ned, plan_id: plan, cents: 3000, method: "cash" }, owner);
+  const m = await db.selectFrom("membership").select("id").where("person_id", "=", ned).executeTakeFirstOrThrow();
+  await run(db, "membership.record_payment", { membership_id: m.id, cents: 2000, method: "terminal" }, owner);
+  // A place paid in cash and given up: given back at the desk.
+  const loc = ((await run(db, "location.create", { name: "Eastside", time_zone: "America/Los_Angeles" }, owner)).result as any).location_id;
+  const court = ((await run(db, "court.create", { location_id: loc, name: "Court 1" }, owner)).result as any).court_id;
+  const clinic = ((await run(db, "program.create", { location_id: loc, kind: "clinic", name: "Drills", capacity: 4, price_cents: 2500 }, owner)).result as any).program_id;
+  const start = new Date(Date.now() + 10 * 86400_000);
+  await run(db, "session.add", { program_id: clinic, starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3600_000).toISOString(), court_ids: [court] }, owner);
+  await run(db, "program.publish", { program_id: clinic }, owner);
+  const e = ((await run(db, "enrolment.join", { program_id: clinic, person_id: ned }, owner)).result as any).enrolment_id;
+  await run(db, "enrolment.record_payment", { enrolment_id: e, cents: 2500, method: "cash" }, owner);
+  await run(db, "enrolment.leave", { enrolment_id: e }, owner);
+  const refund = await db.selectFrom("refund").select("id").where("enrolment_id", "=", e).where("destination", "=", "desk").executeTakeFirstOrThrow();
+  await run(db, "refund.give_back", { refund_id: refund.id }, owner);
+
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
+  const days = await get(`/staff/desk-days?from=${today}&to=${today}`, "Robin");
+  assert.deepEqual(days.json, [{ date: today, in: { cash: 5500, terminal: 2000, other: 0 }, back: { cash: 2500, terminal: 0, other: 0 }, drawer: 3000 }]);
+  const lines = (await get(`/staff/desk-days/${today}`, "Robin")).json;
+  assert.deepEqual(lines.map((l: any) => [l.kind, l.method, l.cents, l.person, l.by]), [["in", "cash", 3000, "Ned", "Robin Hale"], ["in", "terminal", 2000, "Ned", "Robin Hale"],
+    ["in", "cash", 2500, "Ned", "Robin Hale"], ["back", "cash", 2500, "Ned", "Robin Hale"]]);
+  assert.match(lines[0].what, /Desk/);
+  assert.match(lines[0].time, /^\d{2}:\d{2}$/);
+  // Not for a coach or a member.
+  assert.equal((await get(`/staff/desk-days?from=${today}&to=${today}`, "Sam")).status, 403);
+  assert.equal((await get(`/staff/desk-days/${today}`, "Ann")).status, 403);
+  assert.equal((await get(`/staff/desk-days/yesterday`, "Robin")).status, 400);
+  const file = await app.request(`/staff/desk.csv?from=${today}&to=${today}`, { headers: { cookie: cookies.Robin! } });
+  assert.match(file.headers.get("content-disposition")!, new RegExp(`kumi-desk-${today}-to-${today}\\.csv`));
+  const rows = (await file.text()).trim().split("\r\n");
+  assert.equal(rows[0], "date,time,kind,method,amount,person,what,recorded by");
+  assert.equal(rows.length, 5);
+  assert.match(rows[4]!, new RegExp(`^${today},\\d{2}:\\d{2},given back,cash,-25\\.00,Ned,.*Drills.*,Robin Hale$`));
+});

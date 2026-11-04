@@ -1,9 +1,13 @@
 // Occupancy and revenue by day for a location, with the same figures as a spreadsheet file.
 import { useEffect, useState } from "preact/hooks";
+import type { Key } from "@kumi/i18n";
 import { api, dollars, lang, me, ReceiptSheet, t, type ReceiptView } from "@kumi/ui";
 
 type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number; membership_revenue_cents: number };
 type Receipt = { id: string; number: string; kind: "payment" | "refund"; when: string; paid_by: string; for: string | null; what: string; more: number; total_cents: number };
+type ByMethod = { cash: number; terminal: number; other: number };
+type DeskDay = { date: string; in: ByMethod; back: ByMethod; drawer: number };
+type DeskLine = { time: string; kind: "in" | "back"; method: string; cents: number; person_id: string; person: string; what: string; by: string | null };
 type Earnings = { coaches: { coach_id: string; coach: string; lessons: number; lesson_minutes: number; net_cents: number; sessions: number; session_minutes: number }[] };
 /** The date on the device's own calendar (not UTC's, which is already tomorrow on a US evening). */
 const ymd = (d: Date) => new Intl.DateTimeFormat("en-CA").format(d);
@@ -21,6 +25,13 @@ export function Reports() {
   // The club's receipts for the same dates (for whoever takes or sees the club's money: the server says who).
   const [receipts, setReceipts] = useState<Receipt[] | null>(null), [open, setOpen] = useState<ReceiptView | null>(null);
   useEffect(() => { if (from && to) api<Receipt[]>(`/staff/club-receipts?from=${from}&to=${to}`).then(setReceipts).catch(() => setReceipts(null)); setOpen(null); }, [from, to, lang.value]);
+  // What was paid and given back at the desk, a line a day, for counting the drawer (the same people as receipts);
+  // a day opens to each payment and who recorded it.
+  const [desk, setDesk] = useState<DeskDay[] | null>(null), [deskDay, setDeskDay] = useState<{ date: string; lines: DeskLine[] } | null>(null);
+  useEffect(() => { if (from && to) api<DeskDay[]>(`/staff/desk-days?from=${from}&to=${to}`).then(setDesk).catch(() => setDesk(null)); setDeskDay(null); }, [from, to, lang.value]);
+  const openDay = (date: string) => deskDay?.date === date ? setDeskDay(null) : api<DeskLine[]>(`/staff/desk-days/${date}`).then((lines) => setDeskDay({ date, lines }));
+  const all = (m: ByMethod) => m.cash + m.terminal + m.other, usd = (c: number) => dollars(c, lang.value), back = (c: number) => c ? `-${usd(c)}` : usd(0);
+  const deskSum = (f: (x: DeskDay) => number) => (desk ?? []).reduce((n, x) => n + f(x), 0);
   // One opens as the printable receipt, the same as on the person's page.
   const show = (id: string) => api<ReceiptView>(`/staff/receipts/${id}`).then(setOpen);
   const sum = (k: keyof Row) => (rows ?? []).reduce((n, r) => n + (r[k] as number), 0);
@@ -50,6 +61,23 @@ export function Reports() {
           <tbody>{earn.coaches.map((c) => <tr><td>{c.coach}</td><td>{c.lessons}</td><td>{hrs(c.lesson_minutes / 60)}</td><td>{dollars(c.net_cents, lang.value)}</td><td>{c.sessions}</td><td>{hrs(c.session_minutes / 60)}</td></tr>)}</tbody>
         </table></div>}
         <p><a href={`/staff/coach-earnings.csv?from=${from}&to=${to}`}>{t("ui.download_csv")}</a></p>
+      </section>}
+      {desk && <section class="card">
+        <h2>{t("ui.desk_title")}</h2>
+        <p class="meta">{t("ui.desk_help")}</p>
+        {!desk.length ? <p class="meta">{t("ui.desk_none")}</p> : <div class="table-scroll"><table>
+          <thead><tr><th>{t("ui.day")}</th><th>{t("ui.col_cash")}</th><th>{t("ui.col_card_reader")}</th><th>{t("ui.col_other_way")}</th><th>{t("ui.col_given_back")}</th><th>{t("ui.col_drawer")}</th></tr></thead>
+          <tbody>{desk.map((x) => <tr><td><button class="link" onClick={() => openDay(x.date)}>{day(x.date)}</button></td><td>{usd(x.in.cash)}</td><td>{usd(x.in.terminal)}</td><td>{usd(x.in.other)}</td>
+            <td>{back(all(x.back))}</td><td><strong>{usd(x.drawer)}</strong></td></tr>)}</tbody>
+          {desk.length > 1 && <tfoot><tr><th>{t("ui.col_total")}</th><th>{usd(deskSum((x) => x.in.cash))}</th><th>{usd(deskSum((x) => x.in.terminal))}</th><th>{usd(deskSum((x) => x.in.other))}</th>
+            <th>{back(deskSum((x) => all(x.back)))}</th><th>{usd(deskSum((x) => x.drawer))}</th></tr></tfoot>}
+        </table></div>}
+        {deskDay && <><h3>{day(deskDay.date)}</h3><div class="table-scroll"><table>
+          <thead><tr><th>{t("ui.col_time")}</th><th>{t("ui.col_who")}</th><th>{t("ui.col_what")}</th><th>{t("ui.col_how")}</th><th>{t("ui.col_total")}</th><th>{t("ui.col_recorded_by")}</th></tr></thead>
+          <tbody>{deskDay.lines.map((l) => <tr><td>{l.time}</td><td><a href={`/people/${l.person_id}`}>{l.person}</a></td><td>{l.what}</td>
+            <td>{t(l.kind === "in" ? "ui.desk_paid_how" : "ui.desk_given_back_how", { how: t(`paid_by.${l.method}` as Key) })}</td><td>{l.kind === "back" ? back(l.cents) : usd(l.cents)}</td><td>{l.by ?? ""}</td></tr>)}</tbody>
+        </table></div></>}
+        <p><a href={`/staff/desk.csv?from=${from}&to=${to}`}>{t("ui.download_csv")}</a></p>
       </section>}
       {receipts && <section class="card">
         <h2>{t("ui.receipts_title")}</h2>

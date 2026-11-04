@@ -3,11 +3,13 @@
 // owed. Money paid at the desk goes back at the desk, never to a card: a refund of it waits as "to give back at
 // the desk" until someone there hands it over (refund.give_back), and only then leaves the cash drawer in the books.
 import * as z from "zod/mini";
+import { sql } from "kysely";
 import { both, money, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
+import { localDate, localParts } from "./clock.ts";
 import { account, post } from "./money.ts";
 import { paymentWhat } from "./kids.ts";
 
@@ -113,3 +115,52 @@ export const refundGiveBack = defineAction({
     return null;
   },
 });
+
+// ---- The desk's day (Reports): what was paid at the desk and what was handed back there, on the club's clock ----
+/** One line of the desk's day: money taken at the desk, or handed back there, with when, how and who did it. */
+export type DeskLine = { at: Date; date: string; time: string; kind: "in" | "back"; method: DeskMethod; cents: number; person_id: string; person: string; what: Text; by: string | null };
+/** One day's totals: what came in at the desk by how it was paid, what was given back there, and the drawer (the
+ *  cash taken, less the cash given back). */
+export type DeskDay = { date: string; in: Record<DeskMethod, number>; back: Record<DeskMethod, number>; drawer: number };
+
+const asMethod = (m: string): DeskMethod => (DESK_METHODS as readonly string[]).includes(m) ? m as DeskMethod : "other";
+const byMethod = (): Record<DeskMethod, number> => ({ cash: 0, terminal: 0, other: 0 });
+
+/** Every line of the desk's days from `from` to `to` (the club's dates, both included), oldest first. A line is when
+ *  the change was made (a payment recorded, a refund handed over) and by whom. `what` (what it was for) costs a read
+ *  a line, so the day totals leave it out. */
+export async function deskLines(db: Db | Trx, from: string, to: string, o: { what?: boolean } = {}): Promise<DeskLine[]> {
+  const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
+  const onDays = sql<boolean>`(action_run.applied_at AT TIME ZONE ${tz})::date BETWEEN ${from}::date AND ${to}::date`;
+  const cols = ["payment.person_id", "person.display_name as person", "by.display_name as by", "action_run.applied_at as at", "payment.method",
+    "payment.booking_player_id", "payment.enrolment_id", "payment.membership_id", "payment.membership_plan_id"] as const;
+  // Paid at the desk: the change that recorded each payment.
+  const ins = await db.selectFrom("payment")
+    .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'payment' AND entity_change.op = 'insert' AND entity_change.entity_id = payment.id::text`))
+    .innerJoin("action_run", "action_run.id", "entity_change.action_run_id").innerJoin("person", "person.id", "payment.person_id").leftJoin("person as by", "by.id", "action_run.actor_person_id")
+    .select([...cols, "payment.amount_cents as cents"]).where("payment.provider", "=", "none").where("payment.status", "=", "succeeded").where(onDays).execute();
+  // Handed back at the desk: the change that marked each refund given back.
+  const backs = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
+    .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'refund' AND entity_change.op = 'update' AND entity_change.entity_id = refund.id::text AND entity_change.after->>'status' = 'sent'`))
+    .innerJoin("action_run", "action_run.id", "entity_change.action_run_id").innerJoin("person", "person.id", "payment.person_id").leftJoin("person as by", "by.id", "action_run.actor_person_id")
+    .select([...cols, "refund.amount_cents as cents"]).where("refund.destination", "=", "desk").where("refund.status", "=", "sent").where("action_run.action", "=", "refund.give_back").where(onDays).execute();
+  const lines: DeskLine[] = [];
+  for (const [kind, rows] of [["in", ins], ["back", backs]] as const) for (const r of rows) {
+    const at = r.at!, p = localParts(at, tz);
+    lines.push({ at, date: localDate(at, tz), time: `${String(p.h).padStart(2, "0")}:${String(p.min).padStart(2, "0")}`, kind, method: asMethod(r.method), cents: r.cents,
+      person_id: r.person_id, person: r.person, by: r.by, what: o.what ? await paymentWhat(db, r) : { en: "", es: "" } });
+  }
+  return lines.sort((a, b) => a.at.getTime() - b.at.getTime());
+}
+
+/** The desk's totals for each day from `from` to `to` that had any money taken or given back there, oldest first. */
+export async function deskDays(db: Db | Trx, from: string, to: string): Promise<DeskDay[]> {
+  const days = new Map<string, DeskDay>();
+  for (const l of await deskLines(db, from, to)) {
+    const d = days.get(l.date) ?? { date: l.date, in: byMethod(), back: byMethod(), drawer: 0 };
+    d[l.kind][l.method] += l.cents;
+    if (l.method === "cash") d.drawer += l.kind === "in" ? l.cents : -l.cents;
+    days.set(l.date, d);
+  }
+  return [...days.values()];
+}

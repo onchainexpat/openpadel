@@ -19,7 +19,7 @@ const COACH_ALSO = /^\/staff\/(coach-earnings(\.csv)?|questions\/count)$/;
 const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
   [/^\/staff\/(people|tags)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
-  [/^\/staff\/(reports|coach-earnings|payments|receipts)/, "money"], [/^\/staff\/(settings|roles|vault|usage)/, "settings"],
+  [/^\/staff\/(reports|coach-earnings|payments|receipts|desk)/, "money"], [/^\/staff\/(settings|roles|vault|usage)/, "settings"],
   [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|quote|mirror|alerts|block-series)/, "bookings"],
   [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
 ];

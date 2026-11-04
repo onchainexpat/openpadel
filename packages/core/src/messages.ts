@@ -577,6 +577,17 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     }
     return drafts;
   },
+  // A card payment for a period already paid another way (at the desk, or by the saved card's retry) while its form
+  // was open: what went back to the card, and what it paid of what was still owed at the desk.
+  async "membership.paid_twice"({ db, tz }, p: { membership_id: string; payment_id: string; kept: number; back: number }) {
+    const m = await membershipInfo(db, p.membership_id);
+    const date = dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz));
+    const owed = m.balance_cents > 0 ? both("msg.membership_owed", { amount: amount(m.balance_cents) }) : NOTHING;
+    // All of it paid what was owed at the desk: nothing went back, so it's a payment like any other.
+    if (p.back <= 0) return [{ to: m.person_id, kind: "membership_paid_until", params: { name: m.name, amount: amount(p.kept), date, owed }, purpose: "account", essential: true, email: true, link: "/membership" }];
+    return [{ to: m.person_id, kind: "membership_paid_twice", params: { name: m.name, amount: amount(p.kept + p.back), back: amount(p.back), date, owed,
+      kept: p.kept > 0 ? both("msg.membership_paid_twice_kept", { amount: amount(p.kept) }) : NOTHING }, purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
   // Twilio decided the club's texting registration (texting_registration.ts): the owner and managers hear once.
   async "texting.reviewed"({ db }, p: { status: "approved" | "rejected"; number: string; reasons: { reason: string; code: number | null }[] }) {
     const reasons = p.reasons.map((r) => (r.code ? `${r.reason} (${r.code})` : r.reason)).join("; ");

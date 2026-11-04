@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf } from "@kumi/ui";
 import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
+import { DeskPay } from "./DeskPay.tsx";
 
 type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; paid_by: string; paid_cents: number; price_cents: number; level: string | null; price_basis: string;
   comp_note: string | null; left_how: string | null; left_reason: string | null; refund_outcome: string | null; refund_cents: number | null; offer_expires_at: string | null; session_id: string | null };
@@ -17,6 +18,7 @@ type DateCancel = { session: string; scope: Scope; refund: "rule" | "full" | "no
 export function Program({ id }: { id: string }) {
   const [d, setD] = useState<Data | null>(null), [courts, setCourts] = useState<Court[]>([]);
   const [removing, setRemoving] = useState<Person | null>(null), [reason, setReason] = useState("late_cancel");
+  const [paying, setPaying] = useState<Person | null>(null);   // a place paid at the desk: how much, and how
   const [override, setOverride] = useState(false), [outcome, setOutcome] = useState("full"), [amount, setAmount] = useState(0), [why, setWhy] = useState("");
   const [date, setDate] = useState({ starts: "", ends: "", courts: [] as string[], coach: "", weeks: 1 });
   const [edit, setEdit] = useState<DateEdit | null>(null), [cancelling, setCancelling] = useState<DateCancel | null>(null);
@@ -147,8 +149,15 @@ export function Program({ id }: { id: string }) {
         <ul class="plain">{booked.map((r) => (
           <li class="row"><div><a href={`/people/${r.person_id}/level`}>{r.display_name}</a>{r.level && <span class="meta"> · {t("ui.level")} {r.level}</span>}
             <span class="meta"> · {r.paid_by === "comp" ? t("ui.comped", { note: r.comp_note ?? "" }) : r.price_basis === "included" ? t("ui.included_place") : r.paid_cents > 0 ? t("ui.paid", { amount: money(r.paid_cents) }) : t("ui.unpaid")}</span></div>
-            <span>{r.paid_by !== "comp" && r.price_cents > r.paid_cents && mayDo("enrolment.record_payment") && <><button class="small" onClick={() => preview("enrolment.record_payment", { enrolment_id: r.id, cents: r.price_cents - r.paid_cents, method: "cash" })}>{t("ui.record_cash")}</button>{" "}</>}
-            <button class="small" onClick={() => { setRemoving(r); setOverride(false); setReason("late_cancel"); }}>{t("ui.remove")}</button></span></li>))}</ul>
+            <span>{r.paid_by !== "comp" && r.price_cents > r.paid_cents && mayDo("enrolment.record_payment") && <><button class="small" onClick={() => { setPaying(r); setRemoving(null); }}>{t("ui.record_payment")}</button>{" "}</>}
+            <button class="small" onClick={() => { setRemoving(r); setPaying(null); setOverride(false); setReason("late_cancel"); }}>{t("ui.remove")}</button></span></li>))}</ul>
+        {paying && (
+          <div class="card sheet">
+            <p><strong>{paying.display_name}</strong></p>
+            <DeskPay key={paying.id} owed={paying.price_cents - paying.paid_cents} label={t("ui.place_owed", { amount: money(paying.price_cents - paying.paid_cents) })} onCancel={() => setPaying(null)}
+              send={(cents, method) => { const id = paying.id; setPaying(null); preview("enrolment.record_payment", { enrolment_id: id, cents, method }); }} />
+          </div>
+        )}
         {removing && (
           <form class="card sheet" onSubmit={remove}>
             <p><strong>{removing.display_name}</strong></p>

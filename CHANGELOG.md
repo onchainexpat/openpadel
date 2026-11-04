@@ -45,12 +45,20 @@ server starts.
   - **A period paid at the desk on a membership joined in the app** moves its renewal on a period, so the card isn't
     charged for it. A renewal whose card was declined can be paid at the desk the same way, which ends the retries
     and closes the staff alert.
-  - **A program place paid at the desk:** the staff sign the person up as usual, then "Paid in cash" on the roster.
-    What the app still asks them to pay by card comes down to the rest, or goes once it's all paid. Paid at the desk
+  - **Paid twice for one period:** if the member had the card form open for a period that's then paid at the desk
+    (or by the saved card's retry) and the card goes through as well, it doesn't add a second period. It pays what's
+    still owed at the desk, the rest goes back to that card once, and the member hears what went back.
+  - **A program place paid at the desk:** the staff sign the person up as usual, then "Record payment" on the roster,
+    for all of it or part, in cash, on the club's card reader or another way. What the app still asks them to pay by
+    card comes down to the rest, or goes once it's all paid. Paid at the desk
     while the member had the card form open and the card went through too, what's beyond the price goes back to the
     card by itself.
   - The front desk can do all of it; two desks taking the same payment at once can't both record it. Read-only and
     moved clubs take nothing at the desk, as for everything else that takes money.
+  - **The desk's day** under Reports ("At the desk"), for counting the drawer at closing: each day on the club's
+    clock, what was paid at the desk in cash, on the card reader and another way, what was given back there, and the
+    drawer (the cash taken, less the cash given back). A day opens to each payment and refund, what it was for and
+    who recorded it, and a spreadsheet file has every line. For the club's money people, as receipts are.
 - **Money paid at the desk goes back at the desk, never to a card.** A refund of it (a court cancelled by the club's
   rule, a booking made shorter, a place left or a program cancelled) waits on the person's page, "To give back at the
   desk", until someone hands it over and taps "Given back"; only then does it leave the cash drawer in the books, with a

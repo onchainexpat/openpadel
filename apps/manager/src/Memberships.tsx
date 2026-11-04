@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, dollars, lang, mayDo, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
+import { DeskPay } from "./DeskPay.tsx";
 
 export type Plan = { id: string; name: string; description: string | null; translations?: unknown; price_cents: number; period: "month" | "year"; days_ahead: number | null; join_in_app?: boolean;
   max_members?: number | null; starts_on?: string | null; perks_before_start?: boolean; sort: number; members: number;
@@ -34,16 +35,9 @@ export function membershipLine(m: { status: string; source: string; started_at: 
 }
 /** Money for it taken at the desk: what's still owed, or the next period (the server says how much, and which). */
 export function MembershipDesk({ m, send }: { m: { id: string; due?: { cents: number; next: boolean } | null }; send: Preview }) {
-  const [f, setF] = useState({ dollars: m.due ? (m.due.cents / 100).toFixed(2) : "", method: "cash" });
   if (!m.due) return null;
-  return (
-    <form class="court-row" onSubmit={(e) => { e.preventDefault(); void send("membership.record_payment", { membership_id: m.id, cents: Math.round(Number(f.dollars.replace(",", ".")) * 100), method: f.method }); }}>
-      <span class="meta">{m.due.next ? t("ui.next_period_due", { amount: dollars(m.due.cents, lang.value) }) : t("ui.membership_owed", { amount: dollars(m.due.cents, lang.value) })}</span>
-      <label>{t("ui.amount_paid")}<input required inputMode="decimal" value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
-      <label>{t("ui.paid_how")}<select value={f.method} onChange={(e) => setF({ ...f, method: e.currentTarget.value })}>{["cash", "terminal", "other"].map((k) => <option value={k}>{t(`paid_by.${k}` as Key)}</option>)}</select></label>
-      <button class="small">{t("ui.record_payment")}</button>
-    </form>
-  );
+  return <DeskPay owed={m.due.cents} label={m.due.next ? t("ui.next_period_due", { amount: dollars(m.due.cents, lang.value) }) : t("ui.membership_owed", { amount: dollars(m.due.cents, lang.value) })}
+    send={(cents, method) => void send("membership.record_payment", { membership_id: m.id, cents, method })} />;
 }
 /** What staff can do with one: stop or restart its renewal (joined in the app), and end it now. */
 export function MembershipButtons({ m, send }: { m: { id: string; status: string; source: string; cancel_at_period_end: boolean; paused_until?: string | null }; send: Preview }) {

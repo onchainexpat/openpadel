@@ -3,7 +3,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, endLapsedMemberships, issueReceipts, messageHandlers, moneyHandlers, onDate, openPayment, plan, processOutbox, remindMembershipEnds, renewMemberships, run, runAsSystem,
+import { checkPayment, deskDays, deskLines, endLapsedMemberships, issueReceipts, messageHandlers, moneyHandlers, onDate, openPayment, plan, processOutbox, remindMembershipEnds, renewMemberships, run, runAsSystem,
   setPaymentProvider, staffAlerts, toGiveBack, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, desk: Actor, monthly: string, annual: string, deskOnly: string, loc: string, court: string, clinic: string;
@@ -42,7 +42,7 @@ before(async () => {
   monthly = ((await run(db, "membership.plan_set", { name: "Monthly", price_cents: 8000, period: "month", days_ahead: 21 }, owner, opts)).result as any).plan_id;
   annual = ((await run(db, "membership.plan_set", { name: "Annual", price_cents: 80000, period: "year" }, owner, opts)).result as any).plan_id;
   deskOnly = ((await run(db, "membership.plan_set", { name: "Desk", price_cents: 5000, period: "month", join_in_app: false }, owner, opts)).result as any).plan_id;
-  for (const name of ["Lee", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal"])
+  for (const name of ["Lee", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kit", "Max", "Ned"])
     people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner, opts)).result as { person_id: string }).person_id;
   await run(db, "role.assign", { person_id: people.Lee, role: "front_desk" }, owner, opts);
   desk = as("Lee");
@@ -246,6 +246,105 @@ test("paid at the desk while a card form was open, and the card went through too
   await checkPayment(db, e.payment_id, "test", NOW);
   const back = await db.selectFrom("refund").select(["amount_cents", "destination", "payment_id"]).where("enrolment_id", "=", e.enrolment_id).execute();
   assert.deepEqual(back.map((r) => [r.amount_cents, r.destination, r.payment_id]), [[3000, "card", e.payment_id]]);
+});
+
+const refundsOf = (paymentId: string) => db.selectFrom("refund").select(["amount_cents", "destination", "status"]).where("payment_id", "=", paymentId).execute()
+  .then((r) => r.map((x) => [x.amount_cents, x.destination, x.status]));
+const settleCard = (paymentId: string, now: Date) => db.selectFrom("payment").select("provider_ref").where("id", "=", paymentId).executeTakeFirstOrThrow()
+  .then((p) => { stripe.settle(p.provider_ref!, "succeeded"); return checkPayment(db, paymentId, "test", now); });
+
+test("the next period paid at the desk while its card form was open, and the card went through too: back to the card, once, and no second period", async () => {
+  await run(db, "membership.sell", { person_id: people.Ivy, plan_id: monthly, cents: 8000, method: "cash" }, desk, opts);
+  const m = await membership("Ivy"), at = { now: la("2026-11-25", "12:00") };
+  const { payment_id } = (await run(db, "membership.pay_next", { membership_id: m.id }, as("Ivy"), at)).result as { payment_id: string };
+  await openPayment(db, payment_id, people.Ivy!);   // the card form is open
+  await run(db, "membership.record_payment", { membership_id: m.id, cents: 8000, method: "cash" }, desk, at);
+  const end = (await membership("Ivy")).current_period_end!;
+  assert.equal(end.toISOString(), la("2027-01-04", "00:00").toISOString());
+  assert.equal(await settleCard(payment_id, at.now), "succeeded");
+  // The news again (the webhook and the minute job both): nothing more happens.
+  assert.equal(await checkPayment(db, payment_id, "test", at.now), "succeeded");
+  assert.deepEqual((await runAsSystem(db, "payment.settle", { payment_id, outcome: "succeeded" }, "test", at)).result, { already: "succeeded" });
+  const now = await membership("Ivy");
+  assert.deepEqual([now.current_period_end!.toISOString(), now.balance_cents], [end.toISOString(), 0]);   // no second period
+  assert.deepEqual(await refundsOf(payment_id), [[8000, "card", "pending"]]);
+  for (let i = 0; i < 2; i++) await processOutbox(db, { ...messageHandlers, ...moneyHandlers }, 100, at.now);
+  const ref = (await db.selectFrom("payment").select("provider_ref").where("id", "=", payment_id).executeTakeFirstOrThrow()).provider_ref;
+  assert.deepEqual([...stripe.refunds.values()].filter((r) => r.paymentRef === ref).map((r) => r.amountCents), [8000]);   // asked of the provider once
+  assert.deepEqual(await refundsOf(payment_id), [[8000, "card", "sent"]]);
+  assert.deepEqual(await email("Ivy", "membership_paid_twice"), { subject: "$80.00 back to your card: Monthly",
+    body: "Your card payment of $80.00 for your Monthly membership came in after this period was already paid, so $80.00 goes back to your card. Your membership is paid until January 3, 2027." });
+});
+
+test("part of the next period at the desk, then the card for all of it: it pays what's owed there, and the rest goes back", async () => {
+  await run(db, "membership.sell", { person_id: people.Jo, plan_id: monthly, cents: 8000, method: "cash" }, desk, opts);
+  const m = await membership("Jo"), at = { now: la("2026-11-25", "12:00") };
+  const { payment_id } = (await run(db, "membership.pay_next", { membership_id: m.id }, as("Jo"), at)).result as { payment_id: string };
+  await openPayment(db, payment_id, people.Jo!);
+  await run(db, "membership.record_payment", { membership_id: m.id, cents: 3000, method: "cash" }, desk, at);
+  assert.equal((await membership("Jo")).balance_cents, 5000);
+  await settleCard(payment_id, at.now);
+  const now = await membership("Jo");
+  assert.deepEqual([now.current_period_end!.toISOString(), now.balance_cents], [la("2027-01-04", "00:00").toISOString(), 0]);
+  assert.deepEqual(await refundsOf(payment_id), [[3000, "card", "pending"]]);
+  await processOutbox(db, messageHandlers, 100, at.now);
+  assert.equal((await email("Jo", "membership_paid_twice")).body,
+    "Your card payment of $80.00 for your Monthly membership came in after this period was already paid, so $30.00 goes back to your card. $50.00 of it paid what was still owed at the desk. Your membership is paid until January 3, 2027.");
+});
+
+test("the card first, then the desk: the desk's payment is refused, and nothing goes back", async () => {
+  await run(db, "membership.sell", { person_id: people.Kit, plan_id: monthly, cents: 8000, method: "cash" }, desk, opts);
+  const m = await membership("Kit"), at = { now: la("2026-11-25", "12:00") };
+  const { payment_id } = (await run(db, "membership.pay_next", { membership_id: m.id }, as("Kit"), at)).result as { payment_id: string };
+  await openPayment(db, payment_id, people.Kit!);
+  // The desk previews the next period while the member's card is going through.
+  const p = await plan(db, "membership.record_payment", { membership_id: m.id, cents: 8000, method: "cash" }, desk, at);
+  await settleCard(payment_id, at.now);
+  const { apply } = await import("../src/index.ts");
+  const drawer = await held("cash_drawer");
+  await rejects(apply(db, p.runId, desk, at), "error.changed");   // what it read changed
+  const now = await membership("Kit");
+  assert.deepEqual([now.current_period_end!.toISOString(), now.balance_cents], [la("2027-01-04", "00:00").toISOString(), 0]);
+  assert.deepEqual([await refundsOf(payment_id), await held("cash_drawer")], [[], drawer]);
+});
+
+test("a declined renewal paid at the desk while the member had its card form open: the card's money goes back", async () => {
+  const join = (await run(db, "membership.join", { plan_id: monthly, person_id: people.Max }, as("Max"), opts)).result as { payment_id: string };
+  await pay(join.payment_id, "Max");
+  const m = await membership("Max");
+  stripe.failNextCharge = "card_declined";
+  assert.equal((await renewMemberships(db, m.current_period_end!)).failed, 1);
+  const at = { now: new Date(m.current_period_end!.getTime() + 3600_000) };
+  const ask = await db.selectFrom("payment").select("id").where("membership_id", "=", m.id).where("status", "=", "pending").executeTakeFirstOrThrow();
+  await openPayment(db, ask.id, people.Max!);
+  await run(db, "membership.record_payment", { membership_id: m.id, cents: 8000, method: "cash" }, desk, at);
+  const end = (await membership("Max")).current_period_end!;
+  await settleCard(ask.id, at.now);
+  assert.equal((await membership("Max")).current_period_end!.toISOString(), end.toISOString());
+  assert.deepEqual(await refundsOf(ask.id), [[8000, "card", "pending"]]);
+});
+
+test("the desk's day: what came in at the desk by how it was paid, what was given back there, and the drawer, on the club's clock", async () => {
+  const at = (day: string, hhmm: string) => ({ now: la(day, hhmm) });
+  await run(db, "membership.sell", { person_id: people.Ned, plan_id: deskOnly, cents: 3000, method: "cash" }, desk, at("2027-02-10", "09:15"));
+  const m = await membership("Ned");
+  await run(db, "membership.record_payment", { membership_id: m.id, cents: 2000, method: "terminal" }, desk, at("2027-02-10", "11:40"));
+  const b = ((await run(db, "booking.create", { court_id: court, starts_at: "2027-02-20T10:00:00-08:00", minutes: 60, person_id: people.Ned }, desk, at("2027-02-10", "12:00"))).result as any).booking_id;
+  await run(db, "booking.record_payment", { booking_id: b, cents: 4000, method: "cash" }, desk, at("2027-02-10", "12:05"));
+  // Late on the 10th in California is already the 11th in UTC: it's still the 10th's.
+  await run(db, "booking.cancel", { booking_id: b }, desk, at("2027-02-10", "22:30"));
+  const [r] = await toGiveBack(db, people.Ned);
+  await run(db, "refund.give_back", { refund_id: r!.id }, owner, at("2027-02-11", "10:05"));
+  assert.deepEqual(await deskDays(db, "2027-02-10", "2027-02-11"), [
+    { date: "2027-02-10", in: { cash: 7000, terminal: 2000, other: 0 }, back: { cash: 0, terminal: 0, other: 0 }, drawer: 7000 },
+    { date: "2027-02-11", in: { cash: 0, terminal: 0, other: 0 }, back: { cash: 4000, terminal: 0, other: 0 }, drawer: -4000 }]);
+  assert.deepEqual(await deskDays(db, "2027-02-12", "2027-02-28"), []);
+  // Each line: when, how, for what, and who recorded it.
+  const lines = await deskLines(db, "2027-02-10", "2027-02-11", { what: true });
+  assert.deepEqual(lines.map((l) => [l.date, l.time, l.kind, l.method, l.cents, l.person, l.by]), [
+    ["2027-02-10", "09:15", "in", "cash", 3000, "Ned", "Lee"], ["2027-02-10", "11:40", "in", "terminal", 2000, "Ned", "Lee"],
+    ["2027-02-10", "12:05", "in", "cash", 4000, "Ned", "Lee"], ["2027-02-11", "10:05", "back", "cash", 4000, "Ned", "Robin Hale"]]);
+  assert.ok(lines.every((l) => l.what.en && l.what.es));
 });
 
 test("read-only: nothing is sold or taken at the desk, and what's owed back can still be handed over", async () => {

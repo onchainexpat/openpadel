@@ -3,7 +3,7 @@
 // whoever takes or sees the club's money.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { clubReceipts, customAreas, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db } from "@kumi/core";
+import { clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db } from "@kumi/core";
 import { csvCell } from "./csv.ts";
 
 type Me = { id: string } | null;
@@ -66,6 +66,28 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
     const lines = rows.slice().reverse().map((r) => [r.number, r.kind, r.local, r.paid_by, r.for ?? "", r.what[l] + more(r), r.what[other] + more(r),
       money(r.subtotal_cents, r.kind), money(r.tax_cents, r.kind), money(r.total_cents, r.kind), r.method, r.card ?? ""].map(csvCell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-receipts-${from}-to-${to}.csv"`);
+    return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
+  });
+  // The desk's day, for the drawer at closing: what was paid at the desk and what was handed back there, a line a
+  // day; one day's lines (who, for what, how, and who recorded it); and every line in a file, given back as negative.
+  app.get("/staff/desk-days", async (c) => {
+    await staffWithMoney(c);
+    const { from, to } = range(c);
+    return c.json(await deskDays(db, from, to));
+  });
+  app.get("/staff/desk-days/:date", async (c) => {
+    await staffWithMoney(c);
+    const day = c.req.param("date"), l = lang(c);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || isNaN(Date.parse(`${day}T12:00:00Z`))) throw new KumiError("error.invalid_input", { details: "date (YYYY-MM-DD)" }, 400);
+    return c.json((await deskLines(db, day, day, { what: true })).map((x) => ({ time: x.time, kind: x.kind, method: x.method, cents: x.cents, person_id: x.person_id, person: x.person, what: x.what[l], by: x.by })));
+  });
+  app.get("/staff/desk.csv", async (c) => {
+    await staffWithMoney(c);
+    const { from, to } = range(c), l = lang(c);
+    const head = ["date", "time", "kind", "method", "amount", "person", "what", "recorded by"];
+    const lines = (await deskLines(db, from, to, { what: true })).map((x) => [x.date, x.time, x.kind === "in" ? "paid" : "given back", x.method,
+      ((x.kind === "in" ? x.cents : -x.cents) / 100).toFixed(2), x.person, x.what[l], x.by ?? ""].map(csvCell).join(","));
+    c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-desk-${from}-to-${to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });
   app.get("/staff/receipts/:id", async (c) => {

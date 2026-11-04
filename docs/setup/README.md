@@ -145,6 +145,12 @@ page and can send one again, and all the club's receipts for any dates (up to a 
 spreadsheet file where refunds are negative amounts. Turn off Stripe's own receipt emails so members don't
 get two ([accounts/stripe.md](accounts/stripe.md), step 4).
 
+Reports also has the desk's day ("At the desk"), for counting the drawer at closing: for each day on the club's
+clock, what was paid at the desk in cash, on the club's card reader and another way, what was given back
+there, and the drawer (the cash taken, less the cash given back). Tap a day to see each payment and refund,
+what it was for and who recorded it; the spreadsheet file has every line. It's for the same people as the
+club's receipts, and counts the whole club, not one location's drawer.
+
 ### Step 5d: memberships (optional)
 
 If the club sells memberships, add its plans under Memberships in the staff app: a name, the price a
@@ -193,7 +199,9 @@ from that day and doesn't renew by itself: the member is reminded a week before 
 next period at the desk (from two weeks before the end), or by card in the app when the plan is one
 members join there. A member who joined in the app can pay a period at the desk too: their card isn't
 charged for it, and renews after. A renewal whose card was declined can be paid at the desk the same
-way. What's still owed shows on the person's page and in the list. Staff can also stop or restart an app
+way. If the member had the card form open for that period and the card goes through as well, it pays what's
+still owed at the desk and the rest goes back to the card by itself; the member is told. What's still owed
+shows on the person's page and in the list. Staff can also stop or restart an app
 membership's renewal, or end any membership at once (no refund is made by ending it).
 
 ### Step 5e: the public page (optional)
@@ -380,9 +388,8 @@ decided before each date, so a short date is cancelled on its own and the others
 signs someone up for dates from the program's page ("Sign someone up for dates"): the member pays by card
 in the app, and hears once with every date and the amount. Its public page lists each date's places.
 
-A place can be paid at the desk too: sign the person up as usual, then "Paid in cash" on the roster
-records what's owed. Part of it, or on the club's own card reader, goes through a staff member's
-assistant (as for courts).
+A place can be paid at the desk too: sign the person up as usual, then "Record payment" on the roster:
+all of what's owed or part of it, in cash, on the club's own card reader or another way.
 What the app still asks them to pay by card comes down to the rest, or goes once it's all paid, and a
 place partly paid isn't let go for being unpaid. Waitlists, places and the cancel rule work as for a
 card; what goes back of money paid at the desk goes back at the desk, never to a card.

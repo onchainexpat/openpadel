@@ -291,10 +291,20 @@ async function dropPayNow(ctx: ApplyCtx, membershipId: string) {
 /** After a membership payment succeeds (called by payment.settle): joining starts the membership; paying a
  *  late renewal by hand renews it. Paid for a membership that can't be had any more: all of it back. */
 export async function afterMembershipPayment(ctx: ApplyCtx, pay: { id: string; person_id: string; amount_cents: number; membership_plan_id: string | null; membership_id: string | null;
-  provider_account: string | null; save_card: boolean }, card: { customer: string | null; method: string | null }) {
+  provider_account: string | null; save_card: boolean; for_period_end?: Date | null }, card: { customer: string | null; method: string | null }) {
   if (pay.membership_id) {
-    const m = await ctx.trx.selectFrom("membership").select("status").where("id", "=", pay.membership_id).forUpdate().executeTakeFirstOrThrow();
+    const m = await ctx.trx.selectFrom("membership").select(["status", "current_period_end", "balance_cents"]).where("id", "=", pay.membership_id).forUpdate().executeTakeFirstOrThrow();
     if (m.status === "ended") { await refundCard(ctx, pay.id, pay.amount_cents); return; }
+    // Asked for a period that was paid another way while its card form was open (at the desk, or by the saved
+    // card's retry), and the card went through too: no second period. It pays what's still owed at the desk, and
+    // the rest goes back to the card (payment.settle runs once per payment, so it goes back once).
+    if (pay.for_period_end && m.current_period_end && pay.for_period_end.getTime() !== m.current_period_end.getTime()) {
+      const kept = Math.min(m.balance_cents, pay.amount_cents), back = pay.amount_cents - kept;
+      if (kept > 0) await ctx.update("membership", pay.membership_id, { balance_cents: m.balance_cents - kept });
+      if (back > 0) await refundCard(ctx, pay.id, back);
+      await ctx.emit("membership.paid_twice", { membership_id: pay.membership_id, payment_id: pay.id, kept, back });
+      return;
+    }
     await extend(ctx, pay.membership_id, pay.save_card ? card : undefined);
     await dropPayNow(ctx, pay.membership_id);
     const late = m.status === "past_due";
@@ -495,7 +505,7 @@ export const membershipRenew = defineAction({
     // Meanwhile the member can pay it with another card in the app, which then becomes the one it renews on.
     const open = await ctx.trx.selectFrom("payment").select("id").where("membership_id", "=", m.id).where("status", "=", "pending").executeTakeFirst();
     if (!open) await ctx.insert("payment", { id: uuidv7(), person_id: m.person_id, amount_cents: cents, method: "card", provider: paymentProvider().name, provider_ref: null,
-      status: "pending", membership_id: m.id, save_card: true });
+      status: "pending", membership_id: m.id, save_card: true, for_period_end: m.current_period_end });
     // The staff hear of the first failed try only (messages.ts); why it failed goes with it.
     await ctx.emit("membership.payment_failed", { membership_id: m.id, cents, next_attempt_at: next.toISOString(), tries, failure: charge.failure ?? null, ...(m.status === "upcoming" ? { first: true } : {}) });
     return { outcome: "failed", failure: charge.failure };
@@ -883,11 +893,13 @@ export const membershipPayNext = defineAction({
     const pl = await ctx.trx.selectFrom("membership_plan").select("price_cents").where("id", "=", m.plan_id).executeTakeFirstOrThrow();
     const due = await dueAtDesk(ctx.trx, m, pl.price_cents, ctx.now);
     if (!due.next || due.cents !== (plan.details as { cents: number }).cents) throw new KumiError("error.changed");
-    // Already asked (a second tap, or back after closing the card form): the same payment.
-    const open = await ctx.trx.selectFrom("payment").select("id").where("membership_id", "=", m.id).where("status", "=", "pending").where("amount_cents", "=", due.cents).executeTakeFirst();
+    // Already asked (a second tap, or back after closing the card form): the same payment, for the same period.
+    const open = await ctx.trx.selectFrom("payment").select("id").where("membership_id", "=", m.id).where("status", "=", "pending").where("amount_cents", "=", due.cents)
+      .where("for_period_end", "=", m.current_period_end!).executeTakeFirst();
     if (open) return { payment_id: open.id };
     const id = uuidv7();
-    await ctx.insert("payment", { id, person_id: m.person_id, amount_cents: due.cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", membership_id: m.id });
+    await ctx.insert("payment", { id, person_id: m.person_id, amount_cents: due.cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", membership_id: m.id,
+      for_period_end: m.current_period_end });
     return { payment_id: id };
   },
 });
