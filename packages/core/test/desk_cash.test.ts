@@ -188,14 +188,15 @@ test("a program place paid at the desk: part now, what the app asks for comes do
   const p = await plan(db, "enrolment.record_payment", { enrolment_id: e.enrolment_id, cents: 1000, method: "cash" }, desk, opts);
   assert.equal(p.plan.summary.en, "Record $10.00 paid in cash for Gus's place in Beginners. $20.00 is still owed: at the desk, or by card in the app.");
   await run(db, "enrolment.record_payment", { enrolment_id: e.enrolment_id, cents: 1000, method: "cash" }, desk, opts);
-  assert.deepEqual((await pending(e.enrolment_id)).map((x) => [x.amount_cents, x.status]), [[2000, "pending"]]);
+  // Asked again for the rest, never the same payment for less: a card form opening now can't pay the old amount.
+  assert.deepEqual((await pending(e.enrolment_id)).map((x) => [x.amount_cents, x.status]), [[3000, "failed"], [2000, "pending"]]);
   await rejects(plan(db, "enrolment.record_payment", { enrolment_id: e.enrolment_id, cents: 2500, method: "cash" }, desk, opts), "error.more_than_owed_place");
   // Two desks at once: one fits.
   const a = await plan(db, "enrolment.record_payment", { enrolment_id: e.enrolment_id, cents: 2000, method: "cash" }, desk, opts);
   const b = await plan(db, "enrolment.record_payment", { enrolment_id: e.enrolment_id, cents: 2000, method: "cash" }, owner, opts);
   const { apply } = await import("../src/index.ts");
   assert.deepEqual((await Promise.allSettled([apply(db, a.runId, desk, opts), apply(db, b.runId, owner, opts)])).map((x) => x.status).sort(), ["fulfilled", "rejected"]);
-  assert.deepEqual((await pending(e.enrolment_id)).map((x) => x.status), ["failed"]);
+  assert.deepEqual((await pending(e.enrolment_id)).map((x) => x.status), ["failed", "failed"]);
   await rejects(plan(db, "enrolment.record_payment", { enrolment_id: e.enrolment_id, cents: 1, method: "cash" }, desk, opts), "error.place_paid_up");
   assert.equal(await held("revenue", "programs"), -3000);
   const row = await db.selectFrom("enrolment").select("paid_by").where("id", "=", e.enrolment_id).executeTakeFirstOrThrow();

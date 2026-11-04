@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
+import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
 import { api, lang, OtherLang, t, translationsOf } from "@kumi/ui";
 import { usePreview, dollars } from "@kumi/ui";
 
@@ -16,7 +17,7 @@ export function Programs() {
   useEffect(() => { load(); api<Location[]>("/staff/locations").then((l) => { setLocations(l); setF((x) => ({ ...x, location_id: x.location_id || l[0]?.id || "" })); }); }, []);
   const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)) : "");
   const create = (e: Event) => { e.preventDefault(); preview("program.create", { location_id: f.location_id, kind: f.kind, format: f.format || undefined, name: f.name, capacity: Number(f.capacity), price_cents: Math.round(Number(f.price) * 100),
-    ...(f.member_price.trim() ? { member_price_cents: Math.round(Number(f.member_price.replace(",", ".")) * 100) } : {}), rated: f.rated, refund_window_hours: Number(f.refund_window_hours), ...(f.min_players.trim() ? { min_players: Number(f.min_players) } : {}),
+    ...(f.member_price.trim() ? { member_price_cents: parseDollars(f.member_price) ?? NaN } : {}), rated: f.rated, refund_window_hours: Number(f.refund_window_hours), ...(f.min_players.trim() ? { min_players: Number(f.min_players) } : {}),
     ...(f.per_date && (f.kind === "clinic" || f.kind === "social") ? { sign_up: "per_session" } : {}), translations: translationsOf({ name: f.name_tr }) }); };
 
   return (
@@ -32,7 +33,7 @@ export function Programs() {
           <label>{t("ui.format")}<select value={f.format} onChange={(e) => setF({ ...f, format: e.currentTarget.value })}><option value="">{t("ui.format_none")}</option><option value="americano">{t("ui.format_americano")}</option></select></label>
           <label>{t("ui.capacity")}<input type="number" min="1" value={f.capacity} onInput={(e) => setF({ ...f, capacity: Number(e.currentTarget.value) })} /></label>
           <label>{t("ui.price")}<input type="number" min="0" step="0.01" value={f.price} onInput={(e) => setF({ ...f, price: Number(e.currentTarget.value) })} /></label>
-          <label>{t("ui.member_price_optional")}<input inputMode="decimal" value={f.member_price} onInput={(e) => setF({ ...f, member_price: e.currentTarget.value })} /></label>
+          <label>{t("ui.member_price_optional")}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.member_price} onInput={(e) => setF({ ...f, member_price: e.currentTarget.value })} /></label>
           <label>{t("ui.refund_window")}<input type="number" min="0" value={f.refund_window_hours} onInput={(e) => setF({ ...f, refund_window_hours: Number(e.currentTarget.value) })} /></label>
           <label>{t("ui.min_players")}<input type="number" min="1" value={f.min_players} onInput={(e) => setF({ ...f, min_players: e.currentTarget.value })} /></label>
           <label class="check"><input type="checkbox" checked={f.rated} onChange={(e) => { setRatedSet(true); setF({ ...f, rated: e.currentTarget.checked }); }} /> {t("ui.rated")}</label>

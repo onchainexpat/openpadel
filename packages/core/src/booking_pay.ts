@@ -20,7 +20,7 @@ import { band, joinRule, levelOf, openMatchOf } from "./match_rules.ts";
 import { managersOf, notJunior, requireWaiver, withManagers } from "./households.ts";
 import { kidOf, overRules, paymentsWhat } from "./kids.ts";
 import { isReadOnly } from "./read_only.ts";
-import { bookingRevenue, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
+import { backSql, bookingRevenue, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 
 /** How long a court is held while the organiser pays. */
 export const HOLD_MINUTES = 10;
@@ -250,8 +250,8 @@ export const bookingJoin = defineAction({
 });
 
 /** Back to the card it was paid with, or, paid at the desk, waiting there to be handed back (desk_pay.ts). */
-export async function refundPayment(ctx: ApplyCtx, paymentId: string, cents: number) {
-  await refundTo(ctx, paymentId, cents);
+export async function refundPayment(ctx: ApplyCtx, paymentId: string, cents: number): Promise<number> {
+  return (await refundTo(ctx, paymentId, cents))?.cents ?? 0;
 }
 
 /** The booking's own rules: the version in force when it was made. */
@@ -396,16 +396,17 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
   const b = await db.selectFrom("booking").select(["id", "policy_id", "organiser_id"]).where("id", "=", bookingId).executeTakeFirstOrThrow();
   const start = await db.selectFrom("court_time").select(sql<Date>`min(lower(during))`.as("s")).where("booking_id", "=", bookingId).executeTakeFirst();
   const policy = b.policy_id ? await db.selectFrom("booking_policy").selectAll().where("id", "=", b.policy_id).executeTakeFirstOrThrow() : await currentPolicy(db);
-  // A place let go was already paid back (or never paid): only the players still in it.
+  // A place let go was already paid back (or never paid): only the players still in it. Of each payment, what's
+  // left of it: part may have gone back already (the booking made shorter, or moved somewhere cheaper).
   const paid = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-    .select(["payment.id", "payment.amount_cents", "payment.provider", "booking_player.person_id"]).where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null)
+    .select(["payment.id", "payment.amount_cents", "payment.provider", "booking_player.person_id", backSql.as("back")]).where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null)
     .where("payment.status", "=", "succeeded").execute();
   const early = start?.s ? new Date(start.s).getTime() - now.getTime() >= policy.free_cancel_hours * 3600_000 : true;
   const percent = choice === "full" ? 100 : choice === "none" ? 0 : early ? 100 : policy.late_refund_percent;
   const open = choice === "rule" && Boolean(await openMatchOf(db, bookingId));
   const refunds = paid.map((p) => {
     const joiner = open && p.person_id !== b.organiser_id;
-    return { payment_id: p.id, cents: Math.round(p.amount_cents * (joiner ? 100 : percent) / 100), joiner, desk: p.provider === "none" };
+    return { payment_id: p.id, cents: Math.round(Math.max(0, p.amount_cents - Number(p.back)) * (joiner ? 100 : percent) / 100), joiner, desk: p.provider === "none" };
   });
   return { percent, early, hours: policy.free_cancel_hours, refunds };
 }
@@ -437,10 +438,10 @@ export const bookingCancel = defineAction({
     const b = await ctx.trx.selectFrom("booking").select("status").where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
     // Someone who paid after the preview was made never agreed to its rule: all of theirs back.
-    const late = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "payment.amount_cents"])
+    const late = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "payment.amount_cents", backSql.as("back")])
       .where("booking_player.booking_id", "=", i.booking_id).where("booking_player.removed_at", "is", null).where("payment.status", "=", "succeeded")
       .$if(planned.length > 0, (q) => q.where("payment.id", "not in", planned.map((r) => r.payment_id))).execute();
-    await cancelBooking(ctx, i.booking_id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents }))], i.reason ?? null);
+    await cancelBooking(ctx, i.booking_id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents - Number(p.back) }))], i.reason ?? null);
     return null;
   },
 });
@@ -471,7 +472,7 @@ export const bookingRefund = defineAction({
 async function refundable(db: Db | Trx, bookingId: string, paymentId: string) {
   const pay = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
     .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider"])
-    .select(sql<string>`coalesce((select sum(r.amount_cents) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent')), 0)`.as("back"))
+    .select(backSql.as("back"))
     .where("payment.id", "=", paymentId).where("booking_player.booking_id", "=", bookingId).executeTakeFirst();
   if (!pay || pay.status !== "succeeded") throw new KumiError("error.refund_not_paid");
   if (pay.provider === "none") throw new KumiError("error.refund_cash");
@@ -618,10 +619,8 @@ async function cancelUnfilled(ctx: ApplyCtx, bookingId: string) {
   const players: { person_id: string; cents: number }[] = [];
   for (const s of seats) {
     let cents = 0;
-    for (const p of await ctx.trx.selectFrom("payment").select(["id", "amount_cents"]).where("booking_player_id", "=", s.id).where("status", "=", "succeeded").execute()) {
-      await refundPayment(ctx, p.id, p.amount_cents);
-      cents += p.amount_cents;
-    }
+    for (const p of await ctx.trx.selectFrom("payment").select(["id", "amount_cents"]).where("booking_player_id", "=", s.id).where("status", "=", "succeeded").execute())
+      cents += await refundPayment(ctx, p.id, p.amount_cents);   // what's left of it: part may have gone back already
     if (s.person_id) players.push({ person_id: s.person_id, cents });
   }
   await ctx.emit("booking.not_filled", { booking_id: bookingId, players });
@@ -662,7 +661,7 @@ export const bookingRemind = defineAction({
  *  refunded). Kumi keeps no credit or wallet, so more than that has nowhere to go: it's refused, not kept. */
 async function notMoreThanOwed(db: Db | Trx, b: Record<string, any>, cents: number) {
   const paid = Number((await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-    .select(sql<string>`coalesce(sum(payment.amount_cents), 0) - coalesce(sum((select sum(r.amount_cents) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent'))), 0)`.as("c"))
+    .select(sql<string>`coalesce(sum(payment.amount_cents - ${backSql}), 0)`.as("c"))
     .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "succeeded").executeTakeFirst())?.c ?? 0);
   const owed = Math.max(0, b.price_cents - paid);
   if (owed === 0) throw new KumiError("error.booking_paid_in_full");

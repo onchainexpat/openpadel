@@ -172,7 +172,9 @@ test("cancelling one date of a course: a place not paid for yet comes down to th
   const c = await run(db, "series.cancel", { session_id: first!.id, scope: "this" }, owner, opts);
   assert.match(c.plan.summary.en, / 1 place not paid for yet now costs less, for the dates left\./);
   assert.equal((await db.selectFrom("enrolment").select("price_cents").where("id", "=", r.enrolment_id).executeTakeFirstOrThrow()).price_cents, 6000);
-  assert.equal((await db.selectFrom("payment").select("amount_cents").where("id", "=", r.payment_id!).executeTakeFirstOrThrow()).amount_cents, 6000);
+  // Asked again for the new price, never the same payment for less (a card form opening now can't pay the old amount).
+  assert.deepEqual((await db.selectFrom("payment").select(["amount_cents", "status"]).where("enrolment_id", "=", r.enrolment_id).orderBy("created_at").execute()).map((p) => [p.amount_cents, p.status]),
+    [[9000, "failed"], [6000, "pending"]]);
   assert.equal((await refunds("Fay", spring)).length, 0);   // nothing was paid, so nothing goes back
 });
 

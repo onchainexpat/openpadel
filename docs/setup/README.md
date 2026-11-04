@@ -182,8 +182,9 @@ payer joins in the app, then adds people from their family on the Membership pag
 grown-up children with their own login, and juniors (step 5g). Everyone added gets the plan's benefits
 as their own, and its included sessions each. Someone added beyond the plan's number is charged their
 price for the current period at once, and each renewal is the plan's price plus theirs. Someone taken
-off keeps the benefits until the next renewal. Pausing or ending the membership does it for everyone
-on it.
+off keeps the benefits until the next renewal. On a membership sold at the desk, their price is owed
+there; taken off before it's paid, it comes off what's owed and they go at once, and once it's paid they
+keep the benefits to the end of the period. Pausing or ending the membership does it for everyone on it.
 
 For a founding offer (a new club selling memberships before it opens), give a plan a limit, a start
 date, or both. Members who join before the start date save their card, without being charged, and
@@ -440,9 +441,10 @@ watching hears once.
 - **What an assistant never does.** Its own limit, how the person signs in, deleting the account,
   accepting a waiver, moving their own level, downloading their data, the family card and saved cards, a
   parent's say over their children (a junior's login and rules, a charge past them, a second parent, leaving
-  the family), saying yes to texts or club news (it can turn them off), and anything that needs a strong sign-in, such as club settings,
-  roles and the vault. Those are done in the club's app; an assistant isn't offered them and is refused if
-  it tries.
+  the family), saying yes to texts or club news (it can turn them off), money taken or handed back at the desk
+  (it can't see money change hands, so recording a payment in cash or on the card reader and "Given back" are
+  the staff's own taps), and anything that needs a strong sign-in, such as club settings, roles and the vault.
+  Those are done in the club's app; an assistant isn't offered them and is refused if it tries.
 
 ### Members' data: a copy, and deleting an account
 

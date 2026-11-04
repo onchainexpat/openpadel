@@ -247,6 +247,22 @@ test("texts: a kid says yes for themselves, but only once a parent turns texts o
   } finally { setTexting(false); }
 });
 
+test("the family card charged while what it was for changed (paid at the desk, called off): all of it goes back to the card at once", async () => {
+  const loc = (await db.selectFrom("location").select("id").executeTakeFirstOrThrow()).id;
+  const p = ((await run(db, "program.create", { location_id: loc, kind: "clinic", name: "Junior Volleys", capacity: 8, price_cents: 2000 }, owner, opts)).result as { program_id: string }).program_id;
+  await run(db, "session.add", { program_id: p, starts_at: "2026-12-12T10:00:00-08:00", ends_at: "2026-12-12T11:00:00-08:00", court_ids: [court2] }, owner, opts);
+  await run(db, "program.publish", { program_id: p }, owner, opts);
+  const r = await run(db, "enrolment.join", { program_id: p, person_id: mia }, as("Pat"), opts);
+  const pid = (r.result as { payment_id: string }).payment_id, refunds = stripe.refunds.size;
+  const charge = stripe.chargeSaved.bind(stripe);
+  stripe.chargeSaved = async (i) => { const c = await charge(i); await db.updateTable("payment").set({ status: "failed" }).where("id", "=", pid).execute(); return c; };
+  try { assert.equal(await payWithFamilyCard(db, pid, NOW, { approved: true }), null); } finally { stripe.chargeSaved = charge; }
+  const back = [...stripe.refunds.values()].slice(refunds);
+  assert.equal(back.length, 1);
+  assert.equal(back[0]!.amountCents, stripe.charges.at(-1)!.amountCents);
+  assert.equal((await db.selectFrom("payment").select("provider_ref").where("id", "=", pid).executeTakeFirstOrThrow()).provider_ref, null);
+});
+
 test("turning the login off signs the kid out and they're a junior booked by a parent again", async () => {
   const r = await run(db, "kid.remove_login", { person_id: mia }, as("Pat"), opts);
   assert.equal(r.plan.summary.en, "Turn off Mia's login. Mia is signed out everywhere, and you book for them again. Their bookings and places stay as they are.");

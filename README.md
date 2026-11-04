@@ -173,8 +173,8 @@ with their name in the change log and wherever staff names show.
 - **Like a manager** does what a manager does; what a manager asks the owner for still waits for the owner.
 - **Never, at either level:** the club's payment account, roles and owners, Download everything, a member's
   data file, deleting people or data, a person's sign-in, the vault, the usage cap, the host's read-only and
-  leaving switches, support access itself, anything that needs a strong sign-in, and anything through an
-  assistant (MCP).
+  leaving switches, support access itself, money taken or handed back at the desk (only someone standing there
+  with it says it happened), anything that needs a strong sign-in, and anything through an assistant (MCP).
 
 Every staff page they open and every change they make is recorded; the owner sees it in Settings, Support
 access, and can end it there at once. The owner hears when it's first used and when it ends. It ends by

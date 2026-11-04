@@ -423,9 +423,9 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   async "membership.person_removed"({ db, tz }, p: { membership_id: string; person_id: string; until: string }) {
     const r = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person as payer", "payer.id", "membership.person_id")
-      .select(["membership_plan.name as plan", "membership_plan.translations", "payer.display_name as payer"]).where("membership.id", "=", p.membership_id).executeTakeFirstOrThrow();
+      .select(["membership_plan.name as plan", "membership_plan.translations", "payer.display_name as payer", "membership.source"]).where("membership.id", "=", p.membership_id).executeTakeFirstOrThrow();
     if ((await db.selectFrom("person").select("junior").where("id", "=", p.person_id).executeTakeFirst())?.junior) return [];
-    return [{ to: p.person_id, kind: "membership_person_removed", params: { plan: textOf(r.plan, r.translations, "name"), payer: r.payer, date: dayText(endDay({ current_period_end: new Date(p.until), source: "app" }, tz)) },
+    return [{ to: p.person_id, kind: "membership_person_removed", params: { plan: textOf(r.plan, r.translations, "name"), payer: r.payer, date: dayText(endDay({ current_period_end: new Date(p.until), source: r.source }, tz)) },
       purpose: "account", essential: false, email: true, link: "/membership" }];
   },
   async "friend.added"({ db }, p: { person_id: string; friend_id: string; mutual: boolean }) {

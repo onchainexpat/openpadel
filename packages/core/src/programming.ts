@@ -17,7 +17,7 @@ import { localDate, onDate } from "./clock.ts";
 import { coachBusy, isCoach } from "./lessons.ts";
 import { withManagers } from "./households.ts";
 import { clashList, dateClashes } from "./program_clashes.ts";
-import { clubTz, firstStart, freePlace, join2, leaving, paidFor, perDate, placesOf, signUpDate, startRefund, started, takenCount, tellWatchers, type ApplyContext, type Refund } from "./programs.ts";
+import { askAgain, clubTz, firstStart, freePlace, join2, leaving, paidFor, perDate, placesOf, signUpDate, startRefund, started, takenCount, tellWatchers, type ApplyContext, type Refund } from "./programs.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const when = (at: Date, tz: string): Text => ({ en: dateTime(at, "en", tz), es: dateTime(at, "es", tz) });
@@ -236,7 +236,7 @@ async function cancelDates(ctx: ApplyContext, programId: string, sessionIds: str
       await ctx.update("enrolment", g.enrolment_id, { price_cents: g.reprice });
       // What's still owed for it: the new price. One a card form already opened is called off, and a new one asked.
       for (const pay of await ctx.trx.selectFrom("payment").select(["id", "provider_ref"]).where("enrolment_id", "=", g.enrolment_id).where("status", "=", "pending").execute()) {
-        if (!pay.provider_ref) { await ctx.update("payment", pay.id, { amount_cents: g.reprice }); continue; }
+        if (!pay.provider_ref) { await askAgain(ctx, pay.id, g.reprice); continue; }   // never a new amount on the same payment (programs.ts)
         await ctx.update("payment", pay.id, { status: "failed" });
         if (g.reprice > 0) await ctx.insert("payment", { id: uuidv7(), person_id: g.person_id, amount_cents: g.reprice, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", enrolment_id: g.enrolment_id });
       }

@@ -8,6 +8,16 @@ import { csvCell } from "./csv.ts";
 
 type Me = { id: string } | null;
 const MONEY_ROLES = ["owner", "manager", "front_desk", "accountant"];
+/** The club's money people: owners, managers, front desk and accountants, or a role the club made that covers money.
+ *  Support access reads as a manager would (support.ts). */
+export async function seesMoney(db: Db, personId: string): Promise<boolean> {
+  const areas = await customAreas(db, personId);
+  if (areas) return areas.includes("money");
+  const roles = (await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
+    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true).execute()).map((r) => r.key);
+  roles.push(...await supportRoleKeys(db, personId));
+  return roles.some((r) => MONEY_ROLES.includes(r));
+}
 /** Each { en, es } in a receipt, in the reader's language. */
 function said(v: Record<string, unknown>, lang: Lang): Record<string, unknown> {
   const one = (x: unknown): unknown => x && typeof x === "object" && "en" in x && "es" in x ? (x as Record<Lang, string>)[lang]
@@ -20,16 +30,7 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
   const app = new Hono();
   const who = (c: Context<any>) => { const m = me(c); if (!m) throw new KumiError("error.signed_out", {}, 401); return m.id; };
   const notFound = () => new KumiError("error.not_found", { thing: { en: "receipt", es: "el recibo" } }, 404);
-  /** The club's money people: owners, managers, front desk and accountants, or a role the club made that covers money. */
-  const staffWithMoney = async (c: Context<any>) => {
-    const id = who(c);
-    const areas = await customAreas(db, id);
-    if (areas) { if (!areas.includes("money")) throw new KumiError("error.staff_only", {}, 403); return; }
-    const roles = (await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
-      .where("person_role.person_id", "=", id).where("person_role.active", "=", true).where("role.active", "=", true).execute()).map((r) => r.key);
-    roles.push(...await supportRoleKeys(db, id));   // support access reads as a manager would (support.ts)
-    if (!roles.some((r) => MONEY_ROLES.includes(r))) throw new KumiError("error.staff_only", {}, 403);
-  };
+  const staffWithMoney = async (c: Context<any>) => { if (!(await seesMoney(db, who(c)))) throw new KumiError("error.staff_only", {}, 403); };
 
   app.get("/my/receipts", async (c) => c.json((await receiptsOf(db, who(c))).map((r) => said(r, lang(c)))));
   app.get("/my/receipts/:id", async (c) => {

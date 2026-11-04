@@ -2,6 +2,7 @@
 // and how far ahead its members book; member prices are court prices for chosen plans (Settings, Prices).
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
+import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
 import { api, dollars, lang, mayDo, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 
@@ -108,17 +109,17 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
           <span class="meta">{[p.days_ahead ? t("ui.plan_window", { count: p.days_ahead }) : null, p.max_members ? t("ui.plan_places_taken", { count: p.members, max: p.max_members }) : t("count.members", { count: p.members }),
             p.starts_on ? t("ui.starts_on", { date: clubDay(p.starts_on) }) : null, p.family_size ? t("ui.plan_family_meta", { count: p.family_size }) : null, ...programPerks(p), p.join_in_app === false ? t("ui.plan_desk_only") : null, p.description].filter(Boolean).join(" · ")}</span></span>
           <span><button type="button" class="small" onClick={() => edit(p)}>{t("ui.change")}</button> <button type="button" class="small" onClick={() => send("membership.plan_remove", { plan_id: p.id })}>{t("ui.stop_offering")}</button></span></li>))}</ul>
-      <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("membership.plan_set", { ...(f.plan_id ? { plan_id: f.plan_id } : {}), name: f.name.trim(), price_cents: Math.round(Number(f.dollars.replace(",", ".")) * 100),
+      <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("membership.plan_set", { ...(f.plan_id ? { plan_id: f.plan_id } : {}), name: f.name.trim(), price_cents: parseDollars(f.dollars) ?? NaN,
         period: f.period, days_ahead: f.days_ahead ? Number(f.days_ahead) : null, description: f.description.trim() || null, join_in_app: f.join_in_app,
         max_members: f.max_members ? Number(f.max_members) : null, starts_on: f.starts_on || null, ...(f.starts_on ? { perks_before_start: f.perks_before_start } : {}),
         program_percent_off: f.discount === "percent" && f.off ? Math.round(Number(f.off)) : null,
-        program_cents_off: f.discount === "dollars" && f.off ? Math.round(Number(f.off.replace(",", ".")) * 100) : null,
+        program_cents_off: f.discount === "dollars" && f.off ? parseDollars(f.off) ?? NaN : null,
         included_sessions: f.included ? Number(f.included) : null, ...(f.kinds.length ? { included_kinds: f.kinds } : {}),
-        family_size: f.family ? Number(f.family) : null, extra_person_cents: f.family && f.extra !== "" ? Math.round(Number(f.extra.replace(",", ".")) * 100) : null,
+        family_size: f.family ? Number(f.family) : null, extra_person_cents: f.family && f.extra !== "" ? parseDollars(f.extra) ?? NaN : null,
         translations: translationsOf({ name: f.name_tr, description: f.description_tr }) }); }}>
         <label>{f.plan_id ? t("ui.change_plan") : t("ui.add_plan")}<input required maxLength={60} placeholder={t("ui.plan_name_hint")} value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
         <OtherLang value={f.name_tr} onInput={(v) => setF({ ...f, name_tr: v })} source={f.name} maxLength={60} />
-        <div class="court-row"><label>{t("ui.plan_dollars")}<input required inputMode="decimal" value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
+        <div class="court-row"><label>{t("ui.plan_dollars")}<input required inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
           <label>{t("ui.plan_period")}<select value={f.period} onChange={(e) => setF({ ...f, period: e.currentTarget.value as "month" | "year" })}><option value="month">{t("ui.period_month")}</option><option value="year">{t("ui.period_year")}</option></select></label></div>
         <label>{t("ui.plan_days_ahead")}<input type="number" min={1} max={365} value={f.days_ahead} onInput={(e) => setF({ ...f, days_ahead: e.currentTarget.value })} /></label>
         <label>{t("ui.plan_description")}<input maxLength={300} value={f.description} onInput={(e) => setF({ ...f, description: e.currentTarget.value })} /></label>
@@ -129,7 +130,7 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
         {f.starts_on && <label class="check"><input type="checkbox" checked={f.perks_before_start} onChange={(e) => setF({ ...f, perks_before_start: e.currentTarget.checked })} /> {t("ui.plan_perks_before_start")}</label>}
         <label class="check"><input type="checkbox" checked={f.join_in_app} onChange={(e) => setF({ ...f, join_in_app: e.currentTarget.checked })} /> {t("ui.plan_join_in_app")}</label>
         <div class="court-row"><label>{t("ui.plan_family_size")}<input type="number" min={2} max={12} value={f.family} onInput={(e) => setF({ ...f, family: e.currentTarget.value })} /></label>
-          {f.family && <label>{t("ui.plan_extra_person")}<input inputMode="decimal" value={f.extra} onInput={(e) => setF({ ...f, extra: e.currentTarget.value })} /></label>}</div>
+          {f.family && <label>{t("ui.plan_extra_person")}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.extra} onInput={(e) => setF({ ...f, extra: e.currentTarget.value })} /></label>}</div>
         <fieldset><legend>{t("ui.plan_program_perks")}</legend>
           <div class="court-row"><label>{t("ui.discount")}<select value={f.discount} onChange={(e) => setF({ ...f, discount: e.currentTarget.value as typeof f.discount })}>
             {(["none", "percent", "dollars"] as const).map((k) => <option value={k}>{t(`ui.discount_${k}`)}</option>)}</select></label>
@@ -152,7 +153,7 @@ export function GiveMembership({ plans, send, person }: { plans: Plan[]; send: P
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
   const chosen = plans.find((p) => p.id === f.plan_id), note = f.note.trim() ? { note: f.note.trim() } : {};
   // Paid at the desk: one period, for the plan's price unless only part is paid now.
-  const cents = f.dollars ? Math.round(Number(f.dollars.replace(",", ".")) * 100) : chosen?.price_cents ?? 0;
+  const cents = f.dollars ? parseDollars(f.dollars) ?? NaN : chosen?.price_cents ?? 0;
   return (
     <form class="card card-form" onSubmit={(e) => { e.preventDefault(); f.paid ? send("membership.sell", { person_id: who!.id, plan_id: f.plan_id, cents, method: f.method, ...note })
       : send("membership.grant", { person_id: who!.id, plan_id: f.plan_id, until: f.until || null, ...note }); }}>
@@ -165,7 +166,7 @@ export function GiveMembership({ plans, send, person }: { plans: Plan[]; send: P
       {mayDo("membership.sell") && <label>{t("ui.membership_how")}<select value={f.paid ? "paid" : "given"} onChange={(e) => setF({ ...f, paid: e.currentTarget.value === "paid", dollars: "" })}>
         <option value="given">{t("ui.membership_given")}</option><option value="paid">{t("ui.membership_paid_desk")}</option></select></label>}
       {f.paid ? <div class="court-row">
-        <label>{t("ui.amount_paid")}<input inputMode="decimal" placeholder={chosen ? (chosen.price_cents / 100).toFixed(2) : ""} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
+        <label>{t("ui.amount_paid")}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} placeholder={chosen ? (chosen.price_cents / 100).toFixed(2) : ""} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
         <label>{t("ui.paid_how")}<select value={f.method} onChange={(e) => setF({ ...f, method: e.currentTarget.value })}>{["cash", "terminal", "other"].map((k) => <option value={k}>{t(`paid_by.${k}` as Key)}</option>)}</select></label>
       </div> : <label>{t("ui.membership_until")}<input type="date" value={f.until} onInput={(e) => setF({ ...f, until: e.currentTarget.value })} /></label>}
       <label>{t("ui.membership_note")}<input maxLength={200} placeholder={t("ui.membership_note_hint")} value={f.note} onInput={(e) => setF({ ...f, note: e.currentTarget.value })} /></label>

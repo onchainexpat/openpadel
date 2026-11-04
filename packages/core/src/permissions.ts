@@ -8,8 +8,10 @@ export type Mode = "allow" | "ask" | "no";
 /** `support`: the support access (support.ts) the answer came from. */
 export interface Decision { mode: Mode; reason?: Key; support?: string }
 /** `assistant`: asked through an assistant (MCP), where support access never reaches. `strongAuth`: the action
- *  needs a strong sign-in (actions.ts), which support access never stretches to. */
-export interface Subject { personId: string | null; agentId?: string | null; locationId?: string | null; ownerIds?: string[]; at: Date; assistant?: boolean; strongAuth?: boolean }
+ *  needs a strong sign-in (actions.ts), which support access never stretches to. `clubWide`: the action's things
+ *  belong to no location when they have none of their own (a membership), so a role kept to one location does
+ *  them too; one with a location (a booking's refund) is still that location's. */
+export interface Subject { personId: string | null; agentId?: string | null; locationId?: string | null; ownerIds?: string[]; at: Date; assistant?: boolean; strongAuth?: boolean; clubWide?: boolean }
 
 const rank: Record<Mode, number> = { no: 0, ask: 1, allow: 2 };
 
@@ -51,7 +53,7 @@ async function decidePerson(db: Db | Trx, action: string, s: Subject & { personI
     if (!g) continue;
     let d: Decision = { mode: g.mode, ...(g.mode === "no" ? { reason: "reason.owner_only" as Key } : {}) };
     if (g.location_id && s.locationId && g.location_id !== s.locationId) d = { mode: "no", reason: "reason.other_location" };
-    else if (g.location_id && !s.locationId) d = { mode: "no", reason: "reason.other_location" };
+    else if (g.location_id && !s.locationId && !s.clubWide) d = { mode: "no", reason: "reason.other_location" };
     if (d.mode !== "no" && g.rows_scope === "own" && !(s.ownerIds ?? []).includes(s.personId)) d = { mode: "no", reason: "reason.own_only" };
     if (d.mode !== "no" && g.time_scope === "on_shift" && !(await onShift(db, s.personId, s.locationId, s.at))) d = { mode: "no", reason: "reason.off_shift" };
     if (rank[d.mode] > rank[best.mode] || (best.mode === "no" && d.mode === "no" && best.reason === "reason.no_role")) best = d;
@@ -61,11 +63,16 @@ async function decidePerson(db: Db | Trx, action: string, s: Subject & { personI
 
 // ---- Support access (support.ts): the owner let someone in for a while, to look or to work like a manager ----
 
+/** Money that changes hands at the desk: taken there, or handed back there. Only someone standing at the desk with
+ *  the money says it happened, so never support access (nobody from outside is holding the cash) and never an
+ *  assistant (it can't see money change hands, and words it reads could tell it to mark something paid). */
+export const DESK_MONEY = ["booking.record_payment", "enrolment.record_payment", "membership.sell", "membership.record_payment", "refund.give_back"];
+
 /** Never through support access, at any level: where the club's money goes, who holds which role (and who owns
  *  the club), every member's details in one file, deleting people or data, a person's sign-in, the club's secrets,
  *  the usage cap, the host's read-only and leaving switches, and support access itself. */
 export const SUPPORT_NEVER = ["support.*", "role.*", "club.payment_*", "club.export", "club.setup", "club.read_only", "club.moved*", "club.leaving*", "club.usage_cap_set",
-  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*"];
+  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*", ...DESK_MONEY];
 /** Their own account, which they look after like anyone (their second sign-in step first of all). */
 const SUPPORT_OWN = ["person.factor_*", "person.passkey_*", "person.update_profile"];
 

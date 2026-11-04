@@ -8,7 +8,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { checkAssistantSpend } from "./assistant_spend.ts";
 import { uuidv7 } from "./ids.ts";
-import { decide, type Decision } from "./permissions.ts";
+import { decide, DESK_MONEY, type Decision } from "./permissions.ts";
 import { readOnlyGate } from "./read_only.ts";
 
 /** How the person proved who they are: the strong-sign-in rule reads it. */
@@ -49,6 +49,9 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   internal?: boolean;
   /** Once the person has a passkey, this needs a passkey sign-in, not an emailed code. */
   strongAuth?: boolean;
+  /** What it changes belongs to no location unless the plan names one (a membership): a role kept to one location
+   *  may do it too (permissions.ts, Subject.clubWide). */
+  clubWide?: boolean;
   input: S;
   plan(ctx: PlanCtx, input: z.infer<S>): Promise<Plan>;
   apply(ctx: ApplyCtx, input: z.infer<S>, plan: Plan): Promise<unknown>;
@@ -190,12 +193,12 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
  *  a waiver, moving their own level, downloading their data, the family card and saved cards. A parent's say over
  *  their children is theirs too: who signs in as a junior, a junior's rules and limits, a charge past them, and
  *  who else is in the family (an invite is a second parent). These are done in the club's app. So is anything
- *  that needs a strong sign-in (strongAuth), and saying yes to texts or club news (APP_ONLY_YES): an assistant
- *  may still turn them off. */
+ *  that needs a strong sign-in (strongAuth), money changing hands at the desk (DESK_MONEY: only the person
+ *  holding it says so), and saying yes to texts or club news (APP_ONLY_YES): an assistant may still turn them off. */
 export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.export", "person.factor_add", "person.factor_codes", "person.factor_remove",
   "person.passkey_add", "person.passkey_remove", "waiver.accept", "level.self_adjust", "family_card.start", "family_card.remove", "family_card.open",
   "family_card.saved", "membership.card_open", "membership.card_saved", "kid.give_login", "kid.remove_login", "kid.set_rules", "kid.approve_request",
-  "household.invite", "household.accept_invite", "household.give_login", "household.leave", "household.remove_junior"]);
+  "household.invite", "household.accept_invite", "household.give_login", "household.leave", "household.remove_junior", ...DESK_MONEY]);
 export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news"]);
 /** Whether an action is the app's alone, never an assistant's: with `input`, for this input. */
 export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
@@ -204,7 +207,7 @@ export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
 
 /** What the permission check needs to know about how it was asked: through an assistant, and for an action that
  *  needs a strong sign-in (support access reaches neither). */
-const how = (def: ActionDef<any>, actor: Actor) => ({ assistant: actor.auth === "oauth" || Boolean(actor.grantId), strongAuth: Boolean(def.strongAuth) });
+const how = (def: ActionDef<any>, actor: Actor) => ({ assistant: actor.auth === "oauth" || Boolean(actor.grantId), strongAuth: Boolean(def.strongAuth), clubWide: Boolean(def.clubWide) });
 
 /** Sensitive changes: a person with a passkey makes them signed in with it, or with two steps. */
 async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor, input: unknown): Promise<void> {
@@ -380,9 +383,9 @@ type AskedRun = { id: string; action: string; input: unknown; plan: unknown; loc
 export async function mayAnswer(db: Db | Trx, run: AskedRun, personId: string | null, at: Date): Promise<boolean> {
   if (!personId || run.actor_person_id === personId) return false;
   const p = run.plan as Plan, def = getAction(run.action), s = { personId, agentId: null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at };
-  if ((await decide(db, run.action, { ...s, assistant: false, strongAuth: Boolean(def.strongAuth) })).mode !== "allow") return false;
+  if ((await decide(db, run.action, { ...s, assistant: false, strongAuth: Boolean(def.strongAuth), clubWide: Boolean(def.clubWide) })).mode !== "allow") return false;
   const judged = await judgedAs(db, def, run.input);
-  return !judged || (await decide(db, judged.def.name, { ...s, assistant: false, strongAuth: Boolean(judged.def.strongAuth) })).mode === "allow";
+  return !judged || (await decide(db, judged.def.name, { ...s, assistant: false, strongAuth: Boolean(judged.def.strongAuth), clubWide: Boolean(judged.def.clubWide) })).mode === "allow";
 }
 
 /** An "ask" waits for someone allowed to do it, who isn't the person who asked. */

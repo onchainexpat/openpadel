@@ -101,3 +101,14 @@ test("the courts day for a coach: their own lessons in full, anyone else's booki
   assert.deepEqual(Object.keys(coach).sort(), ["end", "kind", "label", "start"]);
   assert.equal(coach.label, "Booked");
 });
+
+test("what waits at the desk to give back to a player: the club's money people see it on their page, their coach doesn't", async () => {
+  const loc = (await db.selectFrom("location").select("id").executeTakeFirstOrThrow()).id, court = (await db.selectFrom("court").select("id").executeTakeFirstOrThrow()).id;
+  const d = localDate(new Date(Date.now() + 4 * 864e5), TZ);
+  await run(db, "hours.set", { location_id: loc, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "07:00", closes: "22:00" })) }, owner);
+  const b = ((await run(db, "booking.create", { court_id: court, starts_at: onDate(d, "12:00", TZ).toISOString(), minutes: 60, person_id: people.Ann, price_cents: 4000 }, owner)).result as any).booking_id;
+  await run(db, "booking.record_payment", { booking_id: b, cents: 4000, method: "cash" }, owner);
+  await run(db, "booking.cancel", { booking_id: b }, owner);
+  assert.deepEqual((await req(`/staff/people/${people.Ann}`, "Fay")).json.to_give_back.map((r: any) => r.amount_cents), [4000]);
+  assert.deepEqual((await req(`/staff/people/${people.Ann}`, "Kim")).json.to_give_back, []);
+});

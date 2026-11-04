@@ -49,6 +49,17 @@ export function format(catalog: Catalog, lang: Lang, key: Key, params: Params = 
   }).replace(/([ap]\.\s?m\.)\./g, "$1"), lang);
 }
 
+/** A dollar amount as staff type it, the US way in English and Spanish alike ("1,200.50", "$40", "12.5"): commas only
+ *  between thousands, a point and at most two figures after it. The same for an input's pattern, so the form says
+ *  so before anything is sent. */
+export const AMOUNT_PATTERN = String.raw`\s*\$?\s*(\d{1,3}(,\d{3})+|\d+)(\.\d{1,2})?\s*`;
+/** The cents in an amount typed that way, or null when it can't be read for sure ("12,5" could mean either). */
+export function parseDollars(s: string): number | null {
+  if (!new RegExp(`^${AMOUNT_PATTERN}$`).test(s)) return null;
+  const [whole, frac = ""] = s.replace(/[\s$,]/g, "").split(".");
+  return Number(whole) * 100 + Number(frac.padEnd(2, "0"));
+}
+
 export function money(cents: number, lang: Lang, currency = "USD"): string {
   return new Intl.NumberFormat(lang === "es" ? "es-US" : "en-US", { style: "currency", currency }).format(cents / 100);
 }

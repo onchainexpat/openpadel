@@ -297,7 +297,15 @@ export async function payWithFamilyCard(db: Db, paymentId: string, now = new Dat
     const c = await pv.chargeSaved({ customer: card!.saved_customer!, paymentMethod: card!.saved_method!, amountCents: cents, currency, description: `${kid.display_name}: ${what.en}`.slice(0, 200),
       idempotencyKey: `family:${pay.group_id ?? pay.id}:${card!.id}:${pay.family_declines}`, account: card!.provider_account });
     if (c.status === "succeeded") {
-      await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: c.ref, family_card_id: card!.id, ...(card!.provider_account ? { provider_account: card!.provider_account } : {}) }, "family_card", { now });
+      try {
+        await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: c.ref, family_card_id: card!.id, amount_cents: cents, ...(card!.provider_account ? { provider_account: card!.provider_account } : {}) }, "family_card", { now });
+      } catch (e) {
+        // What it was for changed while the card was charged (paid at the desk, called off): the charge can't be
+        // recorded against it, so all of it goes back to the card at once, and nothing is paid here.
+        if (!(e instanceof KumiError && e.code === "error.changed")) throw e;
+        await pv.refund({ paymentRef: c.ref, amountCents: cents, idempotencyKey: `unrecorded:${c.ref}`, account: card!.provider_account });
+        return null;
+      }
       await runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: "succeeded", saved_customer: card!.saved_customer!, saved_method: card!.saved_method! }, "family_card", { now });
       return { status: "paid", cents };
     }

@@ -2,6 +2,7 @@
 // and courts. Every change goes through the preview, like everything else; only what changed is sent.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
+import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
 import { api, club as clubSignal, dollars, lang, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
@@ -257,12 +258,12 @@ function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
         <li class="row"><span><strong>{r.name}</strong> {usd(r.cents_per_hour)}{t("ui.per_hour")}<br /><span class="meta">{describe(r)}{r.priority ? ` · ${t("ui.priority")} ${r.priority}` : ""}</span></span>
           <span><button type="button" class="small" onClick={() => edit(r)}>{t("ui.change")}</button> <button type="button" class="small" onClick={() => send("price.rule_remove", { rule_id: r.id })}>{t("ui.remove")}</button></span></li>))}</ul>
       <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("price.rule_set", { ...(f.rule_id ? { rule_id: f.rule_id } : {}), location_id: l.id, name: f.name,
-        cents_per_hour: Math.round(Number(f.dollars.replace(",", ".")) * 100), weekdays: f.days.length ? f.days : null, starts: f.allDay ? null : f.starts, ends: f.allDay ? null : closing(f.ends),
+        cents_per_hour: parseDollars(f.dollars) ?? NaN, weekdays: f.days.length ? f.days : null, starts: f.allDay ? null : f.starts, ends: f.allDay ? null : closing(f.ends),
         valid_from: f.valid_from || null, valid_to: f.valid_to || null, court_ids: f.courts.length ? f.courts : null, priority: Number(f.priority), plan_ids: f.plans.length ? f.plans : null,
         translations: translationsOf({ name: f.name_tr }) }); }}>
         <label>{f.rule_id ? t("ui.change_price") : t("ui.add_price")}<input required placeholder={t("ui.price_name_hint")} value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
         <OtherLang value={f.name_tr} onInput={(v) => setF({ ...f, name_tr: v })} source={f.name} maxLength={60} />
-        <label>{t("ui.dollars_per_hour")}<input required inputMode="decimal" value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
+        <label>{t("ui.dollars_per_hour")}<input required inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
         <fieldset><legend>{t("ui.days_none_all")}</legend>{ALL_DAYS.map((w) => <label class="check inline"><input type="checkbox" checked={f.days.includes(w)} onChange={() => setF({ ...f, days: toggle(f.days, w) as number[] })} /> {dayName(w)}</label>)}</fieldset>
         <label class="check"><input type="checkbox" checked={f.allDay} onChange={(e) => setF({ ...f, allDay: e.currentTarget.checked })} /> {t("ui.all_day")}</label>
         {!f.allDay && <div class="court-row"><input type="time" step={1800} aria-label={t("ui.from")} value={f.starts} onInput={(e) => setF({ ...f, starts: e.currentTarget.value })} />

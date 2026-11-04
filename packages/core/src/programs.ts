@@ -19,7 +19,7 @@ import { priceFor, programPerks, programPrice, priceWords, type ProgramPrice } f
 import { manages, requireWaiver, withManagers } from "./households.ts";
 import { paymentsWhat, paymentWhat } from "./kids.ts";
 import { isReadOnly, refuseWhenReadOnly } from "./read_only.ts";
-import { deskPaid, paidHow, recordAtDesk, refundAcross, refundDue, refundTo, revenueType } from "./desk_pay.ts";
+import { backSql, deskPaid, paidHow, recordAtDesk, refundAcross, refundDue, refundTo, revenueType } from "./desk_pay.ts";
 
 /** How long a place offered from the waitlist is held. With texts it would be 2 hours; while email is
  *  the only way to reach people, it's doubled (messages.md). */
@@ -775,6 +775,22 @@ async function requestPayment(ctx: ApplyContext, enrolmentId: string, personId: 
   await ctx.insert("payment", { id, person_id: personId, amount_cents: cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", enrolment_id: enrolmentId });
   return { payment_id: id };
 }
+/** What a card payment asks for has changed (part paid at the desk, a new price): the ask is called off and a new
+ *  one made for `cents` (nothing, when it's all paid), with a new id, so a new key at the provider. A payment's
+ *  amount is never changed: a card form being opened at this moment may already have asked the provider for the
+ *  old amount, and payment.open then finds its payment gone instead of recording one sum for a card charged
+ *  another. Alone, not with other dates it was paid with. */
+export async function askAgain(ctx: ApplyContext, paymentId: string, cents: number): Promise<string | null> {
+  const old = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
+  if (old.status !== "pending" || old.provider_ref) throw new KumiError("error.changed");
+  await ctx.update("payment", old.id, { status: "failed" });
+  if (cents <= 0) return null;
+  const id = uuidv7();
+  await ctx.insert("payment", { id, person_id: old.person_id, amount_cents: cents, method: old.method, provider: paymentProvider().name, provider_ref: null, status: "pending",
+    enrolment_id: old.enrolment_id, booking_player_id: old.booking_player_id, membership_id: old.membership_id, membership_plan_id: old.membership_plan_id, save_card: old.save_card,
+    for_period_no: old.for_period_no, family_declines: old.family_declines, parent_to_pay_at: old.parent_to_pay_at });
+  return id;
+}
 
 // ---- Paid at the desk (cash, the club's card reader, another way) ----
 /** A place paid at the desk: the staff sign the person up as usual, then record what they paid, never more than is
@@ -805,7 +821,8 @@ export const enrolmentRecordPayment = defineAction({
     // What the app still asks for by card (one with no card form open yet): the rest, or nothing.
     const rest = owed - i.cents;
     for (const pay of await ctx.trx.selectFrom("payment").select("id").where("enrolment_id", "=", e.id).where("status", "=", "pending").where("provider_ref", "is", null).execute())
-      await ctx.update("payment", pay.id, rest > 0 ? { amount_cents: rest } : { status: "failed" });
+      await askAgain(ctx, pay.id, rest);
+    if (rest === 0) await subPaid(ctx, e.id);
     return { payment_id: payment };
   },
 });
@@ -813,6 +830,12 @@ export const enrolmentRecordPayment = defineAction({
 function placeOwed(owed: number, cents: number) {
   if (owed <= 0) throw new KumiError("error.place_paid_up");
   if (cents > owed) throw new KumiError("error.more_than_owed_place", { owed: usd(owed), amount: usd(cents) });
+}
+/** A sub has paid for the place they took (by card, or all of it at the desk): the player they replaced gets the
+ *  refund that was waiting for it. */
+async function subPaid(ctx: ApplyContext, enrolmentId: string) {
+  const from = await ctx.trx.selectFrom("enrolment").select("id").where("replaced_by", "=", enrolmentId).executeTakeFirst();
+  if (from) for (const r of await ctx.trx.selectFrom("refund").select("id").where("enrolment_id", "=", from.id).where("status", "=", "waiting_for_sub").forUpdate().execute()) await refundDue(ctx, r.id);
 }
 /** Paid at the desk while a card form for the same place was open, and the card went through too: what's beyond
  *  the price goes back to that card. */
@@ -828,7 +851,8 @@ async function overPaid(ctx: ApplyContext, enrolmentId: string, paymentId: strin
 export const paymentOpen = defineAction({
   name: "payment.open", version: 1, system: true, internal: true,
   input: z.object({ payment_id: z.uuid(), provider: z.enum(["test", "stripe"]), provider_ref: z.string().check(z.minLength(1)), provider_account: z.optional(z.string()),
-    family_card_id: z.optional(z.uuid()) }),   // a kid's payment, charged to the family card
+    family_card_id: z.optional(z.uuid()),   // a kid's payment, charged to the family card
+    amount_cents: z.optional(z.number().check(z.int())) }),   // what the provider was asked for: it has to be what these payments ask
   async plan(ctx, i) {
     const { row: pay } = await readRow(ctx.db, "payment", i.payment_id, "thing.payment");
     return { title: both("action.payment.open"), summary: both("plan.payment.open", { person: await personName(ctx.db, pay.person_id), amount: usd(pay.amount_cents) }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
@@ -842,6 +866,11 @@ export const paymentOpen = defineAction({
     // Program dates: one left before paying has dropped out (its payment called off); the card pays the rest.
     const rows = all.some((r) => r.enrolment_id) ? all.filter((r) => r.status === "pending") : all;
     if (rows.some((r) => r.provider_ref || r.status !== "pending")) throw new KumiError("error.changed");
+    // Asked for a sum these payments no longer come to (one called off, or asked again for less, meanwhile): not this intent.
+    if (i.amount_cents !== undefined) {
+      const sum = (await ctx.trx.selectFrom("payment").select("amount_cents").where("id", "in", rows.map((r) => r.id)).execute()).reduce((n, r) => n + r.amount_cents, 0);
+      if (sum !== i.amount_cents) throw new KumiError("error.changed");
+    }
     for (const r of rows) await ctx.update("payment", r.id, { provider: i.provider, provider_ref: i.provider_ref, provider_account: i.provider_account ?? null, ...(i.family_card_id ? { family_card_id: i.family_card_id } : {}) });
     return null;
   },
@@ -873,9 +902,10 @@ export async function openPayment(db: Db, paymentId: string, personId: string): 
     if (group.some((g) => g.booking_status === "cancelled")) throw new KumiError("error.booking_cancelled", {}, 409);
     if (!group.length || group.some((g) => g.status !== "pending")) throw new KumiError("error.not_pending", {}, 409);
     const description = group[0]!.enrolment_id ? `${pay.what ?? "Program"}: ${group.length} dates` : `Court bookings ${group.map((g) => g.code).join(", ")}`;
-    const it = await pv.createIntent({ amountCents: group.reduce((n, g) => n + g.amount_cents, 0), currency, description,
+    const cents = group.reduce((n, g) => n + g.amount_cents, 0);
+    const it = await pv.createIntent({ amountCents: cents, currency, description,
       idempotencyKey: group[0]!.enrolment_id ? `${pay.group_id}:${group.length}` : pay.group_id, metadata: { kumi_payment_id: group[0]!.id } });
-    await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: it.ref, ...(it.account ? { provider_account: it.account } : {}) }, "payments");
+    await opened(db, pay.id, it, cents);
     return { clientSecret: it.clientSecret, provider: pv.name, account: it.account };
   }
   // "Pay my part" and memberships: the card is saved for a later charge (the deadline, the renewal), under a
@@ -887,8 +917,19 @@ export async function openPayment(db: Db, paymentId: string, personId: string): 
   }
   const it = await pv.createIntent({ amountCents: pay.amount_cents, currency, description: pay.what ?? (pay.code ? `Court booking ${pay.code}` : pay.plan ? `${pay.plan} membership` : "Kumi"), idempotencyKey: pay.id,
     metadata: { kumi_payment_id: pay.id }, customer, saveCard: pay.save_card });
-  await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: it.ref, ...(it.account ? { provider_account: it.account } : {}) }, "payments");
+  await opened(db, pay.id, it, pay.amount_cents);
   return { clientSecret: it.clientSecret, provider: pv.name, account: it.account };
+}
+/** The intent made for a payment is its card payment now, if the payment still asks for what the intent does. If
+ *  it changed meanwhile (paid at the desk, called off), the intent is called off at the provider and never shown. */
+async function opened(db: Db, paymentId: string, it: { ref: string; account?: string | null }, cents: number) {
+  try {
+    await runAsSystem(db, "payment.open", { payment_id: paymentId, provider: paymentProvider().name, provider_ref: it.ref, ...(it.account ? { provider_account: it.account } : {}), amount_cents: cents }, "payments");
+  } catch (e) {
+    if (!(e instanceof KumiError && e.code === "error.changed")) throw e;
+    await paymentProvider().cancelIntent(it.ref, it.account ?? null).catch(() => undefined);   // nobody has its form: it can't be paid
+    throw new KumiError("error.not_pending", {}, 409);
+  }
 }
 
 /** Ask the provider how a payment stands and record it once it's settled. Safe to call any number of times:
@@ -898,7 +939,10 @@ export async function checkPayment(db: Db, paymentId: string, via = "payments", 
   if (!pay) return null;
   if (pay.status !== "pending" || !pay.provider_ref) return pay.status;
   const it = await paymentProvider().getIntent(pay.provider_ref, pay.provider_account);
-  if (it.status !== "pending") await runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: it.status, ...(it.paymentMethod ? { saved_method: it.paymentMethod } : {}), ...(it.customer ? { saved_customer: it.customer } : {}) }, via, now ? { now } : {});
+  if (it.status !== "pending") {
+    try { await runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: it.status, ...(it.paymentMethod ? { saved_method: it.paymentMethod } : {}), ...(it.customer ? { saved_customer: it.customer } : {}) }, via, now ? { now } : {}); }
+    catch (e) { if (!(e instanceof KumiError && e.code === "error.changed")) throw e; }   // settled at that moment by another of the three: the same answer
+  }
   return it.status;
 }
 
@@ -1086,8 +1130,10 @@ export const paymentSettle = defineAction({
     return { title: both("action.payment.settle"), summary: both(i.outcome === "succeeded" ? "plan.payment.succeeded" : "plan.payment.failed", { person: await personName(ctx.db, row.person_id), amount: usd(row.amount_cents) }), reads: [read], undo: { kind: "none", note: both("reason.refund_sent") } };
   },
   async apply(ctx, i) {
-    const pay = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", i.payment_id).executeTakeFirstOrThrow();
-    if (pay.status !== "pending") return { already: pay.status };   // a repeated webhook does nothing
+    // Locked: the card form's return, the webhook and the minute job can all settle it at once. The second waits
+    // here, finds it settled, and does nothing (a repeated webhook is the same).
+    const pay = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", i.payment_id).forUpdate().executeTakeFirstOrThrow();
+    if (pay.status !== "pending") return { already: pay.status };
     if (pay.group_id) return settleGroup(ctx, pay, i.outcome);
     // A card kept for the deadline charge ("pay my part"): the provider's customer and card, never the card itself.
     await ctx.update("payment", pay.id, { status: i.outcome, ...(pay.save_card && i.saved_method ? { saved_customer: i.saved_customer ?? null, saved_method: i.saved_method } : {}) });
@@ -1106,8 +1152,7 @@ export const paymentSettle = defineAction({
       if (e.status === "cancelled" && !(await ctx.trx.selectFrom("enrolment").select("id").where("replaced_by", "is not", null).where("id", "=", pay.enrolment_id).executeTakeFirst()))
         await startRefund(ctx, pay.enrolment_id, pay.person_id, { outcome: "full", cents: pay.amount_cents, text: { en: "", es: "" }, changed: false });
       // A sub has paid: the player they replaced gets their refund now.
-      const from = await ctx.trx.selectFrom("enrolment").select("id").where("replaced_by", "=", pay.enrolment_id).executeTakeFirst();
-      if (from) for (const r of await ctx.trx.selectFrom("refund").select("id").where("enrolment_id", "=", from.id).where("status", "=", "waiting_for_sub").execute()) await refundDue(ctx, r.id);
+      await subPaid(ctx, pay.enrolment_id);
       await overPaid(ctx, pay.enrolment_id, pay.id);
     }
     await ctx.emit("payment.succeeded", { payment_id: pay.id });
@@ -1139,10 +1184,10 @@ export const refundResend = defineAction({
     return null;
   },
 });
-/** Whether a payment still has room for this much more back (refunds sent or on their way count). */
+/** Whether a payment still has room for this much more back (every refund but a failed one counts: desk_pay.ts). */
 async function refundRoom(db: Db | Trx, paymentId: string, paid: number, cents: number) {
-  const back = await db.selectFrom("refund").select(sql<string>`coalesce(sum(amount_cents), 0)`.as("c")).where("payment_id", "=", paymentId).where("status", "in", ["pending", "sent"]).executeTakeFirstOrThrow();
-  if (Number(back.c) + cents > paid) throw new KumiError("error.refund_more_than_paid", { left: usd(paid - Number(back.c)) });
+  const back = Number((await db.selectFrom("payment").select(backSql.as("c")).where("id", "=", paymentId).executeTakeFirstOrThrow()).c);
+  if (back + cents > paid) throw new KumiError("error.refund_more_than_paid", { left: usd(paid - back) });
 }
 
 /** A kid's payment went on the family card: the parents hear what for and how much (worked out now). */

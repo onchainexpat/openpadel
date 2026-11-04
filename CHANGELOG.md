@@ -98,6 +98,44 @@ server starts.
 - **Cancelling a court booking paid in cash** sent its refund to a card that was never used, which failed and showed
   as a refund to send again. It now waits at the desk (above), and the preview says "goes back at the desk".
 
+### Fixed
+Found by a review of the money paid at the desk (above), most of it in code older than that change.
+- **A card payment settled twice at once was counted twice (in 0.2.0).** The card form's return, Stripe's webhook and
+  the minute job can each settle a payment, and two at the same moment both did: the books counted it twice, a late
+  renewal paid in the app could add two periods, a new member could get the membership and all of the payment back,
+  and (since the desk change) a next period paid by card was added and all of it went back too. A payment is now
+  settled once, whichever comes first; the others find it done.
+- **A refund could be more than was left of its payment (in 0.2.0).** Cancelling a booking that had been made shorter
+  or moved somewhere cheaper (with part already back) worked the club's rule out from all that was paid, so the desk
+  was told to hand back more than it took; a card's excess was refused by Stripe. Every refund now comes from what's
+  left of each payment, and none is ever more than that.
+- **A player who passed their place to a sub waited for their refund forever when the sub paid at the desk.** It's
+  sent once the sub's place is paid in full, at the desk or by card.
+- **A card could be asked for one amount while Kumi recorded another (in 0.2.0, for a program date made cheaper).**
+  If the member was opening the card form at the moment the desk took part of the place (or a date was cancelled and
+  the place cost less), the card form could go on to charge the old amount. What a card payment asks for is never
+  changed now: it's called off and a new one asked for the rest, and a card form that was opening for the old one is
+  stopped and called off at Stripe.
+- **A pause between asking for a membership's next period and its card going through** turned the payment into a
+  refund, as if the period had been paid another way, and left the renewal to fail. A membership now counts its
+  periods, and a pause moves its dates, never the count.
+- **A family card charged at the moment what it paid for changed (in 0.2.0)** (a court cancelled, or a place paid at
+  the desk) kept the money with nothing recorded against it. All of it now goes back to the card at once.
+- **One more person on a family plan from the desk, taken off before their price was paid,** left it owed, and adding
+  them again owed it twice. Taken off unpaid, it comes off what's owed and they go at once; paid for, they stay to the
+  end of the period and can be put back with nothing more to pay.
+- **"1,200" in a money box was read as $1.20 (in 0.2.0).** Amounts in the staff app are read the US way, a comma between
+  thousands and a point before the cents, in English and Spanish alike, and one that could mean either ("12,5") is
+  refused with how to write it.
+- **A page from a release since replaced** could draw with no words when its files were gone. Kumi tries again, then
+  reloads once for the new release, and otherwise says it was updated, with a button to reload.
+- **Who does desk money.** Recording money taken at the desk and handing it back are the staff's own: never support
+  access, and never an assistant, which can't see money change hands (in 0.2.0 both could record a court booking's
+  payment). A front desk kept to one location hands back money for its own location's bookings and places and
+  sells memberships, which belong to no location. A coach looking at their own student's page no longer sees what's
+  waiting at the desk for them, or refunds that failed.
+- The desk's day reads from an index of the changes that take or hand back money at the desk, not all of them.
+
 ### When updating
 - If club.yaml names a privacy policy or terms under `texting:`, `kumi setup apply` links them for members too (while
   the club has none set), and the texting registration uses them either way. Members who joined before the links were

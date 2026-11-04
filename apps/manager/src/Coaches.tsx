@@ -3,6 +3,7 @@
 // the coach role on their page.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
+import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
 import { api, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
 
 type Profile = { bio: string | null; translations?: unknown; level_min: string | null; level_max: string | null; languages: string[]; rates: Record<string, number>; photo: string | null; lessons: boolean; max_players: number };
@@ -28,7 +29,7 @@ async function shrink(file: File): Promise<string> {
 const weekdays = [1, 2, 3, 4, 5, 6, 0];
 const dayName = (w: number) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
 const dayText = (d: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T12:00:00Z`));
-const toCents = (v: string) => Math.round(Number(v.replace(",", ".")) * 100);
+const toCents = (v: string) => parseDollars(v) ?? NaN;
 
 export function Coaches() {
   const [d, setD] = useState<Data | null>(null), [open, setOpen] = useState<string | null>(null);
@@ -91,7 +92,7 @@ function CoachEdit({ c, d, preview }: { c: Coach; d: Data; preview: Preview }) {
         <fieldset><legend>{t("ui.coach_langs")}</legend>{["en", "es"].map((x) => <label class="check"><input type="checkbox" checked={f.languages.includes(x)}
           onChange={(e) => setF({ ...f, languages: e.currentTarget.checked ? [...f.languages, x] : f.languages.filter((y) => y !== x) })} /> {t(`ui.lang_${x}` as Key)}</label>)}</fieldset>
         <fieldset><legend>{t("ui.lesson_rates")}</legend><div class="court-row">{lengths.map((m) =>
-          <label>{t("ui.minutes", { count: m })}<input inputMode="decimal" value={f.rates[m]} onInput={(e) => setF({ ...f, rates: { ...f.rates, [m]: e.currentTarget.value } })} /></label>)}</div></fieldset>
+          <label>{t("ui.minutes", { count: m })}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.rates[m]} onInput={(e) => setF({ ...f, rates: { ...f.rates, [m]: e.currentTarget.value } })} /></label>)}</div></fieldset>
         <label class="check"><input type="checkbox" checked={f.lessons} onChange={(e) => setF({ ...f, lessons: e.currentTarget.checked })} /> {t("ui.takes_lessons")}</label>
         <label>{t("ui.max_players")}<select value={f.players} onChange={(e) => setF({ ...f, players: Number(e.currentTarget.value) })}>{[1, 2, 3, 4].map((n) => <option value={n}>{n}</option>)}</select></label>
         <button class="primary">{t("ui.preview")}</button>

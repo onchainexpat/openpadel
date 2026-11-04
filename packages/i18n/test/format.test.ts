@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { format, type Catalog } from "../src/format.ts";
+import { AMOUNT_PATTERN, format, parseDollars, type Catalog } from "../src/format.ts";
 
 const cat = { a: "Reviewed by {by}: {reason}.", b: "Loading {what}...", c: "At {time}.", d: "Note: {note}. Thanks" } as unknown as Catalog;
 const f = (key: string, params: Record<string, string>) => format(cat, "en", key as any, params);
@@ -13,4 +13,14 @@ test("a value that ends its own sentence takes the place of the full stop after 
   assert.equal(f("d", { note: "Bring water." }), "Note: Bring water. Thanks");
   assert.equal(f("b", { what: "courts" }), "Loading courts...");   // an ellipsis in the wording stays
   assert.equal(format({ c: "A las {time}." } as unknown as Catalog, "es", "c" as any, { time: "9:00 a. m." }), "A las 9:00 a. m.");
+});
+
+test("an amount the staff type reads the US way, and one that could mean two things is refused, not guessed", () => {
+  for (const [typed, cents] of [["1,200", 120000], ["1,200.50", 120050], ["12.5", 1250], ["$40", 4000], [" 40 ", 4000], ["0.05", 5], ["12,345,678", 1234567800]] as const)
+    assert.equal(parseDollars(typed), cents, typed);
+  for (const typed of ["12,5", "1.200", "1,20", "1,2000", "12.", ".5", "", "abc", "-5", "1 200"]) assert.equal(parseDollars(typed), null, typed);
+  // The same rule for an input's pattern, which browsers read with the v flag.
+  const input = new RegExp(`^(?:${AMOUNT_PATTERN})$`, "v");
+  assert.equal(input.test("1,200.50"), true);
+  assert.equal(input.test("12,5"), false);
 });

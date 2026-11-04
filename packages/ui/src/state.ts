@@ -1,6 +1,6 @@
 // Who is signed in, the club, and the language: the three things every screen reads.
 import { signal, computed, effect } from "@preact/signals";
-import type { ComponentType } from "preact";
+import { h, type ComponentType } from "preact";
 import { lazy } from "preact-iso";
 import { format, LANGS, pickLang, type Catalog, type Key, type Lang, type Params } from "@kumi/i18n/format";
 
@@ -71,9 +71,24 @@ export const wordingReady: Promise<void> = firstWording(lang.peek()).catch(() =>
 // The rest of the wording follows once the app knows who's here (loadMe), in their language, not the browser's.
 let following = false;
 const followLanguage = () => { if (!following) { following = true; effect(() => { loadWording(lang.value).catch(() => undefined); }); } };
-/** A page loaded when it's first opened (preact-iso's lazy), which also waits for the rest of the wording. */
+/** A page loaded when it's first opened (preact-iso's lazy), which also waits for the rest of the wording. Each is
+ *  tried twice. A page (or its words) still missing is most likely from a release since replaced, whose files are
+ *  gone: the app reloads once for the new one, and if that was a minute ago, says so instead of drawing a page
+ *  with no words. */
 export const lazyPage = <T extends ComponentType<any>>(load: () => Promise<T>) =>
-  lazy(() => Promise.all([load(), loadWording(lang.peek()).catch(() => undefined)]).then(([c]) => c));
+  lazy(() => Promise.all([twice(load), twice(() => loadWording(lang.peek()))]).then(([c]) => c, () => (reloadOnce() ? new Promise<never>(() => {}) : Updated) as Promise<T> | T));
+const twice = <R>(f: () => Promise<R>) => f().catch(() => f());
+const RELOADED = "kumi:reloaded";
+function reloadOnce(): boolean {
+  try {
+    if (Date.now() - Number(sessionStorage.getItem(RELOADED) ?? 0) < 60_000) return false;
+    sessionStorage.setItem(RELOADED, String(Date.now()));
+  } catch { return false; }   // no storage: no way to tell a second reload from the first, so none
+  location.reload();
+  return true;
+}
+/** In place of a page that wouldn't load: its words are the first screen's, which are always here. */
+const Updated = () => h("p", { class: "notice" }, t("ui.app_updated"), " ", h("button", { class: "small", onClick: () => location.reload() }, t("ui.reload")));
 export const t = (key: Key, params?: Params) => {
   const all = catalogs.value, l = all[lang.value] ? lang.value : lang.value === "en" ? "es" : "en";
   // A key the language's first part doesn't have yet (a page opened before the rest arrived) comes from the other.

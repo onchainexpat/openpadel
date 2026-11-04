@@ -9,9 +9,10 @@ import { defineAction, readRow, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
-import { localDate, localParts } from "./clock.ts";
+import { localDate, localParts, onDate } from "./clock.ts";
 import { account, post } from "./money.ts";
 import { paymentWhat } from "./kids.ts";
+import { DESK_MONEY } from "./permissions.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 export const DESK_METHODS = ["cash", "terminal", "other"] as const;
@@ -49,16 +50,30 @@ export async function recordAtDesk(ctx: ApplyCtx, o: { personId: string; cents: 
   return id;
 }
 
+/** What has gone back of a payment, or is on its way (waiting for a sub, at the desk, or at the provider): every
+ *  refund but one that failed, which can be sent again only while there's room for it (refund.resend). In SQL, for
+ *  a query that has `payment`. */
+export const backSql = sql<string>`coalesce((SELECT sum(r.amount_cents) FROM refund r WHERE r.payment_id = payment.id AND r.status != 'failed'), 0)`;
+/** What's left of a payment to give back: what was paid, less what has gone back of it or is on its way. */
+export async function leftOf(db: Db | Trx, paymentId: string): Promise<number> {
+  const p = await db.selectFrom("payment").select(["amount_cents", backSql.as("back")]).where("id", "=", paymentId).executeTakeFirstOrThrow();
+  return p.amount_cents - Number(p.back);
+}
+
 /** Give `cents` of one payment back: to the card it came from (the outbox sends it once this change is saved), or,
  *  paid at the desk, waiting at the desk for someone there to hand it over. `waiting_for_sub`: a place passed to a
- *  sub, given back once they pay. `enrolmentId` for a program place's. */
+ *  sub, given back once they pay. `enrolmentId` for a program place's. Never more than is left of the payment,
+ *  however the caller worked it out (the payment is locked, so two changes at once can't both fit): what's
+ *  given back, and where. */
 export async function refundTo(ctx: ApplyCtx, paymentId: string, cents: number, o: { enrolmentId?: string | null; status?: "pending" | "waiting_for_sub" } = {}) {
   if (cents <= 0) return null;
-  const pay = await ctx.trx.selectFrom("payment").select("provider").where("id", "=", paymentId).executeTakeFirstOrThrow();
+  const pay = await ctx.trx.selectFrom("payment").select("provider").where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
+  cents = Math.min(cents, await leftOf(ctx.trx, paymentId));
+  if (cents <= 0) return null;
   const id = uuidv7(), desk = pay.provider === "none", status = o.status ?? "pending";
   await ctx.insert("refund", { id, payment_id: paymentId, enrolment_id: o.enrolmentId ?? null, amount_cents: cents, destination: desk ? "desk" : "card", status });
   if (!desk && status === "pending") await ctx.emit("refund.requested", { refund_id: id });
-  return { id, desk };
+  return { id, desk, cents };
 }
 /** A refund that was waiting for a sub to pay is due now: a card's goes to the provider, the desk's waits there. */
 export async function refundDue(ctx: ApplyCtx, refundId: string) {
@@ -75,9 +90,10 @@ export async function refundAcross(ctx: ApplyCtx, pays: { id: string; left: numb
   for (const p of [...pays.filter((x) => !x.desk), ...pays.filter((x) => x.desk)]) {
     const c = Math.min(rest, p.left);
     if (c <= 0) continue;
-    await refundTo(ctx, p.id, c, o);
-    out[p.desk ? "desk" : "card"] += c;
-    rest -= c;
+    const r = await refundTo(ctx, p.id, c, o);
+    if (!r) continue;
+    out[r.desk ? "desk" : "card"] += r.cents;
+    rest -= r.cents;
   }
   return out;
 }
@@ -93,7 +109,7 @@ export async function toGiveBack(db: Db | Trx, personId?: string) {
 /** Someone at the desk hands back what was waiting there for a person: the refund is sent, and the money leaves the
  *  cash drawer (or clearing) in the books. Its receipt follows, as for a card's. */
 export const refundGiveBack = defineAction({
-  name: "refund.give_back", version: 1,
+  name: "refund.give_back", version: 1, clubWide: true,
   input: z.object({ refund_id: z.uuid() }),
   async plan(ctx, i) {
     const { row: r, read } = await readRow(ctx.db, "refund", i.refund_id);
@@ -102,7 +118,7 @@ export const refundGiveBack = defineAction({
       .select(["payment.person_id", "payment.method", "payment.booking_player_id", "payment.enrolment_id", "payment.membership_id", "payment.membership_plan_id", "person.display_name"])
       .where("payment.id", "=", r.payment_id).executeTakeFirstOrThrow();
     return { title: both("action.refund.give_back"), summary: both("plan.refund.give_back", { amount: usd(r.amount_cents), name: pay.display_name, how: paidHow(pay.method), what: await paymentWhat(ctx.db, pay) }),
-      reads: [read], ownerIds: [pay.person_id], moneyCents: r.amount_cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } };
+      reads: [read], locationId: await paymentLocation(ctx.db, pay), ownerIds: [pay.person_id], moneyCents: r.amount_cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } };
   },
   async apply(ctx, i) {
     const r = await ctx.trx.selectFrom("refund").selectAll().where("id", "=", i.refund_id).forUpdate().executeTakeFirstOrThrow();
@@ -115,6 +131,15 @@ export const refundGiveBack = defineAction({
     return null;
   },
 });
+
+/** Where a payment's thing is: a booking's location, or a program's; a membership has none (the whole club's). */
+async function paymentLocation(db: Db | Trx, p: { booking_player_id: string | null; enrolment_id: string | null }): Promise<string | null> {
+  if (p.booking_player_id) return (await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").select("booking.location_id")
+    .where("booking_player.id", "=", p.booking_player_id).executeTakeFirst())?.location_id ?? null;
+  if (p.enrolment_id) return (await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").select("program.location_id")
+    .where("enrolment.id", "=", p.enrolment_id).executeTakeFirst())?.location_id ?? null;
+  return null;
+}
 
 // ---- The desk's day (Reports): what was paid at the desk and what was handed back there, on the club's clock ----
 /** One line of the desk's day: money taken at the desk, or handed back there, with when, how and who did it. */
@@ -131,19 +156,22 @@ const byMethod = (): Record<DeskMethod, number> => ({ cash: 0, terminal: 0, othe
  *  a line, so the day totals leave it out. */
 export async function deskLines(db: Db | Trx, from: string, to: string, o: { what?: boolean } = {}): Promise<DeskLine[]> {
   const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
-  const onDays = sql<boolean>`(action_run.applied_at AT TIME ZONE ${tz})::date BETWEEN ${from}::date AND ${to}::date`;
+  // The days' bounds on the club's clock, and only the changes that move money at the desk: what the index on
+  // action_run has (076).
+  const starts = onDate(from, "00:00", tz), ends = onDate(to, "24:00", tz);
+  const onDays = (q: any) => q.where("action_run.applied_at", ">=", starts).where("action_run.applied_at", "<", ends).where("action_run.action", "in", DESK_MONEY);
   const cols = ["payment.person_id", "person.display_name as person", "by.display_name as by", "action_run.applied_at as at", "payment.method",
     "payment.booking_player_id", "payment.enrolment_id", "payment.membership_id", "payment.membership_plan_id"] as const;
   // Paid at the desk: the change that recorded each payment.
   const ins = await db.selectFrom("payment")
     .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'payment' AND entity_change.op = 'insert' AND entity_change.entity_id = payment.id::text`))
     .innerJoin("action_run", "action_run.id", "entity_change.action_run_id").innerJoin("person", "person.id", "payment.person_id").leftJoin("person as by", "by.id", "action_run.actor_person_id")
-    .select([...cols, "payment.amount_cents as cents"]).where("payment.provider", "=", "none").where("payment.status", "=", "succeeded").where(onDays).execute();
+    .select([...cols, "payment.amount_cents as cents"]).where("payment.provider", "=", "none").where("payment.status", "=", "succeeded").$call(onDays).execute();
   // Handed back at the desk: the change that marked each refund given back.
   const backs = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
     .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'refund' AND entity_change.op = 'update' AND entity_change.entity_id = refund.id::text AND entity_change.after->>'status' = 'sent'`))
     .innerJoin("action_run", "action_run.id", "entity_change.action_run_id").innerJoin("person", "person.id", "payment.person_id").leftJoin("person as by", "by.id", "action_run.actor_person_id")
-    .select([...cols, "refund.amount_cents as cents"]).where("refund.destination", "=", "desk").where("refund.status", "=", "sent").where("action_run.action", "=", "refund.give_back").where(onDays).execute();
+    .select([...cols, "refund.amount_cents as cents"]).where("refund.destination", "=", "desk").where("refund.status", "=", "sent").where("action_run.action", "=", "refund.give_back").$call(onDays).execute();
   const lines: DeskLine[] = [];
   for (const [kind, rows] of [["in", ins], ["back", backs]] as const) for (const r of rows) {
     const at = r.at!, p = localParts(at, tz);
