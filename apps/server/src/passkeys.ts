@@ -2,7 +2,7 @@
 // person. Signing in with one makes a "passkey" session, which the strong-sign-in rule accepts.
 import { createHash, randomBytes } from "node:crypto";
 import { Hono, type Context } from "hono";
-import { setCookie } from "hono/cookie";
+import { setSession } from "./session_cookie.ts";
 import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse, type AuthenticationResponseJSON, type RegistrationResponseJSON } from "@simplewebauthn/server";
 import { t, type Lang } from "@kumi/i18n";
 import { hasSecondFactor, run, uuidv7, KumiError, type Actor, type Db } from "@kumi/core";
@@ -92,7 +92,7 @@ export function passkeyRoutes(deps: PasskeyDeps) {
       await trx.updateTable("passkey").set({ counter: String(v.authenticationInfo.newCounter), last_used_at: now }).where("credential_id", "=", pk.credential_id).execute();
       await trx.insertInto("web_session").values({ token_hash: sha(token), person_id: pk.person_id, expires_at: new Date(now.getTime() + SESSION_DAYS * 864e5), last_seen_at: now, user_agent: c.req.header("user-agent") ?? null, revoked_at: null, method: "passkey" }).execute();
     });
-    setCookie(c, "kumi_session", token, { httpOnly: true, secure: deps.secureCookies, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
+    setSession(c, token, { secure: deps.secureCookies, legacy: false });
     return c.json({ signed_in: true });
   });
 

@@ -8,10 +8,10 @@ import { BlockList, isIP } from "node:net";
 import type { Readable } from "node:stream";
 import { Hono, type Context } from "hono";
 import { html } from "hono/html";
-import { setCookie } from "hono/cookie";
+import { setSession } from "./session_cookie.ts";
 import { money, t, type Lang } from "@kumi/i18n";
 import { activeFactor, KumiError, supportOnly, usPhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
-import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
+import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 import { RateLimiter } from "./limits.ts";
 
@@ -235,7 +235,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
       }
       const r = await verifyPhoneCode(deps.db, phone, String(f.code), c.req.header("user-agent") ?? null, deps.now(), { signUp: false });
       if (!("token" in r)) throw new KumiError("error.no_account", {}, 404);
-      setCookie(c, "kumi_session", r.token, { httpOnly: true, secure: deps.secureCookies, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
+      setSession(c, r.token, { secure: deps.secureCookies, legacy: false });
       for (const k of ["sent", "phone", "by"]) u.searchParams.delete(k);
       return c.redirect(`${u.pathname}${u.search}`, 303);
     }
@@ -247,7 +247,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     }
     const r = await verifyEmailCode(deps.db, email, String(f.code), c.req.header("user-agent") ?? null, deps.now(), { signUp: false });
     if (!("token" in r)) throw new KumiError("error.no_account", {}, 404);
-    setCookie(c, "kumi_session", r.token, { httpOnly: true, secure: deps.secureCookies, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
+    setSession(c, r.token, { secure: deps.secureCookies, legacy: false });
     u.searchParams.delete("sent"); u.searchParams.delete("email");
     return c.redirect(`${u.pathname}${u.search}`, 303);
   });

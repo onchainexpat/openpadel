@@ -129,7 +129,9 @@ setTranslator(translatorFromEnv(process.env));
 // machine (scripts that sign in over the API); production refuses to start that way.
 const botCheck = process.env.KUMI_BOT_CHECK !== "0";
 if (!botCheck && production) { console.error("KUMI_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
-const server = await listen(makeApp({ db, mailer, publicUrl, memberUrl: membersUrl, secureCookies: production, production, stripe: stripeConfig, botCheck, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
+// The session cookie's old name, still read (and moved) over HTTPS for one release (session_cookie.ts).
+const legacySessionCookie = process.env.KUMI_LEGACY_SESSION_COOKIE !== "0";
+const server = await listen(makeApp({ db, mailer, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
   emailEvents: { secret: process.env.KUMI_RESEND_WEBHOOK_SECRET || null, from: process.env.KUMI_MAIL_FROM || null },
   ...(texter && twilio ? { texts: { texter, authToken: twilio.authToken } } : {}) }).fetch, listenAt);
 console.log(`kumi server on ${describeListen(listenAt, server)}`);

@@ -1,7 +1,7 @@
 // The HTTP API. Every write goes through the action registry; reads answer in the person's
 // language (their profile, or Accept-Language before they sign in).
 import { Hono, type Context } from "hono";
-import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import { clearSession, readSession, setSession, type CookieMode } from "./session_cookie.ts";
 import { secureHeaders } from "hono/secure-headers";
 import { bodyLimit } from "hono/body-limit";
 import { clientIp, RateLimiter } from "./limits.ts";
@@ -17,7 +17,7 @@ import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@ku
 import { actions, apply, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
-import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode, SESSION_DAYS } from "./auth.ts";
+import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, mcpResourceOf, mcpResources, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
@@ -48,11 +48,13 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   /** The database's address for the tools that copy it whole (the owner's "Download everything"). */
   databaseUrl?: string
   /** The email service's webhook (email_events.ts): the secret its posts are signed with, and the club's sender. */
-  emailEvents?: { secret: string | null; from: string | null } }
+  emailEvents?: { secret: string | null; from: string | null }
+  /** Over HTTPS, a session under the cookie's old name is still read and moved to the new one, for a release (on unless
+   *  KUMI_LEGACY_SESSION_COOKIE=0: session_cookie.ts). */
+  legacySessionCookie?: boolean }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
 type Me = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
-const COOKIE = "kumi_session";
 const EmailStart = z.object({ email: z.email() });
 const EmailVerify = z.object({ email: z.email(), code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
 const PhoneStart = z.object({ phone: z.string().check(z.maxLength(40)) });
@@ -71,6 +73,7 @@ const FIRST_SECOND_STEP = new Set(["/auth/totp/setup", "/auth/totp/confirm", "/a
 export function makeApp(deps: AppDeps) {
   const { db, mailer } = deps;
   const now = deps.now ?? (() => new Date());
+  const cookieMode: CookieMode = { secure: deps.secureCookies ?? true, legacy: deps.legacySessionCookie ?? true };
   const app = new Hono<Env>();
 
   // Security headers on everything the API answers. The only HTML it serves is the agent sign-in and
@@ -114,7 +117,10 @@ export function makeApp(deps: AppDeps) {
   });
 
   app.use("*", async (c, next) => {
-    const s = await sessionPerson(db, getCookie(c, COOKIE), now());
+    const brought = readSession(c, cookieMode);
+    const s = await sessionPerson(db, brought.token, now());
+    // A session still under the old name moves to the new one, so nobody is signed out by the update.
+    if (s && brought.legacy) setSession(c, brought.token!, cookieMode);
     let me: Me = null;
     if (s) {
       // A passkey is both steps; an emailed or texted code then an authenticator or recovery code is too.
@@ -275,7 +281,7 @@ export function makeApp(deps: AppDeps) {
     const { email, code } = await body(c, EmailVerify);
     const r = await verifyEmailCode(db, email, code, c.req.header("user-agent") ?? null, now());
     if ("signUpTicket" in r) return c.json({ sign_up: true, ticket: r.signUpTicket });
-    setCookie(c, COOKIE, r.token, { httpOnly: true, secure: deps.secureCookies ?? true, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
+    setSession(c, r.token, cookieMode);
     return c.json({ signed_in: true });
   });
   // ---- Sign in (or join) by a texted code, when the club texts ----
@@ -296,7 +302,7 @@ export function makeApp(deps: AppDeps) {
     if (!parsed.success) throw new KumiError("error.bad_text_code", {}, 400);
     const r = await verifyPhoneCode(db, phoneOf(parsed.data.phone), parsed.data.code, c.req.header("user-agent") ?? null, now());
     if ("signUpTicket" in r) return c.json({ sign_up: true, ticket: r.signUpTicket, by: "phone" });
-    setCookie(c, COOKIE, r.token, { httpOnly: true, secure: deps.secureCookies ?? true, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
+    setSession(c, r.token, cookieMode);
     return c.json({ signed_in: true });
   });
   // ---- Their email: added (an account that joined by phone) or changed ----
@@ -358,12 +364,12 @@ export function makeApp(deps: AppDeps) {
     const b = await body(c, SignUp);
     if ((await botGuard(c)) !== "ok") throw new KumiError("error.bot_check", {}, 400);
     const { token } = await completeSignUp(db, b.ticket, { display_name: b.display_name, locale: b.locale, club_news: b.club_news }, c.req.header("user-agent") ?? null, now());
-    setCookie(c, COOKIE, token, { httpOnly: true, secure: deps.secureCookies ?? true, sameSite: "Lax", path: "/", maxAge: SESSION_DAYS * 86400 });
+    setSession(c, token, cookieMode);
     return c.json({ signed_in: true });
   });
   app.post("/auth/sign-out", async (c) => {
-    await signOut(db, getCookie(c, COOKIE), now());
-    deleteCookie(c, COOKIE, { path: "/" });
+    await signOut(db, readSession(c, cookieMode).token, now());
+    clearSession(c, cookieMode);
     return c.json({ signed_out: true });
   });
 

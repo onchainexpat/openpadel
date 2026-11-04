@@ -45,6 +45,11 @@ server starts.
 - `kumi read-only status`, `kumi moved status` and `kumi leaving status` give times on the club's clock, not as raw
   UTC, and `kumi doctor` gives the club's own day. The leaving status lists the emails to the owners under their own
   heading, and the moved switch in Settings says "We're staying on this server".
+- **The sign-in cookie keeps to its own address.** Over HTTPS it's now `__Host-kumi_session` (Secure, `Path=/`, no
+  domain), so another site under the same domain can't set or replace it: several clubs on one host's domain
+  (`<slug>.kumi.club`) can't sign each other's visitors in as someone else. Over plain http, on a computer of one's
+  own, it keeps its old name. For this release the old name is still read and moved to the new one, so nobody is
+  signed out by the update; a host whose clubs never had it sets `KUMI_LEGACY_SESSION_COOKIE=0`.
 
 ### When updating
 - Set up Resend's reports (`docs/setup/accounts/resend.md`, step 6): until then, `kumi doctor` warns, and nothing else
