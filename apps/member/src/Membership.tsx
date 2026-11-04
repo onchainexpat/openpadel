@@ -1,5 +1,5 @@
 // Membership: mine (what it gives, when it renews, cancelling or keeping it, paying a renewal whose card was
-// declined), or without one, the plans to join and pay for here. A plan that hasn't started yet (a founding
+// declined, or the next period of one paid at the desk), or without one, the plans to join and pay for here. A plan that hasn't started yet (a founding
 // offer) is joined by saving a card, first charged on its start date. Dates are the club's.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
@@ -11,6 +11,7 @@ type Perks = { days_ahead: number | null; member_prices: boolean; period: "month
 type Family = { size: number; extra_cents: number | null; payer: string; covered: { person_id: string; display_name: string; until: string | null }[]; can_add: { id: string; display_name: string }[] };
 type Mine = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; status: string; source: string; cancel_at_period_end: boolean;
   ends_on: string | null; retry_on: string | null; pay_now: { payment_id: string; cents: number } | null; starts_on: string | null; card_saved: boolean; perks_now: boolean; paused_until: string | null;
+  balance_cents: number; pay_next: { cents: number } | null;
   mine: boolean; covered_by: string | null; family: Family | null };
 type Offer = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; places_left: number | null; starts_on: string | null;
   family_size: number | null; extra_person_cents: number | null };
@@ -52,13 +53,16 @@ export function Membership() {
   const [mine, setMine] = useState<Mine | null | undefined>(undefined), [offers, setOffers] = useState<Offer[]>([]), [provider, setProvider] = useState("test");
   const [chosen, setChosen] = useState<Offer | null>(null), [welcome, setWelcome] = useState(false);
   const [paying, setPaying] = useState<{ id: string; cents: number; name: string; card?: boolean } | null>(null);
+  // Paying the next period of one from the desk: what the card form is for, once the payment is asked.
+  const [next, setNext] = useState<{ cents: number; name: string } | null>(null);
   const load = async () => {
     const r = await api<{ membership: Mine | null }>("/my/membership");
     setMine(r.membership);
     if (!r.membership) setOffers(await api<Offer[]>("/membership-plans"));
   };
   const { preview, sheet } = usePreview((r?: { payment_id?: string; membership_id?: string; save_card?: boolean }) => {
-    if (r?.payment_id && chosen) setPaying({ id: r.payment_id, cents: chosen.price_cents, name: chosen.name });
+    if (r?.payment_id && next) { setPaying({ id: r.payment_id, cents: next.cents, name: next.name }); setNext(null); }
+    else if (r?.payment_id && chosen) setPaying({ id: r.payment_id, cents: chosen.price_cents, name: chosen.name });
     else if (r?.save_card && r.membership_id && chosen) { setPaying({ id: r.membership_id, cents: chosen.price_cents, name: chosen.name, card: true }); void load(); }
     else void load();
   });
@@ -103,7 +107,15 @@ export function Membership() {
             {mine.cancel_at_period_end
               ? <button class="primary" onClick={() => preview("membership.resume", { membership_id: mine.id })}>{t("ui.keep_membership")}</button>
               : <button onClick={() => preview("membership.cancel", { membership_id: mine.id })}>{t("ui.cancel_membership")}</button>}
-          </> : <p class="meta">{mine.ends_on ? t("ui.membership_runs_until", { date: clubDay(mine.ends_on) }) : t("ui.given_by_club")}</p>}
+          </> : <>
+            <p class="meta">{mine.ends_on ? t("ui.membership_runs_until", { date: clubDay(mine.ends_on) }) : t("ui.given_by_club")}</p>
+            {mine.mine && mine.balance_cents > 0 && <p class="note">{t("ui.membership_owed_member", { amount: dollars(mine.balance_cents, lang.value) })}</p>}
+            {mine.mine && mine.pay_next && <div class="note">
+              <p>{t("ui.pay_next_hint")}</p>
+              <button class="primary" onClick={() => { setNext({ cents: mine.pay_next!.cents, name: mine.name }); void preview("membership.pay_next", { membership_id: mine.id }); }}>
+                {t("ui.pay_next_period", { amount: dollars(mine.pay_next.cents, lang.value) })}</button>
+            </div>}
+          </>}
         </section>
       ) : null}
       {mine?.family && <FamilyCover m={mine} send={preview} />}

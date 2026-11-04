@@ -2,7 +2,7 @@
 // and how far ahead its members book; member prices are court prices for chosen plans (Settings, Prices).
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
+import { api, dollars, lang, mayDo, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
 
 export type Plan = { id: string; name: string; description: string | null; translations?: unknown; price_cents: number; period: "month" | "year"; days_ahead: number | null; join_in_app?: boolean;
   max_members?: number | null; starts_on?: string | null; perks_before_start?: boolean; sort: number; members: number;
@@ -12,7 +12,7 @@ const programPerks = (p: Plan) => [p.program_percent_off ? t("ui.plan_programs_p
   p.included_sessions ? `${t("ui.plan_included_meta", { count: p.included_sessions, period: t(`ui.period_${p.period}`) })} (${(p.included_kinds ?? []).map((k) => t(`kind.${k}` as Key)).join(", ")})` : null];
 type Member = { id: string; person_id: string; display_name: string; email: string | null; plan: string; status: string; source: string; started_at: string; current_period_end: string | null;
   cancel_at_period_end: boolean; ended_at: string | null; end_reason: string | null; note: string | null; price_cents: number | null; ends_on: string | null; card_saved: boolean; paused_until: string | null;
-  also_covers?: string[] };
+  balance_cents?: number; also_covers?: string[] };
 type Preview = (action: string, input: unknown) => Promise<void>;
 
 const day = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
@@ -20,13 +20,30 @@ const day = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-U
 const clubDay = (date: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
 /** When it runs until or renews, and how it came: the line under a member's name. */
 export const pausedNow = (m: { paused_until?: string | null }) => Boolean(m.paused_until && new Date(m.paused_until) > new Date());
-export function membershipLine(m: { status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null }) {
+export function membershipLine(m: { status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null;
+  price_cents?: number | null; balance_cents?: number }) {
   // Joined before its plan starts: when it starts, and whether the card is saved for the first charge.
   if (m.status === "upcoming") return [t("ui.starts_on", { date: clubDay(m.ends_on!) }), t(m.card_saved ? "ui.card_saved" : "ui.no_card_yet"), m.note].filter(Boolean).join(" · ");
   const end = !m.ends_on ? t("ui.no_end_date") : m.source !== "app" ? t("ui.member_until", { date: clubDay(m.ends_on) })
     : m.cancel_at_period_end ? t("ui.cancelled_runs_until", { date: clubDay(m.ends_on) }) : t("ui.renews_on", { date: clubDay(m.ends_on) });
   const paused = pausedNow(m) ? t("ui.paused_until", { date: day(new Date(new Date(m.paused_until!).getTime() - 1).toISOString()) }) : null;
-  return [paused, t("ui.member_since", { date: day(m.started_at) }), end, t(`ui.membership_${m.source}` as Key), m.note].filter(Boolean).join(" · ");
+  // From the desk: given, or paid there for a period (it has a price), and what's still owed there.
+  const how = m.source === "desk" && m.price_cents != null ? t("ui.membership_desk_paid") : t(`ui.membership_${m.source}` as Key);
+  const owed = m.balance_cents ? t("ui.membership_owed", { amount: dollars(m.balance_cents, lang.value) }) : null;
+  return [paused, t("ui.member_since", { date: day(m.started_at) }), end, how, owed, m.note].filter(Boolean).join(" · ");
+}
+/** Money for it taken at the desk: what's still owed, or the next period (the server says how much, and which). */
+export function MembershipDesk({ m, send }: { m: { id: string; due?: { cents: number; next: boolean } | null }; send: Preview }) {
+  const [f, setF] = useState({ dollars: m.due ? (m.due.cents / 100).toFixed(2) : "", method: "cash" });
+  if (!m.due) return null;
+  return (
+    <form class="court-row" onSubmit={(e) => { e.preventDefault(); void send("membership.record_payment", { membership_id: m.id, cents: Math.round(Number(f.dollars.replace(",", ".")) * 100), method: f.method }); }}>
+      <span class="meta">{m.due.next ? t("ui.next_period_due", { amount: dollars(m.due.cents, lang.value) }) : t("ui.membership_owed", { amount: dollars(m.due.cents, lang.value) })}</span>
+      <label>{t("ui.amount_paid")}<input required inputMode="decimal" value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
+      <label>{t("ui.paid_how")}<select value={f.method} onChange={(e) => setF({ ...f, method: e.currentTarget.value })}>{["cash", "terminal", "other"].map((k) => <option value={k}>{t(`paid_by.${k}` as Key)}</option>)}</select></label>
+      <button class="small">{t("ui.record_payment")}</button>
+    </form>
+  );
 }
 /** What staff can do with one: stop or restart its renewal (joined in the app), and end it now. */
 export function MembershipButtons({ m, send }: { m: { id: string; status: string; source: string; cancel_at_period_end: boolean; paused_until?: string | null }; send: Preview }) {
@@ -137,19 +154,28 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
 /** Give someone a membership: found by name here, or the person already chosen (their page). */
 export function GiveMembership({ plans, send, person }: { plans: Plan[]; send: Preview; person?: { id: string; display_name: string } }) {
   const [who, setWho] = useState(person ?? null), [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string; email: string | null }[]>([]);
-  const [f, setF] = useState({ plan_id: plans[0]?.id ?? "", until: "", note: "" });
+  const [f, setF] = useState({ plan_id: plans[0]?.id ?? "", until: "", note: "", paid: false, dollars: "", method: "cash" });
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
+  const chosen = plans.find((p) => p.id === f.plan_id), note = f.note.trim() ? { note: f.note.trim() } : {};
+  // Paid at the desk: one period, for the plan's price unless only part is paid now.
+  const cents = f.dollars ? Math.round(Number(f.dollars.replace(",", ".")) * 100) : chosen?.price_cents ?? 0;
   return (
-    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("membership.grant", { person_id: who!.id, plan_id: f.plan_id, until: f.until || null, ...(f.note.trim() ? { note: f.note.trim() } : {}) }); }}>
+    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); f.paid ? send("membership.sell", { person_id: who!.id, plan_id: f.plan_id, cents, method: f.method, ...note })
+      : send("membership.grant", { person_id: who!.id, plan_id: f.plan_id, until: f.until || null, ...note }); }}>
       <h2>{t("ui.give_membership")}</h2>
       {!person && (who ? <p>{who.display_name} <button type="button" class="link" onClick={() => setWho(null)}>{t("ui.change")}</button></p> : <>
         <label>{t("ui.search_person")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>
         {found.length > 0 && <ul class="plain">{found.slice(0, 6).map((p) => <li class="row"><span>{p.display_name}<span class="meta"> {p.email ?? ""}</span></span><button type="button" class="small" onClick={() => { setWho(p); setFound([]); setQ(""); }}>{t("ui.choose")}</button></li>)}</ul>}
       </>)}
       <label>{t("ui.plan")}<select value={f.plan_id} onChange={(e) => setF({ ...f, plan_id: e.currentTarget.value })}>{plans.map((p) => <option value={p.id}>{p.name} · {planPrice(p)}</option>)}</select></label>
-      <label>{t("ui.membership_until")}<input type="date" value={f.until} onInput={(e) => setF({ ...f, until: e.currentTarget.value })} /></label>
+      {mayDo("membership.sell") && <label>{t("ui.membership_how")}<select value={f.paid ? "paid" : "given"} onChange={(e) => setF({ ...f, paid: e.currentTarget.value === "paid", dollars: "" })}>
+        <option value="given">{t("ui.membership_given")}</option><option value="paid">{t("ui.membership_paid_desk")}</option></select></label>}
+      {f.paid ? <div class="court-row">
+        <label>{t("ui.amount_paid")}<input inputMode="decimal" placeholder={chosen ? (chosen.price_cents / 100).toFixed(2) : ""} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
+        <label>{t("ui.paid_how")}<select value={f.method} onChange={(e) => setF({ ...f, method: e.currentTarget.value })}>{["cash", "terminal", "other"].map((k) => <option value={k}>{t(`paid_by.${k}` as Key)}</option>)}</select></label>
+      </div> : <label>{t("ui.membership_until")}<input type="date" value={f.until} onInput={(e) => setF({ ...f, until: e.currentTarget.value })} /></label>}
       <label>{t("ui.membership_note")}<input maxLength={200} placeholder={t("ui.membership_note_hint")} value={f.note} onInput={(e) => setF({ ...f, note: e.currentTarget.value })} /></label>
-      <p class="meta">{t("ui.give_membership_hint")}</p>
+      <p class="meta">{t(f.paid ? "ui.sell_membership_hint" : "ui.give_membership_hint")}</p>
       <button class="primary" disabled={!who || !f.plan_id}>{t("ui.preview")}</button>
     </form>
   );

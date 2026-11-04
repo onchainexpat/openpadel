@@ -1,9 +1,10 @@
 // Memberships: the plans a club offers (by the month or the year) and who holds one. A plan can come with
 // member prices on courts (price rules for that plan) and a longer booking window. The desk gives a
-// membership (a comp, a founding member, one paid at the counter), with or without an end date. Members
-// join in the app and pay by card; Kumi renews from that saved card each period, at the price they joined
-// at, and cancelling stops renewal at the period's end. One membership at a time per person. A family plan
-// covers others from the payer's household too (see memberships covered below).
+// membership (a comp, a founding member), with or without an end date, or sells one paid at the desk for one
+// period, which doesn't renew by itself (paid at the desk, below). Members join in the app and pay by card;
+// Kumi renews from that saved card each period, at the price they joined at, and cancelling stops renewal at
+// the period's end. One membership at a time per person. A family plan covers others from the payer's
+// household too (see memberships covered below).
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { both, money, type Key, type Lang, type Text } from "@kumi/i18n";
@@ -14,7 +15,8 @@ import { mergeTranslations, textOf, translationsInput } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts, onDate } from "./clock.ts";
 import { account, paymentProvider, post } from "./money.ts";
-import { householdOf } from "./households.ts";
+import { householdOf, withManagers } from "./households.ts";
+import { deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 import { declineReason } from "./declines.ts";
 import { isReadOnly, refuseWhenReadOnly } from "./read_only.ts";
 
@@ -265,11 +267,9 @@ async function extend(ctx: ApplyCtx, membershipId: string, card?: { customer: st
     current_period_end: addPeriod(from, m.period ?? m.plan_period, tz, localParts(m.started_at, tz).d), ...(card?.method ? { saved_customer: card.customer, saved_method: card.method } : {}) });
 }
 
-/** Give a membership payment back, all of it, to the card (the outbox sends it). */
+/** Give a membership payment back, all of it, to the card (the outbox sends it; paid at the desk, it waits there). */
 async function refundCard(ctx: ApplyCtx, paymentId: string, cents: number) {
-  const id = uuidv7();
-  await ctx.insert("refund", { id, payment_id: paymentId, enrolment_id: null, amount_cents: cents, destination: "card", status: "pending" });
-  await ctx.emit("refund.requested", { refund_id: id });
+  await refundTo(ctx, paymentId, cents);
 }
 
 /** The renewal was paid after all, or the membership ended for want of it: the staff alert about its failure
@@ -660,6 +660,8 @@ export const membershipAddPerson = defineAction({
     const id = uuidv7();
     try { await ctx.insert("membership_member", { id, membership_id: m.id, person_id: i.person_id, extra, added_by: ctx.actor.personId }); }
     catch (e: any) { if (e?.code === "23505") throw new KumiError("error.changed"); throw e; }
+    // One more on a membership from the desk: this period's price for them is owed there.
+    if (extra && m.source === "desk" && m.status !== "upcoming" && (m.extra_person_cents ?? 0) > 0) await ctx.update("membership", m.id, { balance_cents: m.balance_cents + m.extra_person_cents! });
     if (charge) {
       const planRow = await ctx.trx.selectFrom("membership_plan").select("name").where("id", "=", m.plan_id).executeTakeFirstOrThrow();
       const club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
@@ -746,3 +748,174 @@ export const membershipUnpause = defineAction({
     return null;
   },
 });
+
+// ---- Paid at the desk (cash, the club's card reader, another way) ----
+/** The next period can be paid (at the desk, or in the app) once this few days are left of the current one. */
+export const PAY_AHEAD_DAYS = 14;
+/** A membership paid at the desk doesn't renew by itself: its member hears this many days before it ends. */
+export const END_REMINDER_DAYS = 7;
+
+/** A period sold at the desk runs to the start of the day a period on, in the club's time: "until 3 December". */
+function deskPeriodEnd(from: Date, period: "month" | "year", tz: string, day: number): Date {
+  return onDate(localDate(addPeriod(from, period, tz, day), tz), "00:00", tz);
+}
+/** Never more than is owed on it: Kumi keeps no credit for later, so more has nowhere to go. */
+function deskOwed(owed: number, cents: number) {
+  if (owed <= 0) throw new KumiError("error.membership_paid_up");
+  if (cents > owed) throw new KumiError("error.more_than_owed_membership", { owed: usdText(owed), amount: usdText(cents) });
+}
+/** What the desk takes for a membership now: what's still owed on this period, or else the next period (once
+ *  it's close, or a renewal is late), at the price it was sold or joined at. */
+async function dueAtDesk(db: Db | Trx, m: Record<string, any>, planCents: number, now: Date): Promise<{ cents: number; next: boolean }> {
+  if (m.status === "upcoming") throw new KumiError("error.membership_not_started_desk");
+  // Still owed on its period, even once it's over: paid at the desk when they come in.
+  if (m.balance_cents > 0) return { cents: m.balance_cents, next: false };
+  if (m.status === "ended") throw new KumiError("error.membership_ended");
+  if (!m.current_period_end) throw new KumiError("error.membership_no_end");
+  const opens = new Date(m.current_period_end.getTime() - PAY_AHEAD_DAYS * 86400_000);
+  if (m.status !== "past_due" && opens > now) throw new KumiError("error.next_period_later", { date: dayText(localDate(opens, await clubTz(db))) });
+  return { cents: await periodCents(db, m as any, planCents, m.current_period_end), next: true };
+}
+/** "until 3 December 2026", for the period after the current one. */
+async function nextUntil(db: Db | Trx, m: Record<string, any>, plan: { period: "month" | "year" }): Promise<Text> {
+  const tz = await clubTz(db), end = addPeriod(m.current_period_end, m.period ?? plan.period, tz, localParts(m.started_at, tz).d);
+  return dayText(endDay({ current_period_end: end, source: m.source }, tz));
+}
+/** For the staff's and members' pages: what the desk would take for a membership now (what's still owed on it, or
+ *  the next period), or null when there's nothing to take yet. */
+export async function membershipDue(db: Db | Trx, membershipId: string, now = new Date()): Promise<{ cents: number; next: boolean } | null> {
+  const m = await db.selectFrom("membership").selectAll().where("id", "=", membershipId).executeTakeFirst();
+  if (!m) return null;
+  const plan = await db.selectFrom("membership_plan").select("price_cents").where("id", "=", m.plan_id).executeTakeFirstOrThrow();
+  try { const due = await dueAtDesk(db, m, plan.price_cents, now); return due.cents > 0 ? due : null; }
+  catch (e) { if (e instanceof KumiError) return null; throw e; }
+}
+const rest = (cents: number): Text => cents > 0 ? both("plan.membership.rest_desk", { amount: usdText(cents) }) : { en: "", es: "" };
+
+export const membershipSell = defineAction({
+  name: "membership.sell", version: 1,
+  input: z.object({ person_id: z.uuid(), plan_id: z.uuid(), ...deskPaid }),
+  async plan(ctx, i) {
+    const { row: person } = await readRow(ctx.db, "person", i.person_id, "thing.person");
+    const { row: plan, read } = await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan");
+    const name = textOf(plan.name, plan.translations, "name"), tz = await clubTz(ctx.db);
+    if (!plan.active) throw new KumiError("error.plan_not_offered", { name });
+    if (!plan.price_cents) throw new KumiError("error.plan_free_desk", { name });   // nothing to pay: given (membership.grant)
+    if (plan.starts_on && plan.starts_on > localDate(ctx.now, tz)) throw new KumiError("error.plan_starts_later_desk", { name, date: dayText(plan.starts_on) });
+    if (await holds(ctx.db, i.person_id)) throw new KumiError("error.already_member", { name: person.display_name });
+    if (!await hasRoom(ctx.db, plan as { id: string; max_members: number | null })) throw new KumiError("error.plan_full", { name });
+    deskOwed(plan.price_cents, i.cents);
+    const until = dayText(endDay({ current_period_end: deskPeriodEnd(ctx.now, plan.period, tz, localParts(ctx.now, tz).d), source: "desk" }, tz));
+    return { title: both("action.membership.sell"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "compensating" },
+      summary: both("plan.membership.sell", { person: person.display_name, name, until, amount: usdText(i.cents), how: paidHow(i.method), rest: rest(plan.price_cents - i.cents) }),
+      details: { price: plan.price_cents } };
+  },
+  async apply(ctx, i, plan) {
+    // One sale at a time per plan, so a limit on it holds when two desks sell its last place at once.
+    const p = await ctx.trx.selectFrom("membership_plan").select(["id", "price_cents", "period", "max_members", "family_size", "extra_person_cents"]).where("id", "=", i.plan_id).forUpdate().executeTakeFirstOrThrow();
+    if (p.price_cents !== (plan.details as { price: number }).price || !await hasRoom(ctx.trx, p)) throw new KumiError("error.changed");
+    const tz = await clubTz(ctx.trx), id = uuidv7();
+    try {
+      await ctx.insert("membership", { id, person_id: i.person_id, plan_id: p.id, status: "active", source: "desk", started_at: ctx.now,
+        current_period_end: deskPeriodEnd(ctx.now, p.period, tz, localParts(ctx.now, tz).d), price_cents: p.price_cents, period: p.period,
+        family_size: p.family_size, extra_person_cents: p.extra_person_cents, note: i.note ?? null, balance_cents: p.price_cents - i.cents });
+    } catch (e: any) { if (e?.code === "23505") throw new KumiError("error.changed"); throw e; }   // a member another way meanwhile
+    const payment = await recordAtDesk(ctx, { personId: i.person_id, cents: i.cents, method: i.method, note: i.note, revenue: "memberships", memo: "membership", link: { membership_id: id } });
+    await ctx.emit("membership.started", { membership_id: id });
+    return { membership_id: id, payment_id: payment };
+  },
+});
+
+/** Money for a membership taken at the desk: what's still owed on its period, or the next period (a card on file
+ *  isn't charged for a period paid here: its renewal moves on a period). A renewal that failed is paid this way too. */
+export const membershipRecordPayment = defineAction({
+  name: "membership.record_payment", version: 1,
+  input: z.object({ membership_id: z.uuid(), ...deskPaid }),
+  async plan(ctx, i) {
+    const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
+    const due = await dueAtDesk(ctx.db, m, plan.price_cents, ctx.now);
+    deskOwed(due.cents, i.cents);
+    const p = { person, name: textOf(plan.name, plan.translations, "name"), amount: usdText(i.cents), how: paidHow(i.method), rest: rest(due.cents - i.cents) };
+    return { title: both("action.membership.record_payment"), reads: [read], ownerIds: [m.person_id], moneyCents: i.cents, undo: { kind: "compensating" },
+      summary: due.next ? both(m.source === "app" ? "plan.membership.pay_next_desk_card" : "plan.membership.pay_next_desk", { ...p, until: await nextUntil(ctx.db, m, plan) })
+        : both("plan.membership.pay_rest_desk", p),
+      details: due };
+  },
+  async apply(ctx, i, plan) {
+    const m = await ctx.trx.selectFrom("membership").selectAll().where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    const pl = await ctx.trx.selectFrom("membership_plan").select(["price_cents", "period"]).where("id", "=", m.plan_id).executeTakeFirstOrThrow();
+    // Again under the lock: two desks at once (or the member's card meanwhile) can't both pay it.
+    const due = await dueAtDesk(ctx.trx, m, pl.price_cents, ctx.now), planned = plan.details as { cents: number; next: boolean };
+    if (due.next !== planned.next || due.cents !== planned.cents) throw new KumiError("error.changed");
+    deskOwed(due.cents, i.cents);
+    const payment = await recordAtDesk(ctx, { personId: m.person_id, cents: i.cents, method: i.method, note: i.note, revenue: "memberships", memo: "membership", link: { membership_id: m.id } });
+    if (!due.next) { await ctx.update("membership", m.id, { balance_cents: m.balance_cents - i.cents }); return { payment_id: payment }; }
+    // A comp given until a date, paid for from now on: it keeps the plan's price.
+    if (m.price_cents == null) await ctx.update("membership", m.id, { price_cents: pl.price_cents, period: pl.period });
+    await extend(ctx, m.id);
+    if (due.cents > i.cents) await ctx.update("membership", m.id, { balance_cents: due.cents - i.cents });
+    await dropPayNow(ctx, m.id);
+    const late = m.status === "past_due";
+    if (late) await closeRenewalAlert(ctx, m.id);
+    await ctx.emit("membership.renewed", { membership_id: m.id, payment_id: payment, late });
+    return { payment_id: payment };
+  },
+});
+
+/** A member pays the next period of a membership from the desk by card in the app, when its plan is one they could
+ *  join there. Nothing renews from that card: the next period is paid the same way, or at the desk. */
+export const membershipPayNext = defineAction({
+  name: "membership.pay_next", version: 1,
+  input: z.object({ membership_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { m, read, plan } = await membershipRow(ctx.db, i.membership_id);
+    const name = textOf(plan.name, plan.translations, "name");
+    if (m.source === "app") throw new KumiError("error.membership_renews_itself", { name });
+    const p = await ctx.db.selectFrom("membership_plan").select("join_in_app").where("id", "=", m.plan_id).executeTakeFirstOrThrow();
+    if (!p.join_in_app || m.price_cents == null) throw new KumiError("error.pay_next_at_desk", { name });
+    if (m.balance_cents > 0) throw new KumiError("error.membership_owed_desk", { amount: usdText(m.balance_cents) });
+    const due = await dueAtDesk(ctx.db, m, plan.price_cents, ctx.now);
+    return { title: both("action.membership.pay_next"), summary: both("plan.membership.pay_next_card", { name, amount: usdText(due.cents), until: await nextUntil(ctx.db, m, plan) }),
+      reads: [read], ownerIds: await withManagers(ctx.db, [m.person_id]), moneyCents: due.cents, undo: { kind: "compensating" }, details: due };
+  },
+  async apply(ctx, i, plan) {
+    const m = await ctx.trx.selectFrom("membership").selectAll().where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    const pl = await ctx.trx.selectFrom("membership_plan").select("price_cents").where("id", "=", m.plan_id).executeTakeFirstOrThrow();
+    const due = await dueAtDesk(ctx.trx, m, pl.price_cents, ctx.now);
+    if (!due.next || due.cents !== (plan.details as { cents: number }).cents) throw new KumiError("error.changed");
+    // Already asked (a second tap, or back after closing the card form): the same payment.
+    const open = await ctx.trx.selectFrom("payment").select("id").where("membership_id", "=", m.id).where("status", "=", "pending").where("amount_cents", "=", due.cents).executeTakeFirst();
+    if (open) return { payment_id: open.id };
+    const id = uuidv7();
+    await ctx.insert("payment", { id, person_id: m.person_id, amount_cents: due.cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", membership_id: m.id });
+    return { payment_id: id };
+  },
+});
+
+/** The member hears once that a membership paid at the desk ends soon, and how to keep it. */
+export const membershipEndRemind = defineAction({
+  name: "membership.end_remind", version: 1, system: true, internal: true,
+  input: z.object({ membership_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { read } = await readRow(ctx.db, "membership", i.membership_id, "thing.membership");
+    return { title: both("action.membership.end_remind"), summary: both("action.membership.end_remind"), reads: [read], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    const m = await ctx.trx.selectFrom("membership").select(["status", "source", "price_cents", "current_period_end", "end_reminded_for"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    if (m.status !== "active" || m.source !== "desk" || m.price_cents == null || !m.current_period_end || m.current_period_end <= ctx.now
+      || m.end_reminded_for?.getTime() === m.current_period_end.getTime()) return { already: true };
+    await ctx.update("membership", i.membership_id, { end_reminded_for: m.current_period_end });
+    await ctx.emit("membership.ending", { membership_id: i.membership_id });
+    return null;
+  },
+});
+/** The job: memberships paid at the desk ending within a week, whose member hasn't heard yet. */
+export async function remindMembershipEnds(db: Db, now = new Date()): Promise<number> {
+  // Read-only: nothing can be paid, so nobody's told to pay.
+  if (await isReadOnly(db)) return 0;
+  const due = await db.selectFrom("membership").select("id").where("status", "=", "active").where("source", "=", "desk").where("price_cents", "is not", null)
+    .where("current_period_end", ">", now).where("current_period_end", "<=", new Date(now.getTime() + END_REMINDER_DAYS * 86400_000))
+    .where(sql<boolean>`end_reminded_for IS DISTINCT FROM current_period_end`).execute();
+  for (const m of due) await runAsSystem(db, "membership.end_remind", { membership_id: m.id }, "jobs", { now });
+  return due.length;
+}

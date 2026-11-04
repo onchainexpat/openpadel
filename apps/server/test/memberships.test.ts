@@ -105,3 +105,32 @@ test("What's On shows each person their own price: an included session, a member
   assert.deepEqual(await mine("ann@example.test", a).then((p: any) => [p.my_status, p.my_basis, p.my_price_cents, p.included]), ["booked", "included", 0, null]);   // the price the place was taken at
   assert.equal((await get("/my/membership", "ann@example.test")).json.membership.included_used, 1);
 });
+
+test("sold at the desk with part paid: the desk sees what's owed, the member too, and what's to give back", async () => {
+  const ben = ((await run(db, "person.create", { display_name: "Ben", email: "ben@example.test" }, owner)).result as any).person_id;
+  await run(db, "membership.sell", { person_id: ben, plan_id: plan, cents: 3000, method: "cash" }, owner);
+  await signIn("ben@example.test");
+  const p = (await get(`/staff/people/${ben}`, "robin@example.test")).json;
+  assert.deepEqual([p.membership.source, p.membership.price_cents, p.membership.balance_cents, p.membership.due], ["desk", 8000, 5000, { cents: 5000, next: false }]);
+  assert.deepEqual(p.to_give_back, []);
+  const listed = (await get("/staff/memberships", "robin@example.test")).json.members.find((x: any) => x.person_id === ben);
+  assert.deepEqual([listed.price_cents, listed.balance_cents], [8000, 5000]);
+  const mine = (await get("/my/membership", "ben@example.test")).json.membership;
+  assert.deepEqual([mine.balance_cents, mine.pay_next], [5000, null]);   // what's owed is paid at the desk
+  // A place paid in cash and given up: what comes back waits at the desk, on their page. (Not Ben's: his plan
+  // includes sessions, so his place would be free.)
+  const cy = ((await run(db, "person.create", { display_name: "Cy", email: "cy@example.test" }, owner)).result as any).person_id;
+  const loc2 = ((await run(db, "location.create", { name: "Westside", time_zone: TZ }, owner)).result as any).location_id;
+  const court = ((await run(db, "court.create", { location_id: loc2, name: "Court 9" }, owner)).result as any).court_id;
+  const clinic = ((await run(db, "program.create", { location_id: loc2, kind: "clinic", name: "Drills", capacity: 4, price_cents: 2500 }, owner)).result as any).program_id;
+  const start = new Date(Date.now() + 10 * 86400_000);
+  await run(db, "session.add", { program_id: clinic, starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3600_000).toISOString(), court_ids: [court] }, owner);
+  await run(db, "program.publish", { program_id: clinic }, owner);
+  const e = ((await run(db, "enrolment.join", { program_id: clinic, person_id: cy }, owner)).result as any).enrolment_id;
+  await run(db, "enrolment.record_payment", { enrolment_id: e, cents: 2500, method: "cash" }, owner);
+  const roster = (await get(`/staff/programs/${clinic}`, "robin@example.test")).json.roster;
+  assert.deepEqual(roster.map((r: any) => [r.price_cents, r.paid_cents, r.paid_by]), [[2500, 2500, "desk"]]);
+  await run(db, "enrolment.leave", { enrolment_id: e }, owner);
+  const back = (await get(`/staff/people/${cy}`, "robin@example.test")).json.to_give_back;
+  assert.deepEqual(back.map((r: any) => [r.amount_cents, r.method]), [[2500, "cash"]]);
+});

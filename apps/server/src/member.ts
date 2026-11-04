@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan } from "@kumi/core";
+import { clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -465,7 +465,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const q = () => db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id").innerJoin("person as payer", "payer.id", "membership.person_id")
       .select(["membership.id", "membership.person_id", "payer.display_name as payer", trSql("membership_plan", "name", l).as("name"), trSql("membership_plan", "description", l).as("description"), "membership_plan.price_cents as plan_price_cents", "membership_plan.period as plan_period",
         "membership_plan.days_ahead", "membership.plan_id", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.price_cents",
-        "membership.period", "membership.next_attempt_at", "membership.saved_method", "membership.paused_until", "membership.family_size", "membership.extra_person_cents"])
+        "membership.period", "membership.next_attempt_at", "membership.saved_method", "membership.paused_until", "membership.family_size", "membership.extra_person_cents",
+        "membership.balance_cents", "membership_plan.join_in_app"])
       .where("membership.status", "in", ["upcoming", "active", "past_due"]);
     // Mine, or a family plan someone else pays that covers me.
     const m = await q().where("membership.person_id", "=", pid).executeTakeFirst() ?? await q().where((eb) => eb.exists(eb.selectFrom("membership_member").select("membership_member.id")
@@ -486,7 +487,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const family = m.family_size ? { size: m.family_size, extra_cents: m.extra_person_cents, payer: m.payer,
       covered: covered.map((x) => ({ person_id: x.person_id, display_name: x.display_name, until: x.ends_at ? endDay({ current_period_end: x.ends_at, source: "app" }, tz) : null })),
       can_add: candidates.map((x) => ({ id: x.id, display_name: x.display_name })) } : null;
-    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, saved_method, paused_until, person_id, payer, family_size, extra_person_cents, ...rest } = m;
+    // From the desk, paid for one period: the next one can be paid here by card when the plan is one joined in the app.
+    const due = mine && m.source === "desk" && m.price_cents !== null && m.join_in_app && !m.balance_cents ? await membershipDue(db, m.id, now) : null;
+    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, saved_method, paused_until, person_id, payer, family_size, extra_person_cents, join_in_app, ...rest } = m;
     return c.json({ membership: { ...rest, mine, covered_by: mine ? null : payer, family,
       // What a period costs: with a family plan, each person beyond its number too.
       price_cents: await periodCents(db, m, plan_price_cents, now), period: m.period ?? plan_period, member_prices: prices, ...programTerms(perks ?? (await planTerms(m.plan_id))),
@@ -496,7 +499,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       perks_now: m.status === "upcoming" && (await memberPlan(db, pid, now))?.membership_id === m.id,
       paused_until: paused_until && paused_until > now ? localDate(new Date(paused_until.getTime() - 1), tz) : null,
       ends_on: current_period_end ? endDay({ current_period_end, source: m.source }, tz) : null, retry_on: next_attempt_at ? localDate(next_attempt_at, tz) : null,
-      pay_now: owed ? { payment_id: owed.id, cents: owed.amount_cents } : null } });
+      pay_now: owed ? { payment_id: owed.id, cents: owed.amount_cents } : null, pay_next: due?.next ? { cents: due.cents } : null } });
   });
   // The plans a member can join here, with what each gives.
   app.get("/membership-plans", async (c) => {

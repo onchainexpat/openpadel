@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
 import { AccountData, api, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView } from "@kumi/ui";
-import { GiveMembership, MembershipButtons, membershipLine, type Plan } from "./Memberships.tsx";
+import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
 type P = {
@@ -13,8 +13,10 @@ type P = {
   bookings: { id: string; code: string; kind: string; status: string; court: string; starts_at: string; price_cents: number; organiser: boolean; paid_cents: number;
     refundable: { payment_id: string; left_cents: number }[] }[];
   failed_refunds: { id: string; amount_cents: number; failure: string | null; created_at: string }[];
+  to_give_back: { id: string; amount_cents: number; method: string; created_at: string }[];
   consent: { channel: string; purpose: string; granted: boolean }[];
-  membership: { id: string; name: string; status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null } | null;
+  membership: { id: string; name: string; status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null;
+    price_cents: number | null; balance_cents: number; due: { cents: number; next: boolean } | null } | null;
   plans: (Omit<Plan, "members"> & { members?: number })[];
   junior: boolean; birth_year: number | null; family_role: "adult" | "member" | "junior" | null;
   family: { id: string; display_name: string; birth_year: number | null; role: "adult" | "member" | "junior" }[];
@@ -96,6 +98,7 @@ export function Person({ id }: { id: string }) {
           <p class="meta">{membershipLine(p.membership)}</p>
           {p.also_covers.length > 0 && <p class="meta">{t("ui.family_covers_staff", { names: p.also_covers.join(", ") })}</p>}
           <MembershipButtons m={p.membership} send={preview} />
+          {mayDo("membership.record_payment") && <MembershipDesk key={`${p.membership.id}-${p.membership.due?.cents ?? 0}`} m={p.membership} send={preview} />}
         </section>
       ) : p.covered_by ? (
         <section class="card">
@@ -140,6 +143,14 @@ export function Person({ id }: { id: string }) {
           <li class="row" key={r.id}>
             <span>{dollars(r.amount_cents, lang.value)} · {new Date(r.created_at).toLocaleDateString(lang.value === "es" ? "es-US" : "en-US")}</span>
             {mayDo("refund.resend") && <button class="small" onClick={() => preview("refund.resend", { refund_id: r.id })}>{t("ui.send_again")}</button>}
+          </li>))}</ul>
+      </section>}
+      {p.to_give_back?.length > 0 && <section class="card">
+        <h2>{t("ui.to_give_back")}</h2>
+        <ul class="plain">{p.to_give_back.map((r) => (
+          <li class="row" key={r.id}>
+            <span>{dollars(r.amount_cents, lang.value)} {t(`paid_by.${r.method}` as Key)} · {new Date(r.created_at).toLocaleDateString(lang.value === "es" ? "es-US" : "en-US")}</span>
+            {mayDo("refund.give_back") && <button class="small" onClick={() => preview("refund.give_back", { refund_id: r.id })}>{t("ui.given_back")}</button>}
           </li>))}</ul>
       </section>}
       <PersonReceipts personId={p.id} preview={preview} />

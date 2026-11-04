@@ -41,15 +41,15 @@ async function facts(db: Db | Trx, bookingId: string) {
 }
 type Facts = Awaited<ReturnType<typeof facts>>;
 
-/** Card payments for the booking that went through, with what has come back of each already. Money paid at
- *  the desk isn't sent back here: the desk gives it back by hand. */
+/** Card payments for the booking that went through, with what has come back of each already, and what was paid at
+ *  the desk (which goes back at the desk). */
 async function cardPays(db: Db | Trx, bookingId: string) {
   const rows = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
     .select(["payment.id", "payment.amount_cents", "payment.person_id", "payment.provider"])
     .select((eb) => eb.selectFrom("refund").select(sql<string>`coalesce(sum(refund.amount_cents), 0)`.as("c")).whereRef("refund.payment_id", "=", "payment.id").where("refund.status", "!=", "failed").as("back"))
     .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "succeeded").orderBy("payment.id").execute();
   const all = rows.map((r) => ({ id: r.id, person_id: r.person_id, card: r.provider !== "none", left: r.amount_cents - Number(r.back ?? 0) }));
-  return { net: all.reduce((n, p) => n + p.left, 0), card: all.filter((p) => p.card && p.left > 0) };
+  return { net: all.reduce((n, p) => n + p.left, 0), card: all.filter((p) => p.card && p.left > 0), desk: all.filter((p) => !p.card && p.left > 0) };
 }
 
 /** What comes back when a booking costs less than was paid: `over` is what was paid beyond the new price. */
@@ -72,6 +72,19 @@ async function giveBack(ctx: ApplyCtx, bookingId: string, cents: number): Promis
   left -= parts.reduce((n, x) => n + x.c, 0);
   for (const x of [...parts].sort((a, b) => b.p.left - a.p.left)) { if (left <= 0) break; const more = Math.min(left, x.p.left - x.c); x.c += more; left -= more; }
   for (const x of parts) if (x.c > 0) { await refundPayment(ctx, x.p.id, x.c); out[x.p.person_id] = (out[x.p.person_id] ?? 0) + x.c; }
+  return out;
+}
+/** What goes back of money paid at the desk waits there to be handed over (desk_pay.ts); who's owed how much. */
+async function giveBackAtDesk(ctx: ApplyCtx, bookingId: string, cents: number): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  let rest = cents;
+  for (const p of (await cardPays(ctx.trx, bookingId)).desk) {
+    const c = Math.min(rest, p.left);
+    if (c <= 0) break;
+    await refundPayment(ctx, p.id, c);
+    out[p.person_id] = (out[p.person_id] ?? 0) + c;
+    rest -= c;
+  }
   return out;
 }
 
@@ -150,18 +163,18 @@ export const bookingMove = defineAction({
     const summary = joinText(both(b.kind === "lesson" ? "plan.booking.move_lesson" : "plan.booking.move", { code: b.code, who: b.who, coach: b.coach ?? "",
       from: at(b.court, b.start, b.time_zone), to: at(court.name, start, b.time_zone) }), moneyText({ owed, price: reprice ? price : undefined, back, over }), both("change.players_told"));
     return { title: both("action.booking.move"), summary, reads: [], locationId: b.location_id, ownerIds: await withManagers(ctx.db, [b.organiser_id]), moneyCents: back?.due ?? owed,
-      undo: { kind: "compensating" }, details: { price: price + kept, tax, owed, back: back ? { cards: back.cards } : null, from: at(b.court, b.start, b.time_zone), to: at(court.name, start, b.time_zone) } };
+      undo: { kind: "compensating" }, details: { price: price + kept, tax, owed, back: back ? { cards: back.cards, desk: back.desk } : null, from: at(b.court, b.start, b.time_zone), to: at(court.name, start, b.time_zone) } };
   },
   async apply(ctx, i, plan) {
-    const d = plan.details as { price: number; tax: number; owed: number; back: { cards: number } | null; from: Text; to: Text };
+    const d = plan.details as { price: number; tax: number; owed: number; back: { cards: number; desk?: number } | null; from: Text; to: Text };
     const b = await facts(ctx.trx, i.booking_id), start = new Date(i.starts_at), end = new Date(start.getTime() + b.minutes * 60_000);
     await swapTime(ctx, b, i.court_id, start, end);
     if (d.price !== b.price_cents || d.tax !== b.tax_cents || d.owed)
       await ctx.update("booking", b.id, { price_cents: d.price, tax_cents: d.tax, balance_cents: (b.balance_cents ?? 0) + d.owed });
-    const refunds = d.back ? await giveBack(ctx, b.id, d.back.cards) : {};
+    const refunds = d.back ? await giveBack(ctx, b.id, d.back.cards) : {}, desk = d.back ? await giveBackAtDesk(ctx, b.id, d.back.desk ?? 0) : {};
     // A reminder already sent was for the old time: the new one gets its own.
     if (b.reminded_at && start.getTime() - ctx.now.getTime() > REMINDER_HOURS * 3600_000) await ctx.update("booking", b.id, { reminded_at: null });
-    await ctx.emit("booking.moved", { booking_id: b.id, from: d.from, to: d.to, owed: d.owed, refunds });
+    await ctx.emit("booking.moved", { booking_id: b.id, from: d.from, to: d.to, owed: d.owed, refunds, desk });
     return { booking_id: b.id };
   },
 });
@@ -201,16 +214,16 @@ export const bookingExtend = defineAction({
     const kept = back ? over - back.due : 0;
     return { title: both("action.booking.extend"), summary, reads: [], locationId: b.location_id, ownerIds: await withManagers(ctx.db, [b.organiser_id]), moneyCents: back?.due ?? owed,
       undo: { kind: "compensating" }, details: { price: price + kept, tax: longer ? b.tax_cents + extraTax : Math.round(b.tax_cents * (price + kept) / Math.max(b.price_cents, 1)), owed,
-        back: back ? { cards: back.cards } : null, until: clockOf(end, b.time_zone) } };
+        back: back ? { cards: back.cards, desk: back.desk } : null, until: clockOf(end, b.time_zone) } };
   },
   async apply(ctx, i, plan) {
-    const d = plan.details as { price: number; tax: number; owed: number; back: { cards: number } | null; until: Text };
+    const d = plan.details as { price: number; tax: number; owed: number; back: { cards: number; desk?: number } | null; until: Text };
     const b = await facts(ctx.trx, i.booking_id), end = new Date(b.start.getTime() + i.minutes * 60_000);
     await swapTime(ctx, b, b.court_id, b.start, end);
     const balance = i.minutes > b.minutes ? (b.balance_cents ?? 0) + d.owed : Math.max(0, (b.balance_cents ?? 0) - (b.price_cents - d.price));
     await ctx.update("booking", b.id, { price_cents: d.price, tax_cents: d.tax, balance_cents: balance });
-    const refunds = d.back ? await giveBack(ctx, b.id, d.back.cards) : {};
-    await ctx.emit("booking.resized", { booking_id: b.id, old: b.minutes, until: d.until, owed: d.owed, refunds });
+    const refunds = d.back ? await giveBack(ctx, b.id, d.back.cards) : {}, desk = d.back ? await giveBackAtDesk(ctx, b.id, d.back.desk ?? 0) : {};
+    await ctx.emit("booking.resized", { booking_id: b.id, old: b.minutes, until: d.until, owed: d.owed, refunds, desk });
     return { booking_id: b.id };
   },
 });

@@ -228,9 +228,10 @@ async function cancelDates(ctx: ApplyContext, programId: string, sessionIds: str
     await ctx.update("session", s.id, { status: "cancelled" });
     for (const t of await ctx.trx.selectFrom("court_time").select("id").where("session_id", "=", s.id).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
   }
+  const desk: Record<string, number> = {};   // what goes back at the desk, for each place
   for (const g of c.people) {
     const refund: Refund = { outcome: g.outcome, cents: g.cents, text: { en: "", es: "" }, changed: g.cents !== g.rule };
-    if (g.cents > 0) await startRefund(ctx, g.enrolment_id, g.person_id, refund);
+    if (g.cents > 0) desk[g.enrolment_id] = (await startRefund(ctx, g.enrolment_id, g.person_id, refund)).desk;
     if (g.reprice !== null) {
       await ctx.update("enrolment", g.enrolment_id, { price_cents: g.reprice });
       // What's still owed for it: the new price. One a card form already opened is called off, and a new one asked.
@@ -259,7 +260,7 @@ async function cancelDates(ctx: ApplyContext, programId: string, sessionIds: str
     await ctx.update("program", programId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: reason, ...(reason === "below_minimum" ? { min_decided_at: ctx.now } : {}) });
   }
   await ctx.emit("dates.cancelled", { program_id: programId, name: textOf(p.name, p.translations, "name"), starts: dates.map((d) => new Date(d.starts_at).toISOString()), entire: c.entire, reason,
-    people: c.people.map((g) => ({ person_id: g.person_id, status: g.status, cents: g.cents, paid: g.paid })) });
+    people: c.people.map((g) => ({ person_id: g.person_id, status: g.status, cents: g.cents, paid: g.paid, desk: desk[g.enrolment_id] ?? 0 })) });
 }
 
 /** The plan for cancelling: dates, what comes back to whom, and who's told. */

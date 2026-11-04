@@ -33,6 +33,28 @@ server starts.
   the member to look again. The texting registration gives Twilio the same links, and `kumi doctor` warns while the
   club texts with no privacy policy linked. With no links set, nothing changes. Templates to adapt are in
   `docs/templates`.
+- **Memberships and program places paid at the desk**, as court bookings are: in cash, on the club's own card reader
+  or another way, all of it or part now and the rest later, never more than is owed (Kumi keeps no credit). Every
+  payment is in the books (the cash drawer, or clearing for the card reader), in the reports and on a receipt, and the
+  member's app shows it like any other.
+  - **A membership sold at the desk** (on the person's page or under Memberships, "Paid at the desk") covers one period
+    from that day and doesn't renew by itself. Its member hears a week before it ends, and pays the next period at
+    the desk (from two weeks before the end) or by card in the app when the plan is one members join there; nothing
+    renews from that card. What's still owed on a period shows on the person's page, in the list and to the member,
+    and is paid at the desk. One more person on a family plan from the desk adds their price to what's owed there.
+  - **A period paid at the desk on a membership joined in the app** moves its renewal on a period, so the card isn't
+    charged for it. A renewal whose card was declined can be paid at the desk the same way, which ends the retries
+    and closes the staff alert.
+  - **A program place paid at the desk:** the staff sign the person up as usual, then "Paid in cash" on the roster.
+    What the app still asks them to pay by card comes down to the rest, or goes once it's all paid. Paid at the desk
+    while the member had the card form open and the card went through too, what's beyond the price goes back to the
+    card by itself.
+  - The front desk can do all of it; two desks taking the same payment at once can't both record it. Read-only and
+    moved clubs take nothing at the desk, as for everything else that takes money.
+- **Money paid at the desk goes back at the desk, never to a card.** A refund of it (a court cancelled by the club's
+  rule, a booking made shorter, a place left or a program cancelled) waits on the person's page, "To give back at the
+  desk", until someone hands it over and taps "Given back"; only then does it leave the cash drawer in the books, with a
+  refund receipt. Their messages say it's theirs to collect at the desk. Front desk and up, and still while read-only.
 - **Texting through a host's Twilio account.** A club texting from a subaccount of its host's Twilio account can
   name its own Secondary Customer Profile (Twilio's Trust Hub) in club.yaml, `texting.customer_profile_sid`, and the
   toll-free verification uses it (`docs/setup/accounts/twilio.md`).
@@ -62,6 +84,9 @@ server starts.
   (`<slug>.kumi.club`) can't sign each other's visitors in as someone else. Over plain http, on a computer of one's
   own, it keeps its old name. For this release the old name is still read and moved to the new one, so nobody is
   signed out by the update; a host whose clubs never had it sets `KUMI_LEGACY_SESSION_COOKIE=0`.
+
+- **Cancelling a court booking paid in cash** sent its refund to a card that was never used, which failed and showed
+  as a refund to send again. It now waits at the desk (above), and the preview says "goes back at the desk".
 
 ### When updating
 - If club.yaml names a privacy policy or terms under `texting:`, `kumi setup apply` links them for members too (while
@@ -264,7 +289,7 @@ to go live.
 - Self-hosted only; a hosted service is planned.
 - US clubs: US dollars and US formats, English and US Spanish, texts to US and Canadian numbers only.
 - Cards only (Apple Pay and Google Pay included); no credit, gift cards, vouchers or drop-in passes. The
-  desk records cash for bookings, not yet for memberships or program places.
+  desk records cash for bookings (and, after 0.2.0, for memberships and program places too: Unreleased, above).
 - Tournaments and leagues run as programs, without draws or fixtures. No chat between players, no
   recurring bookings, and no app store apps (the members' app installs from the browser).
 - Playtomic is read only, and needs one of its top two plans for the API keys.

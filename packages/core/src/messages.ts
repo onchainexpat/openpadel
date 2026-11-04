@@ -7,7 +7,7 @@ import type { Db, Trx } from "./db.ts";
 import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts, onDate } from "./clock.ts";
-import { dayText, endDay, kindList, lastTryAt } from "./memberships.ts";
+import { dayText, endDay, kindList, lastTryAt, periodCents } from "./memberships.ts";
 import { band } from "./match_rules.ts";
 import { gameView } from "./results.ts";
 import { hasPushDevice } from "./push.ts";
@@ -144,9 +144,15 @@ async function supportInfo(db: Db, grantId: string, tz: string) {
 async function nameOf(db: Db, personId: string): Promise<string> {
   return (await db.selectFrom("person").select("display_name").where("id", "=", personId).executeTakeFirst())?.display_name ?? "";
 }
-function refundLine(outcome: string, cents: number, paid: number): Text {
-  if (cents > 0) return both(outcome === "credit" ? "msg.refund_credit" : "msg.refund_card", { amount: amount(cents) });
+/** `desk`: the part paid at the desk, which waits there to be collected rather than going to a card. */
+function refundLine(outcome: string, cents: number, paid: number, desk = 0): Text {
+  if (cents > 0) return outcome === "credit" ? both("msg.refund_credit", { amount: amount(cents) }) : backWords(cents - desk, desk);
   return paid > 0 ? both("msg.refund_none") : NOTHING;
+}
+/** What goes back to the card, and what's to collect at the desk (money paid there goes back there). */
+function backWords(card: number, desk: number): Text {
+  const parts = [card > 0 ? both("msg.refund_card", { amount: amount(card) }) : null, desk > 0 ? both("msg.refund_desk", { amount: amount(desk) }) : null].filter((x): x is Text => Boolean(x));
+  return { en: parts.map((x) => x.en).join(" "), es: parts.map((x) => x.es).join(" ") };
 }
 
 /** A court booking: where and when (in its location's time), and who's in it. */
@@ -162,8 +168,8 @@ async function bookingInfo(db: Db, bookingId: string) {
   return { ...b, minutes, players, base: { court: b.court, location: b.location, when: when(new Date(b.start), b.time_zone), code: b.code, minutes, coach: b.coach ?? "" } };
 }
 /** What a change to a booking means for one player's money: more to pay at the desk (the organiser), or what goes back. */
-function changeMoney(personId: string, organiserId: string | null, p: { owed: number; refunds: Record<string, number> }): Text {
-  if (p.refunds[personId]) return both("msg.refund_card", { amount: amount(p.refunds[personId]!) });
+function changeMoney(personId: string, organiserId: string | null, p: { owed: number; refunds: Record<string, number>; desk?: Record<string, number> }): Text {
+  if (p.refunds[personId] || p.desk?.[personId]) return backWords(p.refunds[personId] ?? 0, p.desk?.[personId] ?? 0);
   if (p.owed > 0 && personId === organiserId) return both("msg.change_owed", { amount: amount(p.owed) });
   return NOTHING;
 }
@@ -177,7 +183,8 @@ function toCoach(b: Awaited<ReturnType<typeof bookingInfo>>, kind: string, o: { 
 /** A membership and its plan. */
 async function membershipInfo(db: Db, membershipId: string) {
   const m = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .select(["membership.person_id", "membership.plan_id", "membership.current_period_end", "membership.source", "membership.price_cents", "membership.end_reason", "membership_plan.name", "membership_plan.translations", "membership_plan.days_ahead",
+    .select(["membership.person_id", "membership.plan_id", "membership.current_period_end", "membership.source", "membership.price_cents", "membership.end_reason", "membership.balance_cents",
+      "membership.family_size", "membership.extra_person_cents", "membership_plan.name", "membership_plan.translations", "membership_plan.days_ahead",
       "membership_plan.period", "membership_plan.program_percent_off", "membership_plan.program_cents_off", "membership_plan.included_sessions", "membership_plan.included_kinds"])
     .where("membership.id", "=", membershipId).executeTakeFirstOrThrow();
   // The plan's name in each reader's language, when the club wrote one.
@@ -224,10 +231,10 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const drafts: Draft[] = [];
     for (const pl of b.players) {
       if (!pl.person_id) continue;
-      const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select((eb) => eb.fn.sum<string>("refund.amount_cents").as("c"))
-        .where("payment.booking_player_id", "=", pl.id).executeTakeFirst();
-      const cents = Number(back?.c ?? 0);
-      drafts.push({ to: pl.person_id, kind: lesson ? "lesson_cancelled" : "booking_cancelled", params: { ...b.base, refund: cents ? both("msg.refund_card", { amount: amount(cents) }) : NOTHING }, purpose: "account", essential: true, email: true, link: "/places" });
+      const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")])
+        .where("payment.booking_player_id", "=", pl.id).groupBy("refund.destination").execute();
+      const cents = (where: string) => Number(back.find((x) => x.destination === where)?.c ?? 0);
+      drafts.push({ to: pl.person_id, kind: lesson ? "lesson_cancelled" : "booking_cancelled", params: { ...b.base, refund: backWords(cents("card"), cents("desk")) }, purpose: "account", essential: true, email: true, link: "/places" });
     }
     // The coach, unless they called it off themselves.
     return [...drafts, ...(p.by && p.by === b.coach_id ? [] : toCoach(b, "coach_lesson_cancelled", { essential: true }))];
@@ -551,15 +558,19 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       m.included_sessions ? both("msg.membership_perk_included", { count: m.included_sessions, period: both(`ui.period_${m.period}`), kinds: kindList(m.included_kinds) }) : null,
       app ? both("msg.membership_renews", { date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)), amount: amount(m.price_cents ?? 0) }) : null].filter((x): x is Text => Boolean(x));
     const until = m.current_period_end && !app ? both("msg.membership_until", { date: dayText(endDay({ current_period_end: m.current_period_end, source: m.source }, tz)) }) : NOTHING;
-    return [{ to: m.person_id, kind: "membership_started", params: { name: m.name, until, perks: { en: more.map((x) => x.en).join(" "), es: more.map((x) => x.es).join(" ") } },
+    // Sold at the desk with part still to pay there.
+    if (m.balance_cents > 0) more.push(both("msg.membership_owed", { amount: amount(m.balance_cents) }));
+    return [{ to: m.person_id, kind: "membership_started", params: { name: m.name, until, perks: { en: more.map((x) => x.en.trim()).join(" "), es: more.map((x) => x.es.trim()).join(" ") } },
       purpose: "account", essential: true, email: true, link: "/membership" }];
   },
   // A renewal paid after it failed (`late`): the owner and managers, told of the failure, hear it's sorted.
   async "membership.renewed"({ db, tz }, p: { membership_id: string; payment_id: string; late?: boolean }) {
     const m = await membershipInfo(db, p.membership_id);
     const pay = await db.selectFrom("payment").select("amount_cents").where("id", "=", p.payment_id).executeTakeFirstOrThrow();
-    const drafts: Draft[] = [{ to: m.person_id, kind: "membership_renewed", params: { name: m.name, amount: amount(pay.amount_cents), date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)) },
-      purpose: "account", essential: true, email: true, link: "/membership" }];
+    // A membership from the desk doesn't renew: it's paid until its new end, and what's still owed there is said.
+    const desk = m.source !== "app";
+    const drafts: Draft[] = [{ to: m.person_id, kind: desk ? "membership_paid_until" : "membership_renewed", params: { name: m.name, amount: amount(pay.amount_cents), date: dayText(endDay({ current_period_end: m.current_period_end!, source: m.source }, tz)),
+      owed: m.balance_cents > 0 ? both("msg.membership_owed", { amount: amount(m.balance_cents) }) : NOTHING }, purpose: "account", essential: true, email: true, link: "/membership" }];
     if (p.late) {
       const params = { person: await nameOf(db, m.person_id), name: m.name, amount: amount(pay.amount_cents) };
       for (const to of await managers(db)) drafts.push({ to, kind: "membership_renewal_paid_staff", params, purpose: "staff", essential: false, email: true, link: `/people/${m.person_id}` });
@@ -586,6 +597,16 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       for (const to of await managers(db)) drafts.push({ to, kind: "membership_payment_failed_staff", params, purpose: "staff", essential: false, email: true, link: `/people/${m.person_id}` });
     }
     return drafts;
+  },
+  // A membership paid at the desk ends within a week (memberships.ts): what the next period costs, and where to pay it.
+  async "membership.ending"({ db, tz }, p: { membership_id: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    if (!m.current_period_end) return [];
+    const plan = await db.selectFrom("membership_plan").select(["price_cents", "join_in_app"]).where("id", "=", m.plan_id).executeTakeFirstOrThrow();
+    const next = await periodCents(db, { id: p.membership_id, price_cents: m.price_cents, family_size: m.family_size, extra_person_cents: m.extra_person_cents }, plan.price_cents, m.current_period_end);
+    return [{ to: m.person_id, kind: "membership_ending", params: { name: m.name, date: dayText(endDay({ current_period_end: m.current_period_end, source: m.source }, tz)), amount: amount(next),
+      app: plan.join_in_app ? both("msg.membership_ending_app") : NOTHING, owed: m.balance_cents > 0 ? both("msg.membership_owed", { amount: amount(m.balance_cents) }) : NOTHING },
+      purpose: "account", essential: true, email: true, link: "/membership" }];
   },
   async "membership.cancelled"({ db, tz }, p: { membership_id: string }) {
     const m = await membershipInfo(db, p.membership_id);
@@ -701,22 +722,24 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const e = await place(db, p.enrolment_id);
     return [{ to: e.person_id, kind: "place_lapsed", params: { name: e.name, when: when(e.start, tz) }, purpose: "account", essential: true, email: true, link: "/" }];
   },
-  async "enrolment.left"({ db, tz }, p: { enrolment_id: string; refund_outcome: string; refund_cents: number }) {
+  async "enrolment.left"({ db, tz }, p: { enrolment_id: string; refund_outcome: string; refund_cents: number; refund_desk?: number }) {
     const e = await place(db, p.enrolment_id);
-    return [{ to: e.person_id, kind: "left", params: { name: e.name, when: when(e.start, tz), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id)) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: e.person_id, kind: "left", params: { name: e.name, when: when(e.start, tz), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id), p.refund_desk) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
-  async "enrolment.removed"({ db, tz }, p: { enrolment_id: string; reason: string; refund_outcome: string; refund_cents: number }) {
+  async "enrolment.removed"({ db, tz }, p: { enrolment_id: string; reason: string; refund_outcome: string; refund_cents: number; refund_desk?: number }) {
     const e = await place(db, p.enrolment_id);
-    return [{ to: e.person_id, kind: "removed", params: { name: e.name, when: when(e.start, tz), reason: both(`reason.${p.reason}` as Key), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id)) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: e.person_id, kind: "removed", params: { name: e.name, when: when(e.start, tz), reason: both(`reason.${p.reason}` as Key), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id), p.refund_desk) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "enrolment.transferred"({ db, tz }, p: { from: string; to: string; pay: "sub_pays" | "gift" }) {
     const from = await place(db, p.from), to = await place(db, p.to);
     const names = await db.selectFrom("person").select(["id", "display_name"]).where("id", "in", [from.person_id, to.person_id]).execute();
     const name = (id: string) => names.find((n) => n.id === id)?.display_name ?? "";
     const due = await owes(db, to.id), paid = await paidFor(db, from.id);
+    // Paid at the desk: it's collected there once the sub pays, not sent to a card.
+    const atDesk = Boolean(await db.selectFrom("refund").select("id").where("enrolment_id", "=", from.id).where("destination", "=", "desk").executeTakeFirst());
     const drafts: Draft[] = [
       { to: from.person_id, kind: "passed_on", params: { name: from.name, when: when(from.start, tz), sub: name(to.person_id),
-        refund: p.pay === "sub_pays" && paid > 0 ? both("msg.refund_after_sub", { amount: amount(paid), sub: name(to.person_id) }) : NOTHING }, purpose: "account", essential: true, email: true, link: "/places" },
+        refund: p.pay === "sub_pays" && paid > 0 ? both(atDesk ? "msg.refund_after_sub_desk" : "msg.refund_after_sub", { amount: amount(paid), sub: name(to.person_id) }) : NOTHING }, purpose: "account", essential: true, email: true, link: "/places" },
       { to: to.person_id, kind: "passed_to_you", params: { name: to.name, when: when(to.start, tz), person: name(from.person_id),
         pay: due > 0 ? both("msg.pay_to_keep", { amount: amount(due) }) : both("msg.paid_for") }, purpose: "account", essential: true, email: true, link: "/places" },
     ];
@@ -726,12 +749,12 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "dates.changed"(_c, p: { program_id: string; name: string | Text; lines: Text; people: string[] }) {
     return p.people.map((to) => ({ to, kind: "dates_changed", params: { name: p.name, lines: p.lines }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
   },
-  async "dates.cancelled"({ tz }, p: { program_id: string; name: string | Text; starts: string[]; entire: boolean; reason: "club" | "below_minimum"; people: { person_id: string; status: string; cents: number; paid: number }[] }) {
+  async "dates.cancelled"({ tz }, p: { program_id: string; name: string | Text; starts: string[]; entire: boolean; reason: "club" | "below_minimum"; people: { person_id: string; status: string; cents: number; paid: number; desk?: number }[] }) {
     const first = p.starts.length ? new Date(p.starts[0]!) : null;
     const dates: Text = { en: p.starts.map((s) => dateTime(new Date(s), "en", tz)).join("; "), es: p.starts.map((s) => dateTime(new Date(s), "es", tz)).join("; ") };
     const kind = !p.entire ? "dates_cancelled" : p.reason === "below_minimum" ? "program_cancelled_minimum" : "program_cancelled";
     return p.people.map((x) => ({ to: x.person_id, kind, params: { name: p.name, when: when(first, tz), dates,
-      refund: x.status === "waitlisted" ? both("msg.cancel_was_waiting") : refundLine(x.cents >= x.paid ? "full" : "partial", x.cents, x.paid) }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
+      refund: x.status === "waitlisted" ? both("msg.cancel_was_waiting") : refundLine(x.cents >= x.paid ? "full" : "partial", x.cents, x.paid, x.desk) }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
   },
   async "program.min_cancelled"({ db, tz }, p: { program_id: string; name: string | Text; starts_at: string | null; booked: number; min: number }) {
     return (await desk(db)).map((to) => ({ to, kind: "program_min_cancelled_staff", params: { name: p.name, when: when(p.starts_at ? new Date(p.starts_at) : null, tz), booked: p.booked, min: p.min },

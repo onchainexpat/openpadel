@@ -126,7 +126,9 @@ for everyone. Staff move a booking by dragging its handle to another time or cou
 by dragging its bottom edge; the same is on buttons and the arrow keys. Every change shows its preview
 first, and the players are told. A move keeps the price paid unless staff tick "price it again"; more
 time is owed at the desk; less time gives back what the club's cancellation rule says (or all, or
-nothing, as staff choose). Money paid at the desk is given back at the desk.
+nothing, as staff choose). Money paid at the desk is given back at the desk: what's owed back waits on
+the person's page under "To give back at the desk" until someone hands it over and taps "Given back", and
+only then leaves the cash drawer in the books (with a refund receipt, as for a card's).
 
 Staff block courts from the Courts page, once or every week: "Courts 1 and 2 every Tuesday 18:00 to
 20:00" from a date, until a date or with no end (its dates are made a year ahead, and on as the year
@@ -184,8 +186,14 @@ saved, founding members get the plan's member prices, program discounts and book
 away (included sessions start with the membership); untick "Members who join before it starts get its
 member prices and discounts straight away" to keep them for the start date.
 
-The desk gives a membership on the person's page or under Memberships (a founding member, one paid
-in cash, a free one), with an end date or without. Staff can also stop or restart an app
+The desk gives a membership on the person's page or under Memberships (a founding member, a free
+one), with an end date or without, or sells one paid at the desk: in cash, on the club's own card
+reader or another way, all of it or part now and the rest later. One sold at the desk covers one period
+from that day and doesn't renew by itself: the member is reminded a week before it ends, and pays the
+next period at the desk (from two weeks before the end), or by card in the app when the plan is one
+members join there. A member who joined in the app can pay a period at the desk too: their card isn't
+charged for it, and renews after. A renewal whose card was declined can be paid at the desk the same
+way. What's still owed shows on the person's page and in the list. Staff can also stop or restart an app
 membership's renewal, or end any membership at once (no refund is made by ending it).
 
 ### Step 5e: the public page (optional)
@@ -371,6 +379,13 @@ the program's page, pick a date to see its roster, waitlist and who has a free p
 decided before each date, so a short date is cancelled on its own and the others go ahead. The desk
 signs someone up for dates from the program's page ("Sign someone up for dates"): the member pays by card
 in the app, and hears once with every date and the amount. Its public page lists each date's places.
+
+A place can be paid at the desk too: sign the person up as usual, then "Paid in cash" on the roster
+records what's owed. Part of it, or on the club's own card reader, goes through a staff member's
+assistant (as for courts).
+What the app still asks them to pay by card comes down to the rest, or goes once it's all paid, and a
+place partly paid isn't let go for being unpaid. Waitlists, places and the cancel rule work as for a
+card; what goes back of money paid at the desk goes back at the desk, never to a card.
 
 A program can need a minimum to run. At its decision time (Settings: 24 hours before its first date to
 start, or the program's own), a program short of it is cancelled, everyone gets their money back, and

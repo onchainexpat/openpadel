@@ -111,7 +111,7 @@ setPlanGate(async (db, name, input, actor, p, now) => {
 });
 
 /** What a payment was for, in a few words: "Court 2, Sat, Oct 31, 9:00 AM", "a lesson with Kai Moreno, ...". */
-export async function paymentWhat(db: Db | Trx, pay: { person_id: string; booking_player_id: string | null; enrolment_id: string | null }): Promise<Text> {
+export async function paymentWhat(db: Db | Trx, pay: { person_id: string; booking_player_id: string | null; enrolment_id: string | null; membership_id?: string | null; membership_plan_id?: string | null }): Promise<Text> {
   if (pay.booking_player_id) {
     const b = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
       .innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
@@ -128,6 +128,11 @@ export async function paymentWhat(db: Db | Trx, pay: { person_id: string; bookin
       .$if(Boolean(e.session_id), (q) => q.where("id", "=", e.session_id!)).executeTakeFirst();
     const name = textOf(e.name, e.translations, "name");
     return s?.s ? both("kid.what_program", { name, when: when(new Date(s.s as Date), await clubTz(db)) }) : both("kid.what_program_only", { name });
+  }
+  const planId = pay.membership_plan_id ?? (pay.membership_id ? (await db.selectFrom("membership").select("plan_id").where("id", "=", pay.membership_id).executeTakeFirst())?.plan_id : null);
+  if (planId) {
+    const plan = await db.selectFrom("membership_plan").select(["name", "translations"]).where("id", "=", planId).executeTakeFirstOrThrow();
+    return both("kid.what_membership", { name: textOf(plan.name, plan.translations, "name") });
   }
   return both("kid.what_other");
 }

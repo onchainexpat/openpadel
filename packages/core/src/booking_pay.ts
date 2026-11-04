@@ -7,7 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, dateTime, money, type Key, type Text } from "@kumi/i18n";
+import { both, dateTime, money, type Text } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -20,6 +20,7 @@ import { band, joinRule, levelOf, openMatchOf } from "./match_rules.ts";
 import { managersOf, notJunior, requireWaiver, withManagers } from "./households.ts";
 import { kidOf, overRules, paymentsWhat } from "./kids.ts";
 import { isReadOnly } from "./read_only.ts";
+import { bookingRevenue, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 
 /** How long a court is held while the organiser pays. */
 export const HOLD_MINUTES = 10;
@@ -248,12 +249,9 @@ export const bookingJoin = defineAction({
   },
 });
 
-/** Refund a payment to its card (the outbox sends it). */
+/** Back to the card it was paid with, or, paid at the desk, waiting there to be handed back (desk_pay.ts). */
 export async function refundPayment(ctx: ApplyCtx, paymentId: string, cents: number) {
-  if (cents <= 0) return;
-  const id = uuidv7();
-  await ctx.insert("refund", { id, payment_id: paymentId, enrolment_id: null, amount_cents: cents, destination: "card", status: "pending" });
-  await ctx.emit("refund.requested", { refund_id: id });
+  await refundTo(ctx, paymentId, cents);
 }
 
 /** The booking's own rules: the version in force when it was made. */
@@ -400,14 +398,14 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
   const policy = b.policy_id ? await db.selectFrom("booking_policy").selectAll().where("id", "=", b.policy_id).executeTakeFirstOrThrow() : await currentPolicy(db);
   // A place let go was already paid back (or never paid): only the players still in it.
   const paid = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-    .select(["payment.id", "payment.amount_cents", "booking_player.person_id"]).where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null)
+    .select(["payment.id", "payment.amount_cents", "payment.provider", "booking_player.person_id"]).where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null)
     .where("payment.status", "=", "succeeded").execute();
   const early = start?.s ? new Date(start.s).getTime() - now.getTime() >= policy.free_cancel_hours * 3600_000 : true;
   const percent = choice === "full" ? 100 : choice === "none" ? 0 : early ? 100 : policy.late_refund_percent;
   const open = choice === "rule" && Boolean(await openMatchOf(db, bookingId));
   const refunds = paid.map((p) => {
     const joiner = open && p.person_id !== b.organiser_id;
-    return { payment_id: p.id, cents: Math.round(p.amount_cents * (joiner ? 100 : percent) / 100), joiner };
+    return { payment_id: p.id, cents: Math.round(p.amount_cents * (joiner ? 100 : percent) / 100), joiner, desk: p.provider === "none" };
   });
   return { percent, early, hours: policy.free_cancel_hours, refunds };
 }
@@ -425,9 +423,12 @@ export const bookingCancel = defineAction({
     const choice = byCoach ? "full" : i.refund ?? (lesson && !organisers.includes(ctx.actor.personId ?? "") ? "full" : "rule");
     const r = await cancelRefunds(ctx.db, b.id, ctx.now, choice), total = r.refunds.reduce((n, x) => n + x.cents, 0);
     const joiners = r.refunds.filter((x) => x.joiner).reduce((n, x) => n + x.cents, 0), host = total - joiners, hours = both("count.hours", { count: r.hours });
+    // Paid at the desk goes back at the desk, not to a card.
+    const desk = r.refunds.filter((x) => x.desk).reduce((n, x) => n + x.cents, 0), card = total - desk;
     const money = !r.refunds.length ? both("refund.nothing_paid")
       : joiners ? both(host ? "plan.booking.refund_open" : "plan.booking.no_refund_open", { host: usd(host), others: usd(joiners), hours })
-      : total ? both("plan.booking.refund", { amount: usd(total) }) : both("plan.booking.no_refund", { hours });
+      : !total ? both("plan.booking.no_refund", { hours })
+      : desk ? both(card ? "plan.booking.refund_card_desk" : "plan.booking.refund_desk", { amount: usd(desk), card: usd(card) }) : both("plan.booking.refund", { amount: usd(total) });
     return { title: both("action.booking.cancel"), summary: both(lesson ? "plan.lesson.cancel_refund" : "plan.booking.cancel_refund", { code: b.code, refund: money }), reads: [read], locationId: b.location_id,
       ownerIds: [...organisers, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };
   },
@@ -669,12 +670,12 @@ async function notMoreThanOwed(db: Db | Trx, b: Record<string, any>, cents: numb
 }
 export const bookingRecordPayment = defineAction({
   name: "booking.record_payment", version: 1,
-  input: z.object({ booking_id: z.uuid(), cents: z.number().check(z.int(), z.minimum(1)), method: z.enum(["cash", "terminal", "other"]), note: z.optional(z.string().check(z.maxLength(200))) }),
+  input: z.object({ booking_id: z.uuid(), ...deskPaid }),
   async plan(ctx, i) {
     const { row: b, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
     await notMoreThanOwed(ctx.db, b, i.cents);
-    return { title: both("action.booking.record_payment"), summary: both("plan.booking.record_payment", { amount: usd(i.cents), code: b.code, how: both(`paid_by.${i.method}` as Key) }),
+    return { title: both("action.booking.record_payment"), summary: both("plan.booking.record_payment", { amount: usd(i.cents), code: b.code, how: paidHow(i.method) }),
       reads: [read], locationId: b.location_id, moneyCents: i.cents, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
@@ -682,12 +683,9 @@ export const bookingRecordPayment = defineAction({
     await notMoreThanOwed(ctx.trx, b, i.cents);   // again under the lock: two desk payments at once can't both fit
     const player = await ctx.trx.selectFrom("booking_player").select(["id", "person_id"]).where("booking_id", "=", b.id).where("removed_at", "is", null)
       .orderBy(sql`person_id = ${b.organiser_id}`, "desc").orderBy("id").executeTakeFirstOrThrow();
-    const id = uuidv7();
     // A walk-in has no person: the payment is recorded against the organiser, or whoever runs the desk.
-    await ctx.insert("payment", { id, person_id: player.person_id ?? b.organiser_id ?? ctx.actor.personId!, amount_cents: i.cents, method: i.method, provider: "none", provider_ref: null, status: "succeeded", booking_player_id: player.id });
-    await post(ctx.trx, ctx.runId, "payment", `court booking paid at the desk (${i.method})${i.note ? `: ${i.note}` : ""}`, [
-      { account: await account(ctx.trx, i.method === "cash" ? "cash_drawer" : "provider_clearing"), cents: i.cents },
-      { account: await account(ctx.trx, "revenue", { revenueType: b.kind === "lesson" ? "lessons" : "courts" }), cents: -i.cents }]);
+    const id = await recordAtDesk(ctx, { personId: player.person_id ?? b.organiser_id ?? ctx.actor.personId!, cents: i.cents, method: i.method, note: i.note,
+      revenue: await bookingRevenue(ctx.trx, player.id), memo: "court booking", link: { booking_player_id: player.id } });
     if (b.balance_cents) await ctx.update("booking", b.id, { balance_cents: Math.max(0, b.balance_cents - i.cents) });
     await ctx.emit("booking.paid_at_desk", { booking_id: b.id, payment_id: id });
     return { payment_id: id };

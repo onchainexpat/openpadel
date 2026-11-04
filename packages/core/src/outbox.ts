@@ -51,8 +51,9 @@ const REFUND_GIVE_UP_TRIES = 8;   // 30 s, 1, 2, 4, 8, 16 and 32 minutes between
 export const moneyHandlers: Record<string, Handler> = {
   async "refund.requested"(db, payload: { refund_id: string }, ev) {
     const r = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
-      .select(["refund.id", "refund.status", "refund.amount_cents", "payment.provider_ref", "payment.provider_account"]).where("refund.id", "=", payload.refund_id).executeTakeFirstOrThrow();
-    if (r.status !== "pending") return;
+      .select(["refund.id", "refund.status", "refund.destination", "refund.amount_cents", "payment.provider_ref", "payment.provider_account"]).where("refund.id", "=", payload.refund_id).executeTakeFirstOrThrow();
+    // Money paid at the desk goes back at the desk (desk_pay.ts): nothing for a provider to send.
+    if (r.status !== "pending" || r.destination !== "card") return;
     // Back through the Stripe account the payment was taken on, even if the club has changed accounts since.
     // The refund's own id is the key, so sending it again (here, or by the staff later) never refunds twice.
     let out: Awaited<ReturnType<ReturnType<typeof paymentProvider>["refund"]>>;
