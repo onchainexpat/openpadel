@@ -126,9 +126,11 @@ for everyone. Staff move a booking by dragging its handle to another time or cou
 by dragging its bottom edge; the same is on buttons and the arrow keys. Every change shows its preview
 first, and the players are told. A move keeps the price paid unless staff tick "price it again"; more
 time is owed at the desk; less time gives back what the club's cancellation rule says (or all, or
-nothing, as staff choose). Money paid at the desk is given back at the desk: what's owed back waits on
-the person's page under "To give back at the desk" until someone hands it over and taps "Given back", and
-only then leaves the cash drawer in the books (with a refund receipt, as for a card's).
+nothing, as staff choose). A booking with money owed has "Record payment": all of what's owed or part
+of it, in cash, on the club's own card reader or another way, never more than is owed. Money paid at the
+desk is given back at the desk: what's owed back waits on the person's page under "To give back at the
+desk" until someone hands it over and taps "Given back", and only then leaves the cash drawer in the books
+(with a refund receipt, as for a card's).
 
 Staff block courts from the Courts page, once or every week: "Courts 1 and 2 every Tuesday 18:00 to
 20:00" from a date, until a date or with no end (its dates are made a year ahead, and on as the year

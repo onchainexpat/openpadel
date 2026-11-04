@@ -53,6 +53,8 @@ server starts.
     card comes down to the rest, or goes once it's all paid. Paid at the desk
     while the member had the card form open and the card went through too, what's beyond the price goes back to the
     card by itself.
+  - **A court booking** has the same "Record payment" on the Courts page (it was "Paid in cash", for all of it in
+    cash only): all of it or part, in cash, on the card reader or another way.
   - The front desk can do all of it; two desks taking the same payment at once can't both record it. Read-only and
     moved clubs take nothing at the desk, as for everything else that takes money.
   - **The desk's day** under Reports ("At the desk"), for counting the drawer at closing: each day on the club's

@@ -426,7 +426,6 @@ export const en = {
   "ui.program_revenue": "Programs",
   "ui.membership_revenue": "Memberships",
   "ui.unpaid_amount": "{amount} unpaid",
-  "ui.record_cash": "Paid in cash",
   "action.booking.remind": "Remind the players",
   "plan.booking.remind": "Remind the players of booking {code}.",
   "action.booking.record_payment": "Record a payment",

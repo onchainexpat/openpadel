@@ -429,7 +429,6 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.program_revenue": "Actividades",
   "ui.membership_revenue": "Membresías",
   "ui.unpaid_amount": "{amount} sin pagar",
-  "ui.record_cash": "Pagado en efectivo",
   "action.booking.remind": "Recordar a los jugadores",
   "plan.booking.remind": "Recordar la reserva {code} a quienes juegan.",
   "action.booking.record_payment": "Registrar un pago",

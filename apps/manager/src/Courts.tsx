@@ -5,8 +5,11 @@
 // device's clock says.
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, club, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
+import { api, club, dollars, lang, lazyPage, mayDo, me, t, usePreview } from "@kumi/ui";
 import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
+
+// The desk's payment form comes when someone taps Record payment, so the first screen doesn't carry it.
+const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
 
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
@@ -282,7 +285,7 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
 /** The item picked: who's playing, what's paid, and every change for it on buttons. */
 function Details({ it, court, g, clock, slots, preview, canMove, canResize, courtFixed, onClose }: { it: Item; court: Court; g: Grid; clock: (s: string | number) => string; slots: string[];
   preview: Preview; canMove: boolean; canResize: boolean; courtFixed: boolean; onClose: () => void }) {
-  const [changing, setChanging] = useState(false), card = useRef<HTMLElement>(null);
+  const [changing, setChanging] = useState(false), [paying, setPaying] = useState(false), card = useRef<HTMLElement>(null);
   // On a phone the grid is long: bring what was picked into view.
   useEffect(() => { card.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, []);
   return (
@@ -293,7 +296,7 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
       {isBooking(it) && <p class="meta">{unpaid(it) > 0 ? t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) }) : t("ui.today_paid", { amount: dollars(it.paid_cents ?? 0, lang.value) })}</p>}
       {it.late?.map((l) => <p class="note">{t("ui.late_note", { name: l.name, minutes: l.minutes })} · {clock(l.at)}</p>)}
       <div class="chips">
-        {isBooking(it) && unpaid(it) > 0 && mayDo("booking.record_payment") && <button class="small" onClick={() => preview("booking.record_payment", { booking_id: it.booking_id, cents: unpaid(it), method: "cash" })}>{t("ui.record_cash")}</button>}
+        {isBooking(it) && unpaid(it) > 0 && mayDo("booking.record_payment") && <button class="small" onClick={() => setPaying(!paying)}>{t("ui.record_payment")}</button>}
         {(canMove || canResize) && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.move_or_resize")}</button>}
         {isBooking(it) && mayDo("booking.cancel") && <button class="small" onClick={() => preview("booking.cancel", { booking_id: it.booking_id })}>{t("ui.cancel_booking")}</button>}
         {it.block_id && !it.series && mayDo("court.unblock") && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
@@ -305,6 +308,8 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
         {it.block_id && it.series && mayDo("court.block_repeat_edit") && ms(it.start) > Date.now() && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.change_series")}</button>}
         {it.program_id && <a href={`/programs/${it.program_id}`}>{t("ui.open")}</a>}
       </div>
+      {paying && isBooking(it) && unpaid(it) > 0 && <DeskPay key={`${it.booking_id}-${unpaid(it)}`} owed={unpaid(it)} label={t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) })}
+        onCancel={() => setPaying(false)} send={(cents, method) => { setPaying(false); preview("booking.record_payment", { booking_id: it.booking_id, cents, method }); }} />}
       {it.empty_places?.map((e) => <EmptyPlace e={e} preview={preview} />)}
       {it.whole && mayDo("booking.add_player") && <Players it={it} preview={preview} />}
       {changing && !it.series && <ChangeForm it={it} court={court} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove} canResize={canResize} courtFixed={courtFixed} />}
