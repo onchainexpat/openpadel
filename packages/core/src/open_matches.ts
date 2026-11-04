@@ -11,6 +11,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { paymentProvider } from "./money.ts";
+import { callOff } from "./desk_pay.ts";
 import { abandonPayment } from "./programs.ts";
 import { deadlineSql, notOwing, pastDeadline, policyOf, refundPayment, refundTarget, refundUpTo, shares } from "./booking_pay.ts";
 import { band, levelOf, openMatchOf } from "./match_rules.ts";
@@ -125,7 +126,7 @@ export const bookingReleaseSeat = defineAction({
     const paid = await ctx.trx.selectFrom("payment").select("id").where("booking_player_id", "=", p.id).where("status", "=", "succeeded").executeTakeFirst();
     if (paid) { await ctx.update("booking_player", p.id, { held_until: null }); return { paid: true }; }
     for (const pay of await ctx.trx.selectFrom("payment").select("id").where("booking_player_id", "=", p.id).where("status", "=", "pending").where("provider_ref", "is", null).execute())
-      await ctx.update("payment", pay.id, { status: "failed" });
+      await callOff(ctx, pay.id);
     await ctx.update("booking_player", p.id, { removed_at: ctx.now });
     await ctx.emit("booking.seat_released", { booking_player_id: p.id });
     return null;
@@ -221,7 +222,7 @@ export const bookingDropSavedPlace = defineAction({
     await ctx.update("booking_player", i.booking_player_id, { removed_at: ctx.now });
     // A card form the friend opened stays as it is: paid after this, it's refunded (afterBookingPayment).
     for (const p of await ctx.trx.selectFrom("payment").select("id").where("booking_player_id", "=", i.booking_player_id).where("status", "=", "pending").where("provider_ref", "is", null).execute())
-      await ctx.update("payment", p.id, { status: "failed" });
+      await callOff(ctx, p.id);
     await ctx.emit("booking.place_dropped", { booking_player_id: i.booking_player_id });
     return null;
   },
@@ -235,7 +236,7 @@ export async function endOffer(ctx: ApplyCtx, placeId: string) {
   for (const sub of await ctx.trx.selectFrom("booking_player").select("id").where("replaces", "=", placeId).where("removed_at", "is", null).execute()) {
     await ctx.update("booking_player", sub.id, { removed_at: ctx.now });
     for (const p of await ctx.trx.selectFrom("payment").select("id").where("booking_player_id", "=", sub.id).where("status", "=", "pending").where("provider_ref", "is", null).execute())
-      await ctx.update("payment", p.id, { status: "failed" });
+      await callOff(ctx, p.id);
   }
 }
 
@@ -276,7 +277,7 @@ export const bookingLeave = defineAction({
     } else {
       await ctx.update("booking_player", seat, { removed_at: ctx.now, late_leave: late });
       for (const p of await ctx.trx.selectFrom("payment").select("id").where("booking_player_id", "=", seat).where("status", "=", "pending").where("provider_ref", "is", null).execute())
-        await ctx.update("payment", p.id, { status: "failed" });
+        await callOff(ctx, p.id);
       refunded = await refundUpTo(ctx, seat, 100);
     }
     await ctx.emit("booking.player_left", { booking_player_id: seat, paid: paid > 0, late, refunded });

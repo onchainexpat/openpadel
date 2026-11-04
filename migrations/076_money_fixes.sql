@@ -4,7 +4,12 @@
 -- replaces the period end the payment kept (075), which a pause moved from under it.
 ALTER TABLE membership ADD COLUMN period_no int NOT NULL DEFAULT 1;
 ALTER TABLE payment ADD COLUMN for_period_no int;
-UPDATE payment SET for_period_no = CASE WHEN payment.for_period_end = m.current_period_end THEN m.period_no ELSE m.period_no - 1 END
+-- A card payment already asked for a period keeps the count it was asked at: the current one, unless that period
+-- was paid another way since (the period end moved on, and another payment for the membership went through after
+-- it was asked); a pause alone moved the end without paying anything, so it's still the current period.
+UPDATE payment SET for_period_no = CASE WHEN payment.for_period_end <> m.current_period_end AND EXISTS (SELECT 1 FROM payment q
+    WHERE q.membership_id = m.id AND q.status = 'succeeded' AND q.id <> payment.id AND q.created_at > payment.created_at)
+  THEN m.period_no - 1 ELSE m.period_no END
   FROM membership m WHERE m.id = payment.membership_id AND payment.for_period_end IS NOT NULL;
 ALTER TABLE payment DROP COLUMN for_period_end;
 

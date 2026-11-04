@@ -19,7 +19,7 @@ import { priceFor, programPerks, programPrice, priceWords, type ProgramPrice } f
 import { manages, requireWaiver, withManagers } from "./households.ts";
 import { paymentsWhat, paymentWhat } from "./kids.ts";
 import { isReadOnly, refuseWhenReadOnly } from "./read_only.ts";
-import { backSql, deskPaid, paidHow, recordAtDesk, refundAcross, refundDue, refundTo, revenueType } from "./desk_pay.ts";
+import { backSql, callOff, deskPaid, paidHow, recordAtDesk, refundAcross, refundDue, refundTo, revenueType } from "./desk_pay.ts";
 
 /** How long a place offered from the waitlist is held. With texts it would be 2 hours; while email is
  *  the only way to reach people, it's doubled (messages.md). */
@@ -561,7 +561,7 @@ async function declineOffer(ctx: Parameters<NonNullable<Parameters<typeof define
  *  left to settle; if it goes through, the money comes back). With several dates paid together, the others stay owed. */
 async function dropUnpaid(ctx: ApplyContext, enrolmentId: string) {
   for (const pay of await ctx.trx.selectFrom("payment").select("id").where("enrolment_id", "=", enrolmentId).where("status", "=", "pending").where("provider_ref", "is", null).execute())
-    await ctx.update("payment", pay.id, { status: "failed" });
+    await callOff(ctx, pay.id);
 }
 
 export const leaving = (refund: Refund, how: string, reason: string, ruleVersion: number, note?: string) => ({
@@ -783,7 +783,7 @@ async function requestPayment(ctx: ApplyContext, enrolmentId: string, personId: 
 export async function askAgain(ctx: ApplyContext, paymentId: string, cents: number): Promise<string | null> {
   const old = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
   if (old.status !== "pending" || old.provider_ref) throw new KumiError("error.changed");
-  await ctx.update("payment", old.id, { status: "failed" });
+  await callOff(ctx, old.id);
   if (cents <= 0) return null;
   const id = uuidv7();
   await ctx.insert("payment", { id, person_id: old.person_id, amount_cents: cents, method: old.method, provider: paymentProvider().name, provider_ref: null, status: "pending",
@@ -845,6 +845,8 @@ async function overPaid(ctx: ApplyContext, enrolmentId: string, paymentId: strin
   const pay = await ctx.trx.selectFrom("payment").select("amount_cents").where("id", "=", paymentId).executeTakeFirstOrThrow();
   const over = (await paidFor(ctx.trx, enrolmentId)) - e.price_cents;
   if (over > 0) await refundTo(ctx, paymentId, Math.min(over, pay.amount_cents), { enrolmentId });
+  // Paid in full (a card form opened before the place was asked again for less, say): nothing more is asked.
+  if (over >= 0) await dropUnpaid(ctx, enrolmentId);
 }
 
 // ---- Card payments: opened when the person goes to pay, settled however the news arrives ----
@@ -858,6 +860,9 @@ export const paymentOpen = defineAction({
     return { title: both("action.payment.open"), summary: both("plan.payment.open", { person: await personName(ctx.db, pay.person_id), amount: usd(pay.amount_cents) }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
   },
   async apply(ctx, i) {
+    // Several paid together: all their rows locked first, in id order, as payment.settle does.
+    const g = await ctx.trx.selectFrom("payment").select("group_id").where("id", "=", i.payment_id).executeTakeFirstOrThrow();
+    if (g.group_id) await ctx.trx.selectFrom("payment").select("id").where("group_id", "=", g.group_id).orderBy("id").forUpdate().execute();
     const pay = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", i.payment_id).forUpdate().executeTakeFirstOrThrow();
     if (pay.provider_ref === i.provider_ref) return { already: true };   // two taps on Pay: the same intent
     if (pay.provider_ref || pay.status !== "pending") throw new KumiError("error.changed");
@@ -937,10 +942,14 @@ async function opened(db: Db, paymentId: string, it: { ref: string; account?: st
 export async function checkPayment(db: Db, paymentId: string, via = "payments", now?: Date): Promise<"pending" | "succeeded" | "failed" | null> {
   const pay = await db.selectFrom("payment").select(["id", "status", "provider_ref", "provider_account"]).where("id", "=", paymentId).executeTakeFirst();
   if (!pay) return null;
-  if (pay.status !== "pending" || !pay.provider_ref) return pay.status;
+  if (pay.status === "succeeded" || !pay.provider_ref) return pay.status;
   const it = await paymentProvider().getIntent(pay.provider_ref, pay.provider_account);
+  // Called off here with its card form open: it stays failed unless the card went through anyway (recorded, then
+  // what it was for decides what goes back: payment.settle).
+  if (pay.status === "failed" && it.status !== "succeeded") return "failed";
   if (it.status !== "pending") {
-    try { await runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: it.status, ...(it.paymentMethod ? { saved_method: it.paymentMethod } : {}), ...(it.customer ? { saved_customer: it.customer } : {}) }, via, now ? { now } : {}); }
+    const settle = () => runAsSystem(db, "payment.settle", { payment_id: pay.id, outcome: it.status as "succeeded" | "failed", ...(it.paymentMethod ? { saved_method: it.paymentMethod } : {}), ...(it.customer ? { saved_customer: it.customer } : {}) }, via, now ? { now } : {});
+    try { await settle().catch((e) => { if ((e as { code?: string })?.code === "40P01") return settle(); throw e; }); }   // a deadlock is tried once more
     catch (e) { if (!(e instanceof KumiError && e.code === "error.changed")) throw e; }   // settled at that moment by another of the three: the same answer
   }
   return it.status;
@@ -1131,10 +1140,27 @@ export const paymentSettle = defineAction({
   },
   async apply(ctx, i) {
     // Locked: the card form's return, the webhook and the minute job can all settle it at once. The second waits
-    // here, finds it settled, and does nothing (a repeated webhook is the same).
+    // here, finds it settled, and does nothing (a repeated webhook is the same). Several paid together lock all
+    // their rows first, in id order, so two settles through different rows of one card payment can't deadlock.
+    const g = await ctx.trx.selectFrom("payment").select("group_id").where("id", "=", i.payment_id).executeTakeFirstOrThrow();
+    if (g.group_id) await ctx.trx.selectFrom("payment").select("id").where("group_id", "=", g.group_id).orderBy("id").forUpdate().execute();
     const pay = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", i.payment_id).forUpdate().executeTakeFirstOrThrow();
-    if (pay.status !== "pending") return { already: pay.status };
+    // Called off here (its booking cancelled, its date gone, a friend's share left to the organiser) while its card
+    // form was open, and the card went through anyway: the money is recorded, then all of it goes back. Several
+    // paid together: what each was for decides, as for any of them (settleGroup).
+    const late = pay.status === "failed" && i.outcome === "succeeded" && Boolean(pay.provider_ref);
+    if (pay.status !== "pending" && !late) return { already: pay.status };
     if (pay.group_id) return settleGroup(ctx, pay, i.outcome);
+    if (late) {
+      await ctx.update("payment", pay.id, { status: "succeeded" });
+      const kind = await revenueType(ctx.trx, pay);
+      await post(ctx.trx, ctx.runId, "payment", "payment called off, paid anyway", [
+        { account: await account(ctx.trx, "provider_clearing"), cents: pay.amount_cents },
+        { account: await account(ctx.trx, "revenue", { revenueType: kind }), cents: -pay.amount_cents },
+      ]);
+      await refundTo(ctx, pay.id, pay.amount_cents, { enrolmentId: pay.enrolment_id });
+      return { status: "succeeded", refunded: pay.amount_cents };
+    }
     // A card kept for the deadline charge ("pay my part"): the provider's customer and card, never the card itself.
     await ctx.update("payment", pay.id, { status: i.outcome, ...(pay.save_card && i.saved_method ? { saved_customer: i.saved_customer ?? null, saved_method: i.saved_method } : {}) });
     if (i.outcome === "failed") { await ctx.emit("payment.failed", { payment_id: pay.id }); return { status: "failed" }; }

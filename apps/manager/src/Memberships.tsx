@@ -134,7 +134,7 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
         <fieldset><legend>{t("ui.plan_program_perks")}</legend>
           <div class="court-row"><label>{t("ui.discount")}<select value={f.discount} onChange={(e) => setF({ ...f, discount: e.currentTarget.value as typeof f.discount })}>
             {(["none", "percent", "dollars"] as const).map((k) => <option value={k}>{t(`ui.discount_${k}`)}</option>)}</select></label>
-            {f.discount !== "none" && <label>{t("ui.discount_amount")} ({f.discount === "percent" ? "%" : "$"})<input required inputMode="decimal" value={f.off} onInput={(e) => setF({ ...f, off: e.currentTarget.value })} /></label>}</div>
+            {f.discount !== "none" && <label>{t("ui.discount_amount")} ({f.discount === "percent" ? "%" : "$"})<input required inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.off} onInput={(e) => setF({ ...f, off: e.currentTarget.value })} /></label>}</div>
           <label>{t("ui.plan_included_sessions")}<input type="number" min={1} max={100} value={f.included} onInput={(e) => setF({ ...f, included: e.currentTarget.value })} /></label>
           {f.included && <div role="group" aria-label={t("ui.plan_included_kinds")}><span class="meta">{t("ui.plan_included_kinds")}</span>{["clinic", "social", "tournament"].map((k) => <label class="check">
             <input type="checkbox" checked={f.kinds.includes(k)} onChange={(e) => setF({ ...f, kinds: e.currentTarget.checked ? [...f.kinds, k] : f.kinds.filter((x) => x !== k) })} /> {t(`kind.${k}` as Key)}</label>)}</div>}

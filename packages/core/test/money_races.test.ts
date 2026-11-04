@@ -56,7 +56,7 @@ before(async () => {
   owner = { personId: (s.result as any).owner_person_id, via: "test", lang: "en" };
   monthly = ((await run(db, "membership.plan_set", { name: "Monthly", price_cents: 8000, period: "month" }, owner, opts)).result as any).plan_id;
   family = ((await run(db, "membership.plan_set", { name: "Family", price_cents: 12000, period: "month", family_size: 2, extra_person_cents: 3000 }, owner, opts)).result as any).plan_id;
-  for (const name of ["Lee", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kit", "Max", "Ned", "Oli", "Rae", "Sol", "Tia", "Uma", "Vic", "Wes"])
+  for (const name of ["Lee", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kit", "Max", "Ned", "Oli", "Rae", "Sol", "Tia", "Uma", "Vic", "Wes", "Xan", "Yul", "Zed", "Abe"])
     people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner, opts)).result as { person_id: string }).person_id;
   await run(db, "role.assign", { person_id: people.Lee, role: "front_desk" }, owner, opts);
   desk = as("Lee");
@@ -240,4 +240,100 @@ test("desk money: a front desk kept to one location gives back its own location'
   await rejects(plan(db, "booking.record_payment", { booking_id: open, cents: 100, method: "cash" }, sup, opts), "error.forbidden_reason");
   for (const a of ["booking.record_payment", "enrolment.record_payment", "membership.sell", "membership.record_payment", "refund.give_back"]) assert.ok(appOnly(getAction(a)), `${a} is the app's alone`);
   await rejects(plan(db, "refund.give_back", { refund_id: left.id }, { ...owner, auth: "oauth" }, opts), "error.assistant_in_app");
+});
+
+test("a booking cancelled while its organiser has the card form open: the card form is called off at Stripe", async () => {
+  const r = (await run(db, "booking.request", { court_id: court, starts_at: "2026-11-13T10:00:00-08:00", minutes: 90, pay: "whole", person_id: people.Hal }, as("Hal"), opts)).result as { booking_id: string; payment_id: string };
+  await openPayment(db, r.payment_id, people.Hal!);
+  await run(db, "booking.cancel", { booking_id: r.booking_id }, desk, opts);
+  await processOutbox(db, moneyHandlers, 100, NOW);
+  assert.equal(stripe.intents.get(await refOf(r.payment_id))!.status, "failed", "called off: it can't be paid now");
+  assert.equal(await checkPayment(db, r.payment_id, "webhook", NOW), "failed");
+});
+
+test("the card goes through before the call-off reaches Stripe: the money is recorded, and all of it goes back", async () => {
+  const clearing = await held("provider_clearing");
+  const r = (await run(db, "booking.request", { court_id: court, starts_at: "2026-11-13T14:00:00-08:00", minutes: 90, pay: "whole", person_id: people.Cal }, as("Cal"), opts)).result as { booking_id: string; payment_id: string };
+  await openPayment(db, r.payment_id, people.Cal!);
+  await run(db, "booking.cancel", { booking_id: r.booking_id }, desk, opts);
+  stripe.settle(await refOf(r.payment_id), "succeeded");   // Cal taps Pay anyway
+  assert.equal(await checkPayment(db, r.payment_id, "webhook", NOW), "succeeded");
+  const pay = await db.selectFrom("payment").select(["status", "amount_cents"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
+  assert.deepEqual([pay.status, await refunds(r.payment_id)], ["succeeded", [{ amount_cents: pay.amount_cents, destination: "card", status: "pending" }]]);
+  await processOutbox(db, moneyHandlers, 100, NOW);   // the call-off finds it paid; the refund goes
+  assert.deepEqual((await refunds(r.payment_id)).map((x) => x.status), ["sent"]);
+  assert.equal(await held("provider_clearing"), clearing, "in and out again");
+});
+
+test("a program cancelled while a place's card form is open: called off at Stripe, and paid anyway it all goes back", async () => {
+  const c = await clinic("Called off");
+  const a = await enrol(c, "Zed"), b = await enrol(c, "Abe");
+  await openPayment(db, a.payment_id, people.Zed!);
+  await openPayment(db, b.payment_id, people.Abe!);
+  stripe.settle(await refOf(b.payment_id), "succeeded");   // Abe pays as the club cancels, before the call-off
+  await run(db, "program.cancel", { program_id: c }, owner, opts);
+  await checkPayment(db, b.payment_id, "webhook", NOW);
+  await processOutbox(db, moneyHandlers, 100, NOW);
+  assert.equal(stripe.intents.get(await refOf(a.payment_id))!.status, "failed");
+  assert.deepEqual((await refunds(b.payment_id)).map((x) => [x.amount_cents, x.status]), [[3000, "sent"]]);
+});
+
+test("one card payment for several dates, settled through two of its rows at once: no deadlock, each date paid once", async () => {
+  const social = ((await run(db, "program.create", { location_id: west, kind: "social", name: "Friday social", capacity: 12, price_cents: 1500, sign_up: "per_session" }, owner, opts)).result as { program_id: string }).program_id;
+  const ids = ((await run(db, "session.add", { program_id: social, starts_at: "2026-12-04T18:00:00-08:00", ends_at: "2026-12-04T19:30:00-08:00", court_ids: [westCourt], weeks: 3 }, owner, opts)).result as { session_ids: string[] }).session_ids;
+  await run(db, "program.publish", { program_id: social }, owner, opts);
+  const revenue = await held("revenue", "programs");
+  for (const who of ["Ann", "Ben", "Uma", "Vic", "Wes", "Jo"]) {
+    await run(db, "enrolment.join_dates", { program_id: social, person_id: people[who], session_ids: ids }, as(who), opts);
+    const rows = await db.selectFrom("payment").innerJoin("enrolment", "enrolment.id", "payment.enrolment_id").select(["payment.id", "payment.group_id"])
+      .where("payment.person_id", "=", people[who]!).where("enrolment.program_id", "=", social).where("payment.status", "=", "pending").orderBy("payment.id").execute();
+    assert.equal(rows.length, 3);
+    await openPayment(db, rows[0]!.id, people[who]!);
+    stripe.settle(await refOf(rows[0]!.id), "succeeded");
+    assert.deepEqual(await Promise.all([checkPayment(db, rows[0]!.id, "card-form", NOW), checkPayment(db, rows[2]!.id, "webhook", NOW)]), ["succeeded", "succeeded"], who);
+  }
+  assert.equal(await held("revenue", "programs") - revenue, -6 * 3 * 1500);
+});
+
+test("076's count for a card payment asked before the update: a pause alone keeps it the current period", async () => {
+  const join = (await run(db, "membership.join", { plan_id: monthly, person_id: people.Sol }, as("Sol"), opts)).result as { payment_id: string };
+  await cardPaid(join.payment_id, "Sol");
+  const m0 = await membership("Sol");
+  stripe.failNextCharge = "card_declined";
+  await renewMemberships(db, m0.current_period_end!);
+  const at = { now: new Date(m0.current_period_end!.getTime() + 3600_000) };
+  const ask = await db.selectFrom("payment").select("id").where("membership_id", "=", m0.id).where("status", "=", "pending").executeTakeFirstOrThrow();
+  await openPayment(db, ask.id, people.Sol!);
+  await run(db, "membership.pause", { membership_id: m0.id, until: "2026-12-20" }, desk, at);
+  // As it stood under 075 (the ask kept the period end it was asked at), then 076's backfill.
+  const { sql } = await import("kysely");
+  const m076 = (await import("node:fs")).readFileSync(new URL("../../../migrations/076_money_fixes.sql", import.meta.url), "utf8");
+  const backfill = m076.slice(m076.indexOf("UPDATE payment SET for_period_no"), m076.indexOf(";", m076.indexOf("UPDATE payment SET for_period_no")));
+  await sql`ALTER TABLE payment ADD COLUMN for_period_end timestamptz`.execute(db);
+  try {
+    await sql`UPDATE payment SET for_period_end = ${m0.current_period_end}, for_period_no = NULL WHERE id = ${ask.id}`.execute(db);
+    await sql.raw(backfill).execute(db);
+  } finally { await sql`ALTER TABLE payment DROP COLUMN for_period_end`.execute(db); }
+  assert.equal((await db.selectFrom("payment").select("for_period_no").where("id", "=", ask.id).executeTakeFirstOrThrow()).for_period_no, (await membership("Sol")).period_no);
+  stripe.settle(await refOf(ask.id), "succeeded");
+  await checkPayment(db, ask.id, "test", at.now);
+  assert.deepEqual(await refunds(ask.id), []);
+});
+
+test("memberships belong to no location: a front desk kept to one does every membership change, and still nothing at another location", async () => {
+  await run(db, "role.assign", { person_id: people.Hal, role: "front_desk", location_id: loc }, owner, opts);
+  const hal = as("Hal");
+  people.Ruby = ((await run(db, "household.add_junior", { person_id: people.Xan, display_name: "Ruby", birth_year: 2015 }, as("Xan"), opts)).result as { person_id: string }).person_id;
+  const sold = (await run(db, "membership.sell", { person_id: people.Xan, plan_id: family, cents: 12000, method: "cash" }, hal, opts)).result as { membership_id: string };
+  await run(db, "membership.add_person", { membership_id: sold.membership_id, person_id: people.Ruby }, hal, opts);
+  await run(db, "membership.remove_person", { membership_id: sold.membership_id, person_id: people.Ruby }, hal, opts);
+  await run(db, "membership.pause", { membership_id: sold.membership_id, until: "2026-11-20" }, hal, opts);
+  await run(db, "membership.unpause", { membership_id: sold.membership_id }, hal, opts);
+  const given = (await run(db, "membership.grant", { person_id: people.Yul, plan_id: monthly, until: "2026-12-31" }, hal, opts)).result as { membership_id: string };
+  await run(db, "membership.end", { membership_id: given.membership_id }, hal, opts);
+  // Another location's things stay out of reach.
+  const there = ((await run(db, "booking.create", { court_id: westCourt, starts_at: "2026-11-24T10:00:00-08:00", minutes: 60, person_id: people.Sol }, desk, opts)).result as { booking_id: string }).booking_id;
+  await rejects(plan(db, "booking.record_payment", { booking_id: there, cents: 100, method: "cash" }, hal, opts), "error.forbidden_reason");
+  const e = await enrol(await clinic("Westside clinic", west, westCourt), "Jo");
+  await rejects(plan(db, "enrolment.record_payment", { enrolment_id: e.enrolment_id, cents: 100, method: "cash" }, hal, opts), "error.forbidden_reason");
 });

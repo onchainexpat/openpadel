@@ -100,11 +100,17 @@ server starts.
 
 ### Fixed
 Found by a review of the money paid at the desk (above), most of it in code older than that change.
+- **A payment called off while its card form was open could still be paid, and the money went unrecorded (in
+  0.2.0).** Cancelling a booking (or a program, or a friend's share at the deadline) marked its payment failed but
+  left the card form open at Stripe: the member could pay, the card was charged, and Kumi neither counted nor
+  refunded it. Now the card payment is called off at Stripe too, and if the card goes through first, the money is
+  recorded and all of it goes back to the card.
 - **A card payment settled twice at once was counted twice (in 0.2.0).** The card form's return, Stripe's webhook and
   the minute job can each settle a payment, and two at the same moment both did: the books counted it twice, a late
   renewal paid in the app could add two periods, a new member could get the membership and all of the payment back,
   and (since the desk change) a next period paid by card was added and all of it went back too. A payment is now
-  settled once, whichever comes first; the others find it done.
+  settled once, whichever comes first; the others find it done, and one card payment for several dates settled
+  through two of them at once no longer stops one with a database deadlock.
 - **A refund could be more than was left of its payment (in 0.2.0).** Cancelling a booking that had been made shorter
   or moved somewhere cheaper (with part already back) worked the club's rule out from all that was paid, so the desk
   was told to hand back more than it took; a card's excess was refused by Stripe. Every refund now comes from what's
@@ -127,14 +133,17 @@ Found by a review of the money paid at the desk (above), most of it in code olde
 - **"1,200" in a money box was read as $1.20 (in 0.2.0).** Amounts in the staff app are read the US way, a comma between
   thousands and a point before the cents, in English and Spanish alike, and one that could mean either ("12,5") is
   refused with how to write it.
-- **A page from a release since replaced** could draw with no words when its files were gone. Kumi tries again, then
-  reloads once for the new release, and otherwise says it was updated, with a button to reload.
+- **A page from a release since replaced** could draw with no words when its files were gone. Kumi tries again; if
+  the server now runs another release it reloads once for it, and when the connection is the trouble it says the
+  page didn't load, with a button to try again.
 - **Who does desk money.** Recording money taken at the desk and handing it back are the staff's own: never support
   access, and never an assistant, which can't see money change hands (in 0.2.0 both could record a court booking's
   payment). A front desk kept to one location hands back money for its own location's bookings and places and
   sells memberships, which belong to no location. A coach looking at their own student's page no longer sees what's
   waiting at the desk for them, or refunds that failed.
 - The desk's day reads from an index of the changes that take or hand back money at the desk, not all of them.
+- **Every membership change belongs to no location**, like selling one: a front desk kept to one location gives,
+  ends, pauses and changes memberships, and still reaches only its own location's bookings and programs.
 
 ### When updating
 - If club.yaml names a privacy policy or terms under `texting:`, `kumi setup apply` links them for members too (while
@@ -338,6 +347,8 @@ to go live.
 - US clubs: US dollars and US formats, English and US Spanish, texts to US and Canadian numbers only.
 - Cards only (Apple Pay and Google Pay included); no credit, gift cards, vouchers or drop-in passes. The
   desk records cash for bookings (and, after 0.2.0, for memberships and program places too: Unreleased, above).
+  A program place partly paid at the desk is kept, never let go for being unpaid, and the rest of it is never
+  reminded: it shows as owed on the roster and in the member's app.
 - Tournaments and leagues run as programs, without draws or fixtures. No chat between players, no
   recurring bookings, and no app store apps (the members' app installs from the browser).
 - Playtomic is read only, and needs one of its top two plans for the API keys.

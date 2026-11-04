@@ -4,6 +4,7 @@ import { sql } from "kysely";
 import type { Db } from "./db.ts";
 import { runAsSystem } from "./actions.ts";
 import { paymentProvider } from "./money.ts";
+import { checkPayment } from "./programs.ts";
 
 export interface OutboxEvent { id: string; topic: string; payload: any; created_at: Date; attempts: number }
 export type Handler = (db: Db, payload: any, event?: OutboxEvent) => Promise<void>;
@@ -49,6 +50,15 @@ export function combine(...sets: Record<string, Handler>[]): Record<string, Hand
 /** The money handlers: send each requested refund to the provider, once, then record the outcome. */
 const REFUND_GIVE_UP_TRIES = 8;   // 30 s, 1, 2, 4, 8, 16 and 32 minutes between them: about an hour
 export const moneyHandlers: Record<string, Handler> = {
+  /** A payment called off while its card form was open (desk_pay.ts, callOff): the intent is cancelled at the
+   *  provider so the card can't go through later. Gone through already, it's settled like any other: the money is
+   *  recorded, and what it was for decides what goes back. */
+  async "payment.call_off"(db, payload: { payment_id: string }) {
+    const p = await db.selectFrom("payment").select(["status", "provider_ref", "provider_account"]).where("id", "=", payload.payment_id).executeTakeFirst();
+    if (!p?.provider_ref || p.status !== "failed") return;
+    const { status } = await paymentProvider().cancelIntent(p.provider_ref, p.provider_account);
+    if (status === "succeeded") await checkPayment(db, payload.payment_id, "outbox");
+  },
   async "refund.requested"(db, payload: { refund_id: string }, ev) {
     const r = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
       .select(["refund.id", "refund.status", "refund.destination", "refund.amount_cents", "payment.provider_ref", "payment.provider_account"]).where("refund.id", "=", payload.refund_id).executeTakeFirstOrThrow();

@@ -3558,6 +3558,8 @@ export const en = {
   "ui.amount_format": "Write the amount like 1,200.50: a comma between thousands, and a point before the cents.",
   "ui.app_updated": "Kumi was updated while this page was open.",
   "ui.reload": "Reload",
+  "ui.page_not_loaded": "This page didn't load. Check the connection, then try again.",
+  "ui.try_again": "Try again",
   "ui.paid_how": "Paid",
   "ui.sell_membership_hint": "Covers one period from today and doesn't renew by itself: the member is reminded a week before it ends, and pays the next period at the desk or in the app.",
   "ui.membership_desk_paid": "paid at the desk",

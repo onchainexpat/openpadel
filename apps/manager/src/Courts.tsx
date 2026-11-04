@@ -5,6 +5,7 @@
 // device's clock says.
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
+import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
 import { api, club, dollars, lang, lazyPage, mayDo, me, t, usePreview } from "@kumi/ui";
 import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
 
@@ -386,7 +387,7 @@ function DeskBooking({ court, starts, until, clock, preview, onClose }: { court:
   const submit = (e: Event) => {
     e.preventDefault();
     preview("booking.create", { court_id: court.id, starts_at: f.start, minutes: Number(f.minutes), ...(person ? { person_id: person.id } : { guest_name: f.guest }),
-      ...(f.price ? { price_cents: Math.round(Number(f.price) * 100) } : {}) });
+      ...(f.price ? { price_cents: parseDollars(f.price) ?? NaN } : {}) });
   };
   return (
     <form class="card card-form" onSubmit={submit}>
@@ -400,7 +401,7 @@ function DeskBooking({ court, starts, until, clock, preview, onClose }: { court:
         <label>{t("ui.or_guest_name")}<input value={f.guest} onInput={(e) => setF({ ...f, guest: e.currentTarget.value })} /></label>
       </>}
       {quoted && <p class="meta">{quoted.priced ? t("ui.quoted_price", { amount: dollars(quoted.total_cents, lang.value) }) : t("ui.no_price_then")}{quoted.member ? ` · ${t("ui.member_price", { plan: quoted.member })}` : ""}</p>}
-      <label>{t("ui.price_override")}<input inputMode="decimal" value={f.price} placeholder={quoted ? dollars(quoted.total_cents, lang.value) : ""} onInput={(e) => setF({ ...f, price: e.currentTarget.value })} /></label>
+      <label>{t("ui.price_override")}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.price} placeholder={quoted ? dollars(quoted.total_cents, lang.value) : ""} onInput={(e) => setF({ ...f, price: e.currentTarget.value })} /></label>
       <button class="primary" disabled={!f.start || (!person && !f.guest.trim())}>{t("ui.preview")}</button>
       <button type="button" class="link" onClick={onClose}>{t("ui.cancel")}</button>
     </form>

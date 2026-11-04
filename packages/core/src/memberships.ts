@@ -16,7 +16,7 @@ import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts, onDate } from "./clock.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { householdOf, withManagers } from "./households.ts";
-import { deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
+import { callOff, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 import { declineReason } from "./declines.ts";
 import { isReadOnly, refuseWhenReadOnly } from "./read_only.ts";
 
@@ -120,7 +120,7 @@ const planInput = {
   translations: translationsInput("membership_plan"),
 };
 export const planSet = defineAction({
-  name: "membership.plan_set", version: 1,
+  name: "membership.plan_set", version: 1, clubWide: true,
   input: z.object({ plan_id: z.optional(z.uuid()), ...planInput }),
   async plan(ctx, i) {
     const reads = i.plan_id ? [(await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan")).read] : [];
@@ -155,7 +155,7 @@ export const planSet = defineAction({
 });
 
 export const planRemove = defineAction({
-  name: "membership.plan_remove", version: 1,
+  name: "membership.plan_remove", version: 1, clubWide: true,
   input: z.object({ plan_id: z.uuid() }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan");
@@ -166,7 +166,7 @@ export const planRemove = defineAction({
 
 // ---- Memberships ----
 export const membershipGrant = defineAction({
-  name: "membership.grant", version: 1,
+  name: "membership.grant", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid(), plan_id: z.uuid(), until: z.optional(z.nullable(clubDate)), note: z.optional(z.string().check(z.maxLength(200))) }),
   async plan(ctx, i) {
     const { row: person } = await readRow(ctx.db, "person", i.person_id, "thing.person");
@@ -192,7 +192,7 @@ export const membershipGrant = defineAction({
 });
 
 export const membershipEnd = defineAction({
-  name: "membership.end", version: 1,
+  name: "membership.end", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid(), note: z.optional(z.string().check(z.maxLength(200))) }),
   async plan(ctx, i) {
     const { row: m, read } = await readRow(ctx.db, "membership", i.membership_id, "thing.membership");
@@ -286,7 +286,7 @@ async function closeRenewalAlert(ctx: ApplyCtx, membershipId: string) {
 /** Payments asked of the member for a renewal that no card form has opened yet: not needed any more. */
 async function dropPayNow(ctx: ApplyCtx, membershipId: string) {
   for (const p of await ctx.trx.selectFrom("payment").select("id").where("membership_id", "=", membershipId).where("status", "=", "pending").where("provider_ref", "is", null).execute())
-    await ctx.update("payment", p.id, { status: "failed" });
+    await callOff(ctx, p.id);
 }
 
 /** After a membership payment succeeds (called by payment.settle): joining starts the membership; paying a
@@ -323,7 +323,7 @@ export async function afterMembershipPayment(ctx: ApplyCtx, pay: { id: string; p
 }
 
 export const membershipJoin = defineAction({
-  name: "membership.join", version: 1,
+  name: "membership.join", version: 1, clubWide: true,
   input: z.object({ plan_id: z.uuid(), person_id: z.uuid() }),
   async plan(ctx, i) {
     const { row: plan, read } = await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan");
@@ -384,7 +384,7 @@ async function membershipRow(db: Db | Trx, id: string) {
 }
 
 export const membershipCancel = defineAction({
-  name: "membership.cancel", version: 1,
+  name: "membership.cancel", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid() }),
   async plan(ctx, i) {
     const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
@@ -419,7 +419,7 @@ export const membershipCancel = defineAction({
 });
 
 export const membershipResume = defineAction({
-  name: "membership.resume", version: 1,
+  name: "membership.resume", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid() }),
   async plan(ctx, i) {
     const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
@@ -628,7 +628,7 @@ export async function periodCents(db: Db | Trx, m: { id: string; price_cents: nu
 const usdText = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 
 export const membershipAddPerson = defineAction({
-  name: "membership.add_person", version: 1,
+  name: "membership.add_person", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid(), person_id: z.uuid() }),
   async plan(ctx, i) {
     const { m, read, plan, person: payer } = await membershipRow(ctx.db, i.membership_id);
@@ -695,7 +695,7 @@ export const membershipAddPerson = defineAction({
 });
 
 export const membershipRemovePerson = defineAction({
-  name: "membership.remove_person", version: 1,
+  name: "membership.remove_person", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid(), person_id: z.uuid() }),
   async plan(ctx, i) {
     const { m, read, plan } = await membershipRow(ctx.db, i.membership_id);
@@ -733,7 +733,7 @@ function deskOff(m: Record<string, any>, row: { extra: boolean }): number {
 
 // ---- Pausing (the club does it: an injury, a long trip) ----
 export const membershipPause = defineAction({
-  name: "membership.pause", version: 1,
+  name: "membership.pause", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid(), until: clubDate, note: z.optional(z.string().check(z.maxLength(200))) }),
   async plan(ctx, i) {
     const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
@@ -759,7 +759,7 @@ export const membershipPause = defineAction({
 });
 
 export const membershipUnpause = defineAction({
-  name: "membership.unpause", version: 1,
+  name: "membership.unpause", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid() }),
   async plan(ctx, i) {
     const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
@@ -892,7 +892,7 @@ export const membershipRecordPayment = defineAction({
 /** A member pays the next period of a membership from the desk by card in the app, when its plan is one they could
  *  join there. Nothing renews from that card: the next period is paid the same way, or at the desk. */
 export const membershipPayNext = defineAction({
-  name: "membership.pay_next", version: 1,
+  name: "membership.pay_next", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid() }),
   async plan(ctx, i) {
     const { m, read, plan } = await membershipRow(ctx.db, i.membership_id);

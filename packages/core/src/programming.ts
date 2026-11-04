@@ -13,6 +13,7 @@ import { KumiError } from "./errors.ts";
 import { textOf } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { paymentProvider } from "./money.ts";
+import { callOff } from "./desk_pay.ts";
 import { localDate, onDate } from "./clock.ts";
 import { coachBusy, isCoach } from "./lessons.ts";
 import { withManagers } from "./households.ts";
@@ -237,7 +238,7 @@ async function cancelDates(ctx: ApplyContext, programId: string, sessionIds: str
       // What's still owed for it: the new price. One a card form already opened is called off, and a new one asked.
       for (const pay of await ctx.trx.selectFrom("payment").select(["id", "provider_ref"]).where("enrolment_id", "=", g.enrolment_id).where("status", "=", "pending").execute()) {
         if (!pay.provider_ref) { await askAgain(ctx, pay.id, g.reprice); continue; }   // never a new amount on the same payment (programs.ts)
-        await ctx.update("payment", pay.id, { status: "failed" });
+        await callOff(ctx, pay.id);
         if (g.reprice > 0) await ctx.insert("payment", { id: uuidv7(), person_id: g.person_id, amount_cents: g.reprice, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", enrolment_id: g.enrolment_id });
       }
     }
@@ -246,7 +247,7 @@ async function cancelDates(ctx: ApplyContext, programId: string, sessionIds: str
     for (const o of await ctx.trx.selectFrom("waitlist_offer").select("id").where("enrolment_id", "=", g.enrolment_id).where("outcome", "is", null).execute()) await ctx.update("waitlist_offer", o.id, { outcome: "expired" });
     // A place on a cancelled date that wasn't paid for yet can't be paid any more.
     if (g.leaves && !c.entire) for (const pay of await ctx.trx.selectFrom("payment").select("id").where("enrolment_id", "=", g.enrolment_id).where("status", "=", "pending").where("provider_ref", "is", null).execute())
-      await ctx.update("payment", pay.id, { status: "failed" });
+      await callOff(ctx, pay.id);
   }
   // Per date: nobody needs telling when a place opens on a cancelled date.
   if (perDate(p)) for (const w of await ctx.trx.selectFrom("program_watch").select("id").where("session_id", "in", sessionIds.length ? sessionIds : ["00000000-0000-0000-0000-000000000000"]).where("told_at", "is", null).where("ended_at", "is", null).execute())
@@ -254,7 +255,7 @@ async function cancelDates(ctx: ApplyContext, programId: string, sessionIds: str
   if (c.entire) {
     // Places not paid for yet can't be paid any more; nobody needs telling when one opens.
     for (const pay of await ctx.trx.selectFrom("payment").innerJoin("enrolment", "enrolment.id", "payment.enrolment_id").select("payment.id")
-      .where("enrolment.program_id", "=", programId).where("payment.status", "=", "pending").execute()) await ctx.update("payment", pay.id, { status: "failed" });
+      .where("enrolment.program_id", "=", programId).where("payment.status", "=", "pending").execute()) await callOff(ctx, pay.id);   // a card form opened is called off too
     for (const w of await ctx.trx.selectFrom("program_watch").select("id").where("program_id", "=", programId).where("told_at", "is", null).where("ended_at", "is", null).execute())
       await ctx.update("program_watch", w.id, { ended_at: ctx.now });
     await ctx.update("program", programId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: reason, ...(reason === "below_minimum" ? { min_decided_at: ctx.now } : {}) });

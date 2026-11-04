@@ -3559,6 +3559,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.amount_format": "Escribe el monto así: 1,200.50, con una coma entre los miles y un punto antes de los centavos.",
   "ui.app_updated": "Kumi se actualizó mientras esta página estaba abierta.",
   "ui.reload": "Volver a cargar",
+  "ui.page_not_loaded": "Esta página no cargó. Revisa la conexión y vuelve a intentarlo.",
+  "ui.try_again": "Volver a intentar",
   "ui.paid_how": "Pagado",
   "ui.sell_membership_hint": "Cubre un periodo desde hoy y no se renueva sola: al miembro se le recuerda una semana antes de que termine, y paga el próximo periodo en recepción o en la app.",
   "ui.membership_desk_paid": "pagada en recepción",

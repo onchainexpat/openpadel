@@ -20,7 +20,7 @@ import { band, joinRule, levelOf, openMatchOf } from "./match_rules.ts";
 import { managersOf, notJunior, requireWaiver, withManagers } from "./households.ts";
 import { kidOf, overRules, paymentsWhat } from "./kids.ts";
 import { isReadOnly } from "./read_only.ts";
-import { backSql, bookingRevenue, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
+import { backSql, bookingRevenue, callOff, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 
 /** How long a court is held while the organiser pays. */
 export const HOLD_MINUTES = 10;
@@ -486,7 +486,7 @@ export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: {
   for (const r of refunds) await refundPayment(ctx, r.payment_id, r.cents);
   // Shares not paid yet can't be paid any more.
   for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
-    .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await ctx.update("payment", p.id, { status: "failed" });
+    .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await callOff(ctx, p.id);
   await ctx.emit("booking.cancelled", { booking_id: bookingId, by: ctx.actor.personId });
 }
 /** Someone who still owes on a court (the deadline charge that didn't go through, or time owed at the desk on a
@@ -552,7 +552,7 @@ export const bookingSettleShares = defineAction({
     for (const p of await ctx.trx.selectFrom("booking_player").select("id").where("booking_id", "=", b.id).where("removed_at", "is", null).where("held_until", "is not", null).execute())
       await ctx.update("booking_player", p.id, { removed_at: ctx.now });
     for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
-      .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "pending").execute()) await ctx.update("payment", p.id, { status: "failed" });
+      .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "pending").execute()) await callOff(ctx, p.id);
     if (unpaid <= 0) { await ctx.update("booking", b.id, { settled_at: ctx.now }); return { charged: 0 }; }
     // Read-only (read_only.ts): no card is charged. What's unpaid stays owed to the club, as after a declined card.
     if (await isReadOnly(ctx.trx)) {
@@ -613,7 +613,7 @@ async function cancelUnfilled(ctx: ApplyCtx, bookingId: string) {
   await ctx.update("booking", bookingId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: "not_filled" });
   for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", bookingId).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
   for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
-    .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await ctx.update("payment", p.id, { status: "failed" });
+    .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await callOff(ctx, p.id);
   // Who hears it, with what comes back to each (worked out now, not when the message is written).
   const seats = await ctx.trx.selectFrom("booking_player").select(["id", "person_id"]).where("booking_id", "=", bookingId).where("removed_at", "is", null).execute();
   const players: { person_id: string; cents: number }[] = [];

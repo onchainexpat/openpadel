@@ -2,6 +2,7 @@
 import { signal, computed, effect } from "@preact/signals";
 import { h, type ComponentType } from "preact";
 import { lazy } from "preact-iso";
+import { useState } from "preact/hooks";
 import { format, LANGS, pickLang, type Catalog, type Key, type Lang, type Params } from "@kumi/i18n/format";
 
 export type Me = { person: { id: string; display_name: string; locale: string }; signed_in_with: "email_code" | "phone_code" | "passkey" | "two_factor"; lang: Lang;
@@ -72,12 +73,21 @@ export const wordingReady: Promise<void> = firstWording(lang.peek()).catch(() =>
 let following = false;
 const followLanguage = () => { if (!following) { following = true; effect(() => { loadWording(lang.value).catch(() => undefined); }); } };
 /** A page loaded when it's first opened (preact-iso's lazy), which also waits for the rest of the wording. Each is
- *  tried twice. A page (or its words) still missing is most likely from a release since replaced, whose files are
- *  gone: the app reloads once for the new one, and if that was a minute ago, says so instead of drawing a page
- *  with no words. */
+ *  tried twice. Still missing, the page never draws without its words: if the server now runs another release
+ *  (this page's files have gone with the old one), the app reloads once for it; otherwise (offline, a network
+ *  blip) it says the page didn't load, with a button that tries again, no reload. */
 export const lazyPage = <T extends ComponentType<any>>(load: () => Promise<T>) =>
-  lazy(() => Promise.all([twice(load), twice(() => loadWording(lang.peek()))]).then(([c]) => c, () => (reloadOnce() ? new Promise<never>(() => {}) : Updated) as Promise<T> | T));
+  lazy(() => loadPage(load).catch(async () => (await newRelease() && reloadOnce() ? new Promise<never>(() => {}) : unloaded(load)) as Promise<T> | T));
 const twice = <R>(f: () => Promise<R>) => f().catch(() => f());
+const loadPage = <T,>(load: () => Promise<T>) => Promise.all([twice(load), twice(() => loadWording(lang.peek()))]).then(([c]) => c);
+/** Whether the server runs another release than this page came from: its page names another entry file. False
+ *  when it can't be reached, or names this one. */
+async function newRelease(): Promise<boolean> {
+  const mine = document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute("src");
+  if (!mine || !navigator.onLine) return false;
+  try { return !(await (await fetch("/", { cache: "no-store", credentials: "same-origin" })).text()).includes(mine); }
+  catch { return false; }
+}
 const RELOADED = "kumi:reloaded";
 function reloadOnce(): boolean {
   try {
@@ -87,8 +97,17 @@ function reloadOnce(): boolean {
   location.reload();
   return true;
 }
-/** In place of a page that wouldn't load: its words are the first screen's, which are always here. */
-const Updated = () => h("p", { class: "notice" }, t("ui.app_updated"), " ", h("button", { class: "small", onClick: () => location.reload() }, t("ui.reload")));
+/** In place of a page that wouldn't load, with the first screen's words (always here): try again, and draw the
+ *  page once it comes; or, for a release since replaced that a reload a minute ago didn't fix, reload. */
+function unloaded<T extends ComponentType<any>>(load: () => Promise<T>) {
+  return function Unloaded(props: Record<string, unknown>) {
+    const [page, setPage] = useState<{ c: T } | null>(null), [state, setState] = useState<"failed" | "trying" | "updated">("failed");
+    if (page) return h(page.c, props);
+    if (state === "updated") return h("p", { class: "notice" }, t("ui.app_updated"), " ", h("button", { class: "small", onClick: () => location.reload() }, t("ui.reload")));
+    const again = () => { setState("trying"); loadPage(load).then((c) => setPage({ c }), async () => setState(await newRelease() ? "updated" : "failed")); };
+    return h("p", { class: "notice" }, t("ui.page_not_loaded"), " ", h("button", { class: "small", disabled: state === "trying", onClick: again }, t("ui.try_again")));
+  };
+}
 export const t = (key: Key, params?: Params) => {
   const all = catalogs.value, l = all[lang.value] ? lang.value : lang.value === "en" ? "es" : "en";
   // A key the language's first part doesn't have yet (a page opened before the rest arrived) comes from the other.

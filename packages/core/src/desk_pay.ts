@@ -75,6 +75,20 @@ export async function refundTo(ctx: ApplyCtx, paymentId: string, cents: number, 
   if (!desk && status === "pending") await ctx.emit("refund.requested", { refund_id: id });
   return { id, desk, cents };
 }
+/** A payment not wanted any more (its booking cancelled, its date gone, asked again for another amount): failed
+ *  here, and a card form already opened for it is called off at the provider once this change is saved (the
+ *  outbox, payment.call_off: no call to the provider holds a lock). One card payment for several, some still
+ *  wanted, stays open for those. If the card goes through before it's called off, payment.settle records the
+ *  money and what it was for decides what goes back, as for several paid together. */
+export async function callOff(ctx: ApplyCtx, paymentId: string) {
+  const p = await ctx.trx.selectFrom("payment").select(["status", "provider_ref", "group_id"]).where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
+  if (p.status !== "pending") return;
+  await ctx.update("payment", paymentId, { status: "failed" });
+  if (!p.provider_ref) return;
+  const others = p.group_id ? await ctx.trx.selectFrom("payment").select("id").where("group_id", "=", p.group_id).where("provider_ref", "=", p.provider_ref)
+    .where("status", "=", "pending").executeTakeFirst() : null;
+  if (!others) await ctx.emit("payment.call_off", { payment_id: paymentId });
+}
 /** A refund that was waiting for a sub to pay is due now: a card's goes to the provider, the desk's waits there. */
 export async function refundDue(ctx: ApplyCtx, refundId: string) {
   const r = await ctx.trx.selectFrom("refund").select("destination").where("id", "=", refundId).executeTakeFirstOrThrow();
