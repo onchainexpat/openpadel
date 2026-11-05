@@ -107,6 +107,7 @@ export function Program({ id }: { id: string }) {
         <button class="primary" disabled={look.blocks.length > 0} onClick={() => preview("program.publish", { program_id: id })}>{t("ui.publish")}</button>
       </section>}
       {sheet}
+      {(p.kind === "tournament" || p.kind === "league") && <p><a class="button" href={`/programs/${id}/competition`}>{t("ui.open_competition")}</a></p>}
 
       <section class="card">
         <h2>{t("ui.dates")}</h2>

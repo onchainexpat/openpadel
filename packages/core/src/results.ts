@@ -11,6 +11,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { MODEL, shownLevel, shownOdds, update, winChance, type Skill } from "./levels.ts";
 import { rateGame, recompute } from "./ratings.ts";
+import { fixtureDecided, fixtureLocked, fixtureUndecided } from "./competitions.ts";
 
 /** How long the other side has to answer before the score counts as entered. */
 export const CONFIRM_HOURS = 48;
@@ -50,10 +51,19 @@ async function bookingFacts(db: Db | Trx, bookingId: string) {
   return { ...b, rated: Boolean(b.rated), when: { en: dateTime(new Date(b.start), "en", b.time_zone), es: dateTime(new Date(b.start), "es", b.time_zone) } as Text };
 }
 
+/** Where and when a game was played: its court booking's, or (a tournament or league match) its fixture's. */
+async function factsOf(db: Db | Trx, g: { booking_id: string | null; fixture_id: string | null }) {
+  if (g.booking_id) return bookingFacts(db, g.booking_id);
+  const f = await db.selectFrom("fixture").innerJoin("program", "program.id", "fixture.program_id").leftJoin("court", "court.id", "fixture.court_id").innerJoin("location", "location.id", "program.location_id")
+    .select(["program.location_id", "program.rated", "court.name as court", "location.time_zone", "fixture.starts_at"]).where("fixture.id", "=", g.fixture_id!).executeTakeFirstOrThrow();
+  const at = f.starts_at ?? new Date();
+  return { location_id: f.location_id, court: f.court ?? "", rated: f.rated, when: { en: dateTime(at, "en", f.time_zone), es: dateTime(at, "es", f.time_zone) } as Text };
+}
+
 /** A game and its sides, sets and booking, for the answers below. */
 export async function gameView(db: Db | Trx, gameId: string) {
   const g = await db.selectFrom("game").selectAll().where("id", "=", gameId).executeTakeFirst();
-  if (!g || !g.booking_id) throw new KumiError("error.not_found", { thing: both("thing.result") }, 404);
+  if (!g || (!g.booking_id && !g.fixture_id)) throw new KumiError("error.not_found", { thing: both("thing.result") }, 404);
   const sides = await db.selectFrom("game_side").innerJoin("person", "person.id", "game_side.person_id").select(["game_side.side", "game_side.person_id", "person.display_name"]).where("game_id", "=", gameId).orderBy("person.display_name").execute();
   const sets = await db.selectFrom("game_set").select(["a", "b"]).where("game_id", "=", gameId).orderBy("set_no").execute();
   const a = sides.filter((s) => s.side === "a"), b = sides.filter((s) => s.side === "b");
@@ -106,6 +116,7 @@ async function count(ctx: ApplyCtx, gameId: string) {
   const g = await ctx.trx.selectFrom("game").select(["rated"]).where("id", "=", gameId).executeTakeFirstOrThrow();
   await ctx.update("game", gameId, { status: "confirmed", editable_until: new Date(ctx.now.getTime() + DISPUTE_HOURS * 3600_000) });
   if (g.rated) await rateGame(ctx, gameId);
+  await fixtureDecided(ctx, gameId);   // a tournament or league match: its winner moves on
 }
 
 export const resultConfirm = defineAction({
@@ -115,7 +126,7 @@ export const resultConfirm = defineAction({
     const g = await gameView(ctx.db, i.game_id);
     if (g.status !== "awaiting_confirmation") throw new KumiError("error.result_answered");
     if (!g.b.some((p) => p.person_id === i.person_id)) throw new KumiError(g.a.some((p) => p.person_id === i.person_id) ? "error.other_side_confirms" : "error.not_in_match");
-    const b = await bookingFacts(ctx.db, g.booking_id!);
+    const b = await factsOf(ctx.db, g);
     return { title: both("action.result.confirm"), summary: both("plan.result.confirm", { score: g.score, teamA: g.teamA, teamB: g.teamB, counts: both(g.rated ? "result.counts_rated" : "result.counts_friendly") }),
       reads: [{ entity: "game", id: g.id, version: g.version }], locationId: b.location_id, ownerIds: [i.person_id], undo: { kind: "none", note: both("result.undo_dispute") } };
   },
@@ -136,7 +147,8 @@ export const resultDispute = defineAction({
     if (!side) throw new KumiError("error.not_in_match");
     const open = g.status === "awaiting_confirmation" || (g.status === "confirmed" && g.editable_until && g.editable_until > ctx.now);
     if (!open) throw new KumiError("error.dispute_closed", { hours: DISPUTE_HOURS });
-    const b = await bookingFacts(ctx.db, g.booking_id!);
+    if (g.fixture_id && await fixtureLocked(ctx.db, g.fixture_id)) throw new KumiError("error.next_match_played");
+    const b = await factsOf(ctx.db, g);
     return { title: both("action.result.dispute"), summary: both("plan.result.dispute", { score: g.score, teamA: g.teamA, teamB: g.teamB }),
       reads: [{ entity: "game", id: g.id, version: g.version }], locationId: b.location_id, ownerIds: [i.person_id], undo: { kind: "none" }, details: { side } };
   },
@@ -146,6 +158,7 @@ export const resultDispute = defineAction({
     await ctx.update("game", i.game_id, { status: "disputed" });
     // It had counted already: levels are replayed without it until the club decides.
     if (g.status === "confirmed" && g.rated) await recompute(ctx);
+    if (g.status === "confirmed") await fixtureUndecided(ctx, i.game_id);
     await ctx.emit("result.disputed", { game_id: i.game_id, person_id: i.person_id, note: i.note });
     return null;
   },
@@ -159,7 +172,8 @@ export const resultResolve = defineAction({
     const g = await gameView(ctx.db, i.game_id);
     if (g.status !== "disputed") throw new KumiError("error.not_disputed");
     if (i.outcome === "correct" && (!i.sets || i.sets.some((s) => s.a === s.b))) throw new KumiError("error.set_tied");
-    const b = await bookingFacts(ctx.db, g.booking_id!);
+    if (g.fixture_id && await fixtureLocked(ctx.db, g.fixture_id)) throw new KumiError("error.next_match_played");
+    const b = await factsOf(ctx.db, g);
     const p = { score: i.outcome === "correct" ? setsText(i.sets!) : g.score, teamA: g.teamA, teamB: g.teamB, court: b.court, when: b.when };
     return { title: both("action.result.resolve"), summary: both(`plan.result.${i.outcome}` as "plan.result.keep", p), reads: [{ entity: "game", id: g.id, version: g.version }],
       locationId: b.location_id, undo: { kind: "none" } };
@@ -175,6 +189,7 @@ export const resultResolve = defineAction({
       }
       await answer(ctx, i.game_id, ctx.actor.personId, null, i.outcome === "keep" ? "kept" : "corrected", i.note);
       await ctx.update("game", i.game_id, { status: "confirmed", editable_until: ctx.now });   // the club's word is final
+      await fixtureDecided(ctx, i.game_id);
     }
     // Levels as if this game had always been decided this way.
     const rated = (await ctx.trx.selectFrom("game").select("rated").where("id", "=", i.game_id).executeTakeFirstOrThrow()).rated;

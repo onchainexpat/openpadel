@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys } from "@kumi/core";
+import { competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
@@ -476,6 +476,19 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       dates: x.dates.map((d) => ({ id: d.id, starts_at: d.starts_at, ends_at: d.ends_at, courts: d.courts, coach: d.coach })),
       blocks: x.blocks.map((b) => b.text[l]), warnings: x.warnings.map((w) => w.text[l]),
     });
+  });
+
+  // A tournament or league: its pairs, who has a place without a partner, the draw, matches and tables.
+  app.get("/staff/programs/:id/competition", async (c) => {
+    const id = c.req.param("id");
+    const v = await competitionView(db, id);
+    const paired = new Set(v.entries.filter((e) => e.status === "invited" || e.status === "entered").flatMap((e) => [e.person_a, e.person_b]));
+    const single = await db.selectFrom("enrolment").innerJoin("person", "person.id", "enrolment.person_id").select(["person.id", "person.display_name"])
+      .where("enrolment.program_id", "=", id).where("enrolment.status", "=", "booked").orderBy("person.display_name").execute();
+    const courts = await db.selectFrom("court_time").innerJoin("session", "session.id", "court_time.session_id").innerJoin("court", "court.id", "court_time.court_id")
+      .select(["court.id", "court.name"]).distinct().where("session.program_id", "=", id).where("court_time.active", "=", true).execute();
+    const prog = await db.selectFrom("program").select(["kind", "name"]).where("id", "=", id).executeTakeFirstOrThrow();
+    return c.json({ ...v, kind: prog.kind, name: prog.name, without_partner: single.filter((p) => !paired.has(p.id)).map((p) => ({ id: p.id, name: p.display_name })), courts });
   });
 
   app.get("/staff/sessions/:id/night", async (c) => {

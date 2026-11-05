@@ -32,6 +32,8 @@ const READS: { name: string; title: Text; description: string; input: Record<str
     description: "One game's chat, as the person reads it (kind and id from my_chats). Reading only: it doesn't mark anything read, and an assistant never posts." },
   { name: "my_places", title: { en: "My bookings and places", es: "Mis reservas y plazas" }, input: {}, path: () => "/my/places",
     description: "This person's court bookings, matches, lessons and program places to come, with what they owe." },
+  { name: "my_competitions", title: { en: "My tournaments and leagues", es: "Mis torneos y ligas" }, input: {}, path: () => "/my/competitions",
+    description: "This person's tournament and league entries: invitations to answer, their partner, their next matches (court and time), results, scores to confirm, and the group or league table. Scores go through fixture_enter_preview, result_confirm_preview or result_dispute_preview." },
   { name: "my_level", title: { en: "My level", es: "Mi nivel" }, input: {}, path: () => "/my/level",
     description: "This person's level, how it moved and why, and their games." },
   { name: "my_membership", title: { en: "My membership", es: "Mi membresía" }, input: {}, path: () => "/my/membership",

@@ -40,6 +40,15 @@ server starts.
 - A chat goes 90 days after its game, with everything in it. A member's own messages are in their Download data,
   and deleting their account takes their words. "Players can message in their games" (Settings, The club) turns
   chats off; it starts on.
+- **Tournaments and leagues with draws and fixtures.** Members enter with a friend as their partner (both need a
+  place; the partner accepts in the app), or staff pair two people. A tournament is groups of 3 or 4 then a
+  knockout of each group's top two, or a straight knockout with byes to the top seeds; a league is a round robin,
+  once or twice. Matches are one set to 6, a pro set to 9, or best of three with a match tiebreak. Kumi suggests
+  courts and times on the program's own dates and courts (never two matches on a court, never a pair twice at
+  once), staff move any match, and players can ask for a move. Scores come from staff (they count at once) or from
+  the players with the usual 48-hour confirmation; walkovers and withdrawals are recorded, and the winners move on
+  by themselves. Group and league tables (2 points a win, 1 a loss played), each member's next matches on their
+  Tournaments page, the tables and results on the public page, and a read tool for members' assistants.
 
 ### Changed
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
@@ -68,6 +77,10 @@ server starts.
 - "No chat between players" is gone from the list too: chats in games are above. Juniors don't see chats yet, even
   ones with a login of their own; no photos or files; a changed message keeps no earlier version. A coach reads their
   own dates' chats in the members' app (the staff app's Chats is front desk and up).
+- Tournaments and leagues are for doubles pairs. No consolation draw yet, no self-scheduling (players ask, staff
+  move), and a league's pairs are fixed for the season (no subs for one match).
+- A time typed on the staff app is read in the device's time zone, as on a program's dates.
+- Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures".
 
 ## 0.2.1 (2026-11-04)
 

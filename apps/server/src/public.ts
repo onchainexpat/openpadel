@@ -5,7 +5,7 @@
 import { sql } from "kysely";
 import { Hono, type Context } from "hono";
 import { isLang, money, t, type Key, type Lang } from "@kumi/i18n";
-import { coachPhoto, factIn, inLang, lessonCoaches, trSql, localDate, membersFrom, planCounts, ruleWhen, searchFacts, TEXTS_FORM, type Db } from "@kumi/core";
+import { competitionView, coachPhoto, factIn, inLang, lessonCoaches, trSql, localDate, membersFrom, planCounts, ruleWhen, searchFacts, TEXTS_FORM, type Db } from "@kumi/core";
 
 /** Every value from the database goes through this before it reaches the page. */
 const h = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -136,6 +136,19 @@ ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}${footer(l, cl)}`;
       other: `${base}/public${l === "es" ? "" : "?lang=es"}`, brand: cl.brand_colour, body, jsonLd: [clubLd, ...coming.map((e) => eventLd(e, cl.name, cl.currency)), ...faqLd] }));
   });
 
+  async function drawHtml(l: Lang, programId: string, tz: string) {
+    const v = await competitionView(db, programId);
+    if (!v.competition) return "";
+    const tables = v.tables.map((tb) => `<h3>${h(tb.group === null ? t(l, "pub.table") : t(l, "pub.group", { n: tb.group }))}</h3><table><tbody>${tb.rows.map((r, k) =>
+      `<tr><td>${k + 1}</td><td>${h(r.name)}</td><td>${r.won}-${r.lost}</td>${tb.group === null ? `<td>${r.points}</td>` : ""}</tr>`).join("")}</tbody></table>`).join("");
+    const line = (f: (typeof v.fixtures)[number]) => `<li>${h(f.a)} ${f.score ? `<strong>${h(f.score)}</strong>` : f.walkover ? h(t(l, "pub.walkover")) : "-"} ${h(f.b)}${
+      !f.score && !f.walkover && f.starts_at ? ` <span class="meta">${h(f.court ?? "")}, ${h(fmt(l, tz, f.starts_at, { weekday: "short", hour: "numeric", minute: "2-digit" }))}</span>` : ""}</li>`;
+    const ko = v.fixtures.filter((f) => f.stage === "knockout" && f.status !== "bye");
+    const rounds = [...new Set(ko.map((f) => f.round))].map((r) => `<h3>${h(t(l, "ui.round", { n: r }))}</h3><ul>${ko.filter((f) => f.round === r).map(line).join("")}</ul>`).join("");
+    const rest = v.fixtures.filter((f) => f.stage !== "knockout" && f.status !== "bye");
+    return `<section><h2>${h(t(l, "pub.draw"))}</h2>${tables}${rest.length ? `<ul>${rest.map(line).join("")}</ul>` : ""}${rounds ? `<h2>${h(t(l, "pub.knockout"))}</h2>${rounds}` : ""}</section>`;
+  }
+
   app.get("/public/events/:id", async (c) => {
     const cl = await club();
     if (!cl.public_page) return off(c);
@@ -153,9 +166,11 @@ ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}${footer(l, cl)}`;
     const places = (s: (typeof sessions)[number]) => { const left = Math.max(0, Number(s.capacity) - Number(s.booked ?? 0)); return ` · ${h(left > 0 ? t(l, "ui.places_left", { count: left }) : t(l, "pub.full"))}`; };
     const dates = sessions.map((s) => `<li>${h(fmt(l, e.time_zone, s.starts_at, { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" }))} - ${h(fmt(l, e.time_zone, s.ends_at, { hour: "numeric", minute: "2-digit" }))}${perDate && s.starts_at > now ? places(s) : ""}</li>`).join("");
     const levels = e.level_min || e.level_max ? `<p>${h(t(l, "pub.levels", { min: e.level_min ?? "", max: e.level_max ?? "" }))}</p>` : "";
+    // A tournament or league once drawn: the tables and matches, with scores as they come in.
+    const draw = e.kind === "tournament" || e.kind === "league" ? await drawHtml(l, e.id, e.time_zone) : "";
     const body = `<header><p><a href="/public${l === "es" ? "?lang=es" : ""}">${h(cl.name)}</a></p><h1>${h(e.name)}</h1><p class="meta">${eventLine(l, e)}</p></header>
 <section><p>${h(t(l, `kind.${e.kind}` as Key))}${e.format ? ` · ${h(e.format)}` : ""}${e.rated ? ` · ${h(t(l, "ui.match_rated"))}` : ""}</p>${levels}<h2>${h(t(l, "pub.dates"))}</h2><ul>${dates}</ul>
-<p>${h(e.location)}${e.address ? `, ${h(e.address)}` : ""}</p><p><a class="button" href="/">${h(t(l, "pub.sign_up_event"))}</a></p></section>${footer(l, cl)}`;
+<p>${h(e.location)}${e.address ? `, ${h(e.address)}` : ""}</p><p><a class="button" href="/">${h(t(l, "pub.sign_up_event"))}</a></p></section>${draw}${footer(l, cl)}`;
     return html(c, page({ lang: l, title: `${e.name} · ${cl.name}`, description: `${e.name}: ${fmt(l, e.time_zone, e.first, { dateStyle: "long", timeStyle: "short" })}, ${cl.name}`,
       canonical: `${base}/public/events/${e.id}${l === "es" ? "?lang=es" : ""}`, other: `${base}/public/events/${e.id}${l === "es" ? "" : "?lang=es"}`, brand: cl.brand_colour, body, jsonLd: [eventLd(e, cl.name, cl.currency)] }));
   });

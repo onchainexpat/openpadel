@@ -13,6 +13,7 @@ import { loadFamily, waiverDue } from "./ForWhom.tsx";
 // Pages few members open, loaded when they do.
 const Membership = lazyPage(() => import("./Membership.tsx").then((m) => m.Membership));
 const Lessons = lazyPage(() => import("./Lessons.tsx").then((m) => m.Lessons));
+const Competitions = lazyPage(() => import("./Competitions.tsx").then((m) => m.Competitions));
 const Family = lazyPage(() => import("./Family.tsx").then((m) => m.Family));
 const FamilyJoin = lazyPage(() => import("./Family.tsx").then((m) => m.FamilyJoin));
 const Waiver = lazyPage(() => import("./Family.tsx").then((m) => m.Waiver));
@@ -67,7 +68,7 @@ export function App() {
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav><a href="/">{t("ui.nav_whats_on")}</a>{club.value?.court_bookings && <><a href="/play">{t("ui.nav_play")}</a><a href="/book">{t("ui.nav_book")}</a></>}{club.value?.lessons && <a href="/lessons">{t("ui.nav_lessons")}</a>}<a href="/places">{t("ui.nav_my")}</a>{club.value?.memberships && <a href="/membership">{t("ui.nav_membership")}</a>}<a href="/level">{t("ui.nav_level")}</a><a href="/family">{t("ui.nav_family")}</a><a href="/ask">{t("ui.nav_ask")}</a><ChatsLink /><InboxLink /><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav><a href="/">{t("ui.nav_whats_on")}</a>{club.value?.court_bookings && <><a href="/play">{t("ui.nav_play")}</a><a href="/book">{t("ui.nav_book")}</a></>}{club.value?.lessons && <a href="/lessons">{t("ui.nav_lessons")}</a>}<a href="/places">{t("ui.nav_my")}</a>{club.value?.competitions && <a href="/competitions">{t("ui.nav_competitions")}</a>}{club.value?.memberships && <a href="/membership">{t("ui.nav_membership")}</a>}<a href="/level">{t("ui.nav_level")}</a><a href="/family">{t("ui.nav_family")}</a><a href="/ask">{t("ui.nav_ask")}</a><ChatsLink /><InboxLink /><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Notices items={[
         club.value?.moved ? <>{t("ui.moved_banner")} {club.value.moved_to && <a href={club.value.moved_to}>{club.value.moved_to}</a>}</>
@@ -78,6 +79,7 @@ export function App() {
       <Router>
         <Route path="/" component={WhatsOn} />
         <Route path="/places" component={MyPlaces} />
+        <Route path="/competitions" component={Competitions} />
         <Route path="/level" component={MyLevel} />
         <Route path="/inbox" component={Inbox} />
         <Route path="/book" component={Book} />

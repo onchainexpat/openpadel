@@ -223,6 +223,8 @@ export function makeApp(deps: AppDeps) {
     const plan = await db.selectFrom("membership_plan").select("id").where("active", "=", true).where("join_in_app", "=", true).executeTakeFirst();
     // Whether any coach takes lessons in the app.
     const coach = await db.selectFrom("coach").select("person_id").where("active", "=", true).where("lessons", "=", true).where(sql<boolean>`rates <> '{}'::jsonb`).executeTakeFirst();
+    // Whether a tournament or league is open or under way (the members' app then shows Tournaments).
+    const competing = await db.selectFrom("program").select("id").where("kind", "in", ["tournament", "league"]).where("status", "=", "published").executeTakeFirst();
     // Whether the sign-in page offers a texted code: only when the club's texting account is set up.
     // The members' address, for the staff app's links members open (the public page, a booking's players link).
     // Whether the staff forms offer a draft in the club's other language (translate.ts).
@@ -230,7 +232,7 @@ export function makeApp(deps: AppDeps) {
     // Moved to another server (club_exit.ts): both apps say where, instead of read-only.
     // The club's own terms and privacy policy: linked where people join, beside the yes to texts and on the profile.
     const { read_only_since, moved_at, moved_to, ...shown } = club;
-    return c.json({ ...shown, read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
+    return c.json({ ...shown, read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), competitions: Boolean(competing), phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
       member_url: deps.memberUrl ?? memberUrl(publicUrl, {}) });
   });
 

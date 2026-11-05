@@ -32,7 +32,7 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   support_now?: { name: string; level: "view" | "manager"; ends_at: string }[];
   /** An account made for support access, whose access has ended. */
   support_ended?: boolean };
-export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; players_chat?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
+export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; players_chat?: boolean; memberships?: boolean; lessons?: boolean; competitions?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
   /** The club's host made it read-only (read_only.ts): both apps say so at the top. */
   read_only?: boolean;
   /** The club's Kumi moved to another server (club_exit.ts): this one says where, and sends nothing. */

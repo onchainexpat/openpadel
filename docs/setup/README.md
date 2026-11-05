@@ -439,6 +439,35 @@ A late drop or a place taken from the waitlist: "Re-pair the rounds left" makes 
 again for who's there; played rounds keep their scores (King of the Court then seeds the round by the
 standings). A rated program's games move levels once they have their scores.
 
+### Tournaments and leagues
+
+Make the program as a tournament or a league (both are rated unless staff untick it), with its dates and
+courts: those are the only courts and times its matches use, so nothing else is double-booked. Members sign
+up and pay for a place as for any program, then enter with a partner on Tournaments in their app: the
+partner is a friend in the app (they've added each other), needs a place too, and accepts from their app.
+Staff can pair two people with places on the program's page ("Pairs, draw and matches").
+
+- **The draw.** Seeds go by the pair's average level. A tournament is groups of 3 or 4 (each pair plays the
+  others in its group, then each group's top two go to a knockout, a winner meeting another group's
+  runner-up first), or a straight knockout with byes to the top seeds. A league is a round robin, each pair
+  playing every other once or twice. Matches are one set to 6 (a tiebreak at 6-6) to start, a pro set to 9,
+  or best of three with a match tiebreak to 10 for the third.
+- **Courts and times.** "Suggest times for the matches" puts every match it can on the program's own courts
+  and dates: earliest first, a pair never on two courts at once, a knockout match after the ones it waits
+  for, and a league's round N on its Nth date. Staff move any match there too. Players are told their court
+  and time, and can ask the club to move a match from their app (staff move it; players don't pick times).
+- **Scores.** Staff enter a score and it counts at once; or a player enters it and the other pair confirms or
+  disputes it within 48 hours, as for a court booking (with no answer it counts). A dispute goes to Scores;
+  once the next match has been played, a result stands. A pair that doesn't come: "gives it" records a
+  walkover, and the other pair goes through.
+- **Tables.** A group ranks by wins; a league by points (2 a win, 1 a loss played, 0 a walkover given).
+  Ties go to sets difference, then games difference, then the matches between those still level. A walkover
+  counts for points only, not for sets or games.
+- **Withdrawing.** Either player or staff can withdraw a pair. Its matches still to play go to the other
+  pairs as walkovers; results already played stand. Leaving the program, and any refund, is its own step.
+
+With the club's public page on, a tournament or league's page shows its tables and matches with their scores.
+
 ### Signing in, roles and bots
 
 - **Two steps for staff.** Settings, "Sign-in and roles": owners, managers and the club's own roles (the

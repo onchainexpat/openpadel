@@ -157,6 +157,29 @@ function backWords(card: number, desk: number): Text {
 }
 
 /** A court booking: where and when (in its location's time), and who's in it. */
+/** Where a scored game was played, for its messages: a court booking's details, or a tournament or league match's. */
+async function gameWhere(db: Db, g: { booking_id: string | null; fixture_id?: string | null }, tz: string) {
+  if (g.booking_id) { const b = await bookingInfo(db, g.booking_id); return { base: b.base, link: `/match/${b.id}` }; }
+  const f = await fixtureInfo(db, g.fixture_id!, tz, true);
+  return { base: { court: f?.court ?? "", location: "", when: f?.when ?? when(null, tz), code: "", minutes: 0, coach: "" }, link: "/competitions" };
+}
+async function entryInfo(db: Db, entryId: string) {
+  const e = await db.selectFrom("pair_entry").innerJoin("program", "program.id", "pair_entry.program_id").innerJoin("person as a", "a.id", "pair_entry.person_a").innerJoin("person as b", "b.id", "pair_entry.person_b")
+    .select(["pair_entry.person_a", "pair_entry.person_b", "program.name as program", "a.display_name as a", "b.display_name as b"]).where("pair_entry.id", "=", entryId).executeTakeFirstOrThrow();
+  return e;
+}
+/** A match's program, court, time and the two pairs (null while it has no time, unless asked anyway). */
+async function fixtureInfo(db: Db, fixtureId: string, tz: string, any = false) {
+  const f = await db.selectFrom("fixture").innerJoin("program", "program.id", "fixture.program_id").leftJoin("court", "court.id", "fixture.court_id")
+    .select(["fixture.program_id", "fixture.entry_a", "fixture.entry_b", "fixture.starts_at", "program.name as program", "court.name as court"]).where("fixture.id", "=", fixtureId).executeTakeFirst();
+  if (!f || (!any && (!f.starts_at || !f.entry_a || !f.entry_b))) return null;
+  const es = await db.selectFrom("pair_entry").innerJoin("person as a", "a.id", "pair_entry.person_a").innerJoin("person as b", "b.id", "pair_entry.person_b")
+    .select(["pair_entry.id", "pair_entry.person_a", "pair_entry.person_b", "a.display_name as an", "b.display_name as bn"]).where("pair_entry.id", "in", [f.entry_a, f.entry_b].filter((x): x is string => Boolean(x))).execute();
+  const ea = es.find((e) => e.id === f.entry_a), eb = es.find((e) => e.id === f.entry_b);
+  const pair = (e?: (typeof es)[number]) => (e ? `${e.an} + ${e.bn}` : "?");
+  return { program_id: f.program_id, program: f.program, court: f.court ?? "", starts_at: f.starts_at ?? undefined, when: when(f.starts_at, tz), a: pair(ea), b: pair(eb),
+    players: [...(ea ? [{ id: ea.person_a, side: "a" }, { id: ea.person_b, side: "a" }] : []), ...(eb ? [{ id: eb.person_a, side: "b" }, { id: eb.person_b, side: "b" }] : [])] as { id: string; side: "a" | "b" }[] };
+}
 async function bookingInfo(db: Db, bookingId: string) {
   const b = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id")
     .innerJoin("location", "location.id", "court.location_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
@@ -482,24 +505,55 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return s.person_id ? [{ to: s.person_id, kind: "match_no_show", params: { ...s.b.base, host: s.host }, purpose: "account", essential: false, email: true, link: "/places" }] : [];
   },
   async "result.entered"({ db, tz }, p: { game_id: string }) {
-    const g = await gameView(db, p.game_id), b = await bookingInfo(db, g.booking_id!);
+    const g = await gameView(db, p.game_id), b = await gameWhere(db, g, tz);
     const by = g.a.find((x) => x.person_id === g.entered_by)?.display_name ?? "";
     return g.b.map((x) => ({ to: x.person_id, kind: "result_to_confirm", params: { ...b.base, person: by, teamA: g.teamA, teamB: g.teamB, score: g.score, date: when(g.confirm_by, tz) },
-      purpose: "account" as const, essential: false, email: true, link: `/match/${b.id}`, staleAt: g.confirm_by }));
+      purpose: "account" as const, essential: false, email: true, link: b.link, staleAt: g.confirm_by }));
   },
-  async "result.confirmed"({ db }, p: { game_id: string }) {
-    const g = await gameView(db, p.game_id), b = await bookingInfo(db, g.booking_id!);
+  async "result.confirmed"({ db, tz }, p: { game_id: string }) {
+    const g = await gameView(db, p.game_id), b = await gameWhere(db, g, tz);
     return [...g.a, ...g.b].map((x) => ({ to: x.person_id, kind: g.rated ? "result_confirmed" : "result_confirmed_friendly", params: { ...b.base, teamA: g.teamA, teamB: g.teamB, score: g.score },
-      purpose: "account" as const, essential: false, email: false, link: g.rated ? "/level" : `/match/${b.id}` }));
+      purpose: "account" as const, essential: false, email: false, link: g.rated ? "/level" : b.link }));
   },
-  async "result.disputed"({ db }, p: { game_id: string; person_id: string; note: string }) {
-    const g = await gameView(db, p.game_id), b = await bookingInfo(db, g.booking_id!);
+  async "result.disputed"({ db, tz }, p: { game_id: string; person_id: string; note: string }) {
+    const g = await gameView(db, p.game_id), b = await gameWhere(db, g, tz);
     const by = [...g.a, ...g.b].find((x) => x.person_id === p.person_id)?.display_name ?? "";
     const params = { ...b.base, person: by, teamA: g.teamA, teamB: g.teamB, score: g.score, note: p.note };
     return [
       ...(await managers(db)).map((to) => ({ to, kind: "result_disputed_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/scores" })),
-      ...[...g.a, ...g.b].filter((x) => x.person_id !== p.person_id).map((x) => ({ to: x.person_id, kind: "result_disputed", params, purpose: "account" as const, essential: false, email: false, link: `/match/${b.id}` })),
+      ...[...g.a, ...g.b].filter((x) => x.person_id !== p.person_id).map((x) => ({ to: x.person_id, kind: "result_disputed", params, purpose: "account" as const, essential: false, email: false, link: b.link })),
     ];
+  },
+  // Tournaments and leagues (competitions.ts).
+  async "entry.invited"({ db }, p: { entry_id: string }) {
+    const e = await entryInfo(db, p.entry_id);
+    return [{ to: e.person_b, kind: "entry_invited", params: { person: e.a, program: e.program }, purpose: "account", essential: false, email: true, link: "/competitions" }];
+  },
+  async "entry.accepted"({ db }, p: { entry_id: string; by_staff?: boolean }) {
+    const e = await entryInfo(db, p.entry_id);
+    if (p.by_staff) return [e.person_a, e.person_b].map((to) => ({ to, kind: "entry_paired", params: { partner: to === e.person_a ? e.b : e.a, program: e.program }, purpose: "account" as const, essential: false, email: true, link: "/competitions" }));
+    return [{ to: e.person_a, kind: "entry_accepted", params: { person: e.b, program: e.program }, purpose: "account", essential: false, email: true, link: "/competitions" }];
+  },
+  async "entry.declined"({ db }, p: { entry_id: string }) {
+    const e = await entryInfo(db, p.entry_id);
+    return [{ to: e.person_a, kind: "entry_declined", params: { person: e.b, program: e.program }, purpose: "account", essential: false, email: true, link: "/competitions" }];
+  },
+  async "competition.drawn"({ db }, p: { program_id: string }) {
+    const prog = await db.selectFrom("program").select("name").where("id", "=", p.program_id).executeTakeFirstOrThrow();
+    const es = await db.selectFrom("pair_entry").select(["person_a", "person_b"]).where("program_id", "=", p.program_id).where("status", "=", "entered").execute();
+    return es.flatMap((e) => [e.person_a, e.person_b]).map((to) => ({ to, kind: "competition_drawn", params: { program: prog.name }, purpose: "account" as const, essential: false, email: true, link: "/competitions" }));
+  },
+  async "fixture.placed"({ db, tz }, p: { fixture_id: string; moved?: boolean }) {
+    const f = await fixtureInfo(db, p.fixture_id, tz);
+    if (!f) return [];
+    return f.players.map((x) => ({ to: x.id, kind: p.moved ? "fixture_moved" : "fixture_placed", params: { program: f.program, court: f.court, when: f.when, opponents: x.side === "a" ? f.b : f.a },
+      purpose: "account" as const, essential: true, email: true, link: "/competitions", staleAt: f.starts_at }));
+  },
+  async "fixture.move_asked"({ db, tz }, p: { fixture_id: string; person_id: string; note: string }) {
+    const f = await fixtureInfo(db, p.fixture_id, tz, true);
+    if (!f) return [];
+    const person = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirst())?.display_name ?? "";
+    return (await desk(db)).map((to) => ({ to, kind: "fixture_move_asked_staff", params: { person, program: f.program, a: f.a, b: f.b, when: f.when, note: p.note }, purpose: "staff" as const, essential: false, email: true, link: `/programs/${f.program_id}` }));
   },
   async "level.review_requested"({ db }, p: { person_id: string; level: string | null; note: string | null }) {
     const person = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirstOrThrow()).display_name;

@@ -35,6 +35,8 @@ export * from "./club_text.ts";
 export * from "./declines.ts";
 export * from "./americano.ts";
 export * from "./formats.ts";
+export * from "./brackets.ts";
+export * from "./competitions.ts";
 export * from "./games.ts";
 export * from "./levels.ts";
 export * from "./ratings.ts";

@@ -8,6 +8,7 @@ import { Courts } from "./Courts.tsx";
 const Changes = lazyPage(() => import("./Changes.tsx").then((m) => m.Changes));
 const Programs = lazyPage(() => import("./Programs.tsx").then((m) => m.Programs));
 const Night = lazyPage(() => import("./Night.tsx").then((m) => m.Night));
+const Competition = lazyPage(() => import("./Competition.tsx").then((m) => m.Competition));
 const Level = lazyPage(() => import("./Level.tsx").then((m) => m.Level));
 const People = lazyPage(() => import("./People.tsx").then((m) => m.People));
 const Person = lazyPage(() => import("./Person.tsx").then((m) => m.Person));
@@ -157,6 +158,7 @@ export function App() {
         <Route path="/programs" component={only("programs", Programs)} />
         <Route path="/programs/:id" component={only("programs", Program)} />
         <Route path="/sessions/:id" component={only("programs", Night)} />
+        <Route path="/programs/:id/competition" component={only("programs", Competition)} />
         <Route path="/sessions/:id/levels" component={only("levels", SessionLevels)} />
         <Route path="/people" component={only("members", People)} />
         <Route path="/people/:id" component={coachOnly ? Person : only("members", Person)} />
