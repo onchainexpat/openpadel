@@ -38,16 +38,27 @@ server starts.
 - **Chats in games.** The players in a game message each other in the app: each court booking with named players
   (an open match is one) and each program date (a clinic, a social night) has a chat for the people in it, and its
   coach. Plain text up to 1,000 characters, links as links; a message changes for 5 minutes after it's posted and
-  is taken back any time ("message removed"). Someone who leaves the game reads its chat until it ends but doesn't
-  post. There are no messages between members outside a game they share, and no list of members.
+  is taken back any time ("message removed"). Someone who leaves a game reads what was said up to the moment they
+  left, without posting; someone the organiser or the staff took off reads nothing. Only people who held a place
+  read a date's chat: never a waitlist, and someone who left a course reads only the dates that had begun before
+  they left. A place saved for someone isn't theirs in the chat until they take it. A program date's chat names only
+  those who've written in it (the roster stays the club's); a court booking's names its players, as the booking
+  does. There are no messages between members outside a game they share, and no list of members.
 - **Safety first.** Juniors don't see chats in this version, and the app says why (a parent in the same game reads it
   as themselves). A member reports a message, and front desk and up hear once; the staff read every chat under
   Chats, hide a message ("hidden by the club") and stop someone posting for 1 to 90 days, each in Changes. Support
   access never sees chats, and no assistant posts, reports or hides (a member's assistant reads their chats). At most
-  20 posts in 10 minutes. Read-only, moved or closing: chats are read, not added to.
+  20 posts in 10 minutes, even sent at once. Read-only, moved or closing: chats are read, not added to. A reported
+  message keeps its words for the staff until they've hidden it or shown it again, even if its author takes it back,
+  and can't be changed meanwhile; the staff hear about reports once an hour per chat at most. Reasons typed in a
+  report or a stop aren't kept in the change log. Text loses control and invisible formatting characters (a bidi
+  override can't turn "gnp.exe" into "exe.png").
 - A new chat message reaches the players' phones as a notification, at most once in 5 minutes per chat, never at
-  night and never for a chat they muted; never by email or text. The nav's Chats shows what's unread.
-- A chat goes 90 days after its game, with everything in it. A member's own messages are in their Download data,
+  night and never for a chat they muted; never by email or text. The nav's Chats shows what's unread. A push copy
+  keeps none of the message's words: they're read as it's sent, so a message taken back, hidden, deleted or written by
+  an account since deleted sends nothing, and no player's Download data holds another's words.
+- Posting closes two days after the game; reading goes on until the chat goes, 90 days after its game, with
+  everything in it, and nothing makes it again. A member's own messages are in their Download data,
   and deleting their account takes their words. "Players can message in their games" (Settings, The club) turns
   chats off; it starts on.
 - **Tournaments and leagues with draws and fixtures.** Members enter with a friend as their partner (both need a

@@ -175,7 +175,8 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
   }
   const answers = await db.selectFrom("result_answer").select(["answer", "note", "at"]).where("person_id", "=", personId).orderBy("at").execute();
 
-  const messages = await db.selectFrom("outbound_message").select(["created_at", "channel", "kind", "subject", "body", "status", "sent_at", "read_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
+  // A chat's push copies are other players' words (and keep none of them): their own messages are under chats.
+  const messages = await db.selectFrom("outbound_message").select(["created_at", "channel", "kind", "subject", "body", "status", "sent_at", "read_at"]).where("person_id", "=", personId).where("kind", "!=", "chat_message").orderBy("created_at").execute();
   const consents = await db.selectFrom("channel_consent").select(["channel", "purpose", "granted", "source", "at"]).where("person_id", "=", personId).orderBy("at").execute();
   // The club's terms and privacy policy they agreed to on joining (the links, not the pages: those are the club's).
   const agreed = await db.selectFrom("policy_acceptance").select(["terms_url", "privacy_policy_url", "lang", "source", "accepted_at"]).where("person_id", "=", personId).orderBy("accepted_at").execute();

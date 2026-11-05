@@ -86,6 +86,7 @@ label.inline-number input { flex: none; width: 5.5em; margin: 0; }
 .thread .msg.staff, .thread .msg.club { background: color-mix(in srgb, var(--brand) 7%, var(--card)); }
 .thread .msg .meta { margin: 0; }
 /* Players' chats: your own messages to one side, the others' to the other. */
+.thread .msg { overflow-wrap: anywhere; }
 .thread .msg.mine { margin-left: 12%; background: color-mix(in srgb, var(--brand) 7%, var(--card)); }
 .thread .msg.other { margin-right: 12%; }
 /* The bot check's hidden field: off screen, never seen or tabbed to (bot.ts). */

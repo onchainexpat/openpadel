@@ -139,7 +139,7 @@ const ENTITIES = {
 export type Entity = keyof typeof ENTITIES;
 /** Columns that are keys to something (a club news email's unsubscribe link, an authenticator's secret):
  *  never copied into the change log. */
-const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"], staff_factor: ["secret"], chat_message: ["body"] };
+const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"], staff_factor: ["secret"], chat_message: ["body"], chat_report: ["reason"], chat_stop: ["reason"] };
 const unkept = (entity: Entity, row: unknown) => {
   const drop = KEYS_NOT_KEPT[entity];
   if (!drop || !row || typeof row !== "object") return row;

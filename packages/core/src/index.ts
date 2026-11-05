@@ -46,6 +46,7 @@ export * from "./ical.ts";
 export * from "./coach_tools.ts";
 export * from "./questions.ts";
 export * from "./chat.ts";
+export * from "./plain_text.ts";
 export * from "./broadcasts.ts";
 export * from "./staff_alerts.ts";
 export * from "./privacy.ts";

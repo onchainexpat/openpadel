@@ -9,6 +9,18 @@ import { generateVapidKeys, isPushEndpoint, sendPush, type VapidKeys } from "./w
 import { openText, sealText } from "./sealed.ts";
 import { skipRepeatsAfterRestore } from "./repeats.ts";
 import { movedAway } from "./club_exit.ts";
+import { t } from "@kumi/i18n";
+import { plainName, shortText } from "./plain_text.ts";
+
+/** A chat's push keeps no words (chat.ts): they're read now, and a message taken back, hidden, deleted with its chat,
+ *  or written by an account since deleted, sends nothing. */
+export async function chatPushWords(db: Db, messageId: string | null, lang: "en" | "es"): Promise<string | null> {
+  if (!messageId) return null;
+  const c = await db.selectFrom("chat_message").innerJoin("person", "person.id", "chat_message.person_id")
+    .select(["chat_message.body", "chat_message.removed_at", "chat_message.hidden_at", "person.display_name", "person.redacted_at"]).where("chat_message.id", "=", messageId).executeTakeFirst();
+  if (!c || c.removed_at || c.hidden_at || c.redacted_at || !c.body) return null;
+  return t(lang, "msg.chat_message.body", { name: plainName(c.display_name), text: shortText(c.body, 120) });
+}
 
 /** The club's push keys, made (once, whichever server process gets there first) the first time they're needed.
  *  The private half is sealed with the server's key (sealed.ts). */
@@ -59,7 +71,7 @@ export async function sendPushes(db: Db, o: { subject: string; now?: Date; fetch
   const now = o.now ?? new Date(), out = { sent: 0, dropped: 0, failed: 0 };
   await skipRepeatsAfterRestore(db, now);   // after a restore, nothing the database before it had sent goes twice
   if (await movedAway(db)) return out;      // moved to another server (club_exit.ts): that one reaches members now
-  const due = await db.selectFrom("outbound_message").select(["id", "person_id", "purpose", "kind", "subject", "body", "link", "stale_at", "attempts"])
+  const due = await db.selectFrom("outbound_message").select(["id", "person_id", "purpose", "kind", "subject", "body", "link", "stale_at", "attempts", "lang", "chat_message_id"])
     .where("status", "=", "waiting").where("channel", "=", "push").where("send_after", "<=", now).orderBy("send_after").limit(o.limit ?? 50).execute();
   if (!due.length) return out;
   const keys = await pushKeys(db);
@@ -71,14 +83,15 @@ export async function sendPushes(db: Db, o: { subject: string; now?: Date; fetch
       .orderBy("at", "desc").limit(1).executeTakeFirst();
     const subs = await db.selectFrom("push_subscription").select(["id", "endpoint", "p256dh", "auth"]).where("person_id", "=", m.person_id).where("revoked_at", "is", null)
       .where("app", "=", m.purpose === "staff" ? "staff" : "member").execute();
-    if ((m.stale_at && m.stale_at <= now) || consent?.granted === false || !subs.length) {
+    const chat = m.kind === "chat_message" ? await chatPushWords(db, m.chat_message_id, m.lang === "es" ? "es" : "en") : null;
+    if ((m.stale_at && m.stale_at <= now) || consent?.granted === false || !subs.length || (m.kind === "chat_message" && !chat)) {
       await db.updateTable("outbound_message").set({ status: "dropped", sent_at: null }).where("id", "=", m.id).execute(); out.dropped++; continue;
     }
     let ok = 0, retry = false;
     for (const s of subs) {
       if (!isPushEndpoint(s.endpoint)) { await db.updateTable("push_subscription").set({ revoked_at: now }).where("id", "=", s.id).execute(); continue; }
       try {
-        const r = await sendPush(s, { title: m.subject, body: m.body, url: m.link ?? "/", tag: m.kind }, keys, o.subject, { fetch: o.fetch, now, ...pushTiming(m, now) });
+        const r = await sendPush(s, { title: m.subject, body: chat ?? m.body, url: m.link ?? "/", tag: m.kind }, keys, o.subject, { fetch: o.fetch, now, ...pushTiming(m, now) });
         if (r.ok) { ok++; await db.updateTable("push_subscription").set({ last_ok_at: now }).where("id", "=", s.id).execute(); }
         else if (r.gone) await db.updateTable("push_subscription").set({ revoked_at: now }).where("id", "=", s.id).execute();
         else retry = true;

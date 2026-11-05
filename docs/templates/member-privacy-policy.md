@@ -89,7 +89,11 @@ owner.]
 **Other members** see your name where it makes sense: in open matches you join or host, the club's level lists and
 results, and your friends in the app. [IF THE CLUB HAS CHATS ON: The players in a game you play in (a court booking
 you're named on, an open match, a clinic or social date) read what you write in that game's chat, and see your name
-on it. The club's staff can read every chat, hide a message and stop someone posting. Juniors don't see chats.] Nothing about members is on the club's public page. Children are never on
+on it. A court booking's chat names its players, as the booking does; a clinic or social date's names only those
+who've written in it. Someone who leaves a game reads what was said before they left; someone taken off it reads
+nothing. The club's staff can read every chat, hide a message and stop someone posting; a message someone reported
+keeps its words for the staff until they've looked at it, even if its author takes it back. Juniors don't see
+chats.] Nothing about members is on the club's public page. Children are never on
 the public page, in level lists or on leaderboards.
 
 **Companies that help us run the club's app**, each only for what it does:
@@ -118,7 +122,8 @@ week, and you can disconnect it in the app at any time.
   refunds, game results and levels, waiver acceptances and consent answers under "Former member", because our books
   and other players' levels need them.
 - [IF THE CLUB HAS CHATS ON] A game's chat is deleted, with everything in it, 90 days after the game. A message
-  you take back loses its words at once. When you delete your account, your words in chats go too; the other players
+  you take back loses its words at once (unless someone reported it and the staff haven't looked yet). A notification
+  about a chat keeps none of its words after it's shown. When you delete your account, your words in chats go too; the other players
   see "message removed".
 - Backups keep a copy for a while after: [BACKUP DAYS ON THE SERVER] days on the server, and up to
   [OFFSITE DAILY DAYS] days (monthly copies [OFFSITE MONTHLY MONTHS] months) offsite. *Note: with Kumi's defaults

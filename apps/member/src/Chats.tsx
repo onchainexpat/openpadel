@@ -8,7 +8,7 @@ type Chat = { kind: "booking" | "session"; id: string; title: string; starts_at:
 type List = { off: boolean; junior: boolean; chats: Chat[] };
 type Message = { id: string; mine: boolean; author: string | null; at: string; edited: boolean; state: "shown" | "removed" | "hidden"; body: string | null;
   can_edit: boolean; can_remove: boolean; can_report: boolean; reported: boolean };
-type Thread = { kind: Chat["kind"]; id: string; title: string; starts_at: string; people: string[]; can_post: boolean; cannot_post: string | null; muted: boolean;
+type Thread = { kind: Chat["kind"]; id: string; title: string; starts_at: string; people: string[]; players: number; can_post: boolean; cannot_post: string | null; muted: boolean;
   max_chars: number; messages: Message[] };
 
 const gameWhen = (iso: string) => clubTime(iso, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -72,7 +72,7 @@ export function ChatThread() {
       <h1>{d.title}</h1>
       {sheet}
       <section class="card">
-        <p class="meta">{gameWhen(d.starts_at)}{d.people.length ? ` · ${t("ui.chat_people", { names: d.people.join(", ") })}` : ""}</p>
+        <p class="meta">{gameWhen(d.starts_at)}{d.kind === "session" && d.players ? ` · ${t("ui.chat_players", { count: d.players })}` : ""}{d.people.length ? ` · ${t("ui.chat_people", { names: d.people.join(", ") })}` : ""}</p>
         <p class="meta">{t("ui.chat_safety")}</p>
         <p><button onClick={mute} disabled={busy}>{t(d.muted ? "ui.chat_unmute" : "ui.chat_mute")}</button></p>
         {d.muted && <p class="meta">{t("ui.chat_mute_hint")}</p>}

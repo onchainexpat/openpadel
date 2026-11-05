@@ -8,6 +8,7 @@ CREATE TABLE chat_thread (
   ref_id     uuid NOT NULL,                              -- the booking, or the program's date (session)
   ends_at    timestamptz NOT NULL,                       -- when the game ends: kept until 90 days after
   created_at timestamptz NOT NULL DEFAULT now(),
+  alerted_at timestamptz,                                -- the staff last heard of a report here (once an hour at most)
   UNIQUE (kind, ref_id)
 );
 CREATE INDEX chat_thread_ends ON chat_thread (ends_at);
@@ -60,9 +61,14 @@ CREATE TABLE chat_report (
   person_id  uuid NOT NULL REFERENCES person,
   reason     text CHECK (length(reason) <= 300),
   created_at timestamptz NOT NULL DEFAULT now(),
+  dealt_at   timestamptz,                                -- the staff hid the message or showed it again
   version    int NOT NULL DEFAULT 1,
   UNIQUE (message_id, person_id)
 );
+
+-- A chat's push copy names its message and keeps none of its words: they're read when the push goes, so a message
+-- taken back, hidden, deleted or written by an account since deleted sends nothing.
+ALTER TABLE outbound_message ADD COLUMN chat_message_id uuid REFERENCES chat_message ON DELETE SET NULL;
 
 -- The club's switch (Settings): on by default; off, no chat anywhere.
 ALTER TABLE club ADD COLUMN players_chat boolean NOT NULL DEFAULT true;
