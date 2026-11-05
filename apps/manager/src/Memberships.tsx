@@ -3,7 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
-import { api, dollars, lang, mayDo, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
+import { api, dollars, lang, mayDo, OtherLang, savedIn, t, translationsOf, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 
 export type Plan = { id: string; name: string; description: string | null; translations?: unknown; price_cents: number; period: "month" | "year"; days_ahead: number | null; join_in_app?: boolean;
@@ -17,11 +17,11 @@ type Member = { id: string; person_id: string; display_name: string; email: stri
   balance_cents?: number; also_covers?: string[] };
 type Preview = (action: string, input: unknown) => Promise<void>;
 
-const day = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
+const day = (iso: string) => clubTime(iso, { dateStyle: "medium" });
 /** A club date ("2026-11-30"), as written here. */
 const clubDay = (date: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
 /** When it runs until or renews, and how it came: the line under a member's name. */
-export const pausedNow = (m: { paused_until?: string | null }) => Boolean(m.paused_until && new Date(m.paused_until) > new Date());
+export const pausedNow = (m: { paused_until?: string | null }) => Boolean(m.paused_until && new Date(m.paused_until) > new Date(serverNow()));
 export function membershipLine(m: { status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null;
   price_cents?: number | null; balance_cents?: number }) {
   // Joined before its plan starts: when it starts, and whether the card is saved for the first charge.

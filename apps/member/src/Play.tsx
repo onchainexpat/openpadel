@@ -2,7 +2,7 @@
 // host, pay a held place, say you can't make it or are running late, or (for the host) answer requests,
 // save places for friends (each has added the other), share the link and mark who didn't come.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, dollars, lang, me, NewOnly, shortTime, t, usePreview } from "@kumi/ui";
+import { api, ApiError, dollars, lang, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
 export type Match = {
@@ -36,7 +36,7 @@ function Facts({ m }: { m: Match }) {
       {p.saved ? ` · ${t("ui.place_saved_for")}` : ""}{p.leaving ? ` · ${t("ui.cant_make_it_tag")}` : ""}{p.no_show ? ` · ${t("ui.didnt_come")}` : ""}
       {recText(p.record) && <span class="meta"> · {recText(p.record)}</span>}</li>)}
       {Array.from({ length: m.spots_left }, () => <li class="meta">{t(m.is_match ? "ui.open_place" : "ui.player_not_named")}</li>)}</ul>
-    {m.open && !m.cancelled && m.spots_left > 0 && new Date(m.full_by) > new Date() && <p class="meta">{t("ui.match_cutoff", { time: new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US",
+    {m.open && !m.cancelled && m.spots_left > 0 && new Date(m.full_by) > new Date(serverNow()) && <p class="meta">{t("ui.match_cutoff", { time: new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US",
       { timeZone: m.time_zone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(m.full_by)) })}</p>}
   </>;
 }

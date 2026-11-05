@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, me, t, usePreview } from "@kumi/ui";
+import { api, lang, me, t, usePreview, clubTime } from "@kumi/ui";
 
 type L = { rating: { level: string; provisional: boolean; floor: string | null; rated_games: number } | null; events: { at: string; explanation: string }[];
   self_adjust: { can: boolean; used: number; games: number; played: number; max: number; floor: number | null };
@@ -21,8 +21,7 @@ export function MyLevel() {
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
-  const pid = me.value!.person.id, fmt = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", o);
-  const when = (iso: string) => fmt({ dateStyle: "medium" }).format(new Date(iso)), day = (iso: string) => fmt({ dateStyle: "long" }).format(new Date(iso));
+  const pid = me.value!.person.id, when = (iso: string) => clubTime(iso, { dateStyle: "medium" }), day = (iso: string) => clubTime(iso, { dateStyle: "long" });
   const sa = d.self_adjust, rv = d.review;
   return (
     <main>

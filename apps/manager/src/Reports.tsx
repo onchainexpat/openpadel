@@ -1,7 +1,7 @@
 // Occupancy and revenue by day for a location, with the same figures as a spreadsheet file.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, dollars, lang, me, ReceiptSheet, t, type ReceiptView } from "@kumi/ui";
+import { api, club, dollars, lang, me, ReceiptSheet, t, type ReceiptView, serverNow } from "@kumi/ui";
 
 type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number; membership_revenue_cents: number };
 type Receipt = { id: string; number: string; kind: "payment" | "refund"; when: string; paid_by: string; for: string | null; what: string; more: number; total_cents: number };
@@ -9,15 +9,17 @@ type ByMethod = { cash: number; terminal: number; other: number };
 type DeskDay = { date: string; in: ByMethod; back: ByMethod; drawer: number };
 type DeskLine = { time: string; kind: "in" | "back"; method: string; cents: number; person_id: string; person: string; what: string; by: string | null };
 type Earnings = { coaches: { coach_id: string; coach: string; lessons: number; lesson_minutes: number; net_cents: number; sessions: number; session_minutes: number }[] };
-/** The date on the device's own calendar (not UTC's, which is already tomorrow on a US evening). */
-const ymd = (d: Date) => new Intl.DateTimeFormat("en-CA").format(d);
+/** The date on the club's calendar (not UTC's, which is already tomorrow on a US evening, nor the phone's). */
+const ymd = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: club.value?.time_zone }).format(d);
 
 export function Reports() {
   const [locs, setLocs] = useState<{ id: string; name: string }[]>([]), [loc, setLoc] = useState("");
-  const today = new Date(), first = new Date(today.getFullYear(), today.getMonth(), 1);
-  const [from, setFrom] = useState(ymd(first)), [to, setTo] = useState(ymd(today)), [rows, setRows] = useState<Row[] | null>(null);
+  const today = ymd(new Date(serverNow()));
+  const [from, setFrom] = useState(`${today.slice(0, 8)}01`), [to, setTo] = useState(today), [rows, setRows] = useState<Row[] | null>(null);
+  // A coach on their own gets no club money (the server says "staff only"): their page is their lessons and sessions.
+  const [money, setMoney] = useState<boolean | null>(null);
   useEffect(() => { api<{ id: string; name: string }[]>("/staff/locations").then((l) => { setLocs(l); setLoc(l[0]?.id ?? ""); }); }, []);
-  useEffect(() => { if (loc && from && to) api<{ rows: Row[] }>(`/staff/reports?location_id=${loc}&from=${from}&to=${to}`).then((r) => setRows(r.rows)).catch(() => setRows([])); }, [loc, from, to]);
+  useEffect(() => { if (loc && from && to) api<{ rows: Row[] }>(`/staff/reports?location_id=${loc}&from=${from}&to=${to}`).then((r) => { setRows(r.rows); setMoney(true); }).catch(() => { setRows(null); setMoney(false); }); }, [loc, from, to]);
   // Coaches' lessons and sessions, for payroll (for owners, managers and the accountant; a coach sees their own).
   const [earn, setEarn] = useState<Earnings | null>(null);
   const seesEarnings = (me.value?.roles ?? []).some((r) => ["owner", "manager", "accountant", "coach"].includes(r.key));
@@ -40,13 +42,13 @@ export function Reports() {
   const day = (d: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T12:00:00Z`));
   return (
     <main>
-      <h1>{t("ui.reports_title")}</h1>
+      <h1>{t(money === false ? "ui.my_work_title" : "ui.reports_title")}</h1>
       <section class="card card-form">
         {locs.length > 1 && <label>{t("ui.location")}<select value={loc} onChange={(e) => setLoc(e.currentTarget.value)}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>}
         <div class="court-row"><label>{t("ui.from")}<input type="date" value={from} onInput={(e) => setFrom(e.currentTarget.value)} /></label>
           <label>{t("ui.to")}<input type="date" value={to} onInput={(e) => setTo(e.currentTarget.value)} /></label></div>
         {rows && <p><strong>{t("ui.occupancy_total", { percent: usable > 0 ? Math.round(used / usable * 100) : 0 })}</strong> · {t("ui.revenue_total", { courts: dollars(sum("court_revenue_cents"), lang.value), lessons: dollars(sum("lesson_revenue_cents"), lang.value), programs: dollars(sum("program_revenue_cents"), lang.value), memberships: dollars(sum("membership_revenue_cents"), lang.value) })}</p>}
-        <p><a href={`/staff/reports.csv?location_id=${loc}&from=${from}&to=${to}`}>{t("ui.download_csv")}</a></p>
+        {rows && <p><a href={`/staff/reports.csv?location_id=${loc}&from=${from}&to=${to}`} download>{t("ui.download_csv")}</a></p>}
       </section>
       {rows && <section class="card"><div class="table-scroll"><table>
         <thead><tr><th>{t("ui.day")}</th><th>{t("ui.occupancy")}</th><th>{t("ui.court_hours_used")}</th><th>{t("ui.court_revenue")}</th><th>{t("ui.lesson_revenue")}</th><th>{t("ui.program_revenue")}</th><th>{t("ui.membership_revenue")}</th></tr></thead>
@@ -60,24 +62,27 @@ export function Reports() {
           <thead><tr><th>{t("ui.coach")}</th><th>{t("ui.col_lessons")}</th><th>{t("ui.col_lesson_hours")}</th><th>{t("ui.col_net")}</th><th>{t("ui.col_sessions")}</th><th>{t("ui.col_session_hours")}</th></tr></thead>
           <tbody>{earn.coaches.map((c) => <tr><td>{c.coach}</td><td>{c.lessons}</td><td>{hrs(c.lesson_minutes / 60)}</td><td>{dollars(c.net_cents, lang.value)}</td><td>{c.sessions}</td><td>{hrs(c.session_minutes / 60)}</td></tr>)}</tbody>
         </table></div>}
-        <p><a href={`/staff/coach-earnings.csv?from=${from}&to=${to}`}>{t("ui.download_csv")}</a></p>
+        <p><a href={`/staff/coach-earnings.csv?from=${from}&to=${to}`} download>{t("ui.download_csv")}</a></p>
       </section>}
       {desk && <section class="card">
         <h2>{t("ui.desk_title")}</h2>
         <p class="meta">{t("ui.desk_help")}</p>
-        {!desk.length ? <p class="meta">{t("ui.desk_none")}</p> : <div class="table-scroll"><table>
+        {/* On a phone each day (and each line) stacks into rows of its own, each value beside its column's name (styles.css .stack). */}
+        {!desk.length ? <p class="meta">{t("ui.desk_none")}</p> : <div class="table-scroll"><table class="stack">
           <thead><tr><th>{t("ui.day")}</th><th>{t("ui.col_cash")}</th><th>{t("ui.col_card_reader")}</th><th>{t("ui.col_other_way")}</th><th>{t("ui.col_given_back")}</th><th>{t("ui.col_drawer")}</th></tr></thead>
-          <tbody>{desk.map((x) => <tr><td><button class="link" onClick={() => openDay(x.date)}>{day(x.date)}</button></td><td>{usd(x.in.cash)}</td><td>{usd(x.in.terminal)}</td><td>{usd(x.in.other)}</td>
-            <td>{back(all(x.back))}</td><td><strong>{usd(x.drawer)}</strong></td></tr>)}</tbody>
-          {desk.length > 1 && <tfoot><tr><th>{t("ui.col_total")}</th><th>{usd(deskSum((x) => x.in.cash))}</th><th>{usd(deskSum((x) => x.in.terminal))}</th><th>{usd(deskSum((x) => x.in.other))}</th>
-            <th>{back(deskSum((x) => all(x.back)))}</th><th>{usd(deskSum((x) => x.drawer))}</th></tr></tfoot>}
+          <tbody>{desk.map((x) => <tr><td data-label={t("ui.day")}><button class="link" onClick={() => openDay(x.date)}>{day(x.date)}</button></td><td data-label={t("ui.col_cash")}>{usd(x.in.cash)}</td>
+            <td data-label={t("ui.col_card_reader")}>{usd(x.in.terminal)}</td><td data-label={t("ui.col_other_way")}>{usd(x.in.other)}</td>
+            <td data-label={t("ui.col_given_back")}>{back(all(x.back))}</td><td data-label={t("ui.col_drawer")}><strong>{usd(x.drawer)}</strong></td></tr>)}</tbody>
+          {desk.length > 1 && <tfoot><tr><th>{t("ui.col_total")}</th><th data-label={t("ui.col_cash")}>{usd(deskSum((x) => x.in.cash))}</th><th data-label={t("ui.col_card_reader")}>{usd(deskSum((x) => x.in.terminal))}</th>
+            <th data-label={t("ui.col_other_way")}>{usd(deskSum((x) => x.in.other))}</th><th data-label={t("ui.col_given_back")}>{back(deskSum((x) => all(x.back)))}</th><th data-label={t("ui.col_drawer")}>{usd(deskSum((x) => x.drawer))}</th></tr></tfoot>}
         </table></div>}
-        {deskDay && <><h3>{day(deskDay.date)}</h3><div class="table-scroll"><table>
+        {deskDay && <><h3>{day(deskDay.date)}</h3><div class="table-scroll"><table class="stack">
           <thead><tr><th>{t("ui.col_time")}</th><th>{t("ui.col_who")}</th><th>{t("ui.col_what")}</th><th>{t("ui.col_how")}</th><th>{t("ui.col_total")}</th><th>{t("ui.col_recorded_by")}</th></tr></thead>
-          <tbody>{deskDay.lines.map((l) => <tr><td>{l.time}</td><td><a href={`/people/${l.person_id}`}>{l.person}</a></td><td>{l.what}</td>
-            <td>{t(l.kind === "in" ? "ui.desk_paid_how" : "ui.desk_given_back_how", { how: t(`paid_by.${l.method}` as Key) })}</td><td>{l.kind === "back" ? back(l.cents) : usd(l.cents)}</td><td>{l.by ?? ""}</td></tr>)}</tbody>
+          <tbody>{deskDay.lines.map((l) => <tr><td data-label={t("ui.col_time")}>{l.time}</td><td data-label={t("ui.col_who")}><a href={`/people/${l.person_id}`}>{l.person}</a></td><td data-label={t("ui.col_what")}>{l.what}</td>
+            <td data-label={t("ui.col_how")}>{t(l.kind === "in" ? "ui.desk_paid_how" : "ui.desk_given_back_how", { how: t(`paid_by.${l.method}` as Key) })}</td><td data-label={t("ui.col_total")}>{l.kind === "back" ? back(l.cents) : usd(l.cents)}</td>
+            <td data-label={t("ui.col_recorded_by")}>{l.by ?? ""}</td></tr>)}</tbody>
         </table></div></>}
-        <p><a href={`/staff/desk.csv?from=${from}&to=${to}`}>{t("ui.download_csv")}</a></p>
+        <p><a href={`/staff/desk.csv?from=${from}&to=${to}`} download>{t("ui.download_csv")}</a></p>
       </section>}
       {receipts && <section class="card">
         <h2>{t("ui.receipts_title")}</h2>
@@ -87,7 +92,7 @@ export function Reports() {
           <tbody>{receipts.map((r) => <tr><td><button class="link" onClick={() => show(r.id)}>{r.number}</button></td><td>{r.when}</td><td>{r.paid_by}{r.for ? ` (${r.for})` : ""}</td><td>{r.what}{r.more ? ` +${r.more}` : ""}</td>
             <td>{r.kind === "refund" ? `-${dollars(r.total_cents, lang.value)}` : dollars(r.total_cents, lang.value)}</td></tr>)}</tbody>
         </table></div>}
-        <p><a href={`/staff/club-receipts.csv?from=${from}&to=${to}`}>{t("ui.download_csv")}</a></p>
+        <p><a href={`/staff/club-receipts.csv?from=${from}&to=${to}`} download>{t("ui.download_csv")}</a></p>
         {open && <><ReceiptSheet r={open} /><p class="no-print"><button onClick={() => window.print()}>{t("ui.receipt_print")}</button>{" "}
           <button class="secondary" onClick={() => setOpen(null)}>{t("ui.close")}</button></p></>}
       </section>}

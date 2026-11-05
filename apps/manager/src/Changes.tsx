@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, ApiError, lang, loadMe, t } from "@kumi/ui";
+import { api, ApiError, lang, loadMe, t, clubTime } from "@kumi/ui";
 
 type Change = { id: string; action: string; status: string; by: string; via: string; summary: string | null; at: string;
   can_answer: boolean; approved_by: string | null; declined_by: string | null; reason: string | null };
@@ -31,7 +31,7 @@ export function Changes() {
     } catch (e) { setError((e as ApiError).message); setOpen(null); }
     finally { setBusy(false); }
   };
-  const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+  const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
 
   if (error && !rows) return <main class="card"><p class="error" role="alert">{error}</p></main>;
   if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;

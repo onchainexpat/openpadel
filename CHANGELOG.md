@@ -70,6 +70,12 @@ server starts.
   toll-free verification uses it (`docs/setup/accounts/twilio.md`).
 
 ### Changed
+- **Readable in dark mode, and sized for a thumb.** Links, outlines and notes in the club's colour now use a tint of it
+  that reads at 4.5:1 on each theme (a dark green on the dark theme was 2.25:1), and a button in the club's colour gets
+  dark text when white wouldn't read. On a touch screen every button and link outside running text is at least 44 px.
+- **Passkeys in plain words.** A phone that can't save a passkey (no screen lock) says so on the profile before anyone
+  waits; a passkey that wasn't saved or didn't work says why in plain words, never the browser's own message.
+- **The desk's day fits a phone.** On a narrow screen each day, and each line, stacks with its column names.
 - **The usage meter survives a restore.** Restoring a backup, a minute or an update's snapshot, or an export onto the
   server the club ran on before, puts the meter back to the copy's counts, so what AI, texts and email cost after the
   copy was made went uncounted: a host billed too little and the cap let more through. Now each month keeps the larger
@@ -99,6 +105,24 @@ server starts.
   as a refund to send again. It now waits at the desk (above), and the preview says "goes back at the desk".
 
 ### Fixed
+Found by trying Kumi on a real Android phone:
+- **A member was shown, and asked by card for, a place's whole price after paying part at the desk.** My places said
+  "Pay $30.00" after $10 was paid in cash (Kumi charged the right $20, but said $30). It now says "Paid $10.00 of
+  $30.00" and asks for the rest, for places and court bookings alike, and shows a place at the price the member was
+  given (a member's price, say), not the program's.
+- **Times showed in the phone's own time zone, not the club's.** A phone set to another zone (travelling, or just set
+  wrong) showed a 5 PM clinic at 10 PM, on What's on, My places, a member's page in the staff app and elsewhere. Every
+  date and time in both apps is now on the club's clock; a test keeps a new one from forgetting it.
+- **The staff app's "now" line, and what counts as past, followed the phone's clock.** A phone hours slow put the line
+  hours early. Both apps take the time from the server's answers instead.
+- **The spreadsheet links under Reports, and Add to calendar, opened a blank page.** The app took them as its own
+  pages. They download now (on Android the file goes to Downloads), and so does a data download linked in the inbox.
+- **A walk-in's paid booking couldn't be refunded from the Courts page.** Cancelling it there only applied the club's
+  rule; the choice (the club's rule, everything back, nothing back) was on a member's page, and a guest has none. The
+  desk and up now choose there too; money paid at the desk goes back at the desk.
+- **A coach's Reports page showed "Occupancy and revenue" at $0.00.** A coach doesn't see the club's money; their page
+  is now their own lessons and sessions.
+
 Found by a review of the money paid at the desk (above), most of it in code older than that change.
 - **A payment called off while its card form was open could still be paid, and the money went unrecorded (in
   0.2.0).** Cancelling a booking (or a program, or a friend's share at the deadline) marked its payment failed but

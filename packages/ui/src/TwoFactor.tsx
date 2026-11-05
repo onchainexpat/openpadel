@@ -4,10 +4,11 @@
 import { useEffect, useState } from "preact/hooks";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { api, ApiError, club, loadMe, me, t } from "./state.ts";
+import { passkeyWords } from "./passkeys.ts";
 import { usePreview } from "./Preview.tsx";
 
 type Status = { required: boolean; authenticator: boolean; passkeys: number; recovery_left: number; two_step_now: boolean };
-const message = (e: unknown) => (e instanceof ApiError ? e.message : String((e as Error).message));
+const message = (e: unknown) => (e instanceof ApiError ? e.message : passkeyWords(e) ?? String((e as Error).message));
 
 /** The recovery codes, once: they're never shown again. */
 function Codes({ codes, onDone }: { codes: string[]; onDone: () => void }) {

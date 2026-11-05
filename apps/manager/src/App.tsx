@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor } from "@kumi/ui";
+import { api, club, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts } from "./Courts.tsx";
 
@@ -73,7 +73,7 @@ function access(m: Me) {
 
 /** Support access under way: the person who has it, and the owner and managers, are told at the top of every page. */
 function supportNotices(m: Me) {
-  const until = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+  const until = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
   const level = (l: "view" | "manager") => (l === "view" ? t("msg.support_level_view") : t("msg.support_level_manager"));
   if (m.support) return [t("ui.support_banner_you", { level: level(m.support.level), until: until(m.support.ends_at) })];
   return (m.support_now ?? []).map((g) => <>{t("ui.support_banner_owner", { name: g.name, level: level(g.level), until: until(g.ends_at) })} <a href="/support">{t("ui.support_banner_see")}</a></>);
@@ -103,7 +103,7 @@ function leavingNotice(on: string, owner: boolean) {
 
 export function App() {
   useEffect(() => {
-    api<Club>("/club").then((c) => { club.value = c; document.documentElement.style.setProperty("--brand", c.brand_colour); }).catch(() => {});
+    api<Club>("/club").then((c) => { club.value = c; applyBrand(c.brand_colour); }).catch(() => {});
     loadMe();
   }, []);
   useEffect(() => { document.documentElement.lang = lang.value; }, [lang.value]);

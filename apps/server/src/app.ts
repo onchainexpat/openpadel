@@ -215,7 +215,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page", "terms_url", "privacy_policy_url", "read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
+    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "public_page", "terms_url", "privacy_policy_url", "time_zone", "read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
     // Not set up yet (kumi setup apply): nothing to show, which isn't the server failing.
     if (!club) throw new KumiError("error.club_not_set_up", {}, 404);
     // Whether there's a membership to join in the app.

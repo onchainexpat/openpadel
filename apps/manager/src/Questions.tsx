@@ -4,7 +4,7 @@
 // switched-on ones as Common questions before they ask.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation, useRoute } from "preact-iso";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { api, lang, t, usePreview, clubTime } from "@kumi/ui";
 
 type Status = "open" | "answered" | "closed";
 type Row = { id: string; status: Status; waiting_since: string | null; alerted_at: string | null; created_at: string; asker: string; about: string | null; assignee: string | null; first: string; last_side: string | null };
@@ -15,7 +15,7 @@ type Thread = { id: string; person_id: string; status: Status; asker: string; ab
 type Fact = { id: string; topic: string; question_en: string | null; answer_en: string | null; question_es: string | null; answer_es: string | null; active: boolean; public: boolean };
 
 const TOPICS = ["general", "hours", "prices", "bookings", "memberships", "programs", "lessons", "juniors", "rules", "parking", "facilities"] as const;
-const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
 const VIEWS = [["waiting", "ui.q_waiting"], ["answered", "ui.q_answered"], ["closed", "ui.q_closed"]] as const;
 
 export function Questions() {

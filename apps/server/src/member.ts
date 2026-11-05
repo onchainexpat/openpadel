@@ -151,6 +151,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .select([sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
       .select((eb) => [
         eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_payment_id"),
+        eb.selectFrom("payment").select("amount_cents").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_cents"),
         eb.selectFrom("payment").select((x) => x.fn.sum<string>("amount_cents").as("c")).whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded").as("paid_cents"),
         // Several courts paid together: paying one pays them all, for their total.
         eb.selectFrom("payment as p").innerJoin("payment as g", "g.group_id", "p.group_id").select((x) => x.fn.sum<string>("g.amount_cents").as("c"))
@@ -327,11 +328,13 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   app.get("/my/places", async (c) => {
     const pid = who(c);
     const rows = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id")
-      .select(["enrolment.id", "enrolment.status", "enrolment.waitlist_position", "enrolment.program_id", "enrolment.session_id", trSql("program", "name", lang(c)).as("name"), "program.price_cents"])
+      .select(["enrolment.id", "enrolment.status", "enrolment.waitlist_position", "enrolment.program_id", "enrolment.session_id", trSql("program", "name", lang(c)).as("name"), "enrolment.price_cents"])
       // A place on one date (signed up per date): that date; otherwise the program's first.
       .select((eb) => [sql<Date | null>`coalesce((SELECT starts_at FROM session WHERE session.id = enrolment.session_id), (SELECT min(starts_at) FROM session WHERE session.program_id = program.id))`.as("first_start"),
         eb.selectFrom("waitlist_offer").select("expires_at").whereRef("waitlist_offer.enrolment_id", "=", "enrolment.id").where("outcome", "is", null).where("expires_at", ">", new Date()).limit(1).as("offer_expires_at"),
-        eb.selectFrom("payment").select("id").whereRef("payment.enrolment_id", "=", "enrolment.id").where("status", "=", "pending").limit(1).as("pending_payment_id")])
+        eb.selectFrom("payment").select("id").whereRef("payment.enrolment_id", "=", "enrolment.id").where("status", "=", "pending").limit(1).as("pending_payment_id"),
+        // What the card is asked for now: the rest, once part was paid at the desk (never the place's whole price).
+        eb.selectFrom("payment").select("amount_cents").whereRef("payment.enrolment_id", "=", "enrolment.id").where("status", "=", "pending").limit(1).as("pending_cents")])
       .select("enrolment.person_id")
       .where("enrolment.person_id", "in", (await meAndJuniors(pid)).map((x) => x.id)).where("enrolment.status", "in", ["booked", "waitlisted"]).execute();
     const people = await meAndJuniors(pid);

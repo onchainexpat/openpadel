@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
-import { api, lang, OtherLang, t, translationsOf } from "@kumi/ui";
+import { api, lang, OtherLang, t, translationsOf, clubTime } from "@kumi/ui";
 import { usePreview, dollars } from "@kumi/ui";
 
 type Row = { id: string; name: string; kind: string; status: string; capacity: number; price_cents: number; member_price_cents: number | null; booked: number; waitlisted: number; first_start: string | null };
@@ -15,7 +15,7 @@ export function Programs() {
   const load = () => api<Row[]>("/staff/programs").then(setRows);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); api<Location[]>("/staff/locations").then((l) => { setLocations(l); setF((x) => ({ ...x, location_id: x.location_id || l[0]?.id || "" })); }); }, []);
-  const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso)) : "");
+  const when = (iso: string | null) => (iso ? clubTime(iso, { dateStyle: "medium", timeStyle: "short" }) : "");
   const create = (e: Event) => { e.preventDefault(); preview("program.create", { location_id: f.location_id, kind: f.kind, format: f.format || undefined, name: f.name, capacity: Number(f.capacity), price_cents: Math.round(Number(f.price) * 100),
     ...(f.member_price.trim() ? { member_price_cents: parseDollars(f.member_price) ?? NaN } : {}), rated: f.rated, refund_window_hours: Number(f.refund_window_hours), ...(f.min_players.trim() ? { min_players: Number(f.min_players) } : {}),
     ...(f.per_date && (f.kind === "clinic" || f.kind === "social") ? { sign_up: "per_session" } : {}), translations: translationsOf({ name: f.name_tr }) }); };

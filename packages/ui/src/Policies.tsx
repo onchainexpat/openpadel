@@ -7,7 +7,7 @@ export function PolicyLinks({ join }: { join?: boolean }) {
   const c = club.value, terms = c?.terms_url, privacy = c?.privacy_policy_url;
   if (!c || (!terms && !privacy)) return null;
   return (
-    <p class="meta">
+    <p class="meta policies">
       {join && `${t("ui.policies_join", { club: c.name })} `}
       {terms && <a href={terms} target="_blank" rel="noopener">{t("ui.club_terms")}</a>}
       {terms && privacy && " · "}

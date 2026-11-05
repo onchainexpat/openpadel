@@ -3,7 +3,7 @@
 // means whoever matches when it's used; the count beside the filters says who that is now.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { api, lang, t, usePreview, clubTime, serverNow } from "@kumi/ui";
 
 type Filters = { membership?: string; plan_ids?: string[]; level_min?: number; level_max?: number; tag_ids?: string[]; played_within_days?: number; not_played_days?: number;
   age?: string; lang?: string; program_id?: string; on_date?: string; joined_from?: string; joined_to?: string };
@@ -15,7 +15,7 @@ type Sent = { id: string; purpose: "club_news" | "service"; status: "scheduled" 
   send_at: string; sent_at: string | null; sender: string | null; recipients: number; left_out: number; email_days: number; counts: Record<string, Record<string, number>>; next_email_at: string | null };
 type Words = { subject_en: string; body_en: string; subject_es: string; body_es: string };
 
-const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
 const LANGS = [["en", "lang.word_en"], ["es", "lang.word_es"]] as const;
 const blankWords: Words = { subject_en: "", body_en: "", subject_es: "", body_es: "" };
 const wordsInput = (w: Words) => ({ subject_en: w.subject_en.trim() || null, body_en: w.body_en.trim() || null, subject_es: w.subject_es.trim() || null, body_es: w.body_es.trim() || null });
@@ -106,7 +106,7 @@ export function Messages() {
           <details><summary>{t("ui.bc_words")}</summary><p class="pre">{b.body}</p></details>
           {b.status === "scheduled" && <button class="small" onClick={() => preview("broadcast.cancel", { broadcast_id: b.id })}>{t("ui.bc_cancel")}</button>}
           {/* Emails held for later (the daily cap, or quiet hours) can still be stopped; ones going out now can't, really. */}
-          {b.status === "sent" && waiting > 0 && b.next_email_at && new Date(b.next_email_at).getTime() > Date.now() + 2 * 60_000 &&
+          {b.status === "sent" && waiting > 0 && b.next_email_at && new Date(b.next_email_at).getTime() > serverNow() + 2 * 60_000 &&
             <><p class="meta">{t("ui.bc_next_email", { when: when(b.next_email_at) })}</p><button class="small" onClick={() => preview("broadcast.cancel", { broadcast_id: b.id })}>{t("ui.bc_stop")}</button></>}
         </section>;
       })}

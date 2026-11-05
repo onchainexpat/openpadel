@@ -3,7 +3,7 @@
 // owner) and anyone here can end it early, through the preview like every change.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, lang, loadMe, t, usePreview } from "@kumi/ui";
+import { api, lang, loadMe, t, usePreview, clubTime } from "@kumi/ui";
 
 type Level = "view" | "manager";
 type Grant = { id: string; name: string; email: string; reason: string; level: Level; starts_at: string; ends_at: string; ended_at: string | null; first_seen_at: string | null;
@@ -11,7 +11,7 @@ type Grant = { id: string; name: string; email: string; reason: string; level: L
 type Data = { owner: boolean; default_hours: number; max_hours: number; grants: Grant[] };
 type Activity = { reads: { at: string; method: string; path: string; status: number | null; what: string }[]; changes: { id: string; action: string; status: string; summary: string | null; at: string }[] };
 
-const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
 export const levelText = (l: Level) => (l === "view" ? t("msg.support_level_view") : t("msg.support_level_manager"));
 
 export function Support() {

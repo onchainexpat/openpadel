@@ -1,6 +1,8 @@
 // The in-app inbox: everything Kumi told this person, newest first. Opening it marks it all read.
 import { useEffect, useState } from "preact/hooks";
 import { api, shortTime, t, unread } from "./state.ts";
+/** A link to a file the server sends (a data download), not a page: the browser fetches it, the app's router doesn't take it. */
+const isFile = (href: string) => /^\/my\/privacy\/export\/|\.(csv|ics|json|zip)(\?|$)/.test(href);
 
 type M = { id: string; subject: string; body: string; link: string | null; created_at: string; read_at: string | null };
 
@@ -21,7 +23,7 @@ export function Inbox() {
         <section class={m.read_at ? "card" : "card unread"}>
           <p><strong>{m.subject}</strong> <span class="meta">{shortTime(m.created_at)}</span></p>
           <p>{m.body}</p>
-          {m.link && <p><a href={m.link}>{t("ui.inbox_open")}</a></p>}
+          {m.link && <p><a href={m.link} download={isFile(m.link) || undefined}>{t("ui.inbox_open")}</a></p>}
         </section>
       ))}
     </main>

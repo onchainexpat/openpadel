@@ -3,7 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
-import { api, club as clubSignal, dollars, lang, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club } from "@kumi/ui";
+import { api, club as clubSignal, dollars, lang, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club, applyBrand } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
 type Hours = { weekday: number; opens: string | null; closes: string | null };
@@ -34,7 +34,7 @@ export function Settings() {
   const load = async () => {
     setS(await api<S>("/staff/settings"));
     const c = await api<Club>("/club");   // a new name or colour shows straight away
-    clubSignal.value = c; document.documentElement.style.setProperty("--brand", c.brand_colour);
+    clubSignal.value = c; applyBrand(c.brand_colour);
   };
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, []);

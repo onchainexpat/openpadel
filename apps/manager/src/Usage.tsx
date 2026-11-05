@@ -2,7 +2,7 @@
 // owner sets and what's allowed over it, and the months before. Owners and managers see it; the owner changes the
 // cap (a manager's change goes to the owner to approve), through the preview like everything else.
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, me, t, usePreview } from "@kumi/ui";
+import { api, dollars, lang, me, t, usePreview, clubTime } from "@kumi/ui";
 
 type Kind = "ai_decisions" | "ai_drafts" | "texts" | "email";
 type Line = { count: number; input_tokens: number; output_tokens: number; segments: number; cents: number };
@@ -20,7 +20,7 @@ export function Usage() {
   if (!u) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const usd = (cents: number) => dollars(cents, lang.value), loc = lang.value === "es" ? "es-US" : "en-US";
   const monthName = (m: string) => new Intl.DateTimeFormat(loc, { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${m}T12:00:00Z`));
-  const day = new Intl.DateTimeFormat(loc, { day: "numeric", month: "long" }).format(new Date(u.resets));
+  const day = clubTime(u.resets, { day: "numeric", month: "long" });
   const share = u.share === null ? 100 : Math.round(u.share * 100);
   return (
     <main>

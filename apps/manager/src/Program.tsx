@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
-import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf } from "@kumi/ui";
+import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf, clubTime, serverNow } from "@kumi/ui";
 import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 
@@ -39,10 +39,10 @@ export function Program({ id }: { id: string }) {
   useEffect(() => { load(); }, [id]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const p = d.program, money = (c: number) => dollars(c, lang.value);
-  const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+  const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
   // Signed up per date: the roster is one date's (the one picked, else the next one still to come).
   const byDate = p.sign_up === "per_session";
-  const shown = byDate ? (day ?? d.sessions.find((s) => s.status !== "cancelled" && new Date(s.starts_at) > new Date())?.id ?? d.sessions[0]?.id ?? null) : null;
+  const shown = byDate ? (day ?? d.sessions.find((s) => s.status !== "cancelled" && new Date(s.starts_at) > new Date(serverNow()))?.id ?? d.sessions[0]?.id ?? null) : null;
   const roster = byDate ? d.roster.filter((r) => r.session_id === shown) : d.roster;
   const onDate = shown ? { session_id: shown } : {};
   const booked = roster.filter((r) => r.status === "booked"), waiting = roster.filter((r) => r.status === "waitlisted"), gone = roster.filter((r) => r.status === "cancelled");
@@ -64,7 +64,7 @@ export function Program({ id }: { id: string }) {
     {(["this", "following", "all"] as const).map((k) => <option value={k}>{t(`ui.scope_${k}` as Key)}</option>)}</select></label>;
   const refundPick = (value: string, onPick: (v: "rule" | "full" | "none") => void) => <label>{t("ui.dates_refund_choice")}<select value={value} onChange={(e) => onPick(e.currentTarget.value as "rule" | "full" | "none")}>
     <option value="rule">{t("ui.refund_rule_dates")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option></select></label>;
-  const upcoming = (s: { starts_at: string; status: string }) => s.status !== "cancelled" && new Date(s.starts_at) > new Date();
+  const upcoming = (s: { starts_at: string; status: string }) => s.status !== "cancelled" && new Date(s.starts_at) > new Date(serverNow());
   // Who runs a date: one of the coaches, or nobody named.
   const coachPick = (value: string, onPick: (v: string) => void) => <select aria-label={t("ui.coach")} value={value} onChange={(e) => onPick(e.currentTarget.value)}>
     <option value="">{t("ui.no_coach")}</option>{d.coaches.map((c) => <option value={c.id}>{c.name}</option>)}</select>;
@@ -113,7 +113,7 @@ export function Program({ id }: { id: string }) {
         {d.sessions.map((s) => <p>{when(s.starts_at)}{s.courts.length ? ` · ${s.courts.join(", ")}` : ""}
           {byDate && s.status !== "cancelled" && <> · <button class={s.id === shown ? "small primary" : "small"} onClick={() => setDay(s.id)}>{t("ui.date_roster", { booked: s.booked, places: s.places })}</button></>} {p.format && <a href={`/sessions/${s.id}`}>{t("ui.open_night")}</a>}
           {s.status !== "cancelled" && <> <a href={`/roster/session/${s.id}`}>{t("ui.students")}</a></>}
-          {s.status !== "cancelled" && new Date(s.starts_at) <= new Date() && <> <a href={`/sessions/${s.id}/levels`}>{t("ui.set_levels")}</a></>}
+          {s.status !== "cancelled" && new Date(s.starts_at) <= new Date(serverNow()) && <> <a href={`/sessions/${s.id}/levels`}>{t("ui.set_levels")}</a></>}
           {s.status !== "cancelled" && d.coaches.length > 0 && <> {coachPick(s.coach_id ?? "", (v) => preview("session.set_coach", { session_id: s.id, coach_id: v || null }))}</>}
           {s.status === "cancelled" && <span class="meta"> · {t("ui.status_cancelled")}</span>}
           {upcoming(s) && p.status !== "cancelled" && <> <button class="small" onClick={() => { setCancelling(null); setEdit({ session: s.id, scope: "this", when: "", time: "", minutes: "", courts: [], coach: "", capacity: "" }); }}>{t("ui.change_date")}</button>
@@ -200,7 +200,7 @@ export function Program({ id }: { id: string }) {
 function SignUpDates({ programId, sessions, when, preview }: { programId: string; sessions: Data["sessions"]; when: (iso: string) => string; preview: (action: string, input: unknown) => Promise<void> }) {
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]);
   const [who, setWho] = useState<{ id: string; display_name: string } | null>(null), [picked, setPicked] = useState<string[]>([]);
-  const ahead = sessions.filter((s) => s.status !== "cancelled" && new Date(s.starts_at) > new Date());
+  const ahead = sessions.filter((s) => s.status !== "cancelled" && new Date(s.starts_at) > new Date(serverNow()));
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
   if (!ahead.length) return null;
   return (

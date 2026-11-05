@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { api, lang, t, usePreview, clubTime } from "@kumi/ui";
 
 type M = { status: { last_sync_at: string; last_ok_at: string | null; failed: boolean; fetched: number | null } | null;
   unmapped: { courtRef: string; courtName: string; bookings: number }[];
@@ -14,7 +14,7 @@ export function Mirror() {
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); api<Court[]>("/staff/courts").then(setCourts); }, [lang.value]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
-  const fmt = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+  const fmt = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
   const free = courts.filter((c) => !d.linked.some((l) => l.court_id === c.id));
   return (
     <main>

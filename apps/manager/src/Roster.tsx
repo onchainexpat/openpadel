@@ -1,7 +1,7 @@
 // A lesson's or a program date's players: level, a junior's parents, the club's waiver, and who came. The
 // coach who runs it (or front desk and up) marks "came" or "didn't come" from the start until 48 hours after.
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { api, lang, t, usePreview, serverNow } from "@kumi/ui";
 
 type Player = { person_id: string; name: string; level: string | null; provisional: boolean | null; junior: boolean; parents: string[]; waiver: "accepted" | "missing" | null; came: boolean | null };
 type R = { item: { kind: "lesson" | "session"; id: string; program_id: string | null; name: string | null; code: string | null; start: string; end: string; cancelled: boolean; coach: string | null; courts: string[]; location: string };
@@ -27,7 +27,7 @@ export function Roster({ kind, id }: { kind: string; id: string }) {
       {d.item.cancelled && <p class="card">{t("ui.roster_cancelled")}</p>}
       <section class="card">
         <h2>{t("ui.roster_who")}</h2>
-        <p class="meta">{d.marking.open ? t("ui.attendance_until", { when: fmt(d.marking.until) }) : !d.item.cancelled && new Date(d.item.start) > new Date() ? t("ui.attendance_later", { hours: d.hours }) : t("error.attendance_window", { hours: d.hours })}</p>
+        <p class="meta">{d.marking.open ? t("ui.attendance_until", { when: fmt(d.marking.until) }) : !d.item.cancelled && new Date(d.item.start) > new Date(serverNow()) ? t("ui.attendance_later", { hours: d.hours }) : t("error.attendance_window", { hours: d.hours })}</p>
         {d.players.some((p) => p.came !== null) && <p class="meta">{t("ui.attendance_counts", { came: count(true), missed: count(false), open: count(null) })}</p>}
         {!d.players.length ? <p>{t("ui.no_players_session")}</p> : <ul class="plain">{d.players.map((p) => (
           <li class="row"><span><strong>{p.name}</strong>{p.junior && <span class="badge">{t("ui.junior_tag")}</span>}{" "}

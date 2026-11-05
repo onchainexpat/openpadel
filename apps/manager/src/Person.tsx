@@ -2,7 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
-import { AccountData, api, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView } from "@kumi/ui";
+import { AccountData, api, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
 import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
@@ -43,7 +43,7 @@ export function Person({ id }: { id: string }) {
     api<{ key: string; name: string; system: boolean }[]>("/staff/roles").then((r) => setCustom(r.filter((x) => !x.system))).catch(() => setCustom([])); }, [id]);
   if (!p) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
-  const date = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
+  const date = (iso: string) => clubTime(iso, { dateStyle: "medium" });
   const news = p.consent.find((c) => c.channel === "email" && c.purpose === "club_news"), texts = p.consent.find((c) => c.channel === "sms" && c.purpose === "account");
   const staffRoles = p.roles.filter((r) => r.key !== "member");
   // A deleted account: nothing left to show or change.
@@ -141,7 +141,7 @@ export function Person({ id }: { id: string }) {
         <h2>{t("ui.refunds_failed")}</h2>
         <ul class="plain">{p.failed_refunds.map((r) => (
           <li class="row" key={r.id}>
-            <span>{dollars(r.amount_cents, lang.value)} · {new Date(r.created_at).toLocaleDateString(lang.value === "es" ? "es-US" : "en-US")}</span>
+            <span>{dollars(r.amount_cents, lang.value)} · {clubTime(r.created_at, { dateStyle: "medium" })}</span>
             {mayDo("refund.resend") && <button class="small" onClick={() => preview("refund.resend", { refund_id: r.id })}>{t("ui.send_again")}</button>}
           </li>))}</ul>
       </section>}
@@ -149,7 +149,7 @@ export function Person({ id }: { id: string }) {
         <h2>{t("ui.to_give_back")}</h2>
         <ul class="plain">{p.to_give_back.map((r) => (
           <li class="row" key={r.id}>
-            <span>{dollars(r.amount_cents, lang.value)} {t(`paid_by.${r.method}` as Key)} · {new Date(r.created_at).toLocaleDateString(lang.value === "es" ? "es-US" : "en-US")}</span>
+            <span>{dollars(r.amount_cents, lang.value)} {t(`paid_by.${r.method}` as Key)} · {clubTime(r.created_at, { dateStyle: "medium" })}</span>
             {mayDo("refund.give_back") && <button class="small" onClick={() => preview("refund.give_back", { refund_id: r.id })}>{t("ui.given_back")}</button>}
           </li>))}</ul>
       </section>}
@@ -165,13 +165,13 @@ export function Person({ id }: { id: string }) {
 /** Their court bookings and lessons: the desk cancels one (the club's rule, everything back or nothing back) or
  *  refunds part of a card payment on one that stays (leaving and refunding are separate decisions). */
 function PersonBookings({ bookings, preview }: { bookings: P["bookings"]; preview: (action: string, input: unknown) => Promise<void> | void }) {
-  const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  const when = (iso: string) => clubTime(iso, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   return (
     <section class="card">
       <h2>{t("ui.person_bookings")}</h2>
       {bookings.length === 0 ? <p class="meta">{t("ui.person_no_bookings")}</p> : (
         <ul class="plain">{bookings.map((b) => {
-          const upcoming = b.status !== "cancelled" && new Date(b.starts_at).getTime() > Date.now();
+          const upcoming = b.status !== "cancelled" && new Date(b.starts_at).getTime() > serverNow();
           return (
             <li class="row" key={b.id}>
               <span>{when(b.starts_at)} · {b.court} · {b.code}</span>
@@ -224,7 +224,7 @@ function PersonAssistants({ personId, preview }: { personId: string; preview: (a
   return (
     <section class="card">
       <h2>{t("ui.assistants_title")}</h2>
-      <ul class="plain">{list.map((a) => <li class="row"><span><strong>{a.name}</strong><br /><span class="meta">{t("ui.assistant_connected", { when: new Date(a.connected_at).toLocaleDateString() })}. {t("ui.assistant_spent", { spent: dollars(a.spent_cents, lang.value), cap: dollars(a.weekly_cap_cents, lang.value) })}</span></span>
+      <ul class="plain">{list.map((a) => <li class="row"><span><strong>{a.name}</strong><br /><span class="meta">{t("ui.assistant_connected", { when: clubTime(a.connected_at, { dateStyle: "medium" }) })}. {t("ui.assistant_spent", { spent: dollars(a.spent_cents, lang.value), cap: dollars(a.weekly_cap_cents, lang.value) })}</span></span>
         <button class="small" onClick={() => preview("assistant.disconnect", { grant_id: a.id })}>{t("ui.assistant_disconnect")}</button></li>)}</ul>
     </section>
   );

@@ -55,6 +55,17 @@ test("join, pay (stand-in), and the place shows as paid; the preview is in Spani
   assert.equal((await call("/open-programs", cookie)).json.find((x: any) => x.id === rated).my_status, "booked");
 });
 
+test("part paid at the desk: my places shows what was paid of the price, and the card is asked for the rest", async () => {
+  const cookie = await signIn("ana@example.test");
+  const p = await call("/actions/enrolment.join/plan", cookie, { program_id: friendly, person_id: ana });
+  const enrolment = (await call(`/runs/${p.json.run_id}/apply`, cookie, {})).json.result.enrolment_id;
+  await run(db, "enrolment.record_payment", { enrolment_id: enrolment, cents: 1000, method: "cash" }, owner);
+  const place = (await call("/my/places", cookie)).json.find((x: any) => x.id === enrolment);
+  assert.deepEqual([place.price_cents, place.paid_cents, place.pending_cents], [2500, 1000, 1500]);
+  assert.ok(place.pending_payment_id, "a new card ask for the rest");
+  assert.equal((await call("/club", cookie)).json.time_zone, "America/Los_Angeles", "the apps show every time on the club's clock");
+});
+
 test("my level starts empty, and only my own", async () => {
   const cookie = await signIn("ana@example.test");
   const r = (await call("/my/level", cookie)).json;

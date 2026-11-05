@@ -4,6 +4,8 @@ import { h, type ComponentType } from "preact";
 import { lazy } from "preact-iso";
 import { useState } from "preact/hooks";
 import { format, LANGS, pickLang, type Catalog, type Key, type Lang, type Params } from "@kumi/i18n/format";
+import { brandColours } from "./brand.ts";
+export { brandColours, contrastOf } from "./brand.ts";
 
 export type Me = { person: { id: string; display_name: string; locale: string }; signed_in_with: "email_code" | "phone_code" | "passkey" | "two_factor"; lang: Lang;
   /** False for an account that joined by phone and hasn't added an email: the members' app asks for one, never requires it. */
@@ -36,7 +38,9 @@ export type Club = { name: string; brand_colour: string; languages: string[]; de
   /** The club's Kumi moved to another server (club_exit.ts): this one says where, and sends nothing. */
   moved?: boolean; moved_to?: string | null;
   /** The club's own terms and privacy policy for members (Policies.tsx), when it has set them. */
-  terms_url?: string | null; privacy_policy_url?: string | null };
+  terms_url?: string | null; privacy_policy_url?: string | null;
+  /** The club's own clock (IANA zone): every time the apps show is on it, wherever the reader's phone is set. */
+  time_zone?: string };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
 /** Whether to offer a button for a change: a role the club made may not allow it (the server decides either way). */
@@ -118,10 +122,38 @@ export const t = (key: Key, params?: Params) => {
   const has = (x: Lang) => all[x]?.[key] !== undefined, from = has(l) ? l : LANGS.find(has) ?? l;
   return format(all[from] ?? {}, from, key, params);
 };
+// ---- Passkeys, in plain words ----
+/** The browser's name for a passkey failure (its own message is for developers), or null when it isn't one:
+ *  each screen says it in plain words (sign-in: "didn't work"; the profile: why it wasn't saved). */
+export function passkeyFailure(e: unknown): string | null {
+  const name = (e as { name?: string } | null)?.name ?? "";
+  return ["NotAllowedError", "AbortError", "InvalidStateError", "NotSupportedError", "SecurityError"].includes(name) ? name : null;
+}
+
+// ---- The club's colour, readable on both themes (brand.ts) ----
+/** The club's colour as the apps paint it (styles.css): as it is for fills, with white or near-black text on them,
+ *  whichever reads; and a tint of it for links, outlines and notes that reads at 4.5:1 on the light theme's
+ *  background and cards and on the dark theme's (a club's dark green, as it is, is unreadable on the dark theme). */
+export function applyBrand(colour: string) {
+  const st = document.documentElement.style, b = brandColours(colour);
+  st.setProperty("--brand", colour);
+  if (!b) return;
+  st.setProperty("--brand-ink-light", b.inkLight); st.setProperty("--brand-ink-dark", b.inkDark); st.setProperty("--on-brand", b.onBrand);
+}
+
+/** The server's clock, as its last answer gave it (its Date header): a phone's own can be hours out. */
+let skew = 0;
+export const serverNow = () => Date.now() + skew;
+/** A moment on the club's clock, in the reader's language: a member away from home, or a phone set to the wrong
+ *  zone, still sees the club's times. `zone` is for a location of its own; without one it's the club's. Every date
+ *  and time the apps show goes through here (club_time.test.ts holds them to it). */
+export function clubTime(at: string | number | Date, opts: Intl.DateTimeFormatOptions, zone?: string | null): string {
+  return new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { ...opts, timeZone: zone || club.value?.time_zone || undefined }).format(new Date(at));
+}
 /** A moment: the time when it's today, the day and time when it isn't (a place offered at night is held into the next day). */
 export function shortTime(iso: string): string {
-  const d = new Date(iso), today = d.toDateString() === new Date().toDateString();
-  return new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { ...(today ? {} : { weekday: "short" as const }), hour: "numeric", minute: "2-digit" }).format(d);
+  const day = (x: string | number) => clubTime(x, { year: "numeric", month: "numeric", day: "numeric" });
+  return clubTime(iso, { ...(day(iso) === day(serverNow()) ? {} : { weekday: "short" as const }), hour: "numeric", minute: "2-digit" });
 }
 /** How many inbox messages are unread, for the nav; checked when the app opens and every minute. */
 export const unread = signal(0);
@@ -135,6 +167,9 @@ export class ApiError extends Error { code: string; status: number; constructor(
 export async function api<T = any>(path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
   const res = await fetch(path, { method: body === undefined ? "GET" : "POST", credentials: "same-origin",
     headers: { "content-type": "application/json", "accept-language": lang.value, ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+  // The server's clock, for what the screens compare with now: only a real difference counts (the header is to the second).
+  const said = Date.parse(res.headers.get("date") ?? "");
+  if (!isNaN(said) && Math.abs(said - Date.now() - skew) > 5_000) skew = said - Date.now();
   const json = await res.json().catch(() => ({}));
   // Support access that ended mid-session: who they are now is read again, so the app says it ended.
   if (res.status === 403 && json.error === "error.staff_only" && me.value?.support && path !== "/me") void loadMe();

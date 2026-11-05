@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t } from "@kumi/ui";
+import { api, lang, t, clubTime } from "@kumi/ui";
 import { usePreview } from "@kumi/ui";
 
 type L = { person: { id: string; display_name: string }; rating: { level: string; provisional: boolean; floor: string | null; rated_games: number } | null;
@@ -11,7 +11,7 @@ export function Level({ id }: { id: string }) {
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [id, lang.value]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
-  const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
+  const when = (iso: string) => clubTime(iso, { dateStyle: "medium" });
   return (
     <main>
       <h1>{t("ui.level_title", { name: d.person.display_name })}</h1>

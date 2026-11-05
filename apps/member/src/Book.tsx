@@ -3,7 +3,7 @@
 // court, more courts the same day can be added and paid together. Times are the club's, whatever the
 // phone's clock says.
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
+import { api, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
 type Options = { locations: { id: string; name: string; time_zone: string }[]; lengths: number[]; days_ahead: number; split_deadline_hours: number; same_day_cutoff_hours: number; free_cancel_hours: number; late_refund_percent: number };
@@ -40,7 +40,7 @@ export function Book() {
   }, []);
   // The next days, in the club's time.
   const days: string[] = [];
-  if (o && place) { const today = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date()); for (let k = 0; k < Math.min(o.days_ahead, 60); k++) { const d = new Date(`${today}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + k); days.push(d.toISOString().slice(0, 10)); } }
+  if (o && place) { const today = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(serverNow())); for (let k = 0; k < Math.min(o.days_ahead, 60); k++) { const d = new Date(`${today}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + k); days.push(d.toISOString().slice(0, 10)); } }
   useEffect(() => { if (days.length && !day) setDay(days[0]!); }, [o, loc]);
   useEffect(() => { setCart([]); }, [loc, day]);
   useEffect(() => { if (loc && day) { setPick(null); setQ(null); api<Free>(`/availability?location_id=${loc}&date=${day}&minutes=${minutes}`).then(setFree); } }, [loc, day, minutes]);
@@ -54,7 +54,7 @@ export function Book() {
   const times = [...new Set(free?.courts.flatMap((c) => c.starts) ?? [])].sort().map((s) => ({ start: s, courts: free!.courts.filter((c) => c.starts.includes(s) && !clash(c.id, s)) })).filter((x) => x.courts.length);
   const each = q ? Math.floor(q.total_cents / players) : 0, mine = q ? q.total_cents - each * (players - 1) : 0;
   // Past the deadline for sharing the cost, only a same-day open match can still be shared, until its cutoff.
-  const ahead = pick ? new Date(pick.start).getTime() - Date.now() : 0;
+  const ahead = pick ? new Date(pick.start).getTime() - serverNow() : 0;
   const canSplit = pick ? ahead > o.split_deadline_hours * 3600_000 : false, sameDay = pick ? !canSplit && ahead > o.same_day_cutoff_hours * 3600_000 : false;
   const choose = (x: { start: string; courts: Free["courts"] }) => { setPick(x); setCourt(x.courts.length === 1 ? x.courts[0]!.id : ""); setQ(null); setPay("whole"); };
   const opened = open && pay === "split" && players === 4;

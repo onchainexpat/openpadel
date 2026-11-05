@@ -4,6 +4,7 @@ import type { Key, Lang } from "@kumi/i18n";
 import { api, ApiError, club, farewell, lazyPage, loadMe, me, t } from "./state.ts";
 import { AccountData } from "./AccountData.tsx";
 import { PolicyLinks } from "./Policies.tsx";
+import { canSavePasskey, passkeyWords } from "./passkeys.ts";
 import { protectedPost } from "./pow.ts";
 
 // Two-step sign-in, loaded when the profile opens.
@@ -172,9 +173,12 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
     await api(`/runs/${pending!.runId}/apply`, {}, { "idempotency-key": pending!.runId });
     setPending(null); await loadMe(); setNote(t("ui.saved"));
   });
+  // A phone with no screen lock can't save one: it says so before anyone waits on the browser.
+  const [canSave, setCanSave] = useState<boolean | null>(null);
+  useEffect(() => { void canSavePasskey().then(setCanSave); }, []);
   const addPasskey = () => guard(async () => {
     const o = await api<{ challenge_id: string; options: any }>("/auth/passkey/add/options", {});
-    const response = await startRegistration({ optionsJSON: o.options });
+    const response = await startRegistration({ optionsJSON: o.options }).catch((x) => { throw new Error(passkeyWords(x) ?? (x as Error).message); });
     await api("/auth/passkey/add/verify", { challenge_id: o.challenge_id, response, name: t("ui.passkey_name_default") });
     setNote(t("ui.passkey_added"));
   });
@@ -205,6 +209,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
       {app === "member" && <section class="card"><h2>{t("ui.receipts_title")}</h2><p><a href="/receipts">{t("ui.receipts_link")}</a></p></section>}
       <section class="card">
         <h2>{t("ui.passkeys")}</h2>
+        {canSave === false && <p class="meta">{t("ui.passkey_no_lock")}</p>}
         <button onClick={addPasskey}>{t("ui.add_passkey")}</button>
       </section>
       <Assistants />

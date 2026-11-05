@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { startAuthentication } from "@simplewebauthn/browser";
 import type { Lang } from "@kumi/i18n";
-import { api, ApiError, club, farewell, lang, loadMe, t, type Club } from "./state.ts";
+import { api, ApiError, club, farewell, lang, loadMe, passkeyFailure, t, type Club } from "./state.ts";
 import { protectedPost } from "./pow.ts";
 import { PolicyLinks, shownPolicies } from "./Policies.tsx";
 
@@ -16,7 +16,7 @@ export function SignIn() {
   // A field people never see (or fill in): a script that fills every field gets nowhere (bot.ts).
   const [website, setWebsite] = useState("");
   const trap = <label class="trap" aria-hidden="true">Website<input tabIndex={-1} autocomplete="off" value={website} onInput={(e) => setWebsite(e.currentTarget.value)} /></label>;
-  const attempt = async (f: () => Promise<void>) => { setBusy(true); setError(null); try { await f(); } catch (e) { setError(e instanceof ApiError ? e.message : String((e as Error).message)); } finally { setBusy(false); } };
+  const attempt = async (f: () => Promise<void>) => { setBusy(true); setError(null); try { await f(); } catch (e) { setError(e instanceof ApiError ? e.message : passkeyFailure(e) ? t("error.passkey_failed") : String((e as Error).message)); } finally { setBusy(false); } };
 
   const send = (e: Event) => { e.preventDefault(); attempt(async () => {
     await (by === "phone" ? protectedPost("/auth/phone/start", { phone }, website) : protectedPost("/auth/email/start", { email }, website));

@@ -2,7 +2,7 @@
 // and who pays (all of it, or each player their part), and pay. Times are the club's; a time is only offered
 // when the coach gives lessons then and a court is free. Loaded only when opened, to keep the app small.
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
+import { api, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { ForWhom } from "./ForWhom.tsx";
 
@@ -26,7 +26,7 @@ export function Lessons() {
     api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {});
   }, []);
   // The first day the coach can be booked, once one is chosen (the club's today).
-  useEffect(() => { if (coach && !day && d) setDay(new Intl.DateTimeFormat("en-CA", { timeZone: d.time_zone }).format(new Date())); }, [coach?.id]);
+  useEffect(() => { if (coach && !day && d) setDay(new Intl.DateTimeFormat("en-CA", { timeZone: d.time_zone }).format(new Date(serverNow()))); }, [coach?.id]);
   useEffect(() => { if (coach && day) { setPick(null); setTimes(null); api<{ times: Time[]; days_ahead: number }>(`/my/lessons/times?coach_id=${coach.id}&date=${day}&minutes=${minutes}&for=${who}`).then((r) => { setTimes(r.times); setDaysAhead(r.days_ahead); }); } }, [coach?.id, day, minutes, who]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const zone = d.time_zone;
@@ -55,10 +55,10 @@ export function Lessons() {
   );
 
   // The next days, in the club's time, up to how far ahead this member may book.
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(new Date()), days: string[] = [];
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(new Date(serverNow())), days: string[] = [];
   for (let k = 0; k < Math.min(daysAhead, 30); k++) { const x = new Date(`${today}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + k); days.push(x.toISOString().slice(0, 10)); }
   const price = coach.rates[String(minutes)] ?? 0, each = Math.floor(price / Math.max(players, 1)), mine = price - each * (players - 1);
-  const canSplit = players > 1 && pick ? new Date(pick.start).getTime() - Date.now() > d.split_deadline_hours * 3600_000 : false;
+  const canSplit = players > 1 && pick ? new Date(pick.start).getTime() - serverNow() > d.split_deadline_hours * 3600_000 : false;
   const book = () => preview("lesson.request", { coach_id: coach.id, starts_at: pick!.start, minutes, court_id: pick!.court_ids[0], pay: canSplit ? pay : "whole", players, person_id: who });
   return (
     <main>

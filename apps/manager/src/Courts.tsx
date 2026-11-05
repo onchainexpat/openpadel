@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
-import { api, club, dollars, lang, lazyPage, mayDo, me, t, usePreview } from "@kumi/ui";
+import { api, club, dollars, lang, lazyPage, mayDo, me, t, usePreview, serverNow } from "@kumi/ui";
 import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
 
 // The desk's payment form comes when someone taps Record payment, so the first screen doesn't carry it.
@@ -65,15 +65,15 @@ export function Courts() {
       cursor = Math.max(cursor, ms(it.end));
     }
     if (cursor < ms(c.open.closes)) out.push({ from: new Date(cursor).toISOString(), to: c.open.closes });
-    return out.filter((x) => ms(x.to) - ms(x.from) >= HALF && new Date(x.to) > new Date());
+    return out.filter((x) => ms(x.to) - ms(x.from) >= HALF && new Date(x.to) > new Date(serverNow()));
   };
   const shift = (days: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days); setDate(d.toISOString().slice(0, 10)); };
   const roles = (me.value?.roles ?? []).map((r) => r.key);
   const seriesOk = roles.includes("owner") || roles.includes("manager") || (me.value?.can ?? []).includes("series.edit");
   // What can be moved, and what made longer or shorter: a confirmed booking (moved before it starts, its length
   // changed until it ends), and a program date before it starts, for those who edit programs.
-  const canMove = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.start) > Date.now() && mayDo("booking.move")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > Date.now());
-  const canResize = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.end) > Date.now() && mayDo("booking.extend")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > Date.now());
+  const canMove = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.start) > serverNow() && mayDo("booking.move")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > serverNow());
+  const canResize = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.end) > serverNow() && mayDo("booking.extend")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > serverNow());
   // A program date on more than one court keeps its courts when moved: only its time changes.
   const courtsOf = (it: Item) => g.courts.filter((c) => c.items.some((x) => it.session_id && x.session_id === it.session_id)).length;
   const drop = (it: Item, from: Court, to: Target) => {
@@ -88,7 +88,7 @@ export function Courts() {
     if (!mayDo("booking.create")) return;
     const gap = gaps(c).find((x) => ms(x.from) <= at && at < ms(x.to));
     if (!gap) return;
-    const starts = slots.filter((s) => ms(s) >= Math.max(at, ms(gap.from)) && ms(s) + HALF <= ms(gap.to) && new Date(s) > new Date());
+    const starts = slots.filter((s) => ms(s) >= Math.max(at, ms(gap.from)) && ms(s) + HALF <= ms(gap.to) && new Date(s) > new Date(serverNow()));
     if (starts.length) setForm({ court: c, starts, until: gap.to });
   };
   const sel = g.courts.flatMap((c) => c.items.map((it) => ({ it, c }))).find((x) => keyOf(x.it, x.c.id) === picked) ?? null;
@@ -163,7 +163,7 @@ function closedBands(c: Court, from: number, to: number) {
 
 /** On each court: what's on now, and what starts next, with money owed and any word about running late. */
 function NowNext({ g, clock }: { g: Grid; clock: (s: string) => string }) {
-  const now = Date.now();
+  const now = serverNow();
   return (
     <section class="card">
       <h2>{t("ui.now_next")}</h2>
@@ -239,7 +239,7 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
     e.preventDefault();
     setDrag({ ...cur, mode, to });
   };
-  const nowLine = g.date === g.today ? Date.now() : null;
+  const nowLine = g.date === g.today ? serverNow() : null;
 
   return (
     <div class="tgrid" style={`--slot:${SLOT}px`}>
@@ -283,10 +283,12 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
   );
 }
 
+/** The front desk and up choose what goes back when they cancel a paid booking (booking.cancel's refund). */
+const deskUp = () => (me.value?.roles ?? []).some((r) => ["owner", "manager", "front_desk"].includes(r.key));
 /** The item picked: who's playing, what's paid, and every change for it on buttons. */
 function Details({ it, court, g, clock, slots, preview, canMove, canResize, courtFixed, onClose }: { it: Item; court: Court; g: Grid; clock: (s: string | number) => string; slots: string[];
   preview: Preview; canMove: boolean; canResize: boolean; courtFixed: boolean; onClose: () => void }) {
-  const [changing, setChanging] = useState(false), [paying, setPaying] = useState(false), card = useRef<HTMLElement>(null);
+  const [changing, setChanging] = useState(false), [paying, setPaying] = useState(false), [cancelling, setCancelling] = useState(false), card = useRef<HTMLElement>(null);
   // On a phone the grid is long: bring what was picked into view.
   useEffect(() => { card.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, []);
   return (
@@ -299,16 +301,19 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
       <div class="chips">
         {isBooking(it) && unpaid(it) > 0 && mayDo("booking.record_payment") && <button class="small" onClick={() => setPaying(!paying)}>{t("ui.record_payment")}</button>}
         {(canMove || canResize) && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.move_or_resize")}</button>}
-        {isBooking(it) && mayDo("booking.cancel") && <button class="small" onClick={() => preview("booking.cancel", { booking_id: it.booking_id })}>{t("ui.cancel_booking")}</button>}
+        {isBooking(it) && mayDo("booking.cancel") && <button class="small" onClick={() => (it.paid_cents ?? 0) > 0 && deskUp() ? setCancelling(!cancelling) : preview("booking.cancel", { booking_id: it.booking_id })}>{t("ui.cancel_booking")}</button>}
         {it.block_id && !it.series && mayDo("court.unblock") && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
         {it.block_id && it.series && mayDo("court.block_repeat_end") && <>
           <button class="small" onClick={() => preview("court.block_repeat_end", { block_id: it.block_id, scope: "this" })}>{t("ui.open_this_date")}</button>
           <button class="small" onClick={() => preview("court.block_repeat_end", { block_id: it.block_id, scope: "following" })}>{t("ui.end_from_here")}</button>
           <button class="small" onClick={() => preview("court.block_repeat_end", { block_id: it.block_id, scope: "all" })}>{t("ui.end_series")}</button>
         </>}
-        {it.block_id && it.series && mayDo("court.block_repeat_edit") && ms(it.start) > Date.now() && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.change_series")}</button>}
+        {it.block_id && it.series && mayDo("court.block_repeat_edit") && ms(it.start) > serverNow() && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.change_series")}</button>}
         {it.program_id && <a href={`/programs/${it.program_id}`}>{t("ui.open")}</a>}
       </div>
+      {cancelling && <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("booking.cancel", { booking_id: it.booking_id, refund: ((e.currentTarget as HTMLFormElement).elements.namedItem("refund") as HTMLSelectElement).value }); }}>
+        <label>{t("ui.refund")}<select name="refund"><option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option></select></label>
+        <button class="small primary">{t("ui.cancel_booking")}</button></form>}
       {paying && isBooking(it) && unpaid(it) > 0 && <DeskPay key={`${it.booking_id}-${unpaid(it)}`} owed={unpaid(it)} label={t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) })}
         onCancel={() => setPaying(false)} send={(cents, method) => { setPaying(false); preview("booking.record_payment", { booking_id: it.booking_id, cents, method }); }} />}
       {it.empty_places?.map((e) => <EmptyPlace e={e} preview={preview} />)}
@@ -349,7 +354,7 @@ function ChangeForm({ it, court, g, clock, slots, preview, canMove, canResize, c
   // The court it would be on: only the times that court is open that day.
   const open = g.courts.find((c) => c.id === f.court)?.open ?? null;
   const lengths = Array.from({ length: 16 }, (_, i) => (i + 1) * 30).filter((m) => (open && ms(f.start) + m * 60_000 <= ms(open.closes)) || m === was);
-  const starts = courtSlots(open).filter((s) => new Date(s) > new Date() && ms(s) + f.minutes * 60_000 <= ms(open!.closes));
+  const starts = courtSlots(open).filter((s) => new Date(s) > new Date(serverNow()) && ms(s) + f.minutes * 60_000 <= ms(open!.closes));
   const submit = (e: Event) => {
     e.preventDefault(); setError("");
     if (it.session_id) return void preview("series.edit", { session_id: it.session_id, scope: "this", ...(moved ? { starts_at: f.start } : {}), ...(resized ? { minutes: f.minutes } : {}),

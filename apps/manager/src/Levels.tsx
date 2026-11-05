@@ -1,7 +1,7 @@
 // The level review queue: reviews players asked for, and levels that moved a lot. Each is answered by
 // keeping the level or changing it with a reason (players who asked are told either way).
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { api, lang, t, usePreview, clubTime } from "@kumi/ui";
 
 type Request = { id: string; person_id: string; name: string; note: string | null; created_at: string; level: string | null; provisional: boolean | null; rated_games: number | null };
 type Move = { person_id: string; name: string; level: number; from: number; since: string };
@@ -27,7 +27,7 @@ export function Levels() {
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
   if (!q) return <main class="card"><p>{t("ui.loading")}</p></main>;
-  const day = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
+  const day = (iso: string) => clubTime(iso, { dateStyle: "medium" });
   return (
     <main>
       <h1>{t("ui.levels_queue")}</h1>

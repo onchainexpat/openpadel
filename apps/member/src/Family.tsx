@@ -4,7 +4,7 @@
 // they ask for, and saves that card; a kid with a login sees their own rules and requests here.
 // Loaded only when one of these pages is opened, to keep the app small.
 import { useEffect, useState } from "preact/hooks";
-import { AccountData, api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
+import { AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { loadFamily } from "./ForWhom.tsx";
 import { PaySheet } from "./Pay.tsx";
 
@@ -52,7 +52,7 @@ function ParentFamily() {
   const link = (code: string) => `${location.origin}/family/join/${code}`;
   const copy = async (code: string) => { await navigator.clipboard?.writeText(link(code)).catch(() => {}); setCopied(code); };
   const share = (code: string) => navigator.share?.({ title: t("ui.invite_parent"), url: link(code) }).catch(() => {});
-  const thisYear = new Date().getFullYear();
+  const thisYear = new Date(serverNow()).getFullYear();
   return (
     <main>
       <h1>{t("ui.family_title")}</h1>
@@ -222,7 +222,7 @@ export function Waiver() {
   useEffect(() => { void load(); }, [lang.value]);
   if (!w) return <main class="card"><p>{t("ui.loading")}</p></main>;
   if (!w.waiver) return <main class="card"><p>{t("ui.waiver_none")}</p></main>;
-  const day = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { day: "numeric", month: "long", year: "numeric" }).format(new Date(iso));
+  const day = (iso: string) => clubTime(iso, { day: "numeric", month: "long", year: "numeric" });
   return (
     <main>
       {sheet}

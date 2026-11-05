@@ -2,7 +2,7 @@
 // with its list of players (and who came). A lesson can be called off from here; its players get all their
 // money back. Their calendar link sits on top: a phone's calendar subscribes to it.
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { api, lang, t, usePreview, serverNow } from "@kumi/ui";
 
 type Item = { kind: "lesson" | "session"; id: string; start: string; end: string; court?: string; players_names?: string | null; code?: string; name?: string; program_id?: string; booked?: number };
 
@@ -48,7 +48,7 @@ export function Schedule() {
           <li class="row"><span><strong>{fmt(x.start, { hour: "numeric", minute: "2-digit" })} - {fmt(x.end, { hour: "numeric", minute: "2-digit" })}</strong>{" "}
             {x.kind === "lesson" ? t("ui.lesson_item", { players: x.players_names ?? "", court: x.court ?? "" }) : <a href={`/programs/${x.program_id}`}>{t("ui.session_item", { program: x.name ?? "", count: x.booked ?? 0 })}</a>}
             {" "}<a href={`/roster/${x.kind}/${x.id}`}>{t("ui.students")}</a></span>
-            {x.kind === "lesson" && new Date(x.start) > new Date() && <button class="small" onClick={() => preview("booking.cancel", { booking_id: x.id })}>{t("ui.cancel_lesson")}</button>}</li>))}</ul>
+            {x.kind === "lesson" && new Date(x.start) > new Date(serverNow()) && <button class="small" onClick={() => preview("booking.cancel", { booking_id: x.id })}>{t("ui.cancel_lesson")}</button>}</li>))}</ul>
       </section>)}
     </main>
   );

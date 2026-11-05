@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor } from "@kumi/ui";
+import { api, club, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand } from "@kumi/ui";
 import { WhatsOn } from "./WhatsOn.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
 import { MyLevel } from "./MyLevel.tsx";
@@ -34,7 +34,7 @@ function useEmailNotice() {
 
 export function App() {
   useEffect(() => {
-    api<Club>("/club").then((c) => { club.value = c; document.documentElement.style.setProperty("--brand", c.brand_colour); }).catch(() => {});
+    api<Club>("/club").then((c) => { club.value = c; applyBrand(c.brand_colour); }).catch(() => {});
     loadMe();
   }, []);
   useEffect(() => { document.documentElement.lang = lang.value; }, [lang.value]);

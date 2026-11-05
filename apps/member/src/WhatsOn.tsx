@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, club, lang, me, NewOnly, t, shortTime, usePreview, ProgramCard, placesLeft, whyNothingNew, type ProgramCardData } from "@kumi/ui";
+import { api, club, lang, me, NewOnly, t, shortTime, usePreview, ProgramCard, placesLeft, whyNothingNew, type ProgramCardData, clubTime } from "@kumi/ui";
 import { ForWhom } from "./ForWhom.tsx";
 
 type Day = { id: string; starts_at: string; capacity: number; booked: number; offered: number; my_status: string | null; my_offer_until: string | null; my_watch: string | null };
@@ -11,7 +11,7 @@ export function WhatsOn() {
   // For a parent: the programs as one of their juniors would take them (their price, whether they're in).
   const load = () => api<P[]>(who === me.value!.person.id ? "/open-programs" : `/open-programs?for=${who}`).then(setRows);
   const { preview, sheet } = usePreview(() => { setPicked({}); load(); });
-  const day = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  const day = (iso: string) => clubTime(iso, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
   const tick = (p: string, d: string, on: boolean) => setPicked({ ...picked, [p]: on ? [...(picked[p] ?? []), d] : (picked[p] ?? []).filter((x) => x !== d) });
   useEffect(() => { load(); }, [lang.value, who]);
   // Read-only or moved (read_only.ts): nothing new is signed up for, so the dates are listed without boxes to tick.

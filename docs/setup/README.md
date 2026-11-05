@@ -151,7 +151,8 @@ Reports also has the desk's day ("At the desk"), for counting the drawer at clos
 clock, what was paid at the desk in cash, on the club's card reader and another way, what was given back
 there, and the drawer (the cash taken, less the cash given back). Tap a day to see each payment and refund,
 what it was for and who recorded it; the spreadsheet file has every line. It's for the same people as the
-club's receipts, and counts the whole club, not one location's drawer.
+club's receipts, and counts the whole club, not one location's drawer. On a phone the spreadsheet files download like
+any other (on Android, to Downloads).
 
 ### Step 5d: memberships (optional)
 

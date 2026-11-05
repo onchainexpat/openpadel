@@ -3,7 +3,7 @@
 // ask about one of their juniors.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation, useRoute } from "preact-iso";
-import { api, lang, me, t, usePreview } from "@kumi/ui";
+import { api, lang, me, t, usePreview, clubTime } from "@kumi/ui";
 import { ForWhom } from "./ForWhom.tsx";
 
 type Fact = { id: string; topic: string; question: string; answer: string };
@@ -11,7 +11,7 @@ type Status = "open" | "answered" | "closed";
 type Mine = { id: string; status: Status; first: string; created_at: string; last_side: string | null; about: string | null };
 type Thread = { id: string; status: Status; about: string | null; messages: { id: string; side: "member" | "staff" | "club"; body: string; at: string; author: string | null; fact: boolean }[] };
 
-const when = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
 const statusText = (s: Status) => t(s === "open" ? "ui.q_status_open" : s === "answered" ? "ui.q_status_answered" : "ui.q_status_closed");
 
 function FactList({ facts }: { facts: Fact[] }) {

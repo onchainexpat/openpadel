@@ -1,7 +1,7 @@
 // A program as members see it on What's On: when, their price, the level band, rated or not, the refund
 // rule, places left (or how many more it needs to run). Staff see the same card before publishing.
 import type { ComponentChildren } from "preact";
-import { lang, t } from "./state.ts";
+import { lang, t, clubTime } from "./state.ts";
 import { dollars } from "./Preview.tsx";
 
 export type ProgramCardData = { id: string; name: string; capacity: number; booked: number; offered: number; price_cents: number; rated: boolean; level_min: string | null; level_max: string | null;
@@ -18,7 +18,7 @@ const priceLine = (p: ProgramCardData) => p.my_basis === "included" ? (p.include
   : dollars(p.price_cents, lang.value) + (p.members_cents !== null ? ` (${t("ui.members_price", { amount: dollars(p.members_cents, lang.value) })})` : "");
 
 export function ProgramCard({ p, children }: { p: ProgramCardData; children?: ComponentChildren }) {
-  const when = (iso: string | null) => (iso ? new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "long", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso)) : "");
+  const when = (iso: string | null) => (iso ? clubTime(iso, { weekday: "long", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "");
   const left = placesLeft(p), need = p.min_players !== null ? p.min_players - p.booked : 0;
   return (
     <li class="card">

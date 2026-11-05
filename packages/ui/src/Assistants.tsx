@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, lang, t } from "./state.ts";
+import { api, ApiError, lang, t, clubTime } from "./state.ts";
 import { dollars } from "./Preview.tsx";
 
 type A = { id: string; name: string; weekly_cap_cents: number; spent_cents: number; connected_at: string };
@@ -31,7 +31,7 @@ export function Assistants() {
         const want = cap[a.id] ?? a.weekly_cap_cents;
         return (
           <div>
-            <p><strong>{a.name}</strong><br /><span class="meta">{t("ui.assistant_connected", { when: new Date(a.connected_at).toLocaleDateString() })}. {t("ui.assistant_spent", { spent: dollars(a.spent_cents, lang.value), cap: dollars(a.weekly_cap_cents, lang.value) })}</span></p>
+            <p><strong>{a.name}</strong><br /><span class="meta">{t("ui.assistant_connected", { when: clubTime(a.connected_at, { dateStyle: "medium" }) })}. {t("ui.assistant_spent", { spent: dollars(a.spent_cents, lang.value), cap: dollars(a.weekly_cap_cents, lang.value) })}</span></p>
             <label>{t("ui.assistant_cap")}
               <select value={want} onChange={(e) => setCap({ ...cap, [a.id]: Number(e.currentTarget.value) })}>
                 {[...new Set([...CAPS, a.weekly_cap_cents])].sort((x, y) => x - y).map((c) => <option value={c}>{c ? dollars(c, lang.value) : t("ui.assistant_cap_none")}</option>)}
