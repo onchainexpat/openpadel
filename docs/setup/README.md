@@ -132,6 +132,19 @@ desk is given back at the desk: what's owed back waits on the person's page unde
 desk" until someone hands it over and taps "Given back", and only then leaves the cash drawer in the books
 (with a refund receipt, as for a card's).
 
+**Weekly courts.** The desk books a member the same court every week from the Courts page: pick the member,
+tick "Every week" and say how many weeks (at most 26). The preview lists every week and its price, and leaves out
+(by name) any week something is already on, the court is closed, or it can't be booked; nothing is moved. Each
+week is an ordinary booking with its own code, paid at the desk, and cancelled on its own under the club's rules,
+or "this and the rest" from the member's page in the staff app (with the usual choice of what comes back).
+Members book their own when the club turns on "Members book the same court every week in the app" (Settings,
+The club; off by default, at most 12 weeks unless the club says otherwise): they pay the first week by card, which
+saves the card; each later week is booked once it's inside their booking window (never sooner, so a member never
+holds a court further ahead than the club allows), and goes on that card at the club's "pay my part" deadline
+before it starts. A week someone else has booked by then is left out, the member hears, and nothing is charged
+for it; a declined card leaves that week owed at the desk (the member and the desk hear, once) and the other weeks
+stay. My places shows each weekly court with its weeks, and "Cancel this and the rest".
+
 Staff block courts from the Courts page, once or every week: "Courts 1 and 2 every Tuesday 18:00 to
 20:00" from a date, until a date or with no end (its dates are made a year ahead, and on as the year
 moves). A booking already in the way stays, and the block leaves that court free that day, or staff

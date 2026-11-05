@@ -29,6 +29,7 @@ export function MyPlaces() {
       {paying && <PaySheet paymentId={paying.pending_payment_id!} amountCents={paying.pending_cents ?? paying.price_cents} name={paying.name} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); setPaid(true); load(); }} />}
       <MyMembership />
       <MyBookings provider={provider} ready={ready} onPaid={() => setPaid(true)} />
+      <MyWeekly />
       {rows?.length === 0 && <p>{t("ui.no_places")}</p>}
       <ul class="changes">{(rows ?? []).map((p) => (
         <li class="card" key={p.id}>
@@ -86,6 +87,17 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
       ))}</ul>
     </section>
   );
+}
+
+/** My weekly courts (the same court every week): each week from today, and cancelling this week and the rest. */
+function MyWeekly() {
+  type Weekly = typeof import("@kumi/ui/weekly");
+  const [series, setSeries] = useState<import("@kumi/ui/weekly").WeeklyCourt[]>([]), [ui, setUi] = useState<Weekly | null>(null);
+  // Its screen is fetched only for someone who has one, so the first screen doesn't carry it.
+  const load = () => api<import("@kumi/ui/weekly").WeeklyCourt[]>("/my/series").then(async (s) => { setSeries(s); if (s.length && !ui) setUi(await import("@kumi/ui/weekly")); }).catch(() => {});
+  const { preview, sheet } = usePreview(load);
+  useEffect(() => { load(); }, [lang.value]);
+  return ui ? <>{sheet}<ui.WeeklyCourts series={series} preview={preview} /></> : null;
 }
 
 type Membership = { name: string; status: string; days_ahead: number | null; member_prices: boolean };

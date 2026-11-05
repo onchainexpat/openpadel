@@ -13,6 +13,18 @@ server starts.
   points, and a round sat out counts half a game's points. King of the Court plays timed rounds (12 minutes to
   start): winners move up a court, losers down, and partners change every round. Staff make each round once the
   last one has its scores ("Make round N"); a late drop makes the round not yet played again.
+- **Weekly courts.** The desk books a member the same court, day and time every week (on the Courts page, "Every
+  week" once a member is chosen), for up to 26 weeks. Each week is its own booking with its own code, price and
+  the club's cancel rules, paid at the desk; the preview names any week left out because something is already
+  on, the court is closed or can't be booked (none is moved). Members book their own when the club turns on
+  "Members book the same court every week in the app" (Settings; off by default, at most 12 weeks unless the club
+  says otherwise): the first week is paid by card now, which saves the card, each later week is booked once it's
+  inside the member's booking window and goes on that card at the club's "pay my part" deadline. A week someone
+  else has by then is left out, the member hears, and nothing is charged for it; a declined week is owed at the
+  desk and the others stay. My places and the staff's page of the member show each weekly court and its weeks,
+  with "Cancel this and the rest" (each week under its own rules; staff can choose what comes back). A member's
+  AI assistant sees each week as a booking and can end their weekly court as they can; a weekly court the desk
+  ends is told to the member once, not once a week. Read-only, nothing new is booked, and the weeks still to come wait.
 
 ### Changed
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
@@ -32,6 +44,12 @@ server starts.
 - An update said "the point-in-time archive isn't ready" when Postgres happened to be sending a piece of its log at
   that moment. Making the archive now waits that out and tries again, and only says so if it really isn't ready
   (one-server installs, `server-setup.sh` and the Docker `pitr` service alike).
+
+### Known limits
+- "No recurring bookings" is gone from the list: weekly courts are above. A weekly court is weekly only (no every
+  other week or several days a week); changing its court or time for all the weeks after one is done by ending
+  it from that week and booking a new one (one week alone moves like any booking); a series the desk makes is paid
+  at the desk week by week (the saved-card way is for one a member makes in the app).
 
 ## 0.2.1 (2026-11-04)
 

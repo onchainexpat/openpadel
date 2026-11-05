@@ -12,7 +12,7 @@ import { band } from "./match_rules.ts";
 import { gameView } from "./results.ts";
 import { hasPushDevice } from "./push.ts";
 import { declineReason, refundReason } from "./declines.ts";
-import { managersOf } from "./households.ts";
+import { managersOf, withManagers } from "./households.ts";
 import { textOf } from "./club_text.ts";
 import { paymentWhat } from "./kids.ts";
 import { TEXT_KINDS, textable, textingOn } from "./texts.ts";
@@ -167,6 +167,17 @@ async function bookingInfo(db: Db, bookingId: string) {
   const minutes = Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60_000);
   return { ...b, minutes, players, base: { court: b.court, location: b.location, when: when(new Date(b.start), b.time_zone), code: b.code, minutes, coach: b.coach ?? "" } };
 }
+/** A weekly booking: its member, court, day and time, and how many weeks are booked. */
+async function seriesInfo(db: Db, seriesId: string) {
+  const s = await db.selectFrom("booking_series").innerJoin("court", "court.id", "booking_series.court_id").innerJoin("location", "location.id", "booking_series.location_id")
+    .select(["booking_series.organiser_id", "booking_series.starts", "booking_series.minutes", "booking_series.first_date", "booking_series.last_date", "court.name as court", "location.time_zone"])
+    .where("booking_series.id", "=", seriesId).executeTakeFirstOrThrow();
+  const weeks = await db.selectFrom("booking_series_week").select(["on_date", "booking_id"]).where("series_id", "=", seriesId).where("booking_id", "is not", null).orderBy("on_date").execute();
+  const start = onDate(s.first_date, s.starts.slice(0, 5), s.time_zone);
+  const f = (o: Intl.DateTimeFormatOptions): Text => ({ en: new Intl.DateTimeFormat("en-US", { timeZone: s.time_zone, ...o }).format(start), es: new Intl.DateTimeFormat("es-US", { timeZone: s.time_zone, ...o }).format(start) });
+  return { organiser_id: s.organiser_id, booked: weeks.length, firstText: dayText(weeks[0]?.on_date ?? s.first_date), lastText: dayText(weeks.at(-1)?.on_date ?? s.last_date),
+    base: { court: s.court, weekday: f({ weekday: "long" }), time: f({ hour: "numeric", minute: "2-digit" }), minutes: s.minutes } };
+}
 /** What a change to a booking means for one player's money: more to pay at the desk (the organiser), or what goes back. */
 function changeMoney(personId: string, organiserId: string | null, p: { owed: number; refunds: Record<string, number>; desk?: Record<string, number> }): Text {
   if (p.refunds[personId] || p.desk?.[personId]) return backWords(p.refunds[personId] ?? 0, p.desk?.[personId] ?? 0);
@@ -226,6 +237,8 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: p.person_id, kind: "booking_courts", params: { count: p.booking_ids.length, list, amount: amount(p.cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "booking.cancelled"({ db }, p: { booking_id: string; by?: string | null }) {
+    // The weeks of a weekly booking called off together are told once, by booking.repeat_ended.
+    if ((await db.selectFrom("booking").select("cancel_reason").where("id", "=", p.booking_id).executeTakeFirstOrThrow()).cancel_reason === "series_ended") return [];
     const b = await bookingInfo(db, p.booking_id), lesson = b.kind === "lesson";
     // Each player who paid hears what comes back to them; everyone in it hears it's off.
     const drafts: Draft[] = [];
@@ -267,10 +280,35 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const b = await bookingInfo(db, p.booking_id);
     const name = b.organiser_id ? (await db.selectFrom("person").select("display_name").where("id", "=", b.organiser_id).executeTakeFirst())?.display_name ?? "" : "";
     const params = { ...b.base, amount: amount(p.cents), reason: declineReason(p.failure), name };
+    // A week of a weekly booking: its own words (it isn't unpaid places).
+    const week = Boolean((await db.selectFrom("booking").select("series_id").where("id", "=", p.booking_id).executeTakeFirstOrThrow()).series_id);
     return [
-      ...(b.organiser_id ? [{ to: b.organiser_id, kind: "booking_balance_due", params, purpose: "account" as const, essential: true, email: true, link: "/places" }] : []),
+      ...(b.organiser_id ? [{ to: b.organiser_id, kind: week ? "booking_week_due" : "booking_balance_due", params, purpose: "account" as const, essential: true, email: true, link: "/places" }] : []),
       ...(await managers(db)).map((to) => ({ to, kind: "booking_balance_due_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/courts" })),
     ];
+  },
+  async "booking.week_charged"({ db }, p: { booking_id: string; cents: number }) {
+    const b = await bookingInfo(db, p.booking_id);
+    return b.organiser_id ? [{ to: b.organiser_id, kind: "booking_week_charged", params: { ...b.base, amount: amount(p.cents) }, purpose: "account", essential: true, email: true, link: "/places" }] : [];
+  },
+  // Weekly bookings (booking_series.ts): made by the desk, a week that couldn't be booked, the rest called off.
+  async "booking.repeat_made"({ db }, p: { series_id: string }) {
+    const s = await seriesInfo(db, p.series_id);
+    return [{ to: s.organiser_id, kind: "booking_repeat_made", params: { ...s.base, count: s.booked, first: s.firstText, last: s.lastText }, purpose: "account", essential: true, email: true, link: "/places" }];
+  },
+  async "booking.repeat_missed"({ db }, p: { series_id: string; on_date: string; why: string }) {
+    const s = await seriesInfo(db, p.series_id);
+    return [{ to: s.organiser_id, kind: "booking_repeat_missed", params: { ...s.base, date: dayText(p.on_date), why: both(`msg.repeat_why_${p.why}` as Key) }, purpose: "account", essential: true, email: true, link: "/places" }];
+  },
+  async "booking.repeat_ended"({ db }, p: { series_id: string; from: string; by?: string | null }) {
+    const s = await seriesInfo(db, p.series_id);
+    // The member ending their own hears nothing more (they did it); otherwise they hear it, once, with what comes back.
+    if (p.by && (await withManagers(db, [s.organiser_id])).includes(p.by)) return [];
+    const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+      .innerJoin("booking", "booking.id", "booking_player.booking_id").select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")])
+      .where("booking.series_id", "=", p.series_id).where("booking.cancel_reason", "=", "series_ended").groupBy("refund.destination").execute();
+    const cents = (where: string) => Number(back.find((x) => x.destination === where)?.c ?? 0);
+    return [{ to: s.organiser_id, kind: "booking_repeat_ended", params: { ...s.base, from: dayText(p.from), refund: backWords(cents("card"), cents("desk")) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "booking.asked"({ db }, p: { request_id: string }) {
     const r = await db.selectFrom("join_request").innerJoin("person", "person.id", "join_request.person_id").innerJoin("open_match", "open_match.booking_id", "join_request.booking_id")

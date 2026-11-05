@@ -1,4 +1,4 @@
-import { resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
+import { resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -165,6 +165,9 @@ const jobs = async () => {
     if (h.lapsed) console.log(`court holds: ${h.lapsed} not paid in time, released`);
     const seats = await releaseSeats(db);
     if (seats.released) console.log(`open matches: ${seats.released} seats not paid in time, open again`);
+    // Weekly courts members book themselves: each week once it's inside their booking window (then charged with the rest below).
+    const wk = await bookSeriesWeeks(db);
+    if (wk.booked || wk.missed || wk.ended) console.log(`weekly courts: ${wk.booked} weeks booked, ${wk.missed} left out (the member told), ${wk.ended} never paid and closed`);
     const sh = await settleShares(db);
     if (sh.settled) console.log(`shared bookings: ${sh.settled} settled at their deadline, ${sh.charged} charged to the organiser, ${sh.failed} left owing`);
     const sc = await confirmScores(db);

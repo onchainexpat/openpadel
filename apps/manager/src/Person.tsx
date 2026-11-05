@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
 import { AccountData, api, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
+import { WeeklyCourts, type WeeklyCourt } from "@kumi/ui/weekly";
 import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
@@ -13,6 +14,7 @@ type P = {
   bookings: { id: string; code: string; kind: string; status: string; court: string; starts_at: string; price_cents: number; organiser: boolean; paid_cents: number;
     refundable: { payment_id: string; left_cents: number }[] }[];
   failed_refunds: { id: string; amount_cents: number; failure: string | null; created_at: string }[];
+  series: WeeklyCourt[];
   to_give_back: { id: string; amount_cents: number; method: string; created_at: string }[];
   consent: { channel: string; purpose: string; granted: boolean }[];
   membership: { id: string; name: string; status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null;
@@ -137,6 +139,7 @@ export function Person({ id }: { id: string }) {
         )}
       </section>
       <PersonBookings bookings={p.bookings} preview={preview} />
+      <WeeklyCourts series={p.series ?? []} preview={preview} staff />
       {p.failed_refunds?.length > 0 && <section class="card">
         <h2>{t("ui.refunds_failed")}</h2>
         <ul class="plain">{p.failed_refunds.map((r) => (

@@ -89,6 +89,8 @@ const ENTITIES = {
   court_hours: { table: "court_hours", key: "id", retire: { active: false } },
   court_block: { table: "court_block", key: "id", retire: { active: false } },
   block_series: { table: "block_series", key: "id", retire: { active: false } },
+  booking_series: { table: "booking_series", key: "id", retire: { ended_at: "now" } },
+  booking_series_week: { table: "booking_series_week", key: "id", retire: null },
   booking: { table: "booking", key: "id", retire: { status: "cancelled" } },
   booking_player: { table: "booking_player", key: "id", retire: { removed_at: "now" } },
   price_rule: { table: "price_rule", key: "id", retire: { active: false } },

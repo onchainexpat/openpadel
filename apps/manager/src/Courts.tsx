@@ -383,7 +383,7 @@ function ChangeForm({ it, court, g, clock, slots, preview, canMove, canResize, c
 function DeskBooking({ court, starts, until, clock, preview, onClose }: { court: Court; starts: string[]; until: string; clock: (s: string) => string; preview: Preview; onClose: () => void }) {
   // The lengths that fit before the court closes (or the next thing on it), from the start chosen.
   const fits = (start: string) => lengthsFitting(start, until);
-  const [f, setF] = useState({ start: starts[0] ?? "", minutes: fits(starts[0] ?? "").includes(90) ? 90 : fits(starts[0] ?? "")[0] ?? 30, guest: "", price: "" }), [person, setPerson] = useState<{ id: string; display_name: string } | null>(null);
+  const [f, setF] = useState({ start: starts[0] ?? "", minutes: fits(starts[0] ?? "").includes(90) ? 90 : fits(starts[0] ?? "")[0] ?? 30, guest: "", price: "", weekly: false, weeks: 8 }), [person, setPerson] = useState<{ id: string; display_name: string } | null>(null);
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string; email: string | null }[]>([]);
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
   // What the club's prices say it costs, as the start and length change; the desk can type another price.
@@ -393,8 +393,10 @@ function DeskBooking({ court, starts, until, clock, preview, onClose }: { court:
   useEffect(() => { if (f.start) api<Quoted>(`/staff/quote?court_id=${court.id}&starts_at=${encodeURIComponent(f.start)}&minutes=${f.minutes}${person ? `&person_id=${person.id}` : ""}`).then(setQuoted).catch(() => setQuoted(null)); }, [f.start, f.minutes, person?.id]);
   const submit = (e: Event) => {
     e.preventDefault();
-    preview("booking.create", { court_id: court.id, starts_at: f.start, minutes: Number(f.minutes), ...(person ? { person_id: person.id } : { guest_name: f.guest }),
-      ...(f.price ? { price_cents: parseDollars(f.price) ?? NaN } : {}) });
+    const price = f.price ? { price_cents: parseDollars(f.price) ?? NaN } : {};
+    // The same court every week for a member (booking_series.ts): each week its own booking, owed at the desk.
+    if (person && f.weekly) return void preview("booking.repeat", { court_id: court.id, starts_at: f.start, minutes: Number(f.minutes), person_id: person.id, weeks: f.weeks, ...price });
+    preview("booking.create", { court_id: court.id, starts_at: f.start, minutes: Number(f.minutes), ...(person ? { person_id: person.id } : { guest_name: f.guest }), ...price });
   };
   return (
     <form class="card card-form" onSubmit={submit}>
@@ -409,6 +411,8 @@ function DeskBooking({ court, starts, until, clock, preview, onClose }: { court:
       </>}
       {quoted && <p class="meta">{quoted.priced ? t("ui.quoted_price", { amount: dollars(quoted.total_cents, lang.value) }) : t("ui.no_price_then")}{quoted.member ? ` · ${t("ui.member_price", { plan: quoted.member })}` : ""}</p>}
       <label>{t("ui.price_override")}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.price} placeholder={quoted ? dollars(quoted.total_cents, lang.value) : ""} onInput={(e) => setF({ ...f, price: e.currentTarget.value })} /></label>
+      {person && <label class="check"><input type="checkbox" checked={f.weekly} onChange={(e) => setF({ ...f, weekly: e.currentTarget.checked })} /> {t("ui.every_week")}</label>}
+      {person && f.weekly && <label>{t("ui.how_many_weeks")}<input type="number" min="2" max="26" step="1" value={String(f.weeks)} onChange={(e) => setF({ ...f, weeks: Math.max(2, Math.min(26, Math.round(Number(e.currentTarget.value) || 8))) })} /></label>}
       <button class="primary" disabled={!f.start || (!person && !f.guest.trim())}>{t("ui.preview")}</button>
       <button type="button" class="link" onClick={onClose}>{t("ui.cancel")}</button>
     </form>

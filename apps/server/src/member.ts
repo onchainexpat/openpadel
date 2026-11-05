@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan } from "@kumi/core";
+import { clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf } from "@kumi/core";
 import { sql } from "kysely";
 
 type Me = { id: string } | null;
@@ -115,8 +115,15 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const p = await currentPolicy(db);
     const locations = await db.selectFrom("location").select(["id", "name", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
     return c.json({ locations, lengths: p.lengths, days_ahead: await daysAhead(db, pid), split_deadline_hours: p.split_deadline_hours, same_day_cutoff_hours: p.same_day_cutoff_hours,
-      free_cancel_hours: p.free_cancel_hours, late_refund_percent: p.late_refund_percent });
+      free_cancel_hours: p.free_cancel_hours, late_refund_percent: p.late_refund_percent, ...await weeklyOptions() });
   });
+  // Booking the same court every week (booking_series.ts): whether the club allows it, and for how many weeks.
+  const weeklyOptions = async () => {
+    const club = await db.selectFrom("club").select(["weekly_bookings", "weekly_max_weeks"]).executeTakeFirstOrThrow();
+    return { weekly: club.weekly_bookings, weekly_max_weeks: club.weekly_max_weeks };
+  };
+  // The person's weekly courts still running, each with its weeks from today.
+  app.get("/my/series", async (c) => c.json(await seriesOf(db, who(c), now())));
   app.get("/quote", async (c) => {
     const pid = who(c);
     const start = new Date(c.req.query("starts_at") ?? ""), minutes = Number(c.req.query("minutes") ?? 0);

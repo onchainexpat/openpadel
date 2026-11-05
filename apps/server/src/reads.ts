@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
-import { membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys } from "@kumi/core";
+import { seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
@@ -162,7 +162,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "tax_rate_bp", "public_page", "about", "terms_url", "privacy_policy_url", "translations", "two_factor", "question_alert_hours", "auto_answers", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "weekly_bookings", "weekly_max_weeks", "tax_rate_bp", "public_page", "about", "terms_url", "privacy_policy_url", "translations", "two_factor", "question_alert_hours", "auto_answers", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
     const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
     const policy = await currentPolicy(db), plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
@@ -410,7 +410,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const kid = k ? { email: p.email, rules: rulesText(k)[lang(c)], spent_cents: await monthSpent(db, id, new Date()) } : null;
     // The club's email can't reach them (email_suppression.ts): the desk sees why, and can clear it once it's fixed.
     const emailProblem = p.email ? await personEmailProblem(db, p.id) : null;
-    return c.json({ ...p, email_problem: emailProblem, kid, roles, sign_in: signIn, places, bookings, failed_refunds: money ? failedRefunds : [], to_give_back: giveBack.map(({ id, amount_cents, method, created_at }) => ({ id, amount_cents, method, created_at })), consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
+    // Their weekly courts still running (booking_series.ts), each with its weeks from today.
+    const series = await seriesOf(db, p.id, new Date());
+    return c.json({ ...p, email_problem: emailProblem, kid, roles, sign_in: signIn, places, bookings, series, failed_refunds: money ? failedRefunds : [], to_give_back: giveBack.map(({ id, amount_cents, method, created_at }) => ({ id, amount_cents, method, created_at })), consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
       membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null, due } : null });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.

@@ -10,6 +10,7 @@ export * from "./program_clashes.ts";
 export * from "./programming.ts";
 export * from "./bookings.ts";
 export * from "./block_series.ts";
+export * from "./booking_series.ts";
 export * from "./prices.ts";
 export * from "./booking_pay.ts";
 export * from "./desk_pay.ts";

@@ -163,7 +163,7 @@ test("who hears what: confirmations, a part paid, what was charged or is owed, a
   // Why the card failed, in words: never Stripe's code.
   const due = async (who: string, kind: string) => (await db.selectFrom("outbound_message").select("body").where("person_id", "=", who).where("kind", "=", kind).where("channel", "=", "email").executeTakeFirstOrThrow()).body;
   assert.match(await due(people.Eve!, "booking_balance_due"), /^We couldn't charge \$30\.00 for the unpaid places of Court 2, Mon, Dec 7, 6:00 PM to your card \(the card was declined\)\. Please pay it at the desk \(booking /);
-  assert.match(await due(owner.personId!, "booking_balance_due_staff"), /^Eve owes \$30\.00 for the unpaid places of Court 2, Mon, Dec 7, 6:00 PM: the charge didn't go through \(the card was declined\)\. Record the payment/);
+  assert.match(await due(owner.personId!, "booking_balance_due_staff"), /^Eve owes \$30\.00 for Court 2, Mon, Dec 7, 6:00 PM: the card charge didn't go through \(the card was declined\)\. Record the payment/);
   const cancelled = await db.selectFrom("outbound_message").select("body").where("person_id", "=", people.Cal!).where("kind", "=", "booking_cancelled").where("channel", "=", "email").execute();
   assert.ok(cancelled.some((m) => /\$60\.00 goes back to your card\.$/.test(m.body)), cancelled.map((m) => m.body).join(" | "));
   const charged = await db.selectFrom("outbound_message").select("subject").where("person_id", "=", people.Dee!).where("kind", "=", "booking_shares_charged").where("channel", "=", "email").executeTakeFirstOrThrow();

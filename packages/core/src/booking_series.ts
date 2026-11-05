@@ -1,0 +1,336 @@
+// Weekly court bookings: one member, the same court, day and time every week (booking_series). Each week is an
+// ordinary booking (its own code, court time, price, rules and payment), priced and ruled as the series was when it
+// was made, so cancelling one week is booking.cancel under that week's rules, and reports count it like any other.
+// Staff make one for a member, every week owed at the desk (booking.repeat). A member makes their own when the club
+// allows it (booking.repeat_request): the first week is paid now by card, which saves the card, and each later week
+// is booked once it comes into their booking window (booking.repeat_week, the job) and goes on that card at the
+// club's pay deadline, as unpaid shares do (booking.settle_shares). A week someone else has by then is left out,
+// the member is told, and nothing is charged for it. A series never holds a court beyond the member's window.
+// Ending one (booking.repeat_end) cancels a week and all after it, each under its own rules.
+import { randomBytes } from "node:crypto";
+import { sql } from "kysely";
+import * as z from "zod/mini";
+import { both, money, type Key, type Text } from "@kumi/i18n";
+import { defineAction, readRow, runAsSystem, type ApplyCtx, type PlanCtx } from "./actions.ts";
+import type { Db, Trx } from "./db.ts";
+import { KumiError } from "./errors.ts";
+import { uuidv7 } from "./ids.ts";
+import { localDate, localParts, onDate } from "./clock.ts";
+import { courtOpening, insertTime, lockCourts, MAX_MINUTES, occupied, range, STEP_MINUTES } from "./bookings.ts";
+import { cancelBooking, cancelRefunds, checkSlot, courtAndPlace, daysAhead, deskOrUp, HOLD_MINUTES, lockBooking, newCode, notOwing, upcomingCount } from "./booking_pay.ts";
+import { currentPolicy, quote, type Quote } from "./prices.ts";
+import { notJunior, requireWaiver, withManagers } from "./households.ts";
+import { paymentProvider } from "./money.ts";
+import { isReadOnly } from "./read_only.ts";
+import { backSql } from "./desk_pay.ts";
+
+/** The most weeks one series runs (a club's own cap for members is lower: club.weekly_max_weeks). */
+export const MAX_WEEKS = 26;
+type Missed = "taken" | "closed" | "not_bookable" | "too_late" | "no_card";
+
+const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
+const addDays = (date: string, n: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
+const fmt = (d: Date, tz: string, o: Intl.DateTimeFormatOptions): Text => ({ en: new Intl.DateTimeFormat("en-US", { timeZone: tz, ...o }).format(d), es: new Intl.DateTimeFormat("es-US", { timeZone: tz, ...o }).format(d) });
+const dayOf = (date: string): Text => fmt(new Date(`${date}T12:00:00Z`), "UTC", { weekday: "short", month: "short", day: "numeric" });
+const join = (parts: Text[], sep = " "): Text => ({ en: parts.map((p) => p.en).filter(Boolean).join(sep), es: parts.map((p) => p.es).filter(Boolean).join(sep) });
+const hhmm = (d: Date, tz: string) => { const p = localParts(d, tz); return `${String(p.h).padStart(2, "0")}:${String(p.min).padStart(2, "0")}`; };
+
+/** A week of a series: when it is, what it costs (priced now), and what's in its way now, if anything. */
+interface Week { date: string; start: string; end: string; price_cents: number; tax_cents: number; quote: Quote | null; clash: Missed | null }
+/** The weeks from the first date: the same local time each week (a clock change doesn't move it). */
+async function weeksFor(db: Db | Trx, o: { court: { id: string; location_id: string; bookable: boolean; time_zone: string }; first: string; time: string; minutes: number; count: number;
+  personId: string; priceCents?: number; now: Date }): Promise<Week[]> {
+  const out: Week[] = [];
+  for (let k = 0; k < o.count; k++) {
+    const date = addDays(o.first, 7 * k), start = onDate(date, o.time, o.court.time_zone), end = new Date(start.getTime() + o.minutes * 60_000);
+    const open = await courtOpening(db, o.court, date);
+    const clash: Missed | null = !o.court.bookable ? "not_bookable" : !open || start < open.opens || end > open.closes ? "closed"
+      : (await occupied(db, [o.court.id], start, end, o.now)).length ? "taken" : null;
+    const q = await quote(db, { courtId: o.court.id, start, minutes: o.minutes, personId: o.personId, at: o.now });
+    if (o.priceCents === undefined && !q.priced && !clash) throw new KumiError("error.no_price");
+    const price = o.priceCents ?? q.total_cents, tax = o.priceCents === undefined ? q.tax_cents : Math.round(price * q.tax_bp / (10_000 + q.tax_bp));
+    out.push({ date, start: start.toISOString(), end: end.toISOString(), price_cents: price, tax_cents: tax, quote: q, clash });
+  }
+  return out;
+}
+/** "Tue, Dec 22 (taken), Tue, Dec 29 (closed)". */
+const clashList = (weeks: Week[]): Text => join(weeks.filter((w) => w.clash).map((w) => join([dayOf(w.date), both(`plan.booking.repeat_why_${w.clash}` as Key)])), ", ");
+/** "Court 1 every Tuesday at 6:00 PM, 90 minutes". */
+function patternText(court: string, start: Date, tz: string, minutes: number): Text {
+  return both("plan.booking.repeat_pattern", { court, weekday: fmt(start, tz, { weekday: "long" }), time: fmt(start, tz, { hour: "numeric", minute: "2-digit" }), minutes });
+}
+/** "$40.00 a week, $480.00 in all", or "$480.00 in all" when the weeks cost different amounts. */
+function priceText(weeks: Week[]): Text {
+  const total = weeks.reduce((n, w) => n + w.price_cents, 0), same = weeks.every((w) => w.price_cents === weeks[0]!.price_cents);
+  return same ? both("plan.booking.repeat_each", { each: usd(weeks[0]!.price_cents), total: usd(total) }) : both("plan.booking.repeat_total", { total: usd(total) });
+}
+function checkLength(minutes: number) {
+  if (minutes < STEP_MINUTES || minutes > MAX_MINUTES || minutes % STEP_MINUTES) throw new KumiError("error.invalid_input", { details: "minutes" }, 400);
+}
+
+interface WeekRow { id: string; on_date: string; price_cents: number; tax_cents: number; quote: unknown }
+type SeriesRow = { id: string; location_id: string; court_id: string; organiser_id: string; starts: string; minutes: number; source: "app" | "desk"; policy_id: string };
+/** One week booked: an ordinary confirmed booking for the series' member, at the week's price and the series' rules.
+ *  The caller has locked the court; what's on it now is checked again (something may have taken it since the
+ *  preview, or since the week was priced), and why it can't be booked is returned instead. */
+async function bookWeek(ctx: ApplyCtx, s: SeriesRow, w: WeekRow, tz: string): Promise<{ booking_id: string } | { missed: Missed }> {
+  const court = await ctx.trx.selectFrom("court").select(["id", "location_id", "bookable", "archived_at"]).where("id", "=", s.court_id).executeTakeFirstOrThrow();
+  const start = onDate(w.on_date, s.starts.slice(0, 5), tz), end = new Date(start.getTime() + s.minutes * 60_000);
+  if (start <= ctx.now) return { missed: "too_late" };
+  if (!court.bookable || court.archived_at) return { missed: "not_bookable" };
+  const open = await courtOpening(ctx.trx, court, w.on_date);
+  if (!open || start < open.opens || end > open.closes) return { missed: "closed" };
+  // A card form left open and never paid holds the court only until its time is up.
+  await ctx.trx.updateTable("court_time").set({ active: false }).where("court_id", "=", s.court_id).where("kind", "=", "hold").where("active", "=", true).where("hold_until", "<=", ctx.now).execute();
+  if ((await occupied(ctx.trx, [s.court_id], start, end, ctx.now)).length) return { missed: "taken" };
+  const id = uuidv7(), code = await newCode(ctx.trx);
+  await ctx.insert("booking", { id, code, location_id: s.location_id, organiser_id: s.organiser_id, status: "confirmed", source: s.source, price_cents: w.price_cents, tax_cents: w.tax_cents,
+    quote: w.quote === null ? null : JSON.stringify(w.quote), policy_id: s.policy_id, invite_code: randomBytes(9).toString("base64url"), series_id: s.id });
+  await ctx.insert("booking_player", { id: uuidv7(), booking_id: id, person_id: s.organiser_id, share_cents: w.price_cents });
+  await insertTime(ctx, [{ id: uuidv7(), court_id: s.court_id, during: range(start, end), kind: "booking", booking_id: id }]);
+  return { booking_id: id };
+}
+
+/** The card a member's series goes on: the one saved when they paid its first week. */
+export async function seriesCard(db: Db | Trx, seriesId: string) {
+  return (await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").innerJoin("booking", "booking.id", "booking_player.booking_id")
+    .select(["payment.saved_customer", "payment.saved_method", "payment.provider_account"]).where("booking.series_id", "=", seriesId).where("payment.save_card", "=", true)
+    .where("payment.status", "=", "succeeded").where("payment.saved_method", "is not", null).orderBy("payment.created_at", "desc").limit(1).executeTakeFirst()) ?? null;
+}
+
+// ---- Staff make one for a member: every week owed at the desk ----
+export const bookingRepeat = defineAction({
+  name: "booking.repeat", version: 1,
+  input: z.object({
+    court_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), minutes: z.number().check(z.int()), person_id: z.uuid(),
+    weeks: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(MAX_WEEKS))), until_date: z.optional(clubDate),
+    price_cents: z.optional(z.number().check(z.int(), z.minimum(0))),
+  }),
+  async plan(ctx, i) {
+    if (Boolean(i.weeks) === Boolean(i.until_date)) throw new KumiError("error.repeat_how_long");
+    checkLength(i.minutes);
+    const court = await courtAndPlace(ctx.db, i.court_id), tz = court.time_zone, start = new Date(i.starts_at);
+    if (start <= ctx.now) throw new KumiError("error.in_the_past");
+    const first = localDate(start, tz);
+    const count = i.weeks ?? Math.floor((Date.parse(`${i.until_date}T12:00:00Z`) - Date.parse(`${first}T12:00:00Z`)) / (7 * 86400_000)) + 1;
+    if (count < 2) throw new KumiError("error.bad_dates");
+    if (count > MAX_WEEKS) throw new KumiError("error.repeat_too_many", { count: MAX_WEEKS });
+    const { row: person, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
+    const weeks = await weeksFor(ctx.db, { court, first, time: hhmm(start, tz), minutes: i.minutes, count, personId: i.person_id, priceCents: i.price_cents, now: ctx.now });
+    const booked = weeks.filter((w) => !w.clash);
+    if (!booked.length) throw new KumiError("error.no_dates");
+    const summary = join([
+      both("plan.booking.repeat", { pattern: patternText(court.name, start, tz, i.minutes), who: person.display_name, count: booked.length, first: dayOf(booked[0]!.date), last: dayOf(booked.at(-1)!.date), price: priceText(booked) }),
+      both("plan.booking.repeat_desk"),
+      booked.length < weeks.length ? both("plan.booking.repeat_left_out", { list: clashList(weeks) }) : { en: "", es: "" },
+    ]);
+    return { title: both("action.booking.repeat"), summary, reads: [read], locationId: court.location_id, ownerIds: [i.person_id], moneyCents: booked.reduce((n, w) => n + w.price_cents, 0),
+      undo: { kind: "none" }, details: { weeks, time: hhmm(start, tz) } };
+  },
+  async apply(ctx, i, plan) {
+    const d = plan.details as { weeks: Week[]; time: string };
+    await lockCourts(ctx, [i.court_id]);
+    const court = await courtAndPlace(ctx.trx, i.court_id), policy = await currentPolicy(ctx.trx), id = uuidv7();
+    const s = await ctx.insert("booking_series", { id, location_id: court.location_id, court_id: i.court_id, organiser_id: i.person_id, starts: d.time, minutes: i.minutes,
+      first_date: d.weeks[0]!.date, last_date: d.weeks.at(-1)!.date, pay: "desk", source: "desk", policy_id: policy.id }) as SeriesRow;
+    let booked = 0;
+    for (const w of d.weeks) {
+      const row = { id: uuidv7(), series_id: id, on_date: w.date, price_cents: w.price_cents, tax_cents: w.tax_cents, quote: w.quote ? JSON.stringify(w.quote) : null };
+      const r = w.clash ? { missed: w.clash } : await bookWeek(ctx, s, { ...row, quote: w.quote }, court.time_zone);
+      await ctx.insert("booking_series_week", { ...row, ...("booking_id" in r ? { booking_id: r.booking_id } : { missed: r.missed }) });
+      if ("booking_id" in r) booked++;
+    }
+    await ctx.emit("booking.repeat_made", { series_id: id });
+    return { series_id: id, booked };
+  },
+});
+
+// ---- A member makes their own: the first week paid now, the card saved for the rest ----
+export const bookingRepeatRequest = defineAction({
+  name: "booking.repeat_request", version: 1,
+  input: z.object({ court_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), minutes: z.number().check(z.int()), person_id: z.uuid(),
+    weeks: z.number().check(z.int(), z.minimum(2), z.maximum(MAX_WEEKS)) }),
+  async plan(ctx, i) {
+    const club = await ctx.db.selectFrom("club").select(["court_bookings", "weekly_bookings", "weekly_max_weeks"]).executeTakeFirstOrThrow();
+    if (!club.court_bookings) throw new KumiError("error.bookings_off");
+    if (!club.weekly_bookings) throw new KumiError("error.weekly_off");
+    if (i.weeks > club.weekly_max_weeks) throw new KumiError("error.repeat_too_many", { count: club.weekly_max_weeks });
+    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
+    await notJunior(ctx.db, i.person_id);
+    await requireWaiver(ctx, i.person_id);
+    // The first week passes every check a booking made in the app passes: its window, the lengths, the hours, free.
+    const policy = await currentPolicy(ctx.db), { court, start } = await checkSlot(ctx, policy, i, i.person_id);
+    if (await upcomingCount(ctx.db, i.person_id, ctx.now) >= policy.max_active) throw new KumiError("error.too_many_bookings", { count: policy.max_active });
+    const c = await courtAndPlace(ctx.db, i.court_id), tz = c.time_zone;
+    const weeks = await weeksFor(ctx.db, { court: c, first: localDate(start, tz), time: hhmm(start, tz), minutes: i.minutes, count: i.weeks, personId: i.person_id, now: ctx.now });
+    const ahead = await daysAhead(ctx.db, i.person_id, ctx.now), kept = weeks.filter((w) => !w.clash);
+    const summary = join([
+      both("plan.booking.repeat_request", { pattern: patternText(court.name, start, tz, i.minutes), count: kept.length, first: dayOf(kept[0]!.date), last: dayOf(kept.at(-1)!.date), price: priceText(kept),
+        now: usd(kept[0]!.price_cents), hours: both("count.hours", { count: policy.split_deadline_hours }), days: both("count.days", { count: ahead }) }),
+      kept.length < weeks.length ? both("plan.booking.repeat_left_out", { list: clashList(weeks) }) : { en: "", es: "" },
+    ]);
+    return { title: both("action.booking.repeat_request"), summary, reads: [], locationId: court.location_id, ownerIds: [i.person_id], moneyCents: kept[0]!.price_cents,
+      undo: { kind: "compensating" }, details: { weeks, time: hhmm(start, tz), policy_id: policy.id } };
+  },
+  async apply(ctx, i, plan) {
+    const d = plan.details as { weeks: Week[]; time: string; policy_id: string };
+    const first = d.weeks[0]!, start = new Date(first.start), end = new Date(first.end);
+    await lockCourts(ctx, [i.court_id]);
+    await ctx.trx.updateTable("court_time").set({ active: false }).where("court_id", "=", i.court_id).where("kind", "=", "hold").where("active", "=", true).where("hold_until", "<=", ctx.now).execute();
+    if ((await occupied(ctx.trx, [i.court_id], start, end, ctx.now)).length) throw new KumiError("error.court_taken");
+    const court = await courtAndPlace(ctx.trx, i.court_id), id = uuidv7();
+    await ctx.insert("booking_series", { id, location_id: court.location_id, court_id: i.court_id, organiser_id: i.person_id, starts: d.time, minutes: i.minutes,
+      first_date: first.date, last_date: d.weeks.at(-1)!.date, pay: "card", source: "app", policy_id: d.policy_id });
+    // The first week: held while the member pays, like any booking made in the app; paying saves the card.
+    const bookingId = uuidv7(), code = await newCode(ctx.trx), bp = uuidv7(), payment = uuidv7();
+    await ctx.insert("booking", { id: bookingId, code, location_id: court.location_id, organiser_id: i.person_id, status: "held", source: "app", price_cents: first.price_cents, tax_cents: first.tax_cents,
+      quote: JSON.stringify(first.quote), policy_id: d.policy_id, pay_mode: "whole", invite_code: randomBytes(9).toString("base64url"), series_id: id });
+    await ctx.insert("booking_player", { id: bp, booking_id: bookingId, person_id: i.person_id, share_cents: first.price_cents });
+    await ctx.insert("court_time", { id: uuidv7(), court_id: i.court_id, during: sql`tstzrange(${start}, ${end})`, kind: "hold", booking_id: bookingId, hold_until: new Date(ctx.now.getTime() + HOLD_MINUTES * 60_000) });
+    await ctx.insert("payment", { id: payment, person_id: i.person_id, amount_cents: first.price_cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending",
+      booking_player_id: bp, save_card: true });
+    for (const w of d.weeks) {
+      const row = { id: uuidv7(), series_id: id, on_date: w.date, price_cents: w.price_cents, tax_cents: w.tax_cents, quote: w.quote ? JSON.stringify(w.quote) : null };
+      // The weeks in someone's way now are left out, as the preview said; the rest wait for the member's window.
+      await ctx.insert("booking_series_week", { ...row, ...(w === first ? { booking_id: bookingId } : w.clash ? { missed: w.clash } : {}) });
+    }
+    await ctx.emit("booking.requested", { booking_id: bookingId });
+    return { series_id: id, booking_id: bookingId, code, payment_id: payment, total_cents: first.price_cents };
+  },
+});
+
+// ---- The job: each later week of a member's series, once it's inside their booking window ----
+export const bookingRepeatWeek = defineAction({
+  name: "booking.repeat_week", version: 1, system: true, internal: true,
+  input: z.object({ week_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { row: w, read } = await readRow(ctx.db, "booking_series_week", i.week_id, "thing.weekly_booking");
+    return { title: both("action.booking.repeat_week"), summary: both("plan.booking.repeat_week", { date: dayOf(w.on_date) }), reads: [read], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    const w0 = await ctx.trx.selectFrom("booking_series_week").selectAll().where("id", "=", i.week_id).executeTakeFirstOrThrow();
+    const s = await ctx.trx.selectFrom("booking_series").selectAll().where("id", "=", w0.series_id).forUpdate().executeTakeFirstOrThrow();
+    await lockCourts(ctx, [s.court_id]);
+    const w = await ctx.trx.selectFrom("booking_series_week").selectAll().where("id", "=", i.week_id).forUpdate().executeTakeFirstOrThrow();
+    if (w.booking_id || w.missed || s.ended_at || w.on_date > s.last_date) return { already: true };
+    const tz = (await courtAndPlace(ctx.trx, s.court_id)).time_zone;
+    const r = s.pay === "card" && !(await seriesCard(ctx.trx, s.id)) ? { missed: "no_card" as const } : await bookWeek(ctx, s, w, tz);
+    if ("booking_id" in r) { await ctx.update("booking_series_week", w.id, { booking_id: r.booking_id }); return { booked: r.booking_id }; }
+    await ctx.update("booking_series_week", w.id, { missed: r.missed });
+    await ctx.emit("booking.repeat_missed", { series_id: s.id, on_date: w.on_date, why: r.missed });
+    return { missed: r.missed };
+  },
+});
+
+/** Every member's series with a week now inside their booking window: book it. A series whose first week was never
+ *  paid (the card form left until its hold ran out) has no card, so it ends instead. Read-only, nothing new is
+ *  booked: the weeks wait, and those still to come are booked once it's lifted. */
+export async function bookSeriesWeeks(db: Db, now = new Date()) {
+  if (await isReadOnly(db)) return { booked: 0, missed: 0, ended: 0 };
+  const series = await db.selectFrom("booking_series").innerJoin("location", "location.id", "booking_series.location_id")
+    .select(["booking_series.id", "booking_series.organiser_id", "booking_series.starts", "booking_series.last_date", "location.time_zone"])
+    .where("booking_series.ended_at", "is", null).where("booking_series.pay", "=", "card").execute();
+  let booked = 0, missed = 0, ended = 0;
+  for (const s of series) {
+    if (!(await seriesCard(db, s.id))) {
+      const firstOff = await db.selectFrom("booking").select("id").where("series_id", "=", s.id).where("status", "=", "cancelled").executeTakeFirst();
+      const firstHeld = await db.selectFrom("booking").select("id").where("series_id", "=", s.id).where("status", "in", ["held", "confirmed"]).executeTakeFirst();
+      if (firstOff && !firstHeld) { await runAsSystem(db, "booking.repeat_close", { series_id: s.id }, "jobs", { now }); ended++; }
+      continue;
+    }
+    const until = new Date(now.getTime() + (await daysAhead(db, s.organiser_id, now)) * 86400_000);
+    const due = (await db.selectFrom("booking_series_week").select(["id", "on_date"]).where("series_id", "=", s.id).where("booking_id", "is", null).where("missed", "is", null)
+      .where("on_date", "<=", s.last_date).orderBy("on_date").execute()).filter((w) => onDate(w.on_date, s.starts.slice(0, 5), s.time_zone) <= until);
+    for (const w of due) {
+      const r = (await runAsSystem(db, "booking.repeat_week", { week_id: w.id }, "jobs", { now })).result as { booked?: string; missed?: string } | null;
+      if (r?.booked) booked++; else if (r?.missed) missed++;
+    }
+  }
+  return { booked, missed, ended };
+}
+
+/** A member's series whose first week was never paid: over, quietly (they never had it). */
+export const bookingRepeatClose = defineAction({
+  name: "booking.repeat_close", version: 1, system: true, internal: true,
+  input: z.object({ series_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { read } = await readRow(ctx.db, "booking_series", i.series_id, "thing.weekly_booking");
+    return { title: both("action.booking.repeat_close"), summary: both("action.booking.repeat_close"), reads: [read], undo: { kind: "none" } };
+  },
+  async apply(ctx, i) {
+    const s = await ctx.trx.selectFrom("booking_series").select(["id", "ended_at"]).where("id", "=", i.series_id).forUpdate().executeTakeFirstOrThrow();
+    if (!s.ended_at) await ctx.update("booking_series", s.id, { ended_at: ctx.now });
+    return null;
+  },
+});
+
+// ---- Ending one: a week and all after it, each under its own rules ----
+async function seriesToEnd(db: Db | Trx, seriesId: string, from: string, now: Date) {
+  return db.selectFrom("booking").innerJoin("booking_series_week", "booking_series_week.booking_id", "booking.id").innerJoin("court_time", "court_time.booking_id", "booking.id")
+    .select(["booking.id", "booking_series_week.on_date"]).distinct().where("booking.series_id", "=", seriesId).where("booking.status", "in", ["held", "confirmed"])
+    .where("booking_series_week.on_date", ">=", from).where("court_time.active", "=", true).where(sql<boolean>`lower(court_time.during) > ${now}`).orderBy("booking_series_week.on_date").execute();
+}
+export const bookingRepeatEnd = defineAction({
+  name: "booking.repeat_end", version: 1,
+  input: z.object({ series_id: z.uuid(), from_date: z.optional(clubDate), refund: z.optional(z.enum(["rule", "full", "none"])) }),
+  async plan(ctx, i) {
+    const { row: s, read } = await readRow(ctx.db, "booking_series", i.series_id, "thing.weekly_booking");
+    if (s.ended_at) throw new KumiError("error.weekly_over");
+    // Choosing what comes back instead of each week's rule is for the club (rule 2), not the member.
+    if (i.refund && !(await deskOrUp(ctx.db, ctx.actor.personId))) throw new KumiError("error.refund_choice_staff", {}, 403);
+    const court = await courtAndPlace(ctx.db, s.court_id), today = localDate(ctx.now, court.time_zone);
+    const from = i.from_date && i.from_date > today ? i.from_date : today;
+    const weeks = await seriesToEnd(ctx.db, s.id, from, ctx.now), cancels = [];
+    for (const w of weeks) { const r = await cancelRefunds(ctx.db, w.id, ctx.now, i.refund ?? "rule"); cancels.push({ booking_id: w.id, refunds: r.refunds.map(({ payment_id, cents }) => ({ payment_id, cents })) }); }
+    const back = cancels.reduce((n, c) => n + c.refunds.reduce((m, r) => m + r.cents, 0), 0);
+    const start = onDate(s.first_date, s.starts.slice(0, 5), court.time_zone);
+    const summary = join([both("plan.booking.repeat_end", { pattern: patternText(court.name, start, court.time_zone, s.minutes), from: dayOf(from), count: weeks.length }),
+      back ? both("plan.booking.repeat_end_back", { amount: usd(back) }) : cancels.some((c) => c.refunds.length) ? both("plan.booking.repeat_end_nothing") : { en: "", es: "" }]);
+    return { title: both("action.booking.repeat_end"), summary, reads: [read], locationId: s.location_id, ownerIds: await withManagers(ctx.db, [s.organiser_id]), moneyCents: back,
+      undo: { kind: back ? "compensating" : "none" }, details: { from, cancels } };
+  },
+  async apply(ctx, i, plan) {
+    const d = plan.details as { from: string; cancels: { booking_id: string; refunds: { payment_id: string; cents: number }[] }[] };
+    const s = await ctx.trx.selectFrom("booking_series").selectAll().where("id", "=", i.series_id).forUpdate().executeTakeFirstOrThrow();
+    if (s.ended_at) throw new KumiError("error.weekly_over");
+    await lockCourts(ctx, [s.court_id]);
+    // The weeks as they are now: one booked since the preview goes too, and anyone who paid after the preview never
+    // agreed to its rule, so all of theirs comes back (as booking.cancel does).
+    for (const w of await seriesToEnd(ctx.trx, s.id, d.from, ctx.now)) {
+      const b = await lockBooking(ctx.trx, w.id);
+      if (b.status === "cancelled") continue;
+      const planned = d.cancels.find((c) => c.booking_id === w.id)?.refunds ?? [];
+      const late = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "payment.amount_cents", backSql.as("back")])
+        .where("booking_player.booking_id", "=", w.id).where("booking_player.removed_at", "is", null).where("payment.status", "=", "succeeded")
+        .$if(planned.length > 0, (q) => q.where("payment.id", "not in", planned.map((r) => r.payment_id))).execute();
+      await cancelBooking(ctx, w.id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents - Number(p.back) }))], "series_ended");
+    }
+    const last = addDays(d.from, -1);
+    await ctx.update("booking_series", s.id, last < s.first_date ? { ended_at: ctx.now } : { last_date: last < s.last_date ? last : s.last_date });
+    await ctx.emit("booking.repeat_ended", { series_id: s.id, from: d.from, by: ctx.actor.personId });
+    return null;
+  },
+});
+
+/** A person's series still running, for My places and the staff's page of the person: the pattern, and each week
+ *  from today: booked (its booking), left out (and why), or still to be booked. */
+export async function seriesOf(db: Db | Trx, personId: string, now: Date) {
+  const rows = await db.selectFrom("booking_series").innerJoin("court", "court.id", "booking_series.court_id").innerJoin("location", "location.id", "booking_series.location_id")
+    .select(["booking_series.id", "booking_series.court_id", "court.name as court", "booking_series.starts", "booking_series.minutes", "booking_series.first_date", "booking_series.last_date",
+      "booking_series.pay", "booking_series.source", "location.time_zone"])
+    .where("booking_series.organiser_id", "=", personId).where("booking_series.ended_at", "is", null).orderBy("booking_series.first_date").execute();
+  const out = [];
+  for (const s of rows) {
+    const today = localDate(now, s.time_zone);
+    const weeks = await db.selectFrom("booking_series_week").leftJoin("booking", "booking.id", "booking_series_week.booking_id")
+      .select(["booking_series_week.on_date", "booking_series_week.missed", "booking_series_week.price_cents", "booking.id as booking_id", "booking.code", "booking.status", "booking.settled_at"])
+      .where("booking_series_week.series_id", "=", s.id).where("booking_series_week.on_date", ">=", today).where("booking_series_week.on_date", "<=", s.last_date).orderBy("booking_series_week.on_date").execute();
+    if (!weeks.length) continue;
+    out.push({ id: s.id, court: s.court, starts: s.starts.slice(0, 5), minutes: s.minutes, pay: s.pay, source: s.source, time_zone: s.time_zone, last_date: s.last_date,
+      weeks: weeks.map((w) => ({ date: w.on_date, starts_at: onDate(w.on_date, s.starts.slice(0, 5), s.time_zone).toISOString(), price_cents: w.price_cents,
+        state: w.booking_id ? (w.status === "cancelled" ? "cancelled" : "booked") : w.missed ? "missed" : "waiting", missed: w.missed, booking_id: w.booking_id, code: w.code,
+        charged: Boolean(w.settled_at) })) });
+  }
+  return out;
+}

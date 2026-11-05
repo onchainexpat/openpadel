@@ -6,7 +6,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
-type Options = { locations: { id: string; name: string; time_zone: string }[]; lengths: number[]; days_ahead: number; split_deadline_hours: number; same_day_cutoff_hours: number; free_cancel_hours: number; late_refund_percent: number };
+type Options = { locations: { id: string; name: string; time_zone: string }[]; lengths: number[]; days_ahead: number; split_deadline_hours: number; weekly: boolean; weekly_max_weeks: number; same_day_cutoff_hours: number; free_cancel_hours: number; late_refund_percent: number };
 type Free = { open: { opens: string; closes: string } | null; courts: { id: string; name: string; kind: string; starts: string[] }[] };
 type Quote = { total_cents: number; tax_cents: number; priced: boolean; member: string | null };
 
@@ -14,6 +14,8 @@ export function Book() {
   const [o, setO] = useState<Options | null>(null), [loc, setLoc] = useState(""), [day, setDay] = useState(""), [minutes, setMinutes] = useState(90);
   const [free, setFree] = useState<Free | null>(null), [pick, setPick] = useState<{ start: string; courts: Free["courts"] } | null>(null), [court, setCourt] = useState("");
   const [q, setQ] = useState<Quote | null>(null), [pay, setPay] = useState<"whole" | "split">("whole"), [players, setPlayers] = useState(4);
+  // The same court every week (when the club allows it): the first week paid now, the card saved for the rest.
+  const [weekly, setWeekly] = useState(false), [weeks, setWeeks] = useState(4);
   const [provider, setProvider] = useState("test"), [paying, setPaying] = useState<{ id: string; cents: number } | null>(null), [done, setDone] = useState(false);
   // An open match: the level band (around my own level to start with), and who else may join.
   const [open, setOpen] = useState(false), [myLevel, setMyLevel] = useState<number | null>(null), [matchId, setMatchId] = useState<string | null>(null);
@@ -62,7 +64,7 @@ export function Book() {
   const bookCart = () => cart.length === 1
     ? preview("booking.request", { court_id: cart[0]!.court, starts_at: cart[0]!.start, minutes: cart[0]!.minutes, pay: "whole", person_id: me.value!.person.id })
     : preview("booking.request_courts", { courts: cart.map((x) => ({ court_id: x.court, starts_at: x.start, minutes: x.minutes })), person_id: me.value!.person.id });
-  const book = () => preview("booking.request", { court_id: court, starts_at: pick!.start, minutes, pay, ...(pay === "split" ? { players } : {}), person_id: me.value!.person.id,
+  const book = () => weekly && pay === "whole" ? preview("booking.repeat_request", { court_id: court, starts_at: pick!.start, minutes, weeks, person_id: me.value!.person.id }) : preview("booking.request", { court_id: court, starts_at: pick!.start, minutes, pay, ...(pay === "split" ? { players } : {}), person_id: me.value!.person.id,
     ...(opened ? { open: { level_min: Number(om.min), level_max: Number(om.max), outside_band: om.ask ? "ask" : "closed", rated: om.rated, listed: om.listed } } : {}) });
 
   if (done) return <main class="card"><h1>{t("ui.booked")}</h1><p>{matchId ? <a href={`/match/${matchId}`}>{t("ui.see_your_match")}</a> : <a href="/places">{t("ui.see_my_bookings")}</a>}</p></main>;
@@ -96,6 +98,12 @@ export function Book() {
             {cart.length > 0 ? <button class="primary" onClick={add}>{t("ui.add_this_court")}</button> : <>
             <label class="check"><input type="radio" name="pay" checked={pay === "whole"} onChange={() => setPay("whole")} /> {t("ui.pay_whole", { amount: dollars(q.total_cents, lang.value) })}</label>
             {canSplit && <label class="check"><input type="radio" name="pay" checked={pay === "split"} onChange={() => setPay("split")} /> {t("ui.pay_split")}</label>}
+            {o.weekly && pay === "whole" && <>
+              <label class="check"><input type="checkbox" checked={weekly} onChange={(e) => setWeekly(e.currentTarget.checked)} /> {t("ui.every_week")}</label>
+              {weekly && <label>{t("ui.how_many_weeks")}<select value={weeks} onChange={(e) => setWeeks(Number(e.currentTarget.value))}>
+                {Array.from({ length: o.weekly_max_weeks - 1 }, (_, k) => k + 2).map((n) => <option value={n}>{t("count.weeks", { count: n })}</option>)}</select></label>}
+              {weekly && <p class="meta">{t("ui.weekly_member_hint", { hours: t("count.hours", { count: o.split_deadline_hours }) })}</p>}
+            </>}
             {sameDay && <label class="check"><input type="radio" name="pay" checked={pay === "split"} onChange={() => { setPay("split"); setPlayers(4); setOpen(true); }} /> {t("ui.open_same_day")}</label>}
             {pay === "split" && <>
               {canSplit && <div class="chips" role="group" aria-label={t("ui.sharing")}>{[2, 4].map((n) => <button type="button" class={n === players ? "chip on" : "chip"} onClick={() => setPlayers(n)}>{t("count.players", { count: n })}</button>)}</div>}
@@ -112,7 +120,7 @@ export function Book() {
             </>}
             <p class="meta">{t(o.late_refund_percent ? "ui.cancel_rule" : "ui.cancel_rule_none", { hours: t("count.hours", { count: o.free_cancel_hours }), percent: o.late_refund_percent })}</p>
             <NewOnly><button class="primary" onClick={book}>{t("ui.book_now")}</button>{" "}
-            {pay === "whole" && <button class="link" onClick={add}>{t("ui.add_another_court")}</button>}</NewOnly>
+            {pay === "whole" && !weekly && <button class="link" onClick={add}>{t("ui.add_another_court")}</button>}</NewOnly>
             </>}
           </> : <p class="meta">{t("error.no_price")}</p>)}
           <button class="link" onClick={() => setPick(null)}>{t("ui.other_time")}</button>

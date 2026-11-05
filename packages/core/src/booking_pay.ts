@@ -21,6 +21,7 @@ import { managersOf, notJunior, requireWaiver, withManagers } from "./households
 import { kidOf, overRules, paymentsWhat } from "./kids.ts";
 import { isReadOnly } from "./read_only.ts";
 import { backSql, bookingRevenue, callOff, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
+import { seriesCard } from "./booking_series.ts";
 
 /** How long a court is held while the organiser pays. */
 export const HOLD_MINUTES = 10;
@@ -65,7 +66,7 @@ export async function checkSlot(ctx: PlanCtx, policy: Awaited<ReturnType<typeof 
 }
 /** How many court bookings a person has coming up (or being paid for), against the club's limit. Lessons
  *  don't count: the limit shares out courts members book for themselves. */
-async function upcomingCount(db: Db | Trx, personId: string, now: Date): Promise<number> {
+export async function upcomingCount(db: Db | Trx, personId: string, now: Date): Promise<number> {
   const r = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").select((eb) => eb.fn.count<string>("booking.id").distinct().as("n"))
     .where("booking.organiser_id", "=", personId).where("booking.kind", "=", "court").where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true).where(sql<boolean>`upper(court_time.during) > ${now}`).executeTakeFirstOrThrow();
   return Number(r.n);
@@ -392,7 +393,7 @@ export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amou
 /** A booking locked for a change that moves its money: its payments first, in id order, then the booking, the
  *  order payment.settle takes them in (the payments, then what they're for). A cancel and a card going through at
  *  that moment then wait for each other instead of deadlocking. */
-async function lockBooking(trx: Trx, bookingId: string) {
+export async function lockBooking(trx: Trx, bookingId: string) {
   await trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
     .where("booking_player.booking_id", "=", bookingId).orderBy("payment.id").forUpdate("payment").execute();
   return trx.selectFrom("booking").selectAll().where("id", "=", bookingId).forUpdate().executeTakeFirstOrThrow();
@@ -573,9 +574,13 @@ export const bookingSettleShares = defineAction({
       await ctx.emit("booking.balance_due", { booking_id: b.id, cents: unpaid, failure: "read_only" });
       return { owed: unpaid, read_only: true };
     }
-    const organiserPay = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+    const ownPay = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
       .select(["payment.saved_customer", "payment.saved_method", "payment.provider_account", "booking_player.id as bp"])
       .where("booking_player.booking_id", "=", b.id).where("booking_player.person_id", "=", b.organiser_id).where("payment.save_card", "=", true).where("payment.status", "=", "succeeded").executeTakeFirst();
+    // A week of a member's weekly booking goes on the card saved when they paid its first week (booking_series.ts).
+    const seriesPay = !ownPay && b.series_id ? await seriesCard(ctx.trx, b.series_id) : null;
+    const organiserSeat = seriesPay ? await ctx.trx.selectFrom("booking_player").select("id").where("booking_id", "=", b.id).where("person_id", "=", b.organiser_id).where("removed_at", "is", null).executeTakeFirst() : null;
+    const organiserPay = ownPay ?? (seriesPay && organiserSeat ? { ...seriesPay, bp: organiserSeat.id } : undefined);
     // A kid's court: what the others didn't pay goes on the family card only inside the kid's rules. Over them
     // (or with no card), a parent is asked to pay it in the app, as for anything else the kid can't pay alone.
     const kid = b.organiser_id ? await kidOf(ctx.trx, b.organiser_id) : null;
@@ -596,7 +601,7 @@ export const bookingSettleShares = defineAction({
     const club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
     const charge = organiserPay?.saved_customer && organiserPay.saved_method
       ? await paymentProvider().chargeSaved({ customer: organiserPay.saved_customer, paymentMethod: organiserPay.saved_method, amountCents: unpaid, currency: club.currency,
-          description: `Court booking ${b.code}: unpaid shares`, idempotencyKey: `settle:${b.id}`, account: organiserPay.provider_account })
+          description: b.series_id ? `Court booking ${b.code}: weekly court` : `Court booking ${b.code}: unpaid shares`, idempotencyKey: `settle:${b.id}`, account: organiserPay.provider_account })
       : { ref: "", status: "failed" as const, failure: "no saved card" };
     if (charge.status === "succeeded") {
       await ctx.insert("payment", { id: uuidv7(), person_id: b.organiser_id!, amount_cents: unpaid, method: "card", provider: paymentProvider().name, provider_ref: charge.ref,
@@ -604,7 +609,7 @@ export const bookingSettleShares = defineAction({
       await post(ctx.trx, ctx.runId, "payment", "court booking: unpaid shares", [
         { account: await account(ctx.trx, "provider_clearing"), cents: unpaid }, { account: await account(ctx.trx, "revenue", { revenueType: b.kind === "lesson" ? "lessons" : "courts" }), cents: -unpaid }]);
       await ctx.update("booking", b.id, { settled_at: ctx.now });
-      await ctx.emit("booking.shares_charged", { booking_id: b.id, cents: unpaid });
+      await ctx.emit(b.series_id ? "booking.week_charged" : "booking.shares_charged", { booking_id: b.id, cents: unpaid });
       return { charged: unpaid };
     }
     await ctx.update("booking", b.id, { settled_at: ctx.now, balance_cents: unpaid });

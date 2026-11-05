@@ -152,7 +152,10 @@ export async function releaseSeats(db: Db, now = new Date()) {
 export async function settleShares(db: Db, now = new Date()) {
   const due = await db.selectFrom("booking").innerJoin("booking_policy", "booking_policy.id", "booking.policy_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
     .leftJoin("open_match", "open_match.booking_id", "booking.id")
-    .select(["booking.id"]).distinct().where("booking.pay_mode", "=", "split").where("booking.status", "=", "confirmed").where("booking.settled_at", "is", null).where("court_time.active", "=", true)
+    .select(["booking.id"]).distinct().where((w) => w.or([w("booking.pay_mode", "=", "split"),
+      // A week of a member's weekly booking goes on their saved card at the same deadline (booking_series.ts).
+      w("booking.series_id", "in", w.selectFrom("booking_series").select("id").where("pay", "=", "card"))]))
+    .where("booking.status", "=", "confirmed").where("booking.settled_at", "is", null).where("court_time.active", "=", true)
     .where(sql<boolean>`${deadlineSql} <= ${now}`).execute();
   let charged = 0, failed = 0, cancelled = 0;
   for (const b of due) {

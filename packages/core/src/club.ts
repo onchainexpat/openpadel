@@ -62,7 +62,10 @@ export const clubUpdate = defineAction({
     name: z.optional(z.string().check(z.minLength(1))), legal_name: z.optional(z.string()), time_zone: z.optional(timeZone),
     languages: z.optional(z.array(lang).check(z.minLength(1))), default_language: z.optional(lang),
     brand_colour: z.optional(z.string().check(z.regex(/^#[0-9A-Fa-f]{6}$/))), sign_up_open: z.optional(z.boolean()),
-    court_bookings: z.optional(z.boolean()), tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
+    court_bookings: z.optional(z.boolean()),
+    // Members book the same court every week in the app (booking_series.ts), for at most this many weeks.
+    weekly_bookings: z.optional(z.boolean()), weekly_max_weeks: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(26))),
+    tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
     public_page: z.optional(z.boolean()), about: z.optional(z.nullable(z.string().check(z.maxLength(600)))),
     // The club's own terms and privacy policy for members (docs/templates): linked where members join, beside the
     // yes to texts, on the profile and the public pages. Someone who joins after they're set agrees to them.
