@@ -333,6 +333,15 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const s = await seriesInfo(db, p.series_id);
     return [{ to: s.organiser_id, kind: "booking_repeat_stopped", params: { ...s.base, why: both(`msg.repeat_stopped_${p.why}` as Key) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
+  // The club stopped taking weekly bookings for now: no weeks are booked until it takes them again.
+  async "booking.repeat_paused"({ db }, p: { series_id: string; why: string }) {
+    const s = await seriesInfo(db, p.series_id);
+    return [{ to: s.organiser_id, kind: "booking_repeat_paused", params: { ...s.base, why: both(`msg.repeat_paused_${p.why}` as Key) }, purpose: "account", essential: true, email: true, link: "/places" }];
+  },
+  async "booking.repeat_resumed"({ db }, p: { series_id: string }) {
+    const s = await seriesInfo(db, p.series_id);
+    return [{ to: s.organiser_id, kind: "booking_repeat_resumed", params: s.base, purpose: "account", essential: true, email: true, link: "/places" }];
+  },
   async "booking.repeat_ended"({ db }, p: { series_id: string; from: string; by?: string | null }) {
     const s = await seriesInfo(db, p.series_id);
     // The member ending their own hears nothing more (they did it); otherwise they hear it, once, with what comes back.

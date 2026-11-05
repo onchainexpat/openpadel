@@ -65,10 +65,12 @@ export async function checkSlot(ctx: PlanCtx, policy: Awaited<ReturnType<typeof 
   return { court, start, end, day };
 }
 /** How many court bookings a person has coming up (or being paid for), against the club's limit. Lessons
- *  don't count: the limit shares out courts members book for themselves. */
-export async function upcomingCount(db: Db | Trx, personId: string, now: Date): Promise<number> {
+ *  don't count: the limit shares out courts members book for themselves. `notStarted`: only those not begun yet
+ *  (a weekly court's next week is booked while this week's is being played: that one is used, not held). */
+export async function upcomingCount(db: Db | Trx, personId: string, now: Date, o: { notStarted?: boolean } = {}): Promise<number> {
   const r = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").select((eb) => eb.fn.count<string>("booking.id").distinct().as("n"))
-    .where("booking.organiser_id", "=", personId).where("booking.kind", "=", "court").where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true).where(sql<boolean>`upper(court_time.during) > ${now}`).executeTakeFirstOrThrow();
+    .where("booking.organiser_id", "=", personId).where("booking.kind", "=", "court").where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true)
+    .where(o.notStarted ? sql<boolean>`lower(court_time.during) > ${now}` : sql<boolean>`upper(court_time.during) > ${now}`).executeTakeFirstOrThrow();
   return Number(r.n);
 }
 /** A booking code no booking has yet: the club's initials and four letters ("KP-7QX2"). */
@@ -603,24 +605,50 @@ export const bookingSettleShares = defineAction({
     // made: booked again under a new booking id (a restore from before it was booked, a second server after a move),
     // it asks for the same charge, and the provider answers with the first (stripe.ts looks it up by this key).
     const week = b.series_id ? await ctx.trx.selectFrom("booking_series_week").select("id").where("booking_id", "=", b.id).executeTakeFirst() : null;
+    // A weekly court whose card was declined for an earlier week still owed: this week is owed at the desk too, not
+    // tried on that card again (the member was told once, with the first: booking_week_due). Once nothing of the
+    // series is owed, the next week goes on the card again.
+    if (b.series_id && await cardStillFailed(ctx.trx, b.series_id, b.id)) {
+      await ctx.update("booking", b.id, { settled_at: ctx.now, balance_cents: unpaid });
+      return { owed: unpaid, card_failed: true };
+    }
     const charge = organiserPay?.saved_customer && organiserPay.saved_method
       ? await paymentProvider().chargeSaved({ customer: organiserPay.saved_customer, paymentMethod: organiserPay.saved_method, amountCents: unpaid, currency: club.currency,
           description: b.series_id ? `Court booking ${b.code}: weekly court` : `Court booking ${b.code}: unpaid shares`, idempotencyKey: week ? `week:${week.id}` : `settle:${b.id}`, account: organiserPay.provider_account })
       : { ref: "", status: "failed" as const, failure: "no saved card" };
     if (charge.status === "succeeded") {
-      await ctx.insert("payment", { id: uuidv7(), person_id: b.organiser_id!, amount_cents: unpaid, method: "card", provider: paymentProvider().name, provider_ref: charge.ref,
+      const paymentId = uuidv7(), revenue = await account(ctx.trx, "revenue", { revenueType: b.kind === "lesson" ? "lessons" : "courts" });
+      await ctx.insert("payment", { id: paymentId, person_id: b.organiser_id!, amount_cents: unpaid, method: "card", provider: paymentProvider().name, provider_ref: charge.ref,
         provider_account: organiserPay?.provider_account ?? null, status: "succeeded", booking_player_id: organiserPay!.bp });
-      await post(ctx.trx, ctx.runId, "payment", "court booking: unpaid shares", [
-        { account: await account(ctx.trx, "provider_clearing"), cents: unpaid }, { account: await account(ctx.trx, "revenue", { revenueType: b.kind === "lesson" ? "lessons" : "courts" }), cents: -unpaid }]);
+      await post(ctx.trx, ctx.runId, "payment", "court booking: unpaid shares", [{ account: await account(ctx.trx, "provider_clearing"), cents: unpaid }, { account: revenue, cents: -unpaid }]);
+      // The charge the provider already had for this one (asked again after a restore), refunded since: that money
+      // went back, so it's recorded as gone back, and what it was for is owed at the desk again. Nobody is told:
+      // after a restore the staff are putting things right, and the desk sees it owed.
+      const back = Math.min(charge.refundedCents ?? 0, unpaid);
+      if (back > 0) {
+        await ctx.insert("refund", { id: uuidv7(), payment_id: paymentId, enrolment_id: null, amount_cents: back, destination: "card", status: "sent", provider_ref: charge.refundRef ?? null });
+        await post(ctx.trx, ctx.runId, "refund", "refund to card (before a restore)", [{ account: revenue, cents: back }, { account: await account(ctx.trx, "provider_clearing"), cents: -back }]);
+        await ctx.update("booking", b.id, { settled_at: ctx.now, balance_cents: back });
+        return { charged: unpaid, refunded_before: back };
+      }
       await ctx.update("booking", b.id, { settled_at: ctx.now });
       await ctx.emit(b.series_id ? "booking.week_charged" : "booking.shares_charged", { booking_id: b.id, cents: unpaid });
       return { charged: unpaid };
     }
+    // A weekly court's card declined: its later weeks aren't tried on it while this is owed (cardStillFailed).
+    if (b.series_id && organiserPay?.saved_method) await ctx.update("booking_series", b.series_id, { card_failed_at: ctx.now });
     await ctx.update("booking", b.id, { settled_at: ctx.now, balance_cents: unpaid });
     await ctx.emit("booking.balance_due", { booking_id: b.id, cents: unpaid, failure: charge.failure ?? null });
     return { owed: unpaid, failure: charge.failure };
   },
 });
+
+/** A weekly court's card was declined, and a week of it is still owed: later weeks go to the desk, not the card. */
+async function cardStillFailed(trx: Trx, seriesId: string, bookingId: string): Promise<boolean> {
+  const s = await trx.selectFrom("booking_series").select("card_failed_at").where("id", "=", seriesId).executeTakeFirstOrThrow();
+  if (!s.card_failed_at) return false;
+  return Boolean(await trx.selectFrom("booking").select("id").where("series_id", "=", seriesId).where("id", "!=", bookingId).where("balance_cents", ">", 0).where("status", "!=", "cancelled").executeTakeFirst());
+}
 
 /** Places paid for by players still coming (a player who can't make it doesn't fill one). */
 async function paidPlaces(trx: Trx, bookingId: string): Promise<number> {

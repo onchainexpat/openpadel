@@ -30,11 +30,22 @@ server starts.
   - **A member's AI assistant counts the whole weekly court against its weekly limit** (every week still to be
     charged, as a shared court counts in full), not just the first week. The first week's pay step says the later
     weeks go on the same card, how many, and what they come to.
-  - A declined week shows as owed at the desk, not paid, and pauses the weekly court until it's paid; each week
-    counts toward the club's limit on upcoming bookings; the member hears once a run, with every week left out and
-    why. A first week never paid, or lost while its card went through, ends it. A court archived later leaves its
-    weeks out instead of stopping the job. Turning weekly (or court) bookings off stops members' weekly courts and
-    tells each once; booked weeks stay. A weekly court still booking weeks blocks deleting its member's account.
+  - A declined week shows as owed at the desk, not paid. While it's owed, the weeks already booked are owed at
+    the desk too at their deadlines (the declined card isn't tried again; the member is told once), and the next
+    weeks wait. Each week counts toward the club's limit on upcoming bookings, counting only bookings not begun
+    (the week being played makes room for the next). A week owed or at the limit waits and is tried again each run;
+    it's left out only once its pay deadline has passed, and the member hears once a run, with every week left out
+    and why. A first week never paid (not in time, lost while its card went through, or cancelled before paying)
+    ends it. A court archived later leaves its weeks out instead of stopping the job, and weekly courts that keep
+    failing are said once to the owner and managers, and once when they work again.
+  - Turning weekly (or court) bookings off pauses members' weekly courts instead of ending them: nothing is booked
+    while it's off, booked weeks stay, each member is told once, and once more when it's back on (weeks that passed
+    meanwhile aren't booked). The settings preview says how many it pauses.
+  - Only a week still to be booked blocks deleting its member's account, so a member can end their weekly court
+    and delete their account while the club is read-only; ending one gives an assistant's weekly allowance back at
+    once. After a restore, a week charged and then refunded before the copy was taken is recorded as given back
+    and owed at the desk, not paid. A charge Kumi looks for again is found past the member's newest 100 payments
+    (Stripe's search).
   - **Stop every member's weekly court at once** (Settings, next to the weekly setting; owners and managers): no more
     weeks and the booked ones stay, or the booked weeks from today go too, with what comes back by each week's rule,
     everything they paid, or nothing. Previewed like every change; weekly courts the desk made stay; each member

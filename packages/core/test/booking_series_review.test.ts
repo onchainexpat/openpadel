@@ -112,25 +112,27 @@ test("a declined week is owed, not paid, and pauses the series until it's paid; 
     await settleShares(k.db, new Date(at("2026-12-08", "10:01")));
     const wk = (await seriesOf(k.db, k.people.Ann!, new Date(at("2026-12-08", "10:02"))))[0]!.weeks.find((w) => w.date === "2026-12-09")!;
     assert.equal(wk.state, "owed"); assert.equal(wk.charged, false);
-    // Owing, the next week coming into the window is left out ("unpaid") and nothing is charged for it.
+    // Owing, the weeks coming into the window wait, and nothing is charged for them (left out only past their
+    // deadline: booking_series_round3.test.ts).
     await bookSeriesWeeks(k.db, new Date(at("2026-12-09", "12:00")));
-    assert.equal((await k.states(r.series_id))[3], "missed unpaid");
-    // Paid at the desk: the weeks after are booked again.
+    assert.deepEqual((await k.states(r.series_id)).slice(2, 4), ["waiting", "waiting"]);
+    // Paid at the desk: the weeks waiting are booked.
     await run(k.db, "booking.record_payment", { booking_id: wk.booking_id!, cents: 6000, method: "cash" }, k.desk, { now: new Date(at("2026-12-09", "13:00")) });
-    assert.equal((await bookSeriesWeeks(k.db, new Date(at("2026-12-16", "12:00")))).booked, 1);
-    assert.equal((await k.states(r.series_id))[4], "confirmed");
-    await processOutbox(k.db, messageHandlers);
-    assert.match((await k.emails("Ann", "booking_repeat_missed"))[0]!.body, /an earlier booking is still owed/);
-    // The limit (3 upcoming): Ben has two bookings already, so of his weekly weeks, one fits now and the next waits out.
+    assert.equal((await bookSeriesWeeks(k.db, new Date(at("2026-12-09", "14:00")))).booked, 2);
+    assert.deepEqual((await k.states(r.series_id)).slice(2, 4), ["confirmed", "confirmed"]);
+    // The limit (3 upcoming, not begun): Ben has two bookings already, so of his weekly weeks one fits now, and the
+    // next waits until there's room (his 1 Dec court played), not left out.
     for (const d of ["2026-12-01", "2026-12-03"]) await k.pay(((await run(k.db, "booking.request", { court_id: k.c2, starts_at: at(d, "12:00"), minutes: 90, pay: "whole", person_id: k.people.Ben }, k.as("Ben"), { now: NOW })).result as any).payment_id, "Ben");
     const b = await k.weekly("Ben", k.c2, "2026-12-04", 4);
     await k.pay(b.payment_id, "Ben");
     await bookSeriesWeeks(k.db, NOW);
-    assert.deepEqual((await k.states(b.series_id)).slice(0, 2), ["confirmed", "missed limit"]);
+    assert.deepEqual((await k.states(b.series_id)).slice(0, 2), ["confirmed", "waiting"]);
+    await bookSeriesWeeks(k.db, new Date(at("2026-12-01", "14:00")));
+    assert.deepEqual((await k.states(b.series_id)).slice(0, 2), ["confirmed", "confirmed"]);
   } finally { await k.drop(); }
 });
 
-test("the first week lost while its card went through ends the weekly court; a club that stops weekly bookings says so once", async () => {
+test("the first week lost while its card went through ends the weekly court; a club that stops weekly bookings pauses it and says so once", async () => {
   const k = await club();
   try {
     const r = await k.weekly("Ann", k.c1, "2026-12-02", 4);
@@ -146,15 +148,16 @@ test("the first week lost while its card went through ends the weekly court; a c
     assert.equal(k.stripe.charges.length, before, "nothing more charged");
     await processOutbox(k.db, messageHandlers);
     assert.match((await k.emails("Ann", "booking_lost_weekly"))[0]!.body, /your weekly court is off too/);
-    // Ben's runs; then the club switches weekly bookings off: no more weeks, the booked ones stay, Ben told once.
+    // Ben's runs; then the club switches weekly bookings off: paused, not ended; no more weeks, the booked ones
+    // stay, Ben told once.
     const b = await k.weekly("Ben", k.c2, "2026-12-02", 5);
     await k.pay(b.payment_id, "Ben");
     await bookSeriesWeeks(k.db, NOW);
     await run(k.db, "club.update", { weekly_bookings: false }, k.owner, { now: NOW });
-    assert.equal((await bookSeriesWeeks(k.db, hours(24 * 10))).ended, 1);
+    assert.equal((await bookSeriesWeeks(k.db, hours(24 * 10))).ended, 0);
     assert.equal((await bookSeriesWeeks(k.db, hours(24 * 11))).ended, 0);
     assert.deepEqual((await k.states(b.series_id)).slice(0, 3), ["confirmed", "confirmed", "waiting"]);
     await processOutbox(k.db, messageHandlers);
-    assert.equal((await k.emails("Ben", "booking_repeat_stopped")).length, 1);
+    assert.equal((await k.emails("Ben", "booking_repeat_paused")).length, 1);
   } finally { await k.drop(); }
 });

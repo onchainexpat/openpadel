@@ -95,6 +95,22 @@ test("pay my part: a card saved for later (never held), and the one charge at th
   assert.deepEqual(await broke.chargeSaved({ customer: "cus_1", paymentMethod: "pm_1", amountCents: 3000, currency: "USD", description: "x", idempotencyKey: "b3" }), { ref: "", status: "failed", failure: "insufficient_funds" });
 });
 
+test("a saved-card charge asked again (after a restore) is found past the newest 100, with what's been refunded of it", async () => {
+  const others = Array.from({ length: 100 }, (_, n) => ({ id: `pi_o${n}`, status: "succeeded", metadata: { kumi_charge_id: `other:${n}` } }));
+  const first = { id: "pi_first", status: "succeeded", metadata: { kumi_charge_id: "week:w1" }, latest_charge: { id: "ch_1", amount_refunded: 6000, refunds: { data: [{ id: "re_1" }] } } };
+  const s = fakeStripe((c) => c.path === "/v1/payment_intents/search" ? { json: { data: [first] } } : c.method === "GET" ? { json: { data: others, has_more: true } } : { json: { id: "pi_new", status: "succeeded" } });
+  const p = new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch });
+  assert.deepEqual(await p.chargeSaved({ customer: "cus_1", paymentMethod: "pm_1", amountCents: 6000, currency: "USD", description: "weekly court", idempotencyKey: "week:w1" }),
+    { ref: "pi_first", status: "succeeded", refundedCents: 6000, refundRef: "re_1" });
+  assert.equal(s.calls.filter((c) => c.method === "POST").length, 0, "never charged a second time");
+  // Search not there to ask (or refusing): it's charged as before, under the same key.
+  const noSearch = fakeStripe((c) => c.path === "/v1/payment_intents/search" ? { status: 400, json: { error: { message: "search isn't available" } } }
+    : c.method === "GET" ? { json: { data: others, has_more: true } } : { json: { id: "pi_new", status: "succeeded" } });
+  assert.deepEqual(await new StripeProvider({ secretKey: "sk_test_abc", fetch: noSearch.fetch }).chargeSaved({ customer: "cus_1", paymentMethod: "pm_1", amountCents: 6000, currency: "USD", description: "x", idempotencyKey: "week:w2" }),
+    { ref: "pi_new", status: "succeeded" });
+  assert.equal(noSearch.calls.at(-1)!.headers["idempotency-key"], "charge:week:w2");
+});
+
 test("Apple Pay and Google Pay: the members' domain is registered once, switched back on, or checked again", async () => {
   let existing: any = null;
   const s = fakeStripe((c) => {

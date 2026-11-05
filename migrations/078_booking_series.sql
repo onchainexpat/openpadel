@@ -20,6 +20,8 @@ CREATE TABLE booking_series (
   source        text NOT NULL CHECK (source IN ('app', 'desk')),
   policy_id     uuid NOT NULL REFERENCES booking_policy,
   ended_at      timestamptz,
+  paused_at     timestamptz,                                     -- a member's, while the club takes no weekly bookings
+  card_failed_at timestamptz,                                    -- a week's charge declined: later weeks owed at the desk
   created_at    timestamptz NOT NULL DEFAULT now(),
   version       int NOT NULL DEFAULT 1
 );

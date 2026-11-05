@@ -119,11 +119,23 @@ export class StripeProvider implements PaymentProvider {
       // charge, from a backup or a minute in the archive; a club's export restored on another server), the charge
       // Stripe already has for this one, by Kumi's own id for it, is the answer: never a second. The key is the
       // same for a retry of the same charge (a renewal's period and attempt, a booking's deadline).
-      const had = await this.call("GET", `/v1/payment_intents?customer=${encodeURIComponent(i.customer)}&limit=100`, undefined, undefined, i.account);
-      const found = (had?.data ?? []).find((p: any) => p?.metadata?.kumi_charge_id === i.idempotencyKey);
+      // Its charge comes too, so one found says what's been refunded of it since (a week charged and then given
+      // back before the copy was taken isn't paid).
+      const had = await this.call("GET", `/v1/payment_intents?customer=${encodeURIComponent(i.customer)}&limit=100&expand[]=data.latest_charge`, undefined, undefined, i.account);
+      const mine = (p: any) => p?.metadata?.kumi_charge_id === i.idempotencyKey;
+      let found = (had?.data ?? []).find(mine);
+      // Beyond the newest 100 (someone who pays often, a copy from long ago): Stripe's search by Kumi's id for it.
+      // Search can be slow to see a new payment, but one that new is in the 100. If search isn't there to ask,
+      // the idempotency key still holds for a day.
+      if (!found && had?.has_more) {
+        const q = encodeURIComponent(`metadata['kumi_charge_id']:'${i.idempotencyKey}'`);
+        found = (await this.call("GET", `/v1/payment_intents/search?query=${q}&expand[]=data.latest_charge`, undefined, undefined, i.account).catch(() => null))?.data?.find(mine);
+      }
       const d = found ?? await this.call("POST", "/v1/payment_intents", { amount: i.amountCents, currency: i.currency.toLowerCase(), description: i.description, customer: i.customer,
         payment_method: i.paymentMethod, payment_method_types: ["card"], off_session: true, confirm: true, metadata: { kumi_charge_id: i.idempotencyKey } }, `charge:${i.idempotencyKey}`, i.account);
-      return { ref: String(d.id), status: intentStatus(d.status), ...(d.status === "succeeded" ? {} : { failure: String(d.status) }) };
+      const charge = typeof d.latest_charge === "object" && d.latest_charge ? d.latest_charge : null, refunded = Number(charge?.amount_refunded ?? 0);
+      return { ref: String(d.id), status: intentStatus(d.status), ...(d.status === "succeeded" ? {} : { failure: String(d.status) }),
+        ...(found && refunded > 0 ? { refundedCents: refunded, ...(charge?.refunds?.data?.[0]?.id ? { refundRef: String(charge.refunds.data[0].id) } : {}) } : {}) };
     } catch (e) {
       // A declined card, or one that needs its owner to confirm: a failed charge, for the desk to settle.
       if (e instanceof StripeError && e.status >= 400 && e.status < 500 && e.status !== 429) return { ref: "", status: "failed" as const, failure: e.decline ?? e.code ?? e.message };

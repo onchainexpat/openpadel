@@ -25,8 +25,9 @@ export interface PaymentProvider {
   /** Where a card setup stands: succeeded once the card is saved, with the card. */
   getSetup(ref: string, account?: string | null): Promise<{ status: IntentStatus; clientSecret: string; paymentMethod: string | null; customer: string | null }>;
   /** Charge a saved card without the person present (the deadline for unpaid shares). Never throws for a
-   *  declined or authentication-needed card: that comes back as failed, with why. */
-  chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; currency: string; description: string; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; status: IntentStatus; failure?: string }>;
+   *  declined or authentication-needed card: that comes back as failed, with why. A charge the provider already
+   *  had for this key (asked again after a restore) comes back as it is now: with what's been refunded of it. */
+  chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; currency: string; description: string; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; status: IntentStatus; failure?: string; refundedCents?: number; refundRef?: string }>;
   /** Send a refund. Retrying with the same key never refunds twice. */
   refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; ok: boolean; failure?: string }>;
   /** The card a payment was made with, for its receipt: the brand and the last four digits, never more. */
@@ -95,7 +96,13 @@ export class TestProvider implements PaymentProvider {
    *  for a different charge is refused. */
   async chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; idempotencyKey: string }) {
     const asked = `${i.customer} ${i.paymentMethod} ${i.amountCents}`, seen = this.chargesByKey.get(i.idempotencyKey);
-    if (seen) return seen.asked === asked ? seen.answer : { ref: "", status: "failed" as const, failure: "idempotency_error" };
+    if (seen) {
+      if (seen.asked !== asked) return { ref: "", status: "failed" as const, failure: "idempotency_error" };
+      // As Stripe's own record of it is now: what has been refunded of it since.
+      const back = [...this.refunds.values()].filter((r) => r.paymentRef === seen.answer.ref);
+      const refunded = back.reduce((n, r) => n + r.amountCents, 0);
+      return refunded ? { ...seen.answer, refundedCents: refunded, refundRef: back[0]!.ref } : seen.answer;
+    }
     const ref = `pi_test_${randomBytes(6).toString("hex")}`;
     let answer: { ref: string; status: IntentStatus; failure?: string };
     if (this.failNextCharge) { answer = { ref, status: "failed", failure: this.failNextCharge }; this.failNextCharge = null; }

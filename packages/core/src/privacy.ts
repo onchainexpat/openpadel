@@ -52,8 +52,13 @@ async function runningFor(db: Db | Trx, personId: string, now: Date, opts: { che
     .select(sql<string>`count(DISTINCT booking.id)`.as("n")).where("booking_player.person_id", "=", personId).where("booking_player.removed_at", "is", null)
     .where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true).where(sql<boolean>`upper(court_time.during) > ${now}`).executeTakeFirstOrThrow();
   if (Number(places.n)) add("bookings", { count: Number(places.n) });
-  // A weekly court still booking weeks (booking_series.ts) would book more after the account is gone: it ends first.
-  if (await db.selectFrom("booking_series").select("id").where("organiser_id", "=", personId).where("ended_at", "is", null).executeTakeFirst()) add("weekly");
+  // A weekly court with a week still to be booked (booking_series.ts), from today on the club's clock to its last
+  // date, would book it after the account is gone: it ends first. One whose weeks are all booked, left out or past
+  // doesn't (its booked weeks are bookings, above), even while the club is read-only and the job isn't running.
+  if (await db.selectFrom("booking_series").innerJoin("booking_series_week", "booking_series_week.series_id", "booking_series.id").innerJoin("location", "location.id", "booking_series.location_id")
+    .select("booking_series.id").where("booking_series.organiser_id", "=", personId).where("booking_series.ended_at", "is", null)
+    .where("booking_series_week.booking_id", "is", null).where("booking_series_week.missed", "is", null).whereRef("booking_series_week.on_date", "<=", "booking_series.last_date")
+    .where(sql<boolean>`booking_series_week.on_date >= (${now}::timestamptz AT TIME ZONE location.time_zone)::date`).executeTakeFirst()) add("weekly");
   // A place in a date still to come (its own date, or for a course, any of the program's).
   const enrolled = await db.selectFrom("enrolment").select(sql<string>`count(*)`.as("n")).where("enrolment.person_id", "=", personId).where("enrolment.status", "in", ["booked", "waitlisted"])
     .where(sql<boolean>`EXISTS (SELECT 1 FROM session s WHERE s.status <> 'cancelled' AND s.ends_at > ${now}

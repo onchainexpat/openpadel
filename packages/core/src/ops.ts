@@ -9,11 +9,12 @@ import { defineAction, runAsSystem } from "./actions.ts";
 import type { Db } from "./db.ts";
 import { uuidv7 } from "./ids.ts";
 
-export type OpsJob = "backup" | "offsite" | "restore_test" | "pitr" | "pitr_test" | "texts" | "answers" | "texting_number" | "jobs";
+export type OpsJob = "backup" | "offsite" | "restore_test" | "pitr" | "pitr_test" | "texts" | "answers" | "texting_number" | "jobs" | "weekly_courts";
 /** The scheduled jobs (backups); the rest are watched. */
 export const OPS_JOBS: OpsJob[] = ["backup", "offsite", "restore_test", "pitr", "pitr_test"];
-/** "jobs": the server's 30-second jobs (apps/server/src/jobs.ts), one of which keeps failing. */
-const ALL_JOBS = ["backup", "offsite", "restore_test", "pitr", "pitr_test", "texts", "answers", "texting_number", "jobs"] as const;
+/** "jobs": the server's 30-second jobs (apps/server/src/jobs.ts), one of which keeps failing. "weekly_courts": members'
+ *  weekly courts (booking_series.ts), some of which keep failing while the job itself runs. */
+const ALL_JOBS = ["backup", "offsite", "restore_test", "pitr", "pitr_test", "texts", "answers", "texting_number", "jobs", "weekly_courts"] as const;
 
 export async function heartbeat(db: Db, name: OpsJob) {
   const r = await db.selectFrom("ops_heartbeat").selectAll().where("name", "=", name).executeTakeFirst();

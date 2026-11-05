@@ -1,4 +1,5 @@
 // The first actions: setting up the club, its details, locations, roles and profiles.
+import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
@@ -88,7 +89,12 @@ export const clubUpdate = defineAction({
     const fields = changed(row, i);
     const langs = i.languages ?? row.languages;
     if (!langs.includes(i.default_language ?? row.default_language)) throw new KumiError("error.invalid_input", { details: "The default language must be one of the club's languages." }, 400);
-    return { title: both("action.club.update"), summary: both("plan.club.update", { fields: fieldList(fields) }), reads: [read], undo: { kind: "reversible" }, details: { fields } };
+    // Weekly bookings (or court bookings) switched off pause the members' weekly courts (booking_series.ts): say how many.
+    const pausing = (row.weekly_bookings && i.weekly_bookings === false) || (row.court_bookings && i.court_bookings === false)
+      ? Number((await ctx.db.selectFrom("booking_series").select(sql<string>`count(*)`.as("n")).where("ended_at", "is", null).where("source", "=", "app").where("paused_at", "is", null).executeTakeFirstOrThrow()).n) : 0;
+    const summary = both("plan.club.update", { fields: fieldList(fields) });
+    return { title: both("action.club.update"), summary: pausing ? { en: `${summary.en} ${both("plan.club.weekly_pause", { count: pausing }).en}`, es: `${summary.es} ${both("plan.club.weekly_pause", { count: pausing }).es}` } : summary,
+      reads: [read], undo: { kind: "reversible" }, details: { fields } };
   },
   async apply(ctx, i) {
     const { translations, ...rest } = i;

@@ -143,7 +143,10 @@ saves the card; each later week is booked once it's inside their booking window 
 holds a court further ahead than the club allows), and goes on that card at the club's "pay my part" deadline
 before it starts. A week someone else has booked by then is left out, the member hears, and nothing is charged
 for it; a declined card leaves that week owed at the desk (the member and the desk hear, once) and the other weeks
-stay. My places shows each weekly court with its weeks, and "Cancel this and the rest". To stop every weekly court members made at
+stay, owed at the desk too until it's paid. Weeks count toward the club's limit on upcoming bookings; a week owed
+or over the limit waits for room and is left out only once its pay deadline has passed. Turning weekly bookings
+(or court bookings) off pauses members' weekly courts until they're back on; each member hears once each way. My
+places shows each weekly court with its weeks, and "Cancel this and the rest". To stop every weekly court members made at
 once (the weeks already booked staying, or going too), use "Stop every weekly court members booked" under the
 weekly setting in Settings; you see what happens before anything changes, and each member is told once.
 

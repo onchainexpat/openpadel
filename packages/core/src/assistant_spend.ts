@@ -106,12 +106,13 @@ async function sharedCourtCost(db: Db | Trx, bookingId: string, personId: string
  *  once charged, what was kept; a week left out, cancelled before it was charged, or never booked (the series
  *  ended) counts nothing. */
 async function seriesCost(db: Db | Trx, seriesId: string): Promise<number> {
-  const s = await db.selectFrom("booking_series").select("ended_at").where("id", "=", seriesId).executeTakeFirstOrThrow();
+  const s = await db.selectFrom("booking_series").select(["ended_at", "last_date"]).where("id", "=", seriesId).executeTakeFirstOrThrow();
   const weeks = await db.selectFrom("booking_series_week").leftJoin("booking", "booking.id", "booking_series_week.booking_id")
-    .select(["booking_series_week.price_cents", "booking_series_week.missed", "booking.id as booking_id", "booking.status"]).where("booking_series_week.series_id", "=", seriesId).execute();
+    .select(["booking_series_week.on_date", "booking_series_week.price_cents", "booking_series_week.missed", "booking.id as booking_id", "booking.status"]).where("booking_series_week.series_id", "=", seriesId).execute();
   let cost = 0;
   for (const w of weeks) {
-    if (w.missed || (!w.booking_id && s.ended_at)) continue;
+    // Not booked and never will be: the series ended, or ends before this week (ended from an earlier week).
+    if (w.missed || (!w.booking_id && (s.ended_at || w.on_date > s.last_date))) continue;
     const kept = w.booking_id ? await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
       .select(sql<string>`coalesce(sum(payment.amount_cents - (select coalesce(sum(r.amount_cents), 0) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent'))), 0)`.as("c"))
       .where("booking_player.booking_id", "=", w.booking_id).where("payment.status", "=", "succeeded").executeTakeFirstOrThrow() : null;
