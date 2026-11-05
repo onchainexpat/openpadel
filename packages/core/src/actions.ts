@@ -8,7 +8,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { checkAssistantSpend } from "./assistant_spend.ts";
 import { uuidv7 } from "./ids.ts";
-import { decide, DESK_MONEY, type Decision } from "./permissions.ts";
+import { CHAT_ACTIONS, decide, DESK_MONEY, type Decision } from "./permissions.ts";
 import { readOnlyGate } from "./read_only.ts";
 
 /** How the person proved who they are: the strong-sign-in rule reads it. */
@@ -129,11 +129,14 @@ const ENTITIES = {
   support_grant: { table: "support_grant", key: "id", retire: { ended_at: "now" } },
   email_suppression: { table: "email_suppression", key: "address", retire: { cleared_at: "now" } },
   vault_item: { table: "vault_item", key: "id", retire: { active: false } },
+  chat_message: { table: "chat_message", key: "id", retire: null },
+  chat_stop: { table: "chat_stop", key: "id", retire: { ended_at: "now" } },
+  chat_report: { table: "chat_report", key: "id", retire: null },
 } as const;
 export type Entity = keyof typeof ENTITIES;
 /** Columns that are keys to something (a club news email's unsubscribe link, an authenticator's secret):
  *  never copied into the change log. */
-const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"], staff_factor: ["secret"] };
+const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"], staff_factor: ["secret"], chat_message: ["body"] };
 const unkept = (entity: Entity, row: unknown) => {
   const drop = KEYS_NOT_KEPT[entity];
   if (!drop || !row || typeof row !== "object") return row;
@@ -200,7 +203,7 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
 export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.export", "person.factor_add", "person.factor_codes", "person.factor_remove",
   "person.passkey_add", "person.passkey_remove", "waiver.accept", "level.self_adjust", "family_card.start", "family_card.remove", "family_card.open",
   "family_card.saved", "membership.card_open", "membership.card_saved", "kid.give_login", "kid.remove_login", "kid.set_rules", "kid.approve_request",
-  "household.invite", "household.accept_invite", "household.give_login", "household.leave", "household.remove_junior", ...DESK_MONEY]);
+  "household.invite", "household.accept_invite", "household.give_login", "household.leave", "household.remove_junior", ...DESK_MONEY, ...CHAT_ACTIONS]);
 export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news"]);
 /** Whether an action is the app's alone, never an assistant's: with `input`, for this input. */
 export function appOnly(def: ActionDef<any>, input?: unknown): boolean {

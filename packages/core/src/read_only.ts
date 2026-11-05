@@ -26,6 +26,8 @@ export const READ_ONLY_ALLOWED = new Set([
   "booking.cancel", "booking.repeat_end", "booking.repeat_close", "booking.leave", "booking.remove_player", "booking.refund", "booking.withdraw_ask", "booking.withdraw_offer", "booking.drop_saved_place",
   "enrolment.leave", "enrolment.remove", "program.cancel", "series.cancel", "program.unwatch", "membership.cancel", "membership.end", "membership.remove_person",
   "membership.pause", "broadcast.cancel", "question.close", "alert.handle",
+  // Keeping players' chats safe: a player's report, and the club hiding a message or stopping someone posting (chat.ts).
+  "chat.report", "chat.hide", "chat.stop", "chat.allow",
   // Kumi's own bookkeeping: recording what already happened at Stripe or Twilio, receipts, refunds going out (handed back at the desk too),
   // holds and offers running out, reminders of what's booked, and tidying.
   "payment.settle", "refund.settle", "refund.resend", "refund.give_back", "receipt.issue", "receipt.resend", "club.payment_account_status", "texting.registration_record",

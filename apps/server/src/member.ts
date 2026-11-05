@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
 import { clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf } from "@kumi/core";
 import { sql } from "kysely";
+import { chatRoutes } from "./chats.ts";
 
 type Me = { id: string } | null;
 export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { production: boolean; now?: () => Date }) {
@@ -16,6 +17,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     if (!(await manages(db, pid, f))) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
     return f;
   };
+  // Chats in the games they play in (chats.ts).
+  app.route("/", chatRoutes(db, who, lang, now));
   /** The member and the juniors they manage, by id, with each junior's name. */
   const meAndJuniors = async (pid: string) => [{ id: pid, display_name: null as string | null }, ...(await juniorsOf(db, pid)).map((j) => ({ id: j.id, display_name: j.display_name as string | null }))];
 

@@ -32,7 +32,7 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   support_now?: { name: string; level: "view" | "manager"; ends_at: string }[];
   /** An account made for support access, whose access has ended. */
   support_ended?: boolean };
-export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
+export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; players_chat?: boolean; memberships?: boolean; lessons?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
   /** The club's host made it read-only (read_only.ts): both apps say so at the top. */
   read_only?: boolean;
   /** The club's Kumi moved to another server (club_exit.ts): this one says where, and sends nothing. */
@@ -159,6 +159,12 @@ export function shortTime(iso: string): string {
 export const unread = signal(0);
 export async function loadUnread(): Promise<void> {
   try { unread.value = (await api<{ unread: number }>("/my/inbox")).unread; } catch { /* signed out or offline: keep the last count */ }
+}
+/** How many chat messages are unread in the member's games (chat.ts), for the nav; checked with the inbox. */
+export const chatsUnread = signal(0);
+export async function loadChatsUnread(): Promise<void> {
+  if (!club.value?.players_chat) { chatsUnread.value = 0; return; }
+  try { chatsUnread.value = (await api<{ unread: number }>("/my/chats/unread")).unread; } catch { /* signed out or offline: keep the last count */ }
 }
 export const isStaff = computed(() => (me.value?.roles ?? []).some((r) => r.key !== "member"));
 

@@ -29,6 +29,7 @@ import { broadcastRoutes } from "./broadcasts.ts";
 import { publicRoutes } from "./public.ts";
 import { memberUrl } from "./addresses.ts";
 import { memberRoutes } from "./member.ts";
+import { staffChatRoutes } from "./chats.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import { textRoutes } from "./texts.ts";
 import { emailEventRoutes } from "./email_events.ts";
@@ -215,7 +216,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "weekly_bookings", "weekly_max_weeks", "public_page", "terms_url", "privacy_policy_url", "time_zone", "read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
+    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "public_page", "terms_url", "privacy_policy_url", "time_zone", "read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
     // Not set up yet (kumi setup apply): nothing to show, which isn't the server failing.
     if (!club) throw new KumiError("error.club_not_set_up", {}, 404);
     // Whether there's a membership to join in the app.
@@ -240,6 +241,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"), tries: secondStep }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
+  app.route("/", staffChatRoutes(db, (c) => c.get("me"), now));
   app.route("/", supportRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), now));
   app.route("/", vaultRoutes(db, (c) => c.get("me"), now));
   app.route("/", exportRoutes(db, (c) => c.get("me"), { databaseUrl: deps.databaseUrl ?? null, now }));

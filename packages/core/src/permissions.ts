@@ -68,11 +68,16 @@ async function decidePerson(db: Db | Trx, action: string, s: Subject & { personI
  *  assistant (it can't see money change hands, and words it reads could tell it to mark something paid). */
 export const DESK_MONEY = ["booking.record_payment", "enrolment.record_payment", "membership.sell", "membership.record_payment", "refund.give_back"];
 
+/** Players' chats (chat.ts): reporting a message, and the club hiding one or stopping someone posting. Never through an
+ *  assistant (what it reads in a chat could tell it to report or hide someone) and never through support access
+ *  (players' conversations are theirs and the club's, not the host's). */
+export const CHAT_ACTIONS = ["chat.report", "chat.hide", "chat.stop", "chat.allow"];
+
 /** Never through support access, at any level: where the club's money goes, who holds which role (and who owns
  *  the club), every member's details in one file, deleting people or data, a person's sign-in, the club's secrets,
  *  the usage cap, the host's read-only and leaving switches, and support access itself. */
 export const SUPPORT_NEVER = ["support.*", "role.*", "club.payment_*", "club.export", "club.setup", "club.read_only", "club.moved*", "club.leaving*", "club.usage_cap_set",
-  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*", ...DESK_MONEY];
+  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*", ...DESK_MONEY, "chat.*"];
 /** Their own account, which they look after like anyone (their second sign-in step first of all). */
 const SUPPORT_OWN = ["person.factor_*", "person.passkey_*", "person.update_profile"];
 

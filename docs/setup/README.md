@@ -584,6 +584,23 @@ the server down, says so first with `kumi leaving on --date=2026-12-15`:
 for a host); `kumi leaving off` takes the date away, and the owners are told. Moving the date tells them
 again. An export restored on another server doesn't bring the date with it.
 
+### Chats in games
+
+Players in the same game message each other in the app: a court booking with named players (an open match is
+one) and each program date (a clinic, a social night) has a chat for the people in it, and its coach. There are no
+messages between members outside a game they share, and juniors don't see chats in this version (a parent who
+plays in the same game reads it as themselves). It's on unless you untick "Players can message in their games"
+(Settings, The club).
+
+- Members report a message to the club; front desk and up hear once, and see every chat under Chats: hide a
+  message (the players see "hidden by the club") or stop someone posting for 1 to 90 days. Each is in Changes.
+  Support access and coaches on their own don't see chats, and no assistant posts, reports or hides.
+- A chat says nothing by email or text: a new message reaches phones as a notification, at most once in 5
+  minutes per chat, never during quiet hours, and never for a chat the member muted.
+- A player who leaves the game reads its chat until the game ends. A chat goes, with everything in it, 90 days
+  after its game. Read-only, moved or closing soon: chats are read, not added to.
+- Your member privacy policy (`docs/templates/member-privacy-policy.md`) has the lines to keep for chats.
+
 ### Notifications
 
 Nothing to set up. Each member turns notifications on for their own phone in Profile, and from then

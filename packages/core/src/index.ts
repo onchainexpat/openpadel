@@ -43,6 +43,7 @@ export * from "./lessons.ts";
 export * from "./ical.ts";
 export * from "./coach_tools.ts";
 export * from "./questions.ts";
+export * from "./chat.ts";
 export * from "./broadcasts.ts";
 export * from "./staff_alerts.ts";
 export * from "./privacy.ts";

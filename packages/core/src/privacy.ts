@@ -18,6 +18,7 @@ import { paymentsWhat } from "./kids.ts";
 import { receiptNo } from "./receipts.ts";
 import { QUIET } from "./messages.ts";
 import { excerpt } from "./questions.ts";
+import { chatsOf, eraseChats } from "./chat.ts";
 
 /** How long the file can be fetched after the download was confirmed. */
 export const EXPORT_MINUTES = 15;
@@ -250,6 +251,8 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
       messages_to_members: broadcastsSent.map((b) => ({ purpose: b.purpose, subject: (lang === "es" ? b.subject_es ?? b.subject_en : b.subject_en ?? b.subject_es) ?? "", status: b.status, send_at: iso(b.send_at), sent_at: iso(b.sent_at), people: b.recipients })),
     } } : {}),
     questions,
+    // What they wrote in their games' chats (others' messages are theirs).
+    chats: (await chatsOf(db, personId)).map((m) => ({ ...m, at: iso(m.at), edited_at: iso(m.edited_at), taken_back_at: iso(m.taken_back_at) })),
   };
 }
 
@@ -433,6 +436,8 @@ async function erasePerson(ctx: ApplyCtx, personId: string): Promise<number> {
   await db.updateTable("result_answer").set({ note: null }).where("person_id", "=", personId).execute();
   await db.updateTable("level_review").set({ note: null }).where("person_id", "=", personId).execute();
   await sql`UPDATE missing_feature SET asked = ${REMOVED} WHERE person_id = ${personId}`.execute(db);
+  // What they wrote in chats: the words go, "message removed" stays under "Former member" (chat.ts).
+  await eraseChats(db, personId, ctx.now);
   // Their questions: their words go, the staff's answers lose their name; anything still open is closed.
   if (said.length) await db.updateTable("question_message").set({ body: REMOVED }).where("id", "in", said.map((m) => m.id)).execute();
   if (threads.length) {

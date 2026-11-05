@@ -66,6 +66,8 @@ export const clubUpdate = defineAction({
     // Members book the same court every week in the app (booking_series.ts), for at most this many weeks.
     weekly_bookings: z.optional(z.boolean()), weekly_max_weeks: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(26))),
     tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
+    // Players message each other inside the games they play together (chat.ts); off, no chat anywhere.
+    players_chat: z.optional(z.boolean()),
     public_page: z.optional(z.boolean()), about: z.optional(z.nullable(z.string().check(z.maxLength(600)))),
     // The club's own terms and privacy policy for members (docs/templates): linked where members join, beside the
     // yes to texts, on the profile and the public pages. Someone who joins after they're set agrees to them.

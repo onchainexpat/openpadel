@@ -2,7 +2,7 @@
 // host, pay a held place, say you can't make it or are running late, or (for the host) answer requests,
 // save places for friends (each has added the other), share the link and mark who didn't come.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, dollars, lang, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
+import { api, ApiError, club, dollars, lang, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
 export type Match = {
@@ -84,6 +84,7 @@ export function MatchPage({ id }: { id: string }) {
     <main>
       <h1>{m.is_match ? (m.host_is_me ? t("ui.your_match") : t("ui.match_by", { host: m.host ?? "" })) : m.host_is_me ? t("ui.your_booking") : t("ui.booking_by", { host: m.host ?? "" })}</h1>
       {sheet}
+      {(m.host_is_me || m.me) && club.value?.players_chat && <p><a href={`/chats/booking/${m.id}`}>{t("ui.chat_open")}</a></p>}
       {paying && <PaySheet paymentId={paying} amountCents={m.share_cents} name={m.court} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); void load(); }} />}
       {paying && provider === "test" && import.meta.env.DEV && <p><button class="primary" onClick={async () => { await api(`/dev/payments/${paying}/settle`, {}); setPaying(null); void load(); }}>{t("ui.pay_test")}</button></p>}
       <section class="card">

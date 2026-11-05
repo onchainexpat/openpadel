@@ -16,7 +16,7 @@ export const AREAS: { key: string; prefixes: string[] }[] = [
   { key: "bookings", prefixes: ["booking", "lesson", "alert"] },
   { key: "courts", prefixes: ["court", "hours", "location", "connector", "mirror"] },
   { key: "programs", prefixes: ["program", "session", "series", "enrolment", "waitlist", "draw", "attendance"] },
-  { key: "members", prefixes: ["person", "household", "kid", "waiver", "tag", "privacy", "friend", "consent", "family_card", "email"] },
+  { key: "members", prefixes: ["person", "household", "kid", "waiver", "tag", "privacy", "friend", "consent", "family_card", "email", "chat"] },
   { key: "memberships", prefixes: ["membership"] },
   { key: "money", prefixes: ["payment", "refund", "price", "policy", "receipt"] },
   { key: "messages", prefixes: ["broadcast", "segment", "template", "question", "fact"] },

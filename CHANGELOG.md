@@ -25,6 +25,21 @@ server starts.
   with "Cancel this and the rest" (each week under its own rules; staff can choose what comes back). A member's
   AI assistant sees each week as a booking and can end their weekly court as they can; a weekly court the desk
   ends is told to the member once, not once a week. Read-only, nothing new is booked, and the weeks still to come wait.
+- **Chats in games.** The players in a game message each other in the app: each court booking with named players
+  (an open match is one) and each program date (a clinic, a social night) has a chat for the people in it, and its
+  coach. Plain text up to 1,000 characters, links as links; a message changes for 5 minutes after it's posted and
+  is taken back any time ("message removed"). Someone who leaves the game reads its chat until it ends but doesn't
+  post. There are no messages between members outside a game they share, and no list of members.
+- **Safety first.** Juniors don't see chats in this version, and the app says why (a parent in the same game reads it
+  as themselves). A member reports a message, and front desk and up hear once; the staff read every chat under
+  Chats, hide a message ("hidden by the club") and stop someone posting for 1 to 90 days, each in Changes. Support
+  access never sees chats, and no assistant posts, reports or hides (a member's assistant reads their chats). At most
+  20 posts in 10 minutes. Read-only, moved or closing: chats are read, not added to.
+- A new chat message reaches the players' phones as a notification, at most once in 5 minutes per chat, never at
+  night and never for a chat they muted; never by email or text. The nav's Chats shows what's unread.
+- A chat goes 90 days after its game, with everything in it. A member's own messages are in their Download data,
+  and deleting their account takes their words. "Players can message in their games" (Settings, The club) turns
+  chats off; it starts on.
 
 ### Changed
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
@@ -50,6 +65,9 @@ server starts.
   other week or several days a week); changing its court or time for all the weeks after one is done by ending
   it from that week and booking a new one (one week alone moves like any booking); a series the desk makes is paid
   at the desk week by week (the saved-card way is for one a member makes in the app).
+- "No chat between players" is gone from the list too: chats in games are above. Juniors don't see chats yet, even
+  ones with a login of their own; no photos or files; a changed message keeps no earlier version. A coach reads their
+  own dates' chats in the members' app (the staff app's Chats is front desk and up).
 
 ## 0.2.1 (2026-11-04)
 

@@ -26,6 +26,7 @@ import { currentPrices, monthOf, nextMonthStart, usageAllows } from "./usage.ts"
 import { lastClubExport } from "./club_exit.ts";
 import { mayAnswer } from "./actions.ts";
 import { emailSuppressed } from "./email_suppression.ts";
+import { gameOf } from "./chat.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -520,6 +521,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     // Mostly seen in the app at once: the email waits a few minutes, and goes only if it wasn't.
     return [{ to: p.to, kind: "question_club_answered", params: { question: p.question, fact: p.fact, answer: p.answer }, purpose: "account" as const, essential: false, email: true,
       link: `/ask/${p.question_id}`, emailUnlessRead: ANSWER_EMAIL_MINUTES }];
+  },
+  // A player reported a message in a chat (chat.ts), the first report of it: front desk and up hear once. The
+  // message's words stay in the chat (the staff read them there), not in the alert.
+  async "chat.reported"({ db, tz }, p: { thread_id: string; kind: "booking" | "session"; ref_id: string; author: string }) {
+    const g = await gameOf(db, p.kind, p.ref_id);
+    const params = { author: p.author, game: g ? { en: `${g.title}, ${dateTime(g.starts_at, "en", tz)}`, es: `${g.title}, ${dateTime(g.starts_at, "es", tz)}` } : NOTHING };
+    return (await desk(db)).map((to) => ({ to, kind: "chat_reported_staff", params, purpose: "staff" as const, essential: false, email: true, link: `/chats/${p.thread_id}` }));
   },
   async "question.unanswered"({ db, tz }, p: { question_id: string; person: string; asked_at: string; hours: number; question: string; assigned_to: string | null }) {
     const params = { person: p.person, when: when(new Date(p.asked_at), tz), question: p.question, hours: both("count.hours", { count: p.hours }) };

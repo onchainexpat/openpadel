@@ -215,8 +215,11 @@ test("an assistant reads what the person reads, can't raise its own limit or cha
   const [mine, other] = (await db.selectFrom("oauth_grant").select("id").where("person_id", "=", id).orderBy("created_at").execute()).map((g) => g.id);
   const client = await mcp(body.access_token);
   const names = (await client.listTools()).tools.map((t) => t.name);
-  for (const hidden of ["assistant_set_cap_preview", "privacy_erase_preview", "person_factor_remove_preview", "person_passkey_remove_preview"]) assert.ok(!names.includes(hidden), hidden);
-  for (const shown of ["assistant_disconnect_preview", "booking_options", "free_courts", "open_programs", "my_places", "my_level", "club_answers", "lesson_times"]) assert.ok(names.includes(shown), shown);
+  for (const hidden of ["assistant_set_cap_preview", "privacy_erase_preview", "person_factor_remove_preview", "person_passkey_remove_preview", "chat_report_preview"]) assert.ok(!names.includes(hidden), hidden);
+  for (const shown of ["assistant_disconnect_preview", "booking_options", "free_courts", "open_programs", "my_places", "my_level", "club_answers", "lesson_times", "my_chats", "game_chat"]) assert.ok(names.includes(shown), shown);
+  // Chats are read, never posted in: there's no tool that writes one.
+  assert.ok(!names.some((n) => n.startsWith("chat_")), "no chat writing tools");
+  assert.deepEqual(textOf(await client.callTool({ name: "my_chats", arguments: {} })), { off: false, junior: false, chats: [] });
   const options = textOf(await client.callTool({ name: "booking_options", arguments: {} }));
   assert.ok(Array.isArray(options.locations) && Array.isArray(options.lengths), "the same answer the app gets");
   const bad = await client.callTool({ name: "free_courts", arguments: { location_id: uuidv7(), date: "2026-13-40", minutes: 60 } });
