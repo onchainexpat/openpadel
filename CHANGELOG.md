@@ -5,7 +5,7 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
-## 0.2.1 (2026-11-0X)
+## 0.2.1 (2026-11-04)
 
 Money taken at the desk for memberships, program places and courts, with the desk's day for counting the
 drawer; the club's own terms and privacy policy shown to its members, with what each one agreed to; lighter
