@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createDecipheriv, createECDH, hkdfSync } from "node:crypto";
 import { freshDb } from "./helpers.ts";
-import { messageHandlers, processOutbox, pushKeys, run, runAsSystem, sendPushes, subscribePush, unsubscribePush, uuidv7, type Actor, type Db } from "../src/index.ts";
+import { messageHandlers, processOutbox, pushKeys, pushTiming, run, runAsSystem, sendPushes, subscribePush, unsubscribePush, uuidv7, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, plan: string;
 const people: Record<string, string> = {};
@@ -50,8 +50,24 @@ test("a message goes as a push to the person's devices, encrypted for each; a de
   assert.deepEqual(r, { sent: 1, dropped: 0, failed: 0 });
   assert.deepEqual(open(sent[0]!.body), { title: "Your membership: Monthly", body: "Your Monthly membership runs from today.", url: "/membership", tag: "membership_started" });
   assert.match(sent[0]!.headers.authorization!, /^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]+$/);
+  assert.deepEqual([sent[0]!.headers.urgency, sent[0]!.headers.ttl], ["normal", "86400"]);   // news of a membership can wait
   const tablet = await db.selectFrom("push_subscription").select("revoked_at").where("endpoint", "=", "https://fcm.googleapis.com/fcm/send/ann-old-tablet").executeTakeFirstOrThrow();
   assert.ok(tablet.revoked_at);
+});
+
+test("what matters within minutes goes at high urgency, kept only until it goes stale", async () => {
+  const now = new Date("2026-11-05T18:00:00Z"), inTwoHours = new Date(now.getTime() + 2 * 3600_000);
+  assert.deepEqual(pushTiming({ purpose: "account", kind: "offered", stale_at: inTwoHours }, now), { urgency: "high", ttlSeconds: 7200 });
+  assert.deepEqual(pushTiming({ purpose: "account", kind: "membership_started", stale_at: null }, now), { urgency: "normal", ttlSeconds: 86400 });
+  assert.deepEqual(pushTiming({ purpose: "staff", kind: "anything_staff", stale_at: null }, now), { urgency: "high", ttlSeconds: 86400 });
+  assert.equal(pushTiming({ purpose: "account", kind: "offered", stale_at: new Date(now.getTime() - 1000) }, now).ttlSeconds, 60);   // never under a minute
+  // Sent: a place offered from the waitlist, which lapses in two hours.
+  await db.insertInto("outbound_message").values({ id: uuidv7(), event_id: null, person_id: people.Ann!, kind: "offered", channel: "push", purpose: "account", essential: false, lang: "en",
+    subject: "A place for you", body: "y", link: null, status: "waiting", send_after: new Date(), stale_at: new Date(Date.now() + 2 * 3600_000) }).execute();
+  const headers: Record<string, string>[] = [];
+  await sendPushes(db, { subject: "https://play.kestrel.test", fetch: async (_url, init) => { headers.push(init.headers as Record<string, string>); return new Response(null, { status: 201 }); } });
+  assert.equal(headers[0]!.urgency, "high");
+  assert.ok(Number(headers[0]!.ttl) > 7100 && Number(headers[0]!.ttl) <= 7200, headers[0]!.ttl);
 });
 
 test("staff alerts go to the staff app's devices only; turning a device off stops pushes", async () => {

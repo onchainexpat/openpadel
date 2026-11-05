@@ -41,7 +41,7 @@ export function Assistants() {
               <button disabled={want === a.weekly_cap_cents} onClick={() => ask(a.id, "assistant.set_cap", { weekly_cap_cents: want })}>{t("ui.assistant_change_cap")}</button>{" "}
               <button onClick={() => ask(a.id, "assistant.disconnect", {})}>{t("ui.assistant_disconnect")}</button>
             </p>}
-            {pending?.id === a.id && <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>}
+            {pending?.id === a.id && <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
           </div>
         );
       })}

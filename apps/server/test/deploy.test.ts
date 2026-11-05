@@ -179,3 +179,29 @@ test("a restore to a minute takes its extract away afterwards, and sudo kumi pit
   assert.match(setup, /case "\$\{2:-\}" in tick\|test\|extract\)\n\s+root pitr; cd \/opt\/kumi\/app && exec runuser -u postgres --/);
   for (const lang of ["en", "es"]) assert.ok(!read(`packages/i18n/src/${lang}.ts`).includes("sudo -u postgres kumi"), "the kumi command can't run as postgres (its own sudo -u kumi asks for a password)");
 });
+
+test("making the point-in-time archive waits out archive-push's lock, and says it isn't ready only when it isn't", () => {
+  // stanza-create is refused ([050]) while Postgres sends a piece of its log; 0.2.1's update said "isn't ready" then.
+  const cases: [string, RegExp, string][] = [
+    ["deploy/release.sh", /    # stanza-create takes the archive's lock[\s\S]*?\n    done\n/, "bash"],
+    ["deploy/server-setup.sh", /    # stanza-create takes the archive's lock[\s\S]*?\n    done\n/, "bash"],
+    ["deploy/docker/pitr.sh", /# stanza-create takes the archive's lock[\s\S]*?\ndone\n/, "sh"],
+  ];
+  for (const [file, block, shell] of cases) {
+    const snippet = block.exec(read(file))?.[0];
+    assert.ok(snippet, `${file}: no stanza-create retry`);
+    const run = (refusals: number, error = "ERROR: [050]: unable to acquire lock on file") => {
+      const dir = mkdtempSync(join(tmpdir(), "kumi-stanza-"));
+      try {
+        // pgbackrest (called directly, or through runuser) answers with the error the first `refusals` times.
+        const stub = `n=$(( $(cat "${dir}/n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "${dir}/n"; [ "$n" -gt ${refusals} ] && return 0; echo "${error}"; return 50`;
+        const script = `conf=/x; say() { echo "kumi pitr: $*"; }; sleep() { :; }\nrunuser() { ${stub}; }\npgbackrest() { ${stub}; }\n${snippet}echo "tries $(cat "${dir}/n")"\n`;
+        const r = spawnSync(shell, ["-c", script], { encoding: "utf8" });
+        return `${r.stdout}${r.stderr}`;
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    };
+    assert.equal(run(2).trim(), "tries 3", `${file}: two refusals, then made`);
+    assert.match(run(99), /\[050\][\s\S]*isn't ready[\s\S]*tries 6\n$/, `${file}: still locked after six tries`);
+    assert.match(run(99, "ERROR: [055]: unable to load info file"), /\[055\][\s\S]*isn't ready[\s\S]*tries 1\n$/, `${file}: any other error at once`);
+  }
+});

@@ -37,6 +37,22 @@ export async function hasPushDevice(db: Db, personId: string): Promise<boolean> 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 const MAX_ATTEMPTS = 5;
 
+/** What matters within minutes goes at high urgency, so a phone asleep gets it now rather than at its next wake-up:
+ *  a place offered or handed on, a court booked for you or lost, a match about to start or changed, money that needs
+ *  you. Staff alerts always do. The rest goes at normal urgency. */
+const URGENT = new Set(["offered", "place_open", "match_place_offered", "passed_to_you", "match_ask", "match_running_late", "match_not_filled", "match_place_given",
+  "match_seat_released", "booked", "booked_to_pay", "booking_lost", "booking_player_added", "booking_courts", "booking_reminder", "lesson_reminder", "dates_changed",
+  "removed", "payment_failed", "membership_payment_failed", "membership_payment_unfinished", "kid_pay_needed", "kid_asked", "booking_balance_due", "unpaid_reminder",
+  "sign_in_reset"]);
+const DAY = 24 * 3600, MAX_TTL = 28 * DAY;
+/** How urgent a push is, and how long the push service keeps it for a phone that's off: until the message goes stale
+ *  (an offer's push is no use once the offer has gone), else a day. */
+export function pushTiming(m: { purpose: string; kind: string; stale_at: Date | null }, now: Date): { urgency: "high" | "normal"; ttlSeconds: number } {
+  const urgency = m.purpose === "staff" || URGENT.has(m.kind) ? "high" : "normal";
+  const ttlSeconds = m.stale_at ? Math.max(60, Math.min(MAX_TTL, Math.floor((m.stale_at.getTime() - now.getTime()) / 1000))) : DAY;
+  return { urgency, ttlSeconds };
+}
+
 /** Send the push copies that are due: each to the person's devices for the app it opens in (staff alerts to
  *  the staff app, the rest to the members' app). Stale ones are dropped, not sent late. */
 export async function sendPushes(db: Db, o: { subject: string; now?: Date; fetch?: Fetch; limit?: number }): Promise<{ sent: number; dropped: number; failed: number }> {
@@ -62,7 +78,7 @@ export async function sendPushes(db: Db, o: { subject: string; now?: Date; fetch
     for (const s of subs) {
       if (!isPushEndpoint(s.endpoint)) { await db.updateTable("push_subscription").set({ revoked_at: now }).where("id", "=", s.id).execute(); continue; }
       try {
-        const r = await sendPush(s, { title: m.subject, body: m.body, url: m.link ?? "/", tag: m.kind }, keys, o.subject, { fetch: o.fetch, now, urgency: m.purpose === "staff" ? "high" : "normal" });
+        const r = await sendPush(s, { title: m.subject, body: m.body, url: m.link ?? "/", tag: m.kind }, keys, o.subject, { fetch: o.fetch, now, ...pushTiming(m, now) });
         if (r.ok) { ok++; await db.updateTable("push_subscription").set({ last_ok_at: now }).where("id", "=", s.id).execute(); }
         else if (r.gone) await db.updateTable("push_subscription").set({ revoked_at: now }).where("id", "=", s.id).execute();
         else retry = true;

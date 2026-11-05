@@ -5,6 +5,7 @@ import { api, ApiError, club, farewell, lazyPage, loadMe, me, t } from "./state.
 import { AccountData } from "./AccountData.tsx";
 import { PolicyLinks } from "./Policies.tsx";
 import { canSavePasskey, passkeyWords } from "./passkeys.ts";
+import { install, installed, installOffer, onIos } from "./install.ts";
 import { protectedPost } from "./pow.ts";
 
 // Two-step sign-in, loaded when the profile opens.
@@ -72,7 +73,7 @@ function ClubNews({ personId }: { personId: string }) {
       <h2>{t("ui.club_news_title")}</h2>
       <p class="meta">{t(on ? "ui.club_news_on" : "ui.club_news_off", { club: club.value?.name ?? "" })}</p>
       {!pending ? <button class={on ? "" : "primary"} onClick={() => ask(!on)}>{t(on ? "ui.club_news_turn_off" : "ui.club_news_turn_on")}</button> : (
-        <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>
+        <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.back")}</button></div>
       )}
       {error && <p class="error" role="alert">{error}</p>}
     </section>
@@ -121,7 +122,7 @@ function Texts({ personId }: { personId: string }) {
         </form>}
         {s.phone && <p><button class="link" onClick={() => setEditing(false)}>{t("ui.cancel")}</button></p>}
       </>}
-      {pending && <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" disabled={busy} onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>}
+      {pending && <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" disabled={busy} onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
       {note && <p class="note" role="status">{note}</p>}
       {error && <p class="error" role="alert">{error}</p>}
     </section>
@@ -154,6 +155,22 @@ function Email({ current }: { current: string | null }) {
         <button class="primary" disabled={busy}>{t("ui.confirm")}</button>
       </form>}
       {error && <p class="error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
+/** The app on the home screen: Chrome's own offer when it has made one, where Add to Home Screen is on an iPhone,
+ *  and nothing once it runs installed (or in a browser with neither). */
+function InstallApp() {
+  const [done, setDone] = useState(false);
+  if (installed() || done) return null;
+  const offer = installOffer.value;
+  if (!offer && !onIos()) return null;
+  return (
+    <section class="card">
+      <h2>{t("ui.install_title")}</h2>
+      <p class="meta">{t("ui.install_hint", { club: club.value?.name ?? "" })}</p>
+      {offer ? <button class="primary" onClick={() => void install().then(setDone)}>{t("ui.install_button")}</button> : <p>{t("ui.install_ios")}</p>}
     </section>
   );
 }
@@ -199,14 +216,15 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
           </select>
         </label>
         {!pending ? <button class="primary">{t("ui.preview")}</button> : (
-          <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>
+          <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.back")}</button></div>
         )}
       </form>
       {(app === "member" || m.email) && <Email current={m.email ?? null} />}
       <PushToggle app={app} />
       {app === "member" && !m.kid && <ClubNews personId={m.person.id} />}
       {app === "member" && <Texts personId={m.person.id} />}
-      {app === "member" && <section class="card"><h2>{t("ui.receipts_title")}</h2><p><a href="/receipts">{t("ui.receipts_link")}</a></p></section>}
+      {app === "member" && <InstallApp />}
+      {app === "member" && <section class="card"><h2>{t("ui.receipts_title")}</h2><p><a class="button" href="/receipts">{t("ui.receipts_link")}</a></p></section>}
       <section class="card">
         <h2>{t("ui.passkeys")}</h2>
         {canSave === false && <p class="meta">{t("ui.passkey_no_lock")}</p>}

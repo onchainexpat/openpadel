@@ -5,6 +5,27 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
+## Unreleased
+
+### Changed
+- **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
+  where Add to Home Screen is (Share). Neither shows once the app runs from the home screen.
+- **The phone's back button closes what's open** (a preview to confirm, the card form, a booking picked on the
+  Courts page, the Changes sheet) instead of leaving the page under it.
+- **Buttons say what they do.** Every preview's "don't" button is now Back, so it's never a second "Cancel" next to
+  a cancellation. On the Courts page a paid booking's button is "Cancel booking…" (the choice of what goes back
+  follows), and the form's own button is "Cancel booking". Cancelling a program's date has Back too.
+- **Pushes that matter now arrive now.** A place offered from the waitlist, a court booked for you or lost, a match
+  about to start or changed, and money that needs you go at high urgency, so a phone asleep shows them at once;
+  each is kept for a phone that's off only until it's no longer worth getting (an offer until it expires).
+- On a phone, the Reports tables (occupancy and revenue, coaches' earnings, receipts) stack like the desk's day,
+  and the profile's "Your receipts" link is as easy to tap as a button.
+
+### Fixed
+- An update said "the point-in-time archive isn't ready" when Postgres happened to be sending a piece of its log at
+  that moment. Making the archive now waits that out and tries again, and only says so if it really isn't ready
+  (one-server installs, `server-setup.sh` and the Docker `pitr` service alike).
+
 ## 0.2.1 (2026-11-04)
 
 Money taken at the desk for memberships, program places and courts, with the desk's day for counting the

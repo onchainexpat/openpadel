@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, ApiError, lang, loadMe, t, clubTime } from "@kumi/ui";
+import { api, ApiError, lang, loadMe, t, clubTime, useBackCloses } from "@kumi/ui";
 
 type Change = { id: string; action: string; status: string; by: string; via: string; summary: string | null; at: string;
   can_answer: boolean; approved_by: string | null; declined_by: string | null; reason: string | null };
@@ -10,6 +10,7 @@ type Open = { kind: "undo"; runId: string; summary: string } | { kind: "approve"
 export function Changes() {
   const [rows, setRows] = useState<Change[] | null>(null), [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Open | null>(null), [reason, setReason] = useState(""), [busy, setBusy] = useState(false);
+  useBackCloses(Boolean(open), () => setOpen(null));
   const load = () => api<Change[]>("/staff/changes").then(setRows).catch((e: ApiError) => setError(e.message));
   useEffect(() => { load(); }, [lang.value]);
 
@@ -59,7 +60,7 @@ export function Changes() {
             <p>{t("ui.decline_sheet", { by: open.row.by, summary: open.row.summary ?? open.row.action })}</p>
             <label>{t("ui.decline_reason", { by: open.row.by })}<input value={reason} maxLength={300} onInput={(e) => setReason(e.currentTarget.value)} /></label>
           </>}
-          <button class="primary" disabled={busy} onClick={confirm}>{t("ui.confirm")}</button> <button disabled={busy} onClick={() => setOpen(null)}>{t("ui.cancel")}</button>
+          <button class="primary" disabled={busy} onClick={confirm}>{t("ui.confirm")}</button> <button disabled={busy} onClick={() => setOpen(null)}>{t("ui.back")}</button>
         </div>
       </div>}
       {waiting.length > 0 && <section><h2>{t("ui.changes_waiting")}</h2><ul class="changes">{waiting.map(row)}</ul></section>}

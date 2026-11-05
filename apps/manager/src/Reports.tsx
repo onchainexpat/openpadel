@@ -50,17 +50,17 @@ export function Reports() {
         {rows && <p><strong>{t("ui.occupancy_total", { percent: usable > 0 ? Math.round(used / usable * 100) : 0 })}</strong> · {t("ui.revenue_total", { courts: dollars(sum("court_revenue_cents"), lang.value), lessons: dollars(sum("lesson_revenue_cents"), lang.value), programs: dollars(sum("program_revenue_cents"), lang.value), memberships: dollars(sum("membership_revenue_cents"), lang.value) })}</p>}
         {rows && <p><a href={`/staff/reports.csv?location_id=${loc}&from=${from}&to=${to}`} download>{t("ui.download_csv")}</a></p>}
       </section>
-      {rows && <section class="card"><div class="table-scroll"><table>
+      {rows && <section class="card"><div class="table-scroll"><table class="stack">
         <thead><tr><th>{t("ui.day")}</th><th>{t("ui.occupancy")}</th><th>{t("ui.court_hours_used")}</th><th>{t("ui.court_revenue")}</th><th>{t("ui.lesson_revenue")}</th><th>{t("ui.program_revenue")}</th><th>{t("ui.membership_revenue")}</th></tr></thead>
-        <tbody>{rows.map((r) => <tr><td>{day(r.date)}</td><td>{r.court_hours ? `${r.occupancy_percent}%` : t("ui.closed")}</td><td>{hrs(r.booked_hours + r.program_hours + r.playtomic_hours)} / {hrs(r.court_hours - r.blocked_hours)}</td>
-          <td>{dollars(r.court_revenue_cents, lang.value)}</td><td>{dollars(r.lesson_revenue_cents, lang.value)}</td><td>{dollars(r.program_revenue_cents, lang.value)}</td><td>{dollars(r.membership_revenue_cents, lang.value)}</td></tr>)}</tbody>
+        <tbody>{rows.map((r) => <tr><td data-label={t("ui.day")}>{day(r.date)}</td><td data-label={t("ui.occupancy")}>{r.court_hours ? `${r.occupancy_percent}%` : t("ui.closed")}</td><td data-label={t("ui.court_hours_used")}>{hrs(r.booked_hours + r.program_hours + r.playtomic_hours)} / {hrs(r.court_hours - r.blocked_hours)}</td>
+          <td data-label={t("ui.court_revenue")}>{dollars(r.court_revenue_cents, lang.value)}</td><td data-label={t("ui.lesson_revenue")}>{dollars(r.lesson_revenue_cents, lang.value)}</td><td data-label={t("ui.program_revenue")}>{dollars(r.program_revenue_cents, lang.value)}</td><td data-label={t("ui.membership_revenue")}>{dollars(r.membership_revenue_cents, lang.value)}</td></tr>)}</tbody>
       </table></div></section>}
       {earn && <section class="card">
         <h2>{t("ui.coach_earnings")}</h2>
         <p class="meta">{t("ui.coach_earnings_help")}</p>
-        {!earn.coaches.length ? <p class="meta">{t("ui.no_coach_earnings")}</p> : <div class="table-scroll"><table>
+        {!earn.coaches.length ? <p class="meta">{t("ui.no_coach_earnings")}</p> : <div class="table-scroll"><table class="stack">
           <thead><tr><th>{t("ui.coach")}</th><th>{t("ui.col_lessons")}</th><th>{t("ui.col_lesson_hours")}</th><th>{t("ui.col_net")}</th><th>{t("ui.col_sessions")}</th><th>{t("ui.col_session_hours")}</th></tr></thead>
-          <tbody>{earn.coaches.map((c) => <tr><td>{c.coach}</td><td>{c.lessons}</td><td>{hrs(c.lesson_minutes / 60)}</td><td>{dollars(c.net_cents, lang.value)}</td><td>{c.sessions}</td><td>{hrs(c.session_minutes / 60)}</td></tr>)}</tbody>
+          <tbody>{earn.coaches.map((c) => <tr><td data-label={t("ui.coach")}>{c.coach}</td><td data-label={t("ui.col_lessons")}>{c.lessons}</td><td data-label={t("ui.col_lesson_hours")}>{hrs(c.lesson_minutes / 60)}</td><td data-label={t("ui.col_net")}>{dollars(c.net_cents, lang.value)}</td><td data-label={t("ui.col_sessions")}>{c.sessions}</td><td data-label={t("ui.col_session_hours")}>{hrs(c.session_minutes / 60)}</td></tr>)}</tbody>
         </table></div>}
         <p><a href={`/staff/coach-earnings.csv?from=${from}&to=${to}`} download>{t("ui.download_csv")}</a></p>
       </section>}
@@ -87,10 +87,10 @@ export function Reports() {
       {receipts && <section class="card">
         <h2>{t("ui.receipts_title")}</h2>
         <p class="meta">{t("ui.club_receipts_help")}</p>
-        {!receipts.length ? <p class="meta">{t("ui.receipts_none")}</p> : <div class="table-scroll"><table>
+        {!receipts.length ? <p class="meta">{t("ui.receipts_none")}</p> : <div class="table-scroll"><table class="stack">
           <thead><tr><th>{t("ui.col_receipt")}</th><th>{t("ui.day")}</th><th>{t("ui.col_paid_by")}</th><th>{t("ui.col_what")}</th><th>{t("ui.col_total")}</th></tr></thead>
-          <tbody>{receipts.map((r) => <tr><td><button class="link" onClick={() => show(r.id)}>{r.number}</button></td><td>{r.when}</td><td>{r.paid_by}{r.for ? ` (${r.for})` : ""}</td><td>{r.what}{r.more ? ` +${r.more}` : ""}</td>
-            <td>{r.kind === "refund" ? `-${dollars(r.total_cents, lang.value)}` : dollars(r.total_cents, lang.value)}</td></tr>)}</tbody>
+          <tbody>{receipts.map((r) => <tr><td data-label={t("ui.col_receipt")}><button class="link" onClick={() => show(r.id)}>{r.number}</button></td><td data-label={t("ui.day")}>{r.when}</td><td data-label={t("ui.col_paid_by")}>{r.paid_by}{r.for ? ` (${r.for})` : ""}</td><td data-label={t("ui.col_what")}>{r.what}{r.more ? ` +${r.more}` : ""}</td>
+            <td data-label={t("ui.col_total")}>{r.kind === "refund" ? `-${dollars(r.total_cents, lang.value)}` : dollars(r.total_cents, lang.value)}</td></tr>)}</tbody>
         </table></div>}
         <p><a href={`/staff/club-receipts.csv?from=${from}&to=${to}`} download>{t("ui.download_csv")}</a></p>
         {open && <><ReceiptSheet r={open} /><p class="no-print"><button onClick={() => window.print()}>{t("ui.receipt_print")}</button>{" "}

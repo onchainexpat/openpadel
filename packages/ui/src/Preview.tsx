@@ -1,12 +1,15 @@
 // Every change in the staff app: preview with the server's own words, then confirm.
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, lang, t } from "./state.ts";
+import { useBackCloses } from "./back.ts";
 
 export type Pending = { runId: string; status: "planned" | "awaiting_approval"; summary: string };
 
 export function usePreview(onDone: (result?: any) => void) {
   const [pending, setPending] = useState<Pending | null>(null), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
   useEffect(() => { if (!note) return; const id = setTimeout(() => setNote(null), 5000); return () => clearTimeout(id); }, [note]);
+  // The phone's back button closes the preview, not the page under it.
+  useBackCloses(Boolean(pending), () => setPending(null));
   const preview = async (action: string, input: unknown) => {
     setError(null); setNote(null);
     try {
@@ -32,7 +35,7 @@ export function usePreview(onDone: (result?: any) => void) {
   const sheet = (
     <div class="dock">
       {pending && <div class="card sheet" role="dialog" aria-modal="true"><p>{pending.summary}</p>
-        <button class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button onClick={() => setPending(null)}>{t("ui.cancel")}</button></div>}
+        <button class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
       {note && <p class="note" role="status" onClick={() => setNote(null)}>{note}</p>}
       {error && <p class="error" role="alert" onClick={() => setError(null)}>{error}</p>}
     </div>

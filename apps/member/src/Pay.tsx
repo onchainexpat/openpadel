@@ -2,7 +2,7 @@
 // browser to Stripe and never touch Kumi. Kumi then checks with Stripe that the payment went through.
 // The same form saves a card without paying (a membership joined before its plan starts).
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, ApiError, dollars, lang, protectedPost, t } from "@kumi/ui";
+import { api, ApiError, dollars, lang, protectedPost, t, useBackCloses } from "@kumi/ui";
 
 declare global { interface Window { Stripe?: (publishableKey: string, options?: object) => any } }
 
@@ -36,6 +36,8 @@ export async function confirmPaid(paymentId: string, tries = 8, check = `/my/pay
 export function PaySheet({ paymentId, cardFor, familyCard, amountCents, name, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; amountCents: number; name: string; onClose: () => void; onPaid: () => void }) {
   const box = useRef<HTMLDivElement>(null), stripe = useRef<{ stripe: any; elements: any } | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "paying" | "checking">("loading"), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
+  // The phone's back button closes the card form, as its Cancel does.
+  useBackCloses(true, onClose);
   const amount = dollars(amountCents, lang.value), setup = Boolean(cardFor || familyCard);
   const urls = familyCard ? { open: "/my/family/card", check: "", back: "/family?card=1" }
     : cardFor ? { open: `/my/memberships/${cardFor}/card`, check: `/my/memberships/${cardFor}/card/check`, back: `/membership?card=${cardFor}` }

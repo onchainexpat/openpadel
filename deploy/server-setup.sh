@@ -360,7 +360,15 @@ if [ -f /etc/postgresql/17/main/conf.d/kumi-pitr.conf ] && [ -f /opt/kumi/app/ap
   if (cd /opt/kumi/app && sudo -u kumi KUMI_PITR_SYSTEM_ID="$sid" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts pitr conf') > "$t"; then
     install -d -m 755 /etc/pgbackrest
     install -m 640 -o root -g postgres "$t" /etc/pgbackrest/pgbackrest.conf
-    runuser -u postgres -- pgbackrest --stanza=kumi --log-level-console=warn stanza-create || echo "kumi: the point-in-time archive isn't ready (above); kumi doctor says what's wrong"
+    # stanza-create takes the archive's lock, so it's refused ([050]) while Postgres is sending a piece of its log
+    # through archive-push: wait a moment and try again, and say the archive isn't ready only if it still isn't.
+    n=0
+    while :; do
+      if out=$(runuser -u postgres -- pgbackrest --stanza=kumi --log-level-console=warn stanza-create 2>&1); then [ -z "$out" ] || printf '%s\n' "$out"; break; fi
+      n=$((n + 1))
+      case "$out" in *"[050]"*) if [ "$n" -lt 6 ]; then sleep 5; continue; fi ;; esac
+      printf '%s\n' "$out"; echo "kumi: the point-in-time archive isn't ready (above); kumi doctor says what's wrong"; break
+    done
     systemctl start --no-block kumi-pitr.service || true   # the first base backup, if there's none yet
   fi
   rm -f "$t"

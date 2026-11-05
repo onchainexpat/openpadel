@@ -19,8 +19,15 @@ fi
 [ "$rc" = 0 ] || { rm -f "$conf.new"; say "couldn't write pgBackRest's settings"; exit 1; }
 chmod 600 "$conf.new"
 # Made (or a copy added since, offsite say) before Postgres is told where to send its log, so nothing it sends is refused.
-pgbackrest --config="$conf.new" --stanza=kumi --log-level-console=warn stanza-create \
-  || say "the archive isn't ready (above); kumi doctor says what's wrong"
+# stanza-create takes the archive's lock, so it's refused ([050]) while Postgres is sending a piece of its log: wait a
+# moment and try again, and say the archive isn't ready only if it still isn't.
+n=0
+while :; do
+  if out=$(pgbackrest --config="$conf.new" --stanza=kumi --log-level-console=warn stanza-create 2>&1); then [ -z "$out" ] || printf '%s\n' "$out"; break; fi
+  n=$((n + 1))
+  case "$out" in *"[050]"*) if [ "$n" -lt 6 ]; then sleep 5; continue; fi ;; esac
+  printf '%s\n' "$out"; say "the archive isn't ready (above); kumi doctor says what's wrong"; break
+done
 mv -f "$conf.new" "$conf"
 # A base backup each time the service starts (a full one first, then differential ones): recovery replays the log in
 # order, so after a stretch without archiving (an earlier release, KUMI_PITR=0) the minutes since are reachable at once,

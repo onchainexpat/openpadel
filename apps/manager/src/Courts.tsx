@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
-import { api, club, dollars, lang, lazyPage, mayDo, me, t, usePreview, serverNow } from "@kumi/ui";
+import { api, club, dollars, lang, lazyPage, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
 import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
 
 // The desk's payment form comes when someone taps Record payment, so the first screen doesn't carry it.
@@ -38,6 +38,8 @@ export function Courts() {
   const [locs, setLocs] = useState<Loc[]>([]), [loc, setLoc] = useState(""), [date, setDate] = useState(""), [g, setG] = useState<Grid | null>(null);
   const [form, setForm] = useState<{ court: Court; starts: string[]; until: string } | null>(null), [blocking, setBlocking] = useState(false);
   const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null), [done, setDone] = useState(0);
+  // The phone's back button closes what was picked, not the page (the same entry while another is picked).
+  useBackCloses(Boolean(picked), () => setPicked(null));
   const load = () => loc && api<Grid>(`/staff/grid?location_id=${loc}${date ? `&date=${date}` : ""}`).then((x) => { setG(x); if (!date) setDate(x.date); });
   const loadAlerts = () => api<Alerts>("/staff/alerts").then(setAlerts).catch(() => setAlerts(null));
   const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); setDone((n) => n + 1); });
@@ -301,7 +303,7 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
       <div class="chips">
         {isBooking(it) && unpaid(it) > 0 && mayDo("booking.record_payment") && <button class="small" onClick={() => setPaying(!paying)}>{t("ui.record_payment")}</button>}
         {(canMove || canResize) && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.move_or_resize")}</button>}
-        {isBooking(it) && mayDo("booking.cancel") && <button class="small" onClick={() => (it.paid_cents ?? 0) > 0 && deskUp() ? setCancelling(!cancelling) : preview("booking.cancel", { booking_id: it.booking_id })}>{t("ui.cancel_booking")}</button>}
+        {isBooking(it) && mayDo("booking.cancel") && <button class="small" onClick={() => (it.paid_cents ?? 0) > 0 && deskUp() ? setCancelling(!cancelling) : preview("booking.cancel", { booking_id: it.booking_id })}>{t((it.paid_cents ?? 0) > 0 && deskUp() ? "ui.cancel_booking_choose" : "ui.cancel_booking")}</button>}
         {it.block_id && !it.series && mayDo("court.unblock") && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
         {it.block_id && it.series && mayDo("court.block_repeat_end") && <>
           <button class="small" onClick={() => preview("court.block_repeat_end", { block_id: it.block_id, scope: "this" })}>{t("ui.open_this_date")}</button>

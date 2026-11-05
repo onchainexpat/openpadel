@@ -133,7 +133,7 @@ export function Program({ id }: { id: string }) {
           {scopePick(cancelling.scope, (v) => setCancelling({ ...cancelling, scope: v }))}
           {refundPick(cancelling.refund, (v) => setCancelling({ ...cancelling, refund: v }))}
           <label>{t("ui.note")}<input value={cancelling.note} onInput={(e) => setCancelling({ ...cancelling, note: e.currentTarget.value })} /></label>
-          <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setCancelling(null)}>{t("ui.cancel")}</button>
+          <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setCancelling(null)}>{t("ui.back")}</button>
         </form>}
         {!adding ? <button onClick={() => setAdding(true)}>{t("ui.add_date")}</button> : <form onSubmit={addDate}>
           <label>{t("ui.starts")}<input type="datetime-local" required value={date.starts} onInput={(e) => setDate({ ...date, starts: e.currentTarget.value })} /></label>
