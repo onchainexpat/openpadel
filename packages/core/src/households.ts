@@ -9,6 +9,7 @@
 import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
+import { nameInput } from "./plain_text.ts";
 import { both, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
@@ -102,7 +103,7 @@ async function adultRow(ctx: PlanCtx, personId: string) {
 
 export const householdAddJunior = defineAction({
   name: "household.add_junior", version: 1,
-  input: z.object({ person_id: z.uuid(), display_name: z.string().check(z.trim(), z.minLength(1), z.maxLength(80)), birth_year: z.number().check(z.int()) }),
+  input: z.object({ person_id: z.uuid(), display_name: nameInput(80), birth_year: z.number().check(z.int()) }),
   async plan(ctx, i) {
     const { hh } = await adultRow(ctx, i.person_id);
     if (hh && hh.role !== "adult") throw new KumiError("error.household_not_parent");

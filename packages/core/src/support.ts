@@ -12,6 +12,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { activeSupport } from "./permissions.ts";
+import { nameInput } from "./plain_text.ts";
 
 /** How long support access lasts unless the owner says otherwise, and the longest it can. */
 export const SUPPORT_DEFAULT_HOURS = 24;
@@ -26,7 +27,7 @@ const lower = (e: string) => e.trim().toLowerCase();
 export const supportGrant = defineAction({
   name: "support.grant", version: 1, strongAuth: true,
   input: z.object({
-    email: z.email(), name: z.string().check(z.trim(), z.minLength(1), z.maxLength(80)), reason: z.string().check(z.trim(), z.minLength(3), z.maxLength(300)),
+    email: z.email(), name: nameInput(80), reason: z.string().check(z.trim(), z.minLength(3), z.maxLength(300)),
     level: z.optional(level), hours: z.optional(z.number().check(z.int(), z.gte(1), z.lte(SUPPORT_MAX_HOURS))),
   }),
   async plan(ctx, i) {

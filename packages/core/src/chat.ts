@@ -14,13 +14,13 @@
 import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, dateTime, type Key, type Lang, type Params, type Text, t } from "@kumi/i18n";
-import { defineAction, readRow } from "./actions.ts";
+import { defineAction, forgetStaleInputs, readRow } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { quietUntil } from "./messages.ts";
 import { leavingOn } from "./leaving.ts";
-import { plainName, plainText } from "./plain_text.ts";
+import { plainName, plainText, visible } from "./plain_text.ts";
 
 export type ChatKind = "booking" | "session";
 export const CHAT_KINDS: ChatKind[] = ["booking", "session"];
@@ -66,9 +66,12 @@ export async function gameOf(db: Db | Trx, kind: ChatKind, id: string): Promise<
   if (kind === "booking") {
     const b = await db.selectFrom("booking").select(["organiser_id", "status", "location_id"]).where("id", "=", id).executeTakeFirst();
     if (!b) return null;
-    // Every court time the booking ever had: a cancelled booking keeps its retired ones, and still has a time.
+    // Its court time now; a cancelled booking has only retired ones, and still has a time. A booking moved earlier
+    // ends when it ends now, not at its old time.
     const span = await db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id")
-      .select([sql<Date | null>`min(lower(court_time.during))`.as("starts"), sql<Date | null>`max(upper(court_time.during))`.as("ends"), sql<string | null>`min(court.name)`.as("court")])
+      .select([sql<Date | null>`coalesce(min(lower(court_time.during)) FILTER (WHERE court_time.active), min(lower(court_time.during)))`.as("starts"),
+        sql<Date | null>`coalesce(max(upper(court_time.during)) FILTER (WHERE court_time.active), max(upper(court_time.during)))`.as("ends"),
+        sql<string | null>`coalesce(min(court.name) FILTER (WHERE court_time.active), min(court.name))`.as("court")])
       .where("court_time.booking_id", "=", id).executeTakeFirst();
     if (!span?.starts || !span.ends) return null;
     if (b.organiser_id) current.add(b.organiser_id);
@@ -163,11 +166,11 @@ async function ensureThread(db: Db | Trx, game: Game, now: Date): Promise<string
   return r.id;
 }
 
-/** Plain text: control and invisible formatting characters out (new lines kept), at least one character and at most
- *  CHAT_MAX_CHARS. */
+/** Plain text: control and invisible formatting characters out (new lines kept), something that can be seen, and at
+ *  most CHAT_MAX_CHARS. */
 export function chatText(raw: unknown): string {
   const s = plainText(String(raw ?? ""));
-  if (!s) throw new KumiError("error.chat_empty", {}, 400);
+  if (!s || !visible(s)) throw new KumiError("error.chat_empty", {}, 400);
   if ([...s].length > CHAT_MAX_CHARS) throw new KumiError("error.chat_too_long", { max: CHAT_MAX_CHARS }, 400);
   return s;
 }
@@ -303,9 +306,9 @@ async function messagesOf(db: Db, threadId: string, o: { limit?: number; until?:
  *  program's date, only those who've written in it (the rest of the roster stays the club's). */
 async function namesIn(db: Db, game: Game, threadId: string | null): Promise<{ people: string[]; players: number }> {
   const adults = game.current.size ? (await db.selectFrom("person").select(["id", "display_name"]).where("id", "in", [...game.current]).where("junior", "=", false).where("redacted_at", "is", null).orderBy("display_name").execute()) : [];
-  if (game.kind === "booking") return { people: adults.map((p) => plainName(p.display_name)), players: adults.length };
+  if (game.kind === "booking") return { people: adults.map((p) => plainName(p.display_name)).filter(Boolean), players: adults.length };
   const wrote = threadId ? new Set((await db.selectFrom("chat_message").select("person_id").distinct().where("thread_id", "=", threadId).execute()).map((r) => r.person_id)) : new Set<string>();
-  return { people: adults.filter((p) => wrote.has(p.id)).map((p) => plainName(p.display_name)), players: adults.length };
+  return { people: adults.filter((p) => wrote.has(p.id)).map((p) => plainName(p.display_name)).filter(Boolean), players: adults.length };
 }
 
 export async function chatThread(db: Db, personId: string, kind: ChatKind, id: string, lang: Lang, now = new Date()) {
@@ -458,16 +461,18 @@ async function messageForAction(db: Db | Trx, messageId: string) {
   if (!m) throw new KumiError("error.not_found", { thing: both("thing.chat_message") }, 404);
   return { ...m, display_name: plainName(m.display_name) };
 }
+/** A name to show in a preview: "A player" when nothing in the stored one can be seen. */
+const shown = (name: string): string | Text => name || both("ui.chat_a_player");
 const gameText = (g: Game | null, tz: string): Text => g ? { en: `${g.title}, ${dateTime(g.starts_at, "en", tz)}`, es: `${g.title}, ${dateTime(g.starts_at, "es", tz)}` } : { en: "", es: "" };
 const zone = async (db: Db | Trx) => (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
-/** A reason someone typed is used once and not kept in the change log's copy of what was asked (actions.ts keeps the
- *  input of every change): it lives only on the report or the stop, which an account deletion clears. */
-const forgetReason = (ctx: { trx: Trx; runId: string }) => sql`UPDATE action_run SET input = input - 'reason' WHERE id = ${ctx.runId}`.execute(ctx.trx);
 
 /** A player tells the club about a message in a chat they read. The staff hear once an hour per chat at most (a staff
  *  alert); the Chats list counts every report waiting. */
 export const chatReport = defineAction({
   name: "chat.report", version: 1,
+  // A reason someone typed is used once and not kept in the change log's copy of what was asked: it lives only on the
+  // report, which an account deletion clears.
+  forget: ["reason"],
   input: z.object({ message_id: z.uuid(), reason: z.optional(z.string().check(z.maxLength(300))) }),
   async plan(ctx, i) {
     const m = await messageForAction(ctx.db, i.message_id);
@@ -480,14 +485,13 @@ export const chatReport = defineAction({
     if (m.removed_at || m.hidden_at) throw new KumiError("error.chat_gone");
     if (await ctx.db.selectFrom("chat_report").select("id").where("message_id", "=", m.id).where("person_id", "=", pid).executeTakeFirst()) throw new KumiError("error.chat_reported");
     // The message's words aren't copied into the plan (the change log keeps plans).
-    return { title: both("action.chat.report"), summary: both("plan.chat.report", { name: m.display_name, game: gameText(a.game, await zone(ctx.db)) }), reads: [], ownerIds: [pid],
+    return { title: both("action.chat.report"), summary: both("plan.chat.report", { name: shown(m.display_name), game: gameText(a.game, await zone(ctx.db)) }), reads: [], ownerIds: [pid],
       locationId: a.game?.location_id ?? null, undo: { kind: "none", note: both("reason.undo_final") }, details: { thread_id: m.thread_id } };
   },
   async apply(ctx, i) {
     const m = await messageForAction(ctx.trx, i.message_id);
     try { await ctx.insert("chat_report", { id: uuidv7(), message_id: m.id, person_id: ctx.actor.personId, reason: plainText(i.reason ?? "") || null, created_at: ctx.now }); }
     catch (e: any) { if (e?.code === "23505") throw new KumiError("error.chat_reported"); throw e; }
-    await forgetReason(ctx);
     // The staff hear once an hour per chat at most; the rest wait counted on their Chats list.
     const due = await ctx.trx.updateTable("chat_thread").set({ alerted_at: ctx.now }).where("id", "=", m.thread_id)
       .where((w) => w.or([w("alerted_at", "is", null), w("alerted_at", "<", new Date(ctx.now.getTime() - CHAT_ALERT_MINUTES * 60_000))])).returning("id").execute();
@@ -509,7 +513,7 @@ export const chatHide = defineAction({
     if (Boolean(m.hidden_at) === i.hidden && !waiting) throw new KumiError(i.hidden ? "error.chat_already_hidden" : "error.chat_not_hidden");
     const { read } = await readRow(ctx.db, "chat_message", m.id, "thing.chat_message");
     const g = await gameOf(ctx.db, m.kind, m.ref_id);
-    return { title: both(i.hidden ? "action.chat.hide" : "action.chat.show"), summary: both(i.hidden ? "plan.chat.hide" : "plan.chat.show", { name: m.display_name, game: gameText(g, await zone(ctx.db)) }),
+    return { title: both(i.hidden ? "action.chat.hide" : "action.chat.show"), summary: both(i.hidden ? "plan.chat.hide" : "plan.chat.show", { name: shown(m.display_name), game: gameText(g, await zone(ctx.db)) }),
       reads: [read], locationId: g?.location_id ?? null, undo: { kind: "reversible" }, details: { thread_id: m.thread_id } };
   },
   async apply(ctx, i) {
@@ -522,19 +526,19 @@ export const chatHide = defineAction({
 
 /** The staff stop someone posting in every chat for a while; they still read. */
 export const chatStop = defineAction({
-  name: "chat.stop", version: 1, clubWide: true,
+  name: "chat.stop", version: 1,
+  forget: ["reason"], clubWide: true,
   input: z.object({ person_id: z.uuid(), days: z.number().check(z.int(), z.minimum(1), z.maximum(90)), reason: z.optional(z.string().check(z.maxLength(300))) }),
   async plan(ctx, i) {
     const p = await ctx.db.selectFrom("person").select(["display_name", "redacted_at"]).where("id", "=", i.person_id).executeTakeFirst();
     if (!p || p.redacted_at) throw new KumiError("error.not_found", { thing: both("thing.person") }, 404);
     const until = new Date(ctx.now.getTime() + i.days * DAY), tz = await zone(ctx.db);
-    return { title: both("action.chat.stop"), summary: both("plan.chat.stop", { name: plainName(p.display_name), until: { en: dateTime(until, "en", tz), es: dateTime(until, "es", tz) } }),
+    return { title: both("action.chat.stop"), summary: both("plan.chat.stop", { name: shown(plainName(p.display_name)), until: { en: dateTime(until, "en", tz), es: dateTime(until, "es", tz) } }),
       reads: [], ownerIds: [i.person_id], undo: { kind: "reversible" }, details: { until } };
   },
   async apply(ctx, i) {
     const id = uuidv7();
     await ctx.insert("chat_stop", { id, person_id: i.person_id, until: new Date(ctx.now.getTime() + i.days * DAY), reason: plainText(i.reason ?? "") || null, created_by: ctx.actor.personId, created_at: ctx.now });
-    await forgetReason(ctx);
     return { stop_id: id };
   },
 });
@@ -549,7 +553,7 @@ export const chatAllow = defineAction({
     const stops = await ctx.db.selectFrom("chat_stop").select("id").where("person_id", "=", i.person_id).where("ended_at", "is", null).where("until", ">", ctx.now).execute();
     if (!stops.length) throw new KumiError("error.chat_not_stopped");
     const reads = await Promise.all(stops.map(async (s) => (await readRow(ctx.db, "chat_stop", s.id)).read));
-    return { title: both("action.chat.allow"), summary: both("plan.chat.allow", { name: plainName(p.display_name) }), reads, ownerIds: [i.person_id], undo: { kind: "reversible" }, details: { stops: stops.map((s) => s.id) } };
+    return { title: both("action.chat.allow"), summary: both("plan.chat.allow", { name: shown(plainName(p.display_name)) }), reads, ownerIds: [i.person_id], undo: { kind: "reversible" }, details: { stops: stops.map((s) => s.id) } };
   },
   async apply(ctx, _i, plan) {
     for (const id of (plan.details as { stops: string[] }).stops) await ctx.update("chat_stop", id, { ended_at: ctx.now });
@@ -571,6 +575,8 @@ export async function tidyChats(db: Db, now = new Date()): Promise<{ deleted: nu
     deleted++;
   }
   await db.deleteFrom("chat_stop").where("until", "<", cutoff).execute();
+  // A report or a stop previewed and never confirmed (or refused) keeps no reason either (actions.ts, forget).
+  await forgetStaleInputs(db, now);
   return { deleted };
 }
 
@@ -579,7 +585,13 @@ export async function chatsOf(db: Db | Trx, personId: string) {
   const rows = await db.selectFrom("chat_message").innerJoin("chat_thread", "chat_thread.id", "chat_message.thread_id")
     .select(["chat_thread.kind", "chat_thread.ref_id", "chat_message.body", "chat_message.created_at", "chat_message.edited_at", "chat_message.removed_at", "chat_message.hidden_at"])
     .where("chat_message.person_id", "=", personId).orderBy("chat_message.created_at").execute();
-  return rows.map((m) => ({ game: m.kind, game_id: m.ref_id, at: m.created_at, text: m.removed_at ? null : m.body, edited_at: m.edited_at, taken_back_at: m.removed_at, hidden_by_the_club: Boolean(m.hidden_at) }));
+  // A message taken back while a report about it waits keeps its words for the staff (chat.remove): they're still the
+  // club's, so they're in the author's own download too, marked as kept for a report.
+  return rows.map((m) => {
+    const held = Boolean(m.removed_at && m.body);
+    return { game: m.kind, game_id: m.ref_id, at: m.created_at, text: m.removed_at && !held ? null : m.body, edited_at: m.edited_at, taken_back_at: m.removed_at,
+      ...(held ? { kept_for_a_report: true } : {}), hidden_by_the_club: Boolean(m.hidden_at) };
+  });
 }
 
 /** Deleting an account (privacy.ts): their words go (each message shows "message removed", under "Former member"),

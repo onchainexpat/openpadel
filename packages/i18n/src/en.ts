@@ -3031,6 +3031,7 @@ export const en = {
   "ui.chat_people": "In this chat: {names}",
   "ui.chat_empty_thread": "No messages yet. Say hello to the other players.",
   "ui.chat_you": "You",
+  "ui.chat_a_player": "A player",
   "ui.chat_edited": "changed",
   "ui.chat_removed": "Message removed",
   "ui.chat_hidden": "Hidden by the club",

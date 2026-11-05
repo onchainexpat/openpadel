@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { actions, apply, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { actions, apply, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -63,7 +63,7 @@ const PhoneStart = z.object({ phone: z.string().check(z.maxLength(40)) });
 const PhoneVerify = z.object({ phone: z.string().check(z.maxLength(40)), code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
 const CodeOnly = z.object({ code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
 const shownLink = z.nullable(z.string().check(z.maxLength(2000)));
-const SignUp = z.object({ ticket: z.string().check(z.minLength(20)), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: z.enum(["en", "es"]), club_news: z.boolean(),
+const SignUp = z.object({ ticket: z.string().check(z.minLength(20)), display_name: nameInput(80), locale: z.enum(["en", "es"]), club_news: z.boolean(),
   policies: z.optional(z.object({ terms_url: shownLink, privacy_policy_url: shownLink })) });
 
 

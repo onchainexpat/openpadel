@@ -54,9 +54,14 @@ server starts.
   access never sees chats, and no assistant posts, reports or hides (a member's assistant reads their chats). At most
   20 posts in 10 minutes, even sent at once. Read-only, moved or closing: chats are read, not added to. A reported
   message keeps its words for the staff until they've hidden it or shown it again, even if its author takes it back,
-  and can't be changed meanwhile; the staff hear about reports once an hour per chat at most. Reasons typed in a
-  report or a stop aren't kept in the change log. Text loses control and invisible formatting characters (a bidi
-  override can't turn "gnp.exe" into "exe.png").
+  and can't be changed meanwhile (the words are in the author's own Download data then, marked as kept for a
+  report); the staff hear about reports once an hour per chat at most. Reasons typed in a report or a stop aren't
+  kept in the change log, nor with a preview nobody confirmed or a report that was refused. Text loses control and
+  invisible formatting characters (a bidi override can't turn "gnp.exe" into "exe.png"), characters that draw
+  nothing (Hangul fillers, the blank Braille cell) and marks stacked past three on a letter; emoji joiners,
+  Persian's non-joiner and flags keep what they need. A name or a message with nothing to see is refused, at
+  sign-up, on the profile, when staff add or import people, for a junior and in a chat; a blank name already stored
+  shows as "A player". A booking moved earlier ends its chat at its new time.
 - A new chat message reaches the players' phones as a notification, at most once in 5 minutes per chat, never at
   night and never for a chat they muted; never by email or text. The nav's Chats shows what's unread. A push copy
   keeps none of the message's words: they're read as it's sent, so a message taken back, hidden, deleted or written by
@@ -121,7 +126,8 @@ server starts.
   at the desk week by week (the saved-card way is for one a member makes in the app).
 - "No chat between players" is gone from the list too: chats in games are above. Juniors don't see chats yet, even
   ones with a login of their own; no photos or files; a changed message keeps no earlier version. A coach reads their
-  own dates' chats in the members' app (the staff app's Chats is front desk and up).
+  own dates' chats in the members' app (the staff app's Chats is front desk and up). Staff hear about reports once
+  an hour per chat, so someone reporting in many chats can still raise one alert for each of them in an hour.
 - Tournaments and leagues are for doubles pairs. No consolation draw yet, no self-scheduling (players ask, staff
   move), and a league's pairs are fixed for the season (no subs for one match).
 - Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures".

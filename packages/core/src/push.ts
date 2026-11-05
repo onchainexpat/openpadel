@@ -19,7 +19,7 @@ export async function chatPushWords(db: Db, messageId: string | null, lang: "en"
   const c = await db.selectFrom("chat_message").innerJoin("person", "person.id", "chat_message.person_id")
     .select(["chat_message.body", "chat_message.removed_at", "chat_message.hidden_at", "person.display_name", "person.redacted_at"]).where("chat_message.id", "=", messageId).executeTakeFirst();
   if (!c || c.removed_at || c.hidden_at || c.redacted_at || !c.body) return null;
-  return t(lang, "msg.chat_message.body", { name: plainName(c.display_name), text: shortText(c.body, 120) });
+  return t(lang, "msg.chat_message.body", { name: plainName(c.display_name) || t(lang, "ui.chat_a_player"), text: shortText(c.body, 120) });
 }
 
 /** The club's push keys, made (once, whichever server process gets there first) the first time they're needed.

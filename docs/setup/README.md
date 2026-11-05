@@ -631,8 +631,13 @@ plays in the same game reads it as themselves). It's on unless you untick "Playe
   Support access and coaches on their own don't see chats, and no assistant posts, reports or hides.
 - A chat says nothing by email or text: a new message reaches phones as a notification, at most once in 5
   minutes per chat, never during quiet hours, and never for a chat the member muted.
-- A player who leaves the game reads its chat until the game ends. A chat goes, with everything in it, 90 days
-  after its game. Read-only, moved or closing soon: chats are read, not added to.
+- A player who leaves the game reads what was said up to when they left; one taken off by someone else reads
+  nothing. Posting closes two days after the game, and a chat goes, with everything in it, 90 days after its game.
+  Read-only, moved or closing soon: chats are read, not added to.
+- Staff hear about reports once an hour per chat. Someone who reports in many chats can still raise one alert for
+  each of them in an hour; stop them posting if it's abuse.
+- A name with nothing to see in it (only invisible characters) is refused wherever a name is typed, and any blank
+  name already stored shows as "A player" in chats.
 - Your member privacy policy (`docs/templates/member-privacy-policy.md`) has the lines to keep for chats.
 
 ### Notifications

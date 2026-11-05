@@ -47,10 +47,10 @@ export function ChatPage() {
       <section class="card">
         <p class="meta">{gameWhen(d.starts_at)}{d.people.length ? ` · ${t("ui.chat_people", { names: d.people.join(", ") })}` : ""}</p>
         {!d.messages.length ? <p>{t("ui.chat_empty_thread")}</p> : <ul class="plain thread">{d.messages.map((m) => <li key={m.id} class="msg other">
-          <p class="meta"><a href={`/people/${m.person_id}`}>{m.author}</a> · {shortTime(m.at)}{m.edited ? ` · ${t("ui.chat_edited")}` : ""}</p>
+          <p class="meta"><a href={`/people/${m.person_id}`}>{m.author || t("ui.chat_a_player")}</a> · {shortTime(m.at)}{m.edited ? ` · ${t("ui.chat_edited")}` : ""}</p>
           {m.state === "removed" ? <p class="meta">{t("ui.chat_removed")}</p> : <p class="pre">{m.body}</p>}
           {m.state === "hidden" && <p class="meta">{t("ui.staff_chat_hidden_note")}</p>}
-          {m.reports.map((r) => <p class="meta">{t("ui.staff_chat_reported_by", { name: r.by })} · {shortTime(r.at)}{r.reason ? `: ${r.reason}` : ""}</p>)}
+          {m.reports.map((r) => <p class="meta">{t("ui.staff_chat_reported_by", { name: r.by || t("ui.chat_a_player") })} · {shortTime(r.at)}{r.reason ? `: ${r.reason}` : ""}</p>)}
           {m.author_stopped_until && <p class="meta">{t("ui.staff_chat_stopped_until", { until: gameWhen(m.author_stopped_until) })}</p>}
           {m.state !== "removed" && <p>
             <button onClick={() => preview("chat.hide", { message_id: m.id, hidden: m.state !== "hidden" })}>{t(m.state === "hidden" ? "ui.staff_chat_show" : "ui.staff_chat_hide")}</button>{" "}

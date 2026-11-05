@@ -52,6 +52,9 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   /** What it changes belongs to no location unless the plan names one (a membership): a role kept to one location
    *  may do it too (permissions.ts, Subject.clubWide). */
   clubWide?: boolean;
+  /** Input it uses once and never keeps (a reason someone typed): left out of the stored input when the change is
+   *  refused, taken out once it's applied, and out of a preview nobody confirmed once it expires (forgetStaleInputs). */
+  forget?: string[];
   input: S;
   plan(ctx: PlanCtx, input: z.infer<S>): Promise<Plan>;
   apply(ctx: ApplyCtx, input: z.infer<S>, plan: Plan): Promise<unknown>;
@@ -155,6 +158,17 @@ export function defineAction<S extends z.ZodMiniObject>(def: ActionDef<S>): Acti
   return def;
 }
 export function actions(): ActionDef<any>[] { return [...registry.values()]; }
+/** What actions forget, out of every run that will never be applied now: refused or failed, or a preview that expired
+ *  unconfirmed (an ask still waiting for a yes keeps it until it's answered or expires). */
+export async function forgetStaleInputs(db: Db | Trx, now = new Date()): Promise<number> {
+  let n = 0;
+  for (const def of registry.values()) for (const key of def.forget ?? []) {
+    const r = await sql`UPDATE action_run SET input = input - ${key} WHERE action = ${def.name} AND input ? ${key}
+      AND status <> 'applied' AND (status NOT IN ('planned', 'awaiting_approval') OR plan_expires_at < ${now})`.execute(db);
+    n += Number(r.numAffectedRows ?? 0);
+  }
+  return n;
+}
 export function getAction(name: string): ActionDef<any> {
   const def = registry.get(name);
   if (!def) throw new KumiError("error.unknown_action", {}, 404);
@@ -186,11 +200,15 @@ function validate<S extends z.ZodMiniObject>(def: ActionDef<S>, raw: unknown): z
   return parsed.data;
 }
 
+/** The input as it's kept: without what the action forgets. */
+const kept = (def: ActionDef<any>, input: unknown) =>
+  def.forget?.length && input && typeof input === "object" ? Object.fromEntries(Object.entries(input).filter(([k]) => !def.forget!.includes(k))) : input;
+
 async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor, plan: Plan | null, d: Decision): Promise<never> {
-  // Every "no" is logged (permissions.md), with the support access it was tried under.
+  // Every "no" is logged (permissions.md), with the support access it was tried under (and nothing the action forgets).
   await db.insertInto("action_run").values({ support_grant_id: d.support ?? null,
     id: uuidv7(), action: def.name, action_version: def.version, actor_person_id: actor.personId, agent_id: actor.agentId ?? null,
-    via: actor.via, location_id: plan?.locationId ?? null, input: JSON.stringify(input), plan: JSON.stringify(plan ?? {}), status: "failed",
+    via: actor.via, location_id: plan?.locationId ?? null, input: JSON.stringify(kept(def, input)), plan: JSON.stringify(plan ?? {}), status: "failed",
     undo_kind: "none", read_versions: JSON.stringify({}), plan_expires_at: new Date(), error: JSON.stringify({ code: "error.forbidden_reason", reason: d.reason }),
   }).execute();
   throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
@@ -373,6 +391,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       const result = (await def.apply(ctx, run.input, p)) ?? null;
       await trx.updateTable("action_run").set({
         status: "applied", applied_at: now, result: JSON.stringify(result), idempotency_key: opts.idempotencyKey ?? null,
+        ...(def.forget?.length ? { input: JSON.stringify(kept(def, run.input)) } : {}),
         approved_by: opts.approvedBy ?? null, undo_until: p.undo.minutes ? new Date(now.getTime() + p.undo.minutes * 60_000) : null,
       }).where("id", "=", runId).execute();
       if (def.after) after = () => def.after!(db, run.input, result, { actor: runActor, now });

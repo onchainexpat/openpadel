@@ -8,6 +8,7 @@ import { withManagers } from "./households.ts";
 import { checkAssign, roleLabel } from "./roles.ts";
 import { uuidv7 } from "./ids.ts";
 import { showPhone } from "./texts.ts";
+import { nameInput } from "./plain_text.ts";
 
 const isTimeZone = (v: string) => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } };
 const timeZone = z.string().check(z.refine(isTimeZone, { message: "Not a time zone (use an IANA name such as America/Los_Angeles)" }));
@@ -38,7 +39,7 @@ async function whereText(ctx: PlanCtx, locationId: string | undefined): Promise<
 
 export const clubSetup = defineAction({
   name: "club.setup", version: 1, system: true,
-  input: z.object({ name: z.string().check(z.minLength(1)), time_zone: timeZone, owner_email: z.email(), owner_name: z.string().check(z.minLength(1)), default_language: z.optional(lang) }),
+  input: z.object({ name: z.string().check(z.minLength(1)), time_zone: timeZone, owner_email: z.email(), owner_name: nameInput(), default_language: z.optional(lang) }),
   async plan(ctx, i) {
     if (await ctx.db.selectFrom("club").select("name").executeTakeFirst()) throw new KumiError("error.forbidden_reason", { reason: both("reason.owner_only") }, 403);
     return { title: { en: `Set up ${i.name}`, es: `Configurar ${i.name}` }, summary: { en: `Create ${i.name} with ${i.owner_name} as owner.`, es: `Crear ${i.name} con ${i.owner_name} como propietario.` }, reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
@@ -129,7 +130,7 @@ export const locationUpdate = defineAction({
 /** Staff add someone: a member by default. Signing in later is by an emailed code to this address. */
 export const personCreate = defineAction({
   name: "person.create", version: 1,
-  input: z.object({ display_name: z.string().check(z.minLength(1)), email: z.optional(z.email()), locale: z.optional(lang) }),
+  input: z.object({ display_name: nameInput(), email: z.optional(z.email()), locale: z.optional(lang) }),
   async plan(ctx, i) {
     const email = i.email?.trim().toLowerCase();
     if (email && await ctx.db.selectFrom("person").select("id").where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).executeTakeFirst()) throw new KumiError("error.duplicate_email");
@@ -150,7 +151,7 @@ export const personCreate = defineAction({
  *  nobody is emailed: telling members about the app is the club's own announcement. */
 export const personImport = defineAction({
   name: "person.import", version: 1,
-  input: z.object({ rows: z.array(z.object({ display_name: z.string().check(z.minLength(1), z.maxLength(80)), email: z.optional(z.email()), locale: z.optional(lang) })).check(z.minLength(1), z.maxLength(5000)) }),
+  input: z.object({ rows: z.array(z.object({ display_name: nameInput(80), email: z.optional(z.email()), locale: z.optional(lang) })).check(z.minLength(1), z.maxLength(5000)) }),
   async plan(ctx, i) {
     const { add, skipped } = await newPeople(ctx, i.rows);
     const people = both("count.people", { count: add.length });
@@ -193,7 +194,7 @@ export const SIGN_UP_FORM = "sign-up-1";
 const shownLink = z.nullable(z.string().check(z.maxLength(2000)));
 export const personSignUp = defineAction({
   name: "person.sign_up", version: 1, system: true, internal: true,
-  input: z.object({ email: z.optional(z.email()), phone: z.optional(z.string().check(z.regex(/^\+1\d{10}$/))), display_name: z.string().check(z.minLength(1), z.maxLength(80)), locale: lang,
+  input: z.object({ email: z.optional(z.email()), phone: z.optional(z.string().check(z.regex(/^\+1\d{10}$/))), display_name: nameInput(80), locale: lang,
     club_news: z.boolean(), policies: z.optional(z.object({ terms_url: shownLink, privacy_policy_url: shownLink })) }),
   async plan(ctx, i) {
     if (Boolean(i.email) === Boolean(i.phone)) throw new KumiError("error.invalid_input", { details: "an email or a phone number, not both" });
@@ -312,7 +313,7 @@ export const roleRemove = defineAction({
 
 export const personUpdateProfile = defineAction({
   name: "person.update_profile", version: 1,
-  input: z.object({ person_id: z.uuid(), display_name: z.optional(z.string().check(z.minLength(1))), locale: z.optional(lang) }),
+  input: z.object({ person_id: z.uuid(), display_name: z.optional(nameInput()), locale: z.optional(lang) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const { person_id, ...rest } = i;

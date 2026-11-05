@@ -78,7 +78,7 @@ export function ChatThread() {
         {d.muted && <p class="meta">{t("ui.chat_mute_hint")}</p>}
         {!d.messages.length ? <p>{t("ui.chat_empty_thread")}</p> : <ul class="plain thread">{d.messages.map((m, i) => (
           <li key={m.id} ref={i === d.messages.length - 1 ? end : undefined} class={`msg ${m.mine ? "mine" : "other"}`}>
-            <p class="meta">{m.mine ? t("ui.chat_you") : m.author} · {shortTime(m.at)}{m.edited ? ` · ${t("ui.chat_edited")}` : ""}</p>
+            <p class="meta">{m.mine ? t("ui.chat_you") : m.author || t("ui.chat_a_player")} · {shortTime(m.at)}{m.edited ? ` · ${t("ui.chat_edited")}` : ""}</p>
             {m.state === "removed" ? <p class="meta">{t("ui.chat_removed")}</p> : m.state === "hidden" ? <p class="meta">{t("ui.chat_hidden")}</p>
               : editing?.id === m.id ? <>
                 <textarea aria-label={t("ui.chat_write")} rows={3} maxLength={d.max_chars} value={editing.text} onInput={(e) => setEditing({ id: m.id, text: e.currentTarget.value })} />

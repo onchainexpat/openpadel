@@ -3034,6 +3034,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.chat_people": "En este chat: {names}",
   "ui.chat_empty_thread": "Todavía no hay mensajes. Saluda a los otros jugadores.",
   "ui.chat_you": "Tú",
+  "ui.chat_a_player": "Alguien",
   "ui.chat_edited": "cambiado",
   "ui.chat_removed": "Mensaje retirado",
   "ui.chat_hidden": "Oculto por el club",
