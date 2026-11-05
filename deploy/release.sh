@@ -218,18 +218,20 @@ snapshot() {
 # cap message said since stays said, as after kumi restore.
 psql_kumi() { $AS "$(tool psql)" -X -q -v ON_ERROR_STOP=1 -d "$DATABASE_URL" "$@"; }
 restore() {
-  local file=$1 sent done fps use alerts
-  sent=$(mktemp); done=$(mktemp); fps=$(mktemp); use=$(mktemp); alerts=$(mktemp)
+  local file=$1 sent done fps use alerts gone
+  sent=$(mktemp); done=$(mktemp); fps=$(mktemp); use=$(mktemp); alerts=$(mktemp); gone=$(mktemp -d)
   psql_kumi -c "COPY (SELECT id, status, sent_at, failure FROM outbound_message WHERE status IN ('sent', 'failed', 'dropped') AND created_at >= now() - interval '400 days') TO STDOUT" > "$sent" 2>/dev/null || : > "$sent"
   psql_kumi -c "COPY (SELECT id FROM event_outbox WHERE delivered_at IS NOT NULL AND created_at >= now() - interval '400 days') TO STDOUT" > "$done" 2>/dev/null || : > "$done"
-  psql_kumi -c "COPY (SELECT id, encode(sha256(convert_to(concat_ws(chr(31), person_id::text, kind, channel, subject, body, coalesce(link, '')), 'UTF8')), 'hex'), sent_at FROM outbound_message WHERE status = 'sent' AND channel <> 'inbox' AND sent_at IS NOT NULL AND created_at >= now() - interval '400 days') TO STDOUT" > "$fps" 2>/dev/null || : > "$fps"
+  psql_kumi -c "COPY (SELECT id, encode(sha256(convert_to(concat_ws(chr(31), person_id::text, kind, channel, subject, body, coalesce(link, ''), to_jsonb(outbound_message)->>'chat_message_id'), 'UTF8')), 'hex'), sent_at FROM outbound_message WHERE status = 'sent' AND channel <> 'inbox' AND sent_at IS NOT NULL AND created_at >= now() - interval '400 days') TO STDOUT" > "$fps" 2>/dev/null || : > "$fps"
   psql_kumi -c "COPY (SELECT month, kind, count, input_tokens, output_tokens, segments, cents, updated_at FROM usage_month) TO STDOUT" > "$use" 2>/dev/null || : > "$use"
   psql_kumi -c "COPY (SELECT month, near_cap, reached_cap, paused_limit FROM usage_alert) TO STDOUT" > "$alerts" 2>/dev/null || : > "$alerts"
-  psql_kumi -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;' || { rm -f "$sent" "$done" "$fps" "$use" "$alerts"; return 1; }
-  $AS "$(tool pg_restore)" --no-owner --no-acl --exit-on-error -d "$DATABASE_URL" "$file" || { rm -f "$sent" "$done" "$fps" "$use" "$alerts"; return 1; }
+  read_gone "$gone"
+  psql_kumi -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;' || { rm -rf "$sent" "$done" "$fps" "$use" "$alerts" "$gone"; return 1; }
+  $AS "$(tool pg_restore)" --no-owner --no-acl --exit-on-error -d "$DATABASE_URL" "$file" || { rm -rf "$sent" "$done" "$fps" "$use" "$alerts" "$gone"; return 1; }
   carry_over "$sent" "$done" "$fps" || say "what had been sent since the snapshot couldn't be carried over (above): see kumi held before starting it"
   carry_meter "$use" "$alerts" || say "the usage meter couldn't be carried over (above): this month's count may be short (kumi usage)"
-  rm -f "$sent" "$done" "$fps" "$use" "$alerts"
+  carry_gone "$gone" || say "what had been taken away on request since the snapshot (deleted accounts, words taken back, sign-ins ended) couldn't all be taken away again (above)"
+  rm -rf "$sent" "$done" "$fps" "$use" "$alerts" "$gone"
 }
 carry_over() {
   if [ -s "$1" ]; then
@@ -258,6 +260,63 @@ carry_meter() {
     psql_kumi -c "CREATE TEMP TABLE kumi_alert (month date, near_cap int, reached_cap int, paused_limit int)" -c "COPY kumi_alert FROM STDIN" \
       -c "INSERT INTO usage_alert AS a (month, near_cap, reached_cap, paused_limit) SELECT month, near_cap, reached_cap, paused_limit FROM kumi_alert ON CONFLICT (month) DO UPDATE SET near_cap = coalesce(a.near_cap, excluded.near_cap), reached_cap = coalesce(a.reached_cap, excluded.reached_cap), paused_limit = coalesce(a.paused_limit, excluded.paused_limit)" < "$2" || return 1
   fi
+}
+
+# What the database had taken away on request since the snapshot comes back with it unless it's carried too: an
+# account deleted, a chat message taken back or hidden, an authenticator removed or replaced, a yes or no to messages,
+# and sign-ins, passkeys, phones' push, calendar links, assistants and recovery codes ended or used (REVOKED). The
+# same SQL as Kumi's after_restore.ts (GONE; deploy.test checks they match), each only where the snapshot's Kumi has
+# that table or column. Deleted accounts are queued (from migration 082) and deleted again as the server starts; a
+# snapshot from before that is told instead.
+REVOKED="web_session token_hash revoked_at
+passkey credential_id revoked_at
+push_subscription id revoked_at
+calendar_feed id revoked_at
+oauth_grant id revoked_at
+oauth_token token_hash revoked_at
+oauth_token token_hash used_at
+recovery_code id used_at"
+has_table() { psql_kumi -Atc "SELECT 1 FROM information_schema.tables WHERE table_name = '$1'" | grep -q 1; }
+has_column() { psql_kumi -Atc "SELECT 1 FROM information_schema.columns WHERE table_name = '$1' AND column_name = '$2'" | grep -q 1; }
+read_gone() {
+  local g=$1 t k c
+  psql_kumi -c "COPY (SELECT id, redacted_at FROM person WHERE redacted_at IS NOT NULL) TO STDOUT" > "$g/people" 2>/dev/null || : > "$g/people"
+  psql_kumi -c "COPY (SELECT id, removed_at, hidden_at, hidden_by, body = '' AS blank FROM chat_message WHERE removed_at IS NOT NULL OR hidden_at IS NOT NULL) TO STDOUT" > "$g/chat" 2>/dev/null || : > "$g/chat"
+  psql_kumi -c "COPY (SELECT person_id, created_at, removed_at, last_step FROM staff_factor) TO STDOUT" > "$g/factors" 2>/dev/null || : > "$g/factors"
+  psql_kumi -c "COPY (SELECT id, person_id, channel, purpose, granted, source, form_version, evidence, at FROM channel_consent) TO STDOUT" > "$g/consents" 2>/dev/null || : > "$g/consents"
+  while read -r t k c; do
+    psql_kumi -c "COPY (SELECT $k::text, $c FROM $t WHERE $c IS NOT NULL) TO STDOUT" > "$g/rev.$t.$c" 2>/dev/null || : > "$g/rev.$t.$c"
+  done <<< "$REVOKED"
+}
+carry_gone() {
+  local g=$1 t k c n
+  if [ -s "$g/people" ]; then
+    if has_table erase_after_restore; then
+      psql_kumi -c "CREATE TEMP TABLE kumi_gone (id uuid, redacted_at timestamptz)" -c "COPY kumi_gone FROM STDIN" \
+        -c "INSERT INTO erase_after_restore (person_id, redacted_at) SELECT g.id, g.redacted_at FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL ON CONFLICT (person_id) DO NOTHING" < "$g/people" || return 1
+    else
+      n=$(psql_kumi -At -c "CREATE TEMP TABLE kumi_gone (id uuid, redacted_at timestamptz)" -c "COPY kumi_gone FROM STDIN" \
+        -c "SELECT count(*) FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL" < "$g/people") || return 1
+      [ "${n:-0}" -gt 0 ] 2>/dev/null && say "$n account(s) deleted since the snapshot are back in it, and this release can't delete them again by itself: delete them again in the staff app (People)"
+    fi
+  fi
+  if [ -s "$g/chat" ] && has_table chat_message; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_chat_gone (id uuid, removed_at timestamptz, hidden_at timestamptz, hidden_by uuid, blank boolean)" -c "COPY kumi_chat_gone FROM STDIN" \
+      -c "UPDATE chat_message m SET removed_at = coalesce(m.removed_at, g.removed_at), hidden_at = coalesce(m.hidden_at, g.hidden_at), hidden_by = coalesce(m.hidden_by, (SELECT p.id FROM person p WHERE p.id = g.hidden_by)), body = CASE WHEN g.removed_at IS NOT NULL AND (g.blank OR NOT EXISTS (SELECT 1 FROM chat_report r WHERE r.message_id = m.id AND r.dealt_at IS NULL)) THEN '' ELSE m.body END, version = m.version + 1 FROM kumi_chat_gone g WHERE m.id = g.id AND ((g.removed_at IS NOT NULL AND m.removed_at IS NULL) OR (g.hidden_at IS NOT NULL AND m.hidden_at IS NULL) OR (g.removed_at IS NOT NULL AND g.blank AND m.body <> ''))" < "$g/chat" || return 1
+  fi
+  if [ -s "$g/factors" ] && has_table staff_factor; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_factor (person_id uuid, created_at timestamptz, removed_at timestamptz, last_step bigint)" -c "COPY kumi_factor FROM STDIN" \
+      -c "UPDATE staff_factor f SET removed_at = CASE WHEN g.removed_at IS NOT NULL OR g.created_at <> f.created_at THEN coalesce(g.removed_at, now()) ELSE f.removed_at END, last_step = CASE WHEN g.created_at = f.created_at THEN greatest(f.last_step, g.last_step) ELSE f.last_step END, version = f.version + 1 FROM kumi_factor g WHERE f.person_id = g.person_id AND f.removed_at IS NULL AND (g.removed_at IS NOT NULL OR g.created_at <> f.created_at OR g.last_step > f.last_step)" < "$g/factors" || return 1
+  fi
+  if [ -s "$g/consents" ] && has_table channel_consent; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_consent (id uuid, person_id uuid, channel text, purpose text, granted boolean, source text, form_version text, evidence jsonb, at timestamptz)" -c "COPY kumi_consent FROM STDIN" \
+      -c "INSERT INTO channel_consent (id, person_id, channel, purpose, granted, source, form_version, evidence, at) SELECT c.id, c.person_id, c.channel, c.purpose, c.granted, c.source, c.form_version, c.evidence, c.at FROM kumi_consent c WHERE EXISTS (SELECT 1 FROM person p WHERE p.id = c.person_id) AND NOT EXISTS (SELECT 1 FROM channel_consent x WHERE x.id = c.id)" < "$g/consents" || return 1
+  fi
+  while read -r t k c; do
+    [ -s "$g/rev.$t.$c" ] && has_column "$t" "$c" || continue
+    psql_kumi -c "CREATE TEMP TABLE kumi_rev (k text, at timestamptz)" -c "COPY kumi_rev FROM STDIN" \
+      -c "UPDATE $t x SET $c = r.at FROM kumi_rev r WHERE x.$k::text = r.k AND x.$c IS NULL" < "$g/rev.$t.$c" || return 1
+  done <<< "$REVOKED"
 }
 
 # Keep the running release, the one before it and one more; and the newest update snapshots.

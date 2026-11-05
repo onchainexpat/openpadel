@@ -113,7 +113,8 @@ from connected accounts.
 Besides the nightly backup (kept 14 days on the server, and 30 days and 12 months offsite, sealed), Postgres's
 log goes to pgBackRest at least once a minute, so `sudo kumi restore --to="2026-11-03 14:05" --yes` can put the
 database back as it was at any minute of the last two weeks (a month, offsite). Nothing the club had already sent
-goes out again after a restore, and no card is charged or refunded twice. The target: lose at most about a minute,
+goes out again after a restore, no card is charged or refunded twice, and nothing taken away on request since that
+minute comes back (a deleted account, words taken back, a sign-in ended, a no to messages). The target: lose at most about a minute,
 back within an hour. See [offsite backups](docs/setup/accounts/offsite-backups.md#going-back-to-a-minute-point-in-time-backups).
 
 ### A club can always leave

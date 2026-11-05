@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, FORMER_MEMBER, formerMember, money, type Lang, type Text } from "@kumi/i18n";
-import { defineAction, readRow, type ApplyCtx } from "./actions.ts";
+import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { juniorsOf, managersOf, nameList, withManagers } from "./households.ts";
@@ -337,6 +337,33 @@ export const privacyErase = defineAction({
     return { erased: true, juniors: juniors.length, scrubbed };
   },
 });
+
+/** An account the database before a restore had deleted, deleted again here (after_restore.ts, release.sh queue it in
+ *  erase_after_restore): the same as the deletion itself, without asking again (it was asked, and checked, then) and
+ *  without telling anyone (they heard then). Nothing to do when it's deleted already. */
+export const privacyEraseAgain = defineAction({
+  name: "privacy.erase_again", version: 1, system: true, internal: true,
+  input: z.object({ person_id: z.uuid() }),
+  async plan() { return { title: both("action.privacy.erase"), summary: both("plan.privacy.erase_again"), reads: [], undo: { kind: "none", note: both("reason.erase_final") } }; },
+  async apply(ctx, i) {
+    const queued = await ctx.trx.selectFrom("erase_after_restore").select("person_id").where("person_id", "=", i.person_id).forUpdate().executeTakeFirst();
+    const scrubbed = queued ? await erasePerson(ctx, i.person_id) : 0;
+    await ctx.trx.deleteFrom("erase_after_restore").where("person_id", "=", i.person_id).execute();
+    return { erased: Boolean(queued), scrubbed };
+  },
+});
+
+/** Every account waiting in erase_after_restore, deleted again (the server runs it as it starts, `kumi restore` right
+ *  after the restore). One that fails stays queued for the next start, and is said. */
+export async function eraseAfterRestore(db: Db, now = new Date()): Promise<{ erased: number; failed: number }> {
+  let erased = 0, failed = 0;
+  const queued = await db.selectFrom("erase_after_restore").select("person_id").orderBy("queued_at").execute().catch(() => []);
+  for (const q of queued) {
+    try { await runAsSystem(db, "privacy.erase_again", { person_id: q.person_id }, "restore", { now }); erased++; }
+    catch (e) { failed++; console.error(`privacy: an account deleted before the restore couldn't be deleted again yet (${(e as Error).message}); it's tried again at the next start`); }
+  }
+  return { erased, failed };
+}
 
 // ---- Deleting one person ----
 /** How to take a person's name, email and phone out of text, keeping everything else. A name goes only

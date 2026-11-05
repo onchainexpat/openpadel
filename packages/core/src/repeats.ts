@@ -7,9 +7,13 @@
 import { sql } from "kysely";
 import type { Db, Trx } from "./db.ts";
 
-/** A message's fingerprint: who it's for, what it is, how it goes, and its exact words and link. The same SQL runs
- *  in deploy/release.sh and kumi-hosted, where a snapshot goes back; the tests keep them in step. */
-export const MESSAGE_FP = "encode(sha256(convert_to(concat_ws(chr(31), person_id::text, kind, channel, subject, body, coalesce(link, '')), 'UTF8')), 'hex')";
+/** A message's fingerprint: who it's for, what it is, how it goes, its exact words and link, and for a chat push which
+ *  message it's for (a chat push keeps no words, so every push to one person about one game reads the same; without
+ *  it, a push sent before a restore would answer for a new message's push after it). Read through to_jsonb, so a
+ *  database from before chat (no such column) gives the same fingerprint as any message without one, and concat_ws
+ *  leaves a missing one out: an email's fingerprint is what it always was. The same SQL runs in deploy/release.sh and
+ *  kumi-hosted, where a snapshot goes back; the tests keep them in step. */
+export const MESSAGE_FP = "encode(sha256(convert_to(concat_ws(chr(31), person_id::text, kind, channel, subject, body, coalesce(link, ''), to_jsonb(outbound_message)->>'chat_message_id'), 'UTF8')), 'hex')";
 /** How long after a restore a message made again takes the earlier one's answer. */
 export const REPEAT_WINDOW_DAYS = 7;
 

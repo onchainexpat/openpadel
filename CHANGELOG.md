@@ -126,6 +126,12 @@ server starts.
   a tournament or league match, a club news email sent later) was read on the device's clock, so a staff phone set
   to another zone put a 5 PM class at the wrong hour. They're read on the club's clock now, whatever the device says,
   as the times the apps show already were.
+- **A restore no longer brings back what was taken away on request.** Going back to a minute, restoring a backup, an
+  update's snapshot going back, or an export put back on the same server used to bring back an account deleted since,
+  words taken back in a chat, a sign-in or assistant ended, and a no to club news. Now each is done again: the account
+  is deleted again (at once, or as the server starts), and the rest stays as the club's database had it.
+- **A chat push before a restore could stop a new message's push after it.** Chat pushes keep no words, so they all
+  looked alike to the check that stops a message going twice after a restore; it now tells them apart by message.
 - An update said "the point-in-time archive isn't ready" when Postgres happened to be sending a piece of its log at
   that moment. Making the archive now waits that out and tries again, and only says so if it really isn't ready
   (one-server installs, `server-setup.sh` and the Docker `pitr` service alike).

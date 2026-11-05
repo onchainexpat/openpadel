@@ -20,7 +20,7 @@ export const READ_ONLY_ALLOWED = new Set([
   "person.sign_up", "person.sign_in_undo", "person.reset_sign_in", "email.add", "email.change", "phone.confirm", "person.update_profile",
   "person.factor_add", "person.factor_codes", "person.factor_remove", "person.passkey_add", "person.passkey_remove", "assistant.disconnect",
   // The person's own say: what reaches them, their data, their account, who they share it with.
-  "consent.texts", "consent.club_news", "consent.unsubscribe", "text.stop", "text.start", "privacy.export", "privacy.erase", "friend.remove",
+  "consent.texts", "consent.club_news", "consent.unsubscribe", "text.stop", "text.start", "privacy.export", "privacy.erase", "privacy.erase_again", "friend.remove",
   "household.leave", "household.remove_junior", "household.withdraw_invite", "kid.remove_login", "kid.decline_request", "kid.withdraw_request", "family_card.remove",
   // Leaving, cancelling, and the money that goes back with it (leaving and refunding stay separate decisions).
   "booking.cancel", "booking.repeat_end", "weekly.end_all", "booking.leave", "booking.remove_player", "booking.refund", "booking.withdraw_ask", "booking.withdraw_offer", "booking.drop_saved_place",

@@ -1,4 +1,4 @@
-import { tidyChats, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
+import { tidyChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -42,6 +42,9 @@ if (newTopics.length) console.log(`messages: now telling people about ${newTopic
 const sealed = await resealAll(db);
 if (sealed.sealed || sealed.resealed) console.log(`secrets: ${sealed.sealed} sealed, ${sealed.resealed} moved to the current key`);
 if (sealed.unreadable) console.error(`secrets: ${sealed.unreadable} sealed under a key this server doesn't have (set KUMI_SECRET_KEY_PREVIOUS to the old key)`);
+// Accounts a restore brought back (an update's snapshot put back by release.sh queues them): deleted again (privacy.ts).
+const erasedAgain = await eraseAfterRestore(db);
+if (erasedAgain.erased) console.log(`privacy: ${erasedAgain.erased} account${erasedAgain.erased === 1 ? "" : "s"} deleted before a restore deleted again`);
 // Where it listens (listen.ts): 127.0.0.1 and PORT unless the settings say otherwise.
 let listenAt: Listen;
 try { listenAt = listenFrom(process.env); } catch (e) { console.error((e as Error).message); process.exit(1); }

@@ -98,3 +98,31 @@ test("where the database before can't vouch for the copy, no fingerprints are ke
   const now = await db.selectFrom("sent_before_restore").select((e) => e.fn.countAll<string>().as("n")).executeTakeFirstOrThrow();
   assert.equal(now.n, before.n);
 });
+
+test("a chat push sent before a restore answers only for the same message's push, never a new message's", async () => {
+  // Chat pushes keep no words (the words are filled in as they go), so two messages' pushes to one person about one
+  // game read the same: only which message they're for tells them apart.
+  const thread = uuidv7(), first = uuidv7(), next = uuidv7();
+  await db.insertInto("chat_thread").values({ id: thread, kind: "booking", ref_id: uuidv7(), ends_at: new Date("2026-12-01T20:00:00Z") }).execute();
+  for (const id of [first, next]) await db.insertInto("chat_message").values({ id, thread_id: thread, person_id: person, body: "see you there" }).execute();
+  const push = async (message: string) => { const id = uuidv7(); await db.insertInto("outbound_message").values({ id, event_id: null, person_id: person, kind: "chat_message", channel: "push",
+    purpose: "account", essential: false, lang: "en", subject: "Court 1, Sat 6:00 PM", body: "", link: "/chats/booking/x", status: "waiting", send_after: NOW, stale_at: null, failure: null, sent_at: null, read_at: null, chat_message_id: message }).execute(); return id; };
+  // The database before the restore had pushed the first message; the copy has no row for that push.
+  const gone = await push(first);
+  const fp = (await sql<{ fp: string }>`SELECT ${sql.raw(MESSAGE_FP)} AS fp FROM outbound_message WHERE id = ${gone}`.execute(db)).rows[0]!.fp;
+  await db.deleteFrom("outbound_message").where("id", "=", gone).execute();
+  const RESTORED = new Date("2026-12-01T10:00:00Z"), sentAt = new Date("2026-12-01T09:00:00Z");
+  const sent = await readSentBefore(url);
+  await afterRestore(url, { ...sent!, fingerprints: [{ id: gone, fp, sent_at: sentAt }] }, RESTORED);
+  // After it: a new message's push, and the first message's push made again.
+  const other = await push(next), again = await push(first);
+  assert.equal(await skipRepeatsAfterRestore(db, new Date(RESTORED.getTime() + 60_000)), 1);
+  assert.equal(await statusOf(other), "waiting", "a different message: it goes");
+  assert.equal(await statusOf(again), "sent", "the same message's push: it went before the restore");
+  // An email's fingerprint is what it always was (nothing added for messages that aren't chat pushes).
+  const mail = await email("Same as ever");
+  const [a, b] = (await sql<{ a: string; b: string }>`SELECT ${sql.raw(MESSAGE_FP)} AS a,
+    encode(sha256(convert_to(concat_ws(chr(31), person_id::text, kind, channel, subject, body, coalesce(link, '')), 'UTF8')), 'hex') AS b FROM outbound_message WHERE id = ${mail}`.execute(db)).rows.map((r) => [r.a, r.b])[0]!;
+  assert.equal(a, b);
+  await db.updateTable("outbound_message").set({ status: "dropped" }).where("id", "in", [other, mail]).execute();
+});

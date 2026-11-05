@@ -458,6 +458,8 @@ async function restoreFrom(source: string): Promise<number> {
       if (after.support_ended) console.log(t(lang, after.vouched ? "cli.restore_support_kept_ended" : "cli.restore_support_ended", { count: after.support_ended }));
       if (after.usage.months.length) console.log(t(lang, "cli.restore_usage_carried", { months: after.usage.months.map((m) => m.slice(0, 7)).join(", ") }));
       if (after.usage.gap) console.log(t(lang, "cli.restore_usage_gap"));
+      if (after.gone.erased) console.log(t(lang, "cli.restore_erased_again", { count: after.gone.erased }));
+      if (after.gone.other) console.log(t(lang, "cli.restore_gone_again", { count: after.gone.other }));
     }
     return 0;
   } catch (e) {

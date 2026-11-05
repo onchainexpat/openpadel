@@ -127,7 +127,8 @@ week, and you can disconnect it in the app at any time.
   see "message removed".
 - Backups keep a copy for a while after: [BACKUP DAYS ON THE SERVER] days on the server, and up to
   [OFFSITE DAILY DAYS] days (monthly copies [OFFSITE MONTHLY MONTHS] months) offsite. *Note: with Kumi's defaults
-  that's 14 days, 30 days and 12 months.*
+  that's 14 days, 30 days and 12 months.* If we ever put a backup back, anything you deleted or took back since it
+  was made (your account, a chat message, a sign-in, a no to messages) is deleted or taken back again.
 
 ## Your choices
 
