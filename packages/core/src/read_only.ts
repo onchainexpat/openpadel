@@ -23,7 +23,7 @@ export const READ_ONLY_ALLOWED = new Set([
   "consent.texts", "consent.club_news", "consent.unsubscribe", "text.stop", "text.start", "privacy.export", "privacy.erase", "friend.remove",
   "household.leave", "household.remove_junior", "household.withdraw_invite", "kid.remove_login", "kid.decline_request", "kid.withdraw_request", "family_card.remove",
   // Leaving, cancelling, and the money that goes back with it (leaving and refunding stay separate decisions).
-  "booking.cancel", "booking.repeat_end", "booking.leave", "booking.remove_player", "booking.refund", "booking.withdraw_ask", "booking.withdraw_offer", "booking.drop_saved_place",
+  "booking.cancel", "booking.repeat_end", "weekly.end_all", "booking.leave", "booking.remove_player", "booking.refund", "booking.withdraw_ask", "booking.withdraw_offer", "booking.drop_saved_place",
   "enrolment.leave", "enrolment.remove", "entry.withdraw", "entry.decline", "program.cancel", "series.cancel", "program.unwatch", "membership.cancel", "membership.end", "membership.remove_person",
   "membership.pause", "broadcast.cancel", "question.close", "alert.handle",
   // Keeping players' chats safe: a player's report, and the club hiding a message or stopping someone posting (chat.ts).

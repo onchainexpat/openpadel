@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
-import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf, clubTime, serverNow } from "@kumi/ui";
+import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf, clubTime, serverNow, clubMoment } from "@kumi/ui";
 import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 
@@ -51,12 +51,12 @@ export function Program({ id }: { id: string }) {
     e.preventDefault();
     preview("enrolment.remove", { enrolment_id: removing!.id, reason, ...(override ? { refund: { outcome, cents: Math.round(amount * 100), note: why } } : {}) });
   };
-  const addDate = (e: Event) => { e.preventDefault(); preview("session.add", { program_id: id, starts_at: new Date(date.starts).toISOString(), ends_at: new Date(date.ends).toISOString(), court_ids: date.courts,
+  const addDate = (e: Event) => { e.preventDefault(); preview("session.add", { program_id: id, starts_at: clubMoment(date.starts), ends_at: clubMoment(date.ends), court_ids: date.courts,
     ...(date.coach ? { coach_id: date.coach } : {}), ...(date.weeks > 1 ? { weeks: date.weeks } : {}) }); };
   const editDates = (e: Event) => {
     e.preventDefault();
     const x = edit!;
-    preview("series.edit", { session_id: x.session, scope: x.scope, ...(x.scope === "this" && x.when ? { starts_at: new Date(x.when).toISOString() } : x.time ? { start_time: x.time } : {}),
+    preview("series.edit", { session_id: x.session, scope: x.scope, ...(x.scope === "this" && x.when ? { starts_at: clubMoment(x.when) } : x.time ? { start_time: x.time } : {}),
       ...(x.minutes ? { minutes: Number(x.minutes) } : {}), ...(x.courts.length ? { court_ids: x.courts } : {}), ...(x.coach === "" ? {} : { coach_id: x.coach === "none" ? null : x.coach }),
       ...(x.capacity ? { capacity: Number(x.capacity) } : {}) });
   };

@@ -306,21 +306,77 @@ export const bookingRepeatEnd = defineAction({
     const d = plan.details as { from: string; cancels: { booking_id: string; refunds: { payment_id: string; cents: number }[] }[] };
     const s = await ctx.trx.selectFrom("booking_series").selectAll().where("id", "=", i.series_id).forUpdate().executeTakeFirstOrThrow();
     await lockCourts(ctx, [s.court_id]);
-    // The weeks as they are now: one booked since the preview goes too, and anyone who paid after the preview never
-    // agreed to its rule, so all of theirs comes back (as booking.cancel does).
-    for (const w of await seriesToEnd(ctx.trx, s.id, d.from, ctx.now)) {
-      const b = await lockBooking(ctx.trx, w.id);
-      if (b.status === "cancelled") continue;
-      const planned = d.cancels.find((c) => c.booking_id === w.id)?.refunds ?? [];
-      const late = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "payment.amount_cents", backSql.as("back")])
-        .where("booking_player.booking_id", "=", w.id).where("booking_player.removed_at", "is", null).where("payment.status", "=", "succeeded")
-        .$if(planned.length > 0, (q) => q.where("payment.id", "not in", planned.map((r) => r.payment_id))).execute();
-      await cancelBooking(ctx, w.id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents - Number(p.back) }))], "series_ended");
-    }
+    await cancelWeeksFrom(ctx, s, d.from, d.cancels);
     const last = addDays(d.from, -1);
     await ctx.update("booking_series", s.id, last < s.first_date ? { ended_at: s.ended_at ?? ctx.now } : { last_date: last < s.last_date ? last : s.last_date });
     await ctx.emit("booking.repeat_ended", { series_id: s.id, from: d.from, by: ctx.actor.personId });
     return null;
+  },
+});
+
+type WeekCancel = { booking_id: string; refunds: { payment_id: string; cents: number }[] };
+/** A series' booked weeks from a date on, cancelled with what the preview said comes back. The weeks as they are now:
+ *  one booked since the preview goes too, and anyone who paid after the preview never agreed to its rule, so all of
+ *  theirs comes back (as booking.cancel does). The series and its court are locked by the caller. */
+async function cancelWeeksFrom(ctx: ApplyCtx, s: { id: string }, from: string, cancels: WeekCancel[]) {
+  for (const w of await seriesToEnd(ctx.trx, s.id, from, ctx.now)) {
+    const b = await lockBooking(ctx.trx, w.id);
+    if (b.status === "cancelled") continue;
+    const planned = cancels.find((c) => c.booking_id === w.id)?.refunds ?? [];
+    const late = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "payment.amount_cents", backSql.as("back")])
+      .where("booking_player.booking_id", "=", w.id).where("booking_player.removed_at", "is", null).where("payment.status", "=", "succeeded")
+      .$if(planned.length > 0, (q) => q.where("payment.id", "not in", planned.map((r) => r.payment_id))).execute();
+    await cancelBooking(ctx, w.id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents - Number(p.back) }))], "series_ended");
+  }
+}
+
+/** Every weekly court members made in the app, at once (Settings, owners and managers: front desk's 'booking.*'
+ *  doesn't reach it). Either no more weeks are booked and the weeks already booked stay, or those weeks go too, each
+ *  by its own cancel rule, everything back, or nothing back (as repeat_end lets staff choose). Weekly courts the desk
+ *  made aren't members' and stay. Each member hears once, however many weekly courts they had. */
+export const weeklyEndAll = defineAction({
+  name: "weekly.end_all", version: 1,
+  input: z.object({ booked: z.enum(["keep", "cancel"]), refund: z.optional(z.enum(["rule", "full", "none"])) }),
+  async plan(ctx, i) {
+    const rows = await ctx.db.selectFrom("booking_series").select("id").where("source", "=", "app").where("ended_at", "is", null).orderBy("id").execute();
+    if (!rows.length) throw new KumiError("error.weekly_none_running");
+    const series = [], reads = [], members = new Set<string>();
+    let weeksGoing = 0, back = 0, anyPaid = false;
+    for (const { id } of rows) {
+      const { row: s, read } = await readRow(ctx.db, "booking_series", id, "thing.weekly_booking");
+      reads.push(read); members.add(s.organiser_id);
+      const from = localDate(ctx.now, await seriesTz(ctx.db, s.location_id)), cancels: WeekCancel[] = [];
+      if (i.booked === "cancel") for (const w of await seriesToEnd(ctx.db, s.id, from, ctx.now)) {
+        const r = await cancelRefunds(ctx.db, w.id, ctx.now, i.refund ?? "rule");
+        cancels.push({ booking_id: w.id, refunds: r.refunds.map(({ payment_id, cents }) => ({ payment_id, cents }) ) });
+        anyPaid ||= r.refunds.length > 0; back += r.refunds.reduce((n, x) => n + x.cents, 0);
+      }
+      weeksGoing += cancels.length;
+      series.push({ id: s.id, court_id: s.court_id, organiser_id: s.organiser_id, from, cancels });
+    }
+    const summary = join([both("plan.weekly.end_all", { count: rows.length, members: members.size }),
+      i.booked === "keep" ? both("plan.weekly.end_all_keep") : both("plan.weekly.end_all_cancel", { count: weeksGoing }),
+      back ? both("plan.booking.repeat_end_back", { amount: usd(back) }) : anyPaid ? both("plan.booking.repeat_end_nothing") : { en: "", es: "" }]);
+    return { title: both("action.weekly.end_all"), summary, reads, ownerIds: await withManagers(ctx.db, []), moneyCents: back,
+      undo: { kind: back ? "compensating" : "none" }, details: { series } };
+  },
+  async apply(ctx, i, plan) {
+    const d = plan.details as { series: { id: string; court_id: string; organiser_id: string; from: string; cancels: WeekCancel[] }[] };
+    // Every series first (in id order), then all their courts at once, then each week: the order repeat_end takes.
+    const locked = [];
+    for (const x of d.series) locked.push(await ctx.trx.selectFrom("booking_series").selectAll().where("id", "=", x.id).forUpdate().executeTakeFirstOrThrow());
+    await lockCourts(ctx, [...new Set(locked.map((s) => s.court_id))]);
+    const told = new Map<string, { series: string[]; from: string }>();
+    for (const s of locked) {
+      if (s.ended_at) continue;   // ended in the meantime: nothing more to do, nor to tell
+      const x = d.series.find((y) => y.id === s.id)!;
+      if (i.booked === "cancel") await cancelWeeksFrom(ctx, s, x.from, x.cancels);
+      await ctx.update("booking_series", s.id, { ended_at: ctx.now });
+      const t = told.get(s.organiser_id) ?? { series: [], from: x.from };
+      t.series.push(s.id); if (x.from < t.from) t.from = x.from; told.set(s.organiser_id, t);
+    }
+    for (const [person_id, t] of told) await ctx.emit("weekly.ended_all", { person_id, series_ids: t.series, booked: i.booked, from: t.from });
+    return { series: [...told.values()].reduce((n, t) => n + t.series.length, 0), members: told.size };
   },
 });
 

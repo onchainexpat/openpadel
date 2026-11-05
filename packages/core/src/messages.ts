@@ -343,6 +343,15 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const cents = (where: string) => Number(back.find((x) => x.destination === where)?.c ?? 0);
     return [{ to: s.organiser_id, kind: "booking_repeat_ended", params: { ...s.base, from: dayText(p.from), refund: backWords(cents("card"), cents("desk")) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
+  /** Every member's weekly courts stopped by the club at once (weekly.end_all): each member hears once, with what came back. */
+  async "weekly.ended_all"({ db }, p: { person_id: string; series_ids: string[]; booked: "keep" | "cancel"; from: string }) {
+    if (p.booked === "keep") return [{ to: p.person_id, kind: "weekly_all_stopped", params: { count: p.series_ids.length }, purpose: "account", essential: true, email: true, link: "/places" }];
+    const back = p.series_ids.length ? await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+      .innerJoin("booking", "booking.id", "booking_player.booking_id").select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")])
+      .where("booking.series_id", "in", p.series_ids).where("booking.cancel_reason", "=", "series_ended").groupBy("refund.destination").execute() : [];
+    const cents = (where: string) => Number(back.find((x) => x.destination === where)?.c ?? 0);
+    return [{ to: p.person_id, kind: "weekly_all_ended", params: { count: p.series_ids.length, from: dayText(p.from), refund: backWords(cents("card"), cents("desk")) }, purpose: "account", essential: true, email: true, link: "/places" }];
+  },
   async "booking.asked"({ db }, p: { request_id: string }) {
     const r = await db.selectFrom("join_request").innerJoin("person", "person.id", "join_request.person_id").innerJoin("open_match", "open_match.booking_id", "join_request.booking_id")
       .select(["join_request.booking_id", "join_request.level", "person.display_name", "open_match.level_min", "open_match.level_max"]).where("join_request.id", "=", p.request_id).executeTakeFirstOrThrow();

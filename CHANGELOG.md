@@ -35,6 +35,10 @@ server starts.
     why. A first week never paid, or lost while its card went through, ends it. A court archived later leaves its
     weeks out instead of stopping the job. Turning weekly (or court) bookings off stops members' weekly courts and
     tells each once; booked weeks stay. A weekly court still booking weeks blocks deleting its member's account.
+  - **Stop every member's weekly court at once** (Settings, next to the weekly setting; owners and managers): no more
+    weeks and the booked ones stay, or the booked weeks from today go too, with what comes back by each week's rule,
+    everything they paid, or nothing. Previewed like every change; weekly courts the desk made stay; each member
+    hears once, however many weekly courts they had.
 - **Chats in games.** The players in a game message each other in the app: each court booking with named players
   (an open match is one) and each program date (a clinic, a social night) has a chat for the people in it, and its
   coach. Plain text up to 1,000 characters, links as links; a message changes for 5 minutes after it's posted and
@@ -86,6 +90,15 @@ server starts.
   and the profile's "Your receipts" link is as easy to tap as a button.
 
 ### Fixed
+- **One job that fails no longer stops the others.** The server's regular jobs (reminders, charges at their
+  deadlines, renewals, reconciliation with the card provider, receipts and the rest) ran one after another inside
+  one guard, so one that kept throwing stopped every job after it, every 30 seconds (a weekly court on an archived
+  court did, until that was fixed too). Each runs on its own now; one failing three runs in a row tells the owner
+  and managers once (as a failing backup does, and `kumi doctor` shows it), and once more when every job works again.
+- **Times staff type are the club's.** A date and time typed in the staff app (a program's date, moving one date,
+  a tournament or league match, a club news email sent later) was read on the device's clock, so a staff phone set
+  to another zone put a 5 PM class at the wrong hour. They're read on the club's clock now, whatever the device says,
+  as the times the apps show already were.
 - An update said "the point-in-time archive isn't ready" when Postgres happened to be sending a piece of its log at
   that moment. Making the archive now waits that out and tries again, and only says so if it really isn't ready
   (one-server installs, `server-setup.sh` and the Docker `pitr` service alike).

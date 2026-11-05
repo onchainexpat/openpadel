@@ -42,3 +42,14 @@ test("the screens compare with the server's now (serverNow), never the phone's c
   }
   assert.deepEqual(bad, [], `use serverNow(): ${bad.join(", ")}`);
 });
+
+test("what staff type into a date and time box is read on the club's clock (clubMoment), never the device's", () => {
+  const bad: string[] = [];
+  for (const { file, text } of sources) {
+    if (!text.includes('type="datetime-local"')) continue;
+    // new Date(typed).toISOString() reads the box in the device's zone: 5 PM typed on a phone set to Asuncion was 1 PM at the club.
+    for (const m of text.matchAll(/new Date\(([A-Za-z_][\w.[\]]*(?: \?\? "")?)\)\.toISOString\(\)/g)) bad.push(`${file}:${lineOf(text, m.index!)} new Date(${m[1]})`);
+    if (!text.includes("clubMoment(")) bad.push(`${file}: has a date and time box but never uses clubMoment`);
+  }
+  assert.deepEqual(bad, [], `read typed dates and times with clubMoment (packages/ui/src/state.ts): ${bad.join(", ")}`);
+});

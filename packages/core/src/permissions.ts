@@ -77,7 +77,7 @@ export const CHAT_ACTIONS = ["chat.report", "chat.hide", "chat.stop", "chat.allo
  *  the club), every member's details in one file, deleting people or data, a person's sign-in, the club's secrets,
  *  the usage cap, the host's read-only and leaving switches, and support access itself. */
 export const SUPPORT_NEVER = ["support.*", "role.*", "club.payment_*", "club.export", "club.setup", "club.read_only", "club.moved*", "club.leaving*", "club.usage_cap_set",
-  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*", ...DESK_MONEY, "chat.*"];
+  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*", ...DESK_MONEY, "chat.*", "weekly.end_all"];
 /** Their own account, which they look after like anyone (their second sign-in step first of all). */
 const SUPPORT_OWN = ["person.factor_*", "person.passkey_*", "person.update_profile"];
 

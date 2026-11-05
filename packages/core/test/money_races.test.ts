@@ -5,6 +5,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
+import { sql } from "kysely";
 import { appOnly, apply, checkPayment, expireHolds, getAction, lapseUnpaidPlaces, reconcilePayments, messageHandlers, moneyHandlers, openPayment, paidFor, plan, processOutbox, renewMemberships, run, runAsSystem,
   setPaymentProvider, toGiveBack, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
@@ -405,8 +406,11 @@ test("the app asks Stripe about a called-off payment only for a few days after; 
   await checkPayment(db, r.payment_id, "payments", NOW, { recentOnly: true });
   assert.equal(stripe.reads, reads + 1, "just called off: asked");
   reads = stripe.reads;
-  // The call-off is dated by the database's clock (the outbox row), not the test's NOW: four days on from it.
-  assert.equal(await checkPayment(db, r.payment_id, "payments", new Date(Date.now() + 4 * 864e5), { recentOnly: true }), "failed");
+  // The call-off is dated by the database's clock (the outbox row), not the test's NOW: four days on from that row's
+  // own time, never the wall clock (the test failed at 18:00 UTC on 5 Nov 2026 when the two drifted apart).
+  const calledOff = await db.selectFrom("event_outbox").select("created_at").where("topic", "=", "payment.call_off")
+    .where(sql<string>`payload->>'payment_id'`, "=", r.payment_id).orderBy("id", "desc").executeTakeFirstOrThrow();
+  assert.equal(await checkPayment(db, r.payment_id, "payments", new Date(new Date(calledOff.created_at).getTime() + 4 * 864e5), { recentOnly: true }), "failed");
   assert.equal(stripe.reads, reads, "four days on: not asked");
 });
 

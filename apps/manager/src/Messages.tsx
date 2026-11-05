@@ -3,7 +3,7 @@
 // means whoever matches when it's used; the count beside the filters says who that is now.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
-import { api, lang, t, usePreview, clubTime, serverNow } from "@kumi/ui";
+import { api, lang, t, usePreview, clubTime, serverNow, clubMoment } from "@kumi/ui";
 
 type Filters = { membership?: string; plan_ids?: string[]; level_min?: number; level_max?: number; tag_ids?: string[]; played_within_days?: number; not_played_days?: number;
   age?: string; lang?: string; program_id?: string; on_date?: string; joined_from?: string; joined_to?: string };
@@ -125,7 +125,7 @@ export function Compose() {
   const langs = LANGS.filter(([l]) => o.languages.includes(l));
   const send = (e: Event) => {
     e.preventDefault();
-    preview("broadcast.send", { purpose, ...(how === "saved" && segment ? { segment_id: segment } : { filters }), ...wordsInput(w), ...(later && at ? { send_at: new Date(at).toISOString() } : {}) });
+    preview("broadcast.send", { purpose, ...(how === "saved" && segment ? { segment_id: segment } : { filters }), ...wordsInput(w), ...(later && at ? { send_at: clubMoment(at) } : {}) });
   };
   return (
     <main>

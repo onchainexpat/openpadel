@@ -5,6 +5,7 @@ import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer 
 import { hasSender, PracticeTexter, TwilioTexter, twilioFromEnv, type TwilioConfig } from "./twilio.ts";
 import { checkTextingNumber, refreshTexting } from "./texting.ts";
 import { watchHealth } from "./health.ts";
+import { newJobsState, runJobs, type JobStep } from "./jobs.ts";
 import { TwilioApi } from "./twilio_admin.ts";
 import { handlers } from "./outbox.ts";
 import { tidySignIns } from "./oauth.ts";
@@ -138,70 +139,120 @@ console.log(`kumi server on ${describeListen(listenAt, server)}`);
 
 // The jobs, every 30 seconds: refunds and messages leave through the outbox, and due emails go out;
 // waitlist offers that ran out pass on; card payments nobody told us about are checked with the provider.
+// Each runs on its own (jobs.ts): one that throws doesn't stop the rest, and one that keeps failing is said once.
 const pushContact = process.env.KUMI_PUSH_CONTACT ?? (publicUrl.startsWith("https://") ? publicUrl : "mailto:owner@localhost");
-const jobs = async () => {
-  try {
+const jobsState = newJobsState();
+const jobSteps: JobStep[] = [
+  ["outbox", async () => {
     const sent = await processOutbox(db, handlers);
     if (sent.delivered || sent.failed) console.log(`outbox: ${sent.delivered} delivered, ${sent.failed} to retry`);
+  }],
+  ["broadcasts", async () => {
     // Scheduled broadcasts whose time has come: their messages are written for whoever matches now.
     const bc = await sendBroadcasts(db);
     if (bc.sent) console.log(`broadcasts: ${bc.sent} sent`);
+  }],
+  ["email and push", async () => {
     // A club news email's unsubscribe link: a page on this server, no sign-in (broadcasts.ts), at the members' address.
     const mail = await sendEmails(db, mailer, new Date(), 50, { unsubscribeUrl: (token) => `${membersUrl}/unsubscribe/${token}` });
     // Push services want a contact for whoever sends: the club's address on the web, or the owner's email.
     const push = await sendPushes(db, { subject: pushContact });
     if (push.sent || push.failed) console.log(`push: ${push.sent} sent, ${push.dropped} dropped, ${push.failed} to retry`);
     if (mail.sent || mail.dropped || mail.failed) console.log(`email: ${mail.sent} sent, ${mail.dropped} dropped, ${mail.failed} to retry`);
+  }],
+  ["texts", async () => {
     // Texts, with Twilio's delivery reports coming back to this server; with texts switched off, none wait.
     if (texter && textingOn()) {
       const tx = await sendTexts(db, texter, { memberUrl: membersUrl, ...(publicUrl.startsWith("https://") ? { statusCallback: `${publicUrl.replace(/\/$/, "")}/webhooks/twilio/status` } : {}) });
       if (tx.sent || tx.dropped || tx.failed) console.log(`texts: ${tx.sent} sent, ${tx.dropped} dropped, ${tx.failed} failed or to retry`);
     } else if (await dropWaitingTexts(db)) console.log("texts: switched off, so the ones waiting were dropped");
+  }],
+  ["waitlist offers", async () => {
     const r = await expireOffers(db);
     if (r.expired) console.log(`waitlist offers: ${r.expired} ran out, ${r.offered} passed on`);
+  }],
+  ["unpaid places", async () => {
     const up = await lapseUnpaidPlaces(db);
     if (up.reminded || up.lapsed) console.log(`program places not paid: ${up.reminded} reminded, ${up.lapsed} freed for the waitlist`);
+  }],
+  ["court holds", async () => {
     const h = await expireHolds(db);
     if (h.lapsed) console.log(`court holds: ${h.lapsed} not paid in time, released`);
+  }],
+  ["open match seats", async () => {
     const seats = await releaseSeats(db);
     if (seats.released) console.log(`open matches: ${seats.released} seats not paid in time, open again`);
+  }],
+  ["weekly courts", async () => {
     // Weekly courts members book themselves: each week once it's inside their booking window (then charged with the rest below).
     const wk = await bookSeriesWeeks(db);
     if (wk.booked || wk.missed || wk.ended) console.log(`weekly courts: ${wk.booked} weeks booked, ${wk.missed} left out (the member told), ${wk.ended} never paid and closed`);
+  }],
+  ["shared bookings", async () => {
     const sh = await settleShares(db);
     if (sh.settled) console.log(`shared bookings: ${sh.settled} settled at their deadline, ${sh.charged} charged to the organiser, ${sh.failed} left owing`);
+  }],
+  ["scores", async () => {
     const sc = await confirmScores(db);
     if (sc.confirmed) console.log(`scores: ${sc.confirmed} counted after nobody answered in time`);
+  }],
+  ["program minimums", async () => {
     // Programs with a minimum: staff hear first if one is short, then at its decision time it runs or is cancelled.
     const mins = await decidePrograms(db);
     if (mins.cancelled || mins.ran || mins.warned) console.log(`program minimums: ${mins.warned} short (staff told), ${mins.ran} running, ${mins.cancelled} cancelled and paid back`);
+  }],
+  ["questions", async () => {
     const qa = await alertUnanswered(db);
     if (qa.alerted) console.log(`questions: front desk told about ${qa.alerted} waiting past the club's setting`);
+  }],
+  ["court reminders", async () => {
     const rem = await remindBookings(db);
     if (rem.reminded) console.log(`court reminders: ${rem.reminded} bookings`);
+  }],
+  ["leaving", async () => {
     // The day the club's Kumi ends (leaving.ts): the owner's reminders a week and a day before, in the daytime.
     const lv = await remindLeaving(db);
     if (lv) console.log(`leaving: the owner reminded (${lv === "week" ? "a week" : "a day"} before)`);
+  }],
+  ["membership ends", async () => {
     const ended = await endLapsedMemberships(db);
     if (ended) console.log(`memberships: ${ended} reached their end date`);
+  }],
+  ["desk memberships", async () => {
     // Paid at the desk, so nothing renews by itself: the member hears a week before it ends.
     const ending = await remindMembershipEnds(db);
     if (ending) console.log(`memberships: ${ending} paid at the desk reminded they end within a week`);
+  }],
+  ["membership presales", async () => {
     const ps = await tidyPresales(db);
     if (ps.saved || ps.released) console.log(`membership presales: ${ps.saved} cards saved, ${ps.released} places let go (no card in time)`);
+  }],
+  ["membership renewals", async () => {
     const mr = await renewMemberships(db);
     if (mr.renewed || mr.failed || mr.ended) console.log(`membership renewals: ${mr.renewed} renewed, ${mr.failed} card declined (tried again later), ${mr.ended} ended`);
+  }],
+  ["payments", async () => {
     const p = await reconcilePayments(db);
     if (p.settled) console.log(`payments: ${p.settled} settled by checking with the provider`);
+  }],
+  ["unfinished payments", async () => {
     const uf = await closeUnfinishedPayments(db);
     if (uf.closed || uf.paid) console.log(`payments: ${uf.closed} membership payments left unfinished for a day called off${uf.paid ? `, ${uf.paid} had gone through` : ""}`);
+  }],
+  ["receipts", async () => {
     // A receipt for each payment that went through and each refund sent (receipts.ts), with the card from the provider.
     const rc = await issueReceipts(db, { card: async (ref, account) => (await paymentProvider().cardOf?.(ref, account)) ?? null });
     if (rc.issued) console.log(`receipts: ${rc.issued} written`);
+  }],
+  ["court blocks", async () => {
     // Repeating court blocks are made a year ahead: as days pass, each gets its dates for the new days.
     const bs = await extendBlockSeries(db);
     if (bs.dates) console.log(`court blocks: ${bs.dates} more dates of repeating blocks made`);
+  }],
+  ["uploads", async () => {
     await tidyVaultUploads(db);
+  }],
+  ["hourly tidy", async () => {
     if (Date.now() >= tidyNext) {   // sign-in leftovers, hourly
       tidyNext = Date.now() + 3600_000;
       const ts = await tidySignIns(db);
@@ -210,12 +261,20 @@ const jobs = async () => {
       const ch = await tidyChats(db);
       if (ch.deleted) console.log(`chats: ${ch.deleted} chats 90 days after their game deleted`);
     }
+  }],
+  ["family cards", async () => {
     const fc = await tidyFamilyCards(db);
     if (fc.saved) console.log(`family cards: ${fc.saved} saved (found by checking with the provider)`);
+  }],
+  ["support access", async () => {
     // Support access whose time ran out (it already stopped working on time): the owner hears it ended.
     const sx = await expireSupport(db);
     if (sx) console.log(`support access: ${sx} ended, the owner told`);
+  }],
+  ["wallets", async () => {
     await registerWallets().catch((e) => console.error("payments: registering the members' domain for Apple Pay and Google Pay:", (e as Error).message));
+  }],
+  ["texting registration", async () => {
     // The texting registration under review: asked about hourly; texts start when it's approved (if nothing else is set).
     if (twilioApi && Date.now() >= textingNext) {
       textingNext = Date.now() + 3600_000;
@@ -225,11 +284,15 @@ const jobs = async () => {
         if (mg) startTexts({ ...twilio, messagingServiceSid: mg });
       }
     }
+  }],
+  ["health watch", async () => {
     // Texts getting through and ask the club's model answering: staff hear once when either starts failing.
     if (Date.now() >= watchNext) {
       watchNext = Date.now() + 300_000;
       await watchHealth(db, { texting: Boolean(texter) && textingOn(), models: answerModels(process.env) });
     }
+  }],
+  ["texting number", async () => {
     // Once approved, the club's texting number is checked hourly too (it can stop working after approval).
     if (twilioApi && Date.now() >= numberNext) {
       numberNext = Date.now() + 3600_000;
@@ -237,12 +300,18 @@ const jobs = async () => {
       if (n?.ok) await jobWorked(db, "texting_number");
       else if (n) await jobFailed(db, "texting_number", n.error, new Date(), n.words);
     }
+  }],
+  ["stripe account", async () => {
     // While the club is still setting up its Stripe account, ask Stripe whether it's ready (a webhook says so too).
     if (stripe?.connect) {
       const club = await db.selectFrom("club").select(["stripe_account_id", "stripe_charges_enabled"]).executeTakeFirstOrThrow();
       if (club.stripe_account_id && !club.stripe_charges_enabled) await refreshStripeAccount(db, stripe);
     }
-  } catch (e) { console.error("jobs:", (e as Error).message); }
+  }],
+];
+const jobs = async () => {
+  try { await runJobs(db, jobSteps, jobsState); }
+  catch (e) { console.error("jobs:", (e as Error).message); }
   finally { setTimeout(jobs, 30_000); }
 };
 void jobs();

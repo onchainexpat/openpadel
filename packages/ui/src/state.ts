@@ -5,6 +5,7 @@ import { lazy } from "preact-iso";
 import { useState } from "preact/hooks";
 import { format, LANGS, pickLang, type Catalog, type Key, type Lang, type Params } from "@kumi/i18n/format";
 import { brandColours } from "./brand.ts";
+import { wallToMoment } from "./club_clock.ts";
 export { brandColours, contrastOf } from "./brand.ts";
 
 export type Me = { person: { id: string; display_name: string; locale: string }; signed_in_with: "email_code" | "phone_code" | "passkey" | "two_factor"; lang: Lang;
@@ -150,6 +151,12 @@ export const serverNow = () => Date.now() + skew;
 export function clubTime(at: string | number | Date, opts: Intl.DateTimeFormatOptions, zone?: string | null): string {
   return new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { ...opts, timeZone: zone || club.value?.time_zone || undefined }).format(new Date(at));
 }
+/** What staff type into a date and time box ("2026-11-06T17:00") is the club's clock, not the device's: the exact
+ *  moment it names, as the server takes it (UTC; club_clock.ts). Every typed date and time goes through here
+ *  (club_time.test.ts holds them to it). `zone` is for a location of its own. */
+export const clubMoment = (local: string, zone?: string | null): string =>
+  // Before the club has loaded (it loads with the app), the device's own zone, as clubTime shows times then.
+  wallToMoment(local, zone || club.value?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone);
 /** A moment: the time when it's today, the day and time when it isn't (a place offered at night is held into the next day). */
 export function shortTime(iso: string): string {
   const day = (x: string | number) => clubTime(x, { year: "numeric", month: "numeric", day: "numeric" });

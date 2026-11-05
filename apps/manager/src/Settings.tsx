@@ -3,7 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
-import { api, club as clubSignal, dollars, lang, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club, applyBrand } from "@kumi/ui";
+import { api, club as clubSignal, dollars, lang, mayDo, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club, applyBrand } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
 type Hours = { weekday: number; opens: string | null; closes: string | null };
@@ -152,6 +152,7 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       {/* Members booking the same court every week themselves (off until the club says): the desk can always make one for a member. */}
       <label class="check"><input type="checkbox" checked={f.weekly_bookings} onChange={(e) => set("weekly_bookings", e.currentTarget.checked)} /> {t("ui.weekly_bookings_on")}</label>
       {f.weekly_bookings && <label>{t("ui.weekly_max_weeks")}<input type="number" min="2" max="26" step="1" value={String(f.weekly_max_weeks)} onChange={(e) => set("weekly_max_weeks", Math.max(2, Math.min(26, Math.round(Number(e.currentTarget.value) || 12))))} /></label>}
+      {mayDo("weekly.end_all") && <EndAllWeekly preview={send} />}
       <label class="check"><input type="checkbox" checked={f.players_chat} onChange={(e) => set("players_chat", e.currentTarget.checked)} /> {t("ui.players_chat_on")}</label>
       <label class="check"><input type="checkbox" checked={f.public_page} onChange={(e) => set("public_page", e.currentTarget.checked)} /> {t("ui.public_page_on")}</label>
       {c.public_page && <p class="meta"><a href={`${clubSignal.value?.member_url ?? ""}/public`} target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
@@ -364,5 +365,21 @@ function NewLocation({ tz, send }: { tz: string; send: Preview }) {
       <label>{t("ui.time_zone")}<input list="zones" required value={f.time_zone} onInput={(e) => setF({ ...f, time_zone: e.currentTarget.value })} /></label>
       <button class="primary">{t("ui.preview")}</button>
     </form>
+  );
+}
+
+/** Every weekly court members booked in the app, stopped at once (weekly.end_all): the booked weeks stay, or go too
+ *  with what comes back by each week's rule, all of it, or none. Previewed like every change; each member hears once. */
+function EndAllWeekly({ preview }: { preview: Preview }) {
+  const [booked, setBooked] = useState<"keep" | "cancel">("keep"), [refund, setRefund] = useState<"rule" | "full" | "none">("rule");
+  return (
+    <details><summary>{t("ui.weekly_end_all")}</summary>
+      <p class="meta">{t("ui.weekly_end_all_hint")}</p>
+      <label class="check"><input type="radio" name="weekly_booked" checked={booked === "keep"} onChange={() => setBooked("keep")} /> {t("ui.weekly_end_all_keep")}</label>
+      <label class="check"><input type="radio" name="weekly_booked" checked={booked === "cancel"} onChange={() => setBooked("cancel")} /> {t("ui.weekly_end_all_cancel")}</label>
+      {booked === "cancel" && <label>{t("ui.refund")}<select value={refund} onChange={(e) => setRefund(e.currentTarget.value as typeof refund)}>
+        <option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option></select></label>}
+      <button type="button" class="small" onClick={() => preview("weekly.end_all", booked === "cancel" ? { booked, refund } : { booked })}>{t("ui.weekly_end_all_go")}</button>
+    </details>
   );
 }

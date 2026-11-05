@@ -1,7 +1,7 @@
 // A tournament or league: pair players, make the draw, put matches on the program's courts and times, enter
 // scores and walkovers, and see the tables. Members ask to move a match; staff move it here.
 import { useEffect, useState } from "preact/hooks";
-import { api, clubTime, t, usePreview } from "@kumi/ui";
+import { api, clubTime, t, usePreview, clubMoment } from "@kumi/ui";
 
 type Fixture = { id: string; stage: string; group: number | null; round: number; a: string; b: string; a_id: string | null; b_id: string | null; status: string; court: string | null; starts_at: string | null; score: string; walkover: boolean; move_asked: string | null; game_id: string | null; game_status: string | null };
 type Row = { entry: string; name: string; played: number; won: number; lost: number; points: number; setsFor: number; setsAgainst: number; gamesFor: number; gamesAgainst: number };
@@ -72,7 +72,7 @@ export function Competition({ id }: { id: string }) {
               {f.move_asked && <p class="meta">{t("ui.move_asked_note", { note: f.move_asked })}</p>}
               {(f.status === "ready" || f.status === "waiting") && d.courts.length > 0 && (
                 <details><summary>{f.starts_at ? t("ui.move_match") : t("action.fixture.place")}</summary>
-                  <form onSubmit={(e) => { e.preventDefault(); preview("fixture.place", { fixture_id: f.id, court_id: court[f.id] || d.courts[0]!.id, starts_at: new Date(at[f.id] ?? "").toISOString() }); }}>
+                  <form onSubmit={(e) => { e.preventDefault(); preview("fixture.place", { fixture_id: f.id, court_id: court[f.id] || d.courts[0]!.id, starts_at: clubMoment(at[f.id] ?? "") }); }}>
                     <label>{t("ui.court_label")}<select value={court[f.id] ?? d.courts[0]!.id} onChange={(e) => setCourt({ ...court, [f.id]: e.currentTarget.value })}>{d.courts.map((c) => <option value={c.id}>{c.name}</option>)}</select></label>
                     <label>{t("ui.starts")}<input type="datetime-local" required value={at[f.id] ?? ""} onInput={(e) => setAt({ ...at, [f.id]: e.currentTarget.value })} /></label>
                     <button class="small">{t("ui.save")}</button>

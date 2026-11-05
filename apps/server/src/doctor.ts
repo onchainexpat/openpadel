@@ -209,6 +209,8 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
     const h = Math.round(ago(off.last_ok_at)!), keeps = offsitePrunes(env) ? "offsite.pruned_by_kumi" : "offsite.pruned_by_storage";
     add("offsite", h > 36 ? "warn" : "ok", h > 36 ? `offsite.old${d}` : keeps, { hours: h }, h > 36 ? offDoc : undefined);
   }
+  // The 30-second jobs (jobs.ts): one failing three runs in a row is recorded here until every job works again.
+  if (hb.jobs?.last_error) add("jobs", "fail", "jobs.failing", { error: hb.jobs.last_error });
   const rt = hb.restore_test;
   if (rt?.last_error) add("restore_test", "fail", "restore_test.failing", { error: rt.last_error }, opsDoc);
   else if (!rt?.last_ok_at) add("restore_test", production ? "warn" : "off", "restore_test.never", {}, opsDoc);

@@ -65,6 +65,7 @@ export async function deepHealth(db: Db, o: { env?: Env; now?: Date; backupDir?:
   if (offsiteOn && (offsite.error || offsite.last_ok_hours === null || offsite.last_ok_hours > 36)) problems.push("offsite");
   const restore = job("restore_test");
   if (restore.error || (restore.last_ok_hours !== null && restore.last_ok_hours > 40 * 24)) problems.push("restore_test");
+  if (hb.jobs?.last_error) problems.push("jobs");
 
   // Texts in the last day, when the club texts: more than a fifth failing means they aren't getting through.
   // And this month's (text_usage.ts).

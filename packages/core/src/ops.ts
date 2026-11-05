@@ -9,10 +9,11 @@ import { defineAction, runAsSystem } from "./actions.ts";
 import type { Db } from "./db.ts";
 import { uuidv7 } from "./ids.ts";
 
-export type OpsJob = "backup" | "offsite" | "restore_test" | "pitr" | "pitr_test" | "texts" | "answers" | "texting_number";
+export type OpsJob = "backup" | "offsite" | "restore_test" | "pitr" | "pitr_test" | "texts" | "answers" | "texting_number" | "jobs";
 /** The scheduled jobs (backups); the rest are watched. */
 export const OPS_JOBS: OpsJob[] = ["backup", "offsite", "restore_test", "pitr", "pitr_test"];
-const ALL_JOBS = ["backup", "offsite", "restore_test", "pitr", "pitr_test", "texts", "answers", "texting_number"] as const;
+/** "jobs": the server's 30-second jobs (apps/server/src/jobs.ts), one of which keeps failing. */
+const ALL_JOBS = ["backup", "offsite", "restore_test", "pitr", "pitr_test", "texts", "answers", "texting_number", "jobs"] as const;
 
 export async function heartbeat(db: Db, name: OpsJob) {
   const r = await db.selectFrom("ops_heartbeat").selectAll().where("name", "=", name).executeTakeFirst();
