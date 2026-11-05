@@ -405,7 +405,8 @@ test("the app asks Stripe about a called-off payment only for a few days after; 
   await checkPayment(db, r.payment_id, "payments", NOW, { recentOnly: true });
   assert.equal(stripe.reads, reads + 1, "just called off: asked");
   reads = stripe.reads;
-  assert.equal(await checkPayment(db, r.payment_id, "payments", new Date(NOW.getTime() + 4 * 864e5), { recentOnly: true }), "failed");
+  // The call-off is dated by the database's clock (the outbox row), not the test's NOW: four days on from it.
+  assert.equal(await checkPayment(db, r.payment_id, "payments", new Date(Date.now() + 4 * 864e5), { recentOnly: true }), "failed");
   assert.equal(stripe.reads, reads, "four days on: not asked");
 });
 
