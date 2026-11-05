@@ -3,28 +3,43 @@ import { api, t } from "@kumi/ui";
 import { usePreview } from "@kumi/ui";
 
 type Game = { id: string; court: string; status: string; odds_a: number; a: string[]; b: string[]; score: { a: number; b: number } | null };
-type Night = { draw: { rounds: number; points_per_game: number } | null; rounds: { round: number; games: Game[] }[]; standings: { name: string; points: number; games: number }[] };
+type Draw = { format: "americano" | "mexicano" | "king_of_court"; rounds: number; points_per_game: number; round_minutes: number | null };
+type Night = { draw: Draw | null; format: Draw["format"] | null; rounds: { round: number; games: Game[]; sat_out: string[] }[]; standings: { name: string; points: number; games: number; top: number }[]; next_round: number | null };
+const MEXICANO_POINTS = [16, 21, 24, 32];
 
 export function Night({ id }: { id: string }) {
-  const [d, setD] = useState<Night | null>(null), [rounds, setRounds] = useState(6), [points, setPoints] = useState(24), [scores, setScores] = useState<Record<string, { a: string; b: string }>>({});
+  const [d, setD] = useState<Night | null>(null), [rounds, setRounds] = useState(6), [points, setPoints] = useState(24), [minutes, setMinutes] = useState(12), [scores, setScores] = useState<Record<string, { a: string; b: string }>>({});
   const load = () => api<Night>(`/staff/sessions/${id}/night`).then(setD);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [id]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const score = (g: Game) => preview("game.score", { game_id: g.id, a: Number(scores[g.id]?.a ?? 0), b: Number(scores[g.id]?.b ?? 0) });
+  const format = d.draw?.format ?? d.format ?? "americano";
 
   return (
     <main>
       <h1>{t("ui.rounds")}</h1>
       {sheet}
+      {d.draw && <p class="meta">{t("ui.night_format", { format: t(`format.${format}`), rounds: d.draw.rounds })}</p>}
       {!d.draw ? (
-        <form class="card" onSubmit={(e) => { e.preventDefault(); preview("draw.generate", { session_id: id, rounds, points_per_game: points }); }}>
-          <p>{t("ui.no_rounds")}</p>
+        <form class="card" onSubmit={(e) => { e.preventDefault(); preview("draw.generate", { session_id: id, rounds, ...(format === "king_of_court" ? { round_minutes: minutes } : { points_per_game: points }) }); }}>
+          <p>{t("ui.no_rounds")} <span class="meta">{t(`format.${format}`)}</span></p>
           <label>{t("ui.rounds")}<input type="number" min="1" max="20" value={rounds} onInput={(e) => setRounds(Number(e.currentTarget.value))} /></label>
-          <label>{t("ui.points")}<input type="number" min="4" value={points} onInput={(e) => setPoints(Number(e.currentTarget.value))} /></label>
+          {format === "mexicano" ? (
+            <label>{t("ui.points")}<select value={points} onChange={(e) => setPoints(Number(e.currentTarget.value))}>{MEXICANO_POINTS.map((p) => <option value={p}>{p}</option>)}</select></label>
+          ) : format === "king_of_court" ? (
+            <label>{t("ui.round_minutes")}<input type="number" min="5" max="60" value={minutes} onInput={(e) => setMinutes(Number(e.currentTarget.value))} /></label>
+          ) : (
+            <label>{t("ui.points")}<input type="number" min="4" value={points} onInput={(e) => setPoints(Number(e.currentTarget.value))} /></label>
+          )}
           <button class="primary">{t("ui.make_rounds")}</button>
         </form>
-      ) : <button onClick={() => preview("draw.repair", { session_id: id })}>{t("ui.repair")}</button>}
+      ) : (
+        <p>
+          {d.next_round && <button class="primary" onClick={() => preview("draw.next_round", { session_id: id })}>{t("ui.next_round", { n: d.next_round })}</button>}{" "}
+          <button onClick={() => preview("draw.repair", { session_id: id })}>{t("ui.repair")}</button>
+        </p>
+      )}
       {d.rounds.map((r) => (
         <section class="card">
           <h2>{t("ui.round", { n: r.round })}</h2>
@@ -41,11 +56,13 @@ export function Night({ id }: { id: string }) {
               )}
             </div>
           ))}
+          {r.sat_out.length > 0 && <p class="meta">{t("ui.sat_out", { names: r.sat_out.join(", ") })}</p>}
         </section>
       ))}
       {d.standings.length > 0 && (
         <section class="card"><h2>{t("ui.standings")}</h2>
-          <table><tbody>{d.standings.map((s, i) => <tr><td>{i + 1}</td><td>{s.name}</td><td>{s.points}</td><td class="meta">{t("count.games", { count: s.games })}</td></tr>)}</tbody></table>
+          <table><tbody>{d.standings.map((s, i) => <tr><td>{i + 1}</td><td>{s.name}</td><td>{s.points}</td>
+            <td class="meta">{t("count.games", { count: s.games })}{format === "king_of_court" && s.top > 0 ? ` · ${t("ui.top_court_wins", { count: s.top })}` : ""}</td></tr>)}</tbody></table>
         </section>
       )}
     </main>

@@ -1,9 +1,12 @@
-// Americano nights: make the rounds, enter scores, and re-pair what's left after a late drop.
-// The preview carries the exact rounds, so what's confirmed is what was shown.
+// Draw nights (Americano, Mexicano, King of the Court): make the rounds, enter scores, and re-pair what's left
+// after a late drop. An Americano makes every round at the start; Mexicano and King of the Court make each round
+// from the one before, when staff ask for the next. The preview carries the exact round(s), so what's confirmed
+// is what was shown.
 import * as z from "zod/mini";
 import { both } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { emptyHistory, recordRound, schedule, type History, type Player, type Round } from "./americano.ts";
+import { KOTC_MINUTES, MEXICANO_POINTS, kotcFirstRound, kotcNextRound, mexicanoRound, type PlayedGame } from "./formats.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { MODEL } from "./levels.ts";
@@ -51,6 +54,47 @@ async function summary(ctx: PlanCtx, rounds: Round[], players: number, courts: {
   const sit = rounds[0]?.sittingOut.length ?? 0;
   return { fair: fairText(rounds), sitout: sit ? both("plan.draw.sitout", { count: sit }) : { en: "", es: "" }, players, courts: courts.slice(0, Math.floor(players / 4)).map((c) => c.name).join(", ") };
 }
+type Format = "americano" | "mexicano" | "king_of_court";
+const formatOf = (p: { format?: string | null }): Format => (p.format === "mexicano" || p.format === "king_of_court" ? p.format : "americano");
+/** One round's pairings as the preview lists them: "Court 1: Ana + Ben vs Cy + Di". */
+async function roundText(db: Db | Trx, r: Round, courts: { id: string; name: string }[]) {
+  const ids = [...new Set(r.games.flatMap((g) => [...g.a, ...g.b]))];
+  const names = new Map((ids.length ? await db.selectFrom("person").select(["id", "display_name"]).where("id", "in", ids).execute() : []).map((p) => [p.id, p.display_name]));
+  const court = new Map(courts.map((c) => [c.id, c.name]));
+  return r.games.map((g) => `${court.get(g.court) ?? ""}: ${g.a.map((x) => names.get(x)).join(" + ")} / ${g.b.map((x) => names.get(x)).join(" + ")}`).join("; ");
+}
+/** Who sat out each round so far (rounds are written with their sit-outs). */
+const satOutCounts = (sat: Record<string, string[]>, upTo = Infinity) => {
+  const m = new Map<string, number>();
+  for (const [round, ids] of Object.entries(sat)) if (Number(round) <= upTo) for (const id of ids) m.set(id, (m.get(id) ?? 0) + 1);
+  return m;
+};
+/** The latest round written, and whether every game in it has a score (or was set aside). */
+async function latestRound(db: Db | Trx, sessionId: string) {
+  const games = await db.selectFrom("game").select(["id", "round", "status"]).where("session_id", "=", sessionId).where("status", "!=", "void").execute();
+  const latest = games.length ? Math.max(...games.map((g) => g.round!)) : 0;
+  const inIt = games.filter((g) => g.round === latest);
+  return { latest, done: inIt.length > 0 && inIt.every((g) => g.status === "confirmed"), games: inIt };
+}
+/** The next round of a Mexicano or King of the Court night, for the players on the roster now. A King of the
+ *  Court night whose roster changed (a late drop, a place taken from the waitlist) is seeded again by its
+ *  standings, Mexicano style, since the court-to-court moves need the same players. */
+async function makeNext(db: Db | Trx, draw: { format: string; sat_out: unknown; version: number }, sessionId: string, players: Player[], courts: { id: string; name: string }[], round: number): Promise<Round> {
+  const sat = (draw.sat_out ?? {}) as Record<string, string[]>, sitouts = satOutCounts(sat, round - 1), seed = `${sessionId}:${round}:${draw.version}`;
+  const table = await standings(db, sessionId);
+  const points = new Map(table.map((s) => [s.person_id, s.points]));
+  if (draw.format === "mexicano") return mexicanoRound(players, courts.map((c) => c.id), points, sitouts, seed);
+  const prev = await db.selectFrom("game").innerJoin("game_set", (j) => j.onRef("game_set.game_id", "=", "game.id").on("game_set.set_no", "=", 1))
+    .select(["game.id", "game.court_id", "game_set.a", "game_set.b"]).where("game.session_id", "=", sessionId).where("game.round", "=", round - 1).where("game.status", "=", "confirmed").execute();
+  const sides = prev.length ? await db.selectFrom("game_side").select(["game_id", "side", "person_id"]).where("game_id", "in", prev.map((g) => g.id)).execute() : [];
+  const last: PlayedGame[] = prev.map((g) => ({ court: g.court_id!, scoreA: g.a, scoreB: g.b,
+    a: sides.filter((x) => x.game_id === g.id && x.side === "a").map((x) => x.person_id) as [string, string], b: sides.filter((x) => x.game_id === g.id && x.side === "b").map((x) => x.person_id) as [string, string] }));
+  const waiting = sat[String(round - 1)] ?? [];
+  const before = new Set([...last.flatMap((g) => [...g.a, ...g.b]), ...waiting]), now = new Set(players.map((p) => p.id));
+  const same = before.size === now.size && [...now].every((id) => before.has(id)) && last.length === Math.min(courts.length, Math.floor(players.length / 4));
+  if (!same || !last.length) return mexicanoRound(players, courts.map((c) => c.id), points, sitouts, seed);
+  return kotcNextRound(new Map(players.map((p) => [p.id, p])), courts.map((c) => c.id), last, waiting, sitouts, seed);
+}
 
 async function writeRounds(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], sessionId: string, rounds: Round[], firstRound: number) {
   const rated = (await ctx.trx.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select("program.rated").where("session.id", "=", sessionId).executeTakeFirstOrThrow()).rated;
@@ -63,21 +107,67 @@ async function writeRounds(ctx: Parameters<NonNullable<Parameters<typeof defineA
 
 export const drawGenerate = defineAction({
   name: "draw.generate", version: 1,
-  input: z.object({ session_id: z.uuid(), rounds: z.number().check(z.int(), z.minimum(1), z.maximum(20)), points_per_game: z.optional(z.number().check(z.int(), z.minimum(4))) }),
+  input: z.object({ session_id: z.uuid(), rounds: z.number().check(z.int(), z.minimum(1), z.maximum(20)), points_per_game: z.optional(z.number().check(z.int(), z.minimum(4))),
+    round_minutes: z.optional(z.number().check(z.int(), z.minimum(5), z.maximum(60))) }),
   async plan(ctx, i) {
     const { row: s, read } = await readRow(ctx.db, "session", i.session_id, "thing.session");
     if (await ctx.db.selectFrom("draw").select("session_id").where("session_id", "=", i.session_id).where("status", "!=", "void").executeTakeFirst()) throw new KumiError("error.draw_exists");
     const { row: p } = await readRow(ctx.db, "program", s.program_id, "thing.program");
+    const format = formatOf(p), points = i.points_per_game ?? 24;
+    if (format === "mexicano" && !(MEXICANO_POINTS as readonly number[]).includes(points)) throw new KumiError("error.mexicano_points", { points: MEXICANO_POINTS.join(", ") }, 400);
     const players = await sessionPlayers(ctx.db, s.program_id, s.id), courts = await sessionCourts(ctx.db, s.id);
     if (players.length < 4) throw new KumiError("error.not_enough_players");
-    const rounds = schedule(players, courts.map((c) => c.id), i.rounds, `${s.id}:0`);
-    const sm = await summary(ctx, rounds, players.length, courts);
-    return { title: both("action.draw.generate"), summary: both("plan.draw.generate", { rounds: i.rounds, ...sm }), reads: [read], locationId: p.location_id, undo: { kind: "reversible" }, details: { rounds } };
+    if (format === "americano") {
+      const rounds = schedule(players, courts.map((c) => c.id), i.rounds, `${s.id}:0`);
+      const sm = await summary(ctx, rounds, players.length, courts);
+      return { title: both("action.draw.generate"), summary: both("plan.draw.generate", { rounds: i.rounds, ...sm }), reads: [read], locationId: p.location_id, undo: { kind: "reversible" }, details: { rounds, format } };
+    }
+    // Mexicano and King of the Court make round 1 now and each later round from the one before.
+    const first = format === "mexicano" ? mexicanoRound(players, courts.map((c) => c.id), null, new Map(), `${s.id}:1:1`) : kotcFirstRound(players, courts.map((c) => c.id), `${s.id}:1:1`);
+    const sm = await summary(ctx, [first], players.length, courts), minutes = i.round_minutes ?? KOTC_MINUTES;
+    const how = format === "mexicano" ? both("plan.draw.mexicano_how", { points }) : both("plan.draw.kotc_how", { minutes });
+    return { title: both("action.draw.generate"), summary: both("plan.draw.generate_one", { format: both(`format.${format}`), rounds: i.rounds, players: sm.players, courts: sm.courts, sitout: sm.sitout, how, first: await roundText(ctx.db, first, courts) }),
+      reads: [read], locationId: p.location_id, undo: { kind: "reversible" }, details: { rounds: [first], format, minutes } };
   },
   async apply(ctx, i, plan) {
-    await ctx.insert("draw", { session_id: i.session_id, format: "americano", points_per_game: i.points_per_game ?? 24, rounds: i.rounds, seed: `${i.session_id}:0` });
-    await writeRounds(ctx, i.session_id, (plan.details as { rounds: Round[] }).rounds, 1);
+    const det = plan.details as { rounds: Round[]; format: Format; minutes?: number };
+    const sat: Record<string, string[]> = Object.fromEntries(det.rounds.map((r, k) => [String(k + 1), r.sittingOut]));
+    await ctx.insert("draw", { session_id: i.session_id, format: det.format, points_per_game: det.format === "king_of_court" ? 24 : i.points_per_game ?? 24, rounds: i.rounds, seed: `${i.session_id}:0`,
+      round_minutes: det.format === "king_of_court" ? det.minutes ?? KOTC_MINUTES : null, sat_out: JSON.stringify(sat) });
+    await writeRounds(ctx, i.session_id, det.rounds, 1);
     await ctx.emit("draw.made", { session_id: i.session_id });
+    return null;
+  },
+});
+
+/** Mexicano and King of the Court: the next round, once every game of the last one has its score. */
+export const drawNextRound = defineAction({
+  name: "draw.next_round", version: 1,
+  input: z.object({ session_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { row: d, read } = await readRow(ctx.db, "draw", i.session_id, "thing.session");
+    if (d.status === "void") throw new KumiError("error.no_draw");
+    if (d.format === "americano") throw new KumiError("error.americano_all_rounds");
+    const { row: s } = await readRow(ctx.db, "session", i.session_id, "thing.session");
+    const { row: p } = await readRow(ctx.db, "program", s.program_id, "thing.program");
+    const { latest, done } = await latestRound(ctx.db, i.session_id);
+    if (latest >= d.rounds) throw new KumiError("error.nothing_to_repair");
+    if (!done) throw new KumiError("error.round_not_scored", { round: latest });
+    const players = await sessionPlayers(ctx.db, s.program_id, s.id), courts = await sessionCourts(ctx.db, s.id);
+    if (players.length < 4) throw new KumiError("error.not_enough_players");
+    const next = await makeNext(ctx.db, d as never, i.session_id, players, courts, latest + 1);
+    const sit = next.sittingOut.length;
+    return { title: both("action.draw.next_round"), summary: both("plan.draw.next_round", { round: latest + 1, of: d.rounds, pairs: await roundText(ctx.db, next, courts), sitout: sit ? both("plan.draw.sitout", { count: sit }) : { en: "", es: "" } }),
+      reads: [read], locationId: p.location_id, undo: { kind: "compensating" }, details: { round: next, number: latest + 1 } };
+  },
+  async apply(ctx, i, plan) {
+    const det = plan.details as { round: Round; number: number };
+    const d = await ctx.trx.selectFrom("draw").select(["sat_out"]).where("session_id", "=", i.session_id).forUpdate().executeTakeFirstOrThrow();
+    // Two staff asking at once: only the first makes the round.
+    if (await ctx.trx.selectFrom("game").select("id").where("session_id", "=", i.session_id).where("round", ">=", det.number).where("status", "!=", "void").executeTakeFirst()) throw new KumiError("error.changed", {}, 409);
+    await writeRounds(ctx, i.session_id, [det.round], det.number);
+    await ctx.update("draw", i.session_id, { sat_out: JSON.stringify({ ...(d.sat_out as Record<string, string[]>), [String(det.number)]: det.round.sittingOut }) });
+    await ctx.emit("draw.next_round", { session_id: i.session_id, round: det.number });
     return null;
   },
 });
@@ -94,6 +184,14 @@ export const drawRepair = defineAction({
     if (lastPlayed >= d.rounds) throw new KumiError("error.nothing_to_repair");
     const players = await sessionPlayers(ctx.db, s.program_id, s.id), courts = await sessionCourts(ctx.db, s.id);
     if (players.length < 4) throw new KumiError("error.not_enough_players");
+    if (d.format !== "americano") {
+      // The round not yet played is made again from the standings, for the players on the roster now.
+      const { latest, done } = await latestRound(ctx.db, i.session_id);
+      if (done || latest === 0) throw new KumiError("error.nothing_to_repair");
+      const again = await makeNext(ctx.db, d as never, i.session_id, players, courts, latest);
+      return { title: both("action.draw.repair"), summary: both("plan.draw.repair_round", { round: latest, players: players.length, pairs: await roundText(ctx.db, again, courts) }),
+        reads: [read], locationId: p.location_id, undo: { kind: "compensating" }, details: { rounds: [again], from: latest } };
+    }
     const rounds = schedule(players, courts.map((c) => c.id), d.rounds - lastPlayed, `${s.id}:${d.version}`, history);
     return { title: both("action.draw.repair"), summary: both("plan.draw.repair", { from: lastPlayed + 1, to: d.rounds, players: players.length, kept: lastPlayed }),
       reads: [read], locationId: p.location_id, undo: { kind: "compensating" }, details: { rounds, from: lastPlayed + 1 } };
@@ -103,7 +201,11 @@ export const drawRepair = defineAction({
     const stale = await ctx.trx.selectFrom("game").select("id").where("session_id", "=", i.session_id).where("round", ">=", det.from).where("status", "!=", "void").execute();
     for (const g of stale) await ctx.update("game", g.id, { status: "void" });
     await writeRounds(ctx, i.session_id, det.rounds, det.from);
-    await ctx.update("draw", i.session_id, {});   // the next repair gets a fresh seed
+    const d = await ctx.trx.selectFrom("draw").select("sat_out").where("session_id", "=", i.session_id).executeTakeFirstOrThrow();
+    const sat = { ...(d.sat_out as Record<string, string[]>) };
+    for (const k of Object.keys(sat)) if (Number(k) >= det.from) delete sat[k];
+    det.rounds.forEach((r, k) => { sat[String(det.from + k)] = r.sittingOut; });
+    await ctx.update("draw", i.session_id, { sat_out: JSON.stringify(sat) });   // and the next repair gets a fresh seed
     await ctx.emit("draw.repaired", { session_id: i.session_id, from: det.from });
     return null;
   },
@@ -118,8 +220,10 @@ export const gameScore = defineAction({
     // A score is for a round that has been played: a rated night would otherwise move levels days early.
     const s = g.session_id ? await ctx.db.selectFrom("session").select("starts_at").where("id", "=", g.session_id).executeTakeFirst() : undefined;
     if (s && ctx.now.getTime() < s.starts_at.getTime()) throw new KumiError("error.not_played_yet");
-    const d = g.session_id ? await ctx.db.selectFrom("draw").select("points_per_game").where("session_id", "=", g.session_id).executeTakeFirst() : undefined;
-    if (d && i.a + i.b !== d.points_per_game) throw new KumiError("error.score_total", { points: d.points_per_game }, 400);
+    const d = g.session_id ? await ctx.db.selectFrom("draw").select(["points_per_game", "format"]).where("session_id", "=", g.session_id).executeTakeFirst() : undefined;
+    // Americano and Mexicano play to a total; King of the Court plays to the clock, and a round needs a winner.
+    if (d && d.format === "king_of_court") { if (i.a === i.b || i.a > 99 || i.b > 99) throw new KumiError("error.score_needs_winner", {}, 400); }
+    else if (d && i.a + i.b !== d.points_per_game) throw new KumiError("error.score_total", { points: d.points_per_game }, 400);
     const court = g.court_id ? (await readRow(ctx.db, "court", g.court_id, "thing.court")).row.name : "";
     const loc = g.court_id ? (await readRow(ctx.db, "court", g.court_id, "thing.court")).row.location_id : null;
     return { title: both("action.game.score"), summary: both("plan.game.score", { round: g.round ?? 1, court, a: i.a, b: i.b }), reads: [read], locationId: loc, undo: { kind: "compensating" } };
@@ -135,11 +239,24 @@ export const gameScore = defineAction({
   },
 });
 
-/** Points each player has won with their teams, best first: the Americano standings. */
-export async function standings(db: Db | Trx, sessionId: string): Promise<{ person_id: string; points: number; games: number }[]> {
+/** The night's standings, best first. Americano: the points each player has won with their teams. Mexicano: the
+ *  same, and a round sat out counts half the points of a game, so sitting out in turn costs nobody. King of the
+ *  Court: games won, then rounds won on the top court. */
+export async function standings(db: Db | Trx, sessionId: string): Promise<{ person_id: string; points: number; games: number; top: number }[]> {
+  const d = await db.selectFrom("draw").select(["format", "points_per_game", "sat_out"]).where("session_id", "=", sessionId).where("status", "!=", "void").executeTakeFirst();
   const rows = await db.selectFrom("game_side").innerJoin("game", "game.id", "game_side.game_id").innerJoin("game_set", "game_set.game_id", "game.id")
-    .select(["game_side.person_id", "game_side.side", "game_set.a", "game_set.b"]).where("game.session_id", "=", sessionId).where("game.status", "=", "confirmed").execute();
-  const t = new Map<string, { points: number; games: number }>();
-  for (const r of rows) { const x = t.get(r.person_id) ?? { points: 0, games: 0 }; x.points += r.side === "a" ? r.a : r.b; x.games++; t.set(r.person_id, x); }
-  return [...t].map(([person_id, x]) => ({ person_id, ...x })).sort((p, q) => q.points - p.points);
+    .select(["game_side.person_id", "game_side.side", "game.round", "game.court_id", "game_set.a", "game_set.b"]).where("game.session_id", "=", sessionId).where("game.status", "=", "confirmed").execute();
+  const t = new Map<string, { points: number; games: number; top: number }>();
+  const at = (id: string) => { const x = t.get(id) ?? { points: 0, games: 0, top: 0 }; t.set(id, x); return x; };
+  const top = d?.format === "king_of_court" ? (await sessionCourts(db, sessionId))[0]?.id : undefined;
+  for (const r of rows) {
+    const x = at(r.person_id), mine = r.side === "a" ? r.a : r.b, theirs = r.side === "a" ? r.b : r.a;
+    x.points += mine; x.games++;
+    if (top && r.court_id === top && mine > theirs) x.top++;
+  }
+  if (d?.format === "mexicano") {
+    const scored = new Set(rows.map((r) => r.round!));
+    for (const [round, ids] of Object.entries((d.sat_out ?? {}) as Record<string, string[]>)) if (scored.has(Number(round))) for (const id of ids) at(id).points += d.points_per_game / 2;
+  }
+  return [...t].map(([person_id, x]) => ({ person_id, ...x })).sort((p, q) => q.points - p.points || q.top - p.top);
 }

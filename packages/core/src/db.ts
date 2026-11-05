@@ -108,7 +108,7 @@ export interface ReceiptPaymentTable { payment_id: string; receipt_id: string }
 export interface MemberCreditBalanceView { person_id: string; cents: string }
 
 export interface RatingTable { person_id: string; sport: Generated<string>; mu: number | null; sigma: number | null; level: string; rated_games: Generated<number>; provisional: Generated<boolean>; floor: string | null; floor_set_by: string | null; floor_reason: string | null; self_adjust_used: Generated<string>; version: Generated<number> }
-export interface DrawTable { session_id: string; format: string; points_per_game: Generated<number>; rounds: number; seed: string; status: Generated<string>; version: Generated<number> }
+export interface DrawTable { session_id: string; format: string; points_per_game: Generated<number>; rounds: number; seed: string; status: Generated<string>; round_minutes: number | null; sat_out: Generated<unknown>; version: Generated<number> }
 export interface GameTable { id: string; session_id: string | null; round: number | null; court_id: string | null; format: Generated<string>; rated: Generated<boolean>; status: Generated<string>; predicted_a: string | null; played_at: Date | null; entered_by: string | null; editable_until: Date | null; booking_id: string | null; confirm_by: Date | null; version: Generated<number> }
 export interface ResultAnswerTable { id: string; game_id: string; person_id: string | null; side: "a" | "b" | null; answer: string; note: string | null; at: Generated<Date> }
 export interface GameSideTable { game_id: string; side: "a" | "b"; person_id: string }

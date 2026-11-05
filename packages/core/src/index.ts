@@ -33,6 +33,7 @@ export * from "./texts.ts";
 export * from "./club_text.ts";
 export * from "./declines.ts";
 export * from "./americano.ts";
+export * from "./formats.ts";
 export * from "./games.ts";
 export * from "./levels.ts";
 export * from "./ratings.ts";

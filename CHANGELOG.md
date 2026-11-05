@@ -7,6 +7,13 @@ server starts.
 
 ## Unreleased
 
+### Added
+- **Mexicano and King of the Court nights**, beside the Americano. A Mexicano pairs each round by the night's
+  standings (1st and 4th against 2nd and 3rd, the best four on the top court), with games to 16, 21, 24 or 32
+  points, and a round sat out counts half a game's points. King of the Court plays timed rounds (12 minutes to
+  start): winners move up a court, losers down, and partners change every round. Staff make each round once the
+  last one has its scores ("Make round N"); a late drop makes the round not yet played again.
+
 ### Changed
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
   where Add to Home Screen is (Share). Neither shows once the app runs from the home screen.

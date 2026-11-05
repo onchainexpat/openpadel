@@ -20,7 +20,7 @@ is planned but not offered yet.
   languages too: under each field, an optional one for the other language, with a draft offered when the
   server has an Anthropic key (step 5h).
 - Court bookings members make and pay for in the app (the whole court, or their own part), and staff
-  manage at the desk; clinics, socials and Americanos with waitlists and refunds.
+  manage at the desk; clinics, socials and Americano, Mexicano and King of the Court nights with waitlists and refunds.
 - Email from your own domain, card payments into your own Stripe account, nightly backups.
 
 ## The order
@@ -404,6 +404,27 @@ everyone is told; the front desk hears once before that (Settings: 24 hours earl
 needs, which a message to members can help with. On a full program, members can ask to hear when a
 place opens: the waitlist is offered places first, and once a place is open to anyone, everyone
 watching hears once.
+
+### Draw nights: Americano, Mexicano and King of the Court
+
+A social with a format runs as a night of rounds: open the date's page ("Open the night") and make the
+rounds. The format is chosen when the program is made.
+
+- **Americano:** every round is made at the start, with a new partner each round, fair teams on every
+  court and sit-outs shared evenly. Games are to a set total of points (24 to start).
+- **Mexicano:** round 1 goes by level (or a random order when nobody has one); each round after it is
+  made when staff tap "Make round N", once the last round has its scores, and pairs by the night's
+  standings: on each court, 1st and 4th play 2nd and 3rd, the best four on the top court. Games are to
+  16, 21, 24 or 32 points (24 to start). A round sat out counts half a game's points, so sitting out in
+  turn costs nobody.
+- **King of the Court:** timed rounds (12 minutes to start). After each round the winners move up a court
+  and the losers down; the top court's winners stay, and partners change every round. A round needs a
+  winner (the scores can't be equal). Standings are games won, then rounds won on the top court. When
+  more people come than the courts take, those waiting come in on the bottom court and its losers wait.
+
+A late drop or a place taken from the waitlist: "Re-pair the rounds left" makes what hasn't been played
+again for who's there; played rounds keep their scores (King of the Court then seeds the round by the
+standings). A rated program's games move levels once they have their scores.
 
 ### Signing in, roles and bots
 

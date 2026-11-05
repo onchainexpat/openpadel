@@ -491,8 +491,16 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       r.push({ id: g.id, court: g.court, status: g.status, odds_a: Math.round(p * 100), a: sides.filter((s) => s.game_id === g.id && s.side === "a").map((s) => s.display_name),
         b: sides.filter((s) => s.game_id === g.id && s.side === "b").map((s) => s.display_name), score: g.a === null ? null : { a: g.a, b: g.b } });
     }
-    const table = (await standings(db, id)).map((s) => ({ name: names.get(s.person_id) ?? "", points: s.points, games: s.games }));
-    return c.json({ draw: draw ?? null, rounds: [...rounds].map(([round, gs]) => ({ round, games: gs })), standings: table });
+    const sat = (draw?.sat_out ?? {}) as Record<string, string[]>, satIds = [...new Set(Object.values(sat).flat())];
+    const satNames = new Map((satIds.length ? await db.selectFrom("person").select(["id", "display_name"]).where("id", "in", satIds).execute() : []).map((p) => [p.id, p.display_name]));
+    for (const id of satIds) names.set(id, satNames.get(id) ?? "");
+    const table = (await standings(db, id)).map((s) => ({ name: names.get(s.person_id) ?? "", points: s.points, games: s.games, top: s.top }));
+    const list = [...rounds].map(([round, gs]) => ({ round, games: gs as { status: string }[], sat_out: (sat[String(round)] ?? []).map((p) => names.get(p) ?? "") }));
+    const last = list[list.length - 1];
+    // Mexicano and King of the Court: the next round can be made once the last one has all its scores.
+    const next = draw && draw.format !== "americano" && last && last.round < draw.rounds && last.games.every((g) => g.status === "confirmed") ? last.round + 1 : null;
+    const prog = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select("program.format").where("session.id", "=", id).executeTakeFirst();
+    return c.json({ draw: draw ?? null, format: prog?.format ?? null, rounds: list, standings: table, next_round: next });
   });
 
   // The level review queue: reviews players asked for, and levels that moved a lot.
