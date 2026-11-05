@@ -4,7 +4,7 @@
 // The pure rules are in brackets.ts.
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, dateTime, type Text } from "@kumi/i18n";
+import { both, dateTime, t, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx } from "./actions.ts";
 import { groups, knockout, knockoutFromGroups, matchWinner, roundRobin, suggestTimes, table, MATCH_FORMATS, MATCH_MINUTES, type MatchFormat, type Need, type Placed, type Result, type Seeded, type Side, type Slot, type Spec } from "./brackets.ts";
 import type { Db, Trx } from "./db.ts";
@@ -39,12 +39,30 @@ async function liveEntry(db: Db | Trx, programId: string, personId: string, exce
 async function names(db: Db | Trx, ids: string[]) {
   return new Map((ids.length ? await db.selectFrom("person").select(["id", "display_name"]).where("id", "in", ids).execute() : []).map((p) => [p.id, p.display_name]));
 }
-/** "Ana + Ben" for each entry. */
-export async function pairNames(db: Db | Trx, entryIds: (string | null)[]) {
+/** Who reads a draw: staff (every name), a member (a junior named only to the junior, their partner and their
+ *  family), or the public page (no names unless the club turned them on for the program, and never a junior's). */
+export interface NameView { viewer?: string; public?: { names: boolean; lang: Lang } }
+/** "Ana + Ben" for each entry, as the reader may see it. */
+export async function pairNames(db: Db | Trx, entryIds: (string | null)[], view: NameView = {}) {
   const ids = [...new Set(entryIds.filter((x): x is string => Boolean(x)))];
-  const rows = ids.length ? await db.selectFrom("pair_entry").select(["id", "person_a", "person_b"]).where("id", "in", ids).execute() : [];
-  const n = await names(db, rows.flatMap((r) => [r.person_a, r.person_b]));
-  return new Map(rows.map((r) => [r.id, `${n.get(r.person_a) ?? ""} + ${n.get(r.person_b) ?? ""}`]));
+  const rows = ids.length ? await db.selectFrom("pair_entry").select(["id", "person_a", "person_b", "seed"]).where("id", "in", ids).execute() : [];
+  const people = rows.flatMap((r) => [r.person_a, r.person_b]);
+  const ps = new Map((people.length ? await db.selectFrom("person").select(["id", "display_name", "junior"]).where("id", "in", people).execute() : []).map((p) => [p.id, p]));
+  const lang: Lang = view.public?.lang ?? "en";
+  if (view.public && !view.public.names) return new Map(rows.map((r) => [r.id, t(lang, "pub.pair_seed", { n: r.seed ?? "" })]));
+  let family = new Set<string>();
+  if (view.viewer) {
+    const hh = await db.selectFrom("household_member").select("household_id").where("person_id", "=", view.viewer).where("removed_at", "is", null).execute();
+    family = new Set(hh.length ? (await db.selectFrom("household_member").select("person_id").where("household_id", "in", hh.map((h) => h.household_id)).where("removed_at", "is", null).execute()).map((m) => m.person_id) : []);
+  }
+  const shown = (id: string, partner: string) => {
+    const p = ps.get(id);
+    if (!p) return "";
+    if (!p.junior || (!view.public && !view.viewer)) return p.display_name;
+    if (view.viewer && (view.viewer === id || view.viewer === partner || family.has(id))) return p.display_name;
+    return t(lang, "pub.junior_player");
+  };
+  return new Map(rows.map((r) => [r.id, `${shown(r.person_a, r.person_b)} + ${shown(r.person_b, r.person_a)}`]));
 }
 const levelOf = (l: string | null | undefined) => (l === null || l === undefined ? MODEL.defaultLevel : Number(l));
 const lock = (trx: Trx, programId: string) => trx.selectFrom("program").select("id").where("id", "=", programId).forUpdate().executeTakeFirstOrThrow();
@@ -71,6 +89,7 @@ export const entryInvite = defineAction({
   },
   async apply(ctx, i) {
     await lock(ctx.trx, i.program_id);
+    await notDrawn(ctx.trx, i.program_id);
     if (await liveEntry(ctx.trx, i.program_id, i.person_id) || await liveEntry(ctx.trx, i.program_id, i.partner_id)) throw new KumiError("error.changed", {}, 409);
     const id = uuidv7();
     await ctx.insert("pair_entry", { id, program_id: i.program_id, person_a: i.person_id, person_b: i.partner_id, status: "invited", created_by: ctx.actor.personId });
@@ -101,6 +120,7 @@ export const entryAccept = defineAction({
   async apply(ctx, i) {
     const e = await ctx.trx.selectFrom("pair_entry").select(["program_id"]).where("id", "=", i.entry_id).executeTakeFirstOrThrow();
     await lock(ctx.trx, e.program_id);
+    await notDrawn(ctx.trx, e.program_id);
     if (await liveEntry(ctx.trx, e.program_id, i.person_id, i.entry_id)) throw new KumiError("error.changed", {}, 409);
     await ctx.update("pair_entry", i.entry_id, { status: "entered", answered_at: ctx.now });
     await ctx.emit("entry.accepted", { entry_id: i.entry_id });
@@ -140,6 +160,7 @@ export const entryPair = defineAction({
   },
   async apply(ctx, i) {
     await lock(ctx.trx, i.program_id);
+    await notDrawn(ctx.trx, i.program_id);
     if (await liveEntry(ctx.trx, i.program_id, i.person_a) || await liveEntry(ctx.trx, i.program_id, i.person_b)) throw new KumiError("error.changed", {}, 409);
     const id = uuidv7();
     await ctx.insert("pair_entry", { id, program_id: i.program_id, person_a: i.person_a, person_b: i.person_b, status: "entered", created_by: ctx.actor.personId, answered_at: ctx.now });
@@ -240,6 +261,9 @@ export const competitionDraw = defineAction({
     const det = plan.details as { specs: Spec[]; seeds: { id: string; seed: number; level: number; group: number | null }[]; format: Format; size: number; legs: number; mf: MatchFormat; minutes: number };
     await lock(ctx.trx, i.program_id);
     if (await drawnOf(ctx.trx, i.program_id)) throw new KumiError("error.competition_drawn");
+    // The pairs as they are now: one withdrawn, left or entered since the preview means previewing again.
+    const now = (await drawEntries(ctx.trx, i.program_id)).ok.map((x) => x.id).sort().join();
+    if (now !== det.seeds.map((x) => x.id).sort().join()) throw new KumiError("error.changed", {}, 409);
     await ctx.insert("competition", { program_id: i.program_id, format: det.format, group_size: det.format === "groups_knockout" ? det.size : null, match_format: det.mf, match_minutes: det.minutes, legs: det.legs, status: "drawn" });
     for (const s of det.seeds) await ctx.update("pair_entry", s.id, { seed: s.seed, group_no: s.group, level: s.level.toFixed(2) });
     const id = new Map(det.specs.map((s) => [s.key, uuidv7()]));
@@ -259,16 +283,22 @@ export const competitionDraw = defineAction({
 
 // ---- What a result does next ----
 
-/** A fixture whose sides have changed: through on a bye, ready when both pairs are known, otherwise waiting. */
+/** A fixture whose sides have changed: through on a bye, ready when both pairs are known, otherwise waiting. A bye
+ *  that changes hands (a group re-opened) takes its winner back out of the next match too. */
 async function refresh(ctx: ApplyCtx, fixtureId: string) {
   const f = await ctx.trx.selectFrom("fixture").selectAll().where("id", "=", fixtureId).executeTakeFirstOrThrow();
   if (f.status === "played" || f.status === "walkover" || f.status === "void") return;
   const one = f.entry_a && f.from_b === "bye" ? f.entry_a : f.entry_b && f.from_a === "bye" ? f.entry_b : null;
-  if (one) { await ctx.update("fixture", f.id, { status: "bye", winner: one }); await advance(ctx, f.id, one); return; }
+  if (one) { if (f.status === "bye" && f.winner === one) return; await ctx.update("fixture", f.id, { status: "bye", winner: one }); await advance(ctx, f.id, one); return; }
   if (f.from_a === "bye" && f.from_b === "bye") { await ctx.update("fixture", f.id, { status: "bye", winner: null }); if (f.next_id) await setSide(ctx, f.next_id, f.next_side!, null, "bye"); return; }
-  await ctx.update("fixture", f.id, { status: f.entry_a && f.entry_b ? "ready" : "waiting" });
+  await ctx.update("fixture", f.id, { status: f.entry_a && f.entry_b ? "ready" : "waiting", winner: null });
+  if (f.status === "bye" && f.winner && f.next_id) await setSide(ctx, f.next_id, f.next_side!, null);
 }
+/** One side of a match not yet decided. A decided match is never changed (fixtureLocked keeps that from happening). */
 async function setSide(ctx: ApplyCtx, fixtureId: string, side: "a" | "b", entry: string | null, from?: string) {
+  const f = await ctx.trx.selectFrom("fixture").select(["status", "entry_a", "entry_b"]).where("id", "=", fixtureId).executeTakeFirstOrThrow();
+  if (f.status === "played" || f.status === "walkover") throw new KumiError("error.next_match_played");
+  if ((side === "a" ? f.entry_a : f.entry_b) !== entry) await voidLiveGame(ctx, fixtureId);   // a score for other players no longer fits
   await ctx.update("fixture", fixtureId, { [`entry_${side}`]: entry, ...(from ? { [`from_${side}`]: from } : {}) });
   await refresh(ctx, fixtureId);
 }
@@ -282,8 +312,10 @@ async function advance(ctx: ApplyCtx, fixtureId: string, winner: string) {
 async function groupDone(ctx: ApplyCtx, programId: string, groupNo: number) {
   const fs = await ctx.trx.selectFrom("fixture").selectAll().where("program_id", "=", programId).where("stage", "=", "group").where("group_no", "=", groupNo).where("status", "!=", "void").execute();
   if (fs.some((f) => f.status === "ready" || f.status === "waiting")) return;
-  const entries = (await ctx.trx.selectFrom("pair_entry").select("id").where("program_id", "=", programId).where("group_no", "=", groupNo).orderBy("seed").execute()).map((e) => e.id);
-  const rows = table(entries, await resultsOf(ctx.trx, fs), "group");
+  const es = await ctx.trx.selectFrom("pair_entry").select(["id", "status"]).where("program_id", "=", programId).where("group_no", "=", groupNo).orderBy("seed").execute();
+  const out = new Set(es.filter((e) => e.status === "withdrawn").map((e) => e.id));
+  // A pair that withdrew ranks below everyone, whatever it won before it left.
+  const rows = table(es.map((e) => e.id), await resultsOf(ctx.trx, fs), "group").sort((x, y) => Number(out.has(x.entry)) - Number(out.has(y.entry)));
   for (const [k, r] of rows.slice(0, 2).entries()) {
     for (const side of ["a", "b"] as const) {
       const ko = await ctx.trx.selectFrom("fixture").select(["id"]).where("program_id", "=", programId).where("stage", "=", "knockout").where(`from_${side}`, "=", `g${groupNo}:${k + 1}`).execute();
@@ -317,10 +349,16 @@ export async function fixtureDecided(ctx: ApplyCtx, gameId: string) {
   const g = await ctx.trx.selectFrom("game").select(["fixture_id"]).where("id", "=", gameId).executeTakeFirstOrThrow();
   if (!g.fixture_id) return;
   const f = await ctx.trx.selectFrom("fixture").selectAll().where("id", "=", g.fixture_id).executeTakeFirstOrThrow();
+  if (f.status !== "ready" || !f.entry_a || !f.entry_b) return;
   const sets = await ctx.trx.selectFrom("game_set").select(["a", "b"]).where("game_id", "=", gameId).orderBy("set_no").execute();
-  const aPeople = (await ctx.trx.selectFrom("game_side").select("person_id").where("game_id", "=", gameId).where("side", "=", "a").execute()).map((s) => s.person_id);
-  const ea = await ctx.trx.selectFrom("pair_entry").select(["person_a", "person_b"]).where("id", "=", f.entry_a!).executeTakeFirstOrThrow();
-  const gameAIsFixtureA = aPeople.includes(ea.person_a) || aPeople.includes(ea.person_b);
+  const sides = await ctx.trx.selectFrom("game_side").select(["side", "person_id"]).where("game_id", "=", gameId).execute();
+  const aPeople = sides.filter((x) => x.side === "a").map((x) => x.person_id), bPeople = sides.filter((x) => x.side === "b").map((x) => x.person_id);
+  const ea = await ctx.trx.selectFrom("pair_entry").select(["person_a", "person_b"]).where("id", "=", f.entry_a).executeTakeFirstOrThrow();
+  const eb = await ctx.trx.selectFrom("pair_entry").select(["person_a", "person_b"]).where("id", "=", f.entry_b).executeTakeFirstOrThrow();
+  const same = (team: string[], e: { person_a: string; person_b: string }) => team.length === 2 && team.includes(e.person_a) && team.includes(e.person_b);
+  // The game must be between the fixture's two pairs (a score entered before the match changed hands doesn't count).
+  if (!((same(aPeople, ea) && same(bPeople, eb)) || (same(aPeople, eb) && same(bPeople, ea)))) return;
+  const gameAIsFixtureA = same(aPeople, ea);
   const wonA = sets.filter((s) => s.a > s.b).length > sets.filter((s) => s.b > s.a).length;
   const winner = (wonA === gameAIsFixtureA ? f.entry_a : f.entry_b)!;
   await ctx.update("fixture", f.id, { status: "played", winner });
@@ -346,15 +384,27 @@ export async function fixtureUndecided(ctx: ApplyCtx, gameId: string) {
   }
   await ctx.update("competition", f.program_id, { status: "drawn" });
 }
-/** Whether a fixture's result can still be changed: not once the match it led to has been decided. */
+/** Whether a fixture's result can still be changed: not once a match it led to (through any byes) has been decided
+ *  or has a score entered. */
 export async function fixtureLocked(db: Db | Trx, fixtureId: string) {
   const f = await db.selectFrom("fixture").select(["next_id", "stage", "program_id", "group_no"]).where("id", "=", fixtureId).executeTakeFirst();
   if (!f) return false;
-  if (f.next_id) { const n = await db.selectFrom("fixture").select("status").where("id", "=", f.next_id).executeTakeFirst(); if (n && (n.status === "played" || n.status === "walkover")) return true; }
+  const led = async (id: string | null): Promise<boolean> => {
+    for (let guard = 0; id && guard < 20; guard++) {
+      const n = await db.selectFrom("fixture").select(["status", "next_id"]).where("id", "=", id).executeTakeFirst();
+      if (!n) return false;
+      if (n.status === "played" || n.status === "walkover") return true;
+      if (await db.selectFrom("game").select("id").where("fixture_id", "=", id).where("status", "!=", "void").executeTakeFirst()) return true;
+      if (n.status !== "bye") return false;
+      id = n.next_id;
+    }
+    return false;
+  };
+  if (await led(f.next_id)) return true;
   if (f.stage === "group") {
-    const ko = await db.selectFrom("fixture").select("id").where("program_id", "=", f.program_id).where("stage", "=", "knockout").where("status", "in", ["played", "walkover"])
-      .where((eb) => eb.or([eb("from_a", "like", `g${f.group_no}:%`), eb("from_b", "like", `g${f.group_no}:%`)])).executeTakeFirst();
-    if (ko) return true;
+    const ko = await db.selectFrom("fixture").select("id").where("program_id", "=", f.program_id).where("stage", "=", "knockout")
+      .where((eb) => eb.or([eb("from_a", "like", `g${f.group_no}:%`), eb("from_b", "like", `g${f.group_no}:%`)])).execute();
+    for (const x of ko) if (await led(x.id)) return true;
   }
   return false;
 }
@@ -383,20 +433,28 @@ async function placedOf(db: Db | Trx, programId: string): Promise<Placed[]> {
   const fs = await db.selectFrom("fixture").select(["id", "court_id", "starts_at", "ends_at", "entry_a", "entry_b"]).where("program_id", "=", programId).where("status", "!=", "void").where("starts_at", "is not", null).execute();
   return fs.map((f) => ({ id: f.id, court: f.court_id!, start: f.starts_at!.getTime(), end: f.ends_at!.getTime(), entries: [f.entry_a, f.entry_b].filter((x): x is string => Boolean(x)) }));
 }
-/** What each match waits for: a knockout match its earlier ones (or its groups); a league round its date. */
+/** What each match waits for: a knockout match its earlier ones (or its groups); a league round its date. A match
+ *  against a bye is never played, so it gets no court, and what waits for it waits for what it waits for. */
 function needsOf(fs: { id: string; stage: string; round: number; group_no: number | null; from_a: string | null; from_b: string | null; entry_a: string | null; entry_b: string | null; status: string; starts_at: Date | null }[]): Need[] {
-  const groupMatches = (n: string) => fs.filter((f) => f.stage === "group" && f.group_no === Number(n) && f.status !== "bye").map((f) => f.id);
-  const order = [...fs].sort((x, y) => (x.stage === "knockout" ? 1 : 0) - (y.stage === "knockout" ? 1 : 0) || x.round - y.round || (x.group_no ?? 0) - (y.group_no ?? 0));
-  const byes = new Set(fs.filter((f) => f.status === "bye").map((f) => f.id));
-  return order.filter((f) => !f.starts_at && (f.status === "ready" || f.status === "waiting")).map((f) => {
-    const deps: string[] = [];
+  const byId = new Map(fs.map((f) => [f.id, f]));
+  const isBye = (f: (typeof fs)[number]) => f.status === "bye" || f.from_a === "bye" || f.from_b === "bye";
+  const groupMatches = (n: string) => fs.filter((f) => f.stage === "group" && f.group_no === Number(n) && !isBye(f)).map((f) => f.id);
+  const depsOf = (f: (typeof fs)[number], seen = new Set<string>()): string[] => {
+    const out: string[] = [];
     for (const from of [f.from_a, f.from_b]) {
-      if (!from) continue;
-      if (from.startsWith("w:")) { const d = from.slice(2); if (!byes.has(d)) deps.push(d); }
-      else if (from.startsWith("g")) deps.push(...groupMatches(from.slice(1).split(":")[0]!));
+      if (!from || from === "bye") continue;
+      if (from.startsWith("w:")) {
+        const d = byId.get(from.slice(2));
+        if (!d || seen.has(d.id)) continue;
+        seen.add(d.id);
+        if (isBye(d)) out.push(...depsOf(d, seen)); else out.push(d.id);
+      } else if (from.startsWith("g")) out.push(...groupMatches(from.slice(1).split(":")[0]!));
     }
-    return { id: f.id, entries: [f.entry_a, f.entry_b].filter((x): x is string => Boolean(x)), deps: [...new Set(deps)], ...(f.stage === "league" ? { minSession: f.round - 1 } : {}) };
-  });
+    return out;
+  };
+  const order = [...fs].sort((x, y) => (x.stage === "knockout" ? 1 : 0) - (y.stage === "knockout" ? 1 : 0) || x.round - y.round || (x.group_no ?? 0) - (y.group_no ?? 0));
+  return order.filter((f) => !f.starts_at && (f.status === "ready" || f.status === "waiting") && !isBye(f)).map((f) => ({
+    id: f.id, entries: [f.entry_a, f.entry_b].filter((x): x is string => Boolean(x)), deps: [...new Set(depsOf(f))], ...(f.stage === "league" ? { minSession: f.round - 1 } : {}) }));
 }
 
 export const competitionSchedule = defineAction({
@@ -421,7 +479,8 @@ export const competitionSchedule = defineAction({
     await lock(ctx.trx, i.program_id);
     const taken = await placedOf(ctx.trx, i.program_id);
     for (const x of (plan.details as { placed: Placed[] }).placed) {
-      if (taken.some((t) => t.id !== x.id && t.court === x.court && t.start < x.end && x.start < t.end)) throw new KumiError("error.changed", {}, 409);
+      if (taken.some((t) => t.id !== x.id && t.start < x.end && x.start < t.end && (t.court === x.court || t.entries.some((e) => x.entries.includes(e))))) throw new KumiError("error.changed", {}, 409);
+      taken.push(x);
       await ctx.update("fixture", x.id, { court_id: x.court, starts_at: new Date(x.start), ends_at: new Date(x.end) });
       await ctx.emit("fixture.placed", { fixture_id: x.id });
     }
@@ -456,7 +515,10 @@ export const fixturePlace = defineAction({
     const f = await ctx.trx.selectFrom("fixture").select("program_id").where("id", "=", i.fixture_id).executeTakeFirstOrThrow();
     await lock(ctx.trx, f.program_id);
     const start = new Date(i.starts_at), end = new Date((plan.details as { end: string }).end);
-    if ((await placedOf(ctx.trx, f.program_id)).some((x) => x.id !== i.fixture_id && x.court === i.court_id && x.start < end.getTime() && start.getTime() < x.end)) throw new KumiError("error.court_taken_by_match", {}, 409);
+    const fx = await ctx.trx.selectFrom("fixture").select(["entry_a", "entry_b"]).where("id", "=", i.fixture_id).executeTakeFirstOrThrow();
+    const others = (await placedOf(ctx.trx, f.program_id)).filter((x) => x.id !== i.fixture_id && x.start < end.getTime() && start.getTime() < x.end);
+    if (others.some((x) => x.court === i.court_id)) throw new KumiError("error.court_taken_by_match", {}, 409);
+    if (others.some((x) => x.entries.some((e) => e === fx.entry_a || e === fx.entry_b))) throw new KumiError("error.pair_busy", {}, 409);
     await ctx.update("fixture", i.fixture_id, { court_id: i.court_id, starts_at: start, ends_at: end, move_asked: null, move_asked_by: null, move_asked_at: null });
     await ctx.emit("fixture.placed", { fixture_id: i.fixture_id, moved: true });
     return null;
@@ -596,15 +658,35 @@ async function clubTz(db: Db | Trx) {
   return (await db.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
 }
 
+/** A fixture's match format, to check a staff correction against it (results.ts). */
+export async function fixtureFormat(db: Db | Trx, fixtureId: string): Promise<MatchFormat> {
+  const r = await db.selectFrom("fixture").innerJoin("competition", "competition.program_id", "fixture.program_id").select("competition.match_format").where("fixture.id", "=", fixtureId).executeTakeFirstOrThrow();
+  return r.match_format as MatchFormat;
+}
+
+/** Staff turn the players' names on the program's public page on or off (off to start; juniors are never named). */
+export const competitionPublicNames = defineAction({
+  name: "competition.public_names", version: 1,
+  input: z.object({ program_id: z.uuid(), on: z.boolean() }),
+  async plan(ctx, i) {
+    const { p, read } = await programOf(ctx.db, i.program_id);
+    return { title: both("action.competition.public_names"), summary: both(i.on ? "plan.competition.public_names_on" : "plan.competition.public_names_off", { program: p.name }), reads: [read], locationId: p.location_id, undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    await ctx.update("program", i.program_id, { public_names: i.on });
+    return null;
+  },
+});
+
 // ---- What people see ----
 
 export interface FixtureView { id: string; stage: string; group: number | null; round: number; a: string; b: string; a_id: string | null; b_id: string | null; status: string; winner: string | null;
   court: string | null; starts_at: Date | null; score: string; walkover: boolean; move_asked: string | null; game_id: string | null; game_status: string | null }
 /** The whole draw: entries, fixtures with their scores, each group's table (or the league's). */
-export async function competitionView(db: Db | Trx, programId: string) {
+export async function competitionView(db: Db | Trx, programId: string, view: NameView = {}) {
   const c = await drawnOf(db, programId);
   const entries = await db.selectFrom("pair_entry").selectAll().where("program_id", "=", programId).where("status", "in", ["invited", "entered", "withdrawn"]).orderBy("seed").orderBy("created_at").execute();
-  const pairs = await pairNames(db, entries.map((e) => e.id));
+  const pairs = await pairNames(db, entries.map((e) => e.id), view);
   const fs = c ? await db.selectFrom("fixture").leftJoin("court", "court.id", "fixture.court_id").selectAll("fixture").select("court.name as court").where("fixture.program_id", "=", programId).where("fixture.status", "!=", "void")
     .orderBy("fixture.stage").orderBy("fixture.group_no").orderBy("fixture.round").orderBy("fixture.slot").execute() : [];
   const games = fs.length ? await db.selectFrom("game").select(["id", "fixture_id", "status"]).where("fixture_id", "in", fs.map((f) => f.id)).where("status", "!=", "void").execute() : [];
@@ -629,7 +711,9 @@ export async function myCompetitions(db: Db | Trx, personId: string) {
     .where((eb) => eb.or([eb("pair_entry.person_a", "=", personId), eb("pair_entry.person_b", "=", personId)])).where("pair_entry.status", "in", ["invited", "entered"]).where("program.status", "!=", "cancelled").execute();
   const out = [];
   for (const e of mine) {
-    const v = await competitionView(db, e.program_id);
+    const v = await competitionView(db, e.program_id, { viewer: personId });
+    // A move request's words are for the club: the players see only that one was asked.
+    for (const f of v.fixtures) f.move_asked = f.move_asked ? "asked" : null;
     const partner = e.person_a === personId ? e.person_b : e.person_a;
     const myFixtures = v.fixtures.filter((f) => f.a_id === e.id || f.b_id === e.id);
     const answered = myFixtures.filter((f) => f.game_id && f.game_status === "awaiting_confirmation");

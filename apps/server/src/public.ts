@@ -53,13 +53,15 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl:
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
         eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first"),
         eb.selectFrom("session").select((x) => x.fn.max("ends_at").as("e")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("last"),
+        eb.selectFrom("competition").select("competition.status").whereRef("competition.program_id", "=", "program.id").where("competition.status", "!=", "void").as("drawn"),
       ])
       .where("program.status", "=", "published").where("program.visibility", "=", "public").$if(Boolean(where), (q) => q.where("program.id", "=", where!)).execute();
     const members = await membersFrom(db, rows);   // what members pay, when it's less
     const now = new Date(), next = await nextDates(rows.filter((r) => r.sign_up === "per_session").map((r) => r.id), now);
     // Signed up per date: listed from its next date, with that date's places (each date fills on its own).
     return rows.map((r) => r.sign_up === "per_session" && next.has(r.id) ? { ...r, first: next.get(r.id)!.starts_at, booked: next.get(r.id)!.booked, capacity: next.get(r.id)!.capacity } : r)
-      .filter((r) => r.first && new Date(r.first as any) > now).sort((a, b) => new Date(a.first as any).getTime() - new Date(b.first as any).getTime())
+      // A drawn tournament or league stays up for its results: until its last date, or until it's finished, whichever is later.
+      .filter((r) => (r.first && new Date(r.first as any) > now) || (r.drawn && ((r.last && new Date(r.last as any) > now) || r.drawn !== "finished"))).sort((a, b) => new Date(a.first as any).getTime() - new Date(b.first as any).getTime())
       .map((r) => ({ ...r, first: new Date(r.first as any), last: new Date(r.last as any), left: Math.max(0, r.capacity - Number(r.booked ?? 0)), members_cents: members.get(r.id) ?? null }));
   }
   /** Each per-date program's next date still to come: when, its places and how many have one. */
@@ -137,15 +139,17 @@ ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}${footer(l, cl)}`;
   });
 
   async function drawHtml(l: Lang, programId: string, tz: string) {
-    const v = await competitionView(db, programId);
+    const shown = (await db.selectFrom("program").select("public_names").where("id", "=", programId).executeTakeFirst())?.public_names ?? false;
+    const v = await competitionView(db, programId, { public: { names: shown, lang: l } });
     if (!v.competition) return "";
     const tables = v.tables.map((tb) => `<h3>${h(tb.group === null ? t(l, "pub.table") : t(l, "pub.group", { n: tb.group }))}</h3><table><tbody>${tb.rows.map((r, k) =>
       `<tr><td>${k + 1}</td><td>${h(r.name)}</td><td>${r.won}-${r.lost}</td>${tb.group === null ? `<td>${r.points}</td>` : ""}</tr>`).join("")}</tbody></table>`).join("");
     const line = (f: (typeof v.fixtures)[number]) => `<li>${h(f.a)} ${f.score ? `<strong>${h(f.score)}</strong>` : f.walkover ? h(t(l, "pub.walkover")) : "-"} ${h(f.b)}${
       !f.score && !f.walkover && f.starts_at ? ` <span class="meta">${h(f.court ?? "")}, ${h(fmt(l, tz, f.starts_at, { weekday: "short", hour: "numeric", minute: "2-digit" }))}</span>` : ""}</li>`;
-    const ko = v.fixtures.filter((f) => f.stage === "knockout" && f.status !== "bye");
+    const byeLine = (f: (typeof v.fixtures)[number]) => f.status === "bye" || f.a === "bye" || f.b === "bye";
+    const ko = v.fixtures.filter((f) => f.stage === "knockout" && !byeLine(f));
     const rounds = [...new Set(ko.map((f) => f.round))].map((r) => `<h3>${h(t(l, "ui.round", { n: r }))}</h3><ul>${ko.filter((f) => f.round === r).map(line).join("")}</ul>`).join("");
-    const rest = v.fixtures.filter((f) => f.stage !== "knockout" && f.status !== "bye");
+    const rest = v.fixtures.filter((f) => f.stage !== "knockout" && !byeLine(f));
     return `<section><h2>${h(t(l, "pub.draw"))}</h2>${tables}${rest.length ? `<ul>${rest.map(line).join("")}</ul>` : ""}${rounds ? `<h2>${h(t(l, "pub.knockout"))}</h2>${rounds}` : ""}</section>`;
   }
 

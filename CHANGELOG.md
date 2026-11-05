@@ -74,6 +74,17 @@ server starts.
   the players with the usual 48-hour confirmation; walkovers and withdrawals are recorded, and the winners move on
   by themselves. Group and league tables (2 points a win, 1 a loss played), each member's next matches on their
   Tournaments page, the tables and results on the public page, and a read tool for members' assistants.
+  Fixed before release, from its review: a disputed semi-final could reopen while the final already had a score
+  waiting, and confirming that score then broke the final and stopped the job that counts scores (a result now
+  stands once the next match, through any byes, has a score or a result, and the job carries on past any score it
+  can't count). The public page showed every player's name, juniors included: it now shows "Pair 1", "Pair 2"
+  unless the club turns on "Show players' names on the public page" for that program, and never names a junior;
+  in members' tables a junior is named only to their partner and their family. Also: a pair that withdraws
+  mid-group can't take a knockout place; a group winner meets its runner-up again only in the final; no court
+  is booked for a match against a bye; results stay on the public page until the competition is finished; a
+  Mexicano re-pair keeps the round's scored games; the lowest in the standings sit out, not the leader; King of
+  the Court never keeps a partner; a match tiebreak counts as one game; staff corrections are checked against
+  the match format; the other pair sees that a move was asked, not its words.
 
 ### Changed
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says

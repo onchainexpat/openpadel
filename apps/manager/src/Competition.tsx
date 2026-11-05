@@ -5,7 +5,7 @@ import { api, clubTime, t, usePreview, clubMoment } from "@kumi/ui";
 
 type Fixture = { id: string; stage: string; group: number | null; round: number; a: string; b: string; a_id: string | null; b_id: string | null; status: string; court: string | null; starts_at: string | null; score: string; walkover: boolean; move_asked: string | null; game_id: string | null; game_status: string | null };
 type Row = { entry: string; name: string; played: number; won: number; lost: number; points: number; setsFor: number; setsAgainst: number; gamesFor: number; gamesAgainst: number };
-type Page = { kind: "tournament" | "league"; name: string; competition: { format: string; match_format: string; match_minutes: number; status: string } | null;
+type Page = { kind: "tournament" | "league"; name: string; public_names: boolean; public: boolean; competition: { format: string; match_format: string; match_minutes: number; status: string } | null;
   entries: { id: string; name: string; status: string; seed: number | null; group: number | null }[]; fixtures: Fixture[]; tables: { group: number | null; rows: Row[] }[];
   without_partner: { id: string; name: string }[]; courts: { id: string; name: string }[] };
 
@@ -27,6 +27,7 @@ export function Competition({ id }: { id: string }) {
     <main>
       <h1>{d.name}</h1>
       {sheet}
+      {d.public && <p><button class="small" onClick={() => preview("competition.public_names", { program_id: id, on: !d.public_names })}>{t(d.public_names ? "ui.public_names_off" : "ui.public_names_on")}</button></p>}
       <section class="card">
         <h2>{t("ui.pairs")}</h2>
         <ul class="plain">{live.map((e) => <li class="row"><span>{e.seed ? `${e.seed}. ` : ""}{e.name}{e.status === "invited" ? ` · ${t("ui.invited")}` : ""}{e.group ? ` · ${t("pub.group", { n: e.group })}` : ""}</span>

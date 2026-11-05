@@ -487,8 +487,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("enrolment.program_id", "=", id).where("enrolment.status", "=", "booked").orderBy("person.display_name").execute();
     const courts = await db.selectFrom("court_time").innerJoin("session", "session.id", "court_time.session_id").innerJoin("court", "court.id", "court_time.court_id")
       .select(["court.id", "court.name"]).distinct().where("session.program_id", "=", id).where("court_time.active", "=", true).execute();
-    const prog = await db.selectFrom("program").select(["kind", "name"]).where("id", "=", id).executeTakeFirstOrThrow();
-    return c.json({ ...v, kind: prog.kind, name: prog.name, without_partner: single.filter((p) => !paired.has(p.id)).map((p) => ({ id: p.id, name: p.display_name })), courts });
+    const prog = await db.selectFrom("program").select(["kind", "name", "public_names", "visibility"]).where("id", "=", id).executeTakeFirstOrThrow();
+    return c.json({ ...v, kind: prog.kind, name: prog.name, public_names: prog.public_names, public: prog.visibility === "public", without_partner: single.filter((p) => !paired.has(p.id)).map((p) => ({ id: p.id, name: p.display_name })), courts });
   });
 
   app.get("/staff/sessions/:id/night", async (c) => {

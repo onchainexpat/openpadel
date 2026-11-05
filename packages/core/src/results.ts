@@ -11,7 +11,8 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { MODEL, shownLevel, shownOdds, update, winChance, type Skill } from "./levels.ts";
 import { rateGame, recompute } from "./ratings.ts";
-import { fixtureDecided, fixtureLocked, fixtureUndecided } from "./competitions.ts";
+import { fixtureDecided, fixtureFormat, fixtureLocked, fixtureUndecided } from "./competitions.ts";
+import { matchWinner } from "./brackets.ts";
 
 /** How long the other side has to answer before the score counts as entered. */
 export const CONFIRM_HOURS = 48;
@@ -153,7 +154,8 @@ export const resultDispute = defineAction({
       reads: [{ entity: "game", id: g.id, version: g.version }], locationId: b.location_id, ownerIds: [i.person_id], undo: { kind: "none" }, details: { side } };
   },
   async apply(ctx, i, plan) {
-    const g = await ctx.trx.selectFrom("game").select(["status", "rated"]).where("id", "=", i.game_id).executeTakeFirstOrThrow();
+    const g = await ctx.trx.selectFrom("game").select(["status", "rated", "fixture_id"]).where("id", "=", i.game_id).forUpdate().executeTakeFirstOrThrow();
+    if (g.fixture_id && await fixtureLocked(ctx.trx, g.fixture_id)) throw new KumiError("error.next_match_played", {}, 409);
     await answer(ctx, i.game_id, i.person_id, (plan.details as { side: "a" | "b" }).side, "dispute", i.note);
     await ctx.update("game", i.game_id, { status: "disputed" });
     // It had counted already: levels are replayed without it until the club decides.
@@ -173,12 +175,18 @@ export const resultResolve = defineAction({
     if (g.status !== "disputed") throw new KumiError("error.not_disputed");
     if (i.outcome === "correct" && (!i.sets || i.sets.some((s) => s.a === s.b))) throw new KumiError("error.set_tied");
     if (g.fixture_id && await fixtureLocked(ctx.db, g.fixture_id)) throw new KumiError("error.next_match_played");
+    if (g.fixture_id && i.outcome === "correct") {
+      const f = await fixtureFormat(ctx.db, g.fixture_id);
+      if (!matchWinner(f, i.sets!)) throw new KumiError("error.bad_match_score", { format: both(`match_format.${f}`) }, 400);
+    }
     const b = await factsOf(ctx.db, g);
     const p = { score: i.outcome === "correct" ? setsText(i.sets!) : g.score, teamA: g.teamA, teamB: g.teamB, court: b.court, when: b.when };
     return { title: both("action.result.resolve"), summary: both(`plan.result.${i.outcome}` as "plan.result.keep", p), reads: [{ entity: "game", id: g.id, version: g.version }],
       locationId: b.location_id, undo: { kind: "none" } };
   },
   async apply(ctx, i) {
+    const fx = (await ctx.trx.selectFrom("game").select("fixture_id").where("id", "=", i.game_id).forUpdate().executeTakeFirstOrThrow()).fixture_id;
+    if (fx && await fixtureLocked(ctx.trx, fx)) throw new KumiError("error.next_match_played", {}, 409);
     if (i.outcome === "set_aside") {
       await ctx.update("game", i.game_id, { status: "void" });
       await answer(ctx, i.game_id, ctx.actor.personId, null, "set_aside", i.note);
@@ -223,8 +231,13 @@ export const resultAutoConfirm = defineAction({
 /** The job: scores nobody answered in time count as entered. */
 export async function confirmScores(db: Db, now = new Date()) {
   const due = await db.selectFrom("game").select("id").where("status", "=", "awaiting_confirmation").where("confirm_by", "<=", now).execute();
-  for (const g of due) await runAsSystem(db, "result.auto_confirm", { game_id: g.id }, "jobs", { now });
-  return { confirmed: due.length };
+  let failed = 0;
+  for (const g of due) {
+    // One score that can't count (its match changed under it) mustn't hold up everyone else's.
+    try { await runAsSystem(db, "result.auto_confirm", { game_id: g.id }, "jobs", { now }); }
+    catch (e) { failed++; console.error(`kumi: score ${g.id} couldn't be counted: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+  return { confirmed: due.length - failed, ...(failed ? { failed } : {}) };
 }
 
 /** The suggested teams for a booking with four players, and the odds shown (never stronger than 80/20). */

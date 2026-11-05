@@ -80,21 +80,29 @@ export function roundRobin(ids: string[], legs: 1 | 2 = 1): { round: number; a: 
   return out;
 }
 
-/** A knockout fed by groups: the top two of each, winners seeded first. A runner-up never meets their own group's
- *  winner in the first round when it can be helped. */
+/** A knockout fed by groups: the top two of each, winners seeded first, and each runner-up in the other half of the
+ *  bracket from its own group's winner, so the two meet again only in the final (as far as the numbers allow). */
 export function knockoutFromGroups(nGroups: number): Spec[] {
   const winners: Side[] = Array.from({ length: nGroups }, (_, g) => ({ from: `g${g + 1}:1` }));
   const runners: Side[] = Array.from({ length: nGroups }, (_, g) => ({ from: `g${g + 1}:2` }));
   const specs = knockout([...winners, ...runners]);
+  const first = specs.filter((s) => s.round === 1), half = (k: number) => (k < first.length / 2 ? 0 : 1);
   const groupOf = (s: Side) => ("from" in s && s.from.startsWith("g") ? Number(s.from.slice(1).split(":")[0]) : 0);
-  const first = specs.filter((s) => s.round === 1);
-  for (const m of first) {
-    if (!groupOf(m.a) || groupOf(m.a) !== groupOf(m.b)) continue;
-    // Swap this runner-up with another first-round runner-up where neither match then pairs a group with itself.
-    for (const o of first) {
-      if (o === m || !("from" in o.b) || !o.b.from.endsWith(":2")) continue;
-      if (groupOf(o.b) !== groupOf(m.a) && groupOf(m.b) !== groupOf(o.a)) { const t = m.b; m.b = o.b; o.b = t; break; }
-    }
+  const isRunner = (s: Side) => "from" in s && s.from.endsWith(":2");
+  const winnerHalf = new Map<number, number>();
+  first.forEach((m, k) => { for (const s of [m.a, m.b]) if ("from" in s && s.from.endsWith(":1")) winnerHalf.set(groupOf(s), half(k)); });
+  // The runner-up places, and the runners-up to put in them: each to a place in the other half if one is free.
+  const places = first.flatMap((m, k) => (["a", "b"] as const).filter((side) => isRunner(m[side])).map((side) => ({ m, side, half: half(k) })));
+  const todo = Array.from({ length: nGroups }, (_, g) => g + 1);
+  const free = [...places];
+  const take = (g: number, want: number | null) => {
+    const i = free.findIndex((p) => (want === null || p.half === want) && groupOf(p.side === "a" ? p.m.b : p.m.a) !== g);
+    return i < 0 ? null : free.splice(i, 1)[0]!;
+  };
+  for (const g of todo) {
+    const wh = winnerHalf.get(g);
+    const p = take(g, wh === undefined ? null : 1 - wh) ?? take(g, null) ?? free.shift()!;
+    p.m[p.side] = { from: `g${g}:2` };
   }
   return specs;
 }
@@ -111,8 +119,10 @@ export function table(entries: string[], results: Result[], kind: "group" | "lea
     if (!w || !l) continue;
     w.played++; l.played++; w.won++; l.lost++;
     w.points += 2; if (!r.walkover) l.points += 1;
-    for (const s of r.sets) {
-      const [x, y] = r.a === r.winner ? [s.a, s.b] : [s.b, s.a];
+    for (const [k, s] of r.sets.entries()) {
+      // A match tiebreak (best of three's third "set", to 10) is one game, not ten.
+      const tb = k === 2 && r.sets.length === 3;
+      const [x0, y0] = r.a === r.winner ? [s.a, s.b] : [s.b, s.a], [x, y] = tb ? [x0 > y0 ? 1 : 0, y0 > x0 ? 1 : 0] : [x0, y0];
       w.gamesFor += x; w.gamesAgainst += y; l.gamesFor += y; l.gamesAgainst += x;
       if (x > y) { w.setsFor++; l.setsAgainst++; } else if (y > x) { l.setsFor++; w.setsAgainst++; }
     }
@@ -144,18 +154,18 @@ export interface Placed { id: string; court: string; start: number; end: number;
  *  depends on, a pair never on two courts at once, and never two matches in one slot. Those that don't fit are
  *  left out (more dates or courts needed). */
 export function suggestTimes(needs: Need[], slots: Slot[], placed: Placed[]): { placed: Placed[]; unplaced: string[] } {
-  const used = new Set(placed.map((p) => `${p.court}@${p.start}`));
   const all: Placed[] = [...placed], out: Placed[] = [], unplaced: string[] = [];
   const endOf = new Map(placed.map((p) => [p.id, p.end]));
   const free = [...slots].sort((x, y) => x.start - y.start || x.court.localeCompare(y.court));
   for (const n of needs) {
     if (n.deps.some((d) => !endOf.has(d))) { unplaced.push(n.id); continue; }
     const after = Math.max(0, ...n.deps.map((d) => endOf.get(d)!));
-    const slot = free.find((s) => s.start >= after && (n.minSession === undefined || s.session >= n.minSession) && !used.has(`${s.court}@${s.start}`)
-      && !all.some((p) => p.start < s.end && s.start < p.end && p.entries.some((e) => n.entries.includes(e))));
+    // Any overlap counts, so a match staff placed off the slots' grid still keeps its court.
+    const slot = free.find((s) => s.start >= after && (n.minSession === undefined || s.session >= n.minSession)
+      && !all.some((p) => p.start < s.end && s.start < p.end && (p.court === s.court || p.entries.some((e) => n.entries.includes(e)))));
     if (!slot) { unplaced.push(n.id); continue; }
     const p = { id: n.id, court: slot.court, start: slot.start, end: slot.end, entries: n.entries };
-    used.add(`${slot.court}@${slot.start}`); all.push(p); out.push(p); endOf.set(n.id, slot.end);
+    all.push(p); out.push(p); endOf.set(n.id, slot.end);
   }
   return { placed: out, unplaced };
 }

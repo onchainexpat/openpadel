@@ -186,9 +186,20 @@ export const drawRepair = defineAction({
     if (players.length < 4) throw new KumiError("error.not_enough_players");
     if (d.format !== "americano") {
       // The round not yet played is made again from the standings, for the players on the roster now.
-      const { latest, done } = await latestRound(ctx.db, i.session_id);
+      const { latest, done, games: inRound } = await latestRound(ctx.db, i.session_id);
       if (done || latest === 0) throw new KumiError("error.nothing_to_repair");
-      const again = await makeNext(ctx.db, d as never, i.session_id, players, courts, latest);
+      // Games of the round already scored stay as they are (their scores may have moved levels); the rest of the
+      // roster is paired again on the courts left, by the standings.
+      const scored = inRound.filter((g) => g.status === "confirmed");
+      let again: Round;
+      if (!scored.length) again = await makeNext(ctx.db, d as never, i.session_id, players, courts, latest);
+      else {
+        const kept = await ctx.db.selectFrom("game").innerJoin("game_side", "game_side.game_id", "game.id").select(["game.court_id", "game_side.person_id"]).where("game.id", "in", scored.map((g) => g.id)).execute();
+        const keptPeople = new Set(kept.map((k) => k.person_id)), keptCourts = new Set(kept.map((k) => k.court_id));
+        const points = new Map((await standings(ctx.db, i.session_id)).map((x) => [x.person_id, x.points]));
+        const sat = satOutCounts((d.sat_out ?? {}) as Record<string, string[]>, latest - 1);
+        again = mexicanoRound(players.filter((x) => !keptPeople.has(x.id)), courts.filter((c) => !keptCourts.has(c.id)).map((c) => c.id), points, sat, `${i.session_id}:${latest}:${d.version}`);
+      }
       return { title: both("action.draw.repair"), summary: both("plan.draw.repair_round", { round: latest, players: players.length, pairs: await roundText(ctx.db, again, courts) }),
         reads: [read], locationId: p.location_id, undo: { kind: "compensating" }, details: { rounds: [again], from: latest } };
     }
@@ -198,7 +209,9 @@ export const drawRepair = defineAction({
   },
   async apply(ctx, i, plan) {
     const det = plan.details as { rounds: Round[]; from: number };
-    const stale = await ctx.trx.selectFrom("game").select("id").where("session_id", "=", i.session_id).where("round", ">=", det.from).where("status", "!=", "void").execute();
+    const fmt = (await ctx.trx.selectFrom("draw").select("format").where("session_id", "=", i.session_id).executeTakeFirstOrThrow()).format;
+    // An Americano re-pairs only rounds nobody has played; a Mexicano or King of the Court round keeps its scored games.
+    const stale = await ctx.trx.selectFrom("game").select("id").where("session_id", "=", i.session_id).where("round", ">=", det.from).where("status", "not in", fmt === "americano" ? ["void"] : ["void", "confirmed"]).execute();
     for (const g of stale) await ctx.update("game", g.id, { status: "void" });
     await writeRounds(ctx, i.session_id, det.rounds, det.from);
     const d = await ctx.trx.selectFrom("draw").select("sat_out").where("session_id", "=", i.session_id).executeTakeFirstOrThrow();

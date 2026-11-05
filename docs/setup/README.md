@@ -431,7 +431,7 @@ rounds. The format is chosen when the program is made.
   made when staff tap "Make round N", once the last round has its scores, and pairs by the night's
   standings: on each court, 1st and 4th play 2nd and 3rd, the best four on the top court. Games are to
   16, 21, 24 or 32 points (24 to start). A round sat out counts half a game's points, so sitting out in
-  turn costs nobody.
+  turn costs nobody. When the numbers don't fit, the lowest in the standings sit out first.
 - **King of the Court:** timed rounds (12 minutes to start). After each round the winners move up a court
   and the losers down; the top court's winners stay, and partners change every round. A round needs a
   winner (the scores can't be equal). Standings are games won, then rounds won on the top court. When
@@ -468,7 +468,10 @@ Staff can pair two people with places on the program's page ("Pairs, draw and ma
 - **Withdrawing.** Either player or staff can withdraw a pair. Its matches still to play go to the other
   pairs as walkovers; results already played stand. Leaving the program, and any refund, is its own step.
 
-With the club's public page on, a tournament or league's page shows its tables and matches with their scores.
+With the club's public page on, a tournament or league's page shows its tables and matches with their scores,
+and stays up until the competition is finished. Pairs show as "Pair 1", "Pair 2" and so on unless staff turn on
+"Show players' names on the public page" on its "Pairs, draw and matches" page; juniors are never named there
+("Junior player"), and in members' own tables a junior is named only to their partner and their family.
 
 ### Signing in, roles and bots
 

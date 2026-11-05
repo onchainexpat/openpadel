@@ -13,7 +13,7 @@ function bench(players: Player[], nCourts: number, sitouts: Map<string, number>,
   const benched = players.length - nCourts * 4;
   if (benched <= 0) return { active: players, out: [] };
   const order = [...players].map((p) => ({ p, r: rand() })).sort((x, y) =>
-    (sitouts.get(x.p.id) ?? 0) - (sitouts.get(y.p.id) ?? 0) || (rank.get(y.p.id) ?? 0) - (rank.get(x.p.id) ?? 0) || x.r - y.r).map((x) => x.p);
+    (sitouts.get(x.p.id) ?? 0) - (sitouts.get(y.p.id) ?? 0) || (rank.get(x.p.id) ?? 0) - (rank.get(y.p.id) ?? 0) || x.r - y.r).map((x) => x.p);
   const out = new Set(order.slice(0, benched).map((p) => p.id));
   return { active: players.filter((p) => !out.has(p.id)), out: [...out] };
 }
@@ -38,10 +38,14 @@ export function mexicanoRound(players: Player[], courts: string[], points: Map<s
   return { games, sittingOut: out };
 }
 
-/** The fairer of the two ways to split two pairs so that nobody keeps their partner. */
-function splitPairs(court: string, x: [Player, Player], y: [Player, Player], predict: Predict): Pairing {
-  const options: [[Player, Player], [Player, Player]][] = [[[x[0], y[0]], [x[1], y[1]]], [[x[0], y[1]], [x[1], y[0]]]];
-  const best = options.map(([a, b]) => ({ a, b, p: predict(a, b) })).sort((m, n) => Math.abs(m.p - 0.5) - Math.abs(n.p - 0.5))[0]!;
+/** The fairest way to split four players into two teams where nobody keeps last round's partner (of the three
+ *  splits of four, at least one always does that when the last round had them in two pairs at most). */
+function splitPairs(court: string, x: [Player, Player], y: [Player, Player], predict: Predict, partners: Set<string> = new Set()): Pairing {
+  const [p, q] = x, [r, s] = y;
+  const options: [[Player, Player], [Player, Player]][] = [[[p, r], [q, s]], [[p, s], [q, r]], [[p, q], [r, s]]];
+  const kept = (t: [Player, Player]) => partners.has([t[0].id, t[1].id].sort().join("|"));
+  const ok = options.filter(([a, b]) => !kept(a) && !kept(b));
+  const best = (ok.length ? ok : options).map(([a, b]) => ({ a, b, p: predict(a, b) })).sort((m, n) => Math.abs(m.p - 0.5) - Math.abs(n.p - 0.5))[0]!;
   return { court, a: [best.a[0].id, best.a[1].id], b: [best.b[0].id, best.b[1].id], predictedA: best.p };
 }
 
@@ -82,6 +86,7 @@ export function kotcNextRound(byId: Map<string, Player>, courts: string[], last:
     arrive[n - 1] = [[bottom[0]!, bottom[1]!], [bottom[2]!, bottom[3]!]];
   }
   const p = (id: string) => byId.get(id)!;
-  const games = arrive.map((pairs, i) => splitPairs(courts[i]!, [p(pairs[0]![0]!), p(pairs[0]![1]!)], [p(pairs[1]![0]!), p(pairs[1]![1]!)], predict));
+  const partners = new Set(last.flatMap((g) => [[...g.a].sort().join("|"), [...g.b].sort().join("|")]));
+  const games = arrive.map((pairs, i) => splitPairs(courts[i]!, [p(pairs[0]![0]!), p(pairs[0]![1]!)], [p(pairs[1]![0]!), p(pairs[1]![1]!)], predict, partners));
   return { games, sittingOut: out };
 }
