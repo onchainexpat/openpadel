@@ -124,7 +124,6 @@ server starts.
   own dates' chats in the members' app (the staff app's Chats is front desk and up).
 - Tournaments and leagues are for doubles pairs. No consolation draw yet, no self-scheduling (players ask, staff
   move), and a league's pairs are fixed for the season (no subs for one match).
-- A time typed on the staff app is read in the device's time zone, as on a program's dates.
 - Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures".
 
 ## 0.2.1 (2026-11-04)
