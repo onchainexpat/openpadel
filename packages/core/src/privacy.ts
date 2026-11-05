@@ -28,7 +28,7 @@ const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents,
 const iso = (d: Date | string | null | undefined) => d ? new Date(d).toISOString() : null;
 
 // ---- What's still running ----
-export type BlockerKind = "staff" | "bookings" | "programs" | "membership" | "balance" | "kid_requests";
+export type BlockerKind = "staff" | "bookings" | "weekly" | "programs" | "membership" | "balance" | "kid_requests";
 export interface Blocker { kind: BlockerKind; text: Text; how: Text }
 
 /** Juniors only this person manages: deleting them deletes these too. */
@@ -52,6 +52,8 @@ async function runningFor(db: Db | Trx, personId: string, now: Date, opts: { che
     .select(sql<string>`count(DISTINCT booking.id)`.as("n")).where("booking_player.person_id", "=", personId).where("booking_player.removed_at", "is", null)
     .where("booking.status", "in", ["held", "confirmed"]).where("court_time.active", "=", true).where(sql<boolean>`upper(court_time.during) > ${now}`).executeTakeFirstOrThrow();
   if (Number(places.n)) add("bookings", { count: Number(places.n) });
+  // A weekly court still booking weeks (booking_series.ts) would book more after the account is gone: it ends first.
+  if (await db.selectFrom("booking_series").select("id").where("organiser_id", "=", personId).where("ended_at", "is", null).executeTakeFirst()) add("weekly");
   // A place in a date still to come (its own date, or for a course, any of the program's).
   const enrolled = await db.selectFrom("enrolment").select(sql<string>`count(*)`.as("n")).where("enrolment.person_id", "=", personId).where("enrolment.status", "in", ["booked", "waitlisted"])
     .where(sql<boolean>`EXISTS (SELECT 1 FROM session s WHERE s.status <> 'cancelled' AND s.ends_at > ${now}

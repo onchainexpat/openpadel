@@ -156,7 +156,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const rows = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id")
       .innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id")
       .leftJoin("person as coach", "coach.id", "booking.coach_id")
-      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.players", "booking.price_cents", "booking.organiser_id", "booking.invite_code", "booking.settled_at",
+      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.players", "booking.price_cents", "booking.organiser_id", "booking.invite_code", "booking.settled_at", "booking.series_id",
         "booking.balance_cents", "booking_player.id as player_id", "booking_player.share_cents", "court.name as court", "location.name as location", "location.time_zone", "coach.display_name as coach"])
       .select([sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
       .select((eb) => [
@@ -174,9 +174,17 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .where(sql<boolean>`upper(court_time.during) > now() - interval '1 day'`).orderBy(sql`lower(court_time.during)`).execute();
     // A junior's lessons show too, marked with their name: the parent pays for and manages them.
     const people = await meAndJuniors(pid), forName = (id: string | null) => people.find((x) => x.id === id)?.display_name ?? null;
+    // The first week of a weekly court being paid: the later weeks going on the same card, and what they come to.
+    const later = new Map<string, { count: number; cents: number; hours: number }>();
+    for (const id of [...new Set(rows.filter((r) => r.series_id && r.pending_payment_id).map((r) => r.series_id!))]) {
+      const w = await db.selectFrom("booking_series_week").select([sql<string>`count(*)`.as("n"), sql<string>`coalesce(sum(price_cents), 0)`.as("c")])
+        .where("series_id", "=", id).where("booking_id", "is", null).where("missed", "is", null).executeTakeFirstOrThrow();
+      const pol = await db.selectFrom("booking_series").innerJoin("booking_policy", "booking_policy.id", "booking_series.policy_id").select("booking_policy.split_deadline_hours").where("booking_series.id", "=", id).executeTakeFirstOrThrow();
+      later.set(id, { count: Number(w.n), cents: Number(w.c), hours: pol.split_deadline_hours });
+    }
     return c.json(rows.map(({ person_id, ...r }) => {
       const mine = r.organiser_id === pid || (r.organiser_id === person_id && person_id !== pid);
-      return { ...r, mine, for_name: forName(person_id), paid_cents: Number(r.paid_cents ?? 0), joined: Number(r.joined ?? 0), group_cents: r.group_cents === null ? null : Number(r.group_cents),
+      return { ...r, mine, weekly_later: r.series_id && r.pending_payment_id ? later.get(r.series_id) ?? null : null, for_name: forName(person_id), paid_cents: Number(r.paid_cents ?? 0), joined: Number(r.joined ?? 0), group_cents: r.group_cents === null ? null : Number(r.group_cents),
         invite_code: mine && !r.settled_at ? r.invite_code : null, organiser_id: undefined };
     }));
   });

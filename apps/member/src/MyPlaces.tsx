@@ -49,7 +49,7 @@ export function MyPlaces() {
 
 type Booking = { id: string; code: string; status: string; kind: string; coach: string | null; pay_mode: string; players: number; price_cents: number; invite_code: string | null; balance_cents: number; share_cents: number;
   court: string; location: string; time_zone: string; start: string; end: string; pending_payment_id: string | null; pending_cents: number | null; paid_cents: number; joined: number; mine: boolean; open_match_id: string | null;
-  group_cents: number | null; for_name: string | null };
+  group_cents: number | null; for_name: string | null; weekly_later: { count: number; cents: number; hours: number } | null };
 
 /** My court bookings: when and where, what I paid or still owe, the link for the others, and cancelling. */
 function MyBookings({ provider, ready, onPaid }: { provider: string | null; ready: boolean; onPaid: () => void }) {
@@ -76,6 +76,7 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
           <div class="meta">{b.code} · {b.location}{b.status === "held" ? ` · ${t("ui.being_paid")}` : ""}{b.paid_cents > 0 ? ` · ${paidOf(b.paid_cents, b.share_cents)}` : ""}
             {b.pay_mode === "split" ? ` · ${t("count.joined", { count: b.joined, total: b.players })}` : ""}</div>
           {b.balance_cents > 0 && b.mine && <p class="error">{t("ui.still_owed", { amount: dollars(b.balance_cents, lang.value) })}</p>}
+          {b.weekly_later && b.weekly_later.count > 0 && <p class="meta">{t("ui.weekly_first_pay", { count: b.weekly_later.count, total: dollars(b.weekly_later.cents, lang.value), hours: t("count.hours", { count: b.weekly_later.hours }) })}</p>}
           {b.pending_payment_id && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(b)}>{t("ui.pay_now", { amount: dollars(b.group_cents ?? b.pending_cents ?? b.share_cents, lang.value) })}</button>}
           {import.meta.env.DEV && b.pending_payment_id && provider === "test" && <button class="small" onClick={async () => { await api(`/dev/payments/${b.pending_payment_id}/settle`, {}); load(); }}>{t("ui.pay_test")}</button>}
           {b.open_match_id ? <><a class="small" href={`/match/${b.open_match_id}`}>{t("ui.see_match")}</a>{" "}</>

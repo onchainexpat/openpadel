@@ -100,10 +100,10 @@ test("a member's own weekly court: off unless the club allows it, at most its we
   // Someone books the fourth week before it comes into Ann's window: that week is left out, she hears, nothing is charged.
   const other = (await run(db, "booking.request", { court_id: c1, starts_at: at("2026-12-23", "10:00"), minutes: 90, pay: "whole", person_id: people.Eve }, as("Eve"), { now: hours(24 * 10) })).result as { payment_id: string };
   await pay(other.payment_id, "Eve");
-  assert.deepEqual(await bookSeriesWeeks(db, hours(24 * 10)), { booked: 1, missed: 1, ended: 0 });
+  assert.deepEqual(await bookSeriesWeeks(db, hours(24 * 10)), { booked: 1, missed: 1, ended: 1 }, "nothing left to book, so it's closed; its weeks still show");
   assert.deepEqual((await weeksOf(r.series_id)).map((w) => w.status ?? `missed ${w.missed}`), ["confirmed", "confirmed", "confirmed", "missed taken"]);
   await processOutbox(db, messageHandlers);
-  assert.match((await messages("Ann", "booking_repeat_missed"))[0]!.body, /We couldn't book Court 1 on December 23, 2026 at 10:00 AM for your weekly court: someone else had it booked by then\. Nothing is charged/);
+  assert.match((await messages("Ann", "booking_repeat_missed"))[0]!.body, /We couldn't book Court 1 at 10:00 AM for your weekly court on this week, and nothing is charged for it: December 23, 2026 \(someone else had it booked by then\)\./);
 });
 
 test("each later week goes on the saved card at the deadline; a declined week is owed at the desk and the rest stay", async () => {
@@ -128,7 +128,8 @@ test("each later week goes on the saved card at the deadline; a declined week is
   await processOutbox(db, messageHandlers);
   assert.match((await messages("Ann", "booking_week_due"))[0]!.body, /We couldn't charge \$60\.00 for your weekly court, Court 1, Wed, Dec 16, 10:00 AM, to your card/);
   assert.ok((await db.selectFrom("outbound_message").select("id").where("kind", "=", "booking_balance_due_staff").execute()).length > 0);
-  assert.equal((await db.selectFrom("booking_series").select("ended_at").where("id", "=", series).executeTakeFirstOrThrow()).ended_at, null);
+  // Owed, not paid: My places says so.
+  assert.equal((await seriesOf(db, people.Ann!, new Date(at("2026-12-15", "10:02"))))[0]!.weeks.find((w) => w.date === "2026-12-16")!.state, "owed");
 });
 
 test("ending a weekly court: from a week on, each under its own rules; the member can't choose the refund; told once", async () => {

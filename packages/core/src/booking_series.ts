@@ -26,7 +26,7 @@ import { backSql } from "./desk_pay.ts";
 
 /** The most weeks one series runs (a club's own cap for members is lower: club.weekly_max_weeks). */
 export const MAX_WEEKS = 26;
-type Missed = "taken" | "closed" | "not_bookable" | "too_late" | "no_card";
+type Missed = "taken" | "closed" | "not_bookable" | "too_late" | "no_card" | "unpaid" | "limit";
 
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 const addDays = (date: string, n: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -96,7 +96,12 @@ async function bookWeek(ctx: ApplyCtx, s: SeriesRow, w: WeekRow, tz: string): Pr
 export async function seriesCard(db: Db | Trx, seriesId: string) {
   return (await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").innerJoin("booking", "booking.id", "booking_player.booking_id")
     .select(["payment.saved_customer", "payment.saved_method", "payment.provider_account"]).where("booking.series_id", "=", seriesId).where("payment.save_card", "=", true)
-    .where("payment.status", "=", "succeeded").where("payment.saved_method", "is not", null).orderBy("payment.created_at", "desc").limit(1).executeTakeFirst()) ?? null;
+    .where("payment.status", "=", "succeeded").where("payment.saved_method", "is not", null).whereRef("payment.person_id", "=", "booking.organiser_id")
+    .orderBy("payment.created_at", "desc").limit(1).executeTakeFirst()) ?? null;
+}
+/** A series' clock: its location's time zone (read directly, so a court archived since still has one). */
+async function seriesTz(db: Db | Trx, locationId: string): Promise<string> {
+  return (await db.selectFrom("location").select("time_zone").where("id", "=", locationId).executeTakeFirstOrThrow()).time_zone;
 }
 
 // ---- Staff make one for a member: every week owed at the desk ----
@@ -141,6 +146,8 @@ export const bookingRepeat = defineAction({
       await ctx.insert("booking_series_week", { ...row, ...("booking_id" in r ? { booking_id: r.booking_id } : { missed: r.missed }) });
       if ("booking_id" in r) booked++;
     }
+    // Nothing is left to book: every week is booked or left out. Its weeks still show, and can be ended.
+    await ctx.update("booking_series", id, { ended_at: ctx.now });
     await ctx.emit("booking.repeat_made", { series_id: id });
     return { series_id: id, booked };
   },
@@ -201,69 +208,72 @@ export const bookingRepeatRequest = defineAction({
 });
 
 // ---- The job: each later week of a member's series, once it's inside their booking window ----
+/** Someone who owes the club (a declined week, time owed at the desk) gets no more weeks until it's paid. */
+async function owes(db: Db | Trx, personId: string, now: Date): Promise<boolean> {
+  try { await notOwing(db, personId, null, now); return false; } catch (e) { if (e instanceof KumiError && e.code === "error.balance_owed") return true; throw e; }
+}
 export const bookingRepeatWeek = defineAction({
   name: "booking.repeat_week", version: 1, system: true, internal: true,
-  input: z.object({ week_id: z.uuid() }),
-  async plan(ctx, i) {
-    const { row: w, read } = await readRow(ctx.db, "booking_series_week", i.week_id, "thing.weekly_booking");
-    return { title: both("action.booking.repeat_week"), summary: both("plan.booking.repeat_week", { date: dayOf(w.on_date) }), reads: [read], undo: { kind: "none" } };
-  },
-  async apply(ctx, i) {
-    const w0 = await ctx.trx.selectFrom("booking_series_week").selectAll().where("id", "=", i.week_id).executeTakeFirstOrThrow();
-    const s = await ctx.trx.selectFrom("booking_series").selectAll().where("id", "=", w0.series_id).forUpdate().executeTakeFirstOrThrow();
-    await lockCourts(ctx, [s.court_id]);
-    const w = await ctx.trx.selectFrom("booking_series_week").selectAll().where("id", "=", i.week_id).forUpdate().executeTakeFirstOrThrow();
-    if (w.booking_id || w.missed || s.ended_at || w.on_date > s.last_date) return { already: true };
-    const tz = (await courtAndPlace(ctx.trx, s.court_id)).time_zone;
-    const r = s.pay === "card" && !(await seriesCard(ctx.trx, s.id)) ? { missed: "no_card" as const } : await bookWeek(ctx, s, w, tz);
-    if ("booking_id" in r) { await ctx.update("booking_series_week", w.id, { booking_id: r.booking_id }); return { booked: r.booking_id }; }
-    await ctx.update("booking_series_week", w.id, { missed: r.missed });
-    await ctx.emit("booking.repeat_missed", { series_id: s.id, on_date: w.on_date, why: r.missed });
-    return { missed: r.missed };
-  },
-});
-
-/** Every member's series with a week now inside their booking window: book it. A series whose first week was never
- *  paid (the card form left until its hold ran out) has no card, so it ends instead. Read-only, nothing new is
- *  booked: the weeks wait, and those still to come are booked once it's lifted. */
-export async function bookSeriesWeeks(db: Db, now = new Date()) {
-  if (await isReadOnly(db)) return { booked: 0, missed: 0, ended: 0 };
-  const series = await db.selectFrom("booking_series").innerJoin("location", "location.id", "booking_series.location_id")
-    .select(["booking_series.id", "booking_series.organiser_id", "booking_series.starts", "booking_series.last_date", "location.time_zone"])
-    .where("booking_series.ended_at", "is", null).where("booking_series.pay", "=", "card").execute();
-  let booked = 0, missed = 0, ended = 0;
-  for (const s of series) {
-    if (!(await seriesCard(db, s.id))) {
-      const firstOff = await db.selectFrom("booking").select("id").where("series_id", "=", s.id).where("status", "=", "cancelled").executeTakeFirst();
-      const firstHeld = await db.selectFrom("booking").select("id").where("series_id", "=", s.id).where("status", "in", ["held", "confirmed"]).executeTakeFirst();
-      if (firstOff && !firstHeld) { await runAsSystem(db, "booking.repeat_close", { series_id: s.id }, "jobs", { now }); ended++; }
-      continue;
-    }
-    const until = new Date(now.getTime() + (await daysAhead(db, s.organiser_id, now)) * 86400_000);
-    const due = (await db.selectFrom("booking_series_week").select(["id", "on_date"]).where("series_id", "=", s.id).where("booking_id", "is", null).where("missed", "is", null)
-      .where("on_date", "<=", s.last_date).orderBy("on_date").execute()).filter((w) => onDate(w.on_date, s.starts.slice(0, 5), s.time_zone) <= until);
-    for (const w of due) {
-      const r = (await runAsSystem(db, "booking.repeat_week", { week_id: w.id }, "jobs", { now })).result as { booked?: string; missed?: string } | null;
-      if (r?.booked) booked++; else if (r?.missed) missed++;
-    }
-  }
-  return { booked, missed, ended };
-}
-
-/** A member's series whose first week was never paid: over, quietly (they never had it). */
-export const bookingRepeatClose = defineAction({
-  name: "booking.repeat_close", version: 1, system: true, internal: true,
   input: z.object({ series_id: z.uuid() }),
   async plan(ctx, i) {
     const { read } = await readRow(ctx.db, "booking_series", i.series_id, "thing.weekly_booking");
-    return { title: both("action.booking.repeat_close"), summary: both("action.booking.repeat_close"), reads: [read], undo: { kind: "none" } };
+    return { title: both("action.booking.repeat_week"), summary: both("plan.booking.repeat_week"), reads: [read], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
-    const s = await ctx.trx.selectFrom("booking_series").select(["id", "ended_at"]).where("id", "=", i.series_id).forUpdate().executeTakeFirstOrThrow();
-    if (!s.ended_at) await ctx.update("booking_series", s.id, { ended_at: ctx.now });
-    return null;
+    const s = await ctx.trx.selectFrom("booking_series").selectAll().where("id", "=", i.series_id).forUpdate().executeTakeFirstOrThrow();
+    if (s.ended_at) return { already: true };
+    const end = async (why: string | null) => { await ctx.update("booking_series", s.id, { ended_at: ctx.now }); if (why) await ctx.emit("booking.repeat_stopped", { series_id: s.id, why }); return { closed: why ?? "done" }; };
+    // The club stopped taking weekly bookings (or court bookings) in the app: no more weeks; those booked stay.
+    const club = await ctx.trx.selectFrom("club").select(["court_bookings", "weekly_bookings"]).executeTakeFirstOrThrow();
+    if (s.source === "app" && (!club.court_bookings || !club.weekly_bookings)) return end(club.court_bookings ? "weekly_off" : "bookings_off");
+    // It runs on only once its first week is confirmed: one never paid, or lost while its card went through, ends it.
+    const first = await ctx.trx.selectFrom("booking_series_week").innerJoin("booking", "booking.id", "booking_series_week.booking_id").select(["booking.status", "booking.cancel_reason"])
+      .where("booking_series_week.series_id", "=", s.id).where("booking_series_week.on_date", "=", s.first_date).executeTakeFirst();
+    if (s.pay === "card" && first?.status === "held") return { waiting: true };
+    // (A first week paid and cancelled afterwards, the member not able to come that week, isn't that: it was had.)
+    if (s.pay === "card" && (!first || (first.status === "cancelled" && ["not_paid", "hold_lost"].includes(first.cancel_reason ?? "")))) return end(null);
+    await lockCourts(ctx, [s.court_id]);
+    const tz = await seriesTz(ctx.trx, s.location_id), until = new Date(ctx.now.getTime() + (await daysAhead(ctx.trx, s.organiser_id, ctx.now)) * 86400_000);
+    const policy = await ctx.trx.selectFrom("booking_policy").selectAll().where("id", "=", s.policy_id).executeTakeFirstOrThrow();
+    const card = s.pay === "card" ? await seriesCard(ctx.trx, s.id) : null, owing = await owes(ctx.trx, s.organiser_id, ctx.now);
+    const due = await ctx.trx.selectFrom("booking_series_week").selectAll().where("series_id", "=", s.id).where("booking_id", "is", null).where("missed", "is", null)
+      .where("on_date", "<=", s.last_date).orderBy("on_date").forUpdate().execute();
+    const missed: { date: string; why: Missed }[] = [];
+    let booked = 0;
+    for (const w of due) {
+      const start = onDate(w.on_date, s.starts.slice(0, 5), tz);
+      if (start > until) break;   // not inside the window yet: never held sooner than one booking could be
+      // A week that passed unbooked (the club was read-only then) is dropped; owing pauses the series; and each
+      // week counts toward the club's limit on upcoming bookings as it's booked.
+      const r: { booking_id: string } | { missed: Missed } = start <= ctx.now ? { missed: "too_late" } : s.pay === "card" && !card ? { missed: "no_card" }
+        : owing ? { missed: "unpaid" } : await upcomingCount(ctx.trx, s.organiser_id, ctx.now) >= policy.max_active ? { missed: "limit" } : await bookWeek(ctx, s, w, tz);
+      if ("booking_id" in r) { await ctx.update("booking_series_week", w.id, { booking_id: r.booking_id }); booked++; }
+      else { await ctx.update("booking_series_week", w.id, { missed: r.missed }); missed.push({ date: w.on_date, why: r.missed }); }
+    }
+    // The member hears once a run, with every week left out and why.
+    if (missed.length) await ctx.emit("booking.repeat_missed", { series_id: s.id, weeks: missed });
+    const left = await ctx.trx.selectFrom("booking_series_week").select("id").where("series_id", "=", s.id).where("booking_id", "is", null).where("missed", "is", null)
+      .where("on_date", "<=", s.last_date).executeTakeFirst();
+    if (!left) await end(null);   // nothing left to book: its booked weeks still show, and can be ended
+    return { booked, missed: missed.length, ...(left ? {} : { closed: "done" }) };
   },
 });
+
+/** Every member's series still running: its weeks now inside their booking window are booked (booking.repeat_week).
+ *  One series that fails doesn't stop the others (a court archived since, a second runner a moment ahead). Read-only,
+ *  nothing new is booked: the weeks wait, and those still to come are booked once it's lifted. */
+export async function bookSeriesWeeks(db: Db, now = new Date()) {
+  if (await isReadOnly(db)) return { booked: 0, missed: 0, ended: 0 };
+  const series = await db.selectFrom("booking_series").select("id").where("ended_at", "is", null).where("pay", "=", "card").execute();
+  let booked = 0, missed = 0, ended = 0;
+  for (const s of series) {
+    try {
+      const r = (await runAsSystem(db, "booking.repeat_week", { series_id: s.id }, "jobs", { now })).result as { booked?: number; missed?: number; closed?: string } | null;
+      booked += r?.booked ?? 0; missed += r?.missed ?? 0; if (r?.closed) ended++;
+    } catch (e) { console.error(`weekly courts: series ${s.id}:`, e instanceof KumiError ? e.code : (e as Error).message); }
+  }
+  return { booked, missed, ended };
+}
 
 // ---- Ending one: a week and all after it, each under its own rules ----
 async function seriesToEnd(db: Db | Trx, seriesId: string, from: string, now: Date) {
@@ -276,12 +286,14 @@ export const bookingRepeatEnd = defineAction({
   input: z.object({ series_id: z.uuid(), from_date: z.optional(clubDate), refund: z.optional(z.enum(["rule", "full", "none"])) }),
   async plan(ctx, i) {
     const { row: s, read } = await readRow(ctx.db, "booking_series", i.series_id, "thing.weekly_booking");
-    if (s.ended_at) throw new KumiError("error.weekly_over");
     // Choosing what comes back instead of each week's rule is for the club (rule 2), not the member.
     if (i.refund && !(await deskOrUp(ctx.db, ctx.actor.personId))) throw new KumiError("error.refund_choice_staff", {}, 403);
-    const court = await courtAndPlace(ctx.db, s.court_id), today = localDate(ctx.now, court.time_zone);
-    const from = i.from_date && i.from_date > today ? i.from_date : today;
+    const court = { name: (await ctx.db.selectFrom("court").select("name").where("id", "=", s.court_id).executeTakeFirstOrThrow()).name, time_zone: await seriesTz(ctx.db, s.location_id) };
+    const today = localDate(ctx.now, court.time_zone), from = i.from_date && i.from_date > today ? i.from_date : today;
     const weeks = await seriesToEnd(ctx.db, s.id, from, ctx.now), cancels = [];
+    // Over, with nothing booked still to come: there's nothing to end.
+    const waiting = await ctx.db.selectFrom("booking_series_week").select("id").where("series_id", "=", s.id).where("booking_id", "is", null).where("missed", "is", null).where("on_date", ">=", from).executeTakeFirst();
+    if (!weeks.length && (s.ended_at || !waiting)) throw new KumiError("error.weekly_over");
     for (const w of weeks) { const r = await cancelRefunds(ctx.db, w.id, ctx.now, i.refund ?? "rule"); cancels.push({ booking_id: w.id, refunds: r.refunds.map(({ payment_id, cents }) => ({ payment_id, cents })) }); }
     const back = cancels.reduce((n, c) => n + c.refunds.reduce((m, r) => m + r.cents, 0), 0);
     const start = onDate(s.first_date, s.starts.slice(0, 5), court.time_zone);
@@ -293,7 +305,6 @@ export const bookingRepeatEnd = defineAction({
   async apply(ctx, i, plan) {
     const d = plan.details as { from: string; cancels: { booking_id: string; refunds: { payment_id: string; cents: number }[] }[] };
     const s = await ctx.trx.selectFrom("booking_series").selectAll().where("id", "=", i.series_id).forUpdate().executeTakeFirstOrThrow();
-    if (s.ended_at) throw new KumiError("error.weekly_over");
     await lockCourts(ctx, [s.court_id]);
     // The weeks as they are now: one booked since the preview goes too, and anyone who paid after the preview never
     // agreed to its rule, so all of theirs comes back (as booking.cancel does).
@@ -307,7 +318,7 @@ export const bookingRepeatEnd = defineAction({
       await cancelBooking(ctx, w.id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents - Number(p.back) }))], "series_ended");
     }
     const last = addDays(d.from, -1);
-    await ctx.update("booking_series", s.id, last < s.first_date ? { ended_at: ctx.now } : { last_date: last < s.last_date ? last : s.last_date });
+    await ctx.update("booking_series", s.id, last < s.first_date ? { ended_at: s.ended_at ?? ctx.now } : { last_date: last < s.last_date ? last : s.last_date });
     await ctx.emit("booking.repeat_ended", { series_id: s.id, from: d.from, by: ctx.actor.personId });
     return null;
   },
@@ -319,18 +330,19 @@ export async function seriesOf(db: Db | Trx, personId: string, now: Date) {
   const rows = await db.selectFrom("booking_series").innerJoin("court", "court.id", "booking_series.court_id").innerJoin("location", "location.id", "booking_series.location_id")
     .select(["booking_series.id", "booking_series.court_id", "court.name as court", "booking_series.starts", "booking_series.minutes", "booking_series.first_date", "booking_series.last_date",
       "booking_series.pay", "booking_series.source", "location.time_zone"])
-    .where("booking_series.organiser_id", "=", personId).where("booking_series.ended_at", "is", null).orderBy("booking_series.first_date").execute();
+    .where("booking_series.organiser_id", "=", personId).orderBy("booking_series.first_date").execute();
   const out = [];
   for (const s of rows) {
     const today = localDate(now, s.time_zone);
     const weeks = await db.selectFrom("booking_series_week").leftJoin("booking", "booking.id", "booking_series_week.booking_id")
-      .select(["booking_series_week.on_date", "booking_series_week.missed", "booking_series_week.price_cents", "booking.id as booking_id", "booking.code", "booking.status", "booking.settled_at"])
+      .select(["booking_series_week.on_date", "booking_series_week.missed", "booking_series_week.price_cents", "booking.id as booking_id", "booking.code", "booking.status", "booking.settled_at", "booking.balance_cents"])
       .where("booking_series_week.series_id", "=", s.id).where("booking_series_week.on_date", ">=", today).where("booking_series_week.on_date", "<=", s.last_date).orderBy("booking_series_week.on_date").execute();
-    if (!weeks.length) continue;
+    // A series ended or done shows only while it has a week still booked (or still to be booked) to come.
+    if (!weeks.some((w) => (w.booking_id && w.status !== "cancelled") || (!w.booking_id && !w.missed))) continue;
     out.push({ id: s.id, court: s.court, starts: s.starts.slice(0, 5), minutes: s.minutes, pay: s.pay, source: s.source, time_zone: s.time_zone, last_date: s.last_date,
       weeks: weeks.map((w) => ({ date: w.on_date, starts_at: onDate(w.on_date, s.starts.slice(0, 5), s.time_zone).toISOString(), price_cents: w.price_cents,
-        state: w.booking_id ? (w.status === "cancelled" ? "cancelled" : "booked") : w.missed ? "missed" : "waiting", missed: w.missed, booking_id: w.booking_id, code: w.code,
-        charged: Boolean(w.settled_at) })) });
+        state: w.booking_id ? (w.status === "cancelled" ? "cancelled" : (w.balance_cents ?? 0) > 0 ? "owed" : "booked") : w.missed ? "missed" : "waiting", missed: w.missed, booking_id: w.booking_id, code: w.code,
+        charged: Boolean(w.settled_at) && !w.balance_cents })) });
   }
   return out;
 }

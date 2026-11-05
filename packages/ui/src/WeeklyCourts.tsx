@@ -7,7 +7,7 @@ import { clubTime, lang, t } from "./state.ts";
 import { dollars } from "./Preview.tsx";
 
 export type WeeklyCourt = { id: string; court: string; starts: string; minutes: number; pay: "card" | "desk"; time_zone: string;
-  weeks: { date: string; starts_at: string; price_cents: number; state: "booked" | "cancelled" | "missed" | "waiting"; missed: string | null; code: string | null; charged: boolean }[] };
+  weeks: { date: string; starts_at: string; price_cents: number; state: "booked" | "owed" | "cancelled" | "missed" | "waiting"; missed: string | null; code: string | null; charged: boolean }[] };
 
 export function WeeklyCourts({ series, preview, staff }: { series: WeeklyCourt[]; preview: (action: string, input: unknown) => Promise<void> | void; staff?: boolean }) {
   const [refund, setRefund] = useState("rule");

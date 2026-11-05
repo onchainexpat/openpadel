@@ -13,7 +13,7 @@ import { KumiError } from "./errors.ts";
 import { atLocal, localParts } from "./clock.ts";
 
 /** Actions whose plan's money is what the person themselves pays, when it's for them or a junior they manage. */
-const PAYS = new Set(["booking.request", "booking.request_courts", "booking.join", "booking.ask", "booking.take_place", "lesson.request",
+const PAYS = new Set(["booking.request", "booking.request_courts", "booking.repeat_request", "booking.join", "booking.ask", "booking.take_place", "lesson.request",
   "enrolment.join", "enrolment.join_dates", "enrolment.accept_offer", "membership.join"]);
 /** Membership changes the membership's payer pays for: one more person now, or the next period once resumed. */
 const MEMBERSHIP = new Set(["membership.add_person", "membership.resume"]);
@@ -30,7 +30,9 @@ export const sharedCourt = (name: string, input: any): boolean =>
 /** What a change can cost whoever pays for it: for a shared court or lesson the whole price (their share now,
  *  the others' at the deadline if they don't pay), otherwise what the plan asks. */
 export function fullCost(name: string, input: any, plan: PlanMoney): number {
-  const d = plan.details as { quote?: { total_cents?: number }; total?: number } | undefined;
+  const d = plan.details as { quote?: { total_cents?: number }; total?: number; weeks?: { price_cents: number; clash: string | null }[] } | undefined;
+  // A weekly court counts in full: every week goes on the card saved with the first (booking_series.ts).
+  if (name === "booking.repeat_request" && d?.weeks) return d.weeks.filter((w) => !w.clash).reduce((n, w) => n + w.price_cents, 0);
   const whole = sharedCourt(name, input) ? d?.quote?.total_cents ?? d?.total : undefined;
   return Math.max(0, whole ?? plan.moneyCents ?? 0);
 }
@@ -100,12 +102,36 @@ async function sharedCourtCost(db: Db | Trx, bookingId: string, personId: string
   return Math.max(0, b.status === "cancelled" ? mine : b.price_cents - others);
 }
 
+/** A weekly court the assistant made: each week booked or still to be booked counts its price until it's charged;
+ *  once charged, what was kept; a week left out, cancelled before it was charged, or never booked (the series
+ *  ended) counts nothing. */
+async function seriesCost(db: Db | Trx, seriesId: string): Promise<number> {
+  const s = await db.selectFrom("booking_series").select("ended_at").where("id", "=", seriesId).executeTakeFirstOrThrow();
+  const weeks = await db.selectFrom("booking_series_week").leftJoin("booking", "booking.id", "booking_series_week.booking_id")
+    .select(["booking_series_week.price_cents", "booking_series_week.missed", "booking.id as booking_id", "booking.status"]).where("booking_series_week.series_id", "=", seriesId).execute();
+  let cost = 0;
+  for (const w of weeks) {
+    if (w.missed || (!w.booking_id && s.ended_at)) continue;
+    const kept = w.booking_id ? await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+      .select(sql<string>`coalesce(sum(payment.amount_cents - (select coalesce(sum(r.amount_cents), 0) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent'))), 0)`.as("c"))
+      .where("booking_player.booking_id", "=", w.booking_id).where("payment.status", "=", "succeeded").executeTakeFirstOrThrow() : null;
+    const paid = Number(kept?.c ?? 0);
+    cost += w.status === "cancelled" ? Math.max(0, paid) : Math.max(paid, w.price_cents);
+  }
+  return cost;
+}
+
 /** What one change the assistant made still costs the person now. */
 async function stillCosts(db: Db | Trx, run: { id: string; action: string; input: unknown; plan: unknown }, personId: string): Promise<number> {
   const asked = await chargeOf(db, run.action, run.input, run.plan as PlanMoney, personId);
   if (asked <= 0) return 0;
   const made = await db.selectFrom("entity_change").select(["entity", "entity_id"]).where("action_run_id", "=", run.id).where("op", "=", "insert")
     .where("entity", "in", ["payment", "booking"]).execute();
+  // A weekly court: every week still to be charged, and what was charged and kept, while it runs.
+  if (run.action === "booking.repeat_request") {
+    const series = (await db.selectFrom("entity_change").select("entity_id").where("action_run_id", "=", run.id).where("op", "=", "insert").where("entity", "=", "booking_series").executeTakeFirst())?.entity_id;
+    if (series) return seriesCost(db, series);
+  }
   const booking = sharedCourt(run.action, run.input) ? made.find((m) => m.entity === "booking")?.entity_id : undefined;
   if (booking) return sharedCourtCost(db, booking, personId);
   const payments = made.filter((m) => m.entity === "payment").map((m) => m.entity_id);

@@ -25,6 +25,16 @@ server starts.
   with "Cancel this and the rest" (each week under its own rules; staff can choose what comes back). A member's
   AI assistant sees each week as a booking and can end their weekly court as they can; a weekly court the desk
   ends is told to the member once, not once a week. Read-only, nothing new is booked, and the weeks still to come wait.
+  - **A week is never charged twice**, even when a restored copy (or a second server after a move) books it again
+    under a new booking: its charge is keyed on the week, which exists from the day the weekly court is made.
+  - **A member's AI assistant counts the whole weekly court against its weekly limit** (every week still to be
+    charged, as a shared court counts in full), not just the first week. The first week's pay step says the later
+    weeks go on the same card, how many, and what they come to.
+  - A declined week shows as owed at the desk, not paid, and pauses the weekly court until it's paid; each week
+    counts toward the club's limit on upcoming bookings; the member hears once a run, with every week left out and
+    why. A first week never paid, or lost while its card went through, ends it. A court archived later leaves its
+    weeks out instead of stopping the job. Turning weekly (or court) bookings off stops members' weekly courts and
+    tells each once; booked weeks stay. A weekly court still booking weeks blocks deleting its member's account.
 - **Chats in games.** The players in a game message each other in the app: each court booking with named players
   (an open match is one) and each program date (a clinic, a social night) has a chat for the people in it, and its
   coach. Plain text up to 1,000 characters, links as links; a message changes for 5 minutes after it's posted and

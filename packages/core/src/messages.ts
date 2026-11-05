@@ -294,7 +294,9 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const b = await bookingInfo(db, p.booking_id);
     const paid = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select((eb) => eb.fn.sum<string>("payment.amount_cents").as("c"))
       .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "succeeded").executeTakeFirst();
-    return b.organiser_id ? [{ to: b.organiser_id, kind: "booking_lost", params: { ...b.base, amount: amount(Number(paid?.c ?? 0)) }, purpose: "account", essential: true, email: true, link: "/book" }] : [];
+    // The first week of a weekly court: the weekly court is off too (booking_series.ts ends it).
+    const weekly = Boolean((await db.selectFrom("booking").select("series_id").where("id", "=", p.booking_id).executeTakeFirstOrThrow()).series_id);
+    return b.organiser_id ? [{ to: b.organiser_id, kind: weekly ? "booking_lost_weekly" : "booking_lost", params: { ...b.base, amount: amount(Number(paid?.c ?? 0)) }, purpose: "account", essential: true, email: true, link: "/book" }] : [];
   },
   async "booking.shares_charged"({ db }, p: { booking_id: string; cents: number }) {
     const b = await bookingInfo(db, p.booking_id);
@@ -320,9 +322,16 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const s = await seriesInfo(db, p.series_id);
     return [{ to: s.organiser_id, kind: "booking_repeat_made", params: { ...s.base, count: s.booked, first: s.firstText, last: s.lastText }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
-  async "booking.repeat_missed"({ db }, p: { series_id: string; on_date: string; why: string }) {
+  // Every week a run left out, and why, in one message.
+  async "booking.repeat_missed"({ db }, p: { series_id: string; weeks: { date: string; why: string }[] }) {
     const s = await seriesInfo(db, p.series_id);
-    return [{ to: s.organiser_id, kind: "booking_repeat_missed", params: { ...s.base, date: dayText(p.on_date), why: both(`msg.repeat_why_${p.why}` as Key) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    const list = p.weeks.map((w) => both("msg.repeat_week_why", { date: dayText(w.date), why: both(`msg.repeat_why_${w.why}` as Key) }));
+    const joined: Text = { en: list.map((x) => x.en).join("; "), es: list.map((x) => x.es).join("; ") };
+    return [{ to: s.organiser_id, kind: "booking_repeat_missed", params: { ...s.base, count: p.weeks.length, list: joined }, purpose: "account", essential: true, email: true, link: "/places" }];
+  },
+  async "booking.repeat_stopped"({ db }, p: { series_id: string; why: string }) {
+    const s = await seriesInfo(db, p.series_id);
+    return [{ to: s.organiser_id, kind: "booking_repeat_stopped", params: { ...s.base, why: both(`msg.repeat_stopped_${p.why}` as Key) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "booking.repeat_ended"({ db }, p: { series_id: string; from: string; by?: string | null }) {
     const s = await seriesInfo(db, p.series_id);

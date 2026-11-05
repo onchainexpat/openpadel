@@ -599,9 +599,13 @@ export const bookingSettleShares = defineAction({
       }
     }
     const club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
+    // A week of a weekly court is charged by its week (booking_series_week), which exists from the day the series is
+    // made: booked again under a new booking id (a restore from before it was booked, a second server after a move),
+    // it asks for the same charge, and the provider answers with the first (stripe.ts looks it up by this key).
+    const week = b.series_id ? await ctx.trx.selectFrom("booking_series_week").select("id").where("booking_id", "=", b.id).executeTakeFirst() : null;
     const charge = organiserPay?.saved_customer && organiserPay.saved_method
       ? await paymentProvider().chargeSaved({ customer: organiserPay.saved_customer, paymentMethod: organiserPay.saved_method, amountCents: unpaid, currency: club.currency,
-          description: b.series_id ? `Court booking ${b.code}: weekly court` : `Court booking ${b.code}: unpaid shares`, idempotencyKey: `settle:${b.id}`, account: organiserPay.provider_account })
+          description: b.series_id ? `Court booking ${b.code}: weekly court` : `Court booking ${b.code}: unpaid shares`, idempotencyKey: week ? `week:${week.id}` : `settle:${b.id}`, account: organiserPay.provider_account })
       : { ref: "", status: "failed" as const, failure: "no saved card" };
     if (charge.status === "succeeded") {
       await ctx.insert("payment", { id: uuidv7(), person_id: b.organiser_id!, amount_cents: unpaid, method: "card", provider: paymentProvider().name, provider_ref: charge.ref,

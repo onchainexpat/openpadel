@@ -32,7 +32,7 @@ CREATE TABLE booking_series_week (
   series_id   uuid NOT NULL REFERENCES booking_series,
   on_date     date NOT NULL,
   booking_id  uuid REFERENCES booking,                            -- null and not missed: still to be booked
-  missed      text CHECK (missed IN ('taken', 'closed', 'not_bookable', 'too_late', 'no_card')),
+  missed      text CHECK (missed IN ('taken', 'closed', 'not_bookable', 'too_late', 'no_card', 'unpaid', 'limit')),
   created_at  timestamptz NOT NULL DEFAULT now(),
   version     int NOT NULL DEFAULT 1,
   UNIQUE (series_id, on_date),
