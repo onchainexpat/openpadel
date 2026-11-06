@@ -9,7 +9,7 @@ import { capFor, fromMajor, toMajor } from "@kumi/i18n/format";
 type Card = { id: string; amount_cents: number; status: "pending" | "active" | "redeemed" | "void"; for_name: string | null; message: string | null; last4: string; bought: boolean; code: string | null; pending_payment_id: string | null };
 
 export function GiftCards() {
-  const [cards, setCards] = useState<Card[]>([]), [paying, setPaying] = useState<{ id: string; cents: number } | null>(null), [error, setError] = useState<string | null>(null);
+  const [cards, setCards] = useState<Card[]>([]), [paying, setPaying] = useState<{ id: string; cents: number; forName: string | null } | null>(null), [error, setError] = useState<string | null>(null);
   const { preview, sheet } = usePreview(() => void load());
   const load = async () => setCards(await api<Card[]>("/my/gift-cards").catch(() => []));
   useEffect(() => {
@@ -26,7 +26,7 @@ export function GiftCards() {
     try {
       const p = await api<{ run_id: string }>("/actions/gift_card.buy/plan", { person_id: pid, cents: fromMajor(Number(v("amount"))), for_name: v("for") || undefined, message: v("message") || undefined });
       const r = await api<{ result?: { payment_id: string } }>(`/runs/${p.run_id}/apply`, {}, { "idempotency-key": p.run_id });
-      if (r.result) setPaying({ id: r.result.payment_id, cents: fromMajor(Number(v("amount"))) });
+      if (r.result) setPaying({ id: r.result.payment_id, cents: fromMajor(Number(v("amount"))), forName: v("for").trim() || null });
     } catch (x) { setError(x instanceof ApiError ? x.message : String(x)); }
   };
   return (
@@ -52,13 +52,17 @@ export function GiftCards() {
           {x.code && <p class="code">{x.code}</p>}
           {x.message && <p class="meta">{x.message}</p>}
           {x.code && <button class="small" onClick={() => print()}>{t("ui.gift_card_print")}</button>}
+          {/* Still waiting for its payment (a card declined, the form closed): pay it now, or take it back. */}
+          {x.status === "pending" && x.pending_payment_id && !isConfirming(x.pending_payment_id) && <p>
+            <button class="small primary" onClick={() => setPaying({ id: x.pending_payment_id!, cents: x.amount_cents, forName: x.for_name })}>{t("ui.pay_now", { amount: dollars(x.amount_cents, lang.value) })}</button>{" "}
+            <button class="small" onClick={() => preview("gift_card.drop", { gift_card_id: x.id })}>{t("ui.remove")}</button></p>}
         </li>)}</ul></section>}
       {cards.some((x) => !x.bought) && <section class="card"><h2>{t("ui.gift_card_redeemed_list")}</h2>
         <ul class="plain">{cards.filter((x) => !x.bought).map((x) => <li key={x.id} class="gift">
           <p><strong>{dollars(x.amount_cents, lang.value)}</strong> · {t("ui.gift_card_into_credit")}</p>
           {x.message && <p class="meta">{t("ui.gift_card_their_message", { message: x.message })}</p>}
         </li>)}</ul></section>}
-      {paying && <PaySheet paymentId={paying.id} cardOnly back={`/gift-cards?paid=${paying.id}`} amountCents={paying.cents} name={t("ui.gift_cards_title")} onClose={() => { setPaying(null); void load(); }} onPaid={() => { setPaying(null); void load(); }} />}
+      {paying && <PaySheet paymentId={paying.id} cardOnly back={`/gift-cards?paid=${paying.id}`} amountCents={paying.cents} name={paying.forName ? t("ui.gift_card_pay_for", { name: paying.forName }) : t("ui.gift_card_pay")} onClose={() => { setPaying(null); void load(); }} onPaid={() => { setPaying(null); void load(); }} />}
       {sheet}
     </main>
   );

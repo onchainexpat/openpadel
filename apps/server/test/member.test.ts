@@ -63,7 +63,10 @@ test("part paid at the desk: my places shows what was paid of the price, and the
   const place = (await call("/my/places", cookie)).json.find((x: any) => x.id === enrolment);
   assert.deepEqual([place.price_cents, place.paid_cents, place.pending_cents], [2500, 1000, 1500]);
   assert.ok(place.pending_payment_id, "a new card ask for the rest");
-  assert.equal((await call("/club", cookie)).json.time_zone, "America/Los_Angeles", "the apps show every time on the club's clock");
+  const club = (await call("/club", cookie)).json;
+  assert.equal(club.time_zone, "America/Los_Angeles", "the apps show every time on the club's clock");
+  // The card form starts on the club's country (pay_mode.ts cardFormOptions), not Stripe's guess.
+  assert.equal(club.country, "US");
 });
 
 test("my level starts empty, and only my own", async () => {

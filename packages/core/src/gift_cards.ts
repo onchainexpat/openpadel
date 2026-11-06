@@ -88,6 +88,31 @@ export const giftCardBuy = defineAction({
   },
 });
 
+/** The buyer takes back a card bought in the app that's still waiting for its payment (a card declined, the form
+ *  closed): its payment is called off, so no card form opens for it again and it leaves their list. If the card went
+ *  through after all (a form still open somewhere), payment.settle records it and gives it all back (callOff); the
+ *  card is never theirs to give. Only the buyer, in the app or through their own assistant. */
+export const giftCardDrop = defineAction({
+  name: "gift_card.drop", version: 1,
+  selfOnly: async (db, i: { gift_card_id: string }) => (await db.selectFrom("gift_card").select("buyer_id").where("id", "=", i.gift_card_id).executeTakeFirst())?.buyer_id ?? null,
+  input: z.object({ gift_card_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { row: c, read } = await readRow(ctx.db, "gift_card", i.gift_card_id, "thing.gift_card");
+    const waiting = await ctx.db.selectFrom("payment").select("id").where("gift_card_id", "=", i.gift_card_id).where("status", "=", "pending").executeTakeFirst();
+    if (c.status !== "pending" || c.sold_via !== "app" || !waiting) throw new KumiError("error.gift_card_not_waiting");
+    return { title: both("action.gift_card.drop"), reads: [read], ownerIds: [c.buyer_id], undo: { kind: "none", note: both("undo.none", { reason: both("reason.buy_again") }) },
+      summary: both(c.for_name ? "plan.gift_card.drop_for" : "plan.gift_card.drop", { amount: usd(c.amount_cents), name: c.for_name ?? "" }) };
+  },
+  async apply(ctx, i) {
+    // Its payments first, then the card: the order payment.settle locks them in (paidNow -> giftCardPaid).
+    const pays = await ctx.trx.selectFrom("payment").select(["id", "status"]).where("gift_card_id", "=", i.gift_card_id).orderBy("id").forUpdate().execute();
+    const c = await ctx.trx.selectFrom("gift_card").select("status").where("id", "=", i.gift_card_id).forUpdate().executeTakeFirstOrThrow();
+    if (c.status !== "pending" || !pays.some((p) => p.status === "pending")) throw new KumiError("error.changed");   // paid meanwhile
+    for (const p of pays.filter((x) => x.status === "pending")) await callOff(ctx, p.id);
+    return null;
+  },
+});
+
 /** The desk sells a gift card for a member, paid there: it's theirs at once. */
 export const giftCardSell = defineAction({
   name: "gift_card.sell", version: 1, clubWide: true,

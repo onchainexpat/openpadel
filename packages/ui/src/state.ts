@@ -44,6 +44,8 @@ export type Club = { name: string; brand_colour: string; languages: string[]; de
   time_zone?: string;
   /** The club's currency (ISO 4217) and formats (BCP 47): every amount the apps show and read is in them. */
   currency?: string; format_locale?: string;
+  /** The club's country (ISO 3166-1): the billing country the card form starts on. */
+  country?: string;
   /** Prices that include the tax, and what the club calls it (VAT, IVA...). */
   prices_include_tax?: boolean; tax_label?: string | null };
 

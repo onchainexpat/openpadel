@@ -371,7 +371,10 @@ export const personUpdateProfile = defineAction({
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const { person_id, ...rest } = i;
-    const fields = changed(row, rest), base = both("plan.person.update_profile", { fields: fieldList(fields) });
+    const fields = changed(row, rest);
+    // Nothing different from what's saved: said plainly, with nothing to confirm (not "Change  on your profile").
+    if (!fields.length) throw new KumiError("error.nothing_changed");
+    const base = both("plan.person.update_profile", { fields: fieldList(fields) });
     // A new language says what it changes: everything Kumi says to them, from now on.
     const lang = fields.includes("locale") && i.locale ? both("plan.person.locale_to", { language: both(`lang.word_${i.locale}` as Key) }) : null;
     const summary = lang ? { en: `${base.en} ${lang.en}`, es: `${base.es} ${lang.es}` } : base;

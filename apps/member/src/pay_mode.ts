@@ -10,3 +10,10 @@ export function payMode(o: { cardFor?: string; familyCard?: boolean; cardOnly?: 
   const saveCard = Boolean(o.cardFor || o.familyCard);
   return { saveCard, extras: !saveCard && !o.cardOnly };
 }
+
+// The card form's options (Stripe's Payment Element): tabs, and the club's country as the billing country it starts
+// on. Without it Stripe guesses (often the US) and asks for a US postal code in a club in Spain. The same form saves a
+// card (a membership's, the family card), so both start in the club's country.
+export function cardFormOptions(country?: string | null) {
+  return { layout: "tabs" as const, ...(country && /^[A-Z]{2}$/.test(country) ? { defaultValues: { billingDetails: { address: { country } } } } : {}) };
+}

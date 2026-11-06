@@ -3,7 +3,7 @@
 // The same form saves a card without paying (a membership joined before its plan starts).
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError, club, dollars, lang, protectedPost, serverNow, t, useBackCloses } from "@kumi/ui";
-import { payMode } from "./pay_mode.ts";
+import { cardFormOptions, payMode } from "./pay_mode.ts";
 import { clearConfirming, isConfirmingAt, markConfirmingAt } from "./confirming.ts";
 
 /** Whether a payment still waiting in a list was taken by the card form a moment ago (confirming.ts). */
@@ -128,7 +128,7 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
         const s = window.Stripe!(it.publishable_key, { locale: lang.value === "es" ? "es-419" : "en", ...(it.stripe_account ? { stripeAccount: it.stripe_account } : {}) });
         const brand = getComputedStyle(document.documentElement).getPropertyValue("--brand").trim() || "#0B5A55";
         const elements = s.elements({ clientSecret: it.client_secret, appearance: { theme: "stripe", variables: { colorPrimary: brand, borderRadius: "8px" } } });
-        elements.create("payment", { layout: "tabs" }).mount(box.current!);
+        elements.create("payment", cardFormOptions(club.value?.country)).mount(box.current!);
         stripe.current = { stripe: s, elements };
         setState("ready");
       } catch (e) { setError(e instanceof ApiError ? e.message : t("ui.pay_unavailable")); }

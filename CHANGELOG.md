@@ -247,6 +247,15 @@ server starts.
 - The Reports download has a "tax collected" column, matching the tax line on the page.
 - Importing a club's export (`kumi restore <export>`) wrote what it deleted again for the staff in US dollars,
   whatever the club's currency. It reads the club's currency and formats first, as `kumi restore` does.
+- What a second look on the phone showed on 6 November:
+  - **A gift card whose card was declined can be paid or removed.** It stayed "Waiting for payment" on the buyer's
+    list with nothing to tap until they bought another. It now has Pay (the card form again) and Remove, which calls
+    its payment off so it can't be paid after (a card that went through anyway at that moment is given back in
+    full). Only the buyer can remove it.
+  - The gift card sheet reads "Pay $50.00 for a gift card for Maya", not "Pay $50.00 for Gift cards".
+  - The card form starts on the club's country (Settings) instead of Stripe's guess, so a member in a club in Spain
+    isn't asked for a US postal code. The same for saving a card.
+  - A profile preview with nothing changed says "Nothing would change." instead of "Change  on your profile."
 - What a real phone showed on 6 November:
   - **Buying a gift card or a pass by card works again.** Since the sheet stopped offering credit and promo codes for
     them, it opened as a "save a card" sheet: without the page check, and the server refused it ("We couldn't check
