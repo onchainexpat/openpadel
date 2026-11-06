@@ -3,7 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
-import { api, club as clubSignal, dollars, lang, mayDo, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club, applyBrand } from "@kumi/ui";
+import { api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club, applyBrand } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
 type Hours = { weekday: number; opens: string | null; closes: string | null };
@@ -54,6 +54,7 @@ export function Settings() {
       <TextingCard x={s.texting} tz={s.club.time_zone} />
       <SignInCard key={s.club.two_factor} rule={s.club.two_factor} send={send} />
       {mayDo("pass_product.set") && <PassProducts preview={preview} />}
+      {mayDo("promo_code.set") && <PromoCodes preview={preview} />}
       {me.value?.roles.some((r) => r.key === "owner") && <ClubExport />}
       {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} plans={s.plans} send={send} />)}
       <NewLocation tz={s.club.time_zone} send={send} />
@@ -418,6 +419,42 @@ function PassProducts({ preview }: { preview: (action: string, input: unknown) =
         <label>{t("ui.pass_price")}<input name="price" required inputMode="decimal" pattern={AMOUNT_PATTERN} /></label>
         <label>{t("ui.pass_valid_days")}<input name="days" type="number" min="365" max="3650" step="1" /></label>
         <button class="primary">{t("ui.pass_new")}</button>
+      </form></details>
+  </section>;
+}
+
+/** The club's promo codes (promo_codes.ts): each with its discount and the uses so far, on or off, and a form to make
+ *  one (a percentage or an amount off, for what, how many uses, the smallest spend, a last day). */
+function PromoCodes({ preview }: { preview: (action: string, input: unknown) => Promise<void> | void }) {
+  type Code = { id: string; code: string; kind: "percent" | "amount"; percent: number | null; amount_cents: number | null; applies_to: string[]; starts_at: string | null; ends_at: string | null;
+    max_uses: number | null; max_per_person: number; min_spend_cents: number; active: boolean; used: number };
+  const [list, setList] = useState<Code[]>([]), [kind, setKind] = useState<"percent" | "amount">("percent");
+  useEffect(() => { api<Code[]>("/staff/promo-codes").then(setList).catch(() => setList([])); }, []);
+  const areas = ["courts", "programs", "memberships"];
+  const again = (x: Code, active: boolean) => preview("promo_code.set", { promo_code_id: x.id, code: x.code, kind: x.kind, percent: x.percent, amount_cents: x.amount_cents, applies_to: x.applies_to,
+    starts_at: x.starts_at, ends_at: x.ends_at, max_uses: x.max_uses, max_per_person: x.max_per_person, min_spend_cents: x.min_spend_cents, active });
+  return <section class="card">
+    <h2>{t("ui.promos_setting")}</h2>
+    {list.length > 0 && <ul class="plain">{list.map((x) => <li class="row" key={x.id}>
+      <span><strong>{x.code}</strong> · {x.kind === "percent" ? `${x.percent}%` : dollars(x.amount_cents ?? 0, lang.value)} · {t("ui.promo_used", { used: String(x.used) })}</span>
+      <button class="small" onClick={() => void again(x, !x.active)}>{x.active ? t("ui.promo_turn_off") : t("ui.promo_turn_on")}</button>
+    </li>)}</ul>}
+    <details><summary>{t("ui.promo_new")}</summary>
+      <form class="card-form" onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget as HTMLFormElement, v = (n: string) => (f.elements.namedItem(n) as HTMLInputElement).value;
+        const ends = v("ends") ? clubMoment(`${v("ends")}T23:59`) : null;
+        preview("promo_code.set", { code: v("code"), kind, ...(kind === "percent" ? { percent: Number(v("off")) } : { amount_cents: parseDollars(v("off")) ?? 0 }),
+          applies_to: areas.filter((a) => (f.elements.namedItem(`area_${a}`) as HTMLInputElement).checked), max_uses: v("uses") ? Number(v("uses")) : null,
+          max_per_person: Number(v("per") || "1"), min_spend_cents: v("min") ? parseDollars(v("min")) ?? 0 : 0, ends_at: ends }); }}>
+        <label>{t("ui.promo_code")}<input name="code" required pattern="[A-Za-z0-9_-]{3,24}" maxLength={24} /></label>
+        <label>{t("ui.promo_off")}<select value={kind} onChange={(e) => setKind(e.currentTarget.value as "percent" | "amount")}>
+          <option value="percent">{t("ui.promo_percent")}</option><option value="amount">{t("ui.promo_amount_off")}</option></select></label>
+        <label>{kind === "percent" ? t("ui.promo_percent") : t("ui.promo_amount_off")}<input name="off" required {...(kind === "percent" ? { type: "number", min: "1", max: "100", step: "1" } : { inputMode: "decimal", pattern: AMOUNT_PATTERN })} /></label>
+        <fieldset><legend>{t("ui.promo_applies")}</legend>{areas.map((a) => <label class="check" key={a}><input type="checkbox" name={`area_${a}`} defaultChecked={a !== "memberships"} /> {t(`ui.promo_area_${a}` as Key)}</label>)}</fieldset>
+        <label>{t("ui.promo_max_uses")}<input name="uses" type="number" min="1" step="1" /></label>
+        <label>{t("ui.promo_per_person")}<input name="per" type="number" min="1" step="1" defaultValue="1" /></label>
+        <label>{t("ui.promo_min")}<input name="min" inputMode="decimal" pattern={AMOUNT_PATTERN} /></label>
+        <label>{t("ui.promo_ends")}<input name="ends" type="date" /></label>
+        <button class="primary">{t("ui.promo_new")}</button>
       </form></details>
   </section>;
 }

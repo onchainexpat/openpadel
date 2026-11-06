@@ -151,6 +151,13 @@ server starts.
   owner or a manager refunds a pass's unused uses, pro rata, the way it was paid for; a pass is never through an
   assistant (it reads them, and buying one counts on its weekly limit) or through support access. Read-only sells
   and takes no pass, and still refunds one.
+- **Promo codes** (Settings, "Promo codes"): a percentage or an amount off court bookings, program places or a
+  membership's first payment, with uses in all (optional), uses per person (one to start), a smallest spend and a
+  last day. Never on a gift card or a pass, never on a renewal, one code per payment. A member types it in the pay
+  sheet before any card: the payment is asked again for what's left (the card is never asked for the old amount),
+  or, all of it off, it goes through with nothing to pay. The receipt names the discount; a refund is never more
+  than was paid. Two checkouts at once can't take a code's last use twice, and a use whose payment is never paid
+  doesn't count. Making codes is the owner's and managers', in the app (never support access or an assistant).
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
   where Add to Home Screen is (Share). Neither shows once the app runs from the home screen.
 - **The phone's back button closes what's open** (a preview to confirm, the card form, a booking picked on the
@@ -224,8 +231,7 @@ server starts.
   charge (a court's "pay my part", a weekly court's first week), courts paid together, or a junior's (the family
   card pays those); a court is paid from credit only when the credit covers all of it. Automatic charges (renewals,
   deadline charges) don't use credit. Gift cards are bought only by a signed-in member (not yet from the public
-  page), and their code goes to the buyer, who gives it on (Kumi doesn't email the person it's for). Promo codes
-  aren't here yet.
+  page), and their code goes to the buyer, who gives it on (Kumi doesn't email the person it's for).
 - A pass is one person's (not shared with family, not for a junior's place). A court pass covers a court paid whole
   by the one who booked it, not a share; a pass covers the price, so a booking shortened later gives nothing back,
   and a use the club's rules refund only in part is spent. A pass past its date keeps its unused value in the books

@@ -21,7 +21,7 @@ const NOTHING: Text = { en: "", es: "" };
 type Card = { brand: string; last4: string };
 type Line = { what: Text; cents: number };
 type Paid = { id: string; person_id: string; amount_cents: number; method: string; booking_player_id: string | null; enrolment_id: string | null; membership_plan_id: string | null;
-  membership_id: string | null; membership_member_id: string | null; family_card_id: string | null };
+  membership_id: string | null; membership_member_id: string | null; family_card_id: string | null; discount_cents?: number };
 
 /** A date and time with the year, in the club's time: a receipt is kept. */
 export function receiptDate(d: Date, lang: Lang, timeZone: string): string {
@@ -35,6 +35,11 @@ export const receiptNo = (n: string | number) => `R-${String(n).padStart(6, "0")
 
 /** What one payment was for, its sales tax (a court or lesson's, in proportion to what was paid) and where. */
 async function lineOf(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: number; locationId: string | null }> {
+  // A promo code's discount is named on the line (promo_codes.ts): what was paid, after it.
+  const l = await lineWithout(db, p, tz);
+  return p.discount_cents ? { ...l, what: both("receipt.line_promo", { what: l.what, off: { en: money(p.discount_cents, "en"), es: money(p.discount_cents, "es") } }) } : l;
+}
+async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: number; locationId: string | null }> {
   if (p.booking_player_id) {
     const b = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
       .innerJoin("court", "court.id", "court_time.court_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
@@ -42,7 +47,7 @@ async function lineOf(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: 
       .where("booking_player.id", "=", p.booking_player_id).orderBy(sql`court_time.active`, "desc").executeTakeFirst();
     if (b) {
       const params = { court: b.court, when: whenText(new Date(b.start), tz), coach: b.coach ?? "" };
-      const what = b.kind === "lesson" ? both("receipt.line_lesson", params) : p.amount_cents >= b.price_cents ? both("receipt.line_court", params) : both("receipt.line_share", params);
+      const what = b.kind === "lesson" ? both("receipt.line_lesson", params) : p.amount_cents + (p.discount_cents ?? 0) >= b.price_cents ? both("receipt.line_court", params) : both("receipt.line_share", params);
       const tax = b.price_cents > 0 ? Math.round(b.tax_cents * p.amount_cents / b.price_cents) : 0;
       return { what, cents: p.amount_cents, tax, locationId: b.location_id };
     }
@@ -68,7 +73,7 @@ async function lineOf(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: 
 }
 
 const PAID_COLUMNS = ["id", "person_id", "amount_cents", "method", "booking_player_id", "enrolment_id", "membership_plan_id", "membership_id", "membership_member_id", "family_card_id",
-  "group_id", "provider_ref"] as const;
+  "group_id", "provider_ref", "discount_cents"] as const;
 
 /** Who a payment's receipt is for: whoever paid, which for a kid's charge on the family card is the parent who
  *  saved the card (the kid is named on it). */
@@ -197,7 +202,8 @@ export async function issueReceipts(db: Db, o: { card?: CardLookup; now?: Date; 
   const now = o.now ?? new Date(), out = { issued: 0 };
   const from = (await db.selectFrom("club").select("receipts_from").executeTakeFirst())?.receipts_from;
   if (!from) return out;
-  const pays = await db.selectFrom("payment").select(["id", "method", "provider", "provider_ref", "provider_account"]).where("status", "=", "succeeded").where("created_at", ">=", from)
+  // A pass or a promo code that paid all of something took no money: its receipt is the pass's, or none.
+  const pays = await db.selectFrom("payment").select(["id", "method", "provider", "provider_ref", "provider_account"]).where("status", "=", "succeeded").where("created_at", ">=", from).where("method", "not in", ["pass", "promo"])
     .where((eb) => eb.not(eb.exists(eb.selectFrom("receipt_payment").select("receipt_payment.payment_id").whereRef("receipt_payment.payment_id", "=", "payment.id"))))
     .orderBy("created_at").limit(o.limit ?? 50).execute();
   for (const p of pays) {
@@ -207,7 +213,7 @@ export async function issueReceipts(db: Db, o: { card?: CardLookup; now?: Date; 
     try { if (!((await runAsSystem(db, "receipt.issue", { payment_id: p.id, card }, "job:receipts", { now })).result as { already?: boolean })?.already) out.issued++; }
     catch (e) { console.error(`receipt for payment ${p.id}:`, (e as Error).message); }
   }
-  const refunds = await db.selectFrom("refund").select("id").where("status", "=", "sent").where("created_at", ">=", from)
+  const refunds = await db.selectFrom("refund").select("id").where("status", "=", "sent").where("created_at", ">=", from).where("destination", "!=", "pass")
     .where((eb) => eb.not(eb.exists(eb.selectFrom("receipt").select("receipt.id").whereRef("receipt.refund_id", "=", "refund.id")))).orderBy("created_at").limit(o.limit ?? 50).execute();
   for (const r of refunds) {
     try { if (!((await runAsSystem(db, "receipt.issue", { refund_id: r.id }, "job:receipts", { now })).result as { already?: boolean })?.already) out.issued++; }

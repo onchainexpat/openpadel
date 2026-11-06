@@ -18,6 +18,7 @@ export * from "./desk_pay.ts";
 export * from "./credit.ts";
 export * from "./gift_cards.ts";
 export * from "./passes.ts";
+export * from "./promo_codes.ts";
 export * from "./booking_players.ts";
 export * from "./booking_changes.ts";
 export * from "./memberships.ts";

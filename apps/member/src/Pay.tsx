@@ -2,7 +2,7 @@
 // browser to Stripe and never touch Kumi. Kumi then checks with Stripe that the payment went through.
 // The same form saves a card without paying (a membership joined before its plan starts).
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, ApiError, dollars, lang, protectedPost, t, useBackCloses } from "@kumi/ui";
+import { api, ApiError, club, dollars, lang, protectedPost, t, useBackCloses } from "@kumi/ui";
 
 declare global { interface Window { Stripe?: (publishableKey: string, options?: object) => any } }
 
@@ -48,8 +48,19 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, amountC
   useEffect(() => {
     if (setup) return;
     Promise.all([api<{ cents: number }>("/my/credit").catch(() => ({ cents: 0 })), firstPayment ? api<{ id: string; name: string; uses_left: number }[]>(`/my/payments/${firstPayment}/passes`).catch(() => []) : Promise.resolve([])])
-      .then(([c, p]) => { setCredit(c.cents); setPasses(p); if (c.cents <= 0 && p.length === 0) setStep("card"); });
+      .then(([c, p]) => { setCredit(c.cents); setPasses(p); if (c.cents <= 0 && p.length === 0 && !club.value?.promos) setStep("card"); });
   }, []);
+  // A promo code (promo_codes.ts), before the card: the payment is asked again for what's left, or is paid.
+  const [promo, setPromo] = useState(""), [promoNote, setPromoNote] = useState<string | null>(null);
+  const applyPromo = async () => {
+    setError(null); setState("paying");
+    try {
+      const p = await api<{ run_id: string; summary: string }>("/actions/payment.use_promo/plan", { payment_id: paymentId, code: promo });
+      const r = await api<{ result?: { paid: boolean; payment_id: string; rest_cents?: number } }>(`/runs/${p.run_id}/apply`, {}, { "idempotency-key": p.run_id });
+      if (r.result?.paid) { onPaid(); return; }
+      setPaymentId(r.result?.payment_id); setAmountCents(r.result?.rest_cents ?? amountCents); setPromoNote(p.summary); setPasses([]); setState("ready");
+    } catch (e) { setError(e instanceof ApiError ? e.message : t("ui.pay_unavailable")); setState("ready"); }
+  };
   const payWithPass = async (passId: string) => {
     setError(null); setState("paying");
     try {
@@ -120,8 +131,8 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, amountC
         {familyCard && <p class="meta">{t("ui.family_card_hint")}</p>}
         {step === "credit" && passes.length > 0 && paymentId === firstPayment && <div class="pass-step">
           {passes.map((x) => <p key={x.id}><button class="primary" disabled={state === "paying"} onClick={() => void payWithPass(x.id)}>{t("ui.pass_pay_with", { name: x.name, left: String(x.uses_left) })}</button></p>)}
-          {credit !== null && credit <= 0 && <p><button onClick={() => { setError(null); setStep("card"); }}>{t("ui.pass_other_way")}</button>{" "}<button onClick={onClose}>{t("ui.cancel")}</button></p>}
-          {credit !== null && credit <= 0 && error && <p class="error" role="alert">{error}</p>}
+          {credit !== null && credit <= 0 && !club.value?.promos && <p><button onClick={() => { setError(null); setStep("card"); }}>{t("ui.pass_other_way")}</button>{" "}<button onClick={onClose}>{t("ui.cancel")}</button></p>}
+          {credit !== null && credit <= 0 && !club.value?.promos && error && <p class="error" role="alert">{error}</p>}
         </div>}
         {step === "credit" && credit !== null && credit > 0 && <div class="credit-step">
           <p>{t("ui.credit_have", { amount: dollars(credit, lang.value) })}</p>
@@ -133,6 +144,13 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, amountC
         </div>}
         {step === "card" && (note ? <p class="note" role="status">{note}</p> : <div ref={box} class="card-form" />)}
         {step === "credit" && credit === null && <p class="meta">{t("ui.loading")}</p>}
+        {step === "credit" && credit !== null && club.value?.promos && <div class="promo-step">
+          {promoNote ? <p class="note" role="status">{promoNote}</p> : <form class="inline" onSubmit={(e) => { e.preventDefault(); void applyPromo(); }}>
+            <input value={promo} onInput={(e) => setPromo(e.currentTarget.value)} maxLength={40} autocomplete="off" aria-label={t("ui.promo_code")} placeholder={t("ui.promo_have")} />
+            <button disabled={state === "paying" || promo.trim().length < 2}>{t("ui.promo_apply")}</button></form>}
+          {credit <= 0 && <p><button class="primary" onClick={() => { setError(null); setStep("card"); }}>{t("ui.promo_continue")}</button>{" "}<button onClick={onClose}>{t("ui.cancel")}</button></p>}
+          {credit <= 0 && error && <p class="error" role="alert">{error}</p>}
+        </div>}
         {step === "card" && <>
           {state === "loading" && !error && !note && <p class="meta">{t("ui.loading")}</p>}
           {state === "checking" && <p class="note" role="status">{t("ui.pay_confirming")}</p>}

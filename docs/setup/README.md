@@ -189,6 +189,11 @@ refund, the use comes back; otherwise it's spent. The owner or a manager refunds
 page, pro rata, the way it was paid for. As with gift cards, check your state's rules on prepaid passes (expiry above
 all) with a lawyer.
 
+**Promo codes** (Settings, "Promo codes"): a code, a percentage or an amount off, what it's for (court bookings,
+program places, a membership's first payment), and if you like how many uses in all, how many per person (one to
+start), the smallest spend and a last day. Members type it in the pay sheet before the card. Turn a code off there;
+payments it already lowered stay as they were.
+
 Reports also has the desk's day ("At the desk"), for counting the drawer at closing: for each day on the club's
 clock, what was paid at the desk in cash, on the club's card reader and another way, what was given back
 there, and the drawer (the cash taken, less the cash given back). Tap a day to see each payment and refund,
