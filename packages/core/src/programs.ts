@@ -598,8 +598,10 @@ export const enrolmentLeave = defineAction({
 /** Leaving a place as the person themselves would (enrolment.leave, the club's rule), for an account deleted again
  *  after a restore (privacy.ts): the refund the rule gives, the place offered on. What went back, and how much of it
  *  waits at the desk. */
+/** A place left for an account deleted again after a restore (privacy.ts): no money moves (the person was refunded
+ *  by the club's rule when they left it, before the restore), and the place is freed for the next on the waitlist. */
 export async function leaveForErase(ctx: ApplyContext, enrolmentId: string): Promise<{ cents: number; desk: number }> {
-  const g = await goingPlan(ctx, enrolmentId, "late_cancel");
+  const g = await goingPlan(ctx, enrolmentId, "late_cancel", { outcome: "none" });
   const e = g.e, p = await ctx.trx.selectFrom("program").select("refund_rule_version").where("id", "=", e.program_id).executeTakeFirstOrThrow();
   await ctx.update("enrolment", e.id, { ...leaving(g.refund, "left", "late_cancel", p.refund_rule_version), left_at: ctx.now, included_back: g.back });
   await dropUnpaid(ctx, e.id);
@@ -1004,9 +1006,11 @@ async function calledOffSince(db: Db, paymentId: string, since: Date): Promise<b
     .where("created_at", ">", since).executeTakeFirst());
 }
 
-export async function reconcilePayments(db: Db, now = new Date(), limit = 50) {
+export async function reconcilePayments(db: Db, now = new Date(), limit = 50, o: { all?: boolean } = {}) {
+  // all: every pending one whatever its age (at start, before any job can let one go: a restore's copy can hold
+  // payments made since as still pending).
   const pending = await db.selectFrom("payment").select("id").where("status", "=", "pending").where("provider", "=", paymentProvider().name)
-    .where("provider_ref", "is not", null).where("created_at", ">", new Date(now.getTime() - 2 * 864e5)).orderBy("created_at").limit(limit).execute();
+    .where("provider_ref", "is not", null).$if(!o.all, (q) => q.where("created_at", ">", new Date(now.getTime() - 2 * 864e5))).orderBy("created_at").limit(limit).execute();
   // Called off with its card form open, and the call-off not at Stripe yet (it can't reach Stripe, say): paid
   // meanwhile with its webhook lost, it's still found, recorded and sent back.
   const calledOff = await db.selectFrom("payment").select("payment.id").where("payment.status", "=", "failed").where("payment.provider", "=", paymentProvider().name)

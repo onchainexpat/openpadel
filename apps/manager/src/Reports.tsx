@@ -1,7 +1,7 @@
 // Occupancy and revenue by day for a location, with the same figures as a spreadsheet file.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, club, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, serverNow } from "@kumi/ui";
+import { api, club, clubTime, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, serverNow } from "@kumi/ui";
 
 type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number; membership_revenue_cents: number };
 type Receipt = { id: string; number: string; kind: "payment" | "refund"; when: string; paid_by: string; for: string | null; what: string; more: number; total_cents: number };
@@ -38,7 +38,12 @@ export function Reports() {
   const [gifts, setGifts] = useState<{ outstanding: { cents: number; count: number }; cards: Gift[] } | null>(null);
   const loadGifts = () => api<{ outstanding: { cents: number; count: number }; cards: Gift[] }>("/staff/gift-cards").then(setGifts).catch(() => setGifts(null));
   useEffect(() => { void loadGifts(); }, []);
-  const { preview, sheet: giftSheet } = usePreview(() => void loadGifts());
+  // Card payments the payment provider took that nothing here records (payments_after_restore.ts): refund or record.
+  type Found = { id: string; amount_cents: number; paid_at: string; email: string | null; description: string | null; status: string };
+  const [found, setFound] = useState<Found[]>([]);
+  const loadFound = () => api<Found[]>("/staff/payments-found").then(setFound).catch(() => setFound([]));
+  useEffect(() => { void loadFound(); }, []);
+  const { preview, sheet: giftSheet } = usePreview(() => { void loadGifts(); void loadFound(); });
   useEffect(() => { if (from && to) api<DeskDay[]>(`/staff/desk-days?from=${from}&to=${to}`).then(setDesk).catch(() => setDesk(null)); setDeskDay(null); }, [from, to, lang.value]);
   const openDay = (date: string) => deskDay?.date === date ? setDeskDay(null) : api<DeskLine[]>(`/staff/desk-days/${date}`).then((lines) => setDeskDay({ date, lines }));
   const all = (m: ByMethod) => m.cash + m.terminal + m.other, usd = (c: number) => dollars(c, lang.value), back = (c: number) => c ? `-${usd(c)}` : usd(0);
@@ -111,6 +116,17 @@ export function Reports() {
         <p><a href={`/staff/club-receipts.csv?from=${from}&to=${to}`} download>{t("ui.download_csv")}</a></p>
         {open && <><ReceiptSheet r={open} /><p class="no-print"><button onClick={() => window.print()}>{t("ui.receipt_print")}</button>{" "}
           <button class="secondary" onClick={() => setOpen(null)}>{t("ui.close")}</button></p></>}
+      </section>}
+      {found.length > 0 && <section class="card">
+        <h2>{t("ui.found_title")}</h2>
+        <p>{t("ui.found_lead")}</p>
+        <div class="scroll"><table class="stack"><tbody>{found.map((f) => <tr>
+          <td data-label={t("ui.col_date")}>{clubTime(f.paid_at, { dateStyle: "medium", timeStyle: "short" })}</td>
+          <td data-label={t("ui.col_total")}>{dollars(f.amount_cents, lang.value)}</td>
+          <td data-label={t("ui.found_who")}>{[f.email, f.description].filter(Boolean).join(" · ")}</td>
+          <td>{f.status === "open" ? <span>{mayDo("payment_found.refund") && <button class="small" onClick={() => preview("payment_found.refund", { id: f.id })}>{t("ui.found_refund")}</button>}{" "}
+            {mayDo("payment_found.paid_elsewhere") && <button class="small secondary" onClick={() => preview("payment_found.paid_elsewhere", { id: f.id })}>{t("ui.found_elsewhere")}</button>}</span> : t(({ refund_asked: "ui.found_status_refund_asked", refunded: "ui.found_status_refunded", handled: "ui.found_status_handled", refund_failed: "ui.found_status_refund_failed" } as const)[f.status as "refunded"] ?? "ui.found_status_handled")}</td>
+        </tr>)}</tbody></table></div>
       </section>}
       {giftSheet}
     </main>

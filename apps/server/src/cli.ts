@@ -5,6 +5,7 @@
 //   kumi import members <file.csv> [--apply]   members from a spreadsheet (a preview unless --apply)
 //   kumi doctor                    is everything working? each check, and the next step when it isn't
 //   kumi reset-sign-in <email>     start someone's second sign-in step over (a lost phone; an owner locked out)
+//   kumi owner add <email> [--yes] give someone the owner role (a club left with no owner who can sign in)
 //   kumi backup [--label=<name>]   tonight's backup now: the dump and its manifest, and the offsite copy if set up
 //                                  (--scheduled: only when it's due, 3:17 on the club's clock; the hourly timer runs this)
 //   kumi offsite                   what's kept offsite
@@ -338,6 +339,20 @@ async function main(): Promise<number> {
       return 0;
     } finally { await db.destroy(); }
   }
+  // The owner role, by the server's admin: for a club left with no owner who can sign in. Previewed; --yes does it.
+  if (cmd === "owner" && sub === "add" && args[2]) {
+    const db = connect();
+    try {
+      const email = args[2].trim().toLowerCase();
+      const person = await db.selectFrom("person").select(["id", "display_name"]).where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).where("status", "!=", "archived").where("redacted_at", "is", null).executeTakeFirst();
+      if (!person) { if (json) out({ ok: false }); else console.error(t(lang, "cli.no_person", { email })); return 2; }
+      if (!args.includes("--yes")) { console.log(t(lang, "cli.owner_add_preview", { name: person.display_name, email })); return 0; }
+      const r = await runAsSystem(db, "role.owner_add_by_server", { person_id: person.id }, "cli");
+      if (json) { out({ ok: true, summary: say(r.plan.summary) }); return 0; }
+      console.log(say(r.plan.summary));
+      return 0;
+    } finally { await db.destroy(); }
+  }
   if (cmd === "backup") {
     const db = connect();
     try {
@@ -496,7 +511,15 @@ function sayGone(g: AfterRestore["gone"]) {
   if (g.last_owner_kept.length) console.log(t(lang, "cli.restore_last_owner_kept", { count: g.last_owner_kept.length }));
   if (g.failed) console.log(t(lang, "cli.restore_erase_failed", { count: g.failed }));
   if (g.other) console.log(t(lang, "cli.restore_gone_again", { count: g.other }));
+  if (g.skipped_newer) console.log(t(lang, "cli.restore_skipped_newer"));
+  for (const x of g.to_check ?? []) if (x.paid_cents) console.log(t(lang, "cli.restore_to_check", { person: plain(x.person), what: x.what, ref: plain(x.ref), amount: money(x.paid_cents, lang) }));
+  for (const c of g.check ?? []) console.log(t(lang, `cli.restore_check_${c.what}`, { name: plain(c.name), ref: plain(c.ref), before: c.what === "pass" ? String(c.before_cents ?? 0) : money(c.before_cents ?? 0, lang),
+    after: c.what === "pass" ? String(c.after_cents ?? 0) : money(c.after_cents ?? 0, lang), amount: money(c.cents ?? 0, lang) }));
+  if (g.last_owner_kept.length) console.log(t(lang, "cli.restore_owner_cli"));
+  console.log(t(lang, "cli.restore_money_next_start"));
 }
+/** A name or reference printed to the terminal: no control characters (they could move the cursor or hide text). */
+const plain = (x: string) => x.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "");
 
 /** `kumi restore <export>`: the club's export into this server (export.ts), and what's left to set up here. */
 async function importClub(path: string): Promise<number> {

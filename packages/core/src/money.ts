@@ -30,26 +30,31 @@ export interface PaymentProvider {
   chargeSaved(i: { customer: string; paymentMethod: string; amountCents: number; currency: string; description: string; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; status: IntentStatus; failure?: string; refundedCents?: number; refundRef?: string }>;
   /** Send a refund. Retrying with the same key never refunds twice. */
   refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; ok: boolean; failure?: string }>;
+  /** Card payments and refunds made since a time (after a restore, to find what the club's database has no record
+   *  of). Optional: a provider without it isn't checked. */
+  listSince?(since: Date, account?: string | null): Promise<{ intents: FoundIntent[]; refunds: FoundRefund[] }>;
   /** The card a payment was made with, for its receipt: the brand and the last four digits, never more. */
   cardOf?(ref: string, account?: string | null): Promise<{ brand: string; last4: string } | null>;
 }
 
 /** A stand-in for Stripe: records what was asked, and can be told to fail. */
+export interface FoundIntent { ref: string; status: IntentStatus; amountCents: number; created: Date; kumiPaymentId: string | null; email: string | null; description: string | null }
+export interface FoundRefund { ref: string; paymentRef: string; amountCents: number; ok: boolean; created: Date; kumiRefundId: string | null }
 export class TestProvider implements PaymentProvider {
   readonly name = "test" as const;
-  intents = new Map<string, { amountCents: number; description: string; status: IntentStatus; clientSecret: string; customer?: string; saveCard?: boolean; paymentMethod?: string }>();
+  intents = new Map<string, { amountCents: number; description: string; status: IntentStatus; clientSecret: string; customer?: string; saveCard?: boolean; paymentMethod?: string; created?: Date; metadata?: Record<string, string> }>();
   customers = new Map<string, string>();
   charges: { customer: string; paymentMethod: string; amountCents: number; ref: string }[] = [];
   failNextCharge: string | null = null;
   setups = new Map<string, { status: IntentStatus; clientSecret: string; customer: string; paymentMethod: string | null }>();
   private byKey = new Map<string, string>();
-  refunds = new Map<string, { paymentRef: string; amountCents: number; ref: string }>();
+  refunds = new Map<string, { paymentRef: string; amountCents: number; ref: string; created?: Date }>();
   failNextRefund = false;
-  async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; customer?: string; saveCard?: boolean }) {
+  async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; customer?: string; saveCard?: boolean; metadata?: Record<string, string> }) {
     const known = this.byKey.get(i.idempotencyKey);
     if (known) return { ref: known, clientSecret: this.intents.get(known)!.clientSecret, account: null };
     const ref = `pi_test_${randomBytes(6).toString("hex")}`, clientSecret = `${ref}_secret_${randomBytes(6).toString("hex")}`;
-    this.intents.set(ref, { amountCents: i.amountCents, description: i.description, status: "pending", clientSecret, customer: i.customer, saveCard: i.saveCard });
+    this.intents.set(ref, { amountCents: i.amountCents, description: i.description, status: "pending", clientSecret, customer: i.customer, saveCard: i.saveCard, created: new Date(), metadata: i.metadata });
     this.byKey.set(i.idempotencyKey, ref);
     return { ref, clientSecret, account: null };
   }
@@ -117,8 +122,16 @@ export class TestProvider implements PaymentProvider {
     if (seen) return { ref: seen.ref, ok: true };
     if (this.failNextRefund) { this.failNextRefund = false; return { ref: "", ok: false, failure: "card_declined" }; }
     const ref = `re_test_${randomBytes(6).toString("hex")}`;
-    this.refunds.set(i.idempotencyKey, { paymentRef: i.paymentRef, amountCents: i.amountCents, ref });
+    this.refunds.set(i.idempotencyKey, { paymentRef: i.paymentRef, amountCents: i.amountCents, ref, created: new Date() });
     return { ref, ok: true };
+  }
+  /** As Stripe lists them: payments and refunds made since a time, with Kumi's own ids for them. */
+  async listSince(since: Date) {
+    const intents: FoundIntent[] = [...this.intents.entries()].filter(([, it]) => (it.created ?? new Date(0)) >= since)
+      .map(([ref, it]) => ({ ref, status: it.status, amountCents: it.amountCents, created: it.created ?? new Date(0), kumiPaymentId: it.metadata?.kumi_payment_id ?? null, email: null, description: it.description }));
+    const refunds: FoundRefund[] = [...this.refunds.entries()].filter(([, r]) => (r.created ?? new Date(0)) >= since)
+      .map(([key, r]) => ({ ref: r.ref, paymentRef: r.paymentRef, amountCents: r.amountCents, ok: true, created: r.created ?? new Date(0), kumiRefundId: key }));
+    return { intents, refunds };
   }
 }
 

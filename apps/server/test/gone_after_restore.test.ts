@@ -13,7 +13,7 @@ import { afterRestore, carryGoneAfterImport, GONE, readGoneBefore, readSentBefor
 const ADMIN = process.env.KUMI_TEST_ADMIN_URL ?? "postgres://postgres@127.0.0.1:55432/postgres";
 const urlFor = (name: string) => ADMIN.replace(/\/[^/]*$/, `/${name}`);
 const tag = Math.random().toString(16).slice(2, 10);
-const LIVE = `kumi_test_gone_live_${tag}`, COPY = `kumi_test_gone_copy_${tag}`, COPY2 = `kumi_test_gone_copy2_${tag}`;
+const LIVE = `kumi_test_gone_live_${tag}`, COPY = `kumi_test_gone_copy_${tag}`, COPY2 = `kumi_test_gone_copy2_${tag}`, COPY3 = `kumi_test_gone_copy3_${tag}`;
 let admin: Kysely<any>, live: Db;
 const people: Record<string, string> = {};
 let thread: string, msg: Record<string, string> = {};
@@ -47,10 +47,11 @@ before(async () => {
   // The copy: made now, before any of the below.
   await copyOf(LIVE, COPY);
   await copyOf(LIVE, COPY2);
+  await copyOf(LIVE, COPY3);   // an export put back: a copy nothing has run on since
   // Then, on the club's database: Zed deletes their account, Ann takes her message back, signs out and says no to
   // club news, and the club hides Bo's message.
   await live.insertInto("erase_after_restore").values({ person_id: people.Zed!, redacted_at: NOW }).execute();
-  assert.deepEqual(await eraseAfterRestore(live, NOW), { erased: 1, failed: 0, lastOwnerKept: [] }, "the same deletion as the first time");
+  assert.deepEqual(await eraseAfterRestore(live, NOW), { erased: 1, failed: 0, lastOwnerKept: [], toCheck: [] }, "the same deletion as the first time");
   await removeChat(live, people.Ann!, msg.Ann!, NOW);
   await live.updateTable("chat_message").set({ hidden_at: NOW, hidden_by: people.Ann! }).where("id", "=", msg.Bo!).execute();
   await live.updateTable("web_session").set({ revoked_at: NOW }).where("token_hash", "=", `ann-${tag}`).execute();
@@ -58,7 +59,7 @@ before(async () => {
 });
 after(async () => {
   await live.destroy();
-  for (const d of [LIVE, COPY, COPY2]) await sql.raw(`DROP DATABASE IF EXISTS ${d} WITH (FORCE)`).execute(admin);
+  for (const d of [LIVE, COPY, COPY2, COPY3]) await sql.raw(`DROP DATABASE IF EXISTS ${d} WITH (FORCE)`).execute(admin);
   await admin.destroy();
 });
 
@@ -118,8 +119,8 @@ test("an update's snapshot put back by release.sh: the same SQL queues the accou
     await sql.raw(GONE.people.apply).execute(snap);   // twice: still one row
     assert.equal((await snap.selectFrom("erase_after_restore").select("person_id").execute()).length, 1);
     // The server starting (main.ts).
-    assert.deepEqual(await eraseAfterRestore(snap, NOW), { erased: 1, failed: 0, lastOwnerKept: [] });
-    assert.deepEqual(await eraseAfterRestore(snap, NOW), { erased: 0, failed: 0, lastOwnerKept: [] }, "once");
+    assert.deepEqual(await eraseAfterRestore(snap, NOW), { erased: 1, failed: 0, lastOwnerKept: [], toCheck: [] });
+    assert.deepEqual(await eraseAfterRestore(snap, NOW), { erased: 0, failed: 0, lastOwnerKept: [], toCheck: [] }, "once");
     const zed = await snap.selectFrom("person").select(["redacted_at", "email"]).where("id", "=", people.Zed!).executeTakeFirstOrThrow();
     assert.ok(zed.redacted_at); assert.equal(zed.email, null);
   } finally { await snap.destroy(); }
@@ -128,11 +129,11 @@ test("an update's snapshot put back by release.sh: the same SQL queues the accou
 test("an export put back on the same club's server carries it too; another club's database carries nothing", async () => {
   const before = await readGoneBefore(urlFor(LIVE));
   assert.ok(before);
-  const db = connect(urlFor(COPY2));
+  const db = connect(urlFor(COPY3));
   try {
     assert.deepEqual(await carryGoneAfterImport(db, { ...before!, timeline: "someone else's club" }, NOW), { erased: 0, other: 0, people: [], last_owner_kept: [], failed: 0 });
     const r = await carryGoneAfterImport(db, before, NOW);
-    assert.equal(r.erased, 0, "Zed was deleted again above");
+    assert.equal(r.erased, 1, "Zed, deleted on the server's database since the export, is deleted again in it");
     assert.ok(r.other >= 4);
     assert.equal((await db.selectFrom("chat_message").select("body").where("id", "=", msg.Ann!).executeTakeFirstOrThrow()).body, "");
   } finally { await db.destroy(); }

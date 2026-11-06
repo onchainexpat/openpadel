@@ -38,18 +38,35 @@ export async function tryCode(db: Db, ch: { id: string; expires_at: Date }, code
 async function personByEmail(db: Db, email: string) {
   return db.selectFrom("person").select(["id", "locale", "display_name", "status"]).where(sql<boolean>`lower(email) = lower(${email})`).where("status", "!=", "archived").executeTakeFirst();
 }
+/** Who an emailed code signs in: the account whose own sign-in address this is (its auth_identity), not merely whose
+ *  email field says it. After a restore the field can hold an address the person had already taken off (an attacker's,
+ *  undone), and that must not sign anyone in. A junior only with a login of their own, as by text. */
+async function signInByEmail(db: Db, email: string) {
+  return db.selectFrom("person").select(["person.id", "person.locale", "person.display_name", "person.status"])
+    .where(sql<boolean>`lower(person.email) = lower(${email})`).where("person.status", "!=", "archived")
+    .where((eb) => eb.or([eb("person.junior", "=", false), eb("person.own_login", "=", true)]))
+    // One of its email sign-in addresses, or, for an account that has none yet (added by the staff, never signed in),
+    // its email field.
+    .where((eb) => eb.or([eb.exists(eb.selectFrom("auth_identity").select("auth_identity.id").whereRef("auth_identity.person_id", "=", "person.id")
+      .where("auth_identity.kind", "=", "email").where(sql<boolean>`lower(auth_identity.value) = lower(${email})`)),
+      eb.not(eb.exists(eb.selectFrom("auth_identity").select("auth_identity.id").whereRef("auth_identity.person_id", "=", "person.id").where("auth_identity.kind", "=", "email")))]))
+    .executeTakeFirst();
+}
 
 /** Always answers the same way whether or not the email has an account, so it can't be probed. */
 export async function startEmailSignIn(db: Db, mailer: Mailer, email: string, lang: Lang, now = new Date(), opts: { signUp?: boolean } = {}): Promise<void> {
   const recent = await db.selectFrom("auth_challenge").select((eb) => eb.fn.countAll<string>().as("n"))
     .where(sql<boolean>`lower(target) = lower(${email})`).where("created_at", ">", new Date(now.getTime() - 3600_000)).executeTakeFirstOrThrow();
   if (Number(recent.n) >= MAX_CODES_PER_HOUR) throw new KumiError("error.too_many_codes", {}, 429);
-  const person = await personByEmail(db, email);
+  const person = await signInByEmail(db, email);
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const id = uuidv7(now.getTime());
   await db.insertInto("auth_challenge").values({ id, kind: "email_code", target: email, code_hash: codeHash(id, code), expires_at: new Date(now.getTime() + CODE_MINUTES * 60_000), consumed_at: null }).execute();
   const club = await db.selectFrom("club").select(["name", "sign_up_open"]).executeTakeFirstOrThrow();
   if (!person) {
+    // The address is on an account, but isn't that account's way in (taken off since, say): nothing goes, and no new
+    // account is offered for it either. The same answer as always.
+    if (await personByEmail(db, email)) return;
     if (!club.sign_up_open || opts.signUp === false) return;
     const joins = await db.selectFrom("auth_challenge as a").select((eb) => eb.fn.countAll<string>().as("n")).where("a.kind", "=", "email_code").where("a.created_at", ">", new Date(now.getTime() - 3600_000))
       .where((eb) => eb.not(eb.exists(eb.selectFrom("person").select("person.id").where(sql<boolean>`lower(person.email) = lower(a.target)`)))).executeTakeFirstOrThrow();
@@ -67,8 +84,9 @@ export async function verifyEmailCode(db: Db, email: string, code: string, userA
     .where("consumed_at", "is", null).orderBy("created_at", "desc").executeTakeFirst();
   if (!ch) throw new KumiError("error.bad_code", {}, 401);
   await tryCode(db, ch, code, now, "error.bad_code");
-  const person = await personByEmail(db, email);
+  const person = await signInByEmail(db, email);
   if (!person) {
+    if (await personByEmail(db, email)) throw new KumiError("error.no_account", {}, 404);
     const club = await db.selectFrom("club").select("sign_up_open").executeTakeFirstOrThrow();
     if (!club.sign_up_open || opts.signUp === false) throw new KumiError("error.no_account", {}, 404);
     // The address is proven; the ticket holds that while they fill in their name.

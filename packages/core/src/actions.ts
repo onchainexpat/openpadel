@@ -142,6 +142,7 @@ const ENTITIES = {
   chat_message: { table: "chat_message", key: "id", retire: null },
   chat_stop: { table: "chat_stop", key: "id", retire: { ended_at: "now" } },
   chat_report: { table: "chat_report", key: "id", retire: null },
+  payment_found: { table: "payment_found", key: "id", retire: null },
   credit_payout: { table: "credit_payout", key: "id", retire: null },
   gift_card: { table: "gift_card", key: "id", retire: null },
   pass_product: { table: "pass_product", key: "id", retire: { on_sale: false } },

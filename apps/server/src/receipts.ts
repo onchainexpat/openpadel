@@ -77,6 +77,11 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
     return c.json(await outstandingCredit(db));
   });
   // The club's gift cards (gift_cards.ts), never their codes, and what's owed on those not used yet.
+  // Card payments the payment provider took that nothing here records (payments_after_restore.ts), newest first.
+  app.get("/staff/payments-found", async (c) => {
+    await staffWithMoney(c);
+    return c.json(await db.selectFrom("payment_found").select(["id", "amount_cents", "paid_at", "email", "description", "status"]).orderBy("found_at", "desc").limit(200).execute());
+  });
   app.get("/staff/gift-cards", async (c) => {
     await staffWithMoney(c);
     return c.json({ outstanding: await outstandingGiftCards(db), cards: await clubGiftCards(db) });

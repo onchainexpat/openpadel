@@ -9,13 +9,13 @@ import { defineAction, runAsSystem } from "./actions.ts";
 import type { Db } from "./db.ts";
 import { uuidv7 } from "./ids.ts";
 
-export type OpsJob = "backup" | "offsite" | "restore_test" | "pitr" | "pitr_test" | "texts" | "answers" | "texting_number" | "jobs" | "weekly_courts" | "restore_erase";
+export type OpsJob = "backup" | "offsite" | "restore_test" | "pitr" | "pitr_test" | "texts" | "answers" | "texting_number" | "jobs" | "weekly_courts" | "restore_erase" | "restore_money";
 /** The scheduled jobs (backups); the rest are watched. */
 export const OPS_JOBS: OpsJob[] = ["backup", "offsite", "restore_test", "pitr", "pitr_test"];
 /** "restore_erase": accounts deleted again after a restore left something for a person to do (the last owner's role
  *  kept, money to give back at the desk): said once each time, nothing to clear. "jobs": the server's 30-second jobs (apps/server/src/jobs.ts), one of which keeps failing. "weekly_courts": members'
  *  weekly courts (booking_series.ts), some of which keep failing while the job itself runs. */
-const ALL_JOBS = ["backup", "offsite", "restore_test", "pitr", "pitr_test", "texts", "answers", "texting_number", "jobs", "weekly_courts", "restore_erase"] as const;
+const ALL_JOBS = ["backup", "offsite", "restore_test", "pitr", "pitr_test", "texts", "answers", "texting_number", "jobs", "weekly_courts", "restore_erase", "restore_money"] as const;
 
 export async function heartbeat(db: Db, name: OpsJob) {
   const r = await db.selectFrom("ops_heartbeat").selectAll().where("name", "=", name).executeTakeFirst();

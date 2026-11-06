@@ -12,13 +12,14 @@ import { both, FORMER_MEMBER, formerMember, money, type Lang, type Text } from "
 import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { uuidv7 } from "./ids.ts";
 import { juniorsOf, managersOf, nameList, withManagers } from "./households.ts";
 import { decide } from "./permissions.ts";
 import { paymentsWhat } from "./kids.ts";
 import { receiptNo } from "./receipts.ts";
 import { QUIET } from "./messages.ts";
 import { excerpt } from "./questions.ts";
-import { cancelBooking, cancelRefunds } from "./booking_pay.ts";
+import { cancelBooking } from "./booking_pay.ts";
 import { leaveForErase } from "./programs.ts";
 import { endSeriesForErase } from "./booking_series.ts";
 import { chatsOf, eraseChats } from "./chat.ts";
@@ -350,40 +351,59 @@ export const privacyErase = defineAction({
     const juniors = (plan.details as { juniors: string[] }).juniors;
     if (c.blockers.length || c.juniors.map((j) => j.id).sort().join() !== [...juniors].sort().join()) throw new KumiError("error.changed");
     let scrubbed = 0;
-    for (const id of [...juniors, i.person_id]) scrubbed += await erasePerson(ctx, id);
+    // Who asked, kept with the account (every later restore reads it): the person, their family (a parent deleting a
+    // junior, or juniors going with their parent), or the club.
+    const by: ErasedBy = ctx.actor.personId === i.person_id ? "self"
+      : ctx.actor.personId && (await managersOf(ctx.trx, i.person_id)).includes(ctx.actor.personId) ? "family" : "staff";
+    for (const id of juniors) scrubbed += await erasePerson(ctx, id, { by: "family" });
+    scrubbed += await erasePerson(ctx, i.person_id, { by });
     await ctx.emit("privacy.erased", { self: ctx.actor.personId === i.person_id, by: ctx.actor.personId === i.person_id ? null : ctx.actor.personId, juniors: juniors.length, at: ctx.now.toISOString() });
     return { erased: true, juniors: juniors.length, scrubbed };
   },
 });
 
 /** What deleting an account needed cleared first (runningFor), cleared now for one deleted again after a restore: the
- *  copy can still hold the bookings, places and weekly court the person had ended before deleting it. Each goes by the
- *  club's rules, as if they'd cancelled it themselves, and nobody is charged: a card refund goes back to the card,
- *  money paid at the desk waits there for the staff (refund.give_back), and a share they'd paid on someone else's
- *  court is counted for the desk to see to. */
-async function clearForErase(ctx: ApplyCtx, personId: string) {
-  const db = ctx.trx;
-  let back = 0, desk = 0, paidSeats = 0;
-  const weekly = await endSeriesForErase(ctx, personId);
+ *  copy can still hold the bookings, places and weekly court the person had ended before deleting it. They're freed
+ *  and NO money moves: the person was refunded by the club's rule when they ended them, before the restore, and a new
+ *  refund here would be paid a second time (the provider doesn't know it's the same one). Each is listed, with what
+ *  was paid on it, for the staff to check against the payment provider (said once, eraseAfterRestore). */
+export type ErasedBy = "self" | "family" | "staff";
+export interface ToCheck { person: string; what: "booking" | "place" | "seat" | "weekly"; ref: string; paid_cents: number }
+const paidOn = async (db: Trx, where: "booking_id" | "enrolment_id" | "booking_player_id", id: string) => {
+  // A booking's payments are its players' (the organiser's whole court, or each share).
+  const pays = where === "booking_id" ? sql`p.booking_player_id IN (SELECT bp.id FROM booking_player bp WHERE bp.booking_id = ${id})` : sql`p.${sql.raw(where)} = ${id}`;
+  return Number((await sql<{ n: string | null }>`SELECT coalesce(sum(p.amount_cents), 0) - coalesce((SELECT sum(r.amount_cents) FROM refund r WHERE r.status <> 'failed'
+    AND r.payment_id IN (SELECT p.id FROM payment p WHERE ${pays} AND p.status = 'succeeded')), 0) AS n FROM payment p WHERE ${pays} AND p.status = 'succeeded'`.execute(db)).rows[0]?.n ?? 0);
+};
+async function clearForErase(ctx: ApplyCtx, personId: string): Promise<{ bookings: number; places: number; weekly: number; to_check: ToCheck[] }> {
+  const db = ctx.trx, toCheck: ToCheck[] = [];
+  const name = (await db.selectFrom("person").select("display_name").where("id", "=", personId).executeTakeFirstOrThrow()).display_name;
+  for (const w of await endSeriesForErase(ctx, personId)) toCheck.push({ person: name, what: "weekly", ref: w.code, paid_cents: w.paid_cents });
   const future = sql<boolean>`EXISTS (SELECT 1 FROM court_time ct WHERE ct.booking_id = booking.id AND ct.active AND upper(ct.during) > ${ctx.now})`;
-  const own = await db.selectFrom("booking").select("id").where("organiser_id", "=", personId).where("status", "in", ["held", "confirmed"]).where(future).execute();
+  const own = await db.selectFrom("booking").select(["id", "code"]).where("organiser_id", "=", personId).where("status", "in", ["held", "confirmed"]).where(future).execute();
   for (const b of own) {
-    const r = await cancelRefunds(db, b.id, ctx.now, "rule");
-    await cancelBooking(ctx, b.id, r.refunds, "deleted again after a restore");
-    for (const x of r.refunds) { back += x.cents; if ((x as { desk?: boolean }).desk) desk += x.cents; }
+    const paid = await paidOn(db, "booking_id", b.id);
+    await cancelBooking(ctx, b.id, [], "deleted again after a restore");
+    toCheck.push({ person: name, what: "booking", ref: b.code, paid_cents: paid });
   }
-  const seats = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").select("booking_player.id")
+  const seats = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").select(["booking_player.id", "booking.code"])
     .where("booking_player.person_id", "=", personId).where("booking_player.removed_at", "is", null).where("booking.organiser_id", "!=", personId)
     .where("booking.status", "in", ["held", "confirmed"]).where(future).execute();
   for (const st of seats) {
-    if (await db.selectFrom("payment").select("id").where("booking_player_id", "=", st.id).where("status", "=", "succeeded").executeTakeFirst()) paidSeats++;
+    const paid = await paidOn(db, "booking_player_id", st.id);
     await ctx.update("booking_player", st.id, { removed_at: ctx.now });
+    if (paid) toCheck.push({ person: name, what: "seat", ref: st.code, paid_cents: paid });
   }
-  const places = await db.selectFrom("enrolment").select("id").where("person_id", "=", personId).where("status", "in", ["booked", "waitlisted"])
+  const places = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").select(["enrolment.id", "program.name"])
+    .where("enrolment.person_id", "=", personId).where("enrolment.status", "in", ["booked", "waitlisted"])
     .where(sql<boolean>`EXISTS (SELECT 1 FROM session s WHERE s.status <> 'cancelled' AND s.ends_at > ${ctx.now}
       AND (s.id = enrolment.session_id OR (enrolment.session_id IS NULL AND s.program_id = enrolment.program_id)))`).execute();
-  for (const e of places) { const m = await leaveForErase(ctx, e.id); back += m.cents; desk += m.desk; }
-  return { bookings: own.length, places: places.length, weekly, back_cents: back, desk_cents: desk, paid_seats: paidSeats };
+  for (const e of places) {
+    const paid = await paidOn(db, "enrolment_id", e.id);
+    await leaveForErase(ctx, e.id);
+    toCheck.push({ person: name, what: "place", ref: e.name, paid_cents: paid });
+  }
+  return { bookings: own.length, places: places.length, weekly: toCheck.filter((x) => x.what === "weekly").length, to_check: toCheck };
 }
 
 /** The club's last active owner: deleting their role would leave nobody who can run the club (the copy may be from
@@ -396,6 +416,25 @@ async function lastOwner(db: Db | Trx, personId: string): Promise<boolean> {
 const ownerRoles = (db: Db | Trx) => db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").innerJoin("person", "person.id", "person_role.person_id")
   .select("person_role.id").where("person_role.active", "=", true).where("role.key", "=", "owner");
 
+/** The server's admin gives someone the owner role (`sudo kumi owner add <email>`, as root on the server): for a club
+ *  left with no owner who can sign in (the last owner deleted again after a restore, say). In Changes like any. */
+export const ownerAddByServer = defineAction({
+  name: "role.owner_add_by_server", version: 1, system: true, internal: true,
+  input: z.object({ person_id: z.uuid() }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
+    return { title: both("action.role.owner_add_by_server"), summary: both("plan.role.owner_add_by_server", { name: row.display_name }), reads: [read], undo: { kind: "compensating" } };
+  },
+  async apply(ctx, i) {
+    const owner = await ctx.trx.selectFrom("role").select("id").where("key", "=", "owner").executeTakeFirstOrThrow();
+    const had = await ctx.trx.selectFrom("person_role").select(["id", "active"]).where("person_id", "=", i.person_id).where("role_id", "=", owner.id).where("location_id", "is", null).executeTakeFirst();
+    if (had?.active) return { already: true };
+    if (had) await ctx.update("person_role", had.id, { active: true });
+    else await ctx.insert("person_role", { id: uuidv7(), person_id: i.person_id, role_id: owner.id, location_id: null });
+    return { added: true };
+  },
+});
+
 /** An account the database before a restore had deleted, deleted again here (after_restore.ts, release.sh queue it in
  *  erase_after_restore): the same as the deletion itself, without asking again (it was asked, and checked, then) and
  *  without telling anyone (they heard then). What the deletion had needed cleared is cleared first (clearForErase);
@@ -406,41 +445,42 @@ export const privacyEraseAgain = defineAction({
   input: z.object({ person_id: z.uuid() }),
   async plan() { return { title: both("action.privacy.erase"), summary: both("plan.privacy.erase_again"), reads: [], undo: { kind: "none", note: both("reason.erase_final") } }; },
   async apply(ctx, i) {
-    const queued = await ctx.trx.selectFrom("erase_after_restore").select(["person_id", "redacted_at"]).where("person_id", "=", i.person_id).forUpdate().executeTakeFirst();
+    const queued = await ctx.trx.selectFrom("erase_after_restore").select(["person_id", "redacted_at", "deleted_by"]).where("person_id", "=", i.person_id).forUpdate().executeTakeFirst();
     if (!queued) return { erased: false, scrubbed: 0 };
     const p = await ctx.trx.selectFrom("person").select("redacted_at").where("id", "=", i.person_id).executeTakeFirstOrThrow();
     const cleared = p.redacted_at ? null : await clearForErase(ctx, i.person_id);
     const keepOwner = !p.redacted_at && await lastOwner(ctx.trx, i.person_id);
-    const scrubbed = await erasePerson(ctx, i.person_id, { at: queued.redacted_at, keepOwner });
+    const scrubbed = await erasePerson(ctx, i.person_id, { at: queued.redacted_at, keepOwner, by: queued.deleted_by });
     await ctx.trx.deleteFrom("erase_after_restore").where("person_id", "=", i.person_id).execute();
     return { erased: true, scrubbed, last_owner_kept: keepOwner, ...(cleared ?? {}) };
   },
 });
 
-interface Cleared { bookings?: number; places?: number; weekly?: number; back_cents?: number; desk_cents?: number; paid_seats?: number; last_owner_kept?: boolean }
+interface Cleared { bookings?: number; places?: number; weekly?: number; to_check?: ToCheck[]; last_owner_kept?: boolean }
 /** Every account waiting in erase_after_restore, deleted again (the server runs it as it starts, `kumi restore` right
  *  after the restore). One that fails stays queued for the next start, and is said. What's left for a person to do
- *  (the last owner's role kept, money to give back at the desk, a share paid on someone else's court) is said once to
- *  the owner and managers. */
-export async function eraseAfterRestore(db: Db, now = new Date()): Promise<{ erased: number; failed: number; lastOwnerKept: string[] }> {
-  let erased = 0, failed = 0, desk = 0, seats = 0;
-  const lastOwnerKept: string[] = [];
+ *  (the last owner's role kept; bookings, places and seats freed that had been paid for, to check against the payment
+ *  provider, since a refund may have gone back before the restore) is said once to the owner and managers. */
+export async function eraseAfterRestore(db: Db, now = new Date()): Promise<{ erased: number; failed: number; lastOwnerKept: string[]; toCheck: ToCheck[] }> {
+  let erased = 0, failed = 0;
+  const lastOwnerKept: string[] = [], toCheck: ToCheck[] = [];
   const queued = await db.selectFrom("erase_after_restore").select("person_id").orderBy("queued_at").execute().catch(() => []);
   for (const q of queued) {
     try {
       const r = (await runAsSystem(db, "privacy.erase_again", { person_id: q.person_id }, "restore", { now })).result as Cleared & { erased: boolean };
       if (r.erased) erased++;
       if (r.last_owner_kept) lastOwnerKept.push(q.person_id);
-      desk += r.desk_cents ?? 0; seats += r.paid_seats ?? 0;
+      toCheck.push(...(r.to_check ?? []));
     } catch (e) { failed++; console.error(`privacy: an account deleted before the restore couldn't be deleted again yet (${(e as Error).message}); it's tried again at the next start`); }
   }
-  if (lastOwnerKept.length || desk || seats) {
-    const parts = [lastOwnerKept.length ? both("ops.why_restore_erase_owner") : null, desk ? both("ops.why_restore_erase_desk", { amount: usd(desk) }) : null,
-      seats ? both("ops.why_restore_erase_seats", { count: seats }) : null].filter((x): x is Text => Boolean(x));
+  const paid = toCheck.filter((x) => x.paid_cents > 0);
+  if (lastOwnerKept.length || paid.length) {
+    const parts = [lastOwnerKept.length ? both("ops.why_restore_erase_owner") : null,
+      paid.length ? both("ops.why_restore_erase_check", { count: paid.length, amount: usd(paid.reduce((n, x) => n + x.paid_cents, 0)) }) : null].filter((x): x is Text => Boolean(x));
     const words = { en: parts.map((x) => x.en).join(" ").slice(0, 300), es: parts.map((x) => x.es).join(" ").slice(0, 300) };
     await runAsSystem(db, "ops.report_failure", { job: "restore_erase", error: words.en, words }, "restore", { now }).catch((e) => console.error(`privacy: couldn't tell the staff (${(e as Error).message})`));
   }
-  return { erased, failed, lastOwnerKept };
+  return { erased, failed, lastOwnerKept, toCheck };
 }
 
 // ---- Deleting one person ----
@@ -498,7 +538,7 @@ async function theirIds(db: Trx, personId: string): Promise<string[]> {
 /** Rows of a jsonb-holding table whose text holds any of the needles (case-insensitive). */
 const anyOf = (needles: string[]) => needles.map((n) => `%${n.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
 
-async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keepOwner?: boolean } = {}): Promise<number> {
+async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keepOwner?: boolean; by?: ErasedBy | null } = {}): Promise<number> {
   const db = ctx.trx;
   const p = await db.selectFrom("person").selectAll().where("id", "=", personId).forUpdate().executeTakeFirstOrThrow();
   if (p.redacted_at) return 0;
@@ -554,9 +594,8 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   // Their yes and no to messages stay (the record of what they agreed to), without the numbers and addresses kept
   // as evidence (a number changed keeps the old and the new). The table takes no updates otherwise (migration 001).
   if (await db.selectFrom("channel_consent").select("id").where("person_id", "=", personId).where("evidence", "is not", null).executeTakeFirst()) {
-    await sql`ALTER TABLE channel_consent DISABLE RULE channel_consent_no_update`.execute(db);
+    // The table's rule lets this one change through (migration 082): no lock on the table.
     await sql`UPDATE channel_consent SET evidence = NULL WHERE person_id = ${personId} AND evidence IS NOT NULL`.execute(db);
-    await sql`ALTER TABLE channel_consent ENABLE RULE channel_consent_no_update`.execute(db);
   }
   // What they wrote in chats: the words go, "message removed" stays under "Former member" (chat.ts).
   await eraseChats(db, personId, ctx.now);
@@ -582,7 +621,7 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   // A new friend code nobody has, so an old friend link leads nowhere.
   // The club's tags come off; a new news key, so an old unsubscribe link leads nowhere.
   for (const pt of await db.selectFrom("person_tag").select("id").where("person_id", "=", personId).where("removed_at", "is", null).execute()) await ctx.update("person_tag", pt.id, { removed_at: ctx.now });
-  await ctx.update("person", personId, { ...PERSON_FIELDS, friend_code: randomBytes(6).toString("hex"), news_token: randomBytes(20).toString("hex"), status: "archived", own_login: false, redacted_at: o.at ?? ctx.now });
+  await ctx.update("person", personId, { ...PERSON_FIELDS, friend_code: randomBytes(6).toString("hex"), news_token: randomBytes(20).toString("hex"), status: "archived", own_login: false, redacted_at: o.at ?? ctx.now, erased_by_kind: o.by ?? null });
 
   // The scrub: their name, email and phone out of the history. Email and phone go wherever they appear;
   // the name goes only from rows that carry one of their ids.

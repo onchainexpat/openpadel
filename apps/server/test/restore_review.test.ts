@@ -99,8 +99,8 @@ test("kumi restore: the authenticators as the database before it had them, each 
     // Dee, still waiting on the database before it, is deleted here.
     assert.ok(await redacted(db, "Dee"), "an account still queued on the database it replaced is deleted again");
     assert.ok(r.gone.people.some((p) => p.id === P.Dee));
-    // Eve's yes was for the new number: the copy has the old one, so its latest answer is the no.
-    assert.equal(await textsAnswer(db, P.Eve!), false, "a yes given for a new number never reaches the old one");
+    // Eve's number changed since: the copy has her new one (contact), and her yes was for it.
+    assert.equal(await textsAnswer(db, P.Eve!), true, "her yes for her new number stands, on her new number");
     // Fin's undone phone: the address and the number are gone.
     assert.equal((await db.selectFrom("auth_identity").select("id").where("person_id", "=", P.Fin!).where("kind", "=", "phone").execute()).length, 0);
     assert.equal((await db.selectFrom("person").select("phone").where("id", "=", P.Fin!).executeTakeFirstOrThrow()).phone, null);

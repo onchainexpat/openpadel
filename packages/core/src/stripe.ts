@@ -162,6 +162,28 @@ export class StripeProvider implements PaymentProvider {
     }
   }
 
+  /** Payments and refunds made since a time, on the account payments are made on (after a restore: what the club's
+   *  database may have no record of). At most 1,000 of each, newest first. */
+  async listSince(since: Date, account?: string | null) {
+    const page = async (path: string) => {
+      const out: any[] = [];
+      let after: string | null = null;
+      for (let i = 0; i < 10; i++) {
+        const d = await this.call("GET", `${path}?created[gte]=${Math.floor(since.getTime() / 1000)}&limit=100${after ? `&starting_after=${encodeURIComponent(after)}` : ""}`, undefined, undefined, account);
+        out.push(...(d?.data ?? []));
+        if (!d?.has_more || !d.data?.length) break;
+        after = String(d.data[d.data.length - 1].id);
+      }
+      return out;
+    };
+    const status = (x: string): IntentStatus => x === "succeeded" ? "succeeded" : x === "canceled" ? "failed" : "pending";
+    const intents = (await page("/v1/payment_intents")).map((d) => ({ ref: String(d.id), status: status(String(d.status)), amountCents: Number(d.amount_received ?? d.amount ?? 0),
+      created: new Date(Number(d.created) * 1000), kumiPaymentId: d.metadata?.kumi_payment_id ?? null, email: d.receipt_email ?? null, description: d.description ?? null }));
+    const refunds = (await page("/v1/refunds")).map((d) => ({ ref: String(d.id), paymentRef: String(d.payment_intent ?? ""), amountCents: Number(d.amount ?? 0),
+      ok: ["succeeded", "pending", "requires_action"].includes(String(d.status)), created: new Date(Number(d.created) * 1000), kumiRefundId: d.metadata?.kumi_refund_id ?? null }));
+    return { intents, refunds };
+  }
+
   /** The card a payment went through on (its latest charge), for the receipt: brand and last four only. */
   async cardOf(ref: string, account?: string | null) {
     const d = await this.call("GET", `/v1/payment_intents/${encodeURIComponent(ref)}?expand[]=latest_charge`, undefined, undefined, account);

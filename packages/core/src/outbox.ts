@@ -5,6 +5,7 @@ import type { Db } from "./db.ts";
 import { runAsSystem } from "./actions.ts";
 import { paymentProvider } from "./money.ts";
 import { checkPayment } from "./programs.ts";
+import { sendFoundRefund } from "./payments_after_restore.ts";
 
 export interface OutboxEvent { id: string; topic: string; payload: any; created_at: Date; attempts: number }
 export type Handler = (db: Db, payload: any, event?: OutboxEvent) => Promise<void>;
@@ -12,7 +13,7 @@ export const MAX_ATTEMPTS = 8;
 /** Money on its way back to a card, and a card payment being called off, aren't given up after eight quick tries:
  *  each waits 30 seconds, doubling to an hour, until its handler settles it (a refund that can't reach the
  *  provider for an hour is marked failed, so the staff hear and can send it again; a call-off keeps trying). */
-export const MONEY_TOPICS = new Set(["refund.requested", "payment.call_off"]);
+export const MONEY_TOPICS = new Set(["refund.requested", "payment.call_off", "payment_found.refund"]);
 export const backoffMs = (attempts: number) => Math.min(3600_000, 30_000 * 2 ** Math.max(0, attempts - 1));
 
 export async function processOutbox(db: Db, handlers: Record<string, Handler>, limit = 100, now = new Date()): Promise<{ delivered: number; failed: number }> {
@@ -50,6 +51,8 @@ export function combine(...sets: Record<string, Handler>[]): Record<string, Hand
 /** The money handlers: send each requested refund to the provider, once, then record the outcome. */
 const REFUND_GIVE_UP_TRIES = 8;   // 30 s, 1, 2, 4, 8, 16 and 32 minutes between them: about an hour
 export const moneyHandlers: Record<string, Handler> = {
+  /** A payment the provider took that nothing here records, refunded in full at the staff's word (payments_after_restore.ts). */
+  async "payment_found.refund"(db, payload: { id: string }) { await sendFoundRefund(db, payload); },
   /** A payment called off while its card form was open (desk_pay.ts, callOff): the intent is cancelled at the
    *  provider so the card can't go through later. Gone through already, it's settled like any other: the money is
    *  recorded, and what it was for decides what goes back. */

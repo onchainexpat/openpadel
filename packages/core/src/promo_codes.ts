@@ -42,7 +42,10 @@ async function areaOf(db: Db | Trx, pay: Selectable<DB["payment"]>): Promise<Are
 async function usesOf(db: Db | Trx, codeId: string, personId?: string) {
   const r = await db.selectFrom("promo_use").innerJoin("payment", "payment.id", "promo_use.payment_id").select(sql<string>`count(*)`.as("n"))
     .where("promo_use.promo_code_id", "=", codeId).where("payment.status", "!=", "failed").$if(Boolean(personId), (q) => q.where("promo_use.person_id", "=", personId!)).executeTakeFirstOrThrow();
-  return Number(r.n);
+  // And those made after the copy a restore brought back (their payments aren't here): they still count.
+  const before = await db.selectFrom("promo_use_before_restore").select(sql<string>`coalesce(sum(n), 0)`.as("n")).where("promo_code_id", "=", codeId)
+    .$if(Boolean(personId), (q) => q.where("person_id", "=", personId!)).executeTakeFirstOrThrow();
+  return Number(r.n) + Number(before.n);
 }
 /** The code and what it takes off this payment, or why it can't. */
 async function discountFor(db: Db | Trx, pay: Selectable<DB["payment"]>, code: string, now: Date) {

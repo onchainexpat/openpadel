@@ -1,4 +1,4 @@
-import { tidyChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
+import { checkMoneyAfterRestore, tidyChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -312,6 +312,13 @@ const jobSteps: JobStep[] = [
     }
   }],
 ];
+// Before any job can let a payment go: every pending card payment is asked about, whatever its age (a restore's copy
+// can hold one paid since as pending), and after a restore what the provider has from after the copy is looked up
+// (payments_after_restore.ts): refunds recorded, payments with no record kept for the staff.
+try { const r = await reconcilePayments(db, new Date(), 500, { all: true }); if (r.settled) console.log(`payments: ${r.settled} pending at start settled with the provider`); }
+catch (e) { console.error("payments: couldn't check the pending ones at start:", (e as Error).message); }
+try { const m = await checkMoneyAfterRestore(db); if (m.checked) console.log(`payments after a restore: ${m.found} paid with nothing here (for the staff), ${m.refunds} refunds recorded`); }
+catch (e) { console.error("payments: couldn't check the provider after a restore (tried again at the next start):", (e as Error).message); }
 const jobs = async () => {
   try { await runJobs(db, jobSteps, jobsState); }
   catch (e) { console.error("jobs:", (e as Error).message); }

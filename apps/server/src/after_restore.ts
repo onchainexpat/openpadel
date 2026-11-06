@@ -53,7 +53,7 @@ export interface MeterBefore {
 /** What a database had taken away on request, which a copy from before then would bring back (each its rows, as
  *  GONE's read gives them). */
 export type GoneBefore = Record<GoneKind, Record<string, unknown>[]>;
-type GoneKind = (typeof GONE_PARTS)[number] | `revoked:${string}`;
+type GoneKind = (typeof GONE_PARTS)[number] | `revoked:${string}` | "balances" | "newest";
 
 /** The SQL for each, in one place: after_restore.ts runs it with the rows read from the database before, and
  *  deploy/release.sh runs the same strings (COPY (read) TO STDOUT before, then table, COPY FROM STDIN and apply after;
@@ -62,7 +62,7 @@ type GoneKind = (typeof GONE_PARTS)[number] | `revoked:${string}`;
 export const GONE = {
   // Accounts deleted (and any the database before it still had waiting to delete again, from an earlier restore):
   // queued with who asked, and deleted again by privacy.erase_again.
-  people: { read: "SELECT p.id, p.redacted_at, (SELECT CASE WHEN r.actor_person_id = p.id THEN 'self' WHEN r.actor_person_id IS NOT NULL THEN 'staff' END FROM action_run r WHERE r.action = 'privacy.erase' AND r.status = 'applied' AND r.input->>'person_id' = p.id::text ORDER BY r.applied_at DESC LIMIT 1) AS deleted_by FROM person p WHERE p.redacted_at IS NOT NULL UNION ALL SELECT q.person_id, q.redacted_at, q.deleted_by FROM erase_after_restore q",
+  people: { read: "SELECT p.id, p.redacted_at, coalesce(p.erased_by_kind, (SELECT CASE WHEN r.actor_person_id = p.id THEN 'self' WHEN r.actor_person_id IS NOT NULL THEN 'staff' END FROM action_run r WHERE r.action = 'privacy.erase' AND r.status = 'applied' AND r.input->>'person_id' = p.id::text ORDER BY r.applied_at DESC LIMIT 1)) AS deleted_by FROM person p WHERE p.redacted_at IS NOT NULL UNION ALL SELECT q.person_id, q.redacted_at, q.deleted_by FROM erase_after_restore q",
     table: "CREATE TEMP TABLE kumi_gone (id uuid, redacted_at timestamptz, deleted_by text)",
     apply: "INSERT INTO erase_after_restore (person_id, redacted_at, deleted_by) SELECT g.id, g.redacted_at, g.deleted_by FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL ON CONFLICT (person_id) DO NOTHING" },
   // Chat messages taken back or hidden by the club: their words go where the database before it had blanked them,
@@ -86,10 +86,12 @@ export const GONE = {
   idents_back: { read: "SELECT p.id AS person_id, a.id, a.kind, a.value, a.verified_at::text AS verified_at FROM person p LEFT JOIN auth_identity a ON a.person_id = p.id WHERE p.redacted_at IS NULL",
     table: "CREATE TEMP TABLE kumi_ident_back (person_id uuid, id uuid, kind text, value text, verified_at timestamptz)",
     apply: "INSERT INTO auth_identity (id, person_id, kind, value, verified_at) SELECT k.id, k.person_id, k.kind, k.value, k.verified_at FROM kumi_ident_back k JOIN person p ON p.id = k.person_id AND p.redacted_at IS NULL WHERE k.id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM auth_identity x WHERE x.person_id = k.person_id AND x.kind = k.kind) ON CONFLICT DO NOTHING" },
-  // A phone number taken off since (removed, or undone after someone else added it): off in the copy too.
-  phones: { read: "SELECT id FROM person WHERE phone IS NULL AND redacted_at IS NULL",
-    table: "CREATE TEMP TABLE kumi_nophone (id uuid)",
-    apply: "UPDATE person x SET phone = NULL, version = x.version + 1 FROM kumi_nophone g WHERE x.id = g.id AND x.phone IS NOT NULL" },
+  // Each account's email, phone and own login as the database before it has them: an address or number taken off
+  // since (an attacker's undone, a kid's own login removed) is off in the copy too, and one changed since is the
+  // new one. Never one another account in the copy already has.
+  contact: { read: "SELECT id, email, phone, own_login FROM person WHERE redacted_at IS NULL",
+    table: "CREATE TEMP TABLE kumi_contact (id uuid, email text, phone text, own_login boolean)",
+    apply: "UPDATE person x SET email = CASE WHEN g.email IS NULL OR NOT EXISTS (SELECT 1 FROM person o WHERE o.id <> x.id AND lower(o.email) = lower(g.email)) THEN g.email ELSE x.email END, phone = CASE WHEN g.phone IS NULL OR NOT EXISTS (SELECT 1 FROM person o WHERE o.id <> x.id AND o.phone = g.phone) THEN g.phone ELSE x.phone END, own_login = x.own_login AND g.own_login, version = x.version + 1 FROM kumi_contact g WHERE x.id = g.id AND x.redacted_at IS NULL AND (x.email IS DISTINCT FROM g.email OR x.phone IS DISTINCT FROM g.phone OR (x.own_login AND NOT g.own_login))" },
   // Every no to texts, email and club news made since the copy is added (they're never changed); a yes only when the
   // copy has the same number or address it was given for, so it never reaches a number the member has left.
   consents: { read: "SELECT c.id, c.person_id, c.channel, c.purpose, c.granted, c.source, c.form_version, c.evidence, c.at, (SELECT CASE c.channel WHEN 'sms' THEN p.phone WHEN 'email' THEN p.email END FROM person p WHERE p.id = c.person_id) AS addr FROM channel_consent c",
@@ -103,21 +105,37 @@ export const GONE = {
   push: { read: "SELECT endpoint, person_id, revoked_at FROM push_subscription",
     table: "CREATE TEMP TABLE kumi_push (endpoint text, person_id uuid, revoked_at timestamptz)",
     apply: "UPDATE push_subscription x SET revoked_at = now() WHERE x.revoked_at IS NULL AND NOT EXISTS (SELECT 1 FROM kumi_push g WHERE g.endpoint = x.endpoint AND g.person_id = x.person_id AND g.revoked_at IS NULL)" },
-  // Gift cards redeemed or voided since: so in the copy too (a code redeemed can't be redeemed again), a redemption's
-  // value moved from the cards owed to the redeemer's club credit, as it was then.
+  // Gift cards redeemed or voided since: so in the copy too (a code redeemed can't be redeemed again, a card voided
+  // can't be spent), a redemption's value moved from the cards owed to the redeemer's club credit, as it was then. A
+  // void's refund was made then: the copy's books still show the card owed, so it's listed for the staff; and a
+  // redemption by someone the copy doesn't have isn't carried, and is listed (after_restore.ts, toCheck).
   gifts: { read: "SELECT id, status, redeemed_by, redeemed_at::text AS redeemed_at, voided_at::text AS voided_at FROM gift_card WHERE status IN ('redeemed', 'void')",
     table: "CREATE TEMP TABLE kumi_gift (id uuid, status text, redeemed_by uuid, redeemed_at timestamptz, voided_at timestamptz)",
-    apply: "WITH done AS (UPDATE gift_card x SET status = g.status, redeemed_by = (SELECT p.id FROM person p WHERE p.id = g.redeemed_by), redeemed_at = g.redeemed_at, voided_at = g.voided_at, version = x.version + 1 FROM kumi_gift g WHERE x.id = g.id AND x.status NOT IN ('redeemed', 'void') RETURNING x.id, x.status, x.redeemed_by, x.amount_cents), moves AS (SELECT gen_random_uuid() AS txn_id, d.* FROM done d WHERE d.status = 'redeemed' AND d.redeemed_by IS NOT NULL), run AS (INSERT INTO action_run (id, action, action_version, via, input, plan, status, undo_kind, read_versions, plan_expires_at, applied_at) SELECT gen_random_uuid(), 'restore.carry', 1, 'restore', '{}', '{}', 'applied', 'none', '{}', now(), now() WHERE EXISTS (SELECT 1 FROM moves) RETURNING id), acct AS (INSERT INTO ledger_account (id, kind, person_id) SELECT gen_random_uuid(), 'member_credit', m.redeemed_by FROM moves m ON CONFLICT DO NOTHING RETURNING id, person_id), txn AS (INSERT INTO ledger_txn (id, kind, action_run_id, memo) SELECT m.txn_id, 'gift_card_redeemed', (SELECT id FROM run), 'gift card redeemed before a restore, carried over' FROM moves m RETURNING id), ent AS (INSERT INTO ledger_entry (txn_id, account_id, amount_cents) SELECT m.txn_id, (SELECT a.id FROM ledger_account a WHERE a.kind = 'gift_cards' AND a.person_id IS NULL AND a.revenue_type IS NULL), m.amount_cents FROM moves m UNION ALL SELECT m.txn_id, coalesce((SELECT c.id FROM acct c WHERE c.person_id = m.redeemed_by), (SELECT a.id FROM ledger_account a WHERE a.kind = 'member_credit' AND a.person_id = m.redeemed_by)), -m.amount_cents FROM moves m RETURNING 1) SELECT count(*) AS n FROM done" },
-  // Club credit paid out at the desk or spent since: nobody's credit in the copy is more than the database before it
-  // had left (the difference goes to the books' adjustment account), so cash handed over can't be paid out again.
-  // Never more: credit the copy lacks isn't made up.
-  credit: { read: "SELECT person_id, cents FROM member_credit_balance",
-    table: "CREATE TEMP TABLE kumi_credit (person_id uuid, cents bigint)",
-    apply: "WITH over AS (SELECT a.id AS account_id, b.cents - coalesce(g.cents, 0) AS cut FROM member_credit_balance b JOIN ledger_account a ON a.kind = 'member_credit' AND a.person_id = b.person_id LEFT JOIN kumi_credit g ON g.person_id = b.person_id WHERE b.cents > coalesce(g.cents, 0)), moves AS (SELECT gen_random_uuid() AS txn_id, o.* FROM over o), run AS (INSERT INTO action_run (id, action, action_version, via, input, plan, status, undo_kind, read_versions, plan_expires_at, applied_at) SELECT gen_random_uuid(), 'restore.carry', 1, 'restore', '{}', '{}', 'applied', 'none', '{}', now(), now() WHERE EXISTS (SELECT 1 FROM moves) RETURNING id), adj AS (INSERT INTO ledger_account (id, kind) SELECT gen_random_uuid(), 'adjustment' WHERE EXISTS (SELECT 1 FROM moves) ON CONFLICT DO NOTHING RETURNING id), txn AS (INSERT INTO ledger_txn (id, kind, action_run_id, memo) SELECT m.txn_id, 'restore_credit', (SELECT id FROM run), 'club credit paid out or spent before a restore, carried over' FROM moves m RETURNING id), ent AS (INSERT INTO ledger_entry (txn_id, account_id, amount_cents) SELECT m.txn_id, m.account_id, m.cut FROM moves m UNION ALL SELECT m.txn_id, coalesce((SELECT id FROM adj), (SELECT a.id FROM ledger_account a WHERE a.kind = 'adjustment' AND a.person_id IS NULL AND a.revenue_type IS NULL)), -m.cut FROM moves m RETURNING 1) SELECT count(*) AS n FROM moves" },
-  // Wrong gift card codes tried: the count starts again (it only slows guessing).
-  tries: { read: "SELECT count(*) AS n FROM gift_card_try",
-    table: "CREATE TEMP TABLE kumi_tries (n bigint)",
-    apply: "DELETE FROM gift_card_try" },
+    apply: "WITH done AS (UPDATE gift_card x SET status = g.status, redeemed_by = (SELECT p.id FROM person p WHERE p.id = g.redeemed_by), redeemed_at = g.redeemed_at, voided_at = g.voided_at, version = x.version + 1 FROM kumi_gift g WHERE x.id = g.id AND x.status NOT IN ('redeemed', 'void') AND (g.status = 'void' OR EXISTS (SELECT 1 FROM person p WHERE p.id = g.redeemed_by)) RETURNING x.id, x.status, x.redeemed_by, x.amount_cents), moves AS (SELECT gen_random_uuid() AS txn_id, d.* FROM done d WHERE d.status = 'redeemed' AND d.redeemed_by IS NOT NULL), run AS (INSERT INTO action_run (id, action, action_version, via, input, plan, status, undo_kind, read_versions, plan_expires_at, applied_at) SELECT gen_random_uuid(), 'restore.carry', 1, 'restore', '{}', jsonb_build_object('title', jsonb_build_object('en', 'Carried over after a restore', 'es', 'Traído tras una restauración')), 'applied', 'none', '{}', now(), now() WHERE EXISTS (SELECT 1 FROM moves) RETURNING id), acct AS (INSERT INTO ledger_account (id, kind, person_id) SELECT gen_random_uuid(), 'member_credit', m.redeemed_by FROM moves m ON CONFLICT DO NOTHING RETURNING id, person_id), txn AS (INSERT INTO ledger_txn (id, kind, action_run_id, memo) SELECT m.txn_id, 'gift_card_redeemed', (SELECT id FROM run), 'gift card redeemed before a restore, carried over' FROM moves m RETURNING id), ent AS (INSERT INTO ledger_entry (txn_id, account_id, amount_cents) SELECT m.txn_id, (SELECT a.id FROM ledger_account a WHERE a.kind = 'gift_cards' AND a.person_id IS NULL AND a.revenue_type IS NULL), m.amount_cents FROM moves m UNION ALL SELECT m.txn_id, coalesce((SELECT c.id FROM acct c WHERE c.person_id = m.redeemed_by), (SELECT a.id FROM ledger_account a WHERE a.kind = 'member_credit' AND a.person_id = m.redeemed_by)), -m.amount_cents FROM moves m RETURNING 1) SELECT count(*) AS n FROM done" },
+  // Club credit paid out at the desk since: paid out in the copy too (the same row, and its move in the books), so cash
+  // handed over can't be paid out again; never past what the copy holds for them (the rest is listed for the staff).
+  // Credit earned or spent since stays as the copy has it, and any balance that differs is listed (toCheck).
+  payouts: { read: "SELECT id, person_id, amount_cents, method, note, at::text AS at FROM credit_payout",
+    table: "CREATE TEMP TABLE kumi_payout (id uuid, person_id uuid, amount_cents int, method text, note text, at timestamptz)",
+    apply: "WITH todo AS (SELECT t.* FROM (SELECT g.*, sum(g.amount_cents) OVER (PARTITION BY g.person_id ORDER BY g.at, g.id) AS upto FROM kumi_payout g JOIN person p ON p.id = g.person_id WHERE NOT EXISTS (SELECT 1 FROM credit_payout x WHERE x.id = g.id)) t WHERE t.upto <= coalesce((SELECT b.cents FROM member_credit_balance b WHERE b.person_id = t.person_id), 0)), run AS (INSERT INTO action_run (id, action, action_version, via, input, plan, status, undo_kind, read_versions, plan_expires_at, applied_at) SELECT gen_random_uuid(), 'restore.carry', 1, 'restore', '{}', jsonb_build_object('title', jsonb_build_object('en', 'Carried over after a restore', 'es', 'Traído tras una restauración')), 'applied', 'none', '{}', now(), now() WHERE EXISTS (SELECT 1 FROM todo) RETURNING id), acc AS (INSERT INTO ledger_account (id, kind) SELECT gen_random_uuid(), k FROM (VALUES ('cash_drawer'), ('provider_clearing')) v(k) WHERE EXISTS (SELECT 1 FROM todo) ON CONFLICT DO NOTHING RETURNING id, kind), ins AS (INSERT INTO credit_payout (id, person_id, amount_cents, method, note, action_run_id, at) SELECT t.id, t.person_id, t.amount_cents, t.method, t.note, (SELECT id FROM run), t.at FROM todo t RETURNING id, person_id, amount_cents, method), moves AS (SELECT gen_random_uuid() AS txn_id, i.* FROM ins i), txn AS (INSERT INTO ledger_txn (id, kind, action_run_id, memo) SELECT m.txn_id, 'credit_payout', (SELECT id FROM run), 'club credit paid out before a restore, carried over' FROM moves m RETURNING id), ent AS (INSERT INTO ledger_entry (txn_id, account_id, amount_cents) SELECT m.txn_id, (SELECT a.id FROM ledger_account a WHERE a.kind = 'member_credit' AND a.person_id = m.person_id), m.amount_cents FROM moves m UNION ALL SELECT m.txn_id, coalesce((SELECT c.id FROM acc c WHERE c.kind = CASE m.method WHEN 'cash' THEN 'cash_drawer' ELSE 'provider_clearing' END), (SELECT a.id FROM ledger_account a WHERE a.kind = CASE m.method WHEN 'cash' THEN 'cash_drawer' ELSE 'provider_clearing' END AND a.person_id IS NULL AND a.revenue_type IS NULL)), -m.amount_cents FROM moves m RETURNING 1) SELECT count(*) AS n FROM ins" },
+  // Passes: one refunded since stays refunded with no uses left (the money went back), and each pass keeps the uses
+  // the database before it has left (uses taken since stay taken, a use given back since is back), never more than
+  // it was bought with. Any that differ are listed (toCheck): the bookings or places they were used on are missing.
+  passes: { read: "SELECT id, status, refunded_at::text AS refunded_at, uses_left FROM pass",
+    table: "CREATE TEMP TABLE kumi_pass (id uuid, status text, refunded_at timestamptz, uses_left int)",
+    apply: "UPDATE pass x SET status = CASE WHEN g.status = 'refunded' THEN 'refunded' ELSE x.status END, refunded_at = coalesce(x.refunded_at, g.refunded_at), uses_left = CASE WHEN g.status = 'refunded' THEN 0 ELSE least(g.uses_left, x.uses) END, version = x.version + 1 FROM kumi_pass g WHERE x.id = g.id AND x.status <> 'pending' AND (x.uses_left <> CASE WHEN g.status = 'refunded' THEN 0 ELSE least(g.uses_left, x.uses) END OR (g.status = 'refunded' AND x.status <> 'refunded'))" },
+  // A pass's use given back since: given back in the copy too.
+  pass_returns: { read: "SELECT id, returned_at::text AS returned_at FROM pass_use WHERE returned_at IS NOT NULL",
+    table: "CREATE TEMP TABLE kumi_pass_ret (id uuid, returned_at timestamptz)",
+    apply: "UPDATE pass_use x SET returned_at = g.returned_at FROM kumi_pass_ret g WHERE x.id = g.id AND x.returned_at IS NULL" },
+  // A promo code turned off since: off in the copy too.
+  promos_off: { read: "SELECT id FROM promo_code WHERE NOT active",
+    table: "CREATE TEMP TABLE kumi_promo_off (id uuid)",
+    apply: "UPDATE promo_code x SET active = false, version = x.version + 1 FROM kumi_promo_off g WHERE x.id = g.id AND x.active" },
+  // A promo code's uses since (their payments aren't in the copy): counted against its limits, per person.
+  promo_uses: { read: "SELECT u.promo_code_id, u.person_id, count(*) AS n FROM promo_use u JOIN payment p ON p.id = u.payment_id WHERE p.status <> 'failed' GROUP BY u.promo_code_id, u.person_id",
+    table: "CREATE TEMP TABLE kumi_promo_use (promo_code_id uuid, person_id uuid, n int)",
+    apply: "INSERT INTO promo_use_before_restore AS b (promo_code_id, person_id, n) SELECT g.promo_code_id, g.person_id, g.n - (SELECT count(*) FROM promo_use u JOIN payment p ON p.id = u.payment_id WHERE u.promo_code_id = g.promo_code_id AND u.person_id = g.person_id AND p.status <> 'failed') FROM kumi_promo_use g JOIN promo_code c ON c.id = g.promo_code_id JOIN person pe ON pe.id = g.person_id WHERE g.n > (SELECT count(*) FROM promo_use u JOIN payment p ON p.id = u.payment_id WHERE u.promo_code_id = g.promo_code_id AND u.person_id = g.person_id AND p.status <> 'failed') ON CONFLICT (promo_code_id, person_id) DO UPDATE SET n = greatest(b.n, excluded.n)" },
   // Ended or used since: sign-ins (signed out), passkeys, phones' push, calendar links, assistants and their tokens,
   // recovery codes. "$t $k $c" is the table, its key and the column (REVOKED).
   revoked: { read: "SELECT $k::text, $c FROM $t WHERE $c IS NOT NULL",
@@ -129,7 +147,11 @@ export const GONE_PEOPLE_OLD = "SELECT p.id, p.redacted_at, NULL::text AS delete
 /** A snapshot from before the queue: who came back, to be deleted again by hand (release.sh and kumi-hosted say so). */
 export const GONE_LIST = "SELECT g.id, p.display_name, g.deleted_by FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL";
 /** The parts carried, in this order (release.sh and kumi-hosted run them in the same order). */
-export const GONE_PARTS = ["people", "chat", "factors", "idents", "idents_back", "phones", "consents", "cards", "push", "gifts", "credit", "tries"] as const;
+export const GONE_PARTS = ["people", "chat", "factors", "idents", "idents_back", "contact", "consents", "cards", "push", "gifts", "payouts", "passes", "pass_returns", "promos_off", "promo_uses"] as const;
+/** The table each part needs in the copy (release.sh and kumi-hosted skip a part a snapshot from before it lacks). */
+export const GONE_NEEDS: Record<(typeof GONE_PARTS)[number], string> = { people: "erase_after_restore", chat: "chat_message", factors: "staff_factor", idents: "auth_identity", idents_back: "auth_identity",
+  contact: "person", consents: "channel_consent", cards: "family_card", push: "push_subscription", gifts: "gift_card", payouts: "credit_payout", passes: "pass", pass_returns: "pass_use",
+  promos_off: "promo_code", promo_uses: "promo_use_before_restore" };
 export const REVOKED: ReadonlyArray<readonly [table: string, key: string, column: string]> = [
   ["web_session", "token_hash", "revoked_at"], ["passkey", "credential_id", "revoked_at"], ["push_subscription", "id", "revoked_at"],
   ["calendar_feed", "id", "revoked_at"], ["oauth_grant", "id", "revoked_at"], ["oauth_token", "token_hash", "revoked_at"],
@@ -145,15 +167,39 @@ async function readGone(db: Db): Promise<GoneBefore> {
   for (const k of GONE_PARTS) gone[k] = (await rows(GONE[k].read)) ?? [];
   // A database from before the queue (082) can't answer the people read: its deletions alone.
   if (!gone.people.length) gone.people = (await rows(GONE_PEOPLE_OLD)) ?? [];
+  // For the lists the staff get (toCheck), and to tell which of the two is the newer.
+  gone.balances = (await rows("SELECT person_id, cents FROM member_credit_balance")) ?? [];
+  gone.newest = (await rows(NEWEST)) ?? [];
   for (const r of REVOKED) gone[revokedKey(r)] = ((await rows(fill(GONE.revoked.read, r))) ?? []).map((x) => { const [k, at] = Object.values(x); return { k, at }; });
   return gone;
 }
 
+/** The newest change a database has: carried over only toward the newer of the two (an export newer than this
+ *  server's database, the club come back, carries nothing back into it). */
+// Not only changes: sign-ins, codes and messages too (signing out, say, is no change), each read on its own.
+const NEWEST = "SELECT greatest((SELECT max(coalesce(applied_at, created_at)) FROM action_run), (SELECT max(greatest(created_at, coalesce(revoked_at, created_at))) FROM web_session), (SELECT max(created_at) FROM auth_challenge), (SELECT max(created_at) FROM outbound_message), (SELECT max(greatest(coalesce(removed_at, '-infinity'), coalesce(hidden_at, '-infinity'))) FROM chat_message), (SELECT max(at) FROM channel_consent), (SELECT max(redacted_at) FROM person), (SELECT max(greatest(coalesce(revoked_at, '-infinity'), created_at)) FROM push_subscription))::text AS at";
+async function newestChange(db: Db | Trx): Promise<string | null> {
+  return (await sql.raw<{ at: string | null }>(NEWEST).execute(db)).rows[0]?.at ?? null;
+}
+const newer = async (db: Db | Trx, gone: GoneBefore) => {
+  const theirs = (gone.newest?.[0] as { at?: string | null } | undefined)?.at ?? null;
+  // A database that can't say (one from before some of these tables) is taken to be the newer: carried, as before.
+  if (!theirs) return true;
+  const ours = await newestChange(db);
+  return !ours || new Date(theirs).getTime() > new Date(ours).getTime();
+};
+
+/** Something a restore couldn't put right by itself, for the staff to check (said once, and in the restore's output). */
+export interface CheckItem { what: "gift_void" | "gift_redeemed" | "credit" | "payout" | "pass"; name: string; ref: string; before_cents?: number; after_cents?: number; cents?: number }
+
 /** Done again in the copy (brought up to this Kumi first, so every table is there), with the same SQL as release.sh:
- *  the rows go into its temporary table, then its apply, in GONE_PARTS' order. How many accounts were queued, and
- *  how many other things taken away again. */
-async function carryGone(trx: Trx, gone: GoneBefore | undefined): Promise<{ people: number; other: number }> {
-  if (!gone) return { people: 0, other: 0 };
+ *  the rows go into its temporary table, then its apply, in GONE_PARTS' order. How many accounts were queued, how
+ *  many other things taken away again, and what's left for the staff to check. Nothing when the copy is the newer. */
+async function carryGone(trx: Trx, gone: GoneBefore | undefined, o: { onlyIfNewer?: boolean } = {}): Promise<{ people: number; other: number; check: CheckItem[]; skipped: boolean }> {
+  if (!gone) return { people: 0, other: 0, check: [], skipped: false };
+  // An export put back can be newer than the database it replaces (the club come back): then nothing is carried. A
+  // backup or a minute from the archive is always older than the database it replaces, so it always is.
+  if (o.onlyIfNewer && !await newer(trx, gone)) return { people: 0, other: 0, check: [], skipped: true };
   const cols = (table: string) => /\((.*)\)$/.exec(table)![1]!, nameOf = (table: string) => /^CREATE TEMP TABLE (\w+)/.exec(table)![1]!;
   const run = async (part: { table: string; apply: string }, rows: Record<string, unknown>[] | undefined) => {
     if (!rows?.length) return 0;
@@ -164,11 +210,40 @@ async function carryGone(trx: Trx, gone: GoneBefore | undefined): Promise<{ peop
     await sql.raw(`DROP TABLE ${name}`).execute(trx);
     return Number(r.numAffectedRows ?? (r.rows[0] as { n?: string } | undefined)?.n ?? 0);
   };
+  const gifts = (gone.gifts ?? []) as Array<{ id: string; status: string }>;
+  const giftBefore = new Map((gifts.length ? await trx.selectFrom("gift_card").select(["id", "status", "last4"]).where("id", "in", gifts.map((g) => g.id)).execute() : []).map((g) => [g.id, g]));
+  const passIds = ((gone.passes ?? []) as Array<{ id: string }>).map((x) => x.id);
+  const passBefore = new Map((passIds.length ? await trx.selectFrom("pass").select(["id", "uses_left"]).where("id", "in", passIds).execute() : []).map((x) => [x.id, x.uses_left]));
   let people = 0, other = 0;
   for (const k of GONE_PARTS) { const n = await run(GONE[k], gone[k]); if (k === "people") people = n; else other += n; }
   for (const r of REVOKED) other += await run({ table: GONE.revoked.table, apply: fill(GONE.revoked.apply, r) }, gone[revokedKey(r)]);
-  return { people, other };
+  const check: CheckItem[] = [];
+  const giftAfter = new Map((gifts.length ? await trx.selectFrom("gift_card").select(["id", "status", "amount_cents"]).where("id", "in", gifts.map((g) => g.id)).execute() : []).map((g) => [g.id, g]));
+  for (const g of gifts) {
+    const was = giftBefore.get(g.id), now = giftAfter.get(g.id);
+    if (!was || !now) continue;
+    if (g.status === "void" && was.status !== "void") check.push({ what: "gift_void", name: "", ref: was.last4 ?? g.id, cents: now.amount_cents });
+    if (g.status === "redeemed" && now.status !== "redeemed") check.push({ what: "gift_redeemed", name: "", ref: was.last4 ?? g.id, cents: now.amount_cents });
+  }
+  const payouts = (gone.payouts ?? []) as Array<{ id: string; person_id: string; amount_cents: number }>;
+  if (payouts.length) {
+    const have = new Set((await trx.selectFrom("credit_payout").select("id").where("id", "in", payouts.map((x) => x.id)).execute()).map((x) => x.id));
+    for (const x of payouts.filter((x) => !have.has(x.id))) check.push({ what: "payout", name: await nameOfPerson(trx, x.person_id), ref: x.id, cents: x.amount_cents });
+  }
+  const passRows = (gone.passes ?? []) as Array<{ id: string; uses_left: number; status: string }>;
+  if (passRows.length) {
+    const copy = new Map((await trx.selectFrom("pass").select(["id", "uses_left", "name", "person_id"]).where("id", "in", passRows.map((x) => x.id)).execute()).map((x) => [x.id, x]));
+    for (const g of passRows) { const c = copy.get(g.id); if (c && passBefore.get(g.id) !== undefined && passBefore.get(g.id) !== c.uses_left) check.push({ what: "pass", name: await nameOfPerson(trx, c.person_id), ref: c.name, before_cents: passBefore.get(g.id), after_cents: c.uses_left }); }
+  }
+  const before = new Map(((gone.balances ?? []) as Array<{ person_id: string; cents: number | string }>).map((b) => [b.person_id, Number(b.cents)]));
+  const after = new Map((await sql<{ person_id: string; cents: string }>`SELECT person_id, cents FROM member_credit_balance`.execute(trx)).rows.map((b) => [b.person_id, Number(b.cents)]));
+  for (const id of new Set([...before.keys(), ...after.keys()])) {
+    const b = before.get(id) ?? 0, a = after.get(id) ?? 0;
+    if (b !== a) check.push({ what: "credit", name: await nameOfPerson(trx, id), ref: id, before_cents: b, after_cents: a });
+  }
+  return { people, other, check, skipped: false };
 }
+const nameOfPerson = async (db: Db | Trx, id: string) => (await db.selectFrom("person").select("display_name").where("id", "=", id).executeTakeFirst())?.display_name ?? id;
 
 /** Who keeps their account after a restore although the database before it had deleted it: those staff deleted, when
  *  the person running the restore says so (`--keep-staff-deleted`, or by id with `--keep`). Someone who deleted their
@@ -178,15 +253,31 @@ export interface KeepDeleted { staff?: boolean; ids?: string[] }
 async function queuedPeople(db: Db, keep: KeepDeleted | undefined): Promise<GonePerson[]> {
   const rows = await db.selectFrom("erase_after_restore").innerJoin("person", "person.id", "erase_after_restore.person_id")
     .select(["erase_after_restore.person_id as id", "person.display_name as name", "erase_after_restore.deleted_by as by"]).orderBy("erase_after_restore.queued_at").execute();
-  const kept = rows.filter((r) => r.by !== "self" && ((keep?.staff && r.by === "staff") || keep?.ids?.includes(r.id)));
+  // Only the club's deletions can be kept back: one the person or their family asked for is always done again, and
+  // one whose asker isn't known is too.
+  const kept = rows.filter((r) => r.by === "staff" && (keep?.staff || keep?.ids?.includes(r.id)));
   if (kept.length) await db.deleteFrom("erase_after_restore").where("person_id", "in", kept.map((r) => r.id)).execute();
   return rows.map((r) => ({ id: r.id, name: r.name, by: r.by, kept: kept.includes(r) }));
 }
-export interface GonePerson { id: string; name: string; by: "self" | "staff" | null; kept: boolean }
+export interface GonePerson { id: string; name: string; by: "self" | "family" | "staff" | null; kept: boolean }
 /** What deleting them again did: how many, the last owner's role kept, money left for the desk to give back. */
-async function eraseQueued(db: Db, people: GonePerson[], now: Date): Promise<AfterRestore["gone"]> {
+async function eraseQueued(db: Db, people: GonePerson[], now: Date, check: CheckItem[] = []): Promise<AfterRestore["gone"]> {
   const r = await eraseAfterRestore(db, now);
-  return { erased: r.erased, other: 0, people, last_owner_kept: r.lastOwnerKept, failed: r.failed };
+  await tellCheck(db, check, now);
+  return { erased: r.erased, other: 0, people, last_owner_kept: r.lastOwnerKept, failed: r.failed, to_check: r.toCheck, check };
+}
+/** What the staff must check by hand, said once to the owner and managers (the restore's output lists each). */
+async function tellCheck(db: Db, check: CheckItem[], now: Date) {
+  if (!check.length) return;
+  const n = (w: CheckItem["what"]) => check.filter((c) => c.what === w).length;
+  const words = { en: `After a restore: ${n("credit")} members' club credit differs from before it, ${n("gift_void") + n("gift_redeemed")} gift cards and ${n("payout")} credit pay-outs need a look (the restore's output lists them). Confirmations sent after the backup may refer to bookings or gift card codes this copy doesn't have.`.slice(0, 300),
+    es: `Tras una restauración: el saldo a favor de ${n("credit")} socios no coincide con el de antes, ${n("gift_void") + n("gift_redeemed")} tarjetas regalo y ${n("payout")} pagos de saldo necesitan revisión (la salida de la restauración los lista). Las confirmaciones enviadas después de la copia pueden referirse a reservas o códigos que esta copia no tiene.`.slice(0, 300) };
+  await runAsSystem(db, "ops.report_failure", { job: "restore_erase", error: words.en, words }, "restore", { now }).catch((e) => console.error(`restore: couldn't tell the staff (${(e as Error).message})`));
+}
+/** Card payments and refunds the payment provider has from after the copy: checked when the server next starts (it
+ *  has the provider; the restore itself may not), from the copy's newest payment on (payments_after_restore.ts). */
+async function markMoneyCheck(db: Db | Trx) {
+  await sql`INSERT INTO restore_check (since) SELECT coalesce((SELECT max(created_at) FROM payment), now() - interval '400 days')`.execute(db);
 }
 
 export interface AfterRestore {
@@ -197,7 +288,13 @@ export interface AfterRestore {
    *  things it had taken away, taken away again; the last owner whose role stayed; any not deleted yet (the next start
    *  tries again). unvouched: the database before it couldn't say, so only the newest backup's list (from_backup)
    *  could be used, or nothing. */
-  gone: { erased: number; other: number; people: GonePerson[]; last_owner_kept: string[]; failed: number; unvouched?: boolean; from_backup?: string | null };
+  gone: { erased: number; other: number; people: GonePerson[]; last_owner_kept: string[]; failed: number; unvouched?: boolean; from_backup?: string | null;
+    /** Bookings, places, seats and weekly courts freed with no money moving, and what was paid on each. */
+    to_check?: Array<{ person: string; what: string; ref: string; paid_cents: number }>;
+    /** Gift cards, credit and pay-outs the restore couldn't square by itself. */
+    check?: CheckItem[];
+    /** The copy was the newer of the two: nothing was carried into it. */
+    skipped_newer?: boolean };
 }
 
 /** The club's first recorded change: two databases with the same one are the same club's, one an earlier copy of
@@ -276,8 +373,8 @@ export async function readGoneBefore(url: string): Promise<{ timeline: string; g
  *  was made (an account deleted, words taken back) is taken away again. Another club's, or none: nothing to carry. */
 export async function carryGoneAfterImport(db: Db, before: { timeline: string; gone: GoneBefore } | null, now = new Date(), keep?: KeepDeleted): Promise<AfterRestore["gone"]> {
   if (!before || before.timeline !== await timeline(db)) return { erased: 0, other: 0, people: [], last_owner_kept: [], failed: 0 };
-  const { other } = await db.transaction().execute((trx) => carryGone(trx, before.gone));
-  return { ...await eraseQueued(db, await queuedPeople(db, keep), now), other };
+  const c = await db.transaction().execute(async (trx) => { const r = await carryGone(trx, before.gone, { onlyIfNewer: true }); await markMoneyCheck(trx); return r; });
+  return { ...await eraseQueued(db, await queuedPeople(db, keep), now, c.check), other: c.other, skipped_newer: c.skipped };
 }
 
 /** The database before it can't vouch (lost, empty, unreadable, another club's): the newest nightly backup's list of
@@ -328,10 +425,11 @@ export async function afterRestore(url: string, before: SentBefore | null, now =
       await recordGap(db, now);
       // Nor which accounts were deleted since the copy: the newest backup here may know some of them.
       const fromBackup = await queueFromBackup(db, o.backupDir);
+      await markMoneyCheck(db);
       const gone = await eraseQueued(db, await queuedPeople(db, o.keep), now);
       return { carried: { messages: 0, events_held: 0, repeats: 0 }, held, vouched: false, support_ended: open, usage: { months: [], gap: true }, gone: { ...gone, unvouched: true, from_backup: fromBackup } };
     }
-    let other = 0;
+    let other = 0, check: CheckItem[] = [], skipped = false;
     const done = await db.transaction().execute(async (trx) => {
       let messages = 0, eventsHeld = 0, repeats = 0;
       if (before.messages.length) {
@@ -372,11 +470,13 @@ export async function afterRestore(url: string, before: SentBefore | null, now =
             times = greatest(e.times, EXCLUDED.times), cleared_at = EXCLUDED.cleared_at, cleared_by = EXCLUDED.cleared_by, version = e.version + 1
           WHERE greatest(EXCLUDED.last_at, coalesce(EXCLUDED.cleared_at, '-infinity')) > greatest(e.last_at, coalesce(e.cleared_at, '-infinity'))`.execute(trx);
       // What it had taken away on request: taken away again (GONE), deleted accounts queued for below.
-      other = (await carryGone(trx, before.gone)).other;
+      const c = await carryGone(trx, before.gone);
+      other = c.other; check = c.check; skipped = c.skipped;
+      await markMoneyCheck(trx);
       return { carried: { messages, events_held: eventsHeld, repeats }, held: { messages: 0, events: eventsHeld }, vouched: true, support_ended: supportEnded, usage };
     });
     // Deleted again now, the same way as the first time (and anything an earlier start couldn't finish), but for
     // those the person running the restore keeps.
-    return { ...done, gone: { ...await eraseQueued(db, await queuedPeople(db, o.keep), now), other } };
+    return { ...done, gone: { ...await eraseQueued(db, await queuedPeople(db, o.keep), now, check), other, skipped_newer: skipped } };
   } finally { await db.destroy(); }
 }

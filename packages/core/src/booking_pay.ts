@@ -4,6 +4,7 @@
 // that card once. An open match is the exception: not full by the deadline, it's cancelled and everyone
 // gets their money back (nothing is saved or charged). The club's booking rules (how far ahead, how many
 // at once, the lengths, cancellation) are the version in force when the booking is made, and stay with it.
+import { checkPayment } from "./programs.ts";
 import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
@@ -527,8 +528,19 @@ export async function deskOrUp(db: Db | Trx, personId: string | null): Promise<b
 export async function expireHolds(db: Db, now = new Date()) {
   const lapsed = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").select("booking.id").distinct()
     .where("booking.status", "=", "held").where("court_time.kind", "=", "hold").where("court_time.hold_until", "<=", now).execute();
-  for (const b of lapsed) await runAsSystem(db, "booking.lapse", { booking_id: b.id }, "jobs", { now });
-  return { lapsed: lapsed.length };
+  let n = 0;
+  for (const b of lapsed) {
+    // Asked first: a card that went through with its webhook lost (or paid after the copy a restore brought back)
+    // confirms the booking instead of it being let go and refunded.
+    for (const p of await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id").where("booking_player.booking_id", "=", b.id)
+      .where("payment.status", "=", "pending").where("payment.provider_ref", "is not", null).execute())
+      await checkPayment(db, p.id, "jobs").catch((e) => console.error(`payment ${p.id}:`, (e as Error).message));
+    const still = await db.selectFrom("booking").select("status").where("id", "=", b.id).executeTakeFirst();
+    if (still?.status !== "held") continue;
+    await runAsSystem(db, "booking.lapse", { booking_id: b.id }, "jobs", { now });
+    n++;
+  }
+  return { lapsed: n };
 }
 export const bookingLapse = defineAction({
   name: "booking.lapse", version: 1, system: true, internal: true,

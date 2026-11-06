@@ -241,7 +241,7 @@ carry_over() {
   # Held only where the snapshot's Kumi can hold (from migration 068); a snapshot from before that has no hold.
   if [ -s "$2" ] && psql_kumi -Atc "SELECT 1 FROM information_schema.columns WHERE table_name = 'event_outbox' AND column_name = 'held_at'" | grep -q 1; then
     psql_kumi -c "CREATE TEMP TABLE kumi_done (id bigint)" -c "COPY kumi_done FROM STDIN" \
-      -c "UPDATE event_outbox e SET held_at = now() FROM kumi_done d WHERE e.id = d.id AND e.delivered_at IS NULL AND e.held_at IS NULL AND e.topic NOT IN ('refund.requested', 'payment.call_off')" < "$2" || return 1
+      -c "UPDATE event_outbox e SET held_at = now() FROM kumi_done d WHERE e.id = d.id AND e.delivered_at IS NULL AND e.held_at IS NULL AND e.topic NOT IN ('refund.requested', 'payment.call_off', 'payment_found.refund')" < "$2" || return 1
   fi
   # Fingerprints only where the snapshot's Kumi looks for them (from migration 069).
   if [ -s "${3:-}" ] && psql_kumi -Atc "SELECT 1 FROM information_schema.tables WHERE table_name = 'sent_before_restore'" | grep -q 1; then
@@ -281,18 +281,21 @@ has_column() { psql_kumi -Atc "SELECT 1 FROM information_schema.columns WHERE ta
 read_gone() {
   local g=$1 t k c
   # A database from before the queue (082) can't answer the people read: its deletions alone.
-  psql_kumi -c "COPY (SELECT p.id, p.redacted_at, (SELECT CASE WHEN r.actor_person_id = p.id THEN 'self' WHEN r.actor_person_id IS NOT NULL THEN 'staff' END FROM action_run r WHERE r.action = 'privacy.erase' AND r.status = 'applied' AND r.input->>'person_id' = p.id::text ORDER BY r.applied_at DESC LIMIT 1) AS deleted_by FROM person p WHERE p.redacted_at IS NOT NULL UNION ALL SELECT q.person_id, q.redacted_at, q.deleted_by FROM erase_after_restore q) TO STDOUT" > "$g/people" 2>/dev/null || psql_kumi -c "COPY (SELECT p.id, p.redacted_at, NULL::text AS deleted_by FROM person p WHERE p.redacted_at IS NOT NULL) TO STDOUT" > "$g/people" 2>/dev/null || : > "$g/people"
+  psql_kumi -c "COPY (SELECT p.id, p.redacted_at, coalesce(p.erased_by_kind, (SELECT CASE WHEN r.actor_person_id = p.id THEN 'self' WHEN r.actor_person_id IS NOT NULL THEN 'staff' END FROM action_run r WHERE r.action = 'privacy.erase' AND r.status = 'applied' AND r.input->>'person_id' = p.id::text ORDER BY r.applied_at DESC LIMIT 1)) AS deleted_by FROM person p WHERE p.redacted_at IS NOT NULL UNION ALL SELECT q.person_id, q.redacted_at, q.deleted_by FROM erase_after_restore q) TO STDOUT" > "$g/people" 2>/dev/null || psql_kumi -c "COPY (SELECT p.id, p.redacted_at, NULL::text AS deleted_by FROM person p WHERE p.redacted_at IS NOT NULL) TO STDOUT" > "$g/people" 2>/dev/null || : > "$g/people"
   psql_kumi -c "COPY (SELECT id, removed_at, hidden_at, hidden_by, body = '' AS blank FROM chat_message WHERE removed_at IS NOT NULL OR hidden_at IS NOT NULL) TO STDOUT" > "$g/chat" 2>/dev/null || : > "$g/chat"
   psql_kumi -c "COPY (SELECT person_id, secret, confirmed_at::text AS confirmed_at, last_step, removed_at::text AS removed_at FROM staff_factor) TO STDOUT" > "$g/factors" 2>/dev/null || : > "$g/factors"
   psql_kumi -c "COPY (SELECT p.id AS person_id, a.id, a.kind, a.value, a.verified_at::text AS verified_at FROM person p LEFT JOIN auth_identity a ON a.person_id = p.id WHERE p.redacted_at IS NULL) TO STDOUT" > "$g/idents" 2>/dev/null || : > "$g/idents"
   psql_kumi -c "COPY (SELECT p.id AS person_id, a.id, a.kind, a.value, a.verified_at::text AS verified_at FROM person p LEFT JOIN auth_identity a ON a.person_id = p.id WHERE p.redacted_at IS NULL) TO STDOUT" > "$g/idents_back" 2>/dev/null || : > "$g/idents_back"
-  psql_kumi -c "COPY (SELECT id FROM person WHERE phone IS NULL AND redacted_at IS NULL) TO STDOUT" > "$g/phones" 2>/dev/null || : > "$g/phones"
+  psql_kumi -c "COPY (SELECT id, email, phone, own_login FROM person WHERE redacted_at IS NULL) TO STDOUT" > "$g/contact" 2>/dev/null || : > "$g/contact"
   psql_kumi -c "COPY (SELECT c.id, c.person_id, c.channel, c.purpose, c.granted, c.source, c.form_version, c.evidence, c.at, (SELECT CASE c.channel WHEN 'sms' THEN p.phone WHEN 'email' THEN p.email END FROM person p WHERE p.id = c.person_id) AS addr FROM channel_consent c) TO STDOUT" > "$g/consents" 2>/dev/null || : > "$g/consents"
   psql_kumi -c "COPY (SELECT id, removed_at FROM family_card WHERE status = 'removed') TO STDOUT" > "$g/cards" 2>/dev/null || : > "$g/cards"
   psql_kumi -c "COPY (SELECT endpoint, person_id, revoked_at FROM push_subscription) TO STDOUT" > "$g/push" 2>/dev/null || : > "$g/push"
   psql_kumi -c "COPY (SELECT id, status, redeemed_by, redeemed_at::text AS redeemed_at, voided_at::text AS voided_at FROM gift_card WHERE status IN ('redeemed', 'void')) TO STDOUT" > "$g/gifts" 2>/dev/null || : > "$g/gifts"
-  psql_kumi -c "COPY (SELECT person_id, cents FROM member_credit_balance) TO STDOUT" > "$g/credit" 2>/dev/null || : > "$g/credit"
-  psql_kumi -c "COPY (SELECT count(*) AS n FROM gift_card_try) TO STDOUT" > "$g/tries" 2>/dev/null || : > "$g/tries"
+  psql_kumi -c "COPY (SELECT id, person_id, amount_cents, method, note, at::text AS at FROM credit_payout) TO STDOUT" > "$g/payouts" 2>/dev/null || : > "$g/payouts"
+  psql_kumi -c "COPY (SELECT id, status, refunded_at::text AS refunded_at, uses_left FROM pass) TO STDOUT" > "$g/passes" 2>/dev/null || : > "$g/passes"
+  psql_kumi -c "COPY (SELECT id, returned_at::text AS returned_at FROM pass_use WHERE returned_at IS NOT NULL) TO STDOUT" > "$g/pass_returns" 2>/dev/null || : > "$g/pass_returns"
+  psql_kumi -c "COPY (SELECT id FROM promo_code WHERE NOT active) TO STDOUT" > "$g/promos_off" 2>/dev/null || : > "$g/promos_off"
+  psql_kumi -c "COPY (SELECT u.promo_code_id, u.person_id, count(*) AS n FROM promo_use u JOIN payment p ON p.id = u.payment_id WHERE p.status <> 'failed' GROUP BY u.promo_code_id, u.person_id) TO STDOUT" > "$g/promo_uses" 2>/dev/null || : > "$g/promo_uses"
   while read -r t k c; do
     psql_kumi -c "COPY (SELECT $k::text, $c FROM $t WHERE $c IS NOT NULL) TO STDOUT" > "$g/rev.$t.$c" 2>/dev/null || : > "$g/rev.$t.$c"
   done <<< "$REVOKED"
@@ -304,10 +307,11 @@ carry_gone() {
       psql_kumi -c "CREATE TEMP TABLE kumi_gone (id uuid, redacted_at timestamptz, deleted_by text)" -c "COPY kumi_gone FROM STDIN" \
         -c "INSERT INTO erase_after_restore (person_id, redacted_at, deleted_by) SELECT g.id, g.redacted_at, g.deleted_by FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL ON CONFLICT (person_id) DO NOTHING" < "$g/people" || failed=1
     else
-      # A snapshot from before the queue: who came back, kept for the staff (0600) and said, to delete again by hand.
+      # A snapshot from before the queue: who came back, kept for the staff (0640, the kumi group) and said, to delete again by hand.
       list="$BACKUPS/deleted-again-by-hand-$(date -u +%Y%m%dT%H%M%SZ).txt"
-      (umask 077; psql_kumi -At -F ' ' -c "CREATE TEMP TABLE kumi_gone (id uuid, redacted_at timestamptz, deleted_by text)" -c "COPY kumi_gone FROM STDIN" \
-        -c "SELECT g.id, p.display_name, g.deleted_by FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL" < "$g/people" > "$list") || failed=1
+      (umask 027; psql_kumi -At -F ' ' -c "CREATE TEMP TABLE kumi_gone (id uuid, redacted_at timestamptz, deleted_by text)" -c "COPY kumi_gone FROM STDIN" \
+        -c "SELECT g.id, p.display_name, g.deleted_by FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL" < "$g/people" | tr -d '\000-\010\013-\037\177' > "$list") || failed=1
+      chgrp kumi "$list" 2>/dev/null || :
       n=$(grep -c . "$list" 2>/dev/null || echo 0)
       if [ "${n:-0}" -gt 0 ] 2>/dev/null; then
         say "$n account(s) deleted since the snapshot are back in it, and this release can't delete them again by itself: delete them again in the staff app (People). They are (id, name, who deleted it), also in $list:"
@@ -331,9 +335,9 @@ carry_gone() {
     psql_kumi -c "CREATE TEMP TABLE kumi_ident_back (person_id uuid, id uuid, kind text, value text, verified_at timestamptz)" -c "COPY kumi_ident_back FROM STDIN" \
       -c "INSERT INTO auth_identity (id, person_id, kind, value, verified_at) SELECT k.id, k.person_id, k.kind, k.value, k.verified_at FROM kumi_ident_back k JOIN person p ON p.id = k.person_id AND p.redacted_at IS NULL WHERE k.id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM auth_identity x WHERE x.person_id = k.person_id AND x.kind = k.kind) ON CONFLICT DO NOTHING" < "$g/idents_back" || failed=1
   fi
-  if [ -s "$g/phones" ] && has_table person; then
-    psql_kumi -c "CREATE TEMP TABLE kumi_nophone (id uuid)" -c "COPY kumi_nophone FROM STDIN" \
-      -c "UPDATE person x SET phone = NULL, version = x.version + 1 FROM kumi_nophone g WHERE x.id = g.id AND x.phone IS NOT NULL" < "$g/phones" || failed=1
+  if [ -s "$g/contact" ] && has_table person; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_contact (id uuid, email text, phone text, own_login boolean)" -c "COPY kumi_contact FROM STDIN" \
+      -c "UPDATE person x SET email = CASE WHEN g.email IS NULL OR NOT EXISTS (SELECT 1 FROM person o WHERE o.id <> x.id AND lower(o.email) = lower(g.email)) THEN g.email ELSE x.email END, phone = CASE WHEN g.phone IS NULL OR NOT EXISTS (SELECT 1 FROM person o WHERE o.id <> x.id AND o.phone = g.phone) THEN g.phone ELSE x.phone END, own_login = x.own_login AND g.own_login, version = x.version + 1 FROM kumi_contact g WHERE x.id = g.id AND x.redacted_at IS NULL AND (x.email IS DISTINCT FROM g.email OR x.phone IS DISTINCT FROM g.phone OR (x.own_login AND NOT g.own_login))" < "$g/contact" || failed=1
   fi
   if [ -s "$g/consents" ] && has_table channel_consent; then
     psql_kumi -c "CREATE TEMP TABLE kumi_consent (id uuid, person_id uuid, channel text, purpose text, granted boolean, source text, form_version text, evidence jsonb, at timestamptz, addr text)" -c "COPY kumi_consent FROM STDIN" \
@@ -349,21 +353,35 @@ carry_gone() {
   fi
   if [ -s "$g/gifts" ] && has_table gift_card; then
     psql_kumi -c "CREATE TEMP TABLE kumi_gift (id uuid, status text, redeemed_by uuid, redeemed_at timestamptz, voided_at timestamptz)" -c "COPY kumi_gift FROM STDIN" \
-      -c "WITH done AS (UPDATE gift_card x SET status = g.status, redeemed_by = (SELECT p.id FROM person p WHERE p.id = g.redeemed_by), redeemed_at = g.redeemed_at, voided_at = g.voided_at, version = x.version + 1 FROM kumi_gift g WHERE x.id = g.id AND x.status NOT IN ('redeemed', 'void') RETURNING x.id, x.status, x.redeemed_by, x.amount_cents), moves AS (SELECT gen_random_uuid() AS txn_id, d.* FROM done d WHERE d.status = 'redeemed' AND d.redeemed_by IS NOT NULL), run AS (INSERT INTO action_run (id, action, action_version, via, input, plan, status, undo_kind, read_versions, plan_expires_at, applied_at) SELECT gen_random_uuid(), 'restore.carry', 1, 'restore', '{}', '{}', 'applied', 'none', '{}', now(), now() WHERE EXISTS (SELECT 1 FROM moves) RETURNING id), acct AS (INSERT INTO ledger_account (id, kind, person_id) SELECT gen_random_uuid(), 'member_credit', m.redeemed_by FROM moves m ON CONFLICT DO NOTHING RETURNING id, person_id), txn AS (INSERT INTO ledger_txn (id, kind, action_run_id, memo) SELECT m.txn_id, 'gift_card_redeemed', (SELECT id FROM run), 'gift card redeemed before a restore, carried over' FROM moves m RETURNING id), ent AS (INSERT INTO ledger_entry (txn_id, account_id, amount_cents) SELECT m.txn_id, (SELECT a.id FROM ledger_account a WHERE a.kind = 'gift_cards' AND a.person_id IS NULL AND a.revenue_type IS NULL), m.amount_cents FROM moves m UNION ALL SELECT m.txn_id, coalesce((SELECT c.id FROM acct c WHERE c.person_id = m.redeemed_by), (SELECT a.id FROM ledger_account a WHERE a.kind = 'member_credit' AND a.person_id = m.redeemed_by)), -m.amount_cents FROM moves m RETURNING 1) SELECT count(*) AS n FROM done" < "$g/gifts" || failed=1
+      -c "WITH done AS (UPDATE gift_card x SET status = g.status, redeemed_by = (SELECT p.id FROM person p WHERE p.id = g.redeemed_by), redeemed_at = g.redeemed_at, voided_at = g.voided_at, version = x.version + 1 FROM kumi_gift g WHERE x.id = g.id AND x.status NOT IN ('redeemed', 'void') AND (g.status = 'void' OR EXISTS (SELECT 1 FROM person p WHERE p.id = g.redeemed_by)) RETURNING x.id, x.status, x.redeemed_by, x.amount_cents), moves AS (SELECT gen_random_uuid() AS txn_id, d.* FROM done d WHERE d.status = 'redeemed' AND d.redeemed_by IS NOT NULL), run AS (INSERT INTO action_run (id, action, action_version, via, input, plan, status, undo_kind, read_versions, plan_expires_at, applied_at) SELECT gen_random_uuid(), 'restore.carry', 1, 'restore', '{}', jsonb_build_object('title', jsonb_build_object('en', 'Carried over after a restore', 'es', 'Traído tras una restauración')), 'applied', 'none', '{}', now(), now() WHERE EXISTS (SELECT 1 FROM moves) RETURNING id), acct AS (INSERT INTO ledger_account (id, kind, person_id) SELECT gen_random_uuid(), 'member_credit', m.redeemed_by FROM moves m ON CONFLICT DO NOTHING RETURNING id, person_id), txn AS (INSERT INTO ledger_txn (id, kind, action_run_id, memo) SELECT m.txn_id, 'gift_card_redeemed', (SELECT id FROM run), 'gift card redeemed before a restore, carried over' FROM moves m RETURNING id), ent AS (INSERT INTO ledger_entry (txn_id, account_id, amount_cents) SELECT m.txn_id, (SELECT a.id FROM ledger_account a WHERE a.kind = 'gift_cards' AND a.person_id IS NULL AND a.revenue_type IS NULL), m.amount_cents FROM moves m UNION ALL SELECT m.txn_id, coalesce((SELECT c.id FROM acct c WHERE c.person_id = m.redeemed_by), (SELECT a.id FROM ledger_account a WHERE a.kind = 'member_credit' AND a.person_id = m.redeemed_by)), -m.amount_cents FROM moves m RETURNING 1) SELECT count(*) AS n FROM done" < "$g/gifts" || failed=1
   fi
-  if [ -s "$g/credit" ] && has_table ledger_account; then
-    psql_kumi -c "CREATE TEMP TABLE kumi_credit (person_id uuid, cents bigint)" -c "COPY kumi_credit FROM STDIN" \
-      -c "WITH over AS (SELECT a.id AS account_id, b.cents - coalesce(g.cents, 0) AS cut FROM member_credit_balance b JOIN ledger_account a ON a.kind = 'member_credit' AND a.person_id = b.person_id LEFT JOIN kumi_credit g ON g.person_id = b.person_id WHERE b.cents > coalesce(g.cents, 0)), moves AS (SELECT gen_random_uuid() AS txn_id, o.* FROM over o), run AS (INSERT INTO action_run (id, action, action_version, via, input, plan, status, undo_kind, read_versions, plan_expires_at, applied_at) SELECT gen_random_uuid(), 'restore.carry', 1, 'restore', '{}', '{}', 'applied', 'none', '{}', now(), now() WHERE EXISTS (SELECT 1 FROM moves) RETURNING id), adj AS (INSERT INTO ledger_account (id, kind) SELECT gen_random_uuid(), 'adjustment' WHERE EXISTS (SELECT 1 FROM moves) ON CONFLICT DO NOTHING RETURNING id), txn AS (INSERT INTO ledger_txn (id, kind, action_run_id, memo) SELECT m.txn_id, 'restore_credit', (SELECT id FROM run), 'club credit paid out or spent before a restore, carried over' FROM moves m RETURNING id), ent AS (INSERT INTO ledger_entry (txn_id, account_id, amount_cents) SELECT m.txn_id, m.account_id, m.cut FROM moves m UNION ALL SELECT m.txn_id, coalesce((SELECT id FROM adj), (SELECT a.id FROM ledger_account a WHERE a.kind = 'adjustment' AND a.person_id IS NULL AND a.revenue_type IS NULL)), -m.cut FROM moves m RETURNING 1) SELECT count(*) AS n FROM moves" < "$g/credit" || failed=1
+  if [ -s "$g/payouts" ] && has_table credit_payout; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_payout (id uuid, person_id uuid, amount_cents int, method text, note text, at timestamptz)" -c "COPY kumi_payout FROM STDIN" \
+      -c "WITH todo AS (SELECT t.* FROM (SELECT g.*, sum(g.amount_cents) OVER (PARTITION BY g.person_id ORDER BY g.at, g.id) AS upto FROM kumi_payout g JOIN person p ON p.id = g.person_id WHERE NOT EXISTS (SELECT 1 FROM credit_payout x WHERE x.id = g.id)) t WHERE t.upto <= coalesce((SELECT b.cents FROM member_credit_balance b WHERE b.person_id = t.person_id), 0)), run AS (INSERT INTO action_run (id, action, action_version, via, input, plan, status, undo_kind, read_versions, plan_expires_at, applied_at) SELECT gen_random_uuid(), 'restore.carry', 1, 'restore', '{}', jsonb_build_object('title', jsonb_build_object('en', 'Carried over after a restore', 'es', 'Traído tras una restauración')), 'applied', 'none', '{}', now(), now() WHERE EXISTS (SELECT 1 FROM todo) RETURNING id), acc AS (INSERT INTO ledger_account (id, kind) SELECT gen_random_uuid(), k FROM (VALUES ('cash_drawer'), ('provider_clearing')) v(k) WHERE EXISTS (SELECT 1 FROM todo) ON CONFLICT DO NOTHING RETURNING id, kind), ins AS (INSERT INTO credit_payout (id, person_id, amount_cents, method, note, action_run_id, at) SELECT t.id, t.person_id, t.amount_cents, t.method, t.note, (SELECT id FROM run), t.at FROM todo t RETURNING id, person_id, amount_cents, method), moves AS (SELECT gen_random_uuid() AS txn_id, i.* FROM ins i), txn AS (INSERT INTO ledger_txn (id, kind, action_run_id, memo) SELECT m.txn_id, 'credit_payout', (SELECT id FROM run), 'club credit paid out before a restore, carried over' FROM moves m RETURNING id), ent AS (INSERT INTO ledger_entry (txn_id, account_id, amount_cents) SELECT m.txn_id, (SELECT a.id FROM ledger_account a WHERE a.kind = 'member_credit' AND a.person_id = m.person_id), m.amount_cents FROM moves m UNION ALL SELECT m.txn_id, coalesce((SELECT c.id FROM acc c WHERE c.kind = CASE m.method WHEN 'cash' THEN 'cash_drawer' ELSE 'provider_clearing' END), (SELECT a.id FROM ledger_account a WHERE a.kind = CASE m.method WHEN 'cash' THEN 'cash_drawer' ELSE 'provider_clearing' END AND a.person_id IS NULL AND a.revenue_type IS NULL)), -m.amount_cents FROM moves m RETURNING 1) SELECT count(*) AS n FROM ins" < "$g/payouts" || failed=1
   fi
-  if [ -s "$g/tries" ] && has_table gift_card_try; then
-    psql_kumi -c "CREATE TEMP TABLE kumi_tries (n bigint)" -c "COPY kumi_tries FROM STDIN" \
-      -c "DELETE FROM gift_card_try" < "$g/tries" || failed=1
+  if [ -s "$g/passes" ] && has_table pass; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_pass (id uuid, status text, refunded_at timestamptz, uses_left int)" -c "COPY kumi_pass FROM STDIN" \
+      -c "UPDATE pass x SET status = CASE WHEN g.status = 'refunded' THEN 'refunded' ELSE x.status END, refunded_at = coalesce(x.refunded_at, g.refunded_at), uses_left = CASE WHEN g.status = 'refunded' THEN 0 ELSE least(g.uses_left, x.uses) END, version = x.version + 1 FROM kumi_pass g WHERE x.id = g.id AND x.status <> 'pending' AND (x.uses_left <> CASE WHEN g.status = 'refunded' THEN 0 ELSE least(g.uses_left, x.uses) END OR (g.status = 'refunded' AND x.status <> 'refunded'))" < "$g/passes" || failed=1
+  fi
+  if [ -s "$g/pass_returns" ] && has_table pass_use; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_pass_ret (id uuid, returned_at timestamptz)" -c "COPY kumi_pass_ret FROM STDIN" \
+      -c "UPDATE pass_use x SET returned_at = g.returned_at FROM kumi_pass_ret g WHERE x.id = g.id AND x.returned_at IS NULL" < "$g/pass_returns" || failed=1
+  fi
+  if [ -s "$g/promos_off" ] && has_table promo_code; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_promo_off (id uuid)" -c "COPY kumi_promo_off FROM STDIN" \
+      -c "UPDATE promo_code x SET active = false, version = x.version + 1 FROM kumi_promo_off g WHERE x.id = g.id AND x.active" < "$g/promos_off" || failed=1
+  fi
+  if [ -s "$g/promo_uses" ] && has_table promo_use_before_restore; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_promo_use (promo_code_id uuid, person_id uuid, n int)" -c "COPY kumi_promo_use FROM STDIN" \
+      -c "INSERT INTO promo_use_before_restore AS b (promo_code_id, person_id, n) SELECT g.promo_code_id, g.person_id, g.n - (SELECT count(*) FROM promo_use u JOIN payment p ON p.id = u.payment_id WHERE u.promo_code_id = g.promo_code_id AND u.person_id = g.person_id AND p.status <> 'failed') FROM kumi_promo_use g JOIN promo_code c ON c.id = g.promo_code_id JOIN person pe ON pe.id = g.person_id WHERE g.n > (SELECT count(*) FROM promo_use u JOIN payment p ON p.id = u.payment_id WHERE u.promo_code_id = g.promo_code_id AND u.person_id = g.person_id AND p.status <> 'failed') ON CONFLICT (promo_code_id, person_id) DO UPDATE SET n = greatest(b.n, excluded.n)" < "$g/promo_uses" || failed=1
   fi
   while read -r t k c; do
     [ -s "$g/rev.$t.$c" ] && has_column "$t" "$c" || continue
     psql_kumi -c "CREATE TEMP TABLE kumi_rev (k text, at timestamptz)" -c "COPY kumi_rev FROM STDIN" \
       -c "UPDATE $t x SET $c = r.at FROM kumi_rev r WHERE x.$k::text = r.k AND x.$c IS NULL" < "$g/rev.$t.$c" || failed=1
   done <<< "$REVOKED"
+  # Card payments and refunds the provider has from after the snapshot: looked up when the server starts (payments_after_restore.ts).
+  if has_table restore_check; then psql_kumi -c "INSERT INTO restore_check (since) SELECT coalesce((SELECT max(created_at) FROM payment), now() - interval '400 days')" || failed=1; fi
   # Every part is tried; any that failed is said by the caller.
   return $failed
 }

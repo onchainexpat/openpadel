@@ -73,7 +73,7 @@ export const DESK_MONEY = ["booking.record_payment", "enrolment.record_payment",
  *  (players' conversations are theirs and the club's, not the host's). */
 /** Club credit that leaves the club (credit.ts): paid out at the desk. Like the desk's money, never support access
  *  and never an assistant; and a member spends their own credit only in the app (an assistant can't). */
-export const CREDIT_MONEY = ["credit.pay_out", "gift_card.void", "pass.refund"];
+export const CREDIT_MONEY = ["credit.pay_out", "gift_card.void", "pass.refund", "payment_found.refund", "payment_found.paid_elsewhere"];
 export const CHAT_ACTIONS = ["chat.report", "chat.hide", "chat.stop", "chat.allow"];
 
 /** Never through support access, at any level: where the club's money goes, who holds which role (and who owns

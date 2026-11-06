@@ -207,6 +207,29 @@ server starts.
   owner or manager without a passkey was asked to set up two-step again by email. Now the authenticator as it was
   last changed comes through whole: one set up again since is the new one (the old secret no longer works), one
   removed stays removed, and one nobody touched stays as it was. The same in an update's snapshot going back.
+- **Deleting an account again after a restore no longer refunds anyone a second time.** It used to cancel the
+  person's bookings, places and weekly court in the copy and refund them by the club's rule, although they had been
+  refunded when the person ended them, before the restore; the payment provider paid the second refund. Now they're
+  freed with no money moving, and the owner and managers get one list of what was paid on each, to check against
+  the payment provider.
+- **An email address taken off an account no longer signs anyone in after a restore.** An attacker's address that
+  the member undid came back in the copy and signed in as the member. Now an emailed code signs in only through one
+  of the account's own sign-in addresses, the account's email, phone and own login come through as the database
+  before it had them, and a kid's login removed by a parent stays removed.
+- **Card money the payment provider has from after a backup is found.** As the server next starts after any restore,
+  it asks the provider for payments and refunds made since the copy's newest payment: a refund is recorded against its
+  payment (so it can't be paid again), and a payment nothing here records is listed for the owner and managers under
+  Reports, "Paid with nothing here", to refund in full or record as paid elsewhere (never refunded by itself; they hear
+  once). Stripe's message for such a payment is noticed too, not answered silently. And before any job can let a
+  payment go, every pending one is asked about, whatever its age, so a court paid after the copy is confirmed, not
+  released and refunded.
+- After a restore, who asked for each deletion is kept with the account (the person, their family, or the club), and
+  only the club's can be kept back (`--keep`, `--keep-staff-deleted`). An export newer than the server's database (the
+  club come back) carries nothing back into it. Credit is no longer cut to what it was before: pay-outs since are
+  repeated (never twice), and any member whose credit differs is listed for the staff, with gift cards voided or
+  redeemed since, passes refunded or used since (no use comes back) and promo code uses since (still counted). `sudo
+  kumi owner add <email>` gives the owner role when no owner can sign in. Backups' lists of deleted accounts include
+  those still waiting to be deleted again.
 - A restore now also repeats: a deletion still waiting on the database it replaces, a sign-in address or phone
   number taken away (an attacker's phone undone, a kid's own login removed), a family card removed, and a phone's
   notifications moved to someone else. A yes to texts or email comes through only for the number or address it was

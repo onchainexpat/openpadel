@@ -420,18 +420,26 @@ export const weeklyEndAll = defineAction({
 /** A person's series still running, for My places and the staff's page of the person: the pattern, and each week
  *  from today: booked (its booking), left out (and why), or still to be booked. */
 /** Every weekly court an account had, ended from today for an account deleted again after a restore (privacy.ts):
- *  its booked weeks cancelled by each week's own rule, nothing more booked. How many. */
-export async function endSeriesForErase(ctx: ApplyCtx, personId: string): Promise<number> {
+ *  its booked weeks cancelled with no money moving (the person was refunded when they ended it, before the restore),
+ *  nothing more booked. Each week cancelled, with what was paid on it, for the staff to check. */
+export async function endSeriesForErase(ctx: ApplyCtx, personId: string): Promise<Array<{ code: string; paid_cents: number }>> {
+  const out: Array<{ code: string; paid_cents: number }> = [];
   const series = await ctx.trx.selectFrom("booking_series").selectAll().where("organiser_id", "=", personId).where("ended_at", "is", null).forUpdate().execute();
   for (const s of series) {
     await lockCourts(ctx, [s.court_id]);
     const from = localDate(ctx.now, await seriesTz(ctx.trx, s.location_id)), cancels: WeekCancel[] = [];
-    for (const w of await seriesToEnd(ctx.trx, s.id, from, ctx.now))
-      cancels.push({ booking_id: w.id, refunds: (await cancelRefunds(ctx.trx, w.id, ctx.now, "rule")).refunds.map(({ payment_id, cents }) => ({ payment_id, cents })) });
+    for (const w of await seriesToEnd(ctx.trx, s.id, from, ctx.now)) {
+      cancels.push({ booking_id: w.id, refunds: [] });
+      const b = await ctx.trx.selectFrom("booking").select("code").where("id", "=", w.id).executeTakeFirstOrThrow();
+      const pays = sql`p.booking_player_id IN (SELECT bp.id FROM booking_player bp WHERE bp.booking_id = ${w.id}) AND p.status = 'succeeded'`;
+      const paid = Number((await sql<{ n: string | null }>`SELECT coalesce(sum(p.amount_cents), 0) - coalesce((SELECT sum(r.amount_cents) FROM refund r
+        WHERE r.status <> 'failed' AND r.payment_id IN (SELECT p.id FROM payment p WHERE ${pays})), 0) AS n FROM payment p WHERE ${pays}`.execute(ctx.trx)).rows[0]?.n ?? 0);
+      out.push({ code: b.code, paid_cents: paid });
+    }
     await cancelWeeksFrom(ctx, s, from, cancels);
     await ctx.update("booking_series", s.id, { ended_at: ctx.now });
   }
-  return series.length;
+  return out;
 }
 
 export async function seriesOf(db: Db | Trx, personId: string, now: Date) {

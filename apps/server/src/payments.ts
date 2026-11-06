@@ -4,7 +4,7 @@
 import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { RateLimiter } from "./limits.ts";
-import { checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, supportRoleKeys, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
+import { noteFound, checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, supportRoleKeys, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
 
 type Me = { id: string } | null;
 export interface StripeConfig { publishableKey?: string; webhookSecret?: string }
@@ -86,6 +86,14 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
       // One intent can pay several (courts or dates paid together): one still waiting, if any is.
       const pay = await db.selectFrom("payment").select("id").where("provider", "=", "stripe").where("provider_ref", "=", intent).orderBy(sql`status = 'pending'`, "desc").orderBy("id").executeTakeFirst();
       if (pay) await checkPayment(db, pay.id, "webhook:stripe");
+      // Paid, and nothing here records it (made after the copy a restore brought back, say): kept for the staff, who
+      // hear once (payments_after_restore.ts). Never refunded by itself.
+      else if (ev.type === "payment_intent.succeeded") {
+        const o = ev.data!.object as { id: string; amount_received?: number; amount?: number; created?: number; receipt_email?: string | null; description?: string | null };
+        await noteFound(db, { ref: o.id, amountCents: Number(o.amount_received ?? o.amount ?? 0), created: new Date(Number(o.created ?? Date.now() / 1000) * 1000), email: o.receipt_email ?? null, description: o.description ?? null }, ev.account ?? null)
+          .catch((e) => console.error(`webhook: a paid intent with no record here couldn't be kept (${(e as Error).message})`));
+        console.warn(`webhook: Stripe says ${o.id} was paid, and no payment here records it: kept for the staff`);
+      }
     }
     const setup = ev.data?.object?.object === "setup_intent" ? ev.data.object.id : null;
     if (setup) {

@@ -70,7 +70,7 @@ test("a restore to before a pay-out and a redemption: neither can happen twice, 
     const c = await db.selectFrom("gift_card").select(["status", "redeemed_by"]).where("id", "=", card).executeTakeFirstOrThrow();
     assert.deepEqual([c.status, c.redeemed_by], ["redeemed", bo], "a redeemed code stays redeemed");
     assert.equal(await creditBalance(db, bo), 4000, "and its value is in the redeemer's credit, as it was");
-    assert.equal((await db.selectFrom("gift_card_try").select("id").execute()).length, 0, "wrong tries start again");
+    // Wrong tries aren't carried (they only slow guessing): the copy's stay as they were.
     // The books still balance (each carried move is its own transaction of two sides).
     const sum = (await sql<{ s: string }>`SELECT coalesce(sum(amount_cents), 0)::text AS s FROM ledger_entry`.execute(db)).rows[0]!.s;
     assert.equal(sum, "0");

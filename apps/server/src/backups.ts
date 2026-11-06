@@ -97,7 +97,10 @@ export async function makeBackup(db: Db, o: { url: string; dir: string; now?: Da
     await db.transaction().setIsolationLevel("repeatable read").execute(async (trx) => {
       const snapshot = (await sql<{ s: string }>`SELECT pg_export_snapshot() AS s`.execute(trx)).rows[0]!.s;
       tables = await tableCounts(trx);
-      redacted = (await sql<{ id: string; at: string }>`SELECT id::text AS id, redacted_at::text AS at FROM person WHERE redacted_at IS NOT NULL`.execute(trx).catch(() => ({ rows: [] }))).rows;
+      // And those still waiting to be deleted again after an earlier restore (erase_after_restore): a restore from this
+      // backup onto a new server must not forget them.
+      redacted = (await sql<{ id: string; at: string }>`SELECT id::text AS id, redacted_at::text AS at FROM person WHERE redacted_at IS NOT NULL
+        UNION SELECT person_id::text, redacted_at::text FROM erase_after_restore`.execute(trx).catch(async () => await sql<{ id: string; at: string }>`SELECT id::text AS id, redacted_at::text AS at FROM person WHERE redacted_at IS NOT NULL`.execute(trx).catch(() => ({ rows: [] })))).rows;
       await runTool(pgTool("pg_dump", env), ["-Fc", "--no-owner", "--no-acl", `--snapshot=${snapshot}`, "-f", part, "-d", target.url], target.env);
     });
   } catch (e) { rmSync(part, { force: true }); throw e; }
