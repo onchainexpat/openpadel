@@ -97,6 +97,12 @@ async function clubDb(): Promise<Db> {
   return db;
 }
 
+/** The currency and formats of the club in a database (one just restored): loaded for this process. */
+async function formatOf(url: string): Promise<void> {
+  const db = connect(url);
+  try { await loadClubFormat(db); } catch { /* not a club's database (yet): US dollars, as before */ } finally { await db.destroy(); }
+}
+
 async function main(): Promise<number> {
   if (cmd === "setup" && (sub === "plan" || sub === "apply")) {
     // A relative path is from where the person ran kumi (the server's wrapper runs it from the app's folder).
@@ -206,7 +212,7 @@ async function main(): Promise<number> {
       if (!club) { console.error(t(lang, "doctor.club.missing")); return 2; }
       const u = await usageMonth(db, m ? `${m}-01` : monthOf(new Date(), club.time_zone));
       if (json) { out({ ok: true, club: club.name, ...u }); return 0; }
-      const cents = (n: number) => money(Math.round(n), lang);
+      const cents = (n: number) => money(Math.round(n), lang, "USD");   // the meter is in US dollars, as the services bill it
       console.log(t(lang, "cli.usage_heading", { club: club.name, month: u.month.slice(0, 7), spent: cents(u.total_cents), cap: cents(u.cap_cents ?? 0) }));
       for (const k of USAGE_KINDS) {
         const x = u.kinds[k];
@@ -468,6 +474,9 @@ async function restoreFrom(source: string): Promise<number> {
     let safetyCopy: string;
     try { ({ safetyCopy } = await safeRestore(dbUrl(), got.file, { dir: backupDir })); } finally { got.cleanup(); }
     await writeOpsRecords(dbUrl(), kept);
+    // The restored club's currency and formats, before anything is written or printed with an amount in it (the
+    // carry-over's notes for the staff, the lines below): a club in euros reads euros, not this process's dollars.
+    await formatOf(dbUrl());
     // Nothing the database before it had sent goes again (after_restore.ts). The database is replaced by now: a
     // carry-over that fails says so (and the server may still start, with the copy as it was).
     let after: Awaited<ReturnType<typeof afterRestore>>;

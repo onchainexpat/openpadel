@@ -139,3 +139,59 @@ test("Apple Pay and Google Pay: the members' domain is registered once, switched
   await c.walletDomain("kestrelpadel.com");
   assert.equal(s.calls.at(-1)!.headers["stripe-account"], "acct_9");
 });
+
+// ---- After a restore: every payment and refund since the copy, page by page (listSince) ----
+/** Like fakeStripe, but keeps each call's query (listSince pages with created[gte] and starting_after). */
+function listingStripe(pages: (path: string, q: URLSearchParams) => { data: Array<Record<string, unknown>>; has_more: boolean }) {
+  const calls: Array<{ path: string; q: URLSearchParams; account: string | undefined }> = [];
+  const fetch = async (url: string, init?: RequestInit) => {
+    const u = new URL(url), c = { path: u.pathname, q: u.searchParams, account: (init?.headers as Record<string, string>)["stripe-account"] };
+    calls.push(c);
+    return new Response(JSON.stringify(pages(c.path, c.q)), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  return { calls, fetch };
+}
+
+test("payments and refunds since a time: each list paged from the last id until Stripe has no more, from that second", async () => {
+  // Newest first, as Stripe lists them. Payments: two pages, then an empty one with has_more still set (stops there).
+  const intents: Record<string, { data: Array<Record<string, unknown>>; has_more: boolean }> = {
+    "": { data: [{ id: "pi_3", status: "succeeded", amount_received: 4000, created: 1793700300, metadata: { kumi_payment_id: "p3" } }, { id: "pi_2", status: "canceled", amount: 2000, created: 1793700200 }], has_more: true },
+    pi_2: { data: [{ id: "pi_1", status: "processing", amount: 1000, created: 1793700100, metadata: { kumi_charge_id: "week:w1" }, receipt_email: "ann@example.test", description: "weekly court" }], has_more: true },
+    pi_1: { data: [], has_more: true },
+  };
+  // Refunds: two pages, the second saying there's no more.
+  const refunds: Record<string, { data: Array<Record<string, unknown>>; has_more: boolean }> = {
+    "": { data: [{ id: "re_2", payment_intent: "pi_3", amount: 500, status: "pending", created: 1793700400, metadata: { kumi_refund_id: "r2" } }], has_more: true },
+    re_2: { data: [{ id: "re_1", payment_intent: "pi_3", amount: 300, status: "failed", created: 1793700350 }], has_more: false },
+  };
+  const s = listingStripe((path, q) => (path === "/v1/payment_intents" ? intents : refunds)[q.get("starting_after") ?? ""] ?? { data: [], has_more: false });
+  const since = new Date("2026-11-03T10:00:00.900Z");
+  // Under Connect, on the club's own account (the account its payments were made on).
+  const r = await new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch, connect: async () => ({ id: "acct_9", ready: true }) }).listSince(since, "acct_9");
+  const seen = (path: string) => s.calls.filter((c) => c.path === path);
+  assert.deepEqual(seen("/v1/payment_intents").map((c) => c.q.get("starting_after")), [null, "pi_2", "pi_1"], "each page starts after the last id of the one before; an empty page ends it");
+  assert.deepEqual(seen("/v1/refunds").map((c) => c.q.get("starting_after")), [null, "re_2"], "has_more false ends it");
+  for (const c of s.calls) {
+    assert.equal(c.q.get("created[gte]"), String(Math.floor(since.getTime() / 1000)), "from the second of the time (seconds, not milliseconds)");
+    assert.equal(c.q.get("limit"), "100");
+    assert.equal(c.account, "acct_9", "on the account the payments were made on");
+  }
+  assert.equal(r.cut, false);
+  assert.deepEqual(r.intents.map((x) => [x.ref, x.status, x.amountCents, x.kumiPaymentId, x.kumiChargeId]),
+    [["pi_3", "succeeded", 4000, "p3", null], ["pi_2", "failed", 2000, null, null], ["pi_1", "pending", 1000, null, "week:w1"]]);
+  assert.equal(r.intents[2]!.created.getTime(), 1793700100 * 1000);
+  assert.deepEqual([r.intents[2]!.email, r.intents[2]!.description], ["ann@example.test", "weekly court"]);
+  assert.deepEqual(r.refunds.map((x) => [x.ref, x.paymentRef, x.amountCents, x.ok, x.kumiRefundId]), [["re_2", "pi_3", 500, true, "r2"], ["re_1", "pi_3", 300, false, null]]);
+});
+
+test("payments and refunds since a time: past 200 pages (20,000 of each) it stops and says it was cut", async () => {
+  let n = 0;
+  const s = listingStripe((path) => ({ data: [{ id: `${path.endsWith("refunds") ? "re" : "pi"}_${++n}`, status: "succeeded", amount: 100, created: 1793700000 }], has_more: true }));
+  const r = await new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch }).listSince(new Date("2026-11-03T10:00:00Z"));
+  assert.equal(s.calls.filter((c) => c.path === "/v1/payment_intents").length, 200, "200 pages, never a 201st");
+  assert.equal(s.calls.filter((c) => c.path === "/v1/refunds").length, 200);
+  assert.deepEqual([r.intents.length, r.refunds.length, r.cut], [200, 200, true]);
+  // Stripe always had more of neither: nothing cut.
+  const done = listingStripe(() => ({ data: [], has_more: false }));
+  assert.equal((await new StripeProvider({ secretKey: "sk_test_abc", fetch: done.fetch }).listSince(new Date())).cut, false);
+});
