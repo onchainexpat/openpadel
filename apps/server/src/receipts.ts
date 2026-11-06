@@ -3,7 +3,7 @@
 // whoever takes or sees the club's money.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { clubGiftCards, outstandingCredit, outstandingGiftCards, clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db } from "@kumi/core";
+import { clubGiftCards, outstandingCredit, outstandingGiftCards, outstandingPasses, passesOf, passProducts, clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db } from "@kumi/core";
 import { csvCell } from "./csv.ts";
 
 type Me = { id: string } | null;
@@ -80,6 +80,15 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
   app.get("/staff/gift-cards", async (c) => {
     await staffWithMoney(c);
     return c.json({ outstanding: await outstandingGiftCards(db), cards: await clubGiftCards(db) });
+  });
+  // The passes the club sells (passes.ts), on sale or not, what's owed on passes not used up, and one person's passes.
+  app.get("/staff/passes", async (c) => {
+    await staffWithMoney(c);
+    return c.json({ outstanding: await outstandingPasses(db), products: await passProducts(db, { all: true }) });
+  });
+  app.get("/staff/people/:id/passes", async (c) => {
+    await staffWithMoney(c);
+    return c.json(await passesOf(db, c.req.param("id")));
   });
   app.get("/staff/desk-days", async (c) => {
     await staffWithMoney(c);

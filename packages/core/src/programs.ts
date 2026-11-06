@@ -15,6 +15,7 @@ import { clashList, dateClashes, weekly } from "./program_clashes.ts";
 import { afterBookingPayment } from "./booking_pay.ts";
 import { afterMembershipPayment } from "./memberships.ts";
 import { giftCardPaid } from "./gift_cards.ts";
+import { passPaid } from "./passes.ts";
 import { quietUntil } from "./messages.ts";
 import { priceFor, programPerks, programPrice, priceWords, type ProgramPrice } from "./program_prices.ts";
 import { manages, requireWaiver, withManagers } from "./households.ts";
@@ -1209,22 +1210,28 @@ export const paymentSettle = defineAction({
 /** A payment that has gone through: by card (the provider said so), or all of it from the member's club credit
  *  (credit.ts). In the books, from clearing or from the credit the club owed them, into what it's revenue for; then
  *  what it was for happens (a court held is booked, a membership starts, a place is paid). The payment is locked. */
-export async function paidNow(ctx: ApplyContext, pay: Selectable<DB["payment"]>, o: { from: "provider_clearing" | "member_credit"; customer?: string | null; method?: string | null }) {
+export async function paidNow(ctx: ApplyContext, pay: Selectable<DB["payment"]>, o: { from: "provider_clearing" | "member_credit" | "pass" | "promo"; cents?: number; customer?: string | null; method?: string | null }) {
   {
     const i = { saved_customer: o.customer ?? undefined, saved_method: o.method ?? undefined };
     // A card kept for the deadline charge ("pay my part"): the provider's customer and card, never the card itself.
     await ctx.update("payment", pay.id, { status: "succeeded", ...(pay.save_card && i.saved_method ? { saved_customer: i.saved_customer ?? null, saved_method: i.saved_method } : {}),
-      ...(o.from === "member_credit" ? { method: "credit", provider: "none" } : {}) });
+      ...(o.from === "member_credit" ? { method: "credit", provider: "none" } : o.from === "pass" ? { method: "pass", provider: "none" } : o.from === "promo" ? { method: "promo", provider: "none" } : {}) });
     const kind = await revenueType(ctx.trx, pay);
-    await post(ctx.trx, ctx.runId, "payment", `${{ courts: "court booking payment", lessons: "lesson payment", memberships: "membership payment", programs: "program payment", gift_cards: "gift card sold" }[kind]}${o.from === "member_credit" ? " from club credit" : ""}`, [
+    // Covered by a pass: its share of the pass's price moves from what the club owes on passes to revenue. Made
+    // free by a promo code: nothing moves.
+    if (o.from === "pass" && (o.cents ?? 0) > 0) await post(ctx.trx, ctx.runId, "pass_use", "pass use taken", [
+      { account: await account(ctx.trx, "passes"), cents: o.cents! },
+      { account: await account(ctx.trx, "revenue", { revenueType: kind }), cents: -o.cents! }]);
+    if (o.from === "provider_clearing" || o.from === "member_credit") await post(ctx.trx, ctx.runId, "payment", `${{ courts: "court booking payment", lessons: "lesson payment", memberships: "membership payment", programs: "program payment", gift_cards: "gift card sold", passes: "pass sold" }[kind]}${o.from === "member_credit" ? " from club credit" : ""}`, [
       { account: o.from === "member_credit" ? await account(ctx.trx, "member_credit", { personId: pay.person_id }) : await account(ctx.trx, "provider_clearing"), cents: pay.amount_cents },
       { account: await account(ctx.trx, "revenue", { revenueType: kind }), cents: -pay.amount_cents },
     ]);
     if (pay.gift_card_id) await giftCardPaid(ctx, pay.gift_card_id);
+    if (pay.pass_id) await passPaid(ctx, pay.pass_id);
     if (pay.booking_player_id) await afterBookingPayment(ctx, pay);
     if (pay.membership_plan_id || pay.membership_id) await afterMembershipPayment(ctx, pay, { customer: i.saved_customer ?? null, method: i.saved_method ?? null });
     if (pay.enrolment_id) {
-      await ctx.update("enrolment", pay.enrolment_id, { paid_by: "card" });
+      await ctx.update("enrolment", pay.enrolment_id, { paid_by: o.from === "pass" ? "pack" : "card" });
       // Given up (or the date cancelled) after the card form was opened: the money arrived, so it all goes back.
       const e = await ctx.trx.selectFrom("enrolment").select(["status", "person_id"]).where("id", "=", pay.enrolment_id).executeTakeFirstOrThrow();
       if (e.status === "cancelled" && !(await ctx.trx.selectFrom("enrolment").select("id").where("replaced_by", "is not", null).where("id", "=", pay.enrolment_id).executeTakeFirst()))
@@ -1288,7 +1295,7 @@ export const refundSettle = defineAction({
     if (r.status !== "pending") return { already: r.status };
     if (!i.ok) { await ctx.update("refund", r.id, { status: "failed", failure: i.failure ?? null }); await ctx.emit("refund.failed", { refund_id: r.id }); return { status: "failed" }; }
     await ctx.update("refund", r.id, { status: "sent", provider_ref: i.provider_ref ?? null });
-    const paid = await ctx.trx.selectFrom("payment").select(["booking_player_id", "membership_plan_id", "membership_id", "enrolment_id", "person_id", "family_card_id", "gift_card_id"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
+    const paid = await ctx.trx.selectFrom("payment").select(["booking_player_id", "membership_plan_id", "membership_id", "enrolment_id", "person_id", "family_card_id", "gift_card_id", "pass_id"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
     // Back to the family card: the parents hear it, as they heard the charge.
     if (paid.family_card_id) {
       const card = await ctx.trx.selectFrom("family_card").select("household_id").where("id", "=", paid.family_card_id).executeTakeFirstOrThrow();

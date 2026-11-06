@@ -181,6 +181,14 @@ with each card, where a manager can void one nobody has used (the buyer gets the
 remind the buyer. Kumi's cards never expire and have no fees; check your state's rules on gift cards with a lawyer
 (some states require cash back for small balances: pay it out from the member's credit at the desk).
 
+**Passes** (Settings, "Passes the club sells"): make one with what it covers (program places, some kinds or any; or
+court bookings up to a length), its uses and price, and a number of days to use it in (365 or more, or none). Members
+buy them in the app (Profile, Passes); the desk sells one from a member's page for its price. When a member pays for a
+place or a court, a pass that covers it is offered before the card; one use pays it. Cancelled in time for a full
+refund, the use comes back; otherwise it's spent. The owner or a manager refunds a pass's unused uses from the member's
+page, pro rata, the way it was paid for. As with gift cards, check your state's rules on prepaid passes (expiry above
+all) with a lawyer.
+
 Reports also has the desk's day ("At the desk"), for counting the drawer at closing: for each day on the club's
 clock, what was paid at the desk in cash, on the club's card reader and another way, what was given back
 there, and the drawer (the cash taken, less the cash given back). Tap a day to see each payment and refund,

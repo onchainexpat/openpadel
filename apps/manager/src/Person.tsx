@@ -177,6 +177,7 @@ export function Person({ id }: { id: string }) {
           <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="terminal">{t("paid_by.terminal")}</option><option value="other">{t("paid_by.other")}</option></select>
           <button class="small">{t("action.gift_card.sell")}</button></form>
       </section>}
+      {(mayDo("pass.sell") || mayDo("pass.refund")) && <PersonPasses personId={p.id} preview={preview} key={`passes-${p.id}-${String(sheet ? 1 : 0)}`} />}
       <PersonReceipts personId={p.id} preview={preview} />
       {privacy && <PersonAssistants personId={p.id} preview={preview} key={`${p.id}-${String(sheet ? 1 : 0)}`} />}
       {!p.junior && p.id !== me.value?.person.id && (staffRoles.length === 0 || owner) && <ChangeEmail personId={p.id} name={p.display_name} onDone={load} />}
@@ -275,4 +276,30 @@ function ChangeEmail({ personId, name, onDone }: { personId: string; name: strin
       {error && <p class="error" role="alert">{error}</p>}
     </section>
   );
+}
+
+/** A person's passes (passes.ts), with a manager's refund of the unused uses, and the desk selling one of the
+ *  club's passes for its price. */
+function PersonPasses({ personId, preview }: { personId: string; preview: (action: string, input: unknown) => Promise<void> | void }) {
+  type Product = { id: string; name: string; price_cents: number; uses: number; on_sale: boolean };
+  type Pass = { id: string; name: string; uses: number; uses_left: number; status: string; expires_at: string | null };
+  const [products, setProducts] = useState<Product[]>([]), [mine, setMine] = useState<Pass[]>([]);
+  useEffect(() => {
+    api<{ products: Product[] }>("/staff/passes").then((r) => setProducts(r.products.filter((x) => x.on_sale))).catch(() => setProducts([]));
+    api<Pass[]>(`/staff/people/${personId}/passes`).then(setMine).catch(() => setMine([]));
+  }, [personId]);
+  if (products.length === 0 && mine.length === 0) return null;
+  return <section class="card">
+    <h2>{t("ui.passes_title")}</h2>
+    {mine.length > 0 && <ul class="plain">{mine.map((x) => <li class="row" key={x.id}>
+      <span>{x.name} · {x.status === "refunded" ? t("ui.pass_refunded") : t("ui.pass_uses_left", { left: String(x.uses_left), uses: String(x.uses) })}</span>
+      {x.status === "active" && x.uses_left > 0 && mayDo("pass.refund") && <button class="small" onClick={() => preview("pass.refund", { pass_id: x.id })}>{t("ui.pass_refund")}</button>}
+    </li>)}</ul>}
+    {products.length > 0 && mayDo("pass.sell") && <form class="inline" onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget as HTMLFormElement;
+      const product = products.find((x) => x.id === (f.elements.namedItem("product") as HTMLSelectElement).value)!;
+      preview("pass.sell", { person_id: personId, product_id: product.id, cents: product.price_cents, method: (f.elements.namedItem("method") as HTMLSelectElement).value }); }}>
+      <select name="product" aria-label={t("ui.pass_sell")}>{products.map((x) => <option value={x.id} key={x.id}>{x.name} · {dollars(x.price_cents, lang.value)}</option>)}</select>
+      <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="terminal">{t("paid_by.terminal")}</option><option value="other">{t("paid_by.other")}</option></select>
+      <button class="small">{t("ui.pass_sell")}</button></form>}
+  </section>;
 }

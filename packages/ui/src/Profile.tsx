@@ -226,6 +226,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
       {app === "member" && <InstallApp />}
       {app === "member" && <CreditCard />}
       {app === "member" && club.value?.gift_cards && <section class="card"><h2>{t("ui.gift_cards_title")}</h2><p><a class="button" href="/gift-cards">{t("ui.gift_cards_title")}</a></p></section>}
+      {app === "member" && club.value?.passes && <section class="card"><h2>{t("ui.passes_title")}</h2><p><a class="button" href="/passes">{t("ui.passes_title")}</a></p></section>}
       {app === "member" && <section class="card"><h2>{t("ui.receipts_title")}</h2><p><a class="button" href="/receipts">{t("ui.receipts_link")}</a></p></section>}
       <section class="card">
         <h2>{t("ui.passkeys")}</h2>

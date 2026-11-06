@@ -43,10 +43,21 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, amountC
   // Paid all from credit, the sheet is done; part of a place, the card is asked for the rest, a payment of its own.
   const [paymentId, setPaymentId] = useState(firstPayment), [amountCents, setAmountCents] = useState(firstAmount);
   const [credit, setCredit] = useState<number | null>(setup ? 0 : null), [useCredit, setUseCredit] = useState(true), [step, setStep] = useState<"credit" | "card">(setup ? "card" : "credit");
+  // A pass of theirs that covers this (passes.ts) is offered first, with the credit; either pays it before any card.
+  const [passes, setPasses] = useState<{ id: string; name: string; uses_left: number }[]>([]);
   useEffect(() => {
     if (setup) return;
-    api<{ cents: number }>("/my/credit").then((c) => { setCredit(c.cents); if (c.cents <= 0) setStep("card"); }).catch(() => { setCredit(0); setStep("card"); });
+    Promise.all([api<{ cents: number }>("/my/credit").catch(() => ({ cents: 0 })), firstPayment ? api<{ id: string; name: string; uses_left: number }[]>(`/my/payments/${firstPayment}/passes`).catch(() => []) : Promise.resolve([])])
+      .then(([c, p]) => { setCredit(c.cents); setPasses(p); if (c.cents <= 0 && p.length === 0) setStep("card"); });
   }, []);
+  const payWithPass = async (passId: string) => {
+    setError(null); setState("paying");
+    try {
+      const p = await api<{ run_id: string }>("/actions/payment.use_pass/plan", { payment_id: paymentId, pass_id: passId });
+      await api(`/runs/${p.run_id}/apply`, {}, { "idempotency-key": p.run_id });
+      onPaid();
+    } catch (e) { setError(e instanceof ApiError ? e.message : t("ui.pay_unavailable")); setState("ready"); }
+  };
   const spend = async () => {
     setError(null); setState("paying");
     try {
@@ -107,6 +118,11 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, amountC
         {detail && <p class="meta">{detail}</p>}
         {cardFor && <p class="meta">{t("ui.save_card_hint", { amount })}</p>}
         {familyCard && <p class="meta">{t("ui.family_card_hint")}</p>}
+        {step === "credit" && passes.length > 0 && paymentId === firstPayment && <div class="pass-step">
+          {passes.map((x) => <p key={x.id}><button class="primary" disabled={state === "paying"} onClick={() => void payWithPass(x.id)}>{t("ui.pass_pay_with", { name: x.name, left: String(x.uses_left) })}</button></p>)}
+          {credit !== null && credit <= 0 && <p><button onClick={() => { setError(null); setStep("card"); }}>{t("ui.pass_other_way")}</button>{" "}<button onClick={onClose}>{t("ui.cancel")}</button></p>}
+          {credit !== null && credit <= 0 && error && <p class="error" role="alert">{error}</p>}
+        </div>}
         {step === "credit" && credit !== null && credit > 0 && <div class="credit-step">
           <p>{t("ui.credit_have", { amount: dollars(credit, lang.value) })}</p>
           <label class="check"><input type="checkbox" checked={useCredit} onChange={(e) => setUseCredit((e.target as HTMLInputElement).checked)} /> {t("ui.credit_use", { amount: dollars(Math.min(credit, amountCents), lang.value) })}</label>

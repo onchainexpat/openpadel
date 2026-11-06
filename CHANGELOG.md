@@ -139,6 +139,18 @@ server starts.
   with a lawyer: Kumi's cards never expire, and the owner or a manager can pay credit out at the desk.
 
 ### Changed
+- **Passes**: products the club makes in Settings ("Passes the club sells"), for example 10 clinic places, 5 courts
+  up to an hour, or a single drop-in. Each covers program places (some kinds of program, or any) or court bookings
+  (up to a length the club sets), with a number of uses and a price, and no date to use it by unless the club sets
+  one of at least 365 days. A member buys one in the app by card (Profile, Passes), or the desk sells one from a
+  member's page for its price. In the pay sheet, before any card, a pass that covers the payment is offered ("Pay
+  with ... (3 left)"): one use pays it, as a card would, and the place or court is theirs. Cancelled in time for a
+  full refund, the use comes back; cancelled when the club's rules give part or nothing back, it's spent. Until a
+  use is taken the money is what the club owes (in the books apart from revenue); each use moves its share of the
+  price to revenue, the last use whatever is left. Two checkouts at once can't take a pass's last use twice. The
+  owner or a manager refunds a pass's unused uses, pro rata, the way it was paid for; a pass is never through an
+  assistant (it reads them, and buying one counts on its weekly limit) or through support access. Read-only sells
+  and takes no pass, and still refunds one.
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
   where Add to Home Screen is (Share). Neither shows once the app runs from the home screen.
 - **The phone's back button closes what's open** (a preview to confirm, the card form, a booking picked on the
@@ -212,9 +224,14 @@ server starts.
   charge (a court's "pay my part", a weekly court's first week), courts paid together, or a junior's (the family
   card pays those); a court is paid from credit only when the credit covers all of it. Automatic charges (renewals,
   deadline charges) don't use credit. Gift cards are bought only by a signed-in member (not yet from the public
-  page), and their code goes to the buyer, who gives it on (Kumi doesn't email the person it's for). Passes and
-  promo codes aren't here yet.
-- Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures".
+  page), and their code goes to the buyer, who gives it on (Kumi doesn't email the person it's for). Promo codes
+  aren't here yet.
+- A pass is one person's (not shared with family, not for a junior's place). A court pass covers a court paid whole
+  by the one who booked it, not a share; a pass covers the price, so a booking shortened later gives nothing back,
+  and a use the club's rules refund only in part is spent. A pass past its date keeps its unused value in the books
+  until a manager refunds it.
+- Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures", and
+  with credit, gift cards and passes as above in place of "no credit, gift cards, vouchers or drop-in passes".
 
 ## 0.2.1 (2026-11-04)
 

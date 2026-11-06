@@ -15,6 +15,7 @@ const Membership = lazyPage(() => import("./Membership.tsx").then((m) => m.Membe
 const Lessons = lazyPage(() => import("./Lessons.tsx").then((m) => m.Lessons));
 const Competitions = lazyPage(() => import("./Competitions.tsx").then((m) => m.Competitions));
 const GiftCards = lazyPage(() => import("./GiftCards.tsx").then((m) => m.GiftCards));
+const Passes = lazyPage(() => import("./Passes.tsx").then((m) => m.Passes));
 const Family = lazyPage(() => import("./Family.tsx").then((m) => m.Family));
 const FamilyJoin = lazyPage(() => import("./Family.tsx").then((m) => m.FamilyJoin));
 const Waiver = lazyPage(() => import("./Family.tsx").then((m) => m.Waiver));
@@ -82,6 +83,7 @@ export function App() {
         <Route path="/places" component={MyPlaces} />
         <Route path="/competitions" component={Competitions} />
         <Route path="/gift-cards" component={GiftCards} />
+        <Route path="/passes" component={Passes} />
         <Route path="/level" component={MyLevel} />
         <Route path="/inbox" component={Inbox} />
         <Route path="/book" component={Book} />

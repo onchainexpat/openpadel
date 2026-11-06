@@ -53,6 +53,7 @@ export function Settings() {
       <WaiverForm key={JSON.stringify(s.waiver)} w={s.waiver} send={send} />
       <TextingCard x={s.texting} tz={s.club.time_zone} />
       <SignInCard key={s.club.two_factor} rule={s.club.two_factor} send={send} />
+      {mayDo("pass_product.set") && <PassProducts preview={preview} />}
       {me.value?.roles.some((r) => r.key === "owner") && <ClubExport />}
       {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} plans={s.plans} send={send} />)}
       <NewLocation tz={s.club.time_zone} send={send} />
@@ -387,4 +388,36 @@ function EndAllWeekly({ preview }: { preview: Preview }) {
       <button type="button" class="small" onClick={() => preview("weekly.end_all", booked === "cancel" ? { booked, refund } : { booked })}>{t("ui.weekly_end_all_go")}</button>
     </details>
   );
+}
+
+/** The passes the club sells (passes.ts): each with its uses and price, on sale or not, and a form to make one. An
+ *  expiry is at least 365 days, or none. */
+function PassProducts({ preview }: { preview: (action: string, input: unknown) => Promise<void> | void }) {
+  type Product = { id: string; name: string; covers: "programs" | "courts"; program_kinds: string[] | null; max_minutes: number | null; price_cents: number; uses: number; valid_days: number | null; on_sale: boolean };
+  const [list, setList] = useState<Product[]>([]), [covers, setCovers] = useState<"programs" | "courts">("programs");
+  useEffect(() => { api<{ products: Product[] }>("/staff/passes").then((r) => setList(r.products)).catch(() => setList([])); }, []);
+  const kinds = ["clinic", "course", "league", "tournament", "social"];
+  const toggle = (x: Product) => preview("pass_product.set", { product_id: x.id, name: x.name, covers: x.covers, program_kinds: x.program_kinds ?? undefined, max_minutes: x.max_minutes, price_cents: x.price_cents, uses: x.uses, valid_days: x.valid_days, on_sale: !x.on_sale });
+  return <section class="card">
+    <h2>{t("ui.passes_setting")}</h2>
+    {list.length > 0 && <ul class="plain">{list.map((x) => <li class="row" key={x.id}>
+      <span>{x.name} · {t("ui.pass_uses_left", { left: String(x.uses), uses: String(x.uses) })} · {dollars(x.price_cents, lang.value)}</span>
+      <button class="small" onClick={() => void toggle(x)}>{x.on_sale ? t("ui.pass_off_sale") : t("ui.pass_on_sale")}</button>
+    </li>)}</ul>}
+    <details><summary>{t("ui.pass_new")}</summary>
+      <form class="card-form" onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget as HTMLFormElement, v = (n: string) => (f.elements.namedItem(n) as HTMLInputElement).value;
+        const price = parseDollars(v("price"));
+        preview("pass_product.set", { name: v("name"), covers, price_cents: price ?? 0, uses: Number(v("uses")), valid_days: v("days") ? Number(v("days")) : null,
+          ...(covers === "courts" ? { max_minutes: v("minutes") ? Number(v("minutes")) : null } : { program_kinds: kinds.filter((k) => (f.elements.namedItem(`kind_${k}`) as HTMLInputElement).checked) }) }); }}>
+        <label>{t("ui.pass_name")}<input name="name" required maxLength={80} /></label>
+        <label>{t("ui.pass_covers")}<select value={covers} onChange={(e) => setCovers(e.currentTarget.value as "programs" | "courts")}>
+          <option value="programs">{t("ui.pass_covers_programs")}</option><option value="courts">{t("ui.pass_covers_courts")}</option></select></label>
+        {covers === "programs" ? <fieldset><legend>{t("ui.pass_kinds")}</legend>{kinds.map((k) => <label class="check" key={k}><input type="checkbox" name={`kind_${k}`} /> {t(`kind.${k}` as Key)}</label>)}</fieldset>
+          : <label>{t("ui.pass_max_minutes")}<input name="minutes" type="number" min="15" max="600" step="15" /></label>}
+        <label>{t("ui.pass_uses")}<input name="uses" type="number" required min="1" max="100" step="1" defaultValue="10" /></label>
+        <label>{t("ui.pass_price")}<input name="price" required inputMode="decimal" pattern={AMOUNT_PATTERN} /></label>
+        <label>{t("ui.pass_valid_days")}<input name="days" type="number" min="365" max="3650" step="1" /></label>
+        <button class="primary">{t("ui.pass_new")}</button>
+      </form></details>
+  </section>;
 }

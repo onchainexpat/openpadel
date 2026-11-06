@@ -126,12 +126,14 @@ let provider: PaymentProvider = new TestProvider();
 export function setPaymentProvider(p: PaymentProvider): void { provider = p; }
 export function paymentProvider(): PaymentProvider { return provider; }
 
-export type AccountKind = "member_credit" | "receivable" | "revenue" | "provider_clearing" | "cash_drawer" | "refunds_payable" | "adjustment" | "gift_cards";
+export type AccountKind = "member_credit" | "receivable" | "revenue" | "provider_clearing" | "cash_drawer" | "refunds_payable" | "adjustment" | "gift_cards" | "passes";
 
 export async function account(trx: Trx, kind: AccountKind, opts: { personId?: string; revenueType?: string } = {}): Promise<string> {
   // A gift card sold isn't revenue: it's owed until it's redeemed (gift_cards.ts). The paths every payment takes
   // (settle, refunds, the desk) ask for "revenue of type gift_cards"; it's the liability they get.
   if (kind === "revenue" && opts.revenueType === "gift_cards") return account(trx, "gift_cards");
+  // A pass sold is owed too, until each use is taken (passes.ts).
+  if (kind === "revenue" && opts.revenueType === "passes") return account(trx, "passes");
   const found = await trx.selectFrom("ledger_account").select("id").where("kind", "=", kind)
     .where("person_id", opts.personId ? "=" : "is", opts.personId ?? null).where("revenue_type", opts.revenueType ? "=" : "is", opts.revenueType ?? null).executeTakeFirst();
   if (found) return found.id;

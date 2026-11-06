@@ -66,14 +66,14 @@ async function decidePerson(db: Db | Trx, action: string, s: Subject & { personI
 /** Money that changes hands at the desk: taken there, or handed back there. Only someone standing at the desk with
  *  the money says it happened, so never support access (nobody from outside is holding the cash) and never an
  *  assistant (it can't see money change hands, and words it reads could tell it to mark something paid). */
-export const DESK_MONEY = ["booking.record_payment", "enrolment.record_payment", "membership.sell", "membership.record_payment", "refund.give_back", "gift_card.sell"];
+export const DESK_MONEY = ["booking.record_payment", "enrolment.record_payment", "membership.sell", "membership.record_payment", "refund.give_back", "gift_card.sell", "pass.sell"];
 
 /** Players' chats (chat.ts): reporting a message, and the club hiding one or stopping someone posting. Never through an
  *  assistant (what it reads in a chat could tell it to report or hide someone) and never through support access
  *  (players' conversations are theirs and the club's, not the host's). */
 /** Club credit that leaves the club (credit.ts): paid out at the desk. Like the desk's money, never support access
  *  and never an assistant; and a member spends their own credit only in the app (an assistant can't). */
-export const CREDIT_MONEY = ["credit.pay_out", "gift_card.void"];
+export const CREDIT_MONEY = ["credit.pay_out", "gift_card.void", "pass.refund"];
 export const CHAT_ACTIONS = ["chat.report", "chat.hide", "chat.stop", "chat.allow"];
 
 /** Never through support access, at any level: where the club's money goes, who holds which role (and who owns

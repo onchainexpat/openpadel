@@ -38,6 +38,8 @@ const READS: { name: string; title: Text; description: string; input: Record<str
     description: "This person's club credit: what they hold and what came and went. Read only: credit is spent in the members' app, never through an assistant." },
   { name: "my_gift_cards", title: { en: "My gift cards", es: "Mis tarjetas regalo" }, input: {}, path: () => "/my/gift-cards?codes=0",
     description: "Gift cards this person bought or redeemed, with whether each is ready to give, used or voided (never their codes: those are in the members' app, where redeeming is too)." },
+  { name: "my_passes", title: { en: "My passes", es: "Mis bonos" }, input: {}, path: () => "/my/passes",
+    description: "This person's passes (uses left, what each covers, any date to use it by) and the passes the club sells. Read only: a pass is spent in the members' app, never through an assistant; buying one is pass.buy." },
   { name: "my_level", title: { en: "My level", es: "Mi nivel" }, input: {}, path: () => "/my/level",
     description: "This person's level, how it moved and why, and their games." },
   { name: "my_membership", title: { en: "My membership", es: "Mi membresía" }, input: {}, path: () => "/my/membership",
