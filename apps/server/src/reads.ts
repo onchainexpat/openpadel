@@ -242,9 +242,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/reports", async (c) => c.json(await report(c.req.query("location_id") ?? "", c.req.query("from") ?? "", c.req.query("to") ?? "")));
   app.get("/staff/reports.csv", async (c) => {
     const r = await report(c.req.query("location_id") ?? "", c.req.query("from") ?? "", c.req.query("to") ?? "");
-    const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "lesson revenue", "program revenue", "membership revenue"];
+    // Revenue before tax, as on the page, and the tax collected on courts and lessons beside it (refunds giving theirs back).
+    const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "lesson revenue", "program revenue", "membership revenue", "tax collected"];
     const lines = r.rows.map((x) => [x.date, x.open_hours, x.courts, x.court_hours, x.booked_hours, x.program_hours, x.playtomic_hours, x.blocked_hours, x.occupancy_percent,
-      plainAmount(x.court_revenue_cents), plainAmount(x.lesson_revenue_cents), plainAmount(x.program_revenue_cents), plainAmount(x.membership_revenue_cents)].map(csvCell).join(","));
+      plainAmount(x.court_revenue_cents), plainAmount(x.lesson_revenue_cents), plainAmount(x.program_revenue_cents), plainAmount(x.membership_revenue_cents), plainAmount(x.tax_cents)].map(csvCell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-${r.from}-to-${r.to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });

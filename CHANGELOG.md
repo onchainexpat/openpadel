@@ -241,6 +241,12 @@ server starts.
   and the profile's "Your receipts" link is as easy to tap as a button.
 
 ### Fixed
+- After a restore, when the payment provider's list was cut short (more than 20,000 card payments since the backup),
+  the alert saying older ones weren't checked closed by itself within a minute. It's now an alert of its own that
+  stays on Today until someone marks it handled, and says where to look for them.
+- The Reports download has a "tax collected" column, matching the tax line on the page.
+- Importing a club's export (`kumi restore <export>`) wrote what it deleted again for the staff in US dollars,
+  whatever the club's currency. It reads the club's currency and formats first, as `kumi restore` does.
 - What a real phone showed on 6 November:
   - **Buying a gift card or a pass by card works again.** Since the sheet stopped offering credit and promo codes for
     them, it opened as a "save a card" sheet: without the page check, and the server refused it ("We couldn't check

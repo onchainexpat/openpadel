@@ -3355,6 +3355,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "cli.restore_last_owner_kept": { one: "Entre ellas estaba el último dueño del club: su cuenta se elimina, pero el rol de dueño se queda con ella hasta que se agregue otro dueño (Roles).", other: "Entre ellas estaban los últimos dueños del club: sus cuentas se eliminan, pero el rol de dueño se queda hasta que se agregue otro dueño (Roles)." },
   "cli.restore_erase_failed": { one: "1 cuenta todavía no se pudo eliminar otra vez: el servidor lo intenta de nuevo al arrancar, y mientras tanto nadie puede entrar con ella.", other: "{count} cuentas todavía no se pudieron eliminar otra vez: el servidor lo intenta de nuevo al arrancar, y mientras tanto nadie puede entrar con ellas." },
   "ops.job_restore_money": "revisar los pagos con tarjeta hechos después de una copia",
+  "ops.job_restore_unchecked": "revisar todos los pagos con tarjeta hechos después de una copia",
   "ops.why_restore_erase_check": "Se liberaron {count} reservas, lugares o plazas de cuentas eliminadas otra vez tras una restauración sin devolver nada (se habían pagado {amount}): puede que ya se devolviera antes de la restauración, así que revisa cada una con el proveedor de pagos.",
   "action.payment.refund_seen": "Registrar una devolución que hizo el proveedor de pagos",
   "plan.payment.refund_seen": "Registrar una devolución hecha antes de una restauración, encontrada en el proveedor de pagos.",

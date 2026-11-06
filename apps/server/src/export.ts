@@ -12,7 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
-import { connect, holdPending, isSealedText, migrate, openBytes, openSupportCount, openText, rehashKeyed, runAsSystem, sealBytes, sealText, SEALED_COLUMNS, SealedError, type Db, type HeldCounts } from "@kumi/core";
+import { connect, holdPending, isSealedText, loadClubFormat, migrate, openBytes, openSupportCount, openText, rehashKeyed, runAsSystem, sealBytes, sealText, SEALED_COLUMNS, SealedError, type Db, type HeldCounts } from "@kumi/core";
 import { carryGoneAfterImport, carryMeterAfterImport, readGoneBefore, readMeterBefore } from "./after_restore.ts";
 import { makeBackup, readOpsRecords, safeRestore, writeOpsRecords, type Manifest } from "./backups.ts";
 import { REVISION, VERSION } from "./version.ts";
@@ -210,6 +210,9 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
     await sql`DELETE FROM ops_heartbeat`.execute(db).catch(() => undefined);
     await writeOpsRecords(o.url, kept);
     const migrationsRun = await migrate(db);
+    // The imported club's currency and formats, before anything below writes an amount (what's deleted again, for the
+    // staff): a club in euros reads euros, not the dollars this process started with (as `kumi restore` does).
+    await loadClubFormat(db);
     // Back on a server the club ran on before: what this one's meter had counted stays counted (after_restore.ts).
     const usageCarried = await carryMeterAfterImport(db, meter);
     // What was still waiting to go out on the old server, which may still be sending it: held here until this

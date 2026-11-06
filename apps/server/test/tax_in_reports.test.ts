@@ -4,7 +4,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { setClubFormat } from "@kumi/i18n";
+import { plainAmount, setClubFormat } from "@kumi/i18n";
 import { checkPayment, issueReceipts, localDate, moneyHandlers, onDate, openPayment, processOutbox, run, runAsSystem, setPaymentProvider, taxSplit, TestProvider, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
@@ -91,4 +91,26 @@ test("Reports: a refund gives its share of the VAT back, so revenue and tax both
   assert.deepEqual([back.total_cents, back.tax_cents], [2000, 347], "half the payment back: half its VAT");
   // Courts: 40,00 € paid less 20,00 € back = 20,00 €, of which 6,94 € - 3,47 € was VAT.
   assert.deepEqual(await totals(), { courts: (4000 - 2000) - (694 - 347), lessons: 6000 - 1041, tax: (694 - 347) + 1041 });
+});
+
+test("the Reports download has the tax collected as its own column, matching the page, revenue before tax beside it", async () => {
+  const from = localDate(new Date(Date.now() - 86400_000), TZ), to = localDate(new Date(Date.now() + 86400_000), TZ);
+  const page = (await get(`/staff/reports?location_id=${loc}&from=${from}&to=${to}`)).json.rows as Array<Record<string, any>>;
+  const csv = await (await app.request(`/staff/reports.csv?location_id=${loc}&from=${from}&to=${to}`, { headers: { cookie } })).text();
+  // A row of cells: quoted ones may hold the decimal comma (12,35).
+  const cells = (line: string) => [...line.matchAll(/("(?:[^"]|"")*"|[^,]*)(,|$)/g)].slice(0, -1).map((m) => m[1]!.replace(/^"|"$/g, "").replace(/""/g, "\""));
+  const [head, ...rows] = csv.trim().split("\r\n").map(cells);
+  assert.equal(head!.at(-1), "tax collected");
+  const col = (name: string) => head!.indexOf(name);
+  assert.equal(rows.length, page.length, "a line a day, as on the page");
+  for (const [i, r] of rows.entries()) {
+    assert.equal(r.length, head!.length, `line ${i + 1} has every column`);
+    assert.equal(r[col("date")], page[i]!.date);
+    assert.equal(r[col("tax collected")], plainAmount(page[i]!.tax_cents), `${page[i]!.date}: the page's tax`);
+    assert.equal(r[col("court revenue")], plainAmount(page[i]!.court_revenue_cents));
+    assert.equal(r[col("lesson revenue")], plainAmount(page[i]!.lesson_revenue_cents));
+  }
+  // Added up: the VAT left after the half refund (3,47 € on the court, 10,41 € on the lesson).
+  assert.equal(page.reduce((n, r) => n + Number(r.tax_cents ?? 0), 0), (694 - 347) + 1041);
+  assert.ok(rows.some((r) => r[col("tax collected")] !== plainAmount(0)), "some day has tax in it");
 });

@@ -3352,6 +3352,7 @@ export const en = {
   "cli.restore_last_owner_kept": { one: "The club's last owner was among them: their account is deleted, but the owner role stays with it until another owner is added (Roles).", other: "The club's last owners were among them: their accounts are deleted, but the owner role stays until another owner is added (Roles)." },
   "cli.restore_erase_failed": { one: "1 account couldn't be deleted again yet: the server tries again as it starts, and nobody can sign in as it meanwhile.", other: "{count} accounts couldn't be deleted again yet: the server tries again as it starts, and nobody can sign in as them meanwhile." },
   "ops.job_restore_money": "checking the card payments made after a backup",
+  "ops.job_restore_unchecked": "checking every card payment made after a backup",
   "ops.why_restore_erase_check": "{count} bookings, places or seats of accounts deleted again after a restore were freed with nothing refunded ({amount} had been paid on them): a refund may already have gone back before the restore, so check each against the payment provider.",
   "action.payment.refund_seen": "Record a refund the payment provider made",
   "plan.payment.refund_seen": "Record a refund made before a restore, found at the payment provider.",
