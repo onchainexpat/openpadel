@@ -470,10 +470,16 @@ Staff can pair two people with places on the program's page ("Pairs, draw and ma
   and dates: earliest first, a pair never on two courts at once, a knockout match after the ones it waits
   for, and a league's round N on its Nth date. Staff move any match there too. Players are told their court
   and time, and can ask the club to move a match from their app (staff move it; players don't pick times).
-- **Scores.** Staff enter a score and it counts at once; or a player enters it and the other pair confirms or
-  disputes it within 48 hours, as for a court booking (with no answer it counts). A dispute goes to Scores;
-  once the next match has been played, a result stands. A pair that doesn't come: "gives it" records a
-  walkover, and the other pair goes through.
+- **Scores.** Staff enter a score and it counts at once (the players can still dispute it for 24 hours, unless
+  staff mark it final); or a player enters it and the other pair confirms or disputes it within 48 hours, as
+  for a court booking (with no answer it counts). A dispute goes to Scores; once the next match has a score or
+  a result, a result stands for the players. A pair that doesn't come: "gives it" records a walkover, and the
+  other pair goes through.
+- **Taking a result back.** A wrong result (a typo, a loss confirmed by mistake) is put right on the program's
+  page: "Take a result back" on the match undoes its score or walkover and everything it led to (later
+  matches' places and scores). The preview lists all of it; levels are worked out again, the players are told
+  once, and then staff or the players enter the right score. Staff do this in the app only (not support access,
+  not an assistant).
 - **Tables.** A group ranks by wins; a league by points (2 a win, 1 a loss played, 0 a walkover given).
   Ties go to sets difference, then games difference, then the matches between those still level. A walkover
   counts for points only, not for sets or games.
@@ -483,7 +489,9 @@ Staff can pair two people with places on the program's page ("Pairs, draw and ma
 With the club's public page on, a tournament or league's page shows its tables and matches with their scores,
 and stays up until the competition is finished. Pairs show as "Pair 1", "Pair 2" and so on unless staff turn on
 "Show players' names on the public page" on its "Pairs, draw and matches" page; juniors are never named there
-("Junior player"), and in members' own tables a junior is named only to their partner and their family.
+("Junior player"), and everywhere else a member reads about a match (their tables, match and result messages,
+score previews, their level history) a junior is named only to their partner and their family. Once drawn, the
+page takes no more sign-ups.
 
 ### Signing in, roles and bots
 

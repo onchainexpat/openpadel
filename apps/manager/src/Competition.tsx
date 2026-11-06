@@ -88,6 +88,10 @@ export function Competition({ id }: { id: string }) {
                   {f.b_id && <button class="small" onClick={() => preview("fixture.walkover", { fixture_id: f.id, given_by: f.b_id })}>{t("ui.walkover_by", { pair: f.b })}</button>}
                 </div>
               )}
+              {(f.status === "played" || f.status === "walkover" || f.game_id) && (
+                // A wrong result (a typo, a loss confirmed by mistake) taken back, with what it led to: the preview lists it all.
+                <button class="small" onClick={() => preview("fixture.reopen", { fixture_id: f.id })}>{t("action.fixture.reopen")}</button>
+              )}
             </div>
           ))}
         </section>

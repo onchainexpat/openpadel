@@ -9,7 +9,8 @@ import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts, onDate } from "./clock.ts";
 import { dayText, endDay, kindList, lastTryAt, periodCents } from "./memberships.ts";
 import { band } from "./match_rules.ts";
-import { gameView } from "./results.ts";
+import { gameView, teamsFor } from "./results.ts";
+import { namesFor, pairText } from "./junior_names.ts";
 import { hasPushDevice } from "./push.ts";
 import { declineReason, refundReason } from "./declines.ts";
 import { managersOf, withManagers } from "./households.ts";
@@ -178,7 +179,15 @@ async function fixtureInfo(db: Db, fixtureId: string, tz: string, any = false) {
     .select(["pair_entry.id", "pair_entry.person_a", "pair_entry.person_b", "a.display_name as an", "b.display_name as bn"]).where("pair_entry.id", "in", [f.entry_a, f.entry_b].filter((x): x is string => Boolean(x))).execute();
   const ea = es.find((e) => e.id === f.entry_a), eb = es.find((e) => e.id === f.entry_b);
   const pair = (e?: (typeof es)[number]) => (e ? `${e.an} + ${e.bn}` : "?");
-  return { program_id: f.program_id, program: f.program, court: f.court ?? "", starts_at: f.starts_at ?? undefined, when: when(f.starts_at, tz), a: pair(ea), b: pair(eb),
+  const teams = [ea, eb].filter((e): e is (typeof es)[number] => Boolean(e)).map((e) => [e.person_a, e.person_b]);
+  /** The other pair, as one of the players may read it (a junior stays "Junior player": junior_names.ts). */
+  const opponentsOf = async (reader: string, side: "a" | "b"): Promise<Text> => {
+    const e = side === "a" ? eb : ea;
+    if (!e) return { en: "?", es: "?" };
+    const name = await namesFor(db, reader, teams.flat(), teams);
+    return pairText(name(e.person_a), name(e.person_b));
+  };
+  return { program_id: f.program_id, program: f.program, court: f.court ?? "", starts_at: f.starts_at ?? undefined, when: when(f.starts_at, tz), a: pair(ea), b: pair(eb), opponentsOf,
     players: [...(ea ? [{ id: ea.person_a, side: "a" }, { id: ea.person_b, side: "a" }] : []), ...(eb ? [{ id: eb.person_a, side: "b" }, { id: eb.person_b, side: "b" }] : [])] as { id: string; side: "a" | "b" }[] };
 }
 async function bookingInfo(db: Db, bookingId: string) {
@@ -534,23 +543,34 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   async "result.entered"({ db, tz }, p: { game_id: string }) {
     const g = await gameView(db, p.game_id), b = await gameWhere(db, g, tz);
-    const by = g.a.find((x) => x.person_id === g.entered_by)?.display_name ?? "";
-    return g.b.map((x) => ({ to: x.person_id, kind: "result_to_confirm", params: { ...b.base, person: by, teamA: g.teamA, teamB: g.teamB, score: g.score, date: when(g.confirm_by, tz) },
-      purpose: "account" as const, essential: false, email: true, link: b.link, staleAt: g.confirm_by }));
+    const out: Draft[] = [];
+    for (const x of g.b) {
+      const seen = await teamsFor(db, g, x.person_id);   // a junior stays "Junior player" to the other pair
+      out.push({ to: x.person_id, kind: "result_to_confirm", params: { ...b.base, person: seen.name(g.entered_by), teamA: seen.teamA, teamB: seen.teamB, score: g.score, date: when(g.confirm_by, tz) },
+        purpose: "account" as const, essential: false, email: true, link: b.link, staleAt: g.confirm_by });
+    }
+    return out;
   },
   async "result.confirmed"({ db, tz }, p: { game_id: string }) {
     const g = await gameView(db, p.game_id), b = await gameWhere(db, g, tz);
-    return [...g.a, ...g.b].map((x) => ({ to: x.person_id, kind: g.rated ? "result_confirmed" : "result_confirmed_friendly", params: { ...b.base, teamA: g.teamA, teamB: g.teamB, score: g.score },
-      purpose: "account" as const, essential: false, email: false, link: g.rated ? "/level" : b.link }));
+    const out: Draft[] = [];
+    for (const x of [...g.a, ...g.b]) {
+      const seen = await teamsFor(db, g, x.person_id);
+      out.push({ to: x.person_id, kind: g.rated ? "result_confirmed" : "result_confirmed_friendly", params: { ...b.base, teamA: seen.teamA, teamB: seen.teamB, score: g.score },
+        purpose: "account" as const, essential: false, email: false, link: g.rated ? "/level" : b.link });
+    }
+    return out;
   },
   async "result.disputed"({ db, tz }, p: { game_id: string; person_id: string; note: string }) {
     const g = await gameView(db, p.game_id), b = await gameWhere(db, g, tz);
     const by = [...g.a, ...g.b].find((x) => x.person_id === p.person_id)?.display_name ?? "";
     const params = { ...b.base, person: by, teamA: g.teamA, teamB: g.teamB, score: g.score, note: p.note };
-    return [
-      ...(await managers(db)).map((to) => ({ to, kind: "result_disputed_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/scores" })),
-      ...[...g.a, ...g.b].filter((x) => x.person_id !== p.person_id).map((x) => ({ to: x.person_id, kind: "result_disputed", params, purpose: "account" as const, essential: false, email: false, link: b.link })),
-    ];
+    const out: Draft[] = (await managers(db)).map((to) => ({ to, kind: "result_disputed_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/scores" }));
+    for (const x of [...g.a, ...g.b].filter((x) => x.person_id !== p.person_id)) {
+      const seen = await teamsFor(db, g, x.person_id);
+      out.push({ to: x.person_id, kind: "result_disputed", params: { ...params, person: seen.name(p.person_id), teamA: seen.teamA, teamB: seen.teamB }, purpose: "account" as const, essential: false, email: false, link: b.link });
+    }
+    return out;
   },
   // Tournaments and leagues (competitions.ts).
   async "entry.invited"({ db }, p: { entry_id: string }) {
@@ -566,6 +586,16 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const e = await entryInfo(db, p.entry_id);
     return [{ to: e.person_a, kind: "entry_declined", params: { person: e.b, program: e.program }, purpose: "account", essential: false, email: true, link: "/competitions" }];
   },
+  async "entry.closed"({ db }, p: { entry_id: string }) {
+    // An invitation still open when the draw was made: both players hear it's closed.
+    const e = await entryInfo(db, p.entry_id);
+    return [e.person_a, e.person_b].map((to) => ({ to, kind: "entry_closed", params: { program: e.program }, purpose: "account" as const, essential: false, email: true, link: "/competitions" }));
+  },
+  async "fixture.reopened"({ db }, p: { fixture_id: string; people: string[]; note: string | null }) {
+    const prog = await db.selectFrom("fixture").innerJoin("program", "program.id", "fixture.program_id").select("program.name").where("fixture.id", "=", p.fixture_id).executeTakeFirstOrThrow();
+    const note = p.note ? both("msg.fixture_reopened_note", { note: p.note }) : NOTHING;
+    return p.people.map((to) => ({ to, kind: "fixture_reopened", params: { program: prog.name, note }, purpose: "account" as const, essential: false, email: true, link: "/competitions" }));
+  },
   async "competition.drawn"({ db }, p: { program_id: string }) {
     const prog = await db.selectFrom("program").select("name").where("id", "=", p.program_id).executeTakeFirstOrThrow();
     const es = await db.selectFrom("pair_entry").select(["person_a", "person_b"]).where("program_id", "=", p.program_id).where("status", "=", "entered").execute();
@@ -574,8 +604,10 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "fixture.placed"({ db, tz }, p: { fixture_id: string; moved?: boolean }) {
     const f = await fixtureInfo(db, p.fixture_id, tz);
     if (!f) return [];
-    return f.players.map((x) => ({ to: x.id, kind: p.moved ? "fixture_moved" : "fixture_placed", params: { program: f.program, court: f.court, when: f.when, opponents: x.side === "a" ? f.b : f.a },
-      purpose: "account" as const, essential: true, email: true, link: "/competitions", staleAt: f.starts_at }));
+    const out: Draft[] = [];
+    for (const x of f.players) out.push({ to: x.id, kind: p.moved ? "fixture_moved" : "fixture_placed", params: { program: f.program, court: f.court, when: f.when, opponents: await f.opponentsOf(x.id, x.side) },
+      purpose: "account" as const, essential: true, email: true, link: "/competitions", staleAt: f.starts_at });
+    return out;
   },
   async "fixture.move_asked"({ db, tz }, p: { fixture_id: string; person_id: string; note: string }) {
     const f = await fixtureInfo(db, p.fixture_id, tz, true);
@@ -667,10 +699,17 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return p.changes.map((c) => ({ to: c.person_id, kind: "level_set_session", purpose: "account" as const, essential: false, email: true, link: "/level",
       params: { program: p.program, when: when(new Date(p.starts_at), tz), by: p.by, reason: p.reason, before: c.before ?? both("plan.level.no_level"), after: c.after } }));
   },
-  async "result.resolved"({ db }, p: { game_id: string; outcome: "keep" | "correct" | "set_aside" }) {
-    const g = await gameView(db, p.game_id), b = await bookingInfo(db, g.booking_id!);
-    return [...g.a, ...g.b].map((x) => ({ to: x.person_id, kind: `result_${p.outcome === "keep" ? "kept" : p.outcome === "correct" ? "corrected" : "set_aside"}`,
-      params: { ...b.base, teamA: g.teamA, teamB: g.teamB, score: g.score }, purpose: "account" as const, essential: false, email: true, link: `/match/${b.id}` }));
+  async "result.resolved"({ db, tz }, p: { game_id: string; outcome: "keep" | "correct" | "set_aside" }) {
+    // A tournament or league match has no booking: where and when come from its fixture (gameWhere). Set aside,
+    // its match is open again, and the players enter the score again.
+    const g = await gameView(db, p.game_id), b = await gameWhere(db, g, tz);
+    const kind = p.outcome === "keep" ? "result_kept" : p.outcome === "correct" ? "result_corrected" : g.fixture_id ? "fixture_result_set_aside" : "result_set_aside";
+    const out: Draft[] = [];
+    for (const x of [...g.a, ...g.b]) {
+      const seen = await teamsFor(db, g, x.person_id);
+      out.push({ to: x.person_id, kind, params: { ...b.base, teamA: seen.teamA, teamB: seen.teamB, score: g.score }, purpose: "account" as const, essential: false, email: true, link: b.link });
+    }
+    return out;
   },
   async "booking.reminder"({ db }, p: { booking_id: string }) {
     const b = await bookingInfo(db, p.booking_id);

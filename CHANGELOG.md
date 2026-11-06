@@ -101,6 +101,20 @@ server starts.
   Mexicano re-pair keeps the round's scored games; the lowest in the standings sit out, not the leader; King of
   the Court never keeps a partner; a match tiebreak counts as one game; staff corrections are checked against
   the match format; the other pair sees that a move was asked, not its words.
+  Fixed before release, from its second review: a junior was still named in full to their opponents in match
+  messages and emails, score previews, result messages and the opponents' level history; every one of them now
+  names a junior only to the junior, their partner and their family ("Junior player" to anyone else). A wrong
+  result often couldn't be put right by anyone (a staff typo counted at once, a loss confirmed by mistake once
+  the winners had entered the final's score): staff can now "Take a result back" on any match, which undoes its
+  score and everything it led to, shows all of it in the preview, works levels out again and tells the players
+  once; and a score staff enter can be disputed by the players for 24 hours, like any other, unless staff mark
+  it final. Also: players are told how a dispute in a tournament or league was resolved (and to enter the score
+  again when it's set aside); a drawn tournament or league takes no more sign-ups, and its public page says so;
+  invitations still open at the draw are closed and both players told; suggested times place the knockout after
+  a walkover given before any times; a group with fewer than two pairs left sends only the pair still in (the
+  other place is a bye); times confirmed after a pair withdrew skip its walkover and tell nobody they play it; a
+  Mexicano or King of the Court re-pair confirmed after another court was scored is refused (preview again), and
+  nobody can be in two games of a round; King of the Court seeded again keeps nobody with last round's partner.
 - **Club credit.** A member's balance at the club, kept in the books as what the club owes them. It comes from a
   refund staff give back as club credit (a new choice when cancelling a booking, "Everything they paid, as club
   credit"), from a program's "credit inside the window" rule, or from money paid from credit coming back. Members

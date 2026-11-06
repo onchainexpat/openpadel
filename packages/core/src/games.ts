@@ -76,6 +76,13 @@ async function latestRound(db: Db | Trx, sessionId: string) {
   const inIt = games.filter((g) => g.round === latest);
   return { latest, done: inIt.length > 0 && inIt.every((g) => g.status === "confirmed"), games: inIt };
 }
+/** Last round's partnerships, as kotc's splits read them ("id|id", sorted). */
+const partnersOf = (games: { a: string[]; b: string[] }[]) => new Set(games.flatMap((g) => [[...g.a].sort().join("|"), [...g.b].sort().join("|")]));
+async function partnersIn(db: Db | Trx, sessionId: string, round: number) {
+  const gs = await db.selectFrom("game").select("id").where("session_id", "=", sessionId).where("round", "=", round).where("status", "!=", "void").execute();
+  const sides = gs.length ? await db.selectFrom("game_side").select(["game_id", "side", "person_id"]).where("game_id", "in", gs.map((g) => g.id)).execute() : [];
+  return partnersOf(gs.map((g) => ({ a: sides.filter((x) => x.game_id === g.id && x.side === "a").map((x) => x.person_id), b: sides.filter((x) => x.game_id === g.id && x.side === "b").map((x) => x.person_id) })));
+}
 /** The next round of a Mexicano or King of the Court night, for the players on the roster now. A King of the
  *  Court night whose roster changed (a late drop, a place taken from the waitlist) is seeded again by its
  *  standings, Mexicano style, since the court-to-court moves need the same players. */
@@ -92,13 +99,17 @@ async function makeNext(db: Db | Trx, draw: { format: string; sat_out: unknown; 
   const waiting = sat[String(round - 1)] ?? [];
   const before = new Set([...last.flatMap((g) => [...g.a, ...g.b]), ...waiting]), now = new Set(players.map((p) => p.id));
   const same = before.size === now.size && [...now].every((id) => before.has(id)) && last.length === Math.min(courts.length, Math.floor(players.length / 4));
-  if (!same || !last.length) return mexicanoRound(players, courts.map((c) => c.id), points, sitouts, seed);
+  if (!same || !last.length) return mexicanoRound(players, courts.map((c) => c.id), points, sitouts, seed, undefined, partnersOf(last));
   return kotcNextRound(new Map(players.map((p) => [p.id, p])), courts.map((c) => c.id), last, waiting, sitouts, seed);
 }
 
 async function writeRounds(ctx: Parameters<NonNullable<Parameters<typeof defineAction>[0]["apply"]>>[0], sessionId: string, rounds: Round[], firstRound: number) {
   const rated = (await ctx.trx.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select("program.rated").where("session.id", "=", sessionId).executeTakeFirstOrThrow()).rated;
   for (const [i, r] of rounds.entries()) for (const g of r.games) {
+    // Nobody plays two games in one round: a game kept (scored) in the round has its four already.
+    const busy = await ctx.trx.selectFrom("game").innerJoin("game_side", "game_side.game_id", "game.id").select("game_side.person_id")
+      .where("game.session_id", "=", sessionId).where("game.round", "=", firstRound + i).where("game.status", "!=", "void").where("game_side.person_id", "in", [...g.a, ...g.b]).executeTakeFirst();
+    if (busy) throw new KumiError("error.changed", {}, 409);
     const id = uuidv7();
     await ctx.insert("game", { id, session_id: sessionId, round: firstRound + i, court_id: g.court, predicted_a: g.predictedA.toFixed(3), status: "scheduled", rated });
     await ctx.trx.insertInto("game_side").values([...g.a.map((p) => ({ game_id: id, side: "a" as const, person_id: p })), ...g.b.map((p) => ({ game_id: id, side: "b" as const, person_id: p }))]).execute();
@@ -198,18 +209,23 @@ export const drawRepair = defineAction({
         const keptPeople = new Set(kept.map((k) => k.person_id)), keptCourts = new Set(kept.map((k) => k.court_id));
         const points = new Map((await standings(ctx.db, i.session_id)).map((x) => [x.person_id, x.points]));
         const sat = satOutCounts((d.sat_out ?? {}) as Record<string, string[]>, latest - 1);
-        again = mexicanoRound(players.filter((x) => !keptPeople.has(x.id)), courts.filter((c) => !keptCourts.has(c.id)).map((c) => c.id), points, sat, `${i.session_id}:${latest}:${d.version}`);
+        again = mexicanoRound(players.filter((x) => !keptPeople.has(x.id)), courts.filter((c) => !keptCourts.has(c.id)).map((c) => c.id), points, sat, `${i.session_id}:${latest}:${d.version}`,
+          undefined, d.format === "king_of_court" ? await partnersIn(ctx.db, i.session_id, latest - 1) : undefined);
       }
       return { title: both("action.draw.repair"), summary: both("plan.draw.repair_round", { round: latest, players: players.length, pairs: await roundText(ctx.db, again, courts) }),
-        reads: [read], locationId: p.location_id, undo: { kind: "compensating" }, details: { rounds: [again], from: latest } };
+        reads: [read], locationId: p.location_id, undo: { kind: "compensating" }, details: { rounds: [again], from: latest, scored: scored.map((g) => g.id).sort() } };
     }
     const rounds = schedule(players, courts.map((c) => c.id), d.rounds - lastPlayed, `${s.id}:${d.version}`, history);
     return { title: both("action.draw.repair"), summary: both("plan.draw.repair", { from: lastPlayed + 1, to: d.rounds, players: players.length, kept: lastPlayed }),
       reads: [read], locationId: p.location_id, undo: { kind: "compensating" }, details: { rounds, from: lastPlayed + 1 } };
   },
   async apply(ctx, i, plan) {
-    const det = plan.details as { rounds: Round[]; from: number };
+    const det = plan.details as { rounds: Round[]; from: number; scored?: string[] };
     const fmt = (await ctx.trx.selectFrom("draw").select("format").where("session_id", "=", i.session_id).executeTakeFirstOrThrow()).format;
+    // The round's games held while it's re-paired: a court scored since the preview means previewing again (the new
+    // pairs were made around the scores as they were).
+    const held = await ctx.trx.selectFrom("game").select(["id", "round", "status"]).where("session_id", "=", i.session_id).where("round", ">=", det.from).forUpdate().execute();
+    if (det.scored && held.filter((g) => g.round === det.from && g.status === "confirmed").map((g) => g.id).sort().join() !== det.scored.join()) throw new KumiError("error.changed", {}, 409);
     // An Americano re-pairs only rounds nobody has played; a Mexicano or King of the Court round keeps its scored games.
     const stale = await ctx.trx.selectFrom("game").select("id").where("session_id", "=", i.session_id).where("round", ">=", det.from).where("status", "not in", fmt === "americano" ? ["void"] : ["void", "confirmed"]).execute();
     for (const g of stale) await ctx.update("game", g.id, { status: "void" });

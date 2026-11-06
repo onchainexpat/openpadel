@@ -225,7 +225,9 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
 export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.export", "person.factor_add", "person.factor_codes", "person.factor_remove",
   "person.passkey_add", "person.passkey_remove", "waiver.accept", "level.self_adjust", "family_card.start", "family_card.remove", "family_card.open",
   "family_card.saved", "membership.card_open", "membership.card_saved", "kid.give_login", "kid.remove_login", "kid.set_rules", "kid.approve_request",
-  "household.invite", "household.accept_invite", "household.give_login", "household.leave", "household.remove_junior", ...DESK_MONEY, ...CHAT_ACTIONS, ...CREDIT_MONEY, "payment.use_credit"]);
+  "household.invite", "household.accept_invite", "household.give_login", "household.leave", "household.remove_junior", ...DESK_MONEY, ...CHAT_ACTIONS, ...CREDIT_MONEY, "payment.use_credit",
+  // Taking a tournament or league result back undoes later matches too: staff in the app only.
+  "fixture.reopen"]);
 export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news"]);
 /** Whether an action is the app's alone, never an assistant's: with `input`, for this input. */
 export function appOnly(def: ActionDef<any>, input?: unknown): boolean {

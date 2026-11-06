@@ -376,6 +376,9 @@ export const enrolmentJoin = defineAction({
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     if (p.status !== "published") throw new KumiError("error.not_published");
+    // A tournament or league once drawn takes no more places: someone signing up then could never enter it.
+    if ((p.kind === "tournament" || p.kind === "league") && await ctx.db.selectFrom("competition").select("program_id").where("program_id", "=", p.id).where("status", "!=", "void").executeTakeFirst())
+      throw new KumiError("error.competition_drawn");
     const date = await signUpDate(ctx.db, p, i.session_id, ctx.now), sid = date?.id ?? null;
     const person = await personName(ctx.db, i.person_id);
     if (await placeOf(ctx.db, i.program_id, i.person_id, sid)) throw new KumiError("error.already_signed_up", { person });

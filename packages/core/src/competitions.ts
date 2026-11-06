@@ -12,7 +12,9 @@ import { KumiError } from "./errors.ts";
 import { areFriends } from "./friends.ts";
 import { uuidv7 } from "./ids.ts";
 import { MODEL, winChance } from "./levels.ts";
-import { rateGame } from "./ratings.ts";
+import { namesFor, pairText } from "./junior_names.ts";
+import { rateGame, recompute } from "./ratings.ts";
+import { DISPUTE_HOURS } from "./results.ts";
 
 /** How long the other pair has to answer a score the players entered (as for court bookings, results.ts). */
 const CONFIRM_HOURS = 48;
@@ -40,29 +42,29 @@ async function names(db: Db | Trx, ids: string[]) {
   return new Map((ids.length ? await db.selectFrom("person").select(["id", "display_name"]).where("id", "in", ids).execute() : []).map((p) => [p.id, p.display_name]));
 }
 /** Who reads a draw: staff (every name), a member (a junior named only to the junior, their partner and their
- *  family), or the public page (no names unless the club turned them on for the program, and never a junior's). */
-export interface NameView { viewer?: string; public?: { names: boolean; lang: Lang } }
+ *  family: junior_names.ts), or the public page (no names unless the club turned them on for the program, and
+ *  never a junior's). */
+export interface NameView { viewer?: string; lang?: Lang; public?: { names: boolean; lang: Lang } }
+/** "Ana + Ben" for each entry, in both languages, as `reader` may see it (no reader: staff, every name). */
+export async function pairTexts(db: Db | Trx, entryIds: (string | null)[], reader: string | null): Promise<Map<string, Text>> {
+  const ids = [...new Set(entryIds.filter((x): x is string => Boolean(x)))];
+  const rows = ids.length ? await db.selectFrom("pair_entry").select(["id", "person_a", "person_b"]).where("id", "in", ids).execute() : [];
+  const name = await namesFor(db, reader, rows.flatMap((r) => [r.person_a, r.person_b]), rows.map((r) => [r.person_a, r.person_b]));
+  return new Map(rows.map((r) => [r.id, pairText(name(r.person_a), name(r.person_b))]));
+}
 /** "Ana + Ben" for each entry, as the reader may see it. */
 export async function pairNames(db: Db | Trx, entryIds: (string | null)[], view: NameView = {}) {
   const ids = [...new Set(entryIds.filter((x): x is string => Boolean(x)))];
-  const rows = ids.length ? await db.selectFrom("pair_entry").select(["id", "person_a", "person_b", "seed"]).where("id", "in", ids).execute() : [];
-  const people = rows.flatMap((r) => [r.person_a, r.person_b]);
-  const ps = new Map((people.length ? await db.selectFrom("person").select(["id", "display_name", "junior"]).where("id", "in", people).execute() : []).map((p) => [p.id, p]));
-  const lang: Lang = view.public?.lang ?? "en";
-  if (view.public && !view.public.names) return new Map(rows.map((r) => [r.id, t(lang, "pub.pair_seed", { n: r.seed ?? "" })]));
-  let family = new Set<string>();
-  if (view.viewer) {
-    const hh = await db.selectFrom("household_member").select("household_id").where("person_id", "=", view.viewer).where("removed_at", "is", null).execute();
-    family = new Set(hh.length ? (await db.selectFrom("household_member").select("person_id").where("household_id", "in", hh.map((h) => h.household_id)).where("removed_at", "is", null).execute()).map((m) => m.person_id) : []);
+  if (view.public) {
+    const lang = view.public.lang;
+    const rows = ids.length ? await db.selectFrom("pair_entry").select(["id", "person_a", "person_b", "seed"]).where("id", "in", ids).execute() : [];
+    if (!view.public.names) return new Map(rows.map((r) => [r.id, t(lang, "pub.pair_seed", { n: r.seed ?? "" })]));
+    const ps = new Map((rows.length ? await db.selectFrom("person").select(["id", "display_name", "junior"]).where("id", "in", rows.flatMap((r) => [r.person_a, r.person_b])).execute() : []).map((p) => [p.id, p]));
+    const shown = (id: string) => { const p = ps.get(id); return !p ? "" : p.junior ? t(lang, "pub.junior_player") : p.display_name; };
+    return new Map(rows.map((r) => [r.id, `${shown(r.person_a)} + ${shown(r.person_b)}`]));
   }
-  const shown = (id: string, partner: string) => {
-    const p = ps.get(id);
-    if (!p) return "";
-    if (!p.junior || (!view.public && !view.viewer)) return p.display_name;
-    if (view.viewer && (view.viewer === id || view.viewer === partner || family.has(id))) return p.display_name;
-    return t(lang, "pub.junior_player");
-  };
-  return new Map(rows.map((r) => [r.id, `${shown(r.person_a, r.person_b)} + ${shown(r.person_b, r.person_a)}`]));
+  const lang: Lang = view.lang ?? "en";
+  return new Map([...(await pairTexts(db, ids, view.viewer ?? null))].map(([id, x]) => [id, x[lang]]));
 }
 const levelOf = (l: string | null | undefined) => (l === null || l === undefined ? MODEL.defaultLevel : Number(l));
 const lock = (trx: Trx, programId: string) => trx.selectFrom("program").select("id").where("id", "=", programId).forUpdate().executeTakeFirstOrThrow();
@@ -276,6 +278,11 @@ export const competitionDraw = defineAction({
     }
     // Byes: the pair facing nobody goes straight through.
     for (const s of det.specs) if (s.round === 1 && s.stage === "knockout") await refresh(ctx, id.get(s.key)!);
+    // An invitation nobody answered can't be taken up now: it's closed, and both players are told.
+    for (const e of await ctx.trx.selectFrom("pair_entry").select("id").where("program_id", "=", i.program_id).where("status", "=", "invited").execute()) {
+      await ctx.update("pair_entry", e.id, { status: "declined", answered_at: ctx.now });
+      await ctx.emit("entry.closed", { entry_id: e.id });
+    }
     await ctx.emit("competition.drawn", { program_id: i.program_id });
     return null;
   },
@@ -302,6 +309,14 @@ async function setSide(ctx: ApplyCtx, fixtureId: string, side: "a" | "b", entry:
   await ctx.update("fixture", fixtureId, { [`entry_${side}`]: entry, ...(from ? { [`from_${side}`]: from } : {}) });
   await refresh(ctx, fixtureId);
 }
+/** A knockout place nobody's left to fill: the other pair goes through (refresh makes it a bye). */
+async function byeSide(ctx: ApplyCtx, fixtureId: string, side: "a" | "b") {
+  const f = await ctx.trx.selectFrom("fixture").select(["status", `entry_${side}` as "entry_a"]).where("id", "=", fixtureId).executeTakeFirstOrThrow();
+  if (f.status === "played" || f.status === "walkover") throw new KumiError("error.next_match_played");
+  if (f.entry_a !== null) await voidLiveGame(ctx, fixtureId);
+  await ctx.update("fixture", fixtureId, { [`entry_${side}`]: null, [`from_${side}`]: "bye" });
+  await refresh(ctx, fixtureId);
+}
 /** The winner of a knockout match into the next one; a group's last result fills its places in the knockout. */
 async function advance(ctx: ApplyCtx, fixtureId: string, winner: string) {
   const f = await ctx.trx.selectFrom("fixture").selectAll().where("id", "=", fixtureId).executeTakeFirstOrThrow();
@@ -316,10 +331,12 @@ async function groupDone(ctx: ApplyCtx, programId: string, groupNo: number) {
   const out = new Set(es.filter((e) => e.status === "withdrawn").map((e) => e.id));
   // A pair that withdrew ranks below everyone, whatever it won before it left.
   const rows = table(es.map((e) => e.id), await resultsOf(ctx.trx, fs), "group").sort((x, y) => Number(out.has(x.entry)) - Number(out.has(y.entry)));
-  for (const [k, r] of rows.slice(0, 2).entries()) {
+  // Only pairs still in go through; a place nobody's left for is a bye.
+  const still = rows.filter((r) => !out.has(r.entry));
+  for (const k of [0, 1]) {
     for (const side of ["a", "b"] as const) {
       const ko = await ctx.trx.selectFrom("fixture").select(["id"]).where("program_id", "=", programId).where("stage", "=", "knockout").where(`from_${side}`, "=", `g${groupNo}:${k + 1}`).execute();
-      for (const x of ko) await setSide(ctx, x.id, side, r.entry);
+      for (const x of ko) await (still[k] ? setSide(ctx, x.id, side, still[k]!.entry) : byeSide(ctx, x.id, side));
     }
   }
 }
@@ -386,12 +403,16 @@ export async function fixtureUndecided(ctx: ApplyCtx, gameId: string) {
 }
 /** Whether a fixture's result can still be changed: not once a match it led to (through any byes) has been decided
  *  or has a score entered. */
-export async function fixtureLocked(db: Db | Trx, fixtureId: string) {
+export async function fixtureLocked(db: Db | Trx, fixtureId: string, o: { lock?: boolean } = {}) {
   const f = await db.selectFrom("fixture").select(["next_id", "stage", "program_id", "group_no"]).where("id", "=", fixtureId).executeTakeFirst();
   if (!f) return false;
   const led = async (id: string | null): Promise<boolean> => {
     for (let guard = 0; id && guard < 20; guard++) {
-      const n = await db.selectFrom("fixture").select(["status", "next_id"]).where("id", "=", id).executeTakeFirst();
+      // In a change (o.lock), each later match's row is held, so a score entered on it at the same moment (which
+      // holds that row too) comes before this check or after this change, never in between.
+      let q = db.selectFrom("fixture").select(["status", "next_id"]).where("id", "=", id);
+      if (o.lock) q = q.forUpdate();
+      const n = await q.executeTakeFirst();
       if (!n) return false;
       if (n.status === "played" || n.status === "walkover") return true;
       if (await db.selectFrom("game").select("id").where("fixture_id", "=", id).where("status", "!=", "void").executeTakeFirst()) return true;
@@ -438,7 +459,9 @@ async function placedOf(db: Db | Trx, programId: string): Promise<Placed[]> {
 function needsOf(fs: { id: string; stage: string; round: number; group_no: number | null; from_a: string | null; from_b: string | null; entry_a: string | null; entry_b: string | null; status: string; starts_at: Date | null }[]): Need[] {
   const byId = new Map(fs.map((f) => [f.id, f]));
   const isBye = (f: (typeof fs)[number]) => f.status === "bye" || f.from_a === "bye" || f.from_b === "bye";
-  const groupMatches = (n: string) => fs.filter((f) => f.stage === "group" && f.group_no === Number(n) && !isBye(f)).map((f) => f.id);
+  // A match decided with no time (a walkover, a score staff entered) isn't waited for: it has nothing to wait on.
+  const decidedUntimed = (f: (typeof fs)[number]) => (f.status === "played" || f.status === "walkover") && !f.starts_at;
+  const groupMatches = (n: string) => fs.filter((f) => f.stage === "group" && f.group_no === Number(n) && !isBye(f) && !decidedUntimed(f)).map((f) => f.id);
   const depsOf = (f: (typeof fs)[number], seen = new Set<string>()): string[] => {
     const out: string[] = [];
     for (const from of [f.from_a, f.from_b]) {
@@ -447,7 +470,7 @@ function needsOf(fs: { id: string; stage: string; round: number; group_no: numbe
         const d = byId.get(from.slice(2));
         if (!d || seen.has(d.id)) continue;
         seen.add(d.id);
-        if (isBye(d)) out.push(...depsOf(d, seen)); else out.push(d.id);
+        if (isBye(d)) out.push(...depsOf(d, seen)); else if (!decidedUntimed(d)) out.push(d.id);
       } else if (from.startsWith("g")) out.push(...groupMatches(from.slice(1).split(":")[0]!));
     }
     return out;
@@ -478,7 +501,12 @@ export const competitionSchedule = defineAction({
   async apply(ctx, i, plan) {
     await lock(ctx.trx, i.program_id);
     const taken = await placedOf(ctx.trx, i.program_id);
-    for (const x of (plan.details as { placed: Placed[] }).placed) {
+    for (const planned of (plan.details as { placed: Placed[] }).placed) {
+      // Each match as it is now: one decided since (a walkover after a withdrawal), or given a time by staff, keeps
+      // what it has; its players are told nothing.
+      const f = await ctx.trx.selectFrom("fixture").select(["status", "starts_at", "entry_a", "entry_b"]).where("id", "=", planned.id).executeTakeFirstOrThrow();
+      if ((f.status !== "ready" && f.status !== "waiting") || f.starts_at) continue;
+      const x = { ...planned, entries: [f.entry_a, f.entry_b].filter((e): e is string => Boolean(e)) };
       if (taken.some((t) => t.id !== x.id && t.start < x.end && x.start < t.end && (t.court === x.court || t.entries.some((e) => x.entries.includes(e))))) throw new KumiError("error.changed", {}, 409);
       taken.push(x);
       await ctx.update("fixture", x.id, { court_id: x.court, starts_at: new Date(x.start), ends_at: new Date(x.end) });
@@ -564,14 +592,14 @@ async function skills(db: Db | Trx, people: string[]) {
   return people.map((id) => { const x = r.get(id); return { mu: x?.mu ?? levelOf(x?.level), sigma: x?.sigma ?? MODEL.sigmaNew }; });
 }
 /** The game for a fixture, with the two pairs as its sides (side a = `first`). */
-async function writeGame(ctx: ApplyCtx, f: Record<string, any>, first: { person_a: string; person_b: string }, second: { person_a: string; person_b: string }, sets: { a: number; b: number }[], status: "confirmed" | "awaiting_confirmation") {
+async function writeGame(ctx: ApplyCtx, f: Record<string, any>, first: { person_a: string; person_b: string }, second: { person_a: string; person_b: string }, sets: { a: number; b: number }[], status: "confirmed" | "awaiting_confirmation", editableUntil?: Date) {
   const rated = (await ctx.trx.selectFrom("program").select("rated").where("id", "=", f.program_id).executeTakeFirstOrThrow()).rated;
   const a = [first.person_a, first.person_b], b = [second.person_a, second.person_b];
   const id = uuidv7();
   try {
     await ctx.insert("game", { id, fixture_id: f.id, court_id: f.court_id, format: "doubles", rated, status, played_at: f.starts_at ?? ctx.now, entered_by: ctx.actor.personId,
       predicted_a: winChance(await skills(ctx.trx, a), await skills(ctx.trx, b)).toFixed(3),
-      ...(status === "confirmed" ? { editable_until: ctx.now } : { confirm_by: new Date(ctx.now.getTime() + CONFIRM_HOURS * 3600_000) }) });
+      ...(status === "confirmed" ? { editable_until: editableUntil ?? ctx.now } : { confirm_by: new Date(ctx.now.getTime() + CONFIRM_HOURS * 3600_000) }) });
   } catch (e: any) { if (e?.code === "23505") throw new KumiError("error.score_entered"); throw e; }
   await ctx.trx.insertInto("game_side").values([...a.map((p) => ({ game_id: id, side: "a" as const, person_id: p })), ...b.map((p) => ({ game_id: id, side: "b" as const, person_id: p }))]).execute();
   await ctx.trx.insertInto("game_set").values(sets.map((s, k) => ({ game_id: id, set_no: k + 1, a: s.a, b: s.b }))).execute();
@@ -581,21 +609,23 @@ async function writeGame(ctx: ApplyCtx, f: Record<string, any>, first: { person_
 /** Staff enter a match's score; it counts at once. */
 export const fixtureScore = defineAction({
   name: "fixture.score", version: 1,
-  input: z.object({ fixture_id: z.uuid(), sets: setsInput }),
+  input: z.object({ fixture_id: z.uuid(), sets: setsInput,
+    final: z.optional(z.boolean().check(z.describe("The club's word is final: the players can't dispute it. Otherwise they can for 24 hours, as for any score."))) }),
   async plan(ctx, i) {
     const { row: f, read } = await readRow(ctx.db, "fixture", i.fixture_id, "thing.match");
     const { p } = await programOf(ctx.db, f.program_id);
     const c = await scorable(ctx.db, f, ctx.now);
     if (!matchWinner(c.match_format as MatchFormat, i.sets)) throw new KumiError("error.bad_match_score", { format: both(`match_format.${c.match_format}` as "match_format.one_set") }, 400);
     const pairs = await pairNames(ctx.db, [f.entry_a, f.entry_b]);
-    return { title: both("action.fixture.score"), summary: both("plan.fixture.score", { a: pairs.get(f.entry_a)!, b: pairs.get(f.entry_b)!, score: setsText(i.sets), counts: both(p.rated ? "result.counts_rated" : "result.counts_friendly") }),
+    return { title: both("action.fixture.score"), summary: both("plan.fixture.score", { a: pairs.get(f.entry_a)!, b: pairs.get(f.entry_b)!, score: setsText(i.sets), counts: both(p.rated ? "result.counts_rated" : "result.counts_friendly"),
+      window: i.final ? both("plan.fixture.score_final") : both("plan.fixture.score_window", { hours: DISPUTE_HOURS }) }),
       reads: [read], locationId: p.location_id, undo: { kind: "none" } };
   },
   async apply(ctx, i) {
     const f = await ctx.trx.selectFrom("fixture").selectAll().where("id", "=", i.fixture_id).forUpdate().executeTakeFirstOrThrow();
     if (f.status !== "ready") throw new KumiError("error.changed", {}, 409);
     const [ea, eb] = await Promise.all([f.entry_a!, f.entry_b!].map((e) => ctx.trx.selectFrom("pair_entry").select(["person_a", "person_b"]).where("id", "=", e).executeTakeFirstOrThrow()));
-    const g = await writeGame(ctx, f, ea!, eb!, i.sets, "confirmed");
+    const g = await writeGame(ctx, f, ea!, eb!, i.sets, "confirmed", i.final ? ctx.now : new Date(ctx.now.getTime() + DISPUTE_HOURS * 3600_000));
     if (g.rated) await rateGame(ctx, g.id);
     await fixtureDecided(ctx, g.id);
     await ctx.emit("game.scored", { game_id: g.id });
@@ -615,8 +645,8 @@ export const fixtureEnter = defineAction({
     const sets = i.sets.map((s) => ({ a: s.us, b: s.them }));
     const w = matchWinner(c.match_format as MatchFormat, sets);
     if (!w) throw new KumiError("error.bad_match_score", { format: both(`match_format.${c.match_format}` as "match_format.one_set") }, 400);
-    const pairs = await pairNames(ctx.db, [theirs?.id ?? null]);
-    return { title: both("action.fixture.enter"), summary: both("plan.fixture.enter", { opponents: pairs.get(theirs!.id) ?? "", result: both(w === "a" ? "result.won" : "result.lost"), score: setsText(sets), hours: CONFIRM_HOURS,
+    const pairs = await pairTexts(ctx.db, [theirs?.id ?? null], i.person_id);   // a junior opponent stays "Junior player"
+    return { title: both("action.fixture.enter"), summary: both("plan.fixture.enter", { opponents: pairs.get(theirs!.id) ?? { en: "", es: "" }, result: both(w === "a" ? "result.won" : "result.lost"), score: setsText(sets), hours: CONFIRM_HOURS,
       counts: both(p.rated ? "result.counts_rated" : "result.counts_friendly") }), reads: [read], locationId: p.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
@@ -650,6 +680,92 @@ export const fixtureWalkover = defineAction({
     await voidLiveGame(ctx, f.id);
     await walkover(ctx, f.id, i.given_by, (i.given_by === f.entry_a ? f.entry_b : f.entry_a)!);
     await ctx.emit("fixture.decided", { fixture_id: f.id, walkover: true });
+    return null;
+  },
+});
+
+// ---- Taking a result back ----
+
+/** The matches a result led to: the next knockout match, or (for a group match) the knockout places the group fills. */
+async function followers(db: Db | Trx, f: { next_id: string | null; stage: string; program_id: string; group_no: number | null }) {
+  const out = f.next_id ? [f.next_id] : [];
+  if (f.stage === "group") out.push(...(await db.selectFrom("fixture").select("id").where("program_id", "=", f.program_id).where("stage", "=", "knockout")
+    .where((eb) => eb.or([eb("from_a", "like", `g${f.group_no}:%`), eb("from_b", "like", `g${f.group_no}:%`)])).execute()).map((x) => x.id));
+  return out;
+}
+/** What taking a match's result back undoes: that match and every later one with a result or a score, in order. */
+async function reopenScope(db: Db | Trx, fixtureId: string) {
+  const out: { id: string; entry_a: string | null; entry_b: string | null; status: string; game: string | null }[] = [];
+  const seen = new Set<string>();
+  const walk = async (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const f = await db.selectFrom("fixture").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+    const g = await db.selectFrom("game").select("id").where("fixture_id", "=", id).where("status", "!=", "void").executeTakeFirst();
+    if (f.status === "played" || f.status === "walkover" || g) out.push({ id, entry_a: f.entry_a, entry_b: f.entry_b, status: f.status, game: g?.id ?? null });
+    for (const k of await followers(db, f)) await walk(k);
+  };
+  await walk(fixtureId);
+  return out;
+}
+/** Undo a match's result and score, later matches first (so none of them is still decided when its side changes). */
+async function reopenTree(ctx: ApplyCtx, fixtureId: string, acc: { people: Set<string>; rated: boolean; seen: Set<string> }) {
+  if (acc.seen.has(fixtureId)) return;
+  acc.seen.add(fixtureId);
+  const f = await ctx.trx.selectFrom("fixture").selectAll().where("id", "=", fixtureId).forUpdate().executeTakeFirstOrThrow();
+  for (const k of await followers(ctx.trx, f)) await reopenTree(ctx, k, acc);
+  for (const g of await ctx.trx.selectFrom("game").select(["id", "status", "rated"]).where("fixture_id", "=", f.id).where("status", "!=", "void").forUpdate().execute()) {
+    if (g.status === "confirmed" && g.rated) acc.rated = true;
+    for (const x of await ctx.trx.selectFrom("game_side").select("person_id").where("game_id", "=", g.id).execute()) acc.people.add(x.person_id);
+    await ctx.update("game", g.id, { status: "void" });
+  }
+  if (f.status !== "played" && f.status !== "walkover") return;
+  for (const e of await ctx.trx.selectFrom("pair_entry").select(["person_a", "person_b"]).where("id", "in", [f.entry_a, f.entry_b].filter((x): x is string => Boolean(x))).execute()) { acc.people.add(e.person_a); acc.people.add(e.person_b); }
+  await ctx.update("fixture", f.id, { status: f.entry_a && f.entry_b ? "ready" : "waiting", winner: null, walkover_by: null });
+  if (f.next_id) await setSide(ctx, f.next_id, f.next_side!, null);
+  if (f.stage === "group") {
+    const ko = await ctx.trx.selectFrom("fixture").select(["id", "from_a", "from_b"]).where("program_id", "=", f.program_id).where("stage", "=", "knockout")
+      .where((eb) => eb.or([eb("from_a", "like", `g${f.group_no}:%`), eb("from_b", "like", `g${f.group_no}:%`)])).execute();
+    for (const x of ko) for (const side of ["a", "b"] as const) if (x[`from_${side}`]?.startsWith(`g${f.group_no}:`)) await setSide(ctx, x.id, side, null, x[`from_${side}`]!);
+  }
+}
+
+/** Staff take a result back: the match's score (counted, waiting for the other pair, or disputed) or walkover goes,
+ *  and so does everything it led to (later matches' places and scores), with levels replayed. The way out when a
+ *  score is wrong and nobody can dispute it any more: a staff typo, a loss confirmed by mistake, a next match
+ *  already scored. Staff then enter the right score, or the players do. */
+export const fixtureReopen = defineAction({
+  name: "fixture.reopen", version: 1,
+  input: z.object({ fixture_id: z.uuid(), note: z.optional(z.string().check(z.maxLength(300))) }),
+  async plan(ctx, i) {
+    const { row: f, read } = await readRow(ctx.db, "fixture", i.fixture_id, "thing.match");
+    const { p } = await programOf(ctx.db, f.program_id);
+    const scope = await reopenScope(ctx.db, f.id);
+    if (!scope.length || scope[0]!.id !== f.id) throw new KumiError("error.nothing_to_reopen");
+    const pairs = await pairNames(ctx.db, scope.flatMap((x) => [x.entry_a, x.entry_b]));
+    const games = scope.map((x) => x.game).filter((x): x is string => Boolean(x));
+    const sets = games.length ? await ctx.db.selectFrom("game_set").select(["game_id", "a", "b"]).where("game_id", "in", games).orderBy("set_no").execute() : [];
+    const line = (x: (typeof scope)[number]): Text => {
+      const score = x.game ? setsText(sets.filter((s) => s.game_id === x.game)) : "";
+      const vs = both("plan.fixture.reopen_match", { a: pairs.get(x.entry_a ?? "") ?? "?", b: pairs.get(x.entry_b ?? "") ?? "?" });
+      return score ? { en: `${vs.en} (${score})`, es: `${vs.es} (${score})` } : x.status === "walkover" ? both("plan.fixture.reopen_walkover", { match: vs }) : vs;
+    };
+    const rest = scope.slice(1).map(line);
+    return { title: both("action.fixture.reopen"), summary: both("plan.fixture.reopen", { match: line(scope[0]!),
+      also: rest.length ? both("plan.fixture.reopen_also", { matches: { en: rest.map((r) => r.en).join("; "), es: rest.map((r) => r.es).join("; ") } }) : { en: "", es: "" } }),
+      reads: [read], locationId: p.location_id, undo: { kind: "none" }, details: { scope: scope.map((x) => x.id) } };
+  },
+  async apply(ctx, i, plan) {
+    const f = await ctx.trx.selectFrom("fixture").select("program_id").where("id", "=", i.fixture_id).executeTakeFirstOrThrow();
+    await lock(ctx.trx, f.program_id);
+    // What it undoes, as it is now: a score or result since the preview means previewing again.
+    const now = (await reopenScope(ctx.trx, i.fixture_id)).map((x) => x.id).sort().join();
+    if (now !== [...(plan.details as { scope: string[] }).scope].sort().join()) throw new KumiError("error.changed", {}, 409);
+    const acc = { people: new Set<string>(), rated: false, seen: new Set<string>() };
+    await reopenTree(ctx, i.fixture_id, acc);
+    if (acc.rated) await recompute(ctx);
+    await ctx.trx.updateTable("competition").set({ status: "drawn" }).where("program_id", "=", f.program_id).where("status", "=", "finished").execute();
+    await ctx.emit("fixture.reopened", { fixture_id: i.fixture_id, people: [...acc.people], note: i.note ?? null });
     return null;
   },
 });

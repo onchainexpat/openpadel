@@ -7,6 +7,7 @@ import { both, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { uuidv7 } from "./ids.ts";
+import { namesFor } from "./junior_names.ts";
 import { MODEL, MODEL_VERSION, shownLevel, shownOdds, update, type Skill } from "./levels.ts";
 
 export interface RatingState { mu: number; sigma: number; level: number; floor: number | null; games: number }
@@ -51,11 +52,13 @@ export async function rateGame(ctx: ApplyCtx, gameId: string): Promise<void> {
       const before = states.get(pl.person_id)!;
       const est = next[k]!;
       const after: RatingState = { mu: est.mu, sigma: est.sigma, level: shownLevel(before.level, est.mu, est.sigma, before.floor), floor: before.floor, games: before.games + 1 };
-      const partner = team.find((x) => x.person_id !== pl.person_id)!.display_name;
       const opp = side === "a" ? g.b : g.a;
+      // The player's own history names a junior opponent only if they're family (junior_names.ts); the partner is always named.
+      const name = await namesFor(ctx.trx, pl.person_id, [...g.a, ...g.b].map((x) => x.person_id), [team.map((x) => x.person_id)]);
+      const partner = name(team.find((x) => x.person_id !== pl.person_id)!.person_id);
       const expect = p > 0.55 ? both("level.favored", { odds: pct(shownOdds(p)) }) : p < 0.45 ? both("level.underdog", { odds: pct(shownOdds(p)) }) : both("level.even");
       const result = mine > theirs ? both("level.won") : mine < theirs ? both("level.lost") : both("level.drew");
-      const why = both("level.why", { result, us: mine, them: theirs, partner, opponents: both("level.opponents", { a: opp[0]!.display_name, b: opp[1]!.display_name }), expect, before: lvl(before.level), after: lvl(after.level) });
+      const why = both("level.why", { result, us: mine, them: theirs, partner, opponents: both("level.opponents", { a: name(opp[0]!.person_id), b: name(opp[1]!.person_id) }), expect, before: lvl(before.level), after: lvl(after.level) });
       await saveRating(ctx, pl.person_id, after, before.exists);
       await ratingEvent(ctx, pl.person_id, "game", before, after, why, { gameId, share: side === "a" ? r.share : 1 - r.share, factors: { win_chance: p, provisional: before.sigma > MODEL.provisionalSigma } });
     }

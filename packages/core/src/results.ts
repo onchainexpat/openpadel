@@ -13,6 +13,7 @@ import { MODEL, shownLevel, shownOdds, update, winChance, type Skill } from "./l
 import { rateGame, recompute } from "./ratings.ts";
 import { fixtureDecided, fixtureFormat, fixtureLocked, fixtureUndecided } from "./competitions.ts";
 import { matchWinner } from "./brackets.ts";
+import { namesFor } from "./junior_names.ts";
 
 /** How long the other side has to answer before the score counts as entered. */
 export const CONFIRM_HOURS = 48;
@@ -69,6 +70,20 @@ export async function gameView(db: Db | Trx, gameId: string) {
   const sets = await db.selectFrom("game_set").select(["a", "b"]).where("game_id", "=", gameId).orderBy("set_no").execute();
   const a = sides.filter((s) => s.side === "a"), b = sides.filter((s) => s.side === "b");
   return { ...g, a, b, sets, score: setsText(sets), teamA: pair(a[0]?.display_name ?? "", a[1]?.display_name ?? ""), teamB: pair(b[0]?.display_name ?? "", b[1]?.display_name ?? "") };
+}
+/** A game's teams (and a way to name any of its players) as `reader` reads them: a tournament or league game names
+ *  a junior only to their partner and family (junior_names.ts); a court booking's game keeps the names its players
+ *  already see on the booking. No reader: staff, every name. */
+export async function teamsFor(db: Db | Trx, g: Awaited<ReturnType<typeof gameView>>, reader: string | null) {
+  const all = [...g.a, ...g.b];
+  if (!g.fixture_id || !reader) {
+    const byId = new Map(all.map((x) => [x.person_id, x.display_name]));
+    return { teamA: g.teamA, teamB: g.teamB, name: (id: string | null | undefined): Text => { const n = byId.get(id ?? "") ?? ""; return { en: n, es: n }; } };
+  }
+  const a = g.a.map((x) => x.person_id), b = g.b.map((x) => x.person_id);
+  const name = await namesFor(db, reader, [...a, ...b], [a, b]);
+  const team = (ids: string[]) => both("result.pair", { a: name(ids[0] ?? ""), b: name(ids[1] ?? "") });
+  return { teamA: team(a), teamB: team(b), name: (id: string | null | undefined) => name(id ?? "") };
 }
 const answer = (ctx: ApplyCtx, gameId: string, personId: string | null, side: "a" | "b" | null, kind: string, note?: string | null) =>
   ctx.trx.insertInto("result_answer").values({ id: uuidv7(), game_id: gameId, person_id: personId, side, answer: kind, note: note ?? null, at: ctx.now }).execute();
@@ -127,8 +142,8 @@ export const resultConfirm = defineAction({
     const g = await gameView(ctx.db, i.game_id);
     if (g.status !== "awaiting_confirmation") throw new KumiError("error.result_answered");
     if (!g.b.some((p) => p.person_id === i.person_id)) throw new KumiError(g.a.some((p) => p.person_id === i.person_id) ? "error.other_side_confirms" : "error.not_in_match");
-    const b = await factsOf(ctx.db, g);
-    return { title: both("action.result.confirm"), summary: both("plan.result.confirm", { score: g.score, teamA: g.teamA, teamB: g.teamB, counts: both(g.rated ? "result.counts_rated" : "result.counts_friendly") }),
+    const b = await factsOf(ctx.db, g), seen = await teamsFor(ctx.db, g, i.person_id);
+    return { title: both("action.result.confirm"), summary: both("plan.result.confirm", { score: g.score, teamA: seen.teamA, teamB: seen.teamB, counts: both(g.rated ? "result.counts_rated" : "result.counts_friendly") }),
       reads: [{ entity: "game", id: g.id, version: g.version }], locationId: b.location_id, ownerIds: [i.person_id], undo: { kind: "none", note: both("result.undo_dispute") } };
   },
   async apply(ctx, i) {
@@ -149,13 +164,13 @@ export const resultDispute = defineAction({
     const open = g.status === "awaiting_confirmation" || (g.status === "confirmed" && g.editable_until && g.editable_until > ctx.now);
     if (!open) throw new KumiError("error.dispute_closed", { hours: DISPUTE_HOURS });
     if (g.fixture_id && await fixtureLocked(ctx.db, g.fixture_id)) throw new KumiError("error.next_match_played");
-    const b = await factsOf(ctx.db, g);
-    return { title: both("action.result.dispute"), summary: both("plan.result.dispute", { score: g.score, teamA: g.teamA, teamB: g.teamB }),
+    const b = await factsOf(ctx.db, g), seen = await teamsFor(ctx.db, g, i.person_id);
+    return { title: both("action.result.dispute"), summary: both("plan.result.dispute", { score: g.score, teamA: seen.teamA, teamB: seen.teamB }),
       reads: [{ entity: "game", id: g.id, version: g.version }], locationId: b.location_id, ownerIds: [i.person_id], undo: { kind: "none" }, details: { side } };
   },
   async apply(ctx, i, plan) {
     const g = await ctx.trx.selectFrom("game").select(["status", "rated", "fixture_id"]).where("id", "=", i.game_id).forUpdate().executeTakeFirstOrThrow();
-    if (g.fixture_id && await fixtureLocked(ctx.trx, g.fixture_id)) throw new KumiError("error.next_match_played", {}, 409);
+    if (g.fixture_id && await fixtureLocked(ctx.trx, g.fixture_id, { lock: true })) throw new KumiError("error.next_match_played", {}, 409);
     await answer(ctx, i.game_id, i.person_id, (plan.details as { side: "a" | "b" }).side, "dispute", i.note);
     await ctx.update("game", i.game_id, { status: "disputed" });
     // It had counted already: levels are replayed without it until the club decides.
@@ -186,7 +201,7 @@ export const resultResolve = defineAction({
   },
   async apply(ctx, i) {
     const fx = (await ctx.trx.selectFrom("game").select("fixture_id").where("id", "=", i.game_id).forUpdate().executeTakeFirstOrThrow()).fixture_id;
-    if (fx && await fixtureLocked(ctx.trx, fx)) throw new KumiError("error.next_match_played", {}, 409);
+    if (fx && await fixtureLocked(ctx.trx, fx, { lock: true })) throw new KumiError("error.next_match_played", {}, 409);
     if (i.outcome === "set_aside") {
       await ctx.update("game", i.game_id, { status: "void" });
       await answer(ctx, i.game_id, ctx.actor.personId, null, "set_aside", i.note);

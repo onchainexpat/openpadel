@@ -26,7 +26,7 @@ const oneFour = (court: string, four: Player[], predict: Predict): Pairing => {
 
 /** A Mexicano round. Round 1 goes by level (a random order when nobody has one); later rounds by the night's
  *  standings so far (points, ties by level). Top court first: the four best on it, 1st and 4th against 2nd and 3rd. */
-export function mexicanoRound(players: Player[], courts: string[], points: Map<string, number> | null, sitouts: Map<string, number>, seed: string, predict: Predict = levelPredict): Round {
+export function mexicanoRound(players: Player[], courts: string[], points: Map<string, number> | null, sitouts: Map<string, number>, seed: string, predict: Predict = levelPredict, partners?: Set<string>): Round {
   const rand = rng(seed), nCourts = Math.min(courts.length, Math.floor(players.length / 4));
   const levels = new Set(players.map((p) => p.level));
   const score = (p: Player) => (points ? points.get(p.id) ?? 0 : levels.size > 1 ? p.level : 0);
@@ -34,7 +34,12 @@ export function mexicanoRound(players: Player[], courts: string[], points: Map<s
   const { active, out } = bench(players, nCourts, sitouts, rank, rand);
   const order = active.map((p) => ({ p, r: rand() })).sort((x, y) => score(y.p) - score(x.p) || y.p.level - x.p.level || x.r - y.r).map((x) => x.p);
   const games: Pairing[] = [];
-  for (let c = 0; c < nCourts; c++) games.push(oneFour(courts[c]!, order.slice(c * 4, c * 4 + 4), predict));
+  for (let c = 0; c < nCourts; c++) {
+    const four = order.slice(c * 4, c * 4 + 4) as [Player, Player, Player, Player];
+    // King of the Court seeded again (a changed roster, a round re-paired): the same four courts by standings, but
+    // split so nobody keeps last round's partner.
+    games.push(partners ? splitPairs(courts[c]!, [four[0], four[1]], [four[2], four[3]], predict, partners) : oneFour(courts[c]!, four, predict));
+  }
   return { games, sittingOut: out };
 }
 
