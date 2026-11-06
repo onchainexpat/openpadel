@@ -2,7 +2,9 @@ import { t } from "./state.ts";
 
 /** A receipt as the server gives it, in the reader's language (receipts.ts). */
 export type ReceiptView = { id: string; number: string; kind: "payment" | "refund"; club: string; address: string | null; when: string; lines: { what: string; amount: string }[];
-  subtotal: string; tax: string | null; total: string; method: string; kid: string | null; original: string | null };
+  subtotal: string; tax: string | null; total: string; method: string; kid: string | null; original: string | null;
+  /** How the club taxed when it was issued: prices including the tax (VAT style) show it under the total. */
+  tax_included?: boolean; tax_name?: string; tax_rate?: string | null };
 
 /** One receipt, laid out to print. The staff app shows the same one from a member's page. */
 export function ReceiptSheet({ r }: { r: ReceiptView }) {
@@ -17,9 +19,10 @@ export function ReceiptSheet({ r }: { r: ReceiptView }) {
       <table>
         <tbody>
           {r.lines.map((l) => <tr><td>{l.what}</td><td class="num">{l.amount}</td></tr>)}
-          <tr><td>{t("ui.receipt_subtotal")}</td><td class="num">{r.subtotal}</td></tr>
-          {r.tax && <tr><td>{t("ui.receipt_tax")}</td><td class="num">{r.tax}</td></tr>}
+          {!r.tax_included && <tr><td>{t("ui.receipt_subtotal")}</td><td class="num">{r.subtotal}</td></tr>}
+          {!r.tax_included && r.tax && <tr><td>{r.tax_name ?? t("ui.receipt_tax")}</td><td class="num">{r.tax}</td></tr>}
           <tr><td><strong>{t(refund ? "ui.receipt_total_refunded" : "ui.receipt_total")}</strong></td><td class="num"><strong>{r.total}</strong></td></tr>
+          {r.tax_included && r.tax && <tr class="meta"><td>{t("ui.receipt_tax_included", { label: `${r.tax_name ?? t("ui.tax_word")}${r.tax_rate ? ` (${r.tax_rate})` : ""}` })}</td><td class="num">{r.tax}</td></tr>}
         </tbody>
       </table>
       <p>{t(refund ? "ui.receipt_refunded_to" : "ui.receipt_paid_with")}: {r.method}</p>

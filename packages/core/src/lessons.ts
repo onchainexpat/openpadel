@@ -15,7 +15,7 @@ import { mergeTranslations, translationsInput } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, onDate, weekdayOf } from "./clock.ts";
 import { freeCourts, occupied } from "./bookings.ts";
-import { currentPolicy } from "./prices.ts";
+import { currentPolicy, taxSplit } from "./prices.ts";
 import { paymentProvider } from "./money.ts";
 import { checkSlot, courtAndPlace, HOLD_MINUTES, newCode, notOwing, shares } from "./booking_pay.ts";
 import { requireWaiver, withManagers } from "./households.ts";
@@ -324,8 +324,8 @@ export const lessonRequest = defineAction({
     const { court } = await checkSlot(ctx, policy, { court_id: courtId, starts_at: i.starts_at, minutes: i.minutes }, i.person_id, { anyLength: true });
     if (!day.stretches.some((x) => x.location_id === court.location_id && x.start <= start && end <= x.end)) throw new KumiError("error.coach_not_there", { coach: c.name, court: court.name });
     if (i.pay === "split" && start.getTime() - ctx.now.getTime() <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
-    const club = await ctx.db.selectFrom("club").select("tax_rate_bp").executeTakeFirstOrThrow();
-    const tax = Math.round(rate * club.tax_rate_bp / 10_000), total = rate + tax, s = shares(total, players);
+    const club = await ctx.db.selectFrom("club").select(["tax_rate_bp", "prices_include_tax"]).executeTakeFirstOrThrow();
+    const { tax, total } = taxSplit(rate, club.tax_rate_bp, club.prices_include_tax), s = shares(total, players);
     const p = { coach: c.name, court: court.name, when: when(start, tz), minutes: i.minutes, total: usd(total) };
     const summary = i.pay === "whole" ? both("plan.lesson.request_whole", { ...p, players: both("count.players", { count: players }) })
       : both("plan.lesson.request_split", { ...p, share: usd(s.organiser), players: both("count.players", { count: players }), others: usd(s.each), hours: both("count.hours", { count: policy.split_deadline_hours }) });

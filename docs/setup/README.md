@@ -526,6 +526,10 @@ Kumi was built for US clubs. These parts work for a club anywhere:
 - **Formats.** Settings, The club: the club's locale (en-GB, es-ES, fr-FR, de-DE...). It sets how dates, times and
   amounts are written, the 12- or 24-hour clock and the first day of the week. Members keep their own language
   (English or Spanish), written the club's way.
+- **Prices that include tax.** Settings, The club: tick "Prices include tax" where prices are written with VAT, IVA or
+  GST in them, and give the tax its name. A €40 court then costs €40, and its receipt shows "Of which VAT (21%):
+  €6.94" under the total. Kumi taxes court bookings and lessons only (as in the US); places, memberships, passes and
+  gift cards carry no tax. Whether that fits the club's country is for the club's accountant.
 
 Not done yet, and each needs a decision before a club outside the US goes live:
 

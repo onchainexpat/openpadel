@@ -16,6 +16,15 @@ const clockTime = z.string().check(z.regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/))
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 const HALF = 30 * 60_000;
 
+/** A price and its tax. The US way (prices before tax) adds the tax on top; where prices include it (VAT, IVA, GST),
+ *  the price is the total and the tax is the part of it the rate makes up. Rounded to the smallest unit. */
+export function taxSplit(cents: number, bp: number, included: boolean): { net: number; tax: number; total: number } {
+  if (!bp) return { net: cents, tax: 0, total: cents };
+  if (included) { const tax = Math.round(cents * bp / (10_000 + bp)); return { net: cents - tax, tax, total: cents }; }
+  const tax = Math.round(cents * bp / 10_000);
+  return { net: cents, tax, total: cents + tax };
+}
+
 export interface QuoteLine { rule_id: string | null; name: string; from: string; to: string; cents_per_hour: number; cents: number }
 /** `member`: the plan whose member price some part of it got. */
 export interface Quote { lines: QuoteLine[]; subtotal_cents: number; tax_bp: number; tax_cents: number; total_cents: number; priced: boolean; member: string | null }
@@ -31,7 +40,7 @@ export async function quote(db: Db | Trx, i: { courtId: string; start: Date; min
   const rules = (await db.selectFrom("price_rule").selectAll().where("location_id", "=", court.location_id).where("active", "=", true).orderBy("priority", "desc").orderBy("id", "desc").execute())
     .filter((r) => !r.plan_ids || (member && r.plan_ids.includes(member.plan_id)))
     .sort((a, b) => b.priority - a.priority || Number(Boolean(b.plan_ids)) - Number(Boolean(a.plan_ids)));
-  const club = await db.selectFrom("club").select("tax_rate_bp").executeTakeFirstOrThrow();
+  const club = await db.selectFrom("club").select(["tax_rate_bp", "prices_include_tax"]).executeTakeFirstOrThrow();
   const lines: QuoteLine[] = [];
   for (let s = i.start.getTime(); s < i.start.getTime() + i.minutes * 60_000; s += HALF) {
     const p = localParts(new Date(s), court.time_zone), day = localDate(new Date(s), court.time_zone);
@@ -44,9 +53,9 @@ export async function quote(db: Db | Trx, i: { courtId: string; start: Date; min
     lines.push({ rule_id: rule?.id ?? null, name: rule?.name ?? "", from: new Date(s).toISOString(), to, cents_per_hour: rule?.cents_per_hour ?? 0, cents: 0 });
   }
   for (const l of lines) l.cents = Math.round(l.cents_per_hour * (new Date(l.to).getTime() - new Date(l.from).getTime()) / 3600_000);
-  const subtotal = lines.reduce((n, l) => n + l.cents, 0), tax = Math.round(subtotal * club.tax_rate_bp / 10_000);
+  const t = taxSplit(lines.reduce((n, l) => n + l.cents, 0), club.tax_rate_bp, club.prices_include_tax);
   const memberRule = lines.some((l) => rules.find((r) => r.id === l.rule_id)?.plan_ids);
-  return { lines, subtotal_cents: subtotal, tax_bp: club.tax_rate_bp, tax_cents: tax, total_cents: subtotal + tax, priced: lines.every((l) => l.rule_id), member: memberRule ? member!.name : null };
+  return { lines, subtotal_cents: t.net, tax_bp: club.tax_rate_bp, tax_cents: t.tax, total_cents: t.total, priced: lines.every((l) => l.rule_id), member: memberRule ? member!.name : null };
 }
 
 /** The booking rules in force: the newest active version. */

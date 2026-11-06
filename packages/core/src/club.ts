@@ -84,6 +84,8 @@ export const clubUpdate = defineAction({
     // Members book the same court every week in the app (booking_series.ts), for at most this many weeks.
     weekly_bookings: z.optional(z.boolean()), weekly_max_weeks: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(26))),
     tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
+    // Prices entered and shown include the tax (VAT, IVA, GST), and what the tax is called on receipts.
+    prices_include_tax: z.optional(z.boolean()), tax_label: z.optional(z.nullable(z.string().check(z.minLength(1), z.maxLength(20)))),
     // The club's currency (ISO 4217). It can't change once the club has taken a payment.
     currency: z.optional(z.string().check(z.regex(/^[A-Za-z]{3}$/))),
     // How dates, times, numbers and amounts are written (a BCP 47 locale: en-US, es-ES, en-GB...).

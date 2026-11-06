@@ -33,6 +33,15 @@ const whenText = (d: Date, tz: string): Text => ({
 /** "R-001042": the number as printed. */
 export const receiptNo = (n: string | number) => `R-${String(n).padStart(6, "0")}`;
 
+/** How the club taxes, kept on each receipt as it's issued (a later change never rewrites one already given). */
+async function taxFacts(db: Db | Trx) {
+  const c = await db.selectFrom("club").select(["prices_include_tax", "tax_label", "tax_rate_bp"]).executeTakeFirstOrThrow();
+  return { tax_included: c.prices_include_tax, tax_label: c.tax_label, tax_bp: c.tax_rate_bp };
+}
+/** What the tax is called: the club's own word, else "Sales tax" (prices before tax) or "Tax" (prices that include it). */
+export const taxWord = (label: string | null, included: boolean): Text => label ? { en: label, es: label } : both(included ? "ui.tax_word" : "ui.receipt_tax");
+const rateText = (bp: number | null): Text => { const n = (bp ?? 0) / 100; return { en: `${n.toLocaleString("en-US")}%`, es: `${n.toLocaleString("es-US")} %` }; };
+
 /** What one payment was for, its sales tax (a court or lesson's, in proportion to what was paid) and where. */
 async function lineOf(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: number; locationId: string | null }> {
   // A promo code's discount is named on the line (promo_codes.ts): what was paid, after it.
@@ -111,7 +120,7 @@ export const receiptIssue = defineAction({
       const id = uuidv7(ctx.now.getTime());
       await ctx.trx.insertInto("receipt").values({ id, kind: "payment", person_id: to, for_person_id: forPerson, payment_id: rows[0]!.id, refund_id: null,
         location_id: lines.find((l) => l.locationId)?.locationId ?? await firstLocation(ctx.trx), lines: JSON.stringify(lines.map((l) => ({ what: l.what, cents: l.cents }))),
-        subtotal_cents: total - tax, tax_cents: tax, total_cents: total, method: pay.method, card: card ? JSON.stringify(card) : null, paid_at: ctx.now }).execute();
+        subtotal_cents: total - tax, tax_cents: tax, total_cents: total, method: pay.method, card: card ? JSON.stringify(card) : null, paid_at: ctx.now, ...await taxFacts(ctx.trx) }).execute();
       await ctx.trx.insertInto("receipt_payment").values(rows.map((r) => ({ payment_id: r.id, receipt_id: id }))).execute();
       await ctx.emit("receipt.issued", { receipt_id: id });
       return { receipt_id: id };
@@ -130,7 +139,7 @@ export const receiptIssue = defineAction({
     await ctx.trx.insertInto("receipt").values({ id, kind: "refund", person_id: to, for_person_id: forPerson, payment_id: pay.id, refund_id: r.id,
       location_id: paidReceipt?.location_id ?? line.locationId ?? await firstLocation(ctx.trx), lines: JSON.stringify([{ what: line.what, cents: r.amount_cents }]),
       subtotal_cents: r.amount_cents - tax, tax_cents: tax, total_cents: r.amount_cents, method: r.destination === "credit" ? "credit" : pay.method,
-      card: r.destination === "credit" ? null : paidReceipt?.card ? JSON.stringify(paidReceipt.card) : card ? JSON.stringify(card) : null, paid_at: ctx.now }).execute();
+      card: r.destination === "credit" ? null : paidReceipt?.card ? JSON.stringify(paidReceipt.card) : card ? JSON.stringify(card) : null, paid_at: ctx.now, ...await taxFacts(ctx.trx) }).execute();
     await ctx.emit("receipt.issued", { receipt_id: id });
     return { receipt_id: id };
   },
@@ -176,6 +185,7 @@ export async function receiptView(db: Db | Trx, receiptId: string) {
     id: r.id, number: receiptNo(r.number), kind: r.kind, person_id: r.person_id, club: club.legal_name ?? club.name, address: r.address ?? null,
     when: { en: receiptDate(r.paid_at, "en", club.time_zone), es: receiptDate(r.paid_at, "es", club.time_zone) } as Text,
     lines, subtotal: usd(r.subtotal_cents), tax: r.tax_cents ? usd(r.tax_cents) : null, total: usd(r.total_cents), total_cents: r.total_cents,
+    tax_included: r.tax_included, tax_name: taxWord(r.tax_label, r.tax_included), tax_rate: r.tax_bp ? rateText(r.tax_bp) : null,
     method: methodText(r.method, card, refund), kid: r.kid ?? null, original: original ? receiptNo(original.number) : null,
   };
 }
@@ -186,9 +196,13 @@ export async function receiptParams(db: Db, receiptId: string) {
   if (!v) return null;
   const lineText = (lang: Lang) => v.lines.map((l) => `${l.what[lang]}: ${l.amount[lang]}`).join("\n");
   return { view: v, kind: v.kind === "refund" ? "refund_receipt" : "receipt", params: {
-    club: v.club, number: v.number, when: v.when, total: v.total, subtotal: v.subtotal, method: v.method,
+    club: v.club, number: v.number, when: v.when, total: v.total, method: v.method,
+    // Prices before tax (the US way): a subtotal and the tax above the total. Prices that include it: the total, then
+    // the tax it holds ("Of which VAT (21%): €6.94").
+    subtotal: v.tax_included ? NOTHING : both("receipt.subtotal_line", { amount: v.subtotal }),
+    included: v.tax_included && v.tax ? both(v.tax_rate ? "receipt.tax_included_line" : "receipt.tax_included_line_plain", { label: v.tax_name, rate: v.tax_rate ?? NOTHING, amount: v.tax }) : NOTHING,
     address: v.address ? `\n${v.address}` : "", lines: { en: lineText("en"), es: lineText("es") },
-    tax: v.tax ? both("receipt.tax_line", { amount: v.tax }) : NOTHING,
+    tax: v.tax && !v.tax_included ? both("receipt.tax_line", { label: v.tax_name, amount: v.tax }) : NOTHING,
     for: v.kid ? both("receipt.for_line", { name: v.kid }) : NOTHING,
     original: v.original ? both("receipt.original_line", { number: v.original }) : NOTHING,
   } };

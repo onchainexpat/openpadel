@@ -3,7 +3,7 @@
 // court, more courts the same day can be added and paid together. Times are the club's, whatever the
 // phone's clock says.
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
+import { api, club, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { weeklyLaterLine, type WeeklyLater } from "./weekly_later.ts";
 import { formatLocale } from "@kumi/i18n/format";
@@ -96,7 +96,7 @@ export function Book() {
           <h2>{fmt(pick.start, { weekday: "long", day: "numeric", month: "long" })}, {fmt(pick.start, { hour: "numeric", minute: "2-digit" })} · {t("ui.minutes", { count: minutes })}</h2>
           {pick.courts.length > 1 && <div class="chips" role="group" aria-label={t("ui.which_court")}>{pick.courts.map((c) => <button type="button" class={c.id === court ? "chip on" : "chip"} onClick={() => setCourt(c.id)}>{c.name}</button>)}</div>}
           {court && q && (q.priced ? <>
-            <p><strong>{dollars(q.total_cents, lang.value)}</strong>{q.tax_cents ? <span class="meta"> · {t("ui.tax_included", { amount: dollars(q.tax_cents, lang.value) })}</span> : null}{q.member ? <span class="meta"> · {t("ui.member_price", { plan: q.member })}</span> : null}</p>
+            <p><strong>{dollars(q.total_cents, lang.value)}</strong>{q.tax_cents ? <span class="meta"> · {t("ui.tax_included", { amount: dollars(q.tax_cents, lang.value), tax: club.value?.tax_label || t("ui.tax_word").toLowerCase() })}</span> : null}{q.member ? <span class="meta"> · {t("ui.member_price", { plan: q.member })}</span> : null}</p>
             {cart.length > 0 ? <button class="primary" onClick={add}>{t("ui.add_this_court")}</button> : <>
             <label class="check"><input type="radio" name="pay" checked={pay === "whole"} onChange={() => setPay("whole")} /> {t("ui.pay_whole", { amount: dollars(q.total_cents, lang.value) })}</label>
             {canSplit && <label class="check"><input type="radio" name="pay" checked={pay === "split"} onChange={() => setPay("split")} /> {t("ui.pay_split")}</label>}

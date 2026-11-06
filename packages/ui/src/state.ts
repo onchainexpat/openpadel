@@ -43,7 +43,9 @@ export type Club = { name: string; brand_colour: string; languages: string[]; de
   /** The club's own clock (IANA zone): every time the apps show is on it, wherever the reader's phone is set. */
   time_zone?: string;
   /** The club's currency (ISO 4217) and formats (BCP 47): every amount the apps show and read is in them. */
-  currency?: string; format_locale?: string };
+  currency?: string; format_locale?: string;
+  /** Prices that include the tax, and what the club calls it (VAT, IVA...). */
+  prices_include_tax?: boolean; tax_label?: string | null };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
 /** Whether to offer a button for a change: a role the club made may not allow it (the server decides either way). */
