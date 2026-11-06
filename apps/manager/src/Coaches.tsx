@@ -3,7 +3,7 @@
 // the coach role on their page.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { amountPattern, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
+import { amountInput, amountPattern, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
 import { api, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
 
 type Profile = { bio: string | null; translations?: unknown; level_min: string | null; level_max: string | null; languages: string[]; rates: Record<string, number>; photo: string | null; lessons: boolean; max_players: number };
@@ -63,7 +63,7 @@ function CoachEdit({ c, d, preview }: { c: Coach; d: Data; preview: Preview }) {
   const p = c.profile;
   const lengths = [...new Set([...d.lengths, ...Object.keys(p?.rates ?? {}).map(Number)])].sort((a, b) => a - b);
   const [f, setF] = useState({ bio: p?.bio ?? "", bio_tr: savedIn(p?.translations, "bio"), lmin: p?.level_min ?? "", lmax: p?.level_max ?? "", languages: p?.languages ?? ["en"], lessons: p?.lessons ?? true, players: p?.max_players ?? 4,
-    rates: Object.fromEntries(lengths.map((m) => [m, p?.rates[String(m)] !== undefined ? String(toMajor(p.rates[String(m)]!)) : ""])) as Record<number, string> });
+    rates: Object.fromEntries(lengths.map((m) => [m, p?.rates[String(m)] !== undefined ? amountInput(p.rates[String(m)]!) : ""])) as Record<number, string> });
   const [loc, setLoc] = useState(d.locations[0]?.id ?? ""), [photoError, setPhotoError] = useState(false);
   const [hours, setHours] = useState<Stretch[]>(c.hours);
   const [off, setOff] = useState({ from: "", to: "", note: "" });

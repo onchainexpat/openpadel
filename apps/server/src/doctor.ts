@@ -131,7 +131,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   // 80% of it is used; past the limit, what can wait waits for the 1st.
   const use = await usageView(db, now).catch(() => null);
   if (use) {
-    const usd = (cents: number) => ({ en: money(cents, "en"), es: money(cents, "es") });
+    const usd = (cents: number) => ({ en: money(cents, "en", "USD"), es: money(cents, "es", "USD") });   // the meter is in US dollars
     const p = { spent: usd(use.spent_cents), cap: usd(use.cap_cents), share: use.share === null ? 100 : Math.round(use.share * 100) };
     add("usage", use.state === "ok" ? "ok" : "warn", use.state === "paused" ? "usage.paused" : "usage.month", p);
     // A restore with nothing to carry the meter over from (after_restore.ts): this month may be short.

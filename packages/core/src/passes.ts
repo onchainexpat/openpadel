@@ -11,7 +11,7 @@
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import type { Selectable } from "kysely";
-import { both, money, type Key, type Text } from "@kumi/i18n";
+import { both, capFor, money, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx } from "./actions.ts";
 import type { DB, Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -100,7 +100,7 @@ const productInput = {
   program_kinds: z.optional(z.array(z.enum(PROGRAM_KINDS))), program_ids: z.optional(z.array(z.uuid())),
   max_minutes: z.optional(z.nullable(z.number().check(z.int(), z.minimum(15), z.maximum(600)))),
   from_minute: z.optional(z.nullable(z.number().check(z.int(), z.minimum(0), z.maximum(1439)))), to_minute: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(1440)))),
-  price_cents: z.number().check(z.int(), z.minimum(100), z.maximum(500000)), uses: z.number().check(z.int(), z.minimum(1), z.maximum(100)),
+  price_cents: z.number().check(z.int(), z.minimum(1), z.maximum(1_000_000_000)), uses: z.number().check(z.int(), z.minimum(1), z.maximum(100)),
   valid_days: z.optional(z.nullable(z.number().check(z.int(), z.minimum(365), z.maximum(3650)))), on_sale: z.optional(z.boolean()),
 };
 /** The owner or a manager makes a pass the club sells, or changes one (passes already bought keep what they were
@@ -111,6 +111,8 @@ export const passProductSet = defineAction({
   input: z.object({ product_id: z.optional(z.uuid()), ...productInput }),
   async plan(ctx, i) {
     if (i.from_minute != null && i.to_minute != null && i.to_minute <= i.from_minute) throw new KumiError("error.pass_hours");
+    // At most about $5,000, in the club's currency (capFor); at least one whole unit.
+    if (i.price_cents < capFor(100) || i.price_cents > capFor(500000)) throw new KumiError("error.amount_range", { min: money(capFor(100), "en"), max: money(capFor(500000), "en") });
     const reads = i.product_id ? [(await readRow(ctx.db, "pass_product", i.product_id, "thing.pass")).read] : [];
     const what = i.covers === "courts" ? both(i.max_minutes ? "plan.pass_courts_up_to" : "plan.pass_courts", { minutes: String(i.max_minutes ?? "") })
       : i.covers === "lessons" ? both(i.max_minutes ? "plan.pass_lessons_up_to" : "plan.pass_lessons", { minutes: String(i.max_minutes ?? "") }) : both("plan.pass_programs");

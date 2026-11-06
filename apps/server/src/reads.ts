@@ -201,6 +201,15 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .select([sql<string>`to_char(ledger_txn.at AT TIME ZONE ${loc.time_zone}, 'YYYY-MM-DD')`.as("day"), "ledger_account.revenue_type", sql<string>`sum(-ledger_entry.amount_cents)`.as("cents")])
       .where("ledger_account.kind", "=", "revenue").where(sql<boolean>`(ledger_txn.at AT TIME ZONE ${loc.time_zone})::date BETWEEN ${from}::date AND ${to}::date`)
       .groupBy(["day", "ledger_account.revenue_type"]).execute();
+    // Revenue is shown before tax: the books post what was paid, tax included, so the tax on each day's receipts for
+    // courts and lessons (the only taxed things) comes off, refunds giving theirs back. The receipt's day is when it
+    // was issued, a minute or so after the payment, so a payment at midnight can count its tax on the next day.
+    const taxRows = await db.selectFrom("receipt").innerJoin("payment", "payment.id", "receipt.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+      .innerJoin("booking", "booking.id", "booking_player.booking_id")
+      .select([sql<string>`to_char(receipt.paid_at AT TIME ZONE ${loc.time_zone}, 'YYYY-MM-DD')`.as("day"), sql<string>`CASE WHEN booking.kind = 'lesson' THEN 'lessons' ELSE 'courts' END`.as("revenue_type"),
+        sql<string>`sum(CASE WHEN receipt.kind = 'refund' THEN -receipt.tax_cents ELSE receipt.tax_cents END)`.as("cents")])
+      .where("booking.location_id", "=", loc.id).where("receipt.tax_cents", ">", 0)
+      .where(sql<boolean>`(receipt.paid_at AT TIME ZONE ${loc.time_zone})::date BETWEEN ${from}::date AND ${to}::date`).groupBy(["day", "revenue_type"]).execute();
     const rows = [];
     for (const day of days) {
       // Each court counts its own hours that day (a court's own week, or the location's).
@@ -222,10 +231,11 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         if (m > 0) inside[it.kind] = (inside[it.kind] ?? 0) + m;
       }
       const used = (inside.booking ?? 0) + (inside.session ?? 0) + (inside.mirror ?? 0), blocked = inside.block ?? 0;
-      const cents = (type: string) => Number(money.find((r) => r.day === day && r.revenue_type === type)?.cents ?? 0);
+      const taxOf = (type: string) => Number(taxRows.find((r) => r.day === day && r.revenue_type === type)?.cents ?? 0);
+      const cents = (type: string) => Number(money.find((r) => r.day === day && r.revenue_type === type)?.cents ?? 0) - taxOf(type);
       rows.push({ date: day, open_hours: openMin / 60, courts: courts.length, court_hours: capacity / 60, booked_hours: (all.booking ?? 0) / 60, program_hours: (all.session ?? 0) / 60,
         playtomic_hours: (all.mirror ?? 0) / 60, blocked_hours: blocked / 60, occupancy_percent: capacity - blocked > 0 ? Math.round(used / (capacity - blocked) * 1000) / 10 : 0,
-        court_revenue_cents: cents("courts"), lesson_revenue_cents: cents("lessons"), program_revenue_cents: cents("programs"), membership_revenue_cents: cents("memberships") });
+        court_revenue_cents: cents("courts"), lesson_revenue_cents: cents("lessons"), program_revenue_cents: cents("programs"), membership_revenue_cents: cents("memberships"), tax_cents: taxOf("courts") + taxOf("lessons") });
     }
     return { location: loc.name, from, to, rows };
   }

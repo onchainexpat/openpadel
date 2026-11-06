@@ -34,7 +34,7 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { money, t, pickLang, type Lang, type Text, formatLocale } from "@kumi/i18n";
-import { connect, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS, type Db } from "@kumi/core";
+import { connect, loadClubFormat, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS, type Db } from "@kumi/core";
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
@@ -90,6 +90,13 @@ async function passphrase(prompt: string): Promise<string> {
   });
 }
 
+/** The club's database, with its currency and formats loaded, so amounts print as the club's (¥1,500, not $15.00). */
+async function clubDb(): Promise<Db> {
+  const db = connect();
+  await loadClubFormat(db).catch(() => {});   // a database not yet set up (or migrated): US dollars, as before
+  return db;
+}
+
 async function main(): Promise<number> {
   if (cmd === "setup" && (sub === "plan" || sub === "apply")) {
     // A relative path is from where the person ran kumi (the server's wrapper runs it from the app's folder).
@@ -102,7 +109,7 @@ async function main(): Promise<number> {
       else { console.error(t(lang, "cli.file_problems", { file: path })); for (const p of e.problems) console.error(`  - ${p}`); }
       return 2;
     }
-    const db = connect();
+    const db = await clubDb();
     try {
       await migrate(db);
       const r = await setupClub(db, file, { apply: sub === "apply", lang });
@@ -120,7 +127,7 @@ async function main(): Promise<number> {
     const r = readPeopleCsv(readFileSync(path, "utf8"));
     const problems = r.problems.map((p) => say(p.text));
     if (r.fatal) { if (json) out({ ok: false, problems: [say(r.fatal), ...problems] }); else { console.error(say(r.fatal)); for (const p of problems) console.error(`  - ${p}`); } return 2; }
-    const db = connect();
+    const db = await clubDb();
     try {
       const owner = await ownerActor(db, lang);
       if (!owner) { console.error(t(lang, "doctor.club.missing")); return 2; }
@@ -148,7 +155,7 @@ async function main(): Promise<number> {
       else { console.error(t(lang, "cli.file_problems", { file: path })); for (const p of e.problems) console.error(`  - ${p}`); }
       return 2;
     }
-    const db = connect();
+    const db = await clubDb();
     try {
       await migrate(db);
       const club = await db.selectFrom("club").select(["name", "time_zone", "terms_url", "privacy_policy_url"]).executeTakeFirst();
@@ -193,7 +200,7 @@ async function main(): Promise<number> {
   if (cmd === "usage") {
     const m = flag("month") ?? sub;
     if (m !== undefined && !/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) { console.error(t(lang, "cli.usage_bad_month")); return 2; }
-    const db = connect();
+    const db = await clubDb();
     try {
       const club = await db.selectFrom("club").select(["name", "time_zone"]).executeTakeFirst();
       if (!club) { console.error(t(lang, "doctor.club.missing")); return 2; }
@@ -213,7 +220,7 @@ async function main(): Promise<number> {
     serverKeys();
     const typed = await passphrase(t(lang, "cli.export_ask", { min: PASSPHRASE_MIN }));
     if (process.stdin.isTTY && typed !== await passphrase(t(lang, "cli.export_ask_again"))) { console.error(t(lang, "cli.export_differ")); return 2; }
-    const db = connect();
+    const db = await clubDb();
     try {
       const r = await makeExport(db, { url: dbUrl(), passphrase: typed });
       const file = join(resolve(process.env.KUMI_CALLER_DIR ?? ".", flag("out") ?? backupDir), r.name);
@@ -227,7 +234,7 @@ async function main(): Promise<number> {
     } finally { await db.destroy(); }
   }
   if (cmd === "moved" && (sub === "on" || sub === "off" || sub === "status")) {
-    const db = connect();
+    const db = await clubDb();
     try {
       const to = flag("to");
       if (sub !== "status") await runAsSystem(db, "club.moved_host", { on: sub === "on", ...(sub === "on" && to ? { to } : {}) }, "cli");
@@ -242,7 +249,7 @@ async function main(): Promise<number> {
     } finally { await db.destroy(); }
   }
   if (cmd === "read-only" && (sub === "on" || sub === "off" || sub === "status")) {
-    const db = connect();
+    const db = await clubDb();
     try {
       if (sub !== "status") await runAsSystem(db, "club.read_only", { on: sub === "on" }, "cli");
       const since = await readOnlySince(db);
@@ -253,7 +260,7 @@ async function main(): Promise<number> {
     } finally { await db.destroy(); }
   }
   if (cmd === "leaving" && (sub === "on" || sub === "off" || sub === "status")) {
-    const db = connect();
+    const db = await clubDb();
     try {
       const date = flag("date") ?? rest.find((x) => /^\d{4}-\d{2}-\d{2}$/.test(x));
       const keptFlag = flag("kept-days"), kept = keptFlag === undefined ? undefined : Number(keptFlag);
@@ -294,7 +301,7 @@ async function main(): Promise<number> {
     } finally { await db.destroy(); }
   }
   if (cmd === "held" && (sub === undefined || sub === "status" || sub === "send" || sub === "drop")) {
-    const db = connect();
+    const db = await clubDb();
     try {
       const yes = args.includes("--yes");
       if (sub === "send" || sub === "drop") {
@@ -317,7 +324,7 @@ async function main(): Promise<number> {
     } finally { await db.destroy(); }
   }
   if (cmd === "doctor") {
-    const db = connect();
+    const db = await clubDb();
     try {
       const checks: Check[] = await doctor(db);
       const bad = checks.filter((c) => c.state === "fail").length;
@@ -329,7 +336,7 @@ async function main(): Promise<number> {
     } finally { await db.destroy(); }
   }
   if (cmd === "reset-sign-in" && sub) {
-    const db = connect();
+    const db = await clubDb();
     try {
       const person = await db.selectFrom("person").select(["id", "display_name"]).where((eb) => eb(eb.fn("lower", ["email"]), "=", sub.trim().toLowerCase())).where("status", "!=", "archived").executeTakeFirst();
       if (!person) { if (json) out({ ok: false }); else console.error(t(lang, "cli.no_person", { email: sub })); return 2; }
@@ -341,7 +348,7 @@ async function main(): Promise<number> {
   }
   // The owner role, by the server's admin: for a club left with no owner who can sign in. Previewed; --yes does it.
   if (cmd === "owner" && sub === "add" && args[2]) {
-    const db = connect();
+    const db = await clubDb();
     try {
       const email = args[2].trim().toLowerCase();
       const person = await db.selectFrom("person").select(["id", "display_name"]).where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).where("status", "!=", "archived").where("redacted_at", "is", null).executeTakeFirst();
@@ -354,7 +361,7 @@ async function main(): Promise<number> {
     } finally { await db.destroy(); }
   }
   if (cmd === "backup") {
-    const db = connect();
+    const db = await clubDb();
     try {
       if (args.includes("--scheduled")) {
         const d = await scheduledDue(db, "backup");
@@ -404,7 +411,7 @@ async function main(): Promise<number> {
     return restoreFrom(sub);
   }
   if (cmd === "restore-test") {
-    const db = connect();
+    const db = await clubDb();
     try {
       if (args.includes("--scheduled")) {
         const d = await scheduledDue(db, "restore_test");
@@ -424,7 +431,7 @@ async function main(): Promise<number> {
   if (cmd === "rotate-key") {
     if (!process.env.KUMI_SECRET_KEY?.trim()) { console.error(t(lang, "cli.rotate_no_key")); return 2; }
     setSecretKeys({ current: process.env.KUMI_SECRET_KEY, previous: process.env.KUMI_SECRET_KEY_PREVIOUS });
-    const db = connect();
+    const db = await clubDb();
     try {
       const r = await resealAll(db);
       if (json) { out({ ok: r.unreadable === 0, ...r, key: secretKeyStatus().current }); return r.unreadable ? 1 : 0; }

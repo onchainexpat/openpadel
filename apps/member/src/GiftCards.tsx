@@ -4,7 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, club, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { PaySheet } from "./Pay.tsx";
-import { fromMajor, toMajor } from "@kumi/i18n/format";
+import { capFor, fromMajor, toMajor } from "@kumi/i18n/format";
 
 type Card = { id: string; amount_cents: number; status: "pending" | "active" | "redeemed" | "void"; for_name: string | null; message: string | null; last4: string; bought: boolean; code: string | null };
 
@@ -29,7 +29,7 @@ export function GiftCards() {
       <p class="meta">{t("ui.gift_card_hint")}</p>
       {c?.gift_cards && <section class="card"><h2>{t("ui.gift_card_buy")}</h2>
         <form class="card-form" onSubmit={buy}>
-          <label>{t("ui.gift_card_amount")}<input name="amount" type="number" required min={toMajor(c.gift_card_min_cents ?? 1000)} max={toMajor(c.gift_card_max_cents ?? 50000)} step="1" defaultValue="50" /></label>
+          <label>{t("ui.gift_card_amount")}<input name="amount" type="number" required min={toMajor(c.gift_card_min_cents ?? 1000)} max={toMajor(c.gift_card_max_cents ?? 50000)} step="1" defaultValue={String(toMajor(capFor(5000)))} /></label>
           <label>{t("ui.gift_card_for")}<input name="for" maxLength={80} /></label>
           <label>{t("ui.gift_card_message")}<input name="message" maxLength={300} /></label>
           {error && <p class="error" role="alert">{error}</p>}

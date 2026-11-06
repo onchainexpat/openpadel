@@ -27,7 +27,9 @@ export function taxSplit(cents: number, bp: number, included: boolean): { net: n
 
 export interface QuoteLine { rule_id: string | null; name: string; from: string; to: string; cents_per_hour: number; cents: number }
 /** `member`: the plan whose member price some part of it got. */
-export interface Quote { lines: QuoteLine[]; subtotal_cents: number; tax_bp: number; tax_cents: number; total_cents: number; priced: boolean; member: string | null }
+/** `tax_included`: whether the price includes the tax (VAT style) when it was quoted; a quote from before that
+ *  setting existed has none, and its tax was on top. */
+export interface Quote { lines: QuoteLine[]; subtotal_cents: number; tax_bp: number; tax_included?: boolean; tax_cents: number; total_cents: number; priced: boolean; member: string | null }
 
 /** The price of a court from `start` for `minutes`, for `personId` (their membership at `at`) or for anyone.
  *  `priced` is false when some half hour has no rule. */
@@ -55,7 +57,7 @@ export async function quote(db: Db | Trx, i: { courtId: string; start: Date; min
   for (const l of lines) l.cents = Math.round(l.cents_per_hour * (new Date(l.to).getTime() - new Date(l.from).getTime()) / 3600_000);
   const t = taxSplit(lines.reduce((n, l) => n + l.cents, 0), club.tax_rate_bp, club.prices_include_tax);
   const memberRule = lines.some((l) => rules.find((r) => r.id === l.rule_id)?.plan_ids);
-  return { lines, subtotal_cents: t.net, tax_bp: club.tax_rate_bp, tax_cents: t.tax, total_cents: t.total, priced: lines.every((l) => l.rule_id), member: memberRule ? member!.name : null };
+  return { lines, subtotal_cents: t.net, tax_bp: club.tax_rate_bp, tax_included: club.prices_include_tax, tax_cents: t.tax, total_cents: t.total, priced: lines.every((l) => l.rule_id), member: memberRule ? member!.name : null };
 }
 
 /** The booking rules in force: the newest active version. */

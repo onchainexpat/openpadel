@@ -62,6 +62,15 @@ export function anyPhone(input: string, country: string = clubFormat().country ?
   const p = parsePhoneNumberFromString(input.trim(), country as CountryCode);
   return p && p.isValid() ? p.number : null;
 }
+/** A number Kumi may text, as +1XXXXXXXXXX: typed without a + it's read in the club's country first, so a Mexican
+ *  club's "55 1234 5678" is Mexico City (+52), never a US number that happens to share the digits. Only a US or
+ *  Canadian result is textable, and only in a US or Canadian club unless it was typed with +1. Null otherwise. */
+export function textablePhone(input: string, country: string = clubFormat().country ?? "US"): string | null {
+  const s = input.trim();
+  if (s.startsWith("+") || country === "US" || country === "CA") return usPhone(s);
+  const p = anyPhone(s, country);
+  return p && p.startsWith("+1") ? usPhone(p) : null;
+}
 /** +15035550123 as (503) 555-0123. */
 export const showPhone = (e164: string) => /^\+1\d{10}$/.test(e164) ? `(${e164.slice(2, 5)}) ${e164.slice(5, 8)}-${e164.slice(8)}` : e164;
 

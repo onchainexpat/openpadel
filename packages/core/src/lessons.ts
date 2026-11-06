@@ -331,10 +331,10 @@ export const lessonRequest = defineAction({
       : both("plan.lesson.request_split", { ...p, share: usd(s.organiser), players: both("count.players", { count: players }), others: usd(s.each), hours: both("count.hours", { count: policy.split_deadline_hours }) });
     // A parent books their junior's lesson: the lesson is the junior's, the parent pays and manages it.
     return { title: both("action.lesson.request"), summary, reads: [], locationId: court.location_id, ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "compensating" },
-      moneyCents: i.pay === "whole" ? total : s.organiser, details: { court_id: courtId, rate, tax, tax_bp: club.tax_rate_bp, total, players, policy_id: policy.id } };
+      moneyCents: i.pay === "whole" ? total : s.organiser, details: { court_id: courtId, rate, tax, tax_bp: club.tax_rate_bp, tax_included: club.prices_include_tax, total, players, policy_id: policy.id } };
   },
   async apply(ctx, i, plan) {
-    const d = plan.details as { court_id: string; rate: number; tax: number; tax_bp: number; total: number; players: number; policy_id: string };
+    const d = plan.details as { court_id: string; rate: number; tax: number; tax_bp: number; tax_included?: boolean; total: number; players: number; policy_id: string };
     const start = new Date(i.starts_at), end = new Date(start.getTime() + i.minutes * 60_000);
     // The coach first, then the court: two people booking the same coach at once can't both get the time.
     await ctx.trx.selectFrom("person").select("id").where("id", "=", i.coach_id).forUpdate().execute();
@@ -344,7 +344,7 @@ export const lessonRequest = defineAction({
     const court = await courtAndPlace(ctx.trx, d.court_id), code = await newCode(ctx.trx), s = shares(d.total, d.players);
     const id = uuidv7(), bp = uuidv7(), payment = uuidv7();
     // What it cost, as sold: the coach's rate (court included) and the club's tax.
-    const quote = { lines: [], lesson: { coach_id: i.coach_id, minutes: i.minutes, rate_cents: d.rate }, subtotal_cents: d.rate, tax_bp: d.tax_bp, tax_cents: d.tax, total_cents: d.total, priced: true, member: null };
+    const quote = { lines: [], lesson: { coach_id: i.coach_id, minutes: i.minutes, rate_cents: d.rate }, subtotal_cents: d.total - d.tax, tax_bp: d.tax_bp, tax_included: Boolean(d.tax_included), tax_cents: d.tax, total_cents: d.total, priced: true, member: null };
     await ctx.insert("booking", { id, code, location_id: court.location_id, kind: "lesson", coach_id: i.coach_id, organiser_id: i.person_id, status: "held", source: "app", price_cents: d.total,
       tax_cents: d.tax, quote: JSON.stringify(quote), policy_id: d.policy_id, pay_mode: i.pay, players: d.players, invite_code: i.pay === "split" ? randomBytes(9).toString("base64url") : null });
     await ctx.insert("booking_player", { id: bp, booking_id: id, person_id: i.person_id, share_cents: i.pay === "whole" ? d.total : s.organiser });

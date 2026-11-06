@@ -63,7 +63,11 @@ export const clubFormat = (): ClubFormat => clubFmt;
 /** Stripe's zero-decimal currencies (an amount is whole units: 1500 is ¥1,500) and the three-decimal ones it rounds
  *  to tens, which Kumi doesn't take. Every other currency has two decimals. Amounts are always stored in the
  *  currency's smallest unit (cents, pence, yen), as Stripe takes them. */
-const ZERO_DECIMAL = new Set(["BIF", "CLP", "DJF", "GNF", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF"]);
+const ZERO_DECIMAL = new Set(["BIF", "CLP", "DJF", "GNF", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "VND", "VUV", "XAF", "XOF", "XPF"]);
+/** Whole units that Stripe still takes written with two decimals, always 00 (docs.stripe.com/currencies, "Special
+ *  cases", read 5 Nov 2026): Kumi doesn't take them yet. HUF and TWD are two-decimal for charges, which is all
+ *  Kumi does (their whole-unit rule is for manual payouts). */
+export const WHOLE_IN_TWO = new Set(["ISK", "UGX"]);
 export const THREE_DECIMAL = new Set(["BHD", "JOD", "KWD", "OMR", "TND"]);
 export const minorUnits = (currency: string = clubFmt.currency): number => ZERO_DECIMAL.has(currency.toUpperCase()) ? 0 : 2;
 /** From the smallest unit to the whole one (4050 -> 40.5) and back (rounded to the smallest unit). */
@@ -74,12 +78,12 @@ export const plainAmount = (minor: number, currency?: string): string => toMajor
 /** An amount input's step and smallest value: "0.01" in most currencies, "1" in zero-decimal ones. */
 export const amountStep = (currency?: string): string => minorUnits(currency) ? "0.01" : "1";
 /** Why a currency can't be the club's: not a currency code Intl knows, or one with three decimals. */
-export function currencyProblem(code: string): "unknown" | "three_decimals" | null {
+export function currencyProblem(code: string): "unknown" | "three_decimals" | "whole_in_two" | null {
   const c = code.toUpperCase();
   if (!/^[A-Z]{3}$/.test(c)) return "unknown";
   const known = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("currency") : null;
   if (known && !known.includes(c)) return "unknown";
-  return THREE_DECIMAL.has(c) ? "three_decimals" : null;
+  return THREE_DECIMAL.has(c) ? "three_decimals" : WHOLE_IN_TWO.has(c) ? "whole_in_two" : null;
 }
 
 /** The locale numbers are written in for the club (its own locale's separators: "1,200.50" in the US, "1.200,50"
@@ -134,12 +138,33 @@ function separators(locale: string): { group: string; decimal: string } {
 export function amountPattern(f: ClubFormat = clubFmt): string {
   const { group, decimal } = separators(f.locale), d = minorUnits(f.currency);
   const g = /\s/.test(group) || group === "\u202f" ? "[ \\u00a0\\u202f]" : esc(group);
-  const sign = "(?:[\\p{Sc}\\p{L}]{1,4}\\s*)?", after = "(?:\\s*[\\p{Sc}\\p{L}]{1,4})?";
+  // Only the club's own currency: its sign as the club writes it ("$", "€", "US$") or its code ("EUR"). "$40" in a
+  // euro club, "12 mil" or "5k" are refused, never read as something they aren't.
+  const signs = [...new Set([currencySign(f.currency, f.locale), currencySign(f.currency, f.locale, "symbol"), currencySign(f.currency, "en"), f.currency.toUpperCase(), f.currency.toLowerCase()])]
+    .map((x) => [...x].map(esc).join(""));
+  const mark = `(?:${signs.join("|")})`, sign = `(?:${mark}\\s*)?`, after = `(?:\\s*${mark})?`;
   return `\\s*${sign}(\\d{1,3}(?:${g}\\d{3})+|\\d+)${d ? `(?:${esc(decimal)}(\\d{1,${d}}))?` : ""}${after}\\s*`;
 }
 /** The club's currency sign ("$", "€", "£", "¥"), as labels show it: "Price ($)". */
-export function currencySign(currency: string = clubFmt.currency): string {
-  return new Intl.NumberFormat(clubFmt.locale, { style: "currency", currency, currencyDisplay: "narrowSymbol" }).formatToParts(0).find((p) => p.type === "currency")?.value ?? currency;
+export function currencySign(currency: string = clubFmt.currency, locale: string = clubFmt.locale, display: "narrowSymbol" | "symbol" = "narrowSymbol"): string {
+  return new Intl.NumberFormat(locale, { style: "currency", currency, currencyDisplay: display }).formatToParts(0).find((p) => p.type === "currency")?.value ?? currency;
+}
+/** An amount as an input holds it, the club's way and without thousands ("40,50" in Spain, "40.5" in the US,
+ *  "1500" in yen): what a form is filled with is what it reads back. */
+export function amountInput(minor: number, currency: string = clubFmt.currency): string {
+  const d = minorUnits(currency), whole = minor % 10 ** d === 0;
+  return new Intl.NumberFormat(clubFmt.locale, { useGrouping: false, minimumFractionDigits: whole ? 0 : d, maximumFractionDigits: d }).format(toMajor(minor, currency));
+}
+// Roughly how many of a currency a US dollar buys, for limits sized in dollars (a $5,000 gift card at most): only
+// where it's far from one, so ¥ and ₩ limits aren't 150 or 1,400 times tighter. Not for prices or money: a limit
+// that's out by a fifth is still a sensible limit.
+const PER_USD: Record<string, number> = { JPY: 150, KRW: 1400, VND: 25000, CLP: 950, PYG: 7500, UGX: 3700, RWF: 1300, XAF: 600, XOF: 600, XPF: 110, GNF: 8600,
+  KMF: 450, MGA: 4500, BIF: 2900, DJF: 180, VUV: 120, INR: 85, MXN: 18, ARS: 1000, COP: 4000, BRL: 5, ZAR: 18, SEK: 10, NOK: 10, DKK: 7, PLN: 4, CZK: 23, HUF: 360, TRY: 34,
+  THB: 35, PHP: 57, IDR: 16000, MYR: 4.5, AED: 3.7, SAR: 3.75, QAR: 3.6, EGP: 50, CNY: 7.2, HKD: 7.8, TWD: 32, SGD: 1.35, NZD: 1.7, AUD: 1.5, CAD: 1.4, CHF: 0.9, GBP: 0.8, EUR: 0.92 };
+/** A limit sized in US cents (500000 is $5,000) in the club's currency's smallest unit, rounded to a whole unit. */
+export function capFor(usdCents: number, currency: string = clubFmt.currency): number {
+  const c = currency.toUpperCase(), per = c === "USD" ? 1 : PER_USD[c] ?? 1;
+  return fromMajor(Math.round(usdCents / 100 * per), c);
 }
 /** How the club writes an amount, for a hint: "1,200.50" in the US, "1.200,50" in Spain, "1,200" in yen. */
 export function amountExample(f: ClubFormat = clubFmt): string {
@@ -158,9 +183,11 @@ export function parseAmount(s: string, f: ClubFormat = clubFmt): number | null {
 /** The club's amount parser under its old name (it read US dollars only). */
 export const parseDollars = (s: string): number | null => parseAmount(s);
 
-export function money(minor: number, lang: Lang, currency: string = clubFmt.currency): string {
+/** An amount as the club writes it ("$40.50", "40,50 €", "¥1,500"), whatever the reader's language: the same
+ *  separators staff type, so what's shown can be typed back. (A sentence around it is in the reader's language.) */
+export function money(minor: number, _lang: Lang, currency: string = clubFmt.currency): string {
   const d = minorUnits(currency);
-  return new Intl.NumberFormat(formatLocale(lang), { style: "currency", currency, minimumFractionDigits: d, maximumFractionDigits: d }).format(toMajor(minor, currency));
+  return new Intl.NumberFormat(clubFmt.locale, { style: "currency", currency, minimumFractionDigits: d, maximumFractionDigits: d }).format(toMajor(minor, currency));
 }
 
 export function dateTime(d: Date, lang: Lang, timeZone: string): string {

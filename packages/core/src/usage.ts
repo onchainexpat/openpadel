@@ -164,7 +164,8 @@ export async function usageView(db: Db | Trx, now = new Date()) {
       kinds: Object.fromEntries(USAGE_KINDS.map((x) => [x, Math.round(k[x].cents)])) as Record<UsageKind, number> })) };
 }
 
-const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
+// The meter counts in US dollars, as the services bill them (usage.ts prices), whatever the club's own currency.
+const usd = (cents: number): Text => ({ en: money(cents, "en", "USD"), es: money(cents, "es", "USD") });
 
 /** The 80%, cap, over and paused messages, as an event the messages turn into words (system only). */
 export const usageAlert = defineAction({

@@ -10,7 +10,7 @@
 // parent turns them on (then nobody can add them, and they can't take a place from someone's link).
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, dateTime, money, pickLang, type Key, type Text } from "@kumi/i18n";
+import { both, capFor, dateTime, money, pickLang, type Key, type Text } from "@kumi/i18n";
 import { apply as applyRun, defineAction, dryPlan, plan as planRun, readRow, run, runAsSystem, setPlanGate, type Actor } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -429,13 +429,15 @@ export const kidRemoveLogin = defineAction({
   },
 });
 
-const limitInput = z.number().check(z.int(), z.minimum(0), z.maximum(100_000));
+const limitInput = z.number().check(z.int(), z.minimum(0), z.maximum(1_000_000_000));   // at most about $1,000 in the club's currency, checked in plan (capFor)
 export const kidSetRules = defineAction({
   name: "kid.set_rules", version: 1,
   input: z.object({ person_id: z.uuid(), open_matches: z.optional(z.boolean()), courts: z.optional(z.boolean()), programs: z.optional(z.boolean()), lessons: z.optional(z.boolean()),
     monthly_limit_cents: z.optional(limitInput), friends: z.optional(z.boolean()), texts: z.optional(z.boolean()) }),
   async plan(ctx, i) {
     const { row } = await juniorRow(ctx.db, i.person_id);
+    // At most about $1,000 a month, in the club's currency.
+    if (i.monthly_limit_cents !== undefined && i.monthly_limit_cents > capFor(100_000)) throw new KumiError("error.amount_range", { min: money(0, "en"), max: money(capFor(100_000), "en") });
     const { row: rules, read } = await readRow(ctx.db, "kid_rule", i.person_id, "thing.kid_rule");
     const next = { open_matches: i.open_matches ?? rules.open_matches, courts: i.courts ?? rules.courts, programs: i.programs ?? rules.programs, lessons: i.lessons ?? rules.lessons,
       monthly_limit_cents: i.monthly_limit_cents ?? rules.monthly_limit_cents, friends: i.friends ?? rules.friends, texts: i.texts ?? rules.texts };

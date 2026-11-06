@@ -9,7 +9,7 @@
 // payments and refunds from the update that added receipts on get one (club.receipts_from).
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, money, type Lang, type Text, formatLocale } from "@kumi/i18n";
+import { both, money, type Lang, type Text, formatLocale, clubFormat } from "@kumi/i18n";
 import { defineAction, runAsSystem } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { textOf } from "./club_text.ts";
@@ -33,41 +33,55 @@ const whenText = (d: Date, tz: string): Text => ({
 /** "R-001042": the number as printed. */
 export const receiptNo = (n: string | number) => `R-${String(n).padStart(6, "0")}`;
 
-/** A location's address as it's written where it is: the street, then the postal code and region, then the country. */
-function addressLine(r: { address: string | null; postal_code: string | null; region: string | null; country: string | null }): string | null {
+/** A location's address as it's written where it is: the street, then the postal code and region, then the country,
+ *  named in each reader's language. */
+function addressLine(r: { address: string | null; postal_code: string | null; region: string | null; country: string | null }): Text | null {
   const place = [r.postal_code, r.region].filter(Boolean).join(" ");
-  const country = r.country ? (() => { try { return new Intl.DisplayNames([formatLocale("en")], { type: "region" }).of(r.country!) ?? r.country; } catch { return r.country; } })() : null;
-  const line = [r.address, place, country].filter(Boolean).join(", ");
-  return line || null;
+  const line = (lang: Lang) => {
+    const country = r.country ? (() => { try { return new Intl.DisplayNames([lang], { type: "region" }).of(r.country!) ?? r.country; } catch { return r.country; } })() : null;
+    return [r.address, place, country].filter(Boolean).join(", ");
+  };
+  return line("en") ? { en: line("en"), es: line("es") } : null;
 }
 
-/** How the club taxes, kept on each receipt as it's issued (a later change never rewrites one already given). */
-async function taxFacts(db: Db | Trx) {
+/** How a receipt was taxed: the booking's own terms when it has them (the rate and whether the price included it,
+ *  as it was sold), else the club's now. A later change of either never rewrites a receipt already given. */
+type TaxFacts = { tax_included: boolean; tax_label: string | null; tax_bp: number | null };
+async function taxFacts(db: Db | Trx, sold?: { bp: number; included: boolean } | null): Promise<TaxFacts> {
   const c = await db.selectFrom("club").select(["prices_include_tax", "tax_label", "tax_rate_bp"]).executeTakeFirstOrThrow();
-  return { tax_included: c.prices_include_tax, tax_label: c.tax_label, tax_bp: c.tax_rate_bp };
+  return sold ? { tax_included: sold.included, tax_label: c.tax_label, tax_bp: sold.bp } : { tax_included: c.prices_include_tax, tax_label: c.tax_label, tax_bp: c.tax_rate_bp };
 }
 /** What the tax is called: the club's own word, else "Sales tax" (prices before tax) or "Tax" (prices that include it). */
 export const taxWord = (label: string | null, included: boolean): Text => label ? { en: label, es: label } : both(included ? "ui.tax_word" : "ui.receipt_tax");
-const rateText = (bp: number | null): Text => { const n = (bp ?? 0) / 100; return { en: `${n.toLocaleString("en-US")}%`, es: `${n.toLocaleString("es-US")} %` }; };
+/** "21%" as the club writes numbers ("10,5 %" in Spain). */
+const rateText = (bp: number | null): Text => { const s = new Intl.NumberFormat(clubFormat().locale, { style: "percent", maximumFractionDigits: 2 }).format((bp ?? 0) / 10_000); return { en: s, es: s }; };
 
 /** What one payment was for, its sales tax (a court or lesson's, in proportion to what was paid) and where. */
-async function lineOf(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: number; locationId: string | null }> {
+type Sold = { bp: number; included: boolean } | null;
+async function lineOf(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: number; locationId: string | null; sold?: Sold }> {
   // A promo code's discount is named on the line (promo_codes.ts): what was paid, after it.
   const l = await lineWithout(db, p, tz);
   // A membership's: the code is for its first payment only; it renews at the plan's price.
   return p.discount_cents ? { ...l, what: both(p.membership_plan_id ? "receipt.line_promo_first" : "receipt.line_promo", { what: l.what, off: { en: money(p.discount_cents, "en"), es: money(p.discount_cents, "es") } }) } : l;
 }
-async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: number; locationId: string | null }> {
+async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: number; locationId: string | null; sold?: Sold }> {
   if (p.booking_player_id) {
     const b = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
       .innerJoin("court", "court.id", "court_time.court_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
-      .select(["booking.kind", "booking.price_cents", "booking.tax_cents", "booking.location_id", "court.name as court", "coach.display_name as coach", sql<Date>`lower(court_time.during)`.as("start")])
+      .select(["booking.kind", "booking.price_cents", "booking.tax_cents", "booking.quote", "booking.location_id", "court.name as court", "coach.display_name as coach", sql<Date>`lower(court_time.during)`.as("start")])
       .where("booking_player.id", "=", p.booking_player_id).orderBy(sql`court_time.active`, "desc").executeTakeFirst();
     if (b) {
       const params = { court: b.court, when: whenText(new Date(b.start), tz), coach: b.coach ?? "" };
       const what = b.kind === "lesson" ? both("receipt.line_lesson", params) : p.amount_cents + (p.discount_cents ?? 0) >= b.price_cents ? both("receipt.line_court", params) : both("receipt.line_share", params);
-      const tax = b.price_cents > 0 ? Math.round(b.tax_cents * p.amount_cents / b.price_cents) : 0;
-      return { what, cents: p.amount_cents, tax, locationId: b.location_id };
+      // The tax in what this payment paid, at the rate it was sold at: a share's receipt states the VAT on its own
+      // amount (a quarter of a €10.00 court at 21% is €0.43), not a share of the court's rounded tax. A booking from
+      // before quotes kept the rate: its tax in proportion, as before.
+      const q = b.quote as { tax_bp?: number; tax_included?: boolean } | null;
+      const sold: Sold = q && typeof q.tax_bp === "number" ? { bp: q.tax_bp, included: Boolean(q.tax_included) } : null;
+      const paidAll = p.amount_cents + (p.discount_cents ?? 0) >= b.price_cents;
+      const tax = !b.tax_cents || b.price_cents <= 0 ? 0 : paidAll && !p.discount_cents ? b.tax_cents
+        : sold ? Math.round(p.amount_cents * sold.bp / (10_000 + sold.bp)) : Math.round(b.tax_cents * p.amount_cents / b.price_cents);
+      return { what, cents: p.amount_cents, tax, locationId: b.location_id, sold };
     }
   }
   if (p.enrolment_id) {
@@ -128,7 +142,7 @@ export const receiptIssue = defineAction({
       const id = uuidv7(ctx.now.getTime());
       await ctx.trx.insertInto("receipt").values({ id, kind: "payment", person_id: to, for_person_id: forPerson, payment_id: rows[0]!.id, refund_id: null,
         location_id: lines.find((l) => l.locationId)?.locationId ?? await firstLocation(ctx.trx), lines: JSON.stringify(lines.map((l) => ({ what: l.what, cents: l.cents }))),
-        subtotal_cents: total - tax, tax_cents: tax, total_cents: total, method: pay.method, card: card ? JSON.stringify(card) : null, paid_at: ctx.now, ...await taxFacts(ctx.trx) }).execute();
+        subtotal_cents: total - tax, tax_cents: tax, total_cents: total, method: pay.method, card: card ? JSON.stringify(card) : null, paid_at: ctx.now, ...await taxFacts(ctx.trx, lines.find((l) => l.sold)?.sold) }).execute();
       await ctx.trx.insertInto("receipt_payment").values(rows.map((r) => ({ payment_id: r.id, receipt_id: id }))).execute();
       await ctx.emit("receipt.issued", { receipt_id: id });
       return { receipt_id: id };
@@ -140,14 +154,16 @@ export const receiptIssue = defineAction({
     const line = await lineOf(ctx.trx, pay, tz);
     // The tax comes back in the same share as it was paid.
     const tax = pay.amount_cents > 0 ? Math.round(line.tax * r.amount_cents / pay.amount_cents) : 0;
-    const paidReceipt = await ctx.trx.selectFrom("receipt_payment").innerJoin("receipt", "receipt.id", "receipt_payment.receipt_id").select(["receipt.card", "receipt.location_id"])
-      .where("receipt_payment.payment_id", "=", pay.id).executeTakeFirst();
+    const paidReceipt = await ctx.trx.selectFrom("receipt_payment").innerJoin("receipt", "receipt.id", "receipt_payment.receipt_id")
+      .select(["receipt.card", "receipt.location_id", "receipt.tax_included", "receipt.tax_label", "receipt.tax_bp"]).where("receipt_payment.payment_id", "=", pay.id).executeTakeFirst();
+    // A refund is taxed as the payment it gives back was: its receipt's terms, else the booking's, else the club's.
+    const facts = paidReceipt ? { tax_included: paidReceipt.tax_included, tax_label: paidReceipt.tax_label, tax_bp: paidReceipt.tax_bp } : await taxFacts(ctx.trx, line.sold);
     const { to, forPerson } = await payerOf(ctx.trx, pay);
     const id = uuidv7(ctx.now.getTime());
     await ctx.trx.insertInto("receipt").values({ id, kind: "refund", person_id: to, for_person_id: forPerson, payment_id: pay.id, refund_id: r.id,
       location_id: paidReceipt?.location_id ?? line.locationId ?? await firstLocation(ctx.trx), lines: JSON.stringify([{ what: line.what, cents: r.amount_cents }]),
       subtotal_cents: r.amount_cents - tax, tax_cents: tax, total_cents: r.amount_cents, method: r.destination === "credit" ? "credit" : pay.method,
-      card: r.destination === "credit" ? null : paidReceipt?.card ? JSON.stringify(paidReceipt.card) : card ? JSON.stringify(card) : null, paid_at: ctx.now, ...await taxFacts(ctx.trx) }).execute();
+      card: r.destination === "credit" ? null : paidReceipt?.card ? JSON.stringify(paidReceipt.card) : card ? JSON.stringify(card) : null, paid_at: ctx.now, ...facts }).execute();
     await ctx.emit("receipt.issued", { receipt_id: id });
     return { receipt_id: id };
   },
@@ -209,7 +225,7 @@ export async function receiptParams(db: Db, receiptId: string) {
     // the tax it holds ("Of which VAT (21%): €6.94").
     subtotal: v.tax_included ? NOTHING : both("receipt.subtotal_line", { amount: v.subtotal }),
     included: v.tax_included && v.tax ? both(v.tax_rate ? "receipt.tax_included_line" : "receipt.tax_included_line_plain", { label: v.tax_name, rate: v.tax_rate ?? NOTHING, amount: v.tax }) : NOTHING,
-    address: v.address ? `\n${v.address}` : "", lines: { en: lineText("en"), es: lineText("es") },
+    address: v.address ? { en: `\n${v.address.en}`, es: `\n${v.address.es}` } : "", lines: { en: lineText("en"), es: lineText("es") },
     tax: v.tax && !v.tax_included ? both("receipt.tax_line", { label: v.tax_name, amount: v.tax }) : NOTHING,
     for: v.kid ? both("receipt.for_line", { name: v.kid }) : NOTHING,
     original: v.original ? both("receipt.original_line", { number: v.original }) : NOTHING,

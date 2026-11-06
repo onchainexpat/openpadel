@@ -673,7 +673,9 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   // per cap. "Reached" with nothing allowed over, and "paused", stay on Today until the cap is raised or seen to.
   async "usage.cap"({ db, tz }, p: { level: "near" | "reached" | "over" | "paused"; spent_cents: number; cap_cents: number; over_cents: number; month: string }) {
     const resets = nextMonthStart(p.month, tz);
-    const params = { spent: amount(p.spent_cents), cap: amount(p.cap_cents), over: amount(p.over_cents), limit: amount(p.cap_cents + p.over_cents), resets: dayText(localDate(resets, tz)) };
+    // The meter is in US dollars, as the services bill them, whatever the club's currency.
+    const $ = (c: number): Text => ({ en: money(c, "en", "USD"), es: money(c, "es", "USD") });
+    const params = { spent: $(p.spent_cents), cap: $(p.cap_cents), over: $(p.over_cents), limit: $(p.cap_cents + p.over_cents), resets: dayText(localDate(resets, tz)) };
     return (await managers(db)).map((to) => ({ to, kind: `usage_${p.level}_staff`, params, purpose: "staff" as const, essential: true, email: true, link: "/usage", staleAt: resets }));
   },
   // The day the club's Kumi ends (leaving.ts): the owner hears at once, a week before and a day before, to download

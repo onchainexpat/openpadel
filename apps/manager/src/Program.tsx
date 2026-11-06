@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { amountPattern, amountStep, fromMajor, parseDollars, toMajor } from "@kumi/i18n/format";
+import { amountInput, amountPattern, amountStep, fromMajor, parseDollars, toMajor } from "@kumi/i18n/format";
 import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf, clubTime, serverNow, clubMoment } from "@kumi/ui";
 import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
@@ -79,7 +79,7 @@ export function Program({ id }: { id: string }) {
         <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setNaming(null)}>{t("ui.cancel")}</button>
       </form>}
       <p class="meta">{t(`kind.${p.kind}` as Key)} · {byDate ? t("ui.per_date_label") : t("ui.places_taken", { booked: booked.length, capacity: p.capacity })} · {money(p.price_cents)}{p.member_price_cents !== null ? ` (${t("ui.members_pay", { amount: money(p.member_price_cents) })})` : ""} · {t(`ui.status_${p.status}` as Key)}{" "}
-        {!pricing && <button class="small" onClick={() => setPricing({ price: String(toMajor(p.price_cents)), member: p.member_price_cents === null ? "" : String(toMajor(p.member_price_cents)) })}>{t("ui.change_prices")}</button>}</p>
+        {!pricing && <button class="small" onClick={() => setPricing({ price: amountInput(p.price_cents), member: p.member_price_cents === null ? "" : amountInput(p.member_price_cents) })}>{t("ui.change_prices")}</button>}</p>
       {pricing && <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("program.set_prices", { program_id: id, price_cents: parseDollars(pricing.price) ?? NaN,
         member_price_cents: pricing.member.trim() ? parseDollars(pricing.member) ?? NaN : null }); }}>
         <label>{t("ui.price")}<input required inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={pricing.price} onInput={(e) => setPricing({ ...pricing, price: e.currentTarget.value })} /></label>

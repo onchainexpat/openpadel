@@ -11,8 +11,13 @@ server starts.
 - **A club's own currency.** Settings has the club's currency (its three-letter code: USD, EUR, GBP, MXN...),
   USD until it's changed. Every amount Kumi shows, reads, sends to Stripe, puts on a receipt, a report, a
   spreadsheet, an email or a notification is in it, written the club's way ("€40.50", "¥1,500"), and an amount staff
-  type is read the same way. Zero-decimal currencies (yen, won) are whole units; three-decimal ones (the Kuwaiti
-  dinar and a few others) aren't taken yet, since Stripe treats them differently. The currency can't change once the
+  type is read the same way: only with the club's own sign or code ("$40" in a euro club, "12 mil" or "5k" aren't
+  read), and an amount is shown with the club's separators whatever the reader's language, so what's shown can be
+  typed back. Zero-decimal currencies (yen, won) are whole units; three-decimal ones (the Kuwaiti dinar and a few
+  others) and the Icelandic krona and Ugandan shilling (whole units Stripe takes written with two decimals) aren't
+  taken yet. Limits sized in dollars (a gift card's largest amount, a pass's price, a kid's monthly limit) are sized
+  for the currency. Outside costs (AI, texts, email) are still counted, capped and shown in US dollars, as the
+  services bill them, whatever the club's currency. The currency can't change once the
   club has taken a payment, and `kumi doctor` warns when it isn't the Stripe account's own (Stripe would convert
   every payment, for a fee). See the setup guide's "Running Kumi outside the US".
 - **A club's own formats.** Settings has the club's locale (en-US until changed: en-GB, es-ES, fr-FR...). Dates,
@@ -24,12 +29,16 @@ server starts.
 - **Prices that include tax.** Settings has "Prices include tax" (off: the US way, tax on top) and the tax's name on
   receipts (Sales tax, VAT, IVA, GST). With it on, a court or lesson priced at €40 costs €40, and its receipt
   shows the total, then "Of which VAT (21%): €6.94". A refund or a promo code takes its share of the tax, as before.
-  Each receipt keeps how it was taxed when it was issued. What's taxed is unchanged: court bookings and lessons;
-  places, memberships, passes and gift cards aren't.
-- **A club's country, and phone numbers from anywhere.** Settings has the club's country (US until changed). A
-  number typed without a + is read in it and kept as an international number, and a club's own Stripe account (under
-  Connect) is opened there. Texts still reach US and Canadian numbers only: someone who gives another country's number
-  is told so plainly, and gets the same messages by email. A location's address has its postal code, region and
+  Each receipt keeps the rate and the way the booking was taxed when it was sold (a later change of the club's rate
+  never rewrites it, and a refund's receipt follows the payment's), and a share's receipt states the tax on its own
+  amount (a quarter of a €10.00 court at 21% is €0.43). Reports show revenue before tax, with the tax collected under
+  them. What's taxed is unchanged: court bookings and lessons; places, memberships, passes and gift cards aren't.
+- **A club's country.** Settings has the club's country (US until changed). A phone number typed without a + is read
+  in it first: in a Mexican club "55 1234 5678" is Mexico City, never the US number with the same digits (before this
+  fix, such a number was read as a US one, so a sign-in code or a yes to texts could reach a stranger in the US). Only
+  US and Canadian numbers are texted, so only those are kept on an account (they're confirmed by a texted code);
+  someone who gives another country's number is told so plainly and gets the same messages by email. The club's own
+  Stripe account (under Connect) is opened in its country, and the country can't change once that account exists. A location's address has its postal code, region and
   country, and a receipt writes the address that way.
 - **Mexicano and King of the Court nights**, beside the Americano. A Mexicano pairs each round by the night's
   standings (1st and 4th against 2nd and 3rd, the best four on the top court), with games to 16, 21, 24 or 32

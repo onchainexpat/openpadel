@@ -2,7 +2,7 @@
 // and how far ahead its members book; member prices are court prices for chosen plans (Settings, Prices).
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { amountPattern, currencySign, parseDollars, plainAmount, toMajor, formatLocale } from "@kumi/i18n/format";
+import { amountInput, amountPattern, currencySign, parseDollars, plainAmount, toMajor, formatLocale } from "@kumi/i18n/format";
 import { api, dollars, lang, mayDo, OtherLang, savedIn, t, translationsOf, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 
@@ -94,11 +94,11 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
   const blank = { plan_id: "", name: "", dollars: "", period: "month" as "month" | "year", days_ahead: "", description: "", join_in_app: true, max_members: "", starts_on: "", perks_before_start: true,
     discount: "none" as "none" | "percent" | "dollars", off: "", included: "", kinds: ["clinic", "social"], family: "", extra: "", name_tr: "", description_tr: "" };
   const [f, setF] = useState(blank);
-  const edit = (p: Plan) => setF({ plan_id: p.id, name: p.name, dollars: String(toMajor(p.price_cents)), period: p.period, days_ahead: p.days_ahead ? String(p.days_ahead) : "", description: p.description ?? "", join_in_app: p.join_in_app ?? true,
+  const edit = (p: Plan) => setF({ plan_id: p.id, name: p.name, dollars: amountInput(p.price_cents), period: p.period, days_ahead: p.days_ahead ? String(p.days_ahead) : "", description: p.description ?? "", join_in_app: p.join_in_app ?? true,
     max_members: p.max_members ? String(p.max_members) : "", starts_on: p.starts_on ?? "", perks_before_start: p.perks_before_start ?? true,
-    discount: p.program_percent_off ? "percent" : p.program_cents_off ? "dollars" : "none", off: p.program_percent_off ? String(p.program_percent_off) : p.program_cents_off ? String(toMajor(p.program_cents_off)) : "",
+    discount: p.program_percent_off ? "percent" : p.program_cents_off ? "dollars" : "none", off: p.program_percent_off ? String(p.program_percent_off) : p.program_cents_off ? amountInput(p.program_cents_off) : "",
     included: p.included_sessions ? String(p.included_sessions) : "", kinds: p.included_kinds ?? ["clinic", "social"],
-    family: p.family_size ? String(p.family_size) : "", extra: p.extra_person_cents != null ? String(toMajor(p.extra_person_cents)) : "",
+    family: p.family_size ? String(p.family_size) : "", extra: p.extra_person_cents != null ? amountInput(p.extra_person_cents) : "",
     name_tr: savedIn(p.translations, "name"), description_tr: savedIn(p.translations, "description") });
   return (
     <section class="card">

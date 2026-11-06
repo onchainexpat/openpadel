@@ -2,7 +2,7 @@
 // and courts. Every change goes through the preview, like everything else; only what changed is sent.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { amountPattern, fromMajor, money, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
+import { amountInput, amountPattern, capFor, fromMajor, money, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
 import { api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club, applyBrand } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
@@ -169,7 +169,7 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       <label class="check"><input type="checkbox" checked={f.gift_cards} onChange={(e) => set("gift_cards", e.currentTarget.checked)} /> {t("ui.gift_cards_setting")}</label>
       {f.gift_cards && <>
         <label>{t("ui.gift_card_min")}<input type="number" min="1" step="1" value={toMajor(f.gift_card_min_cents)} onChange={(e) => set("gift_card_min_cents", fromMajor(Number(e.currentTarget.value)))} /></label>
-        <label>{t("ui.gift_card_max")}<input type="number" min="1" max="5000" step="1" value={toMajor(f.gift_card_max_cents)} onChange={(e) => set("gift_card_max_cents", fromMajor(Number(e.currentTarget.value)))} /></label>
+        <label>{t("ui.gift_card_max")}<input type="number" min="1" max={toMajor(capFor(500000))} step="1" value={toMajor(f.gift_card_max_cents)} onChange={(e) => set("gift_card_max_cents", fromMajor(Number(e.currentTarget.value)))} /></label>
       </>}
       <label class="check"><input type="checkbox" checked={f.public_page} onChange={(e) => set("public_page", e.currentTarget.checked)} /> {t("ui.public_page_on")}</label>
       {c.public_page && <p class="meta"><a href={`${clubSignal.value?.member_url ?? ""}/public`} target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
@@ -269,7 +269,7 @@ const usd = (cents: number) => money(cents, lang.value);
 function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
   const blank = { rule_id: "", name: "", dollars: "", days: [] as number[], allDay: true, starts: "17:00", ends: "22:00", valid_from: "", valid_to: "", courts: [] as string[], priority: 0, plans: [] as string[], name_tr: "" };
   const [f, setF] = useState(blank);
-  const edit = (r: Price) => setF({ rule_id: r.id, name: r.name, dollars: String(toMajor(r.cents_per_hour)), days: r.weekdays ?? [], allDay: !r.starts, starts: r.starts ?? "17:00", ends: r.ends ?? "22:00",
+  const edit = (r: Price) => setF({ rule_id: r.id, name: r.name, dollars: amountInput(r.cents_per_hour), days: r.weekdays ?? [], allDay: !r.starts, starts: r.starts ?? "17:00", ends: r.ends ?? "22:00",
     valid_from: r.valid_from ?? "", valid_to: r.valid_to ?? "", courts: r.court_ids ?? [], priority: r.priority, plans: r.plan_ids ?? [], name_tr: savedIn(r.translations, "name") });
   const describe = (r: Price) => [r.weekdays?.length ? r.weekdays.map(dayName).join(", ") : t("ui.every_day"), r.starts && `${r.starts} - ${r.ends}`,
     (r.valid_from || r.valid_to) && `${r.valid_from ?? ""} - ${r.valid_to ?? ""}`, r.court_ids && l.courts.filter((c) => r.court_ids!.includes(c.id)).map((c) => c.name).join(", "),

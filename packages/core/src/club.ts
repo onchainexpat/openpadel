@@ -1,7 +1,7 @@
 // The first actions: setting up the club, its details, locations, roles and profiles.
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, currencyProblem, setClubFormat, type Key, type Text } from "@kumi/i18n";
+import { both, capFor, currencyProblem, money, setClubFormat, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { KumiError } from "./errors.ts";
 import type { Db, Trx } from "./db.ts";
@@ -63,7 +63,7 @@ export const clubSetup = defineAction({
  *  the old currency, and Stripe can't convert them). */
 async function currencyChange(db: Db | Trx, code: string) {
   const problem = currencyProblem(code);
-  if (problem) throw new KumiError(problem === "three_decimals" ? "error.currency_three_decimals" : "error.currency_unknown", { currency: code.toUpperCase() }, 400);
+  if (problem) throw new KumiError(problem === "three_decimals" ? "error.currency_three_decimals" : problem === "whole_in_two" ? "error.currency_whole_in_two" : "error.currency_unknown", { currency: code.toUpperCase() }, 400);
   if (await db.selectFrom("payment").select("id").limit(1).executeTakeFirst()) throw new KumiError("error.currency_has_payments", {}, 409);
 }
 
@@ -96,7 +96,7 @@ export const clubUpdate = defineAction({
     // Players message each other inside the games they play together (chat.ts); off, no chat anywhere.
     players_chat: z.optional(z.boolean()),
     // Gift cards (gift_cards.ts): sold in the app and at the desk, for amounts from the minimum to the maximum.
-    gift_cards: z.optional(z.boolean()), gift_card_min_cents: z.optional(z.number().check(z.int(), z.minimum(100))), gift_card_max_cents: z.optional(z.number().check(z.int(), z.maximum(500000))),
+    gift_cards: z.optional(z.boolean()), gift_card_min_cents: z.optional(z.number().check(z.int(), z.minimum(100))), gift_card_max_cents: z.optional(z.number().check(z.int(), z.maximum(1_000_000_000))),
     public_page: z.optional(z.boolean()), about: z.optional(z.nullable(z.string().check(z.maxLength(600)))),
     // The club's own terms and privacy policy for members (docs/templates): linked where members join, beside the
     // yes to texts, on the profile and the public pages. Someone who joins after they're set agrees to them.
@@ -120,6 +120,11 @@ export const clubUpdate = defineAction({
     const pausing = (row.weekly_bookings && i.weekly_bookings === false) || (row.court_bookings && i.court_bookings === false)
       ? Number((await ctx.db.selectFrom("booking_series").select(sql<string>`count(*)`.as("n")).where("ended_at", "is", null).where("source", "=", "app").where("paused_at", "is", null).executeTakeFirstOrThrow()).n) : 0;
     if (i.currency !== undefined && i.currency.toUpperCase() !== row.currency) await currencyChange(ctx.db, i.currency);
+    // The club's Stripe account was opened in its country, which Stripe can't change afterwards.
+    if (i.country !== undefined && i.country.toUpperCase() !== row.country && row.stripe_account_id) throw new KumiError("error.country_after_stripe", { country: row.country });
+    // A gift card is at most about $5,000, in the club's currency.
+    const cur = (i.currency ?? row.currency).toUpperCase();
+    if (i.gift_card_max_cents !== undefined && i.gift_card_max_cents > capFor(500000, cur)) throw new KumiError("error.amount_range", { min: money(capFor(100, cur), "en", cur), max: money(capFor(500000, cur), "en", cur) });
     const summary = both("plan.club.update", { fields: fieldList(fields) });
     return { title: both("action.club.update"), summary: pausing ? { en: `${summary.en} ${both("plan.club.weekly_pause", { count: pausing }).en}`, es: `${summary.es} ${both("plan.club.weekly_pause", { count: pausing }).es}` } : summary,
       reads: [read], undo: { kind: "reversible" }, details: { fields } };

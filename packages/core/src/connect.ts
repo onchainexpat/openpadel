@@ -69,7 +69,8 @@ export async function connectStripe(db: Db, stripe: StripeProvider, actor: Actor
     // The retry key must be this club's own: the platform key is shared by every hosted club, and Stripe
     // would hand a second club the first one's account. The run that set the club up is unique to it.
     const setup = await db.selectFrom("action_run").select("id").where("action", "=", "club.setup").orderBy("id").limit(1).executeTakeFirstOrThrow();
-    account = await stripe.createAccount({ country: club.country, email, idempotencyKey: `club:${setup.id}` });
+    // The country is in the key (an account can't change country); a US club keeps the key it always had.
+    account = await stripe.createAccount({ country: club.country, email, idempotencyKey: `club:${setup.id}${club.country === "US" ? "" : `:${club.country}`}` });
     const r = await run(db, "club.payment_account_set", { stripe_account_id: account }, actor);
     if (r.status === "awaiting_approval") return { awaiting_approval: r.runId };
   }

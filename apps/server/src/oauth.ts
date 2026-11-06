@@ -10,7 +10,7 @@ import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setSession } from "./session_cookie.ts";
 import { money, t, type Lang } from "@kumi/i18n";
-import { activeFactor, KumiError, supportOnly, usPhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
+import { activeFactor, KumiError, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 import { RateLimiter } from "./limits.ts";
@@ -225,7 +225,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     if (u.origin !== new URL(issuer).origin || u.pathname !== "/oauth/authorize") throw new KumiError("error.oauth_request", {}, 400);
     if (f.phone !== undefined) {
       if (!phoneOn()) throw new KumiError("error.phone_sign_in_off", {}, 409);
-      const phone = usPhone(String(f.phone));
+      const phone = textablePhone(String(f.phone));
       if (!phone) throw new KumiError("error.phone_bad", {}, 400);
       if (!f.code) {
         // The same answer whether or not the number has an account; only an account's own number gets a text.

@@ -61,7 +61,7 @@ test("a parent turns on a login for a kid of 13 or more: their own email, the me
   const p = await db.selectFrom("person").select(["junior", "own_login", "email"]).where("id", "=", mia).executeTakeFirstOrThrow();
   assert.deepEqual(p, { junior: true, own_login: true, email: "mia@example.test" });
   assert.equal((await kidOf(db, mia))?.monthly_limit_cents, 10000);
-  await rejects(plan(db, "kid.set_rules", { person_id: mia, monthly_limit_cents: 999_999 }, asMia(), opts), "error.invalid_input");
+  await rejects(plan(db, "kid.set_rules", { person_id: mia, monthly_limit_cents: 999_999 }, asMia(), opts), "error.amount_range");   // past about $1,000 a month
   await rejects(plan(db, "kid.set_rules", { person_id: mia, courts: false }, asMia(), opts), "error.forbidden_reason");   // a kid doesn't set their own rules
   await processOutbox(db, messageHandlers);
   assert.deepEqual(await msg(mia, "kid_login"), [{ subject: "Your login at Kestrel Padel",

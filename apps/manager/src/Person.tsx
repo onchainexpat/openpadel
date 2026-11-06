@@ -5,7 +5,7 @@ import { useLocation } from "preact-iso";
 import { AccountData, api, club, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
 import { WeeklyCourts, type WeeklyCourt } from "@kumi/ui/weekly";
 import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
-import { amountStep, fromMajor, plainAmount } from "@kumi/i18n/format";
+import { amountStep, capFor, fromMajor, plainAmount, toMajor } from "@kumi/i18n/format";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
 type P = {
@@ -162,7 +162,7 @@ export function Person({ id }: { id: string }) {
         <h2>{t("ui.credit_title")}</h2>
         <p>{t("ui.credit_held", { amount: dollars(p.credit_cents!, lang.value) })}</p>
         {mayDo("credit.pay_out") && <form class="inline" onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget as HTMLFormElement;
-          const cents = Math.round(Number((f.elements.namedItem("amount") as HTMLInputElement).value) * 100);
+          const cents = fromMajor(Number((f.elements.namedItem("amount") as HTMLInputElement).value));
           preview("credit.pay_out", { person_id: p.id, cents, method: (f.elements.namedItem("method") as HTMLSelectElement).value }); }}>
           <input name="amount" type="number" min={amountStep()} step={amountStep()} max={plainAmount(p.credit_cents!)} defaultValue={plainAmount(p.credit_cents!)} aria-label={t("ui.amount")} />
           <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="other">{t("paid_by.other")}</option></select>
@@ -171,9 +171,9 @@ export function Person({ id }: { id: string }) {
       {club.value?.gift_cards && mayDo("gift_card.sell") && <section class="card">
         <h2>{t("action.gift_card.sell")}</h2>
         <form class="inline" onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget as HTMLFormElement;
-          preview("gift_card.sell", { person_id: p.id, cents: Math.round(Number((f.elements.namedItem("amount") as HTMLInputElement).value) * 100), method: (f.elements.namedItem("method") as HTMLSelectElement).value,
+          preview("gift_card.sell", { person_id: p.id, cents: fromMajor(Number((f.elements.namedItem("amount") as HTMLInputElement).value)), method: (f.elements.namedItem("method") as HTMLSelectElement).value,
             for_name: (f.elements.namedItem("for") as HTMLInputElement).value || undefined }); }}>
-          <input name="amount" type="number" min="1" step="1" defaultValue="50" aria-label={t("ui.gift_card_amount")} />
+          <input name="amount" type="number" min="1" step="1" defaultValue={String(toMajor(capFor(5000)))} aria-label={t("ui.gift_card_amount")} />
           <input name="for" maxLength={80} placeholder={t("ui.gift_card_for")} aria-label={t("ui.gift_card_for")} />
           <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="terminal">{t("paid_by.terminal")}</option><option value="other">{t("paid_by.other")}</option></select>
           <button class="small">{t("action.gift_card.sell")}</button></form>

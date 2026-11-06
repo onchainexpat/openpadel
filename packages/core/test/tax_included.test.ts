@@ -51,11 +51,11 @@ test("a court priced with tax included costs its price, and its receipt says the
   const [r] = await receiptsOf(db, people.Ann!);
   const v = (await receiptView(db, r!.id))!;
   assert.equal(v.tax_included, true);
-  assert.equal(v.tax_rate?.en, "21%");
+  assert.equal(v.tax_rate?.en, "21\u00a0%");   // written as the club writes numbers (Spain: "21 %")
   assert.equal((await db.selectFrom("receipt").select(["tax_cents", "total_cents"]).where("id", "=", r!.id).executeTakeFirstOrThrow()).tax_cents, 694);
   const p = (await receiptParams(db, r!.id))!;
   assert.equal((p.params.subtotal as { en: string }).en, "");
-  assert.match((p.params.included as { en: string }).en, /^Of which VAT \(21%\): €6\.94/);
+  assert.match((p.params.included as { en: string }).en, /^Of which VAT \(21\s%\): 6,94\s€/);   // amounts the club's way, words in English
 });
 
 test("a promo code takes its share of the tax, and the US way is unchanged when switched back", async () => {

@@ -7,7 +7,7 @@ import { useEffect, useState } from "preact/hooks";
 import { AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { loadFamily } from "./ForWhom.tsx";
 import { PaySheet } from "./Pay.tsx";
-import { fromMajor, toMajor, formatLocale } from "@kumi/i18n/format";
+import { capFor, fromMajor, toMajor, formatLocale } from "@kumi/i18n/format";
 
 type Person = { id: string; display_name: string; me?: boolean };
 type Junior = Person & { birth_year: number | null; level: number | null; waiver: { version_no: number; accepted_at: string | null } | null };
@@ -153,7 +153,7 @@ function KidRules({ id, name, rules, send }: { id: string; name: string; rules: 
       {box("courts", t("ui.kid_courts"))}
       {box("programs", t("ui.kid_programs"))}
       {box("lessons", t("ui.kid_lessons"))}
-      <label>{t("ui.kid_limit")} <input type="number" required min={0} max={1000} step="1" inputMode="numeric" value={limit} onInput={(e) => setLimit(e.currentTarget.value)} /></label>
+      <label>{t("ui.kid_limit")} <input type="number" required min={0} max={toMajor(capFor(100_000))} step="1" inputMode="numeric" value={limit} onInput={(e) => setLimit(e.currentTarget.value)} /></label>
       {box("friends", t("ui.kid_friends"))}
       {box("texts", t("ui.kid_texts"))}
       <button class="primary">{t("ui.kid_save_rules")}</button>

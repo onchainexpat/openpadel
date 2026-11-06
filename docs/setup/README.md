@@ -522,7 +522,8 @@ Kumi was built for US clubs. These parts work for a club anywhere:
   before the first payment: it can't change after one. Every amount is then in it, on screens, receipts, reports,
   spreadsheets, emails and notifications, and staff type amounts the club's way. The Stripe account should pay out in
   the same currency (`kumi doctor` warns if it doesn't, since Stripe would convert every payment, for a fee).
-  Zero-decimal currencies (JPY, KRW) work in whole units; three-decimal ones (KWD, BHD, JOD, OMR, TND) aren't taken.
+  Zero-decimal currencies (JPY, KRW) work in whole units; three-decimal ones (KWD, BHD, JOD, OMR, TND), ISK and UGX
+  aren't taken. The usage cap (outside costs: AI, texts, email) stays in US dollars, as those services bill.
 - **Formats.** Settings, The club: the club's locale (en-GB, es-ES, fr-FR, de-DE...). It sets how dates, times and
   amounts are written, the 12- or 24-hour clock and the first day of the week. Members keep their own language
   (English or Spanish), written the club's way.
@@ -530,8 +531,9 @@ Kumi was built for US clubs. These parts work for a club anywhere:
   GST in them, and give the tax its name. A €40 court then costs €40, and its receipt shows "Of which VAT (21%):
   €6.94" under the total. Kumi taxes court bookings and lessons only (as in the US); places, memberships, passes and
   gift cards carry no tax. Whether that fits the club's country is for the club's accountant.
-- **Country and phone numbers.** Settings, The club: the club's country. Numbers typed without a + are read in it;
-  Stripe (under Connect) opens the club's account there. Each location's address has a postal code, a region and a
+- **Country and phone numbers.** Settings, The club: the club's country, set before connecting Stripe (Stripe opens the
+  club's account there, and it can't change after). Numbers typed without a + are read in it first; only US and
+  Canadian numbers are texted, and so only those are kept on accounts. Each location's address has a postal code, a region and a
   country, and receipts write it that way. Texts reach US and Canadian numbers only: members with other numbers are
   told so and get everything by email.
 
