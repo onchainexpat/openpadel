@@ -83,6 +83,7 @@ export async function verifyEmailCode(db: Db, email: string, code: string, userA
 }
 
 async function startSession(db: Db, personId: string, userAgent: string | null, now: Date, challengeId: string, method: "email_code" | "phone_code" = "email_code"): Promise<string> {
+  await refuseQueued(db, personId);
   const token = randomBytes(32).toString("base64url");
   await db.transaction().execute(async (trx) => {
     await trx.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", challengeId).execute();
@@ -254,12 +255,20 @@ export async function completeSignUp(db: Db, ticket: string, input: { display_na
   return { token: await startSession(db, personId, userAgent, now, ch.id, byPhone ? "phone_code" : "email_code"), personId };
 }
 
+/** An account a restore brought back that is waiting to be deleted again (erase_after_restore): nobody signs in as it. */
+export async function refuseQueued(db: Db, personId: string) {
+  if (await db.selectFrom("erase_after_restore").select("person_id").where("person_id", "=", personId).executeTakeFirst().catch(() => undefined))
+    throw new KumiError("error.privacy_already", {}, 403);
+}
+
 export async function sessionPerson(db: Db, token: string | undefined, now = new Date()) {
   if (!token) return null;
   const s = await db.selectFrom("web_session").innerJoin("person", "person.id", "web_session.person_id")
     .select(["person.id", "person.display_name", "person.locale", "web_session.token_hash", "web_session.method", "web_session.second_factor", "web_session.created_at"])
     .where("web_session.token_hash", "=", sha(token)).where("web_session.revoked_at", "is", null).where("web_session.expires_at", ">", now)
-    .where("person.status", "!=", "archived").executeTakeFirst();
+    .where("person.status", "!=", "archived")
+    // Deleted on the database a restore replaced, and not deleted again here yet (after_restore.ts): signed out.
+    .where(sql<boolean>`NOT EXISTS (SELECT 1 FROM erase_after_restore q WHERE q.person_id = person.id)`).executeTakeFirst();
   if (s) await db.updateTable("web_session").set({ last_seen_at: now }).where("token_hash", "=", s.token_hash).execute();
   return s ?? null;
 }

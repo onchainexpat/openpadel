@@ -212,8 +212,6 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
     const migrationsRun = await migrate(db);
     // Back on a server the club ran on before: what this one's meter had counted stays counted (after_restore.ts).
     const usageCarried = await carryMeterAfterImport(db, meter);
-    // And what it had taken away on request since the file was made (an account deleted, words taken back) stays away.
-    const goneCarried = await carryGoneAfterImport(db, gone, now);
     // What was still waiting to go out on the old server, which may still be sending it: held here until this
     // server's owner says (held.ts). First, so nothing below (read-only and the leaving day going off) is held.
     // Unless the old server had been told the club moved before the file was made (club_exit.ts): it sends members
@@ -234,6 +232,9 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
       const r = await sql`UPDATE ${sql.table(c.table)} SET ${sql.ref(c.column)} = ${value} WHERE ${sql.ref(c.key)} = ${s.k}`.execute(db);
       carried += Number(r.numAffectedRows ?? 0);
     }
+    // And what it had taken away on request since the file was made (an account deleted, words taken back) stays away.
+    // After the keys above: an authenticator set up again on this server since keeps this server's secret.
+    const goneCarried = await carryGoneAfterImport(db, gone, now);
     for (const c of SEALED_COLUMNS.filter((x) => PASSING.has(x.table))) await sql`DELETE FROM ${sql.table(c.table)} ${c.where ? sql.raw(`WHERE ${c.where}`) : sql``}`.execute(db);
     // Whatever is still sealed under the old server's key can't be opened here: count it (kumi doctor shows it too).
     let lost = 0;

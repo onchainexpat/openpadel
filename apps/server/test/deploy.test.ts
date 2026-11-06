@@ -20,8 +20,11 @@ function rewrittenWhileRunning(script: string, args: string[], command: string, 
       const junk = "echo REWRITTEN-RAN; exit 9\n".repeat(Math.ceil((statSync(copy).size * 3) / 27));
       spawnSync("mkdir", [bin]);
       // In place (the same file, truncated and written), never a new one: a new file wouldn't reach the running copy.
-      writeFileSync(join(bin, command), `#!/bin/sh\n${rewrite ? `printf '%s' "$KUMI_JUNK" > "$KUMI_COPY"` : ":"}\n${answer}\n`, { mode: 0o755 });
-      const r = spawnSync("bash", [copy, ...args], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, KUMI_JUNK: junk, KUMI_COPY: copy, KUMI_ROOT: dir, KUMI_ENV_FILE: join(dir, "kumi.env") } });
+      // The junk goes through a file: three times a script of more than 43 kB is past the 128 kB one environment
+      // string may hold, and the run wouldn't start at all.
+      writeFileSync(join(dir, "junk"), junk);
+      writeFileSync(join(bin, command), `#!/bin/sh\n${rewrite ? `cat "$KUMI_JUNK_FILE" > "$KUMI_COPY"` : ":"}\n${answer}\n`, { mode: 0o755 });
+      const r = spawnSync("bash", [copy, ...args], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, KUMI_JUNK_FILE: join(dir, "junk"), KUMI_COPY: copy, KUMI_ROOT: dir, KUMI_ENV_FILE: join(dir, "kumi.env") } });
       return { out: `${r.stdout}${r.stderr}`.replaceAll(dir, "<dir>"), status: r.status };
     } finally { rmSync(dir, { recursive: true, force: true }); }
   };

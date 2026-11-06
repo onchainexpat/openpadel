@@ -173,6 +173,24 @@ server starts.
   update's snapshot going back, or an export put back on the same server used to bring back an account deleted since,
   words taken back in a chat, a sign-in or assistant ended, and a no to club news. Now each is done again: the account
   is deleted again (at once, or as the server starts), and the rest stays as the club's database had it.
+- **A restore no longer took away every staff authenticator.** The first version of the above compared each staff
+  member's authenticator by a time read without its microseconds, so every restore removed every one, and an
+  owner or manager without a passkey was asked to set up two-step again by email. Now the authenticator as it was
+  last changed comes through whole: one set up again since is the new one (the old secret no longer works), one
+  removed stays removed, and one nobody touched stays as it was. The same in an update's snapshot going back.
+- A restore now also repeats: a deletion still waiting on the database it replaces, a sign-in address or phone
+  number taken away (an attacker's phone undone, a kid's own login removed), a family card removed, and a phone's
+  notifications moved to someone else. A yes to texts or email comes through only for the number or address it was
+  given for, never for an old one the copy still has. Club credit paid out at the desk or spent since stays gone
+  (nobody's credit in the copy is more than was really left, so cash handed over can't be paid out twice), and a gift
+  card redeemed or voided since stays so, its value in the redeemer's credit; wrong-code tries start again. An account deleted again is signed out at once, and its
+  bookings, places and weekly court are cancelled by the club's rules (cards are refunded; money paid at the desk
+  waits there, and the owner and managers hear once); the club's last owner keeps the owner role, and the restore
+  says so. `kumi restore` lists each account it deletes again and who had deleted it; one the club had deleted can be
+  kept with `--keep=<id>` (or `--keep-staff-deleted`); one its owner deleted is always deleted again. When the
+  database it replaces can't be read, the restore says so plainly and uses the list of deleted accounts in the newest
+  backup on the server (each backup now keeps one). A pre-0.2.2 snapshot going back lists who came back, by name and
+  id, in a file in the backups folder, to be deleted again by hand.
 - **A chat push before a restore could stop a new message's push after it.** Chat pushes keep no words, so they all
   looked alike to the check that stops a message going twice after a restore; it now tells them apart by message.
 - An update said "the point-in-time archive isn't ready" when Postgres happened to be sending a piece of its log at

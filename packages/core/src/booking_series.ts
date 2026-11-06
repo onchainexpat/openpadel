@@ -419,6 +419,21 @@ export const weeklyEndAll = defineAction({
 
 /** A person's series still running, for My places and the staff's page of the person: the pattern, and each week
  *  from today: booked (its booking), left out (and why), or still to be booked. */
+/** Every weekly court an account had, ended from today for an account deleted again after a restore (privacy.ts):
+ *  its booked weeks cancelled by each week's own rule, nothing more booked. How many. */
+export async function endSeriesForErase(ctx: ApplyCtx, personId: string): Promise<number> {
+  const series = await ctx.trx.selectFrom("booking_series").selectAll().where("organiser_id", "=", personId).where("ended_at", "is", null).forUpdate().execute();
+  for (const s of series) {
+    await lockCourts(ctx, [s.court_id]);
+    const from = localDate(ctx.now, await seriesTz(ctx.trx, s.location_id)), cancels: WeekCancel[] = [];
+    for (const w of await seriesToEnd(ctx.trx, s.id, from, ctx.now))
+      cancels.push({ booking_id: w.id, refunds: (await cancelRefunds(ctx.trx, w.id, ctx.now, "rule")).refunds.map(({ payment_id, cents }) => ({ payment_id, cents })) });
+    await cancelWeeksFrom(ctx, s, from, cancels);
+    await ctx.update("booking_series", s.id, { ended_at: ctx.now });
+  }
+  return series.length;
+}
+
 export async function seriesOf(db: Db | Trx, personId: string, now: Date) {
   const rows = await db.selectFrom("booking_series").innerJoin("court", "court.id", "booking_series.court_id").innerJoin("location", "location.id", "booking_series.location_id")
     .select(["booking_series.id", "booking_series.court_id", "court.name as court", "booking_series.starts", "booking_series.minutes", "booking_series.first_date", "booking_series.last_date",

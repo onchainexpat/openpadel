@@ -51,7 +51,7 @@ export interface TextUsageTable { month: string; texts: Generated<number>; segme
 export interface UsageMonthTable { month: string; kind: "ai_decisions" | "ai_drafts" | "texts" | "email"; count: Generated<number>; input_tokens: Generated<string>; output_tokens: Generated<string>; segments: Generated<number>; cents: Generated<string>; updated_at: Generated<Date> }
 export interface UsageAlertTable { month: string; near_cap: number | null; reached_cap: number | null; paused_limit: number | null }
 export interface UsageGapTable { restored_at: Date; counted_until: Date | null }
-export interface EraseAfterRestoreTable { person_id: string; redacted_at: Date; queued_at: Generated<Date> }
+export interface EraseAfterRestoreTable { person_id: string; redacted_at: Date; deleted_by: "self" | "staff" | null; queued_at: Generated<Date> }
 export interface SentBeforeRestoreTable { id: Generated<string>; fp: string; message_id: string; sent_at: Date; restored_at: Date; until: Date; used_at: Date | null; used_by: string | null }
 export interface LeavingNoticeTable { leaving_on: string; kind: "set" | "week" | "day"; said_at: Date; covered: Generated<boolean> }
 export interface TextingRegistrationTable { id: string; kind: Generated<"tollfree">; phone_number: string | null; phone_number_sid: string | null; bought: Generated<boolean>; messaging_service_sid: string | null; verification_sid: string | null; status: Generated<"started" | "submitted" | "in_review" | "approved" | "rejected">; twilio_status: string | null; rejection: Json | null; edit_allowed: boolean | null; edit_expires_at: Date | null; submitted: Json | null; submitted_at: Date | null; checked_at: Date | null; told_status: string | null; created_at: Generated<Date>; version: Generated<number> }

@@ -173,8 +173,23 @@ the words, link and person of one sent before the restore is marked as sent then
 What was taken away on request since that minute stays away too: an account deleted is deleted again (the same
 way, at once), a chat message taken back or hidden by the club stays so, an authenticator removed or replaced stays
 removed, a sign-in, passkey, phone's push, calendar link, assistant or recovery code ended or used stays ended, and a
-yes or no to texts, email and club news given since is kept. The same goes for an update's snapshot going back, and
-for an export put back on the server the club ran on before.
+no to texts, email and club news given since is kept (a yes only for the number or address it was given for), a
+sign-in address, phone number, family card or phone's notifications taken away stays away, club credit paid out or
+spent stays gone (nobody's credit is more than was really left), and a gift card redeemed or voided stays so. The same goes for an
+update's snapshot going back, and for an export put back on the server the club ran on before.
+
+`kumi restore` lists each account it deletes again, with who had deleted it. Someone who deleted their own account
+is always deleted again. One the club had deleted can be kept: run the restore with `--keep=<id>` (several, comma
+separated) or `--keep-staff-deleted` for all of them. An account deleted again has its bookings, places and weekly
+court cancelled by the club's rules first (cards refunded, money paid at the desk left there for the staff, who hear
+once); the club's last owner keeps the owner role until another owner is added, and the restore says so.
+
+If the database being replaced can't be read (the old server is gone, or it's another club's), the restore can't
+know what was taken away after the copy: it says so, and deletes again the accounts listed in the newest backup on
+this server (every nightly backup's manifest lists the accounts deleted by then). Anything taken away after that
+backup is back, and has to be done again by hand. A rollback to a release from before 0.2.2 can't queue deleted
+accounts: it lists them, by id and name, in `deleted-again-by-hand-<time>.txt` in the backups folder (readable by
+root only), to delete again in the staff app.
 
 Once a month (the 1st, 5:17 club time) a random minute of the last week is restored into scratch and checked: the
 change made a minute before it is there, nothing from a minute after it is. `kumi doctor` shows the result, and

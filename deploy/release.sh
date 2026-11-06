@@ -280,43 +280,92 @@ has_table() { psql_kumi -Atc "SELECT 1 FROM information_schema.tables WHERE tabl
 has_column() { psql_kumi -Atc "SELECT 1 FROM information_schema.columns WHERE table_name = '$1' AND column_name = '$2'" | grep -q 1; }
 read_gone() {
   local g=$1 t k c
-  psql_kumi -c "COPY (SELECT id, redacted_at FROM person WHERE redacted_at IS NOT NULL) TO STDOUT" > "$g/people" 2>/dev/null || : > "$g/people"
+  # A database from before the queue (082) can't answer the people read: its deletions alone.
+  psql_kumi -c "COPY (SELECT p.id, p.redacted_at, (SELECT CASE WHEN r.actor_person_id = p.id THEN 'self' WHEN r.actor_person_id IS NOT NULL THEN 'staff' END FROM action_run r WHERE r.action = 'privacy.erase' AND r.status = 'applied' AND r.input->>'person_id' = p.id::text ORDER BY r.applied_at DESC LIMIT 1) AS deleted_by FROM person p WHERE p.redacted_at IS NOT NULL UNION ALL SELECT q.person_id, q.redacted_at, q.deleted_by FROM erase_after_restore q) TO STDOUT" > "$g/people" 2>/dev/null || psql_kumi -c "COPY (SELECT p.id, p.redacted_at, NULL::text AS deleted_by FROM person p WHERE p.redacted_at IS NOT NULL) TO STDOUT" > "$g/people" 2>/dev/null || : > "$g/people"
   psql_kumi -c "COPY (SELECT id, removed_at, hidden_at, hidden_by, body = '' AS blank FROM chat_message WHERE removed_at IS NOT NULL OR hidden_at IS NOT NULL) TO STDOUT" > "$g/chat" 2>/dev/null || : > "$g/chat"
-  psql_kumi -c "COPY (SELECT person_id, created_at, removed_at, last_step FROM staff_factor) TO STDOUT" > "$g/factors" 2>/dev/null || : > "$g/factors"
-  psql_kumi -c "COPY (SELECT id, person_id, channel, purpose, granted, source, form_version, evidence, at FROM channel_consent) TO STDOUT" > "$g/consents" 2>/dev/null || : > "$g/consents"
+  psql_kumi -c "COPY (SELECT person_id, secret, confirmed_at::text AS confirmed_at, last_step, removed_at::text AS removed_at FROM staff_factor) TO STDOUT" > "$g/factors" 2>/dev/null || : > "$g/factors"
+  psql_kumi -c "COPY (SELECT p.id AS person_id, a.id, a.kind, a.value, a.verified_at::text AS verified_at FROM person p LEFT JOIN auth_identity a ON a.person_id = p.id WHERE p.redacted_at IS NULL) TO STDOUT" > "$g/idents" 2>/dev/null || : > "$g/idents"
+  psql_kumi -c "COPY (SELECT p.id AS person_id, a.id, a.kind, a.value, a.verified_at::text AS verified_at FROM person p LEFT JOIN auth_identity a ON a.person_id = p.id WHERE p.redacted_at IS NULL) TO STDOUT" > "$g/idents_back" 2>/dev/null || : > "$g/idents_back"
+  psql_kumi -c "COPY (SELECT id FROM person WHERE phone IS NULL AND redacted_at IS NULL) TO STDOUT" > "$g/phones" 2>/dev/null || : > "$g/phones"
+  psql_kumi -c "COPY (SELECT c.id, c.person_id, c.channel, c.purpose, c.granted, c.source, c.form_version, c.evidence, c.at, (SELECT CASE c.channel WHEN 'sms' THEN p.phone WHEN 'email' THEN p.email END FROM person p WHERE p.id = c.person_id) AS addr FROM channel_consent c) TO STDOUT" > "$g/consents" 2>/dev/null || : > "$g/consents"
+  psql_kumi -c "COPY (SELECT id, removed_at FROM family_card WHERE status = 'removed') TO STDOUT" > "$g/cards" 2>/dev/null || : > "$g/cards"
+  psql_kumi -c "COPY (SELECT endpoint, person_id, revoked_at FROM push_subscription) TO STDOUT" > "$g/push" 2>/dev/null || : > "$g/push"
+  psql_kumi -c "COPY (SELECT id, status, redeemed_by, redeemed_at::text AS redeemed_at, voided_at::text AS voided_at FROM gift_card WHERE status IN ('redeemed', 'void')) TO STDOUT" > "$g/gifts" 2>/dev/null || : > "$g/gifts"
+  psql_kumi -c "COPY (SELECT person_id, cents FROM member_credit_balance) TO STDOUT" > "$g/credit" 2>/dev/null || : > "$g/credit"
+  psql_kumi -c "COPY (SELECT count(*) AS n FROM gift_card_try) TO STDOUT" > "$g/tries" 2>/dev/null || : > "$g/tries"
   while read -r t k c; do
     psql_kumi -c "COPY (SELECT $k::text, $c FROM $t WHERE $c IS NOT NULL) TO STDOUT" > "$g/rev.$t.$c" 2>/dev/null || : > "$g/rev.$t.$c"
   done <<< "$REVOKED"
 }
 carry_gone() {
-  local g=$1 t k c n
+  local g=$1 t k c n failed=0 list
   if [ -s "$g/people" ]; then
-    if has_table erase_after_restore; then
-      psql_kumi -c "CREATE TEMP TABLE kumi_gone (id uuid, redacted_at timestamptz)" -c "COPY kumi_gone FROM STDIN" \
-        -c "INSERT INTO erase_after_restore (person_id, redacted_at) SELECT g.id, g.redacted_at FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL ON CONFLICT (person_id) DO NOTHING" < "$g/people" || return 1
+    if has_column erase_after_restore deleted_by; then
+      psql_kumi -c "CREATE TEMP TABLE kumi_gone (id uuid, redacted_at timestamptz, deleted_by text)" -c "COPY kumi_gone FROM STDIN" \
+        -c "INSERT INTO erase_after_restore (person_id, redacted_at, deleted_by) SELECT g.id, g.redacted_at, g.deleted_by FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL ON CONFLICT (person_id) DO NOTHING" < "$g/people" || failed=1
     else
-      n=$(psql_kumi -At -c "CREATE TEMP TABLE kumi_gone (id uuid, redacted_at timestamptz)" -c "COPY kumi_gone FROM STDIN" \
-        -c "SELECT count(*) FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL" < "$g/people") || return 1
-      [ "${n:-0}" -gt 0 ] 2>/dev/null && say "$n account(s) deleted since the snapshot are back in it, and this release can't delete them again by itself: delete them again in the staff app (People)"
+      # A snapshot from before the queue: who came back, kept for the staff (0600) and said, to delete again by hand.
+      list="$BACKUPS/deleted-again-by-hand-$(date -u +%Y%m%dT%H%M%SZ).txt"
+      (umask 077; psql_kumi -At -F ' ' -c "CREATE TEMP TABLE kumi_gone (id uuid, redacted_at timestamptz, deleted_by text)" -c "COPY kumi_gone FROM STDIN" \
+        -c "SELECT g.id, p.display_name, g.deleted_by FROM kumi_gone g JOIN person p ON p.id = g.id WHERE p.redacted_at IS NULL" < "$g/people" > "$list") || failed=1
+      n=$(grep -c . "$list" 2>/dev/null || echo 0)
+      if [ "${n:-0}" -gt 0 ] 2>/dev/null; then
+        say "$n account(s) deleted since the snapshot are back in it, and this release can't delete them again by itself: delete them again in the staff app (People). They are (id, name, who deleted it), also in $list:"
+        while read -r line; do say "  $line"; done < "$list"
+      else rm -f "$list"; fi
     fi
   fi
   if [ -s "$g/chat" ] && has_table chat_message; then
     psql_kumi -c "CREATE TEMP TABLE kumi_chat_gone (id uuid, removed_at timestamptz, hidden_at timestamptz, hidden_by uuid, blank boolean)" -c "COPY kumi_chat_gone FROM STDIN" \
-      -c "UPDATE chat_message m SET removed_at = coalesce(m.removed_at, g.removed_at), hidden_at = coalesce(m.hidden_at, g.hidden_at), hidden_by = coalesce(m.hidden_by, (SELECT p.id FROM person p WHERE p.id = g.hidden_by)), body = CASE WHEN g.removed_at IS NOT NULL AND (g.blank OR NOT EXISTS (SELECT 1 FROM chat_report r WHERE r.message_id = m.id AND r.dealt_at IS NULL)) THEN '' ELSE m.body END, version = m.version + 1 FROM kumi_chat_gone g WHERE m.id = g.id AND ((g.removed_at IS NOT NULL AND m.removed_at IS NULL) OR (g.hidden_at IS NOT NULL AND m.hidden_at IS NULL) OR (g.removed_at IS NOT NULL AND g.blank AND m.body <> ''))" < "$g/chat" || return 1
+      -c "UPDATE chat_message m SET removed_at = coalesce(m.removed_at, g.removed_at), hidden_at = coalesce(m.hidden_at, g.hidden_at), hidden_by = coalesce(m.hidden_by, (SELECT p.id FROM person p WHERE p.id = g.hidden_by)), body = CASE WHEN g.blank THEN '' ELSE m.body END, version = m.version + 1 FROM kumi_chat_gone g WHERE m.id = g.id AND ((g.removed_at IS NOT NULL AND m.removed_at IS NULL) OR (g.hidden_at IS NOT NULL AND m.hidden_at IS NULL) OR (g.blank AND m.body <> ''))" < "$g/chat" || failed=1
   fi
   if [ -s "$g/factors" ] && has_table staff_factor; then
-    psql_kumi -c "CREATE TEMP TABLE kumi_factor (person_id uuid, created_at timestamptz, removed_at timestamptz, last_step bigint)" -c "COPY kumi_factor FROM STDIN" \
-      -c "UPDATE staff_factor f SET removed_at = CASE WHEN g.removed_at IS NOT NULL OR g.created_at <> f.created_at THEN coalesce(g.removed_at, now()) ELSE f.removed_at END, last_step = CASE WHEN g.created_at = f.created_at THEN greatest(f.last_step, g.last_step) ELSE f.last_step END, version = f.version + 1 FROM kumi_factor g WHERE f.person_id = g.person_id AND f.removed_at IS NULL AND (g.removed_at IS NOT NULL OR g.created_at <> f.created_at OR g.last_step > f.last_step)" < "$g/factors" || return 1
+    psql_kumi -c "CREATE TEMP TABLE kumi_factor (person_id uuid, secret text, confirmed_at timestamptz, last_step bigint, removed_at timestamptz)" -c "COPY kumi_factor FROM STDIN" \
+      -c "INSERT INTO staff_factor AS f (person_id, secret, confirmed_at, last_step, removed_at) SELECT g.person_id, g.secret, g.confirmed_at, g.last_step, g.removed_at FROM kumi_factor g JOIN person p ON p.id = g.person_id WHERE p.redacted_at IS NULL ON CONFLICT (person_id) DO UPDATE SET secret = CASE WHEN greatest(excluded.confirmed_at, coalesce(excluded.removed_at, '-infinity')) > greatest(f.confirmed_at, coalesce(f.removed_at, '-infinity')) THEN excluded.secret ELSE f.secret END, confirmed_at = CASE WHEN greatest(excluded.confirmed_at, coalesce(excluded.removed_at, '-infinity')) > greatest(f.confirmed_at, coalesce(f.removed_at, '-infinity')) THEN excluded.confirmed_at ELSE f.confirmed_at END, removed_at = CASE WHEN greatest(excluded.confirmed_at, coalesce(excluded.removed_at, '-infinity')) > greatest(f.confirmed_at, coalesce(f.removed_at, '-infinity')) THEN excluded.removed_at ELSE f.removed_at END, last_step = CASE WHEN greatest(excluded.confirmed_at, coalesce(excluded.removed_at, '-infinity')) > greatest(f.confirmed_at, coalesce(f.removed_at, '-infinity')) THEN excluded.last_step ELSE greatest(f.last_step, excluded.last_step) END, version = f.version + 1 WHERE greatest(excluded.confirmed_at, coalesce(excluded.removed_at, '-infinity')) > greatest(f.confirmed_at, coalesce(f.removed_at, '-infinity')) OR (excluded.confirmed_at = f.confirmed_at AND excluded.last_step > f.last_step)" < "$g/factors" || failed=1
+  fi
+  if [ -s "$g/idents" ] && has_table auth_identity; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_ident (person_id uuid, id uuid, kind text, value text, verified_at timestamptz)" -c "COPY kumi_ident FROM STDIN" \
+      -c "DELETE FROM auth_identity a WHERE EXISTS (SELECT 1 FROM kumi_ident k WHERE k.person_id = a.person_id) AND NOT EXISTS (SELECT 1 FROM kumi_ident k WHERE k.id = a.id OR (k.person_id = a.person_id AND k.kind = a.kind AND k.value = a.value))" < "$g/idents" || failed=1
+  fi
+  if [ -s "$g/idents_back" ] && has_table auth_identity; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_ident_back (person_id uuid, id uuid, kind text, value text, verified_at timestamptz)" -c "COPY kumi_ident_back FROM STDIN" \
+      -c "INSERT INTO auth_identity (id, person_id, kind, value, verified_at) SELECT k.id, k.person_id, k.kind, k.value, k.verified_at FROM kumi_ident_back k JOIN person p ON p.id = k.person_id AND p.redacted_at IS NULL WHERE k.id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM auth_identity x WHERE x.person_id = k.person_id AND x.kind = k.kind) ON CONFLICT DO NOTHING" < "$g/idents_back" || failed=1
+  fi
+  if [ -s "$g/phones" ] && has_table person; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_nophone (id uuid)" -c "COPY kumi_nophone FROM STDIN" \
+      -c "UPDATE person x SET phone = NULL, version = x.version + 1 FROM kumi_nophone g WHERE x.id = g.id AND x.phone IS NOT NULL" < "$g/phones" || failed=1
   fi
   if [ -s "$g/consents" ] && has_table channel_consent; then
-    psql_kumi -c "CREATE TEMP TABLE kumi_consent (id uuid, person_id uuid, channel text, purpose text, granted boolean, source text, form_version text, evidence jsonb, at timestamptz)" -c "COPY kumi_consent FROM STDIN" \
-      -c "INSERT INTO channel_consent (id, person_id, channel, purpose, granted, source, form_version, evidence, at) SELECT c.id, c.person_id, c.channel, c.purpose, c.granted, c.source, c.form_version, c.evidence, c.at FROM kumi_consent c WHERE EXISTS (SELECT 1 FROM person p WHERE p.id = c.person_id) AND NOT EXISTS (SELECT 1 FROM channel_consent x WHERE x.id = c.id)" < "$g/consents" || return 1
+    psql_kumi -c "CREATE TEMP TABLE kumi_consent (id uuid, person_id uuid, channel text, purpose text, granted boolean, source text, form_version text, evidence jsonb, at timestamptz, addr text)" -c "COPY kumi_consent FROM STDIN" \
+      -c "INSERT INTO channel_consent (id, person_id, channel, purpose, granted, source, form_version, evidence, at) SELECT c.id, c.person_id, c.channel, c.purpose, c.granted, c.source, c.form_version, c.evidence, c.at FROM kumi_consent c JOIN person p ON p.id = c.person_id WHERE NOT EXISTS (SELECT 1 FROM channel_consent x WHERE x.id = c.id) AND (NOT c.granted OR c.addr IS NOT DISTINCT FROM CASE c.channel WHEN 'sms' THEN p.phone WHEN 'email' THEN p.email END)" < "$g/consents" || failed=1
+  fi
+  if [ -s "$g/cards" ] && has_table family_card; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_card (id uuid, removed_at timestamptz)" -c "COPY kumi_card FROM STDIN" \
+      -c "UPDATE family_card x SET status = 'removed', removed_at = coalesce(x.removed_at, g.removed_at), saved_customer = NULL, saved_method = NULL, version = x.version + 1 FROM kumi_card g WHERE x.id = g.id AND x.status <> 'removed'" < "$g/cards" || failed=1
+  fi
+  if [ -s "$g/push" ] && has_table push_subscription; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_push (endpoint text, person_id uuid, revoked_at timestamptz)" -c "COPY kumi_push FROM STDIN" \
+      -c "UPDATE push_subscription x SET revoked_at = now() WHERE x.revoked_at IS NULL AND NOT EXISTS (SELECT 1 FROM kumi_push g WHERE g.endpoint = x.endpoint AND g.person_id = x.person_id AND g.revoked_at IS NULL)" < "$g/push" || failed=1
+  fi
+  if [ -s "$g/gifts" ] && has_table gift_card; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_gift (id uuid, status text, redeemed_by uuid, redeemed_at timestamptz, voided_at timestamptz)" -c "COPY kumi_gift FROM STDIN" \
+      -c "WITH done AS (UPDATE gift_card x SET status = g.status, redeemed_by = (SELECT p.id FROM person p WHERE p.id = g.redeemed_by), redeemed_at = g.redeemed_at, voided_at = g.voided_at, version = x.version + 1 FROM kumi_gift g WHERE x.id = g.id AND x.status NOT IN ('redeemed', 'void') RETURNING x.id, x.status, x.redeemed_by, x.amount_cents), moves AS (SELECT gen_random_uuid() AS txn_id, d.* FROM done d WHERE d.status = 'redeemed' AND d.redeemed_by IS NOT NULL), run AS (INSERT INTO action_run (id, action, action_version, via, input, plan, status, undo_kind, read_versions, plan_expires_at, applied_at) SELECT gen_random_uuid(), 'restore.carry', 1, 'restore', '{}', '{}', 'applied', 'none', '{}', now(), now() WHERE EXISTS (SELECT 1 FROM moves) RETURNING id), acct AS (INSERT INTO ledger_account (id, kind, person_id) SELECT gen_random_uuid(), 'member_credit', m.redeemed_by FROM moves m ON CONFLICT DO NOTHING RETURNING id, person_id), txn AS (INSERT INTO ledger_txn (id, kind, action_run_id, memo) SELECT m.txn_id, 'gift_card_redeemed', (SELECT id FROM run), 'gift card redeemed before a restore, carried over' FROM moves m RETURNING id), ent AS (INSERT INTO ledger_entry (txn_id, account_id, amount_cents) SELECT m.txn_id, (SELECT a.id FROM ledger_account a WHERE a.kind = 'gift_cards' AND a.person_id IS NULL AND a.revenue_type IS NULL), m.amount_cents FROM moves m UNION ALL SELECT m.txn_id, coalesce((SELECT c.id FROM acct c WHERE c.person_id = m.redeemed_by), (SELECT a.id FROM ledger_account a WHERE a.kind = 'member_credit' AND a.person_id = m.redeemed_by)), -m.amount_cents FROM moves m RETURNING 1) SELECT count(*) AS n FROM done" < "$g/gifts" || failed=1
+  fi
+  if [ -s "$g/credit" ] && has_table ledger_account; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_credit (person_id uuid, cents bigint)" -c "COPY kumi_credit FROM STDIN" \
+      -c "WITH over AS (SELECT a.id AS account_id, b.cents - coalesce(g.cents, 0) AS cut FROM member_credit_balance b JOIN ledger_account a ON a.kind = 'member_credit' AND a.person_id = b.person_id LEFT JOIN kumi_credit g ON g.person_id = b.person_id WHERE b.cents > coalesce(g.cents, 0)), moves AS (SELECT gen_random_uuid() AS txn_id, o.* FROM over o), run AS (INSERT INTO action_run (id, action, action_version, via, input, plan, status, undo_kind, read_versions, plan_expires_at, applied_at) SELECT gen_random_uuid(), 'restore.carry', 1, 'restore', '{}', '{}', 'applied', 'none', '{}', now(), now() WHERE EXISTS (SELECT 1 FROM moves) RETURNING id), adj AS (INSERT INTO ledger_account (id, kind) SELECT gen_random_uuid(), 'adjustment' WHERE EXISTS (SELECT 1 FROM moves) ON CONFLICT DO NOTHING RETURNING id), txn AS (INSERT INTO ledger_txn (id, kind, action_run_id, memo) SELECT m.txn_id, 'restore_credit', (SELECT id FROM run), 'club credit paid out or spent before a restore, carried over' FROM moves m RETURNING id), ent AS (INSERT INTO ledger_entry (txn_id, account_id, amount_cents) SELECT m.txn_id, m.account_id, m.cut FROM moves m UNION ALL SELECT m.txn_id, coalesce((SELECT id FROM adj), (SELECT a.id FROM ledger_account a WHERE a.kind = 'adjustment' AND a.person_id IS NULL AND a.revenue_type IS NULL)), -m.cut FROM moves m RETURNING 1) SELECT count(*) AS n FROM moves" < "$g/credit" || failed=1
+  fi
+  if [ -s "$g/tries" ] && has_table gift_card_try; then
+    psql_kumi -c "CREATE TEMP TABLE kumi_tries (n bigint)" -c "COPY kumi_tries FROM STDIN" \
+      -c "DELETE FROM gift_card_try" < "$g/tries" || failed=1
   fi
   while read -r t k c; do
     [ -s "$g/rev.$t.$c" ] && has_column "$t" "$c" || continue
     psql_kumi -c "CREATE TEMP TABLE kumi_rev (k text, at timestamptz)" -c "COPY kumi_rev FROM STDIN" \
-      -c "UPDATE $t x SET $c = r.at FROM kumi_rev r WHERE x.$k::text = r.k AND x.$c IS NULL" < "$g/rev.$t.$c" || return 1
+      -c "UPDATE $t x SET $c = r.at FROM kumi_rev r WHERE x.$k::text = r.k AND x.$c IS NULL" < "$g/rev.$t.$c" || failed=1
   done <<< "$REVOKED"
+  # Every part is tried; any that failed is said by the caller.
+  return $failed
 }
 
 # Keep the running release, the one before it and one more; and the newest update snapshots.

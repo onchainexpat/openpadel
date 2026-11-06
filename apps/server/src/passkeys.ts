@@ -6,7 +6,7 @@ import { setSession } from "./session_cookie.ts";
 import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse, type AuthenticationResponseJSON, type RegistrationResponseJSON } from "@simplewebauthn/server";
 import { t, type Lang } from "@kumi/i18n";
 import { hasSecondFactor, run, uuidv7, KumiError, type Actor, type Db } from "@kumi/core";
-import { SESSION_DAYS } from "./auth.ts";
+import { refuseQueued, SESSION_DAYS } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 
 export const FRESH_MINUTES = 15, CHALLENGE_MINUTES = 5;
@@ -87,6 +87,7 @@ export function passkeyRoutes(deps: PasskeyDeps) {
     const v = await verifyAuthenticationResponse({ response: b.response, expectedChallenge: ch.code_hash, expectedOrigin: origin, expectedRPID: rpID,
       credential: { id: pk.credential_id, publicKey: new Uint8Array(pk.public_key), counter: Number(pk.counter), transports: pk.transports ?? undefined } }).catch(() => null);
     if (!v?.verified) throw new KumiError("error.passkey_failed", {}, 400);
+    await refuseQueued(db, pk.person_id);
     const token = randomBytes(32).toString("base64url"), now = deps.now();
     await db.transaction().execute(async (trx) => {
       await trx.updateTable("passkey").set({ counter: String(v.authenticationInfo.newCounter), last_used_at: now }).where("credential_id", "=", pk.credential_id).execute();

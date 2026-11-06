@@ -594,6 +594,20 @@ export const enrolmentLeave = defineAction({
   },
 });
 
+/** Leaving a place as the person themselves would (enrolment.leave, the club's rule), for an account deleted again
+ *  after a restore (privacy.ts): the refund the rule gives, the place offered on. What went back, and how much of it
+ *  waits at the desk. */
+export async function leaveForErase(ctx: ApplyContext, enrolmentId: string): Promise<{ cents: number; desk: number }> {
+  const g = await goingPlan(ctx, enrolmentId, "late_cancel");
+  const e = g.e, p = await ctx.trx.selectFrom("program").select("refund_rule_version").where("id", "=", e.program_id).executeTakeFirstOrThrow();
+  await ctx.update("enrolment", e.id, { ...leaving(g.refund, "left", "late_cancel", p.refund_rule_version), left_at: ctx.now, included_back: g.back });
+  await dropUnpaid(ctx, e.id);
+  const money = await startRefund(ctx, e.id, e.person_id, g.refund);
+  await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: g.refund.outcome, refund_cents: g.refund.cents, refund_desk: money.desk, refund_credit: money.credit });
+  if (e.status === "booked" || await declineOffer(ctx, e.id)) await placeFreed(ctx, e.program_id, [], e.session_id);
+  return { cents: g.refund.cents, desk: money.desk };
+}
+
 export const enrolmentRemove = defineAction({
   name: "enrolment.remove", version: 1,
   input: z.object({

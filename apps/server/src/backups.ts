@@ -47,7 +47,9 @@ function runTool(cmd: string, args: string[], env: Env): Promise<void> {
 }
 
 // ---- Making a backup ----
-export interface Manifest { kind: "kumi-backup"; created_at: string; file: string; bytes: number; sha256: string; migrations: number; tables: Record<string, number> }
+/** redacted: the accounts deleted as of the backup, so a restore whose database before it can't vouch still deletes
+ *  them again (after_restore.ts). */
+export interface Manifest { kind: "kumi-backup"; created_at: string; file: string; bytes: number; sha256: string; migrations: number; tables: Record<string, number>; redacted?: Array<{ id: string; at: string }> }
 
 async function tableCounts(db: Kysely<any>): Promise<Record<string, number>> {
   const tables = (await sql<{ t: string }>`SELECT tablename AS t FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`.execute(db)).rows.map((r) => r.t);
@@ -84,7 +86,7 @@ export async function makeBackup(db: Db, o: { url: string; dir: string; now?: Da
   if (!o.label) for (let n = 2; existsSync(join(o.dir, `${name}.dump`)) || existsSync(join(o.dir, `${name}.json`)); n++) name = `${name.replace(/-\d+$/, "")}-${n}`;
   const file = join(o.dir, `${name}.dump`), manifestFile = join(o.dir, `${name}.json`), part = `${file}.part`;
   const target = toolTarget(o.url);
-  let tables: Record<string, number> = {};
+  let tables: Record<string, number> = {}, redacted: Array<{ id: string; at: string }> = [];
   // A dump holds every member's details: only this server's user reads it, wherever the folder is (Docker's
   // ./backups is a plain folder the owner made). pg_dump keeps the mode of a file that's already there.
   const owner = (f: string) => { if (existsSync(f)) chmodSync(f, 0o600); };
@@ -95,6 +97,7 @@ export async function makeBackup(db: Db, o: { url: string; dir: string; now?: Da
     await db.transaction().setIsolationLevel("repeatable read").execute(async (trx) => {
       const snapshot = (await sql<{ s: string }>`SELECT pg_export_snapshot() AS s`.execute(trx)).rows[0]!.s;
       tables = await tableCounts(trx);
+      redacted = (await sql<{ id: string; at: string }>`SELECT id::text AS id, redacted_at::text AS at FROM person WHERE redacted_at IS NOT NULL`.execute(trx).catch(() => ({ rows: [] }))).rows;
       await runTool(pgTool("pg_dump", env), ["-Fc", "--no-owner", "--no-acl", `--snapshot=${snapshot}`, "-f", part, "-d", target.url], target.env);
     });
   } catch (e) { rmSync(part, { force: true }); throw e; }
@@ -102,7 +105,7 @@ export async function makeBackup(db: Db, o: { url: string; dir: string; now?: Da
   writeFileSync(file, bytes, { mode: 0o600 }); owner(file);
   rmSync(part, { force: true });
   const manifest: Manifest = { kind: "kumi-backup", created_at: now.toISOString(), file: basename(file), bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"),
-    migrations: tables.schema_migration ?? 0, tables };
+    migrations: tables.schema_migration ?? 0, tables, redacted };
   writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), { mode: 0o600 }); owner(manifestFile);
   return { file, manifestFile, manifest };
 }

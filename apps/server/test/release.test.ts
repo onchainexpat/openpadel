@@ -67,7 +67,7 @@ before(() => {
       *"COPY (SELECT id, encode"*) printf 'm1\\tf1\\t2026-11-03 10:00:00+00\\n';; *"table_name = 'sent_before_restore'"*) echo 1;;
       *"COPY (SELECT month, kind"*) printf '2026-11-01\\ttexts\\t3\\t0\\t0\\t3\\t3.78\\t2026-11-03 10:00:00+00\\n';; *"COPY (SELECT month, near_cap"*) printf '2026-11-01\\t5000\\t\\\\N\\t\\\\N\\n';;
       *"table_name = 'usage_month'"*) echo 1;;
-      *"COPY (SELECT id, redacted_at"*) printf 'p1\\t2026-11-03 10:00:00+00\\n';; *"table_name = 'erase_after_restore'"*) echo 1;;
+      *"COPY (SELECT p.id, p.redacted_at"*) printf 'p1\\t2026-11-03 10:00:00+00\\tself\\n';; *"table_name = 'erase_after_restore' AND column_name = 'deleted_by'"*) echo 1;; *"table_name = 'erase_after_restore'"*) echo 1;;
       *"COPY (SELECT id, removed_at"*) printf 'c1\\t2026-11-03 10:00:00+00\\t\\\\N\\t\\\\N\\tt\\n';; *"table_name = 'chat_message'"*) echo 1;;
       *"COPY (SELECT token_hash::text, revoked_at FROM web_session"*) printf 's1\\t2026-11-03 10:00:00+00\\n';; *"table_name = 'web_session' AND column_name = 'revoked_at'"*) echo 1;; esac`,
     pg_restore: `for a; do last="$a"; done; cp "$last" "$STUB_DB"`,
@@ -129,7 +129,7 @@ test("a release that doesn't come up is taken back: the old release and the data
   // And what was taken away on request since (after_restore.ts GONE): an account deleted is queued to be deleted
   // again as the server starts, words taken back stay taken back, a sign-in ended stays ended; each only where the
   // snapshot's Kumi has that table or column (the stub has none of the others: they're left alone).
-  assert.ok(calls.indexOf("COPY (SELECT id, redacted_at") < calls.indexOf("DROP SCHEMA") && calls.indexOf("DROP SCHEMA") < calls.indexOf("INSERT INTO erase_after_restore"), calls);
+  assert.ok(calls.indexOf("COPY (SELECT p.id, p.redacted_at") < calls.indexOf("DROP SCHEMA") && calls.indexOf("DROP SCHEMA") < calls.indexOf("INSERT INTO erase_after_restore"), calls);
   assert.ok(calls.indexOf("COPY (SELECT id, removed_at") < calls.indexOf("DROP SCHEMA") && calls.indexOf("DROP SCHEMA") < calls.indexOf("UPDATE chat_message"), calls);
   assert.ok(calls.indexOf("COPY (SELECT token_hash::text, revoked_at FROM web_session") < calls.indexOf("DROP SCHEMA") && calls.indexOf("DROP SCHEMA") < calls.indexOf("UPDATE web_session x SET revoked_at"), calls);
   assert.ok(!calls.includes("UPDATE passkey x"), "a table the snapshot's Kumi doesn't have is left alone");

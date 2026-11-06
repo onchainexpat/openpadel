@@ -45,7 +45,7 @@ import { twilioFromEnv } from "./twilio.ts";
 import { TwilioApi } from "./twilio_admin.ts";
 import { memberUrl } from "./addresses.ts";
 import { pitrMain, toArg } from "./pitr_cli.ts";
-import { afterRestore, readSentBefore } from "./after_restore.ts";
+import { afterRestore, readSentBefore, type AfterRestore, type KeepDeleted } from "./after_restore.ts";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
@@ -446,8 +446,15 @@ async function restoreFrom(source: string): Promise<number> {
     let safetyCopy: string;
     try { ({ safetyCopy } = await safeRestore(dbUrl(), got.file, { dir: backupDir })); } finally { got.cleanup(); }
     await writeOpsRecords(dbUrl(), kept);
-    // Nothing the database before it had sent goes again (after_restore.ts).
-    const after = await afterRestore(dbUrl(), sent);
+    // Nothing the database before it had sent goes again (after_restore.ts). The database is replaced by now: a
+    // carry-over that fails says so (and the server may still start, with the copy as it was).
+    let after: Awaited<ReturnType<typeof afterRestore>>;
+    try { after = await afterRestore(dbUrl(), sent, new Date(), { keep: keepDeleted(), backupDir }); }
+    catch (e) {
+      if (json) out({ ok: false, error: (e as Error).message, changed: true, carry_failed: true, safety_copy: safetyCopy });
+      else console.error(t(lang, "cli.restore_carry_failed", { error: (e as Error).message, file: safetyCopy }));
+      return 1;
+    }
     if (json) out({ ok: true, source, safety_copy: safetyCopy, ...after });
     else {
       console.log(t(lang, "cli.restore_done", { source })); console.log(t(lang, "cli.restore_safety_copy", { file: safetyCopy }));
@@ -458,8 +465,7 @@ async function restoreFrom(source: string): Promise<number> {
       if (after.support_ended) console.log(t(lang, after.vouched ? "cli.restore_support_kept_ended" : "cli.restore_support_ended", { count: after.support_ended }));
       if (after.usage.months.length) console.log(t(lang, "cli.restore_usage_carried", { months: after.usage.months.map((m) => m.slice(0, 7)).join(", ") }));
       if (after.usage.gap) console.log(t(lang, "cli.restore_usage_gap"));
-      if (after.gone.erased) console.log(t(lang, "cli.restore_erased_again", { count: after.gone.erased }));
-      if (after.gone.other) console.log(t(lang, "cli.restore_gone_again", { count: after.gone.other }));
+      sayGone(after.gone);
     }
     return 0;
   } catch (e) {
@@ -473,6 +479,23 @@ async function restoreFrom(source: string): Promise<number> {
     if (json) out({ ok: false, error: (e as Error).message, changed: false }); else console.error(t(lang, "cli.restore_failed", { error: (e as Error).message }));
     return 1;
   }
+}
+
+/** `--keep-staff-deleted` (every account staff had deleted keeps its place after the restore) and `--keep=<id,...>`:
+ *  accounts a deletion that the restore would repeat leaves alone. Someone who deleted their own account is deleted
+ *  again whatever the flags say. */
+function keepDeleted(): KeepDeleted {
+  return { staff: args.includes("--keep-staff-deleted"), ids: (flag("keep") ?? "").split(",").map((x) => x.trim()).filter(Boolean) };
+}
+/** What a restore did with the accounts the database before it had deleted, one line each, and what's left to do. */
+function sayGone(g: AfterRestore["gone"]) {
+  if (g.unvouched) console.log(t(lang, g.from_backup ? "cli.restore_gone_unvouched_backup" : "cli.restore_gone_unvouched", { file: g.from_backup ?? "" }));
+  for (const p of g.people) console.log(t(lang, p.kept ? "cli.restore_person_kept" : p.by === "staff" ? "cli.restore_person_staff" : "cli.restore_person_again", { name: p.name, id: p.id }));
+  if (g.people.some((p) => p.by === "staff" && !p.kept)) console.log(t(lang, "cli.restore_keep_hint"));
+  if (g.erased) console.log(t(lang, "cli.restore_erased_again", { count: g.erased }));
+  if (g.last_owner_kept.length) console.log(t(lang, "cli.restore_last_owner_kept", { count: g.last_owner_kept.length }));
+  if (g.failed) console.log(t(lang, "cli.restore_erase_failed", { count: g.failed }));
+  if (g.other) console.log(t(lang, "cli.restore_gone_again", { count: g.other }));
 }
 
 /** `kumi restore <export>`: the club's export into this server (export.ts), and what's left to set up here. */

@@ -128,7 +128,9 @@ week, and you can disconnect it in the app at any time.
 - Backups keep a copy for a while after: [BACKUP DAYS ON THE SERVER] days on the server, and up to
   [OFFSITE DAILY DAYS] days (monthly copies [OFFSITE MONTHLY MONTHS] months) offsite. *Note: with Kumi's defaults
   that's 14 days, 30 days and 12 months.* If we ever put a backup back, anything you deleted or took back since it
-  was made (your account, a chat message, a sign-in, a no to messages) is deleted or taken back again.
+  was made (your account, a chat message, a sign-in, a no to messages) is deleted or taken back again, as long as
+  the app can still read what it replaces. If it can't (the server it replaces was lost), we use the most recent
+  backup's record of deleted accounts, and do by hand whatever that doesn't cover.
 
 ## Your choices
 

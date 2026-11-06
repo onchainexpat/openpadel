@@ -50,7 +50,7 @@ before(async () => {
   // Then, on the club's database: Zed deletes their account, Ann takes her message back, signs out and says no to
   // club news, and the club hides Bo's message.
   await live.insertInto("erase_after_restore").values({ person_id: people.Zed!, redacted_at: NOW }).execute();
-  assert.deepEqual(await eraseAfterRestore(live, NOW), { erased: 1, failed: 0 }, "the same deletion as the first time");
+  assert.deepEqual(await eraseAfterRestore(live, NOW), { erased: 1, failed: 0, lastOwnerKept: [] }, "the same deletion as the first time");
   await removeChat(live, people.Ann!, msg.Ann!, NOW);
   await live.updateTable("chat_message").set({ hidden_at: NOW, hidden_by: people.Ann! }).where("id", "=", msg.Bo!).execute();
   await live.updateTable("web_session").set({ revoked_at: NOW }).where("token_hash", "=", `ann-${tag}`).execute();
@@ -103,23 +103,23 @@ test("kumi restore of the copy: the account is deleted again at once, the words 
   assert.deepEqual(s.queued, [], "nothing left waiting");
   // Again (a second restore of the same copy, or a start): nothing more to do, nothing changes.
   const again = await afterRestore(urlFor(COPY), sent, NOW);
-  assert.deepEqual(again.gone, { erased: 0, other: 0 });
+  assert.deepEqual([again.gone.erased, again.gone.other], [0, 0]);
 });
 
 test("an update's snapshot put back by release.sh: the same SQL queues the account, and the server deletes it again as it starts", async () => {
   // release.sh's carry_gone: COPY (read) TO STDOUT from the club's database, then table, COPY FROM STDIN and apply
   // in the snapshot. Here the COPY is the rows read through the same query.
-  const rows = (await sql.raw<{ id: string; redacted_at: Date }>(GONE.people.read).execute(live)).rows;
+  const rows = (await sql.raw<{ id: string; redacted_at: Date; deleted_by: string | null }>(GONE.people.read).execute(live)).rows;
   const snap = connect(urlFor(COPY2));
   try {
     await sql.raw(GONE.people.table).execute(snap);
-    for (const r of rows) await sql`INSERT INTO kumi_gone VALUES (${r.id}, ${r.redacted_at})`.execute(snap);
+    for (const r of rows) await sql`INSERT INTO kumi_gone VALUES (${r.id}, ${r.redacted_at}, ${r.deleted_by})`.execute(snap);
     await sql.raw(GONE.people.apply).execute(snap);
     await sql.raw(GONE.people.apply).execute(snap);   // twice: still one row
     assert.equal((await snap.selectFrom("erase_after_restore").select("person_id").execute()).length, 1);
     // The server starting (main.ts).
-    assert.deepEqual(await eraseAfterRestore(snap, NOW), { erased: 1, failed: 0 });
-    assert.deepEqual(await eraseAfterRestore(snap, NOW), { erased: 0, failed: 0 }, "once");
+    assert.deepEqual(await eraseAfterRestore(snap, NOW), { erased: 1, failed: 0, lastOwnerKept: [] });
+    assert.deepEqual(await eraseAfterRestore(snap, NOW), { erased: 0, failed: 0, lastOwnerKept: [] }, "once");
     const zed = await snap.selectFrom("person").select(["redacted_at", "email"]).where("id", "=", people.Zed!).executeTakeFirstOrThrow();
     assert.ok(zed.redacted_at); assert.equal(zed.email, null);
   } finally { await snap.destroy(); }
@@ -130,7 +130,7 @@ test("an export put back on the same club's server carries it too; another club'
   assert.ok(before);
   const db = connect(urlFor(COPY2));
   try {
-    assert.deepEqual(await carryGoneAfterImport(db, { ...before!, timeline: "someone else's club" }, NOW), { erased: 0, other: 0 });
+    assert.deepEqual(await carryGoneAfterImport(db, { ...before!, timeline: "someone else's club" }, NOW), { erased: 0, other: 0, people: [], last_owner_kept: [], failed: 0 });
     const r = await carryGoneAfterImport(db, before, NOW);
     assert.equal(r.erased, 0, "Zed was deleted again above");
     assert.ok(r.other >= 4);
