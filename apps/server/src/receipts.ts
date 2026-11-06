@@ -3,7 +3,7 @@
 // whoever takes or sees the club's money.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db } from "@kumi/core";
+import { outstandingCredit, clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db } from "@kumi/core";
 import { csvCell } from "./csv.ts";
 
 type Me = { id: string } | null;
@@ -71,6 +71,11 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
   });
   // The desk's day, for the drawer at closing: what was paid at the desk and what was handed back there, a line a
   // day; one day's lines (who, for what, how, and who recorded it); and every line in a file, given back as negative.
+  // All the club credit members hold (credit.ts): what the club owes them.
+  app.get("/staff/credit", async (c) => {
+    await staffWithMoney(c);
+    return c.json(await outstandingCredit(db));
+  });
   app.get("/staff/desk-days", async (c) => {
     await staffWithMoney(c);
     const { from, to } = range(c);

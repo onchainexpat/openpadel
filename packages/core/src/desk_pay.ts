@@ -65,15 +65,25 @@ export async function leftOf(db: Db | Trx, paymentId: string): Promise<number> {
  *  sub, given back once they pay. `enrolmentId` for a program place's. Never more than is left of the payment,
  *  however the caller worked it out (the payment is locked, so two changes at once can't both fit): what's
  *  given back, and where. */
-export async function refundTo(ctx: ApplyCtx, paymentId: string, cents: number, o: { enrolmentId?: string | null; status?: "pending" | "waiting_for_sub" } = {}) {
+export async function refundTo(ctx: ApplyCtx, paymentId: string, cents: number, o: { enrolmentId?: string | null; status?: "pending" | "waiting_for_sub"; credit?: boolean } = {}) {
   if (cents <= 0) return null;
-  const pay = await ctx.trx.selectFrom("payment").select("provider").where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
+  const pay = await ctx.trx.selectFrom("payment").select(["provider", "method", "person_id", "booking_player_id", "membership_id", "membership_plan_id"]).where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
   cents = Math.min(cents, await leftOf(ctx.trx, paymentId));
   if (cents <= 0) return null;
-  const id = uuidv7(), desk = pay.provider === "none", status = o.status ?? "pending";
-  await ctx.insert("refund", { id, payment_id: paymentId, enrolment_id: o.enrolmentId ?? null, amount_cents: cents, destination: desk ? "desk" : "card", status });
-  if (!desk && status === "pending") await ctx.emit("refund.requested", { refund_id: id });
-  return { id, desk, cents };
+  // Paid from club credit, it goes back to club credit; and staff may give any refund back as club credit
+  // (credit.ts), at once, with nothing to send. Waiting for a sub, it waits like any other.
+  if ((pay.method === "credit" || o.credit) && (o.status ?? "pending") === "pending") {
+    const id = uuidv7();
+    await ctx.insert("refund", { id, payment_id: paymentId, enrolment_id: o.enrolmentId ?? null, amount_cents: cents, destination: "credit", status: "sent" });
+    await post(ctx.trx, ctx.runId, "credit_grant", pay.method === "credit" ? "back to club credit" : "refund as club credit", [
+      { account: await account(ctx.trx, "revenue", { revenueType: await revenueType(ctx.trx, pay) }), cents },
+      { account: await account(ctx.trx, "member_credit", { personId: pay.person_id }), cents: -cents }]);
+    return { id, desk: false, credit: true, cents };
+  }
+  const id = uuidv7(), credit = pay.method === "credit" || Boolean(o.credit), desk = !credit && pay.provider === "none", status = o.status ?? "pending";
+  await ctx.insert("refund", { id, payment_id: paymentId, enrolment_id: o.enrolmentId ?? null, amount_cents: cents, destination: credit ? "credit" : desk ? "desk" : "card", status });
+  if (!desk && !credit && status === "pending") await ctx.emit("refund.requested", { refund_id: id });
+  return { id, desk, credit, cents };
 }
 /** A payment not wanted any more (its booking cancelled, its date gone, asked again for another amount): failed
  *  here, and a card form already opened for it is called off at the provider once this change is saved (the
@@ -91,22 +101,30 @@ export async function callOff(ctx: ApplyCtx, paymentId: string) {
 }
 /** A refund that was waiting for a sub to pay is due now: a card's goes to the provider, the desk's waits there. */
 export async function refundDue(ctx: ApplyCtx, refundId: string) {
-  const r = await ctx.trx.selectFrom("refund").select("destination").where("id", "=", refundId).executeTakeFirstOrThrow();
+  const r = await ctx.trx.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
+    .select(["refund.destination", "refund.amount_cents", "payment.person_id", "payment.booking_player_id", "payment.membership_id", "payment.membership_plan_id"]).where("refund.id", "=", refundId).executeTakeFirstOrThrow();
+  if (r.destination === "credit") {
+    await ctx.update("refund", refundId, { status: "sent" });
+    await post(ctx.trx, ctx.runId, "credit_grant", "back to club credit", [
+      { account: await account(ctx.trx, "revenue", { revenueType: await revenueType(ctx.trx, r) }), cents: r.amount_cents },
+      { account: await account(ctx.trx, "member_credit", { personId: r.person_id }), cents: -r.amount_cents }]);
+    return;
+  }
   await ctx.update("refund", refundId, { status: "pending" });
   if (r.destination === "card") await ctx.emit("refund.requested", { refund_id: refundId });
 }
 
 /** Spread `cents` back over payments, a card's first (it goes back by itself), then what was paid at the desk;
  *  never more back from one than is left of it. What went where. */
-export async function refundAcross(ctx: ApplyCtx, pays: { id: string; left: number; desk: boolean }[], cents: number, o: { enrolmentId?: string | null; status?: "pending" | "waiting_for_sub" } = {}) {
+export async function refundAcross(ctx: ApplyCtx, pays: { id: string; left: number; desk: boolean }[], cents: number, o: { enrolmentId?: string | null; status?: "pending" | "waiting_for_sub"; credit?: boolean } = {}) {
   let rest = cents;
-  const out = { card: 0, desk: 0 };
+  const out = { card: 0, desk: 0, credit: 0 };
   for (const p of [...pays.filter((x) => !x.desk), ...pays.filter((x) => x.desk)]) {
     const c = Math.min(rest, p.left);
     if (c <= 0) continue;
     const r = await refundTo(ctx, p.id, c, o);
     if (!r) continue;
-    out[r.desk ? "desk" : "card"] += r.cents;
+    out[r.credit ? "credit" : r.desk ? "desk" : "card"] += r.cents;
     rest -= r.cents;
   }
   return out;
@@ -186,7 +204,18 @@ export async function deskLines(db: Db | Trx, from: string, to: string, o: { wha
     .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'refund' AND entity_change.op = 'update' AND entity_change.entity_id = refund.id::text AND entity_change.after->>'status' = 'sent'`))
     .innerJoin("action_run", "action_run.id", "entity_change.action_run_id").innerJoin("person", "person.id", "payment.person_id").leftJoin("person as by", "by.id", "action_run.actor_person_id")
     .select([...cols, "refund.amount_cents as cents"]).where("refund.destination", "=", "desk").where("refund.status", "=", "sent").where("action_run.action", "=", "refund.give_back").$call(onDays).execute();
+  // Club credit paid out at the desk (credit.ts): money handed back there too.
+  const payouts = await db.selectFrom("credit_payout").innerJoin("person", "person.id", "credit_payout.person_id").innerJoin("action_run", "action_run.id", "credit_payout.action_run_id")
+    .leftJoin("person as by", "by.id", "action_run.actor_person_id")
+    .select(["credit_payout.person_id", "person.display_name as person", "by.display_name as by", "credit_payout.at", "credit_payout.method", "credit_payout.amount_cents as cents",
+      sql<null>`null`.as("booking_player_id"), sql<null>`null`.as("enrolment_id"), sql<null>`null`.as("membership_id"), sql<null>`null`.as("membership_plan_id")])
+    .where("credit_payout.at", ">=", starts).where("credit_payout.at", "<", ends).execute();
   const lines: DeskLine[] = [];
+  for (const r of payouts) {
+    const p = localParts(r.at, tz);
+    lines.push({ at: r.at, date: localDate(r.at, tz), time: `${String(p.h).padStart(2, "0")}:${String(p.min).padStart(2, "0")}`, kind: "back", method: asMethod(r.method), cents: r.cents,
+      person_id: r.person_id, person: r.person, by: r.by, what: both("ui.credit_title") });
+  }
   for (const [kind, rows] of [["in", ins], ["back", backs]] as const) for (const r of rows) {
     const at = r.at!, p = localParts(at, tz);
     lines.push({ at, date: localDate(at, tz), time: `${String(p.h).padStart(2, "0")}:${String(p.min).padStart(2, "0")}`, kind, method: asMethod(r.method), cents: r.cents,

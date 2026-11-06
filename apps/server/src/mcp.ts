@@ -34,6 +34,8 @@ const READS: { name: string; title: Text; description: string; input: Record<str
     description: "This person's court bookings, matches, lessons and program places to come, with what they owe." },
   { name: "my_competitions", title: { en: "My tournaments and leagues", es: "Mis torneos y ligas" }, input: {}, path: () => "/my/competitions",
     description: "This person's tournament and league entries: invitations to answer, their partner, their next matches (court and time), results, scores to confirm, and the group or league table. Scores go through fixture_enter_preview, result_confirm_preview or result_dispute_preview." },
+  { name: "my_credit", title: { en: "My club credit", es: "Mi crédito del club" }, input: {}, path: () => "/my/credit",
+    description: "This person's club credit: what they hold and what came and went. Read only: credit is spent in the members' app, never through an assistant." },
   { name: "my_level", title: { en: "My level", es: "Mi nivel" }, input: {}, path: () => "/my/level",
     description: "This person's level, how it moved and why, and their games." },
   { name: "my_membership", title: { en: "My membership", es: "Mi membresía" }, input: {}, path: () => "/my/membership",

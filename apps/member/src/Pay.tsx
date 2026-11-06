@@ -33,12 +33,30 @@ export async function confirmPaid(paymentId: string, tries = 8, check = `/my/pay
 /** `cardFor`: save the card for that membership instead of paying (nothing is charged). `familyCard`: save the
  *  family card a parent's kids pay with. A kid's own payment never shows a card form: it goes on the family
  *  card, or to a parent to pay. */
-export function PaySheet({ paymentId, cardFor, familyCard, amountCents, name, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; amountCents: number; name: string; onClose: () => void; onPaid: () => void }) {
+export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, amountCents: firstAmount, name, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; amountCents: number; name: string; onClose: () => void; onPaid: () => void }) {
   const box = useRef<HTMLDivElement>(null), stripe = useRef<{ stripe: any; elements: any } | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "paying" | "checking">("loading"), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
   // The phone's back button closes the card form, as its Cancel does.
   useBackCloses(true, onClose);
-  const amount = dollars(amountCents, lang.value), setup = Boolean(cardFor || familyCard);
+  const setup = Boolean(cardFor || familyCard);
+  // Club credit first (credit.ts): asked before the card form opens, since a card form already open can't change.
+  // Paid all from credit, the sheet is done; part of a place, the card is asked for the rest, a payment of its own.
+  const [paymentId, setPaymentId] = useState(firstPayment), [amountCents, setAmountCents] = useState(firstAmount);
+  const [credit, setCredit] = useState<number | null>(setup ? 0 : null), [useCredit, setUseCredit] = useState(true), [step, setStep] = useState<"credit" | "card">(setup ? "card" : "credit");
+  useEffect(() => {
+    if (setup) return;
+    api<{ cents: number }>("/my/credit").then((c) => { setCredit(c.cents); if (c.cents <= 0) setStep("card"); }).catch(() => { setCredit(0); setStep("card"); });
+  }, []);
+  const spend = async () => {
+    setError(null); setState("paying");
+    try {
+      const p = await api<{ run_id: string }>("/actions/payment.use_credit/plan", { payment_id: paymentId });
+      const r = await api<{ result?: { paid: boolean; payment_id: string; rest_cents?: number } }>(`/runs/${p.run_id}/apply`, {}, { "idempotency-key": p.run_id });
+      if (r.result?.paid) { onPaid(); return; }
+      setPaymentId(r.result?.payment_id); setAmountCents(r.result?.rest_cents ?? amountCents); setState("loading"); setStep("card");
+    } catch (e) { setError(e instanceof ApiError ? e.message : t("ui.pay_unavailable")); setState("ready"); setUseCredit(false); }
+  };
+  const amount = dollars(amountCents, lang.value);
   const urls = familyCard ? { open: "/my/family/card", check: "", back: "/family?card=1" }
     : cardFor ? { open: `/my/memberships/${cardFor}/card`, check: `/my/memberships/${cardFor}/card/check`, back: `/membership?card=${cardFor}` }
     : { open: `/my/payments/${paymentId}/intent`, check: `/my/payments/${paymentId}/check`, back: `/places?paid=${paymentId}` };
@@ -46,6 +64,7 @@ export function PaySheet({ paymentId, cardFor, familyCard, amountCents, name, on
   const title = familyCard ? t("ui.family_card_title") : cardFor ? t("ui.save_card_title", { name }) : t("ui.pay_title", { amount, name });
 
   useEffect(() => {
+    if (step !== "card") return;
     let gone = false;
     (async () => {
       try {
@@ -68,7 +87,7 @@ export function PaySheet({ paymentId, cardFor, familyCard, amountCents, name, on
       } catch (e) { setError(e instanceof ApiError ? e.message : t("ui.pay_unavailable")); }
     })();
     return () => { gone = true; };
-  }, [paymentId, cardFor]);
+  }, [paymentId, cardFor, step]);
 
   const pay = async () => {
     if (!stripe.current) return;
@@ -87,12 +106,23 @@ export function PaySheet({ paymentId, cardFor, familyCard, amountCents, name, on
         <p><strong>{title}</strong></p>
         {cardFor && <p class="meta">{t("ui.save_card_hint", { amount })}</p>}
         {familyCard && <p class="meta">{t("ui.family_card_hint")}</p>}
-        {note ? <p class="note" role="status">{note}</p> : <div ref={box} class="card-form" />}
-        {state === "loading" && !error && !note && <p class="meta">{t("ui.loading")}</p>}
-        {state === "checking" && <p class="note" role="status">{t("ui.pay_confirming")}</p>}
-        {error && <p class="error" role="alert">{error}</p>}
-        {!note && <button class="primary" disabled={state !== "ready"} onClick={pay}>{familyCard ? t("ui.family_card_save") : cardFor ? t("ui.save_card") : t("ui.pay_now", { amount })}</button>}{" "}
-        <button onClick={onClose}>{note ? t("ui.close") : t("ui.cancel")}</button>
+        {step === "credit" && credit !== null && credit > 0 && <div class="credit-step">
+          <p>{t("ui.credit_have", { amount: dollars(credit, lang.value) })}</p>
+          <label class="check"><input type="checkbox" checked={useCredit} onChange={(e) => setUseCredit((e.target as HTMLInputElement).checked)} /> {t("ui.credit_use", { amount: dollars(Math.min(credit, amountCents), lang.value) })}</label>
+          {useCredit && credit < amountCents && <p class="meta">{t("ui.credit_rest", { amount: dollars(amountCents - credit, lang.value) })}</p>}
+          {error && <p class="error" role="alert">{error}</p>}
+          <p>{useCredit ? <button class="primary" disabled={state === "paying"} onClick={spend}>{credit >= amountCents ? t("ui.credit_pay", { amount }) : t("ui.credit_continue")}</button>
+            : <button class="primary" onClick={() => { setError(null); setStep("card"); }}>{t("ui.credit_continue")}</button>}{" "}<button onClick={onClose}>{t("ui.cancel")}</button></p>
+        </div>}
+        {step === "card" && (note ? <p class="note" role="status">{note}</p> : <div ref={box} class="card-form" />)}
+        {step === "credit" && credit === null && <p class="meta">{t("ui.loading")}</p>}
+        {step === "card" && <>
+          {state === "loading" && !error && !note && <p class="meta">{t("ui.loading")}</p>}
+          {state === "checking" && <p class="note" role="status">{t("ui.pay_confirming")}</p>}
+          {error && <p class="error" role="alert">{error}</p>}
+          {!note && <button class="primary" disabled={state !== "ready"} onClick={pay}>{familyCard ? t("ui.family_card_save") : cardFor ? t("ui.save_card") : t("ui.pay_now", { amount })}</button>}{" "}
+          <button onClick={onClose}>{note ? t("ui.close") : t("ui.cancel")}</button>
+        </>}
       </div>
     </div>
   );

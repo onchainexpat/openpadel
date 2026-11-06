@@ -146,13 +146,14 @@ async function nameOf(db: Db, personId: string): Promise<string> {
   return (await db.selectFrom("person").select("display_name").where("id", "=", personId).executeTakeFirst())?.display_name ?? "";
 }
 /** `desk`: the part paid at the desk, which waits there to be collected rather than going to a card. */
-function refundLine(outcome: string, cents: number, paid: number, desk = 0): Text {
-  if (cents > 0) return outcome === "credit" ? both("msg.refund_credit", { amount: amount(cents) }) : backWords(cents - desk, desk);
+function refundLine(outcome: string, cents: number, paid: number, desk = 0, credit = 0): Text {
+  if (cents > 0) return outcome === "credit" ? both("msg.refund_credit", { amount: amount(cents) }) : backWords(cents - desk - credit, desk, credit);
   return paid > 0 ? both("msg.refund_none") : NOTHING;
 }
 /** What goes back to the card, and what's to collect at the desk (money paid there goes back there). */
-function backWords(card: number, desk: number): Text {
-  const parts = [card > 0 ? both("msg.refund_card", { amount: amount(card) }) : null, desk > 0 ? both("msg.refund_desk", { amount: amount(desk) }) : null].filter((x): x is Text => Boolean(x));
+function backWords(card: number, desk: number, credit = 0): Text {
+  const parts = [card > 0 ? both("msg.refund_card", { amount: amount(card) }) : null, desk > 0 ? both("msg.refund_desk", { amount: amount(desk) }) : null,
+    credit > 0 ? both("msg.refund_credit", { amount: amount(credit) }) : null].filter((x): x is Text => Boolean(x));
   return { en: parts.map((x) => x.en).join(" "), es: parts.map((x) => x.es).join(" ") };
 }
 
@@ -271,7 +272,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")])
         .where("payment.booking_player_id", "=", pl.id).groupBy("refund.destination").execute();
       const cents = (where: string) => Number(back.find((x) => x.destination === where)?.c ?? 0);
-      drafts.push({ to: pl.person_id, kind: lesson ? "lesson_cancelled" : "booking_cancelled", params: { ...b.base, refund: backWords(cents("card"), cents("desk")) }, purpose: "account", essential: true, email: true, link: "/places" });
+      drafts.push({ to: pl.person_id, kind: lesson ? "lesson_cancelled" : "booking_cancelled", params: { ...b.base, refund: backWords(cents("card"), cents("desk"), cents("credit")) }, purpose: "account", essential: true, email: true, link: "/places" });
     }
     // The coach, unless they called it off themselves.
     return [...drafts, ...(p.by && p.by === b.coach_id ? [] : toCoach(b, "coach_lesson_cancelled", { essential: true }))];
@@ -350,7 +351,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       .innerJoin("booking", "booking.id", "booking_player.booking_id").select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")])
       .where("booking.series_id", "=", p.series_id).where("booking.cancel_reason", "=", "series_ended").groupBy("refund.destination").execute();
     const cents = (where: string) => Number(back.find((x) => x.destination === where)?.c ?? 0);
-    return [{ to: s.organiser_id, kind: "booking_repeat_ended", params: { ...s.base, from: dayText(p.from), refund: backWords(cents("card"), cents("desk")) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: s.organiser_id, kind: "booking_repeat_ended", params: { ...s.base, from: dayText(p.from), refund: backWords(cents("card"), cents("desk"), cents("credit")) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   /** Every member's weekly courts stopped by the club at once (weekly.end_all): each member hears once, with what came back. */
   async "weekly.ended_all"({ db }, p: { person_id: string; series_ids: string[]; booked: "keep" | "cancel"; from: string }) {
@@ -359,7 +360,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       .innerJoin("booking", "booking.id", "booking_player.booking_id").select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")])
       .where("booking.series_id", "in", p.series_ids).where("booking.cancel_reason", "=", "series_ended").groupBy("refund.destination").execute() : [];
     const cents = (where: string) => Number(back.find((x) => x.destination === where)?.c ?? 0);
-    return [{ to: p.person_id, kind: "weekly_all_ended", params: { count: p.series_ids.length, from: dayText(p.from), refund: backWords(cents("card"), cents("desk")) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: p.person_id, kind: "weekly_all_ended", params: { count: p.series_ids.length, from: dayText(p.from), refund: backWords(cents("card"), cents("desk"), cents("credit")) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "booking.asked"({ db }, p: { request_id: string }) {
     const r = await db.selectFrom("join_request").innerJoin("person", "person.id", "join_request.person_id").innerJoin("open_match", "open_match.booking_id", "join_request.booking_id")
@@ -860,13 +861,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const e = await place(db, p.enrolment_id);
     return [{ to: e.person_id, kind: "place_lapsed", params: { name: e.name, when: when(e.start, tz) }, purpose: "account", essential: true, email: true, link: "/" }];
   },
-  async "enrolment.left"({ db, tz }, p: { enrolment_id: string; refund_outcome: string; refund_cents: number; refund_desk?: number }) {
+  async "enrolment.left"({ db, tz }, p: { enrolment_id: string; refund_outcome: string; refund_cents: number; refund_desk?: number; refund_credit?: number }) {
     const e = await place(db, p.enrolment_id);
-    return [{ to: e.person_id, kind: "left", params: { name: e.name, when: when(e.start, tz), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id), p.refund_desk) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: e.person_id, kind: "left", params: { name: e.name, when: when(e.start, tz), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id), p.refund_desk, p.refund_credit) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
-  async "enrolment.removed"({ db, tz }, p: { enrolment_id: string; reason: string; refund_outcome: string; refund_cents: number; refund_desk?: number }) {
+  async "enrolment.removed"({ db, tz }, p: { enrolment_id: string; reason: string; refund_outcome: string; refund_cents: number; refund_desk?: number; refund_credit?: number }) {
     const e = await place(db, p.enrolment_id);
-    return [{ to: e.person_id, kind: "removed", params: { name: e.name, when: when(e.start, tz), reason: both(`reason.${p.reason}` as Key), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id), p.refund_desk) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: e.person_id, kind: "removed", params: { name: e.name, when: when(e.start, tz), reason: both(`reason.${p.reason}` as Key), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id), p.refund_desk, p.refund_credit) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "enrolment.transferred"({ db, tz }, p: { from: string; to: string; pay: "sub_pays" | "gift" }) {
     const from = await place(db, p.from), to = await place(db, p.to);

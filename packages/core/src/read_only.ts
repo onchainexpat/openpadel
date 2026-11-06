@@ -30,7 +30,7 @@ export const READ_ONLY_ALLOWED = new Set([
   "chat.report", "chat.hide", "chat.stop", "chat.allow",
   // Kumi's own bookkeeping: recording what already happened at Stripe or Twilio, receipts, refunds going out (handed back at the desk too),
   // holds and offers running out, reminders of what's booked, and tidying.
-  "payment.settle", "refund.settle", "refund.resend", "refund.give_back", "receipt.issue", "receipt.resend", "club.payment_account_status", "texting.registration_record",
+  "payment.settle", "refund.settle", "refund.resend", "refund.give_back", "credit.pay_out", "receipt.issue", "receipt.resend", "club.payment_account_status", "texting.registration_record",
   "membership.card_saved", "family_card.saved", "booking.lapse", "booking.release_seat", "booking.settle_shares", "booking.remind", "waitlist.expire_offers",
   "enrolment.unpaid", "membership.lapse", "program.decide", "program.min_heads_up", "result.auto_confirm", "question.alert", "question.decide",
   "ops.report_failure", "ops.report_cleared", "club.usage_alert", "mirror.apply", "block_series.extend", "broadcast.deliver",

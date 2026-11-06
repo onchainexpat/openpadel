@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { startRegistration } from "@simplewebauthn/browser";
-import type { Key, Lang } from "@kumi/i18n";
-import { api, ApiError, club, farewell, lazyPage, loadMe, me, t } from "./state.ts";
+import { money, type Key, type Lang } from "@kumi/i18n";
+import { api, ApiError, club, farewell, lang, lazyPage, loadMe, me, t } from "./state.ts";
 import { AccountData } from "./AccountData.tsx";
 import { PolicyLinks } from "./Policies.tsx";
 import { canSavePasskey, passkeyWords } from "./passkeys.ts";
@@ -224,6 +224,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
       {app === "member" && !m.kid && <ClubNews personId={m.person.id} />}
       {app === "member" && <Texts personId={m.person.id} />}
       {app === "member" && <InstallApp />}
+      {app === "member" && <CreditCard />}
       {app === "member" && <section class="card"><h2>{t("ui.receipts_title")}</h2><p><a class="button" href="/receipts">{t("ui.receipts_link")}</a></p></section>}
       <section class="card">
         <h2>{t("ui.passkeys")}</h2>
@@ -238,4 +239,12 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
       {error && <p class="error" role="alert">{error}</p>}
     </main>
   );
+}
+
+/** The member's club credit (credit.ts), when they have any: used before their card, and it never runs out. */
+function CreditCard() {
+  const [cents, setCents] = useState(0);
+  useEffect(() => { api<{ cents: number }>("/my/credit").then((c) => setCents(c.cents)).catch(() => {}); }, []);
+  if (cents <= 0) return null;
+  return <section class="card"><h2>{t("ui.credit_title")}</h2><p>{t("ui.credit_have", { amount: money(cents, lang.value) })}</p><p class="meta">{t("ui.credit_hint")}</p></section>;
 }

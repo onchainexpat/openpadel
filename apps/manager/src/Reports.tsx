@@ -30,6 +30,9 @@ export function Reports() {
   // What was paid and given back at the desk, a line a day, for counting the drawer (the same people as receipts);
   // a day opens to each payment and who recorded it.
   const [desk, setDesk] = useState<DeskDay[] | null>(null), [deskDay, setDeskDay] = useState<{ date: string; lines: DeskLine[] } | null>(null);
+  // The club credit members hold (credit.ts): what the club owes them, today.
+  const [credit, setCredit] = useState<{ cents: number; people: number } | null>(null);
+  useEffect(() => { api<{ cents: number; people: number }>("/staff/credit").then(setCredit).catch(() => setCredit(null)); }, []);
   useEffect(() => { if (from && to) api<DeskDay[]>(`/staff/desk-days?from=${from}&to=${to}`).then(setDesk).catch(() => setDesk(null)); setDeskDay(null); }, [from, to, lang.value]);
   const openDay = (date: string) => deskDay?.date === date ? setDeskDay(null) : api<DeskLine[]>(`/staff/desk-days/${date}`).then((lines) => setDeskDay({ date, lines }));
   const all = (m: ByMethod) => m.cash + m.terminal + m.other, usd = (c: number) => dollars(c, lang.value), back = (c: number) => c ? `-${usd(c)}` : usd(0);
@@ -67,6 +70,7 @@ export function Reports() {
       {desk && <section class="card">
         <h2>{t("ui.desk_title")}</h2>
         <p class="meta">{t("ui.desk_help")}</p>
+        {credit && credit.cents > 0 && <p>{t("ui.credit_outstanding", { amount: dollars(credit.cents, lang.value), count: credit.people })}</p>}
         {/* On a phone each day (and each line) stacks into rows of its own, each value beside its column's name (styles.css .stack). */}
         {!desk.length ? <p class="meta">{t("ui.desk_none")}</p> : <div class="table-scroll"><table class="stack">
           <thead><tr><th>{t("ui.day")}</th><th>{t("ui.col_cash")}</th><th>{t("ui.col_card_reader")}</th><th>{t("ui.col_other_way")}</th><th>{t("ui.col_given_back")}</th><th>{t("ui.col_drawer")}</th></tr></thead>

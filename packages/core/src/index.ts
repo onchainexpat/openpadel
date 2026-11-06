@@ -14,6 +14,7 @@ export * from "./booking_series.ts";
 export * from "./prices.ts";
 export * from "./booking_pay.ts";
 export * from "./desk_pay.ts";
+export * from "./credit.ts";
 export * from "./booking_players.ts";
 export * from "./booking_changes.ts";
 export * from "./memberships.ts";

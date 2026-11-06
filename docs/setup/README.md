@@ -165,6 +165,15 @@ page and can send one again, and all the club's receipts for any dates (up to a 
 spreadsheet file where refunds are negative amounts. Turn off Stripe's own receipt emails so members don't
 get two ([accounts/stripe.md](accounts/stripe.md), step 4).
 
+**Club credit.** When staff cancel a booking they can give everything back as club credit instead of to the card
+("Everything they paid, as club credit"); a program's rule can give credit inside its window too. Members see their
+credit on their profile and, when they pay, "Use my $X of club credit" comes first: it pays all of a court or a
+place, or part of a place with the card paying the rest. What credit paid for goes back to credit if it's refunded.
+Credit never runs out. The owner or a manager pays it out at the desk from the member's page (cash or another way),
+never more than they hold; it shows on the desk's day as money handed back, and Reports shows the credit members
+hold in all. A member with credit can't delete their account until it's paid out. Credit can't pay for memberships
+yet, nor a payment that saves a card for later, nor a junior's.
+
 Reports also has the desk's day ("At the desk"), for counting the drawer at closing: for each day on the club's
 clock, what was paid at the desk in cash, on the club's card reader and another way, what was given back
 there, and the drawer (the cash taken, less the cash given back). Tap a day to see each payment and refund,

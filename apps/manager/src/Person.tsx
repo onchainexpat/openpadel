@@ -16,6 +16,7 @@ type P = {
   failed_refunds: { id: string; amount_cents: number; failure: string | null; created_at: string }[];
   series: WeeklyCourt[];
   to_give_back: { id: string; amount_cents: number; method: string; created_at: string }[];
+  credit_cents: number | null;
   consent: { channel: string; purpose: string; granted: boolean }[];
   membership: { id: string; name: string; status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null;
     price_cents: number | null; balance_cents: number; due: { cents: number; next: boolean } | null } | null;
@@ -156,6 +157,16 @@ export function Person({ id }: { id: string }) {
             {mayDo("refund.give_back") && <button class="small" onClick={() => preview("refund.give_back", { refund_id: r.id })}>{t("ui.given_back")}</button>}
           </li>))}</ul>
       </section>}
+      {(p.credit_cents ?? 0) > 0 && <section class="card">
+        <h2>{t("ui.credit_title")}</h2>
+        <p>{t("ui.credit_held", { amount: dollars(p.credit_cents!, lang.value) })}</p>
+        {mayDo("credit.pay_out") && <form class="inline" onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget as HTMLFormElement;
+          const cents = Math.round(Number((f.elements.namedItem("amount") as HTMLInputElement).value) * 100);
+          preview("credit.pay_out", { person_id: p.id, cents, method: (f.elements.namedItem("method") as HTMLSelectElement).value }); }}>
+          <input name="amount" type="number" min="0.01" step="0.01" max={(p.credit_cents! / 100).toFixed(2)} defaultValue={(p.credit_cents! / 100).toFixed(2)} aria-label={t("ui.amount")} />
+          <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="other">{t("paid_by.other")}</option></select>
+          <button class="small">{t("ui.credit_pay_out")}</button></form>}
+      </section>}
       <PersonReceipts personId={p.id} preview={preview} />
       {privacy && <PersonAssistants personId={p.id} preview={preview} key={`${p.id}-${String(sheet ? 1 : 0)}`} />}
       {!p.junior && p.id !== me.value?.person.id && (staffRoles.length === 0 || owner) && <ChangeEmail personId={p.id} name={p.display_name} onDone={load} />}
@@ -180,7 +191,7 @@ function PersonBookings({ bookings, preview }: { bookings: P["bookings"]; previe
               <span>{when(b.starts_at)} · {b.court} · {b.code}</span>
               <span class="meta">{[b.status === "cancelled" ? t("ui.status_cancelled") : null, b.paid_cents ? t("ui.paid_by_them", { amount: dollars(b.paid_cents, lang.value) }) : null].filter(Boolean).join(" · ")}</span>
               {upcoming && mayDo("booking.cancel") && <form class="inline" onSubmit={(e) => { e.preventDefault(); preview("booking.cancel", { booking_id: b.id, refund: ((e.currentTarget as HTMLFormElement).elements.namedItem("refund") as HTMLSelectElement).value }); }}>
-                <select name="refund" aria-label={t("ui.refund")}><option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option></select>
+                <select name="refund" aria-label={t("ui.refund")}><option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option><option value="credit">{t("ui.refund_as_credit")}</option></select>
                 <button class="small">{t("ui.cancel_booking")}</button></form>}
               {b.status !== "cancelled" && mayDo("booking.refund") && b.refundable.map((r) => (
                 <form class="inline" key={r.payment_id} onSubmit={(e) => { e.preventDefault(); const v = Number(((e.currentTarget as HTMLFormElement).elements.namedItem("amount") as HTMLInputElement).value);

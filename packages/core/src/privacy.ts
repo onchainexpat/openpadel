@@ -19,6 +19,8 @@ import { receiptNo } from "./receipts.ts";
 import { QUIET } from "./messages.ts";
 import { excerpt } from "./questions.ts";
 import { chatsOf, eraseChats } from "./chat.ts";
+import { creditBalance } from "./money.ts";
+import { creditHistory } from "./credit.ts";
 
 /** How long the file can be fetched after the download was confirmed. */
 export const EXPORT_MINUTES = 15;
@@ -28,7 +30,7 @@ const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents,
 const iso = (d: Date | string | null | undefined) => d ? new Date(d).toISOString() : null;
 
 // ---- What's still running ----
-export type BlockerKind = "staff" | "bookings" | "weekly" | "programs" | "membership" | "balance" | "kid_requests";
+export type BlockerKind = "staff" | "bookings" | "weekly" | "programs" | "membership" | "balance" | "kid_requests" | "credit";
 export interface Blocker { kind: BlockerKind; text: Text; how: Text }
 
 /** Juniors only this person manages: deleting them deletes these too. */
@@ -80,6 +82,9 @@ async function runningFor(db: Db | Trx, personId: string, now: Date, opts: { che
   if (cents > 0) add("balance", { amount: usd(cents) });
   const asked = await db.selectFrom("kid_request").select(sql<string>`count(*)`.as("n")).where("person_id", "=", personId).where("status", "=", "asked").executeTakeFirstOrThrow();
   if (Number(asked.n)) add("kid_requests", { count: Number(asked.n) });
+  // Club credit is the club's to pay out (credit.ts): deleting the account first would leave it owed to nobody.
+  const credit = await creditBalance(db, personId);
+  if (credit > 0) add("credit", { amount: usd(credit) });
   return out;
 }
 
@@ -241,7 +246,8 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     bookings, match_asks: asks.map((a) => ({ ...a, created_at: iso(a.created_at), decided_at: iso(a.decided_at) })),
     places_offered: offers.map((o) => ({ booking: o.code, status: o.status, yours: o.person_id === personId, offered_to_you: o.to_person_id === personId, taken_by_you: o.taken_by === personId, at: iso(o.created_at), decided_at: iso(o.decided_at) })),
     programs: enrolments.map((e) => ({ ...e, starts_at: iso(e.starts_at), created_at: iso(e.created_at), left_at: iso(e.left_at) })),
-    payments, receipts, memberships, covered_by_family_plans: covered,
+    payments, receipts, club_credit: { cents: await creditBalance(db, personId), history: (await creditHistory(db, personId)).map((h) => ({ ...h, at: iso(h.at) })) },
+    memberships, covered_by_family_plans: covered,
     level: rating ?? null, level_history: history.map((h) => ({ at: iso(h.at), kind: h.kind, before: h.level_before, after: h.level_after, why: say(h.explanation) })),
     level_reviews: reviews, games, score_answers: answers,
     messages, consents, policies_agreed: agreed.map((a) => ({ ...a, accepted_at: iso(a.accepted_at) })), quiet_hours: { from: `${String(QUIET.from).padStart(2, "0")}:00`, until: `${String(QUIET.until).padStart(2, "0")}:00`, set_by: "club" },

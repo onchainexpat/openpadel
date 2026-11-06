@@ -314,7 +314,7 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
         {it.program_id && <a href={`/programs/${it.program_id}`}>{t("ui.open")}</a>}
       </div>
       {cancelling && <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("booking.cancel", { booking_id: it.booking_id, refund: ((e.currentTarget as HTMLFormElement).elements.namedItem("refund") as HTMLSelectElement).value }); }}>
-        <label>{t("ui.refund")}<select name="refund"><option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option></select></label>
+        <label>{t("ui.refund")}<select name="refund"><option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option><option value="credit">{t("ui.refund_as_credit")}</option></select></label>
         <button class="small primary">{t("ui.cancel_booking")}</button></form>}
       {paying && isBooking(it) && unpaid(it) > 0 && <DeskPay key={`${it.booking_id}-${unpaid(it)}`} owed={unpaid(it)} label={t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) })}
         onCancel={() => setPaying(false)} send={(cents, method) => { setPaying(false); preview("booking.record_payment", { booking_id: it.booking_id, cents, method }); }} />}

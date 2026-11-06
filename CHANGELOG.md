@@ -101,6 +101,17 @@ server starts.
   Mexicano re-pair keeps the round's scored games; the lowest in the standings sit out, not the leader; King of
   the Court never keeps a partner; a match tiebreak counts as one game; staff corrections are checked against
   the match format; the other pair sees that a move was asked, not its words.
+- **Club credit.** A member's balance at the club, kept in the books as what the club owes them. It comes from a
+  refund staff give back as club credit (a new choice when cancelling a booking, "Everything they paid, as club
+  credit"), from a program's "credit inside the window" rule, or from money paid from credit coming back. Members
+  never choose credit over their card. Before a card form opens, the pay sheet offers "Use my $X of club credit"
+  (on to start): all of a court or a place from credit, or part of a program place with the card paying the rest.
+  Anything paid from credit goes back to credit when it's refunded. Credit never runs out and can't be bought
+  outright. The owner or a manager pays credit out at the desk (Person page), never more than is held, and it shows
+  on the desk's day as money handed back. A member's profile shows their credit; Reports shows the credit members
+  hold; their data download has it, with what came and went; and an account can't be deleted while it holds credit
+  (the club pays it out first). Two checkouts at once can't spend the same credit. Read-only spends no credit and
+  still pays it out. Not for assistants: spending credit and paying it out are app-only, and never support access.
 
 ### Changed
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
@@ -147,6 +158,10 @@ server starts.
   an hour per chat, so someone reporting in many chats can still raise one alert for each of them in an hour.
 - Tournaments and leagues are for doubles pairs. No consolation draw yet, no self-scheduling (players ask, staff
   move), and a league's pairs are fixed for the season (no subs for one match).
+- Club credit can't pay for a membership yet (it renews from a card), nor a payment that saves a card for a later
+  charge (a court's "pay my part", a weekly court's first week), courts paid together, or a junior's (the family
+  card pays those); a court is paid from credit only when the credit covers all of it. Automatic charges (renewals,
+  deadline charges) don't use credit. Gift cards, passes and promo codes aren't here yet.
 - Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures".
 
 ## 0.2.1 (2026-11-04)

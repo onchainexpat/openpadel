@@ -1,7 +1,7 @@
 // Courts, programs, dates and rosters (data_model.md 7, action_catalogue.md section 4).
 // The rule that matters most here: leaving and refunding are separate decisions (rule 9).
 import * as z from "zod/mini";
-import { sql, type ExpressionBuilder } from "kysely";
+import { sql, type ExpressionBuilder, type Selectable } from "kysely";
 import { both, dateTime, money, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type PlanCtx } from "./actions.ts";
 import type { DB, Db, Trx } from "./db.ts";
@@ -584,7 +584,7 @@ export const enrolmentLeave = defineAction({
     await ctx.update("enrolment", e.id, { ...leaving(refund, "left", "late_cancel", p.refund_rule_version), left_at: ctx.now, included_back: back });
     await dropUnpaid(ctx, e.id);
     const money = await startRefund(ctx, e.id, e.person_id, refund);
-    await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: refund.outcome, refund_cents: refund.cents, refund_desk: money.desk });
+    await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: refund.outcome, refund_cents: refund.cents, refund_desk: money.desk, refund_credit: money.credit });
     if (e.status === "booked" || await declineOffer(ctx, e.id)) await placeFreed(ctx, e.program_id, [], e.session_id);
     return { refund_outcome: refund.outcome, refund_cents: refund.cents };
   },
@@ -608,7 +608,7 @@ export const enrolmentRemove = defineAction({
     await ctx.update("enrolment", e.id, { ...leaving(refund, i.reason === "no_show" ? "no_show" : "removed", i.reason, p.refund_rule_version, i.refund?.note), left_at: ctx.now, included_back: back });
     await dropUnpaid(ctx, e.id);
     const money = await startRefund(ctx, e.id, e.person_id, refund);
-    await ctx.emit("enrolment.removed", { enrolment_id: e.id, reason: i.reason, refund_outcome: refund.outcome, refund_cents: refund.cents, refund_desk: money.desk });
+    await ctx.emit("enrolment.removed", { enrolment_id: e.id, reason: i.reason, refund_outcome: refund.outcome, refund_cents: refund.cents, refund_desk: money.desk, refund_credit: money.credit });
     const offer = e.status === "booked" || await declineOffer(ctx, e.id) ? await placeFreed(ctx, e.program_id, [], e.session_id) : null;
     return { refund_outcome: refund.outcome, refund_cents: refund.cents, offer_id: offer };
   },
@@ -1084,8 +1084,8 @@ export async function lapseUnpaidPlaces(db: Db, now = new Date(), limit = 50) {
 
 /** Start a refund: club credit at once; a card refund through the outbox, after this change commits; and of money
  *  paid at the desk, waiting there to be handed back (desk_pay.ts), the card's first. What went back where. */
-export async function startRefund(ctx: ApplyContext, enrolmentId: string, personId: string, refund: Refund, status: "pending" | "waiting_for_sub" = "pending"): Promise<{ card: number; desk: number }> {
-  const none = { card: 0, desk: 0 };
+export async function startRefund(ctx: ApplyContext, enrolmentId: string, personId: string, refund: Refund, status: "pending" | "waiting_for_sub" = "pending"): Promise<{ card: number; desk: number; credit: number }> {
+  const none = { card: 0, desk: 0, credit: 0 };
   if (refund.cents <= 0 || refund.outcome === "none") return none;
   const pays = await ctx.trx.selectFrom("payment").select(["id", "amount_cents", "provider"])
     .select((eb) => eb.selectFrom("refund").select(sql<string>`coalesce(sum(refund.amount_cents), 0)`.as("c")).whereRef("refund.payment_id", "=", "payment.id").where("refund.status", "!=", "failed").as("back"))
@@ -1179,12 +1179,27 @@ export const paymentSettle = defineAction({
       await refundTo(ctx, pay.id, pay.amount_cents, { enrolmentId: pay.enrolment_id });
       return { status: "succeeded", refunded: pay.amount_cents };
     }
+    if (i.outcome === "failed") {
+      await ctx.update("payment", pay.id, { status: "failed", ...(pay.save_card && i.saved_method ? { saved_customer: i.saved_customer ?? null, saved_method: i.saved_method } : {}) });
+      await ctx.emit("payment.failed", { payment_id: pay.id });
+      return { status: "failed" };
+    }
+    return paidNow(ctx, pay, { from: "provider_clearing", customer: i.saved_customer ?? null, method: i.saved_method ?? null });
+  },
+});
+
+/** A payment that has gone through: by card (the provider said so), or all of it from the member's club credit
+ *  (credit.ts). In the books, from clearing or from the credit the club owed them, into what it's revenue for; then
+ *  what it was for happens (a court held is booked, a membership starts, a place is paid). The payment is locked. */
+export async function paidNow(ctx: ApplyContext, pay: Selectable<DB["payment"]>, o: { from: "provider_clearing" | "member_credit"; customer?: string | null; method?: string | null }) {
+  {
+    const i = { saved_customer: o.customer ?? undefined, saved_method: o.method ?? undefined };
     // A card kept for the deadline charge ("pay my part"): the provider's customer and card, never the card itself.
-    await ctx.update("payment", pay.id, { status: i.outcome, ...(pay.save_card && i.saved_method ? { saved_customer: i.saved_customer ?? null, saved_method: i.saved_method } : {}) });
-    if (i.outcome === "failed") { await ctx.emit("payment.failed", { payment_id: pay.id }); return { status: "failed" }; }
+    await ctx.update("payment", pay.id, { status: "succeeded", ...(pay.save_card && i.saved_method ? { saved_customer: i.saved_customer ?? null, saved_method: i.saved_method } : {}),
+      ...(o.from === "member_credit" ? { method: "credit", provider: "none" } : {}) });
     const kind = await revenueType(ctx.trx, pay);
-    await post(ctx.trx, ctx.runId, "payment", { courts: "court booking payment", lessons: "lesson payment", memberships: "membership payment", programs: "program payment" }[kind], [
-      { account: await account(ctx.trx, "provider_clearing"), cents: pay.amount_cents },
+    await post(ctx.trx, ctx.runId, "payment", `${{ courts: "court booking payment", lessons: "lesson payment", memberships: "membership payment", programs: "program payment" }[kind]}${o.from === "member_credit" ? " from club credit" : ""}`, [
+      { account: o.from === "member_credit" ? await account(ctx.trx, "member_credit", { personId: pay.person_id }) : await account(ctx.trx, "provider_clearing"), cents: pay.amount_cents },
       { account: await account(ctx.trx, "revenue", { revenueType: kind }), cents: -pay.amount_cents },
     ]);
     if (pay.booking_player_id) await afterBookingPayment(ctx, pay);
@@ -1202,8 +1217,8 @@ export const paymentSettle = defineAction({
     await ctx.emit("payment.succeeded", { payment_id: pay.id });
     if (pay.family_card_id) await familyCharged(ctx, [pay]);
     return { status: "succeeded" };
-  },
-});
+  }
+}
 
 /** A refund that didn't go through (the provider said no, or couldn't be reached for an hour), sent again by the
  *  staff. The same refund, so the same key at the provider: if the first try did reach it, nothing goes twice. */

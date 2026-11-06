@@ -404,27 +404,29 @@ export async function lockBooking(trx: Trx, bookingId: string) {
 // ---- Cancelling: what comes back is the booking's own rules (rule 2: staff can choose otherwise) ----
 /** What each payment gets back. In an open match, under the rule, the players who joined get everything
  *  back whatever the timing (the host called it off, not them); the late rule is for the host's own payment. */
-export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, choice: "rule" | "full" | "none") {
+export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, choice: "rule" | "full" | "none" | "credit") {
   const b = await db.selectFrom("booking").select(["id", "policy_id", "organiser_id"]).where("id", "=", bookingId).executeTakeFirstOrThrow();
   const start = await db.selectFrom("court_time").select(sql<Date>`min(lower(during))`.as("s")).where("booking_id", "=", bookingId).executeTakeFirst();
   const policy = b.policy_id ? await db.selectFrom("booking_policy").selectAll().where("id", "=", b.policy_id).executeTakeFirstOrThrow() : await currentPolicy(db);
   // A place let go was already paid back (or never paid): only the players still in it. Of each payment, what's
   // left of it: part may have gone back already (the booking made shorter, or moved somewhere cheaper).
   const paid = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-    .select(["payment.id", "payment.amount_cents", "payment.provider", "booking_player.person_id", backSql.as("back")]).where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null)
+    .select(["payment.id", "payment.amount_cents", "payment.provider", "payment.method", "booking_player.person_id", backSql.as("back")]).where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null)
     .where("payment.status", "=", "succeeded").execute();
   const early = start?.s ? new Date(start.s).getTime() - now.getTime() >= policy.free_cancel_hours * 3600_000 : true;
-  const percent = choice === "full" ? 100 : choice === "none" ? 0 : early ? 100 : policy.late_refund_percent;
+  const percent = choice === "full" || choice === "credit" ? 100 : choice === "none" ? 0 : early ? 100 : policy.late_refund_percent;
   const open = choice === "rule" && Boolean(await openMatchOf(db, bookingId));
   const refunds = paid.map((p) => {
     const joiner = open && p.person_id !== b.organiser_id;
-    return { payment_id: p.id, cents: Math.round(Math.max(0, p.amount_cents - Number(p.back)) * (joiner ? 100 : percent) / 100), joiner, desk: p.provider === "none" };
+    // Everything back as club credit (credit.ts): staff only, the whole of what's left, to each player's credit.
+    return { payment_id: p.id, cents: Math.round(Math.max(0, p.amount_cents - Number(p.back)) * (joiner ? 100 : percent) / 100), joiner,
+      desk: choice !== "credit" && p.method !== "credit" && p.provider === "none", ...(choice === "credit" || p.method === "credit" ? { credit: true } : {}) };
   });
   return { percent, early, hours: policy.free_cancel_hours, refunds };
 }
 export const bookingCancel = defineAction({
   name: "booking.cancel", version: 1,
-  input: z.object({ booking_id: z.uuid(), reason: z.optional(z.string().check(z.maxLength(200))), refund: z.optional(z.enum(["rule", "full", "none"])) }),
+  input: z.object({ booking_id: z.uuid(), reason: z.optional(z.string().check(z.maxLength(200))), refund: z.optional(z.enum(["rule", "full", "none", "credit"])) }),
   async plan(ctx, i) {
     const { row: b, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
@@ -437,8 +439,9 @@ export const bookingCancel = defineAction({
     const r = await cancelRefunds(ctx.db, b.id, ctx.now, choice), total = r.refunds.reduce((n, x) => n + x.cents, 0);
     const joiners = r.refunds.filter((x) => x.joiner).reduce((n, x) => n + x.cents, 0), host = total - joiners, hours = both("count.hours", { count: r.hours });
     // Paid at the desk goes back at the desk, not to a card.
-    const desk = r.refunds.filter((x) => x.desk).reduce((n, x) => n + x.cents, 0), card = total - desk;
+    const desk = r.refunds.filter((x) => x.desk).reduce((n, x) => n + x.cents, 0), credit = r.refunds.filter((x) => x.credit).reduce((n, x) => n + x.cents, 0), card = total - desk - credit;
     const money = !r.refunds.length ? both("refund.nothing_paid")
+      : credit > 0 && credit === total ? both("plan.booking.refund_credit", { amount: usd(total) })
       : joiners ? both(host ? "plan.booking.refund_open" : "plan.booking.no_refund_open", { host: usd(host), others: usd(joiners), hours })
       : !total ? both("plan.booking.no_refund", { hours })
       : desk ? both(card ? "plan.booking.refund_card_desk" : "plan.booking.refund_desk", { amount: usd(desk), card: usd(card) }) : both("plan.booking.refund", { amount: usd(total) });
@@ -446,7 +449,7 @@ export const bookingCancel = defineAction({
       ownerIds: [...organisers, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };
   },
   async apply(ctx, i, plan) {
-    const planned = (plan.details as { refunds: { payment_id: string; cents: number }[] }).refunds;
+    const planned = (plan.details as { refunds: { payment_id: string; cents: number; credit?: boolean }[] }).refunds;
     const b = await lockBooking(ctx.trx, i.booking_id);
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
     // Someone who paid after the preview was made never agreed to its rule: all of theirs back.
@@ -492,10 +495,10 @@ async function refundable(db: Db | Trx, bookingId: string, paymentId: string) {
 }
 /** Call a booking off: its court time is free, the refunds chosen in the plan go back, shares not paid yet can't
  *  be paid any more, and its players are told. Also for a repeating block that cancels bookings in its way. */
-export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: { payment_id: string; cents: number }[], reason: string | null) {
+export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: { payment_id: string; cents: number; credit?: boolean }[], reason: string | null) {
   await ctx.update("booking", bookingId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: reason });
   for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", bookingId).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
-  for (const r of refunds) await refundPayment(ctx, r.payment_id, r.cents);
+  for (const r of refunds) await refundTo(ctx, r.payment_id, r.cents, { credit: r.credit });
   // Shares not paid yet can't be paid any more.
   for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
     .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await callOff(ctx, p.id);
