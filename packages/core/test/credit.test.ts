@@ -139,7 +139,11 @@ test("paid out at the desk by a manager, never more than held, on the desk's day
   await assert.rejects(plan(db, "credit.pay_out", { person_id: people.Eve, cents: 1000, method: "cash" }, desk, opts));
   await rejects(plan(db, "credit.pay_out", { person_id: people.Eve, cents: 5000, method: "cash" }, owner, opts), "error.credit_more_than_held");
   const p = await plan(db, "credit.pay_out", { person_id: people.Eve, cents: 4000, method: "cash" }, owner, opts);
-  assert.equal(p.plan.summary.en, "Pay Eve $40.00 of their club credit, in cash. $0.00 of credit is left.");
+  // Her credit is a card payment the club gave back as credit: paying it out in cash is warned of, as a card-bought
+  // gift card's is (Kelly, 6 Nov).
+  assert.equal(p.plan.summary.en, "Pay Eve $40.00 of their club credit, in cash. $0.00 of credit is left. $40.00 of their credit came from card payments the club refunded as credit: paying it out in cash can be a way to cash out a stolen card.");
+  assert.match(p.plan.summary.es, /pagos con tarjeta que el club devolvió como crédito/);
+  assert.equal((p.plan.details as any).card_refunds, 4000);
   await apply(db, p.runId, owner, opts);
   assert.equal(await creditBalance(db, people.Eve!), 0);
   const day = onDate("2026-11-04", "00:00", TZ).toISOString().slice(0, 10);

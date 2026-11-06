@@ -196,6 +196,17 @@ export async function api<T = any>(path: string, body?: unknown, headers: Record
   return json as T;
 }
 
+/** Sign out of this device. Its notifications go too: the server stops sending to it, and the browser drops the
+ *  subscription, so on a shared phone the next person doesn't get the last one's messages (they turn notifications on
+ *  for themselves on their profile). */
+export async function signOutHere(): Promise<void> {
+  let sub: PushSubscription | null = null;
+  try { sub = (await (await navigator.serviceWorker?.getRegistration("/"))?.pushManager?.getSubscription()) ?? null; } catch { /* no service worker here */ }
+  await api("/auth/sign-out", sub ? { endpoint: sub.endpoint } : {});
+  await sub?.unsubscribe().catch(() => false);
+  me.value = null;
+}
+
 export async function loadMe(): Promise<void> {
   try { const m = await api<Me>("/me"); await firstWording(m.lang).catch(() => undefined); me.value = m; lang.value = m.lang; }
   catch { me.value = null; }

@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, chatsUnread, club, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand } from "@kumi/ui";
+import { api, chatsUnread, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand } from "@kumi/ui";
 import { WhatsOn } from "./WhatsOn.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
 import { MyLevel } from "./MyLevel.tsx";
@@ -65,7 +65,7 @@ export function App() {
   if (me.value === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
   if (me.value === null) return <SignIn />;
   if (me.value.gate) return <ErrorBoundary><TwoFactor /></ErrorBoundary>;
-  const signOut = async () => { await api("/auth/sign-out", {}); me.value = null; };
+  const signOut = () => signOutHere();
   return (
     <LocationProvider>
       <header>

@@ -3,7 +3,7 @@
 // Loaded only when it's needed.
 import { useEffect, useState } from "preact/hooks";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { api, ApiError, club, loadMe, me, t } from "./state.ts";
+import { api, ApiError, club, loadMe, me, signOutHere, t } from "./state.ts";
 import { passkeyWords } from "./passkeys.ts";
 import { usePreview } from "./Preview.tsx";
 
@@ -69,7 +69,7 @@ export function TwoFactor() {
     setNote(t("ui.two_step_passkey_added"));
     await passkey();
   });
-  const signOut = async () => { await api("/auth/sign-out", {}); me.value = null; };
+  const signOut = () => signOutHere();
 
   return (
     <main class="card">

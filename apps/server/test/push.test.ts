@@ -39,3 +39,29 @@ test("a device turns notifications on and off; only what a browser gives is take
   assert.ok((await db.selectFrom("push_subscription").select("revoked_at").where("endpoint", "=", sub.endpoint).executeTakeFirstOrThrow()).revoked_at);
   assert.equal((await app.request("/my/push/key")).status, 401);   // signed in only
 });
+
+test("signing out takes this device's notifications with it, and only with a session", async () => {
+  // Phone check 5: a result reached a shared phone six minutes after its owner signed out.
+  const signIn = async () => {
+    await app.request("/auth/email/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "robin@example.test" }) });
+    const code = mailer.last("robin@example.test")!.text.match(/\b(\d{6})\b/)![1]!;
+    return (await app.request("/auth/email/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "robin@example.test", code }) })).headers.get("set-cookie")!.split(";")[0]!;
+  };
+  const e = createECDH("prime256v1"); e.generateKeys();
+  const keys = { p256dh: e.getPublicKey().toString("base64url"), auth: "AAECAwQFBgcICQoLDA0ODw" };
+  const phone = "https://fcm.googleapis.com/fcm/send/shared-phone-1", laptop = "https://fcm.googleapis.com/fcm/send/laptop-1";
+  for (const endpoint of [phone, laptop]) assert.equal((await call("/my/push", { app: "member", endpoint, keys })).status, 200);
+  const revoked = async (endpoint: string) => Boolean((await db.selectFrom("push_subscription").select("revoked_at").where("endpoint", "=", endpoint).executeTakeFirstOrThrow()).revoked_at);
+  // Signed out (no session): the endpoint is ignored.
+  const out = (cookie: string, body: object) => app.request("/auth/sign-out", { method: "POST", headers: { ...(cookie ? { cookie } : {}), "content-type": "application/json" }, body: JSON.stringify(body) });
+  assert.equal((await out("", { endpoint: phone })).status, 200);
+  assert.equal(await revoked(phone), false);
+  // The phone signs out, sending its endpoint: its notifications stop; the laptop's don't.
+  assert.equal((await out(await signIn(), { endpoint: phone })).status, 200);
+  assert.deepEqual([await revoked(phone), await revoked(laptop)], [true, false]);
+  // An older app signing out with no endpoint still signs out.
+  const old = await signIn();
+  assert.equal((await out(old, {})).status, 200);
+  assert.equal((await app.request("/me", { headers: { cookie: old } })).status, 401);
+  assert.equal(await revoked(laptop), false);
+});

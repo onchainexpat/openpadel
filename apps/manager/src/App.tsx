@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand } from "@kumi/ui";
+import { api, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts } from "./Courts.tsx";
 import { formatLocale } from "@kumi/i18n/format";
@@ -132,7 +132,7 @@ export function App() {
   if (me.value === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
   if (me.value === null) return <SignIn />;
   if (me.value.gate) return <ErrorBoundary><TwoFactor /></ErrorBoundary>;
-  const signOut = async () => { await api("/auth/sign-out", {}); me.value = null; };
+  const signOut = () => signOutHere();
   // Signed in with no staff role (a member, or support access that has ended): say so, rather than pages that can't load.
   if (!me.value.support && !me.value.roles.some((r) => r.key !== "member")) return (
     <main class="card"><p>{t(me.value.support_ended ? "ui.support_ended_you" : "ui.no_staff_role")}</p><button onClick={signOut}>{t("ui.sign_out")}</button></main>

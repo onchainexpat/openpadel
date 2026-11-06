@@ -14,6 +14,7 @@ import { uuidv7 } from "./ids.ts";
 import { account, creditBalance, post } from "./money.ts";
 import { kidOf, paymentWhat } from "./kids.ts";
 import { askAgain, paidNow } from "./programs.ts";
+import { creditee } from "./desk_pay.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 
@@ -108,9 +109,9 @@ export const creditPayOut = defineAction({
     const { row: p, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const have = await creditBalance(ctx.db, i.person_id);
     if (i.cents > have) throw new KumiError("error.credit_more_than_held", { name: p.display_name, amount: usd(have) });
-    // Where their credit came from: gift cards redeemed (and of those, any bought by card) or refunds. Paying out
-    // credit from a card-bought gift card in cash is how a stolen card is cashed out: the preview says so, and the
-    // owner or manager decides.
+    // Where their credit came from: gift cards redeemed (and of those, any bought by card) or refunds (and of those,
+    // any of a card payment, given back as credit). Paying out credit that card money became, in cash or another
+    // way, is how a stolen card is cashed out: the preview says so for both, and the owner or manager decides.
     const g = await ctx.db.selectFrom("gift_card").leftJoin("payment", (j) => j.onRef("payment.gift_card_id", "=", "gift_card.id").on("payment.status", "=", "succeeded"))
       .select([sql<string>`coalesce(sum(gift_card.amount_cents), 0)`.as("all"),
         sql<string>`coalesce(sum(gift_card.amount_cents) FILTER (WHERE payment.provider <> 'none' OR payment.method = 'terminal'), 0)`.as("card")])
@@ -119,11 +120,21 @@ export const creditPayOut = defineAction({
     const sp = await ctx.db.selectFrom("payment").select(sql<string>`coalesce(sum(amount_cents - coalesce((SELECT sum(r.amount_cents) FROM refund r WHERE r.payment_id = payment.id AND r.status = 'sent' AND r.destination = 'credit'), 0)), 0)`.as("c"))
       .where("person_id", "=", i.person_id).where("method", "=", "credit").where("status", "=", "succeeded").executeTakeFirstOrThrow();
     const fromCards = Math.min(have, Math.max(0, Number(g.all) - Number(sp.c))), byCard = Math.min(fromCards, Number(g.card));
+    // Card payments the club gave back as this person's credit (a junior's goes to the parent who paid: creditee).
+    // Spending is taken from gift card credit first, then from these, so what's left of them is what's unspent.
+    const refunds = await ctx.db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
+      .select(["refund.amount_cents", "payment.person_id", "payment.family_card_id", "payment.paid_by"])
+      .where("refund.destination", "=", "credit").where("refund.status", "=", "sent").where((w) => w.or([w("payment.provider", "<>", "none"), w("payment.method", "=", "terminal")]))
+      .where((w) => w.or([w("payment.person_id", "=", i.person_id), w("payment.paid_by", "=", i.person_id), w.exists(w.selectFrom("person as pj").select("pj.id").whereRef("pj.id", "=", "payment.person_id").where("pj.junior", "=", true))])).execute();
+    let cardRefunds = 0;
+    for (const r of refunds) if (await creditee(ctx.db, r) === i.person_id) cardRefunds += r.amount_cents;
+    const refundByCard = Math.min(have - byCard, Math.max(0, cardRefunds - Math.max(0, Number(sp.c) - Number(g.all))));
     const base = both("plan.credit.pay_out", { name: p.display_name, amount: usd(i.cents), how: both(`paid_by.${i.method}`), left: usd(have - i.cents) });
-    const notes = [fromCards > 0 ? both("plan.credit.pay_out_gift", { amount: usd(fromCards) }) : null, byCard > 0 ? both("plan.credit.pay_out_card_warn", { amount: usd(byCard) }) : null].filter((x): x is Text => Boolean(x));
+    const notes = [fromCards > 0 ? both("plan.credit.pay_out_gift", { amount: usd(fromCards) }) : null, byCard > 0 ? both("plan.credit.pay_out_card_warn", { amount: usd(byCard) }) : null,
+      refundByCard > 0 ? both("plan.credit.pay_out_refund_warn", { amount: usd(refundByCard) }) : null].filter((x): x is Text => Boolean(x));
     const summary = { en: [base.en, ...notes.map((x) => x.en)].join(" "), es: [base.es, ...notes.map((x) => x.es)].join(" ") };
     return { title: both("action.credit.pay_out"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
-      summary, details: { from_gift_cards: fromCards, gift_cards_by_card: byCard } };
+      summary, details: { from_gift_cards: fromCards, gift_cards_by_card: byCard, card_refunds: refundByCard } };
   },
   async apply(ctx, i) {
     await lockCredit(ctx.trx, i.person_id);

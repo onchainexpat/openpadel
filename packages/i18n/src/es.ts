@@ -4079,6 +4079,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "privacy.how_credit": "pide al club que te lo pague en recepción",
   "plan.credit.pay_out_gift": "{amount} del crédito que ha tenido vino de tarjetas de regalo que canjeó.",
   "plan.credit.pay_out_card_warn": "{amount} de eso fueron tarjetas de regalo compradas con tarjeta: pagarlo en efectivo puede ser una forma de cobrar una tarjeta robada.",
+  "plan.credit.pay_out_refund_warn": "{amount} de su crédito vino de pagos con tarjeta que el club devolvió como crédito: pagarlo en efectivo puede ser una forma de cobrar una tarjeta robada.",
   "ui.credit_title": "Crédito del club",
   "ui.credit_have": "Tienes {amount} de crédito del club.",
   "ui.credit_none": "Sin crédito del club.",

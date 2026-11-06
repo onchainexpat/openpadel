@@ -4078,6 +4078,7 @@ export const en = {
   "privacy.how_credit": "ask the club to pay it out at the desk",
   "plan.credit.pay_out_gift": "{amount} of the credit they've had came from gift cards they redeemed.",
   "plan.credit.pay_out_card_warn": "{amount} of that was gift cards bought by card: paying it out in cash can be a way to cash out a stolen card.",
+  "plan.credit.pay_out_refund_warn": "{amount} of their credit came from card payments the club refunded as credit: paying it out in cash can be a way to cash out a stolen card.",
   "ui.credit_title": "Club credit",
   "ui.credit_have": "You have {amount} of club credit.",
   "ui.credit_none": "No club credit.",

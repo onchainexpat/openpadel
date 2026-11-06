@@ -184,6 +184,16 @@ test("L4c: a junior's refund given as club credit goes to the parent who looks a
   assert.deepEqual([await creditBalance(db, tim), await creditBalance(db, people.Cal!)], [0, cal + 4000]);
 });
 
+test("paying out credit that came from neither a gift card nor a card (cash at the desk, given back as credit) isn't warned of", async () => {
+  const zed = ((await run(db, "person.create", { display_name: "Zed", email: "zed@example.test" }, owner, opts)).result as { person_id: string }).person_id;
+  const b = ((await run(db, "booking.create", { court_id: court, starts_at: "2026-11-28T10:00:00-08:00", minutes: 60, person_id: zed }, desk, opts)).result as any).booking_id;
+  await run(db, "booking.record_payment", { booking_id: b, cents: 4000, method: "cash" }, desk, opts);
+  await run(db, "booking.cancel", { booking_id: b, refund: "credit" }, desk, opts);
+  const out = await plan(db, "credit.pay_out", { person_id: zed, cents: 4000, method: "cash" }, owner, opts);
+  assert.equal(out.plan.summary.en, "Pay Zed $40.00 of their club credit, in cash. $0.00 of credit is left.");
+  assert.equal((out.plan.details as any).card_refunds, 0);
+});
+
 test("L4d: paying out credit that came from a gift card bought by card says so in the preview", async () => {
   const { code: good } = await bought("Ann", 5000);
   await run(db, "gift_card.redeem", { person_id: people.Hal, code: good }, as("Hal"), opts);

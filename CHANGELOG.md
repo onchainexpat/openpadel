@@ -258,6 +258,13 @@ server starts.
     junior's payment, a renewal and a gift card read "Paid, thank you: confirming" until it's recorded, even after
     leaving the page, and the page asks again every few seconds. A Pay tapped again for a payment that has gone
     through records it instead of opening a second card form, so it can't be paid twice.
+  - **Signing out stops that device's notifications.** A result reached a shared phone six minutes after its owner
+    signed out. Signing out of either app now turns off notifications on that device, for the server and the
+    browser, so the next person to sign in there turns them on for themselves.
+- **Paying out credit that came from a card refund is warned of too.** Paying a member's club credit out in cash or
+  another way already warned when the credit came from gift cards bought by card. It now also warns when the credit
+  is a card payment the club gave back as credit ("$40.00 of their credit came from card payments the club refunded
+  as credit"): either way, card money leaves as cash. Credit from cash at the desk is not warned of.
 - What a real phone showed on 5 November:
   - A court paid after a promo code read "Paid $30.00 of $40.00". What the code took off now counts as paid on court
     bookings, for the member ("Paid $30.00 ($10.00 off with a code)") and on the desk's grid, which no longer offers

@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { anyPhone, promosOn, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -381,6 +381,10 @@ export function makeApp(deps: AppDeps) {
     return c.json({ signed_in: true });
   });
   app.post("/auth/sign-out", async (c) => {
+    // This device's notifications end with the sign-out (the app sends its push endpoint): on a shared phone the next
+    // person doesn't get the last one's messages. Only the signed-in person's own subscription is touched.
+    const b = await c.req.json().catch(() => ({})) as { endpoint?: unknown }, me = c.get("me");
+    if (me && typeof b.endpoint === "string" && b.endpoint.length <= 2000) await unsubscribePush(db, me.id, b.endpoint);
     await signOut(db, readSession(c, cookieMode).token, now());
     clearSession(c, cookieMode);
     return c.json({ signed_out: true });
