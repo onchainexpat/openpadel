@@ -69,3 +69,17 @@ for (const app of ["member", "manager"]) {
     assert.deepEqual(problems, []);
   });
 }
+
+test("what the screens say never points at a file in the code (staff read the app, not the repository)", async () => {
+  const { es } = await import("../src/es.ts");
+  const bad = [...Object.entries(en), ...Object.entries(es)].filter(([k, v]) => k.startsWith("ui.") && /\b(docs|deploy|apps|packages)\/[\w./-]+|\.md\b/.test(String(v))).map(([k]) => k);
+  assert.deepEqual(bad, []);
+});
+
+test("Spanish uses one word for each thing: cancha, lugar, correo (phone check 5 read cancha and pista, lugar and plaza, email and correo)", async () => {
+  const { es } = await import("../src/es.ts");
+  const said = (v: unknown): string => typeof v === "string" ? v : v && typeof v === "object" ? Object.values(v).map(said).join(" ") : "";
+  const bad = Object.entries(es).filter(([k]) => !k.startsWith("cli.") && !k.startsWith("texting.field."))
+    .filter(([, v]) => /\b(pistas?|plazas?|e-?mails?)\b/i.test(said(v).replace(/\{[^}]*\}/g, ""))).map(([k]) => k);
+  assert.deepEqual(bad, []);
+});

@@ -28,7 +28,7 @@ test("every action's refused details are plain words in both languages", () => {
 
 test("Add a date without a court: pick a court; the usual fields get their own words", () => {
   const issues = (raw: unknown) => { const r = z.safeParse(z.object({ court_ids: z.array(z.string()).check(z.minLength(1)), starts_at: z.string(), name: z.string().check(z.minLength(2)), price_cents: z.number() }), raw); assert.ok(!r.success); return plainIssues(r.error.issues, raw); };
-  assert.deepEqual(issues({ court_ids: [], starts_at: "2026-11-12T17:00", name: "Volley", price_cents: 100 }), { en: "Pick at least one court.", es: "Elige al menos una pista." });
+  assert.deepEqual(issues({ court_ids: [], starts_at: "2026-11-12T17:00", name: "Volley", price_cents: 100 }), { en: "Pick at least one court.", es: "Elige al menos una cancha." });
   const t = issues({ court_ids: ["c"], name: "V" });
   assert.equal(t.en, "Choose a date and time. Write a little more in the name. Enter an amount.");
   assert.equal(t.es, "Elige una fecha y una hora. Escribe un poco más en el nombre. Escribe un monto.");
@@ -36,7 +36,7 @@ test("Add a date without a court: pick a court; the usual fields get their own w
 
 test("an action's refusal says it plainly, through the same path the apps use", async () => {
   await assert.rejects(dryPlan({} as Db, "session.add", { program_id: "01a1b2c3-0000-7000-8000-000000000000", starts_at: "2026-11-12T17:00:00-08:00", ends_at: "2026-11-12T18:30:00-08:00", court_ids: [] }, { personId: null, via: "test", lang: "en" }, new Date()),
-    (e: unknown) => e instanceof KumiError && e.code === "error.invalid_input" && e.text.en.endsWith("Pick at least one court.") && e.text.es.endsWith("Elige al menos una pista.") && !RAW.test(e.text.en));
+    (e: unknown) => e instanceof KumiError && e.code === "error.invalid_input" && e.text.en.endsWith("Pick at least one court.") && e.text.es.endsWith("Elige al menos una cancha.") && !RAW.test(e.text.en));
 });
 
 test("nothing turns the checker's own text into what a person reads", () => {

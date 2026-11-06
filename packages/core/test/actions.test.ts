@@ -102,7 +102,11 @@ test("a member is refused with the reason in their language, and the refusal is 
 
 test("own-rows grants: a member changes their own profile, not someone else's", async () => {
   const a = await person("Bea", "member"), b = await person("Cy", "member");
-  await run(db, "person.update_profile", { person_id: a, locale: "es" }, as(a));
+  // A new language says what it changes (phone check 5: "Change your language on your profile." and no more).
+  const p = await plan(db, "person.update_profile", { person_id: a, locale: "es" }, as(a));
+  assert.equal(p.plan.summary.en, "Change your language on your profile. From now on Kumi speaks to you in Spanish: the app, emails, texts and notifications.");
+  assert.match(p.plan.summary.es, /Desde ahora Kumi te habla en español/);
+  await apply(db, p.runId, as(a));
   await rejects(plan(db, "person.update_profile", { person_id: b, display_name: "Hacked" }, as(a)), "error.forbidden_reason");
 });
 

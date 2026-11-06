@@ -117,7 +117,7 @@ test("the unsubscribe link: opening it changes nothing; the button (or a mail ap
 test("a Spanish reader's page is in Spanish", async () => {
   await act("Ben", "consent.club_news", { person_id: people.Ben, granted: true });
   const token = (await db.selectFrom("person").select("news_token").where("id", "=", people.Ben!).executeTakeFirstOrThrow()).news_token;
-  assert.match((await req(`/unsubscribe/${token}`, null)).text, /¿Dejar de recibir por email las novedades de Kestrel Padel\?/);
+  assert.match((await req(`/unsubscribe/${token}`, null)).text, /¿Dejar de recibir por correo las novedades de Kestrel Padel\?/);
 });
 
 test("export lists a member's tags; deleting the account takes them off and kills the old unsubscribe link", async () => {

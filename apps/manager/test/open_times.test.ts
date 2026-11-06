@@ -17,7 +17,7 @@ test("courts chosen together: the earliest opening to the latest closing, ignori
 });
 
 test("the desk's lengths are only the ones that end by closing time", () => {
-  assert.deepEqual(lengthsFitting(at("16:30"), at("18:00")), [60, 90, 30]);
+  assert.deepEqual(lengthsFitting(at("16:30"), at("18:00")), [30, 60, 90], "shortest first (phone check 5 read 60, 90, 120, 30...)");
   assert.deepEqual(lengthsFitting(at("17:30"), at("18:00")), [30]);
   assert.deepEqual(lengthsFitting(at("18:00"), at("18:00")), []);
   assert.deepEqual(lengthsFitting("", at("18:00")), []);

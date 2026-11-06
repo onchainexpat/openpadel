@@ -4,7 +4,7 @@
 import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { RateLimiter } from "./limits.ts";
-import { noteFound, checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, supportRoleKeys, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
+import { includedTaxOf, noteFound, checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, supportRoleKeys, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
 
 type Me = { id: string } | null;
 export interface StripeConfig { publishableKey?: string; webhookSecret?: string }
@@ -43,7 +43,9 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
     await guard(c);
     const r = await openPayment(db, id, pid);
     if (r.paid) return c.json({ paid: true });
-    return c.json({ provider: r.provider, client_secret: r.clientSecret, publishable_key: r.provider === "stripe" ? stripe.publishableKey ?? null : null, stripe_account: r.account });
+    // Prices that include tax: the sheet says how much of it is tax, as the booking and the receipt do.
+    const tax = await includedTaxOf(db, id), l = (c as Context<any>).get("lang") === "es" ? "es" : "en";
+    return c.json({ ...(tax ? { tax_cents: tax.cents, tax_label: tax.label[l], tax_rate: tax.rate?.[l] ?? null } : {}), provider: r.provider, client_secret: r.clientSecret, publishable_key: r.provider === "stripe" ? stripe.publishableKey ?? null : null, stripe_account: r.account });
   });
   // Each check can be a question to Stripe, so a person gets a few a minute (the app asks 8 times after a card form).
   const checks = new RateLimiter(30, 5 * 60_000);

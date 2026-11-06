@@ -1,4 +1,4 @@
-import { ErrorBoundary, LocationProvider, Router, Route } from "preact-iso";
+import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
 import { api, chatsUnread, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand } from "@kumi/ui";
 import { WhatsOn } from "./WhatsOn.tsx";
@@ -105,7 +105,20 @@ export function App() {
         <Route path="/chats" component={Chats} />
         <Route path="/chats/:kind/:id" component={ChatThread} />
         <Route path="/profile" component={Profile} />
+        {/* What people type for tournaments and leagues, and any address the app doesn't have: somewhere, never a blank page. */}
+        <Route path="/tournaments" component={ToCompetitions} />
+        <Route path="/leagues" component={ToCompetitions} />
+        <Route default component={ToHome} />
       </Router>
     </LocationProvider>
   );
 }
+
+/** Another address for a page: replaced by the page's own, so back doesn't return here. */
+function Go({ to }: { to: string }) {
+  const { route } = useLocation();
+  useEffect(() => { route(to, true); }, [to]);
+  return null;
+}
+const ToCompetitions = () => <Go to="/competitions" />;
+const ToHome = () => <Go to="/" />;

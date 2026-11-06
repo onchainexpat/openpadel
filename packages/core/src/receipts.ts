@@ -130,6 +130,22 @@ async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { 
 const PAID_COLUMNS = ["id", "person_id", "amount_cents", "method", "booking_player_id", "enrolment_id", "membership_plan_id", "membership_id", "membership_member_id", "family_card_id",
   "group_id", "provider_ref", "discount_cents", "gift_card_id", "pass_id"] as const;
 
+/** The tax inside a payment still to pay, for the pay sheet, when the club's prices include tax: what its receipt will
+ *  say ("Of which VAT (21%): €4.17"), the same way (lineOf, at the rate the booking was sold). Several paid together
+ *  (one card payment): the tax of each still waiting, together. Null when there's none inside it. */
+export async function includedTaxOf(db: Db | Trx, paymentId: string): Promise<{ cents: number; label: Text; rate: Text | null } | null> {
+  const p = await db.selectFrom("payment").select([...PAID_COLUMNS]).where("id", "=", paymentId).executeTakeFirst();
+  if (!p) return null;
+  const rows = p.group_id ? await db.selectFrom("payment").select([...PAID_COLUMNS]).where("group_id", "=", p.group_id).where("status", "=", "pending").execute() : [p];
+  const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
+  const lines = await Promise.all(rows.map((r) => lineOf(db, r as Paid, tz)));
+  const cents = lines.reduce((n, l) => n + l.tax, 0);
+  if (!cents) return null;
+  const f = await taxFacts(db, lines.find((l) => l.tax)?.sold);
+  if (!f.tax_included) return null;
+  return { cents, label: taxWord(f.tax_label, true), rate: f.tax_bp ? rateText(f.tax_bp) : null };
+}
+
 /** Who a payment's receipt is for: whoever paid, which for a kid's charge on the family card is the parent who
  *  saved the card (the kid is named on it). */
 async function payerOf(db: Db | Trx, p: Paid): Promise<{ to: string; forPerson: string | null }> {

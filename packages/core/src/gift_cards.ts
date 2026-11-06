@@ -96,7 +96,7 @@ export const giftCardSell = defineAction({
     const { row: p, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     await amountAllowed(ctx.db, i.cents);
     return { title: both("action.gift_card.sell"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
-      summary: both("plan.gift_card.sell", { amount: usd(i.cents), name: p.display_name, how: paidHow(i.method) }) };
+      summary: both(i.for_name?.trim() ? "plan.gift_card.sell_for" : "plan.gift_card.sell", { amount: usd(i.cents), name: p.display_name, how: paidHow(i.method), for: i.for_name?.trim() ?? "" }) };
   },
   async apply(ctx, i) {
     await amountAllowed(ctx.trx, i.cents);

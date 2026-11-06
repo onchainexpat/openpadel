@@ -5,7 +5,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
 import { setClubFormat } from "@kumi/i18n";
-import { checkPayment, issueReceipts, openPayment, quote, receiptParams, receiptsOf, receiptView, run, runAsSystem, setPaymentProvider, taxSplit, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { checkPayment, includedTaxOf, issueReceipts, openPayment, quote, receiptParams, receiptsOf, receiptView, run, runAsSystem, setPaymentProvider, taxSplit, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, court: string, loc: string;
 const stripe = new TestProvider(), TZ = "Europe/Madrid", NOW = new Date("2026-11-05T09:00:00Z"), opts = { now: NOW };
@@ -93,4 +93,16 @@ test("a program place stays untaxed, either way", async () => {
   const [r] = await receiptsOf(db, people.Cal!);
   assert.equal((await db.selectFrom("receipt").select("tax_cents").where("id", "=", r!.id).executeTakeFirstOrThrow()).tax_cents, 0);
   assert.equal((await receiptParams(db, r!.id))!.params.included.en, "");
+});
+
+test("the pay sheet says how much of what's paid is tax, as the receipt will (phone check 5: the sheet didn't)", async () => {
+  const b = await book("Cal", "18:00", "2026-11-13");
+  const t = await includedTaxOf(db, b.payment_id);
+  assert.equal(t?.cents, 694);
+  assert.equal(t?.label.en, "Tax", "the club's own word, else \"Tax\", as on the receipt");
+  assert.match(t?.rate?.en ?? "", /^21\s?%$/);
+  await run(db, "club.update", { prices_include_tax: false }, owner, opts);
+  const us = await book("Cal", "19:00", "2026-11-13");
+  assert.equal(await includedTaxOf(db, us.payment_id), null, "tax on top: the sheet's amount is the total already, and the line isn't 'of which'");
+  await run(db, "club.update", { prices_include_tax: true }, owner, opts);
 });

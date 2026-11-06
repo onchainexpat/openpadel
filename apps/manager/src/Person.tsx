@@ -165,7 +165,7 @@ export function Person({ id }: { id: string }) {
           const cents = fromMajor(Number((f.elements.namedItem("amount") as HTMLInputElement).value));
           preview("credit.pay_out", { person_id: p.id, cents, method: (f.elements.namedItem("method") as HTMLSelectElement).value }); }}>
           <input name="amount" type="number" min={amountStep()} step={amountStep()} max={plainAmount(p.credit_cents!)} defaultValue={plainAmount(p.credit_cents!)} aria-label={t("ui.amount")} />
-          <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="other">{t("paid_by.other")}</option></select>
+          <select name="method" aria-label={t("ui.pay_out_how")}><option value="cash">{t("paid_by.cash")}</option><option value="other">{t("paid_by.other")}</option></select>
           <button class="small">{t("ui.credit_pay_out")}</button></form>}
       </section>}
       {club.value?.gift_cards && mayDo("gift_card.sell") && <section class="card">
@@ -175,7 +175,7 @@ export function Person({ id }: { id: string }) {
             for_name: (f.elements.namedItem("for") as HTMLInputElement).value || undefined }); }}>
           <input name="amount" type="number" min="1" step="1" defaultValue={String(toMajor(capFor(5000)))} aria-label={t("ui.gift_card_amount")} />
           <input name="for" maxLength={80} placeholder={t("ui.gift_card_for")} aria-label={t("ui.gift_card_for")} />
-          <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="terminal">{t("paid_by.terminal")}</option><option value="other">{t("paid_by.other")}</option></select>
+          <select name="method" aria-label={t("ui.desk_taken_how")}><option value="cash">{t("paid_by.cash")}</option><option value="terminal">{t("paid_by.terminal")}</option><option value="other">{t("paid_by.other")}</option></select>
           <button class="small">{t("action.gift_card.sell")}</button></form>
       </section>}
       {(mayDo("pass.sell") || mayDo("pass.refund")) && <PersonPasses personId={p.id} preview={preview} key={`passes-${p.id}-${String(sheet ? 1 : 0)}`} />}
@@ -300,7 +300,7 @@ function PersonPasses({ personId, preview }: { personId: string; preview: (actio
       const product = products.find((x) => x.id === (f.elements.namedItem("product") as HTMLSelectElement).value)!;
       preview("pass.sell", { person_id: personId, product_id: product.id, cents: product.price_cents, method: (f.elements.namedItem("method") as HTMLSelectElement).value }); }}>
       <select name="product" aria-label={t("ui.pass_sell")}>{products.map((x) => <option value={x.id} key={x.id}>{x.name} · {dollars(x.price_cents, lang.value)}</option>)}</select>
-      <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="terminal">{t("paid_by.terminal")}</option><option value="other">{t("paid_by.other")}</option></select>
+      <select name="method" aria-label={t("ui.desk_taken_how")}><option value="cash">{t("paid_by.cash")}</option><option value="terminal">{t("paid_by.terminal")}</option><option value="other">{t("paid_by.other")}</option></select>
       <button class="small">{t("ui.pass_sell")}</button></form>}
   </section>;
 }

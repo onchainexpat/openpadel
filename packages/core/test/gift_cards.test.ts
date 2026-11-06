@@ -89,6 +89,10 @@ test("voided before it's used: back to the buyer's card; sold at the desk, it's 
   await run(db, "gift_card.void", { gift_card_id }, owner, opts);
   const r = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select(["refund.destination", "refund.amount_cents"]).where("payment.gift_card_id", "=", gift_card_id).executeTakeFirstOrThrow();
   assert.deepEqual([r.destination, r.amount_cents], ["card", 3000]);
+  // The preview names who it's for when the desk says (phone check 5: it was stored, but the preview didn't say).
+  const forMaya = await plan(db, "gift_card.sell", { person_id: people.Dee, cents: 2500, method: "cash", for_name: "Maya" }, desk, opts);
+  assert.match(forMaya.plan.summary.en, /^Sell Dee a \$25\.00 gift card for Maya, paid in cash\./);
+  assert.match(forMaya.plan.summary.es, /para Maya/);
   const sold = (await run(db, "gift_card.sell", { person_id: people.Dee, cents: 2500, method: "cash" }, desk, opts)).result as { gift_card_id: string };
   assert.equal((await giftCardsOf(db, people.Dee!)).find((c) => c.id === sold.gift_card_id)?.status, "active");
   const lines = await deskLines(db, "2026-11-04", "2026-11-04");

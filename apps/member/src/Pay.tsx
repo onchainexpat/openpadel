@@ -55,6 +55,8 @@ export function useConfirming(paymentIds: (string | null | undefined)[], reload:
 export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnly, back, amountCents: firstAmount, name, detail, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; cardOnly?: boolean; back?: string; amountCents: number; name: string; detail?: string | null; onClose: () => void; onPaid: () => void }) {
   const box = useRef<HTMLDivElement>(null), stripe = useRef<{ stripe: any; elements: any } | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "paying" | "checking">("loading"), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
+  // Prices that include tax: how much of this is tax (the server's includedTaxOf, as its receipt will say).
+  const [tax, setTax] = useState<{ cents: number; label: string; rate: string | null } | null>(null);
   // The phone's back button closes the card form, as its Cancel does.
   useBackCloses(true, onClose);
   // Saving a card charges nothing; a gift card or a pass is paid by card only (no credit, passes or promo codes),
@@ -111,13 +113,14 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
     let gone = false;
     (async () => {
       try {
-        type Opened = { client_secret: string; publishable_key: string | null; stripe_account: string | null; card_id?: string; family?: "paid" | "parent"; cents?: number; paid?: boolean };
+        type Opened = { client_secret: string; publishable_key: string | null; stripe_account: string | null; card_id?: string; family?: "paid" | "parent"; cents?: number; paid?: boolean; tax_cents?: number; tax_label?: string; tax_rate?: string | null };
         // A card form for a payment passes the bot check first (the server's bot.ts); saving a card doesn't charge.
         const it = saveCard ? await api<Opened>(urls.open, {}) : await protectedPost<Opened>(urls.open, {});
         // Paid already (a second tap after the card went through): nothing to pay twice.
         if (it.family === "paid" || it.paid) { onPaid(); return; }
         if (it.family === "parent") { setNote(t("ui.kid_parent_pays")); return; }
         if (it.card_id) check.current = `/my/family/card/${it.card_id}/check`;
+        if (it.tax_cents) setTax({ cents: it.tax_cents, label: it.tax_label ?? "", rate: it.tax_rate ?? null });
         if (!it.publishable_key) throw new Error("no publishable key");
         await loadStripeJs();
         if (gone) return;
@@ -154,6 +157,7 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
       <div class="card sheet" role="dialog" aria-modal="true" aria-label={title}>
         <p><strong>{title}</strong></p>
         {detail && <p class="meta">{detail}</p>}
+        {tax && step === "card" && <p class="meta">{t(tax.rate ? "ui.pay_tax_included_rate" : "ui.pay_tax_included", { amount: dollars(tax.cents, lang.value), tax: tax.label, rate: tax.rate ?? "" })}</p>}
         {cardFor && <p class="meta">{t("ui.save_card_hint", { amount })}</p>}
         {familyCard && <p class="meta">{t("ui.family_card_hint")}</p>}
         {step === "credit" && passes.length > 0 && paymentId === firstPayment && <div class="pass-step">

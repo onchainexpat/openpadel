@@ -13,6 +13,8 @@ export function Competition({ id }: { id: string }) {
   const [d, setD] = useState<Page | null>(null), [pa, setPa] = useState(""), [pb, setPb] = useState("");
   const [format, setFormat] = useState(""), [size, setSize] = useState(4), [mf, setMf] = useState("one_set"), [legs, setLegs] = useState(1);
   const [sets, setSets] = useState<Record<string, string>>({}), [court, setCourt] = useState<Record<string, string>>({}), [at, setAt] = useState<Record<string, string>>({});
+  // The club's score can be final (after a dispute, say): the players can't dispute it again (fixture.score).
+  const [final, setFinal] = useState<Record<string, boolean>>({});
   const load = () => api<Page>(`/staff/programs/${id}/competition`).then((x) => { setD(x); setFormat((f) => f || (x.kind === "league" ? "league" : "groups_knockout")); });
   const { preview, sheet } = usePreview(load);
   useEffect(() => { void load(); }, [id]);
@@ -83,7 +85,8 @@ export function Competition({ id }: { id: string }) {
               {f.status === "ready" && !f.game_id && (
                 <div class="score">
                   <input inputMode="numeric" aria-label={t("ui.score")} placeholder="6-3" value={sets[f.id] ?? ""} onInput={(e) => setSets({ ...sets, [f.id]: e.currentTarget.value })} />
-                  <button class="small" onClick={() => preview("fixture.score", { fixture_id: f.id, sets: parse(sets[f.id] ?? "") })}>{t("ui.enter_score")}</button>
+                  <label class="check"><input type="checkbox" checked={final[f.id] ?? false} onChange={(e) => setFinal({ ...final, [f.id]: e.currentTarget.checked })} /> {t("ui.score_final")}</label>
+                  <button class="small" onClick={() => preview("fixture.score", { fixture_id: f.id, sets: parse(sets[f.id] ?? ""), final: final[f.id] ?? false })}>{t("ui.enter_score")}</button>
                   {f.a_id && <button class="small" onClick={() => preview("fixture.walkover", { fixture_id: f.id, given_by: f.a_id })}>{t("ui.walkover_by", { pair: f.a })}</button>}
                   {f.b_id && <button class="small" onClick={() => preview("fixture.walkover", { fixture_id: f.id, given_by: f.b_id })}>{t("ui.walkover_by", { pair: f.b })}</button>}
                 </div>

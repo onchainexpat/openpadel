@@ -371,7 +371,11 @@ export const personUpdateProfile = defineAction({
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const { person_id, ...rest } = i;
-    return { title: both("action.person.update_profile"), summary: both("plan.person.update_profile", { fields: fieldList(changed(row, rest)) }), reads: [read], ownerIds: await withManagers(ctx.db, [person_id]), undo: { kind: "reversible" } };
+    const fields = changed(row, rest), base = both("plan.person.update_profile", { fields: fieldList(fields) });
+    // A new language says what it changes: everything Kumi says to them, from now on.
+    const lang = fields.includes("locale") && i.locale ? both("plan.person.locale_to", { language: both(`lang.word_${i.locale}` as Key) }) : null;
+    const summary = lang ? { en: `${base.en} ${lang.en}`, es: `${base.es} ${lang.es}` } : base;
+    return { title: both("action.person.update_profile"), summary, reads: [read], ownerIds: await withManagers(ctx.db, [person_id]), undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const { person_id, ...rest } = i;

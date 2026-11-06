@@ -261,6 +261,22 @@ server starts.
   - **Signing out stops that device's notifications.** A result reached a shared phone six minutes after its owner
     signed out. Signing out of either app now turns off notifications on that device, for the server and the
     browser, so the next person to sign in there turns them on for themselves.
+  - A match's score preview ends in a sentence of its own ("It counts for levels."), and in Spanish says who won
+    ("ustedes ganaron 6-2"). The dispute message says what was disputed: "the score entered for your match: Ann
+    and Ben 6-2 against Cal and Dee".
+  - Staff entering a match's score can tick "Final": the players can't dispute it, so after a dispute they don't get
+    another 24 hours.
+  - A match played and still waiting for its score is listed under "Played, score to come", not under "Next matches".
+  - /tournaments and /leagues open Competitions, and an address the members' app doesn't have opens the home page
+    instead of a blank one.
+  - Spanish says cancha, lugar and correo everywhere (it mixed in pista, plaza and email).
+  - Changing your language says what it changes: everything Kumi says to you, from then on.
+  - The pay-out and desk sale choices of how money moves are read out as that, not as "Refund".
+  - A gift card sold at the desk for someone says who in its preview.
+  - The desk lists booking lengths shortest first (it read 60, 90, 120, 30...); 90 minutes is still the one chosen.
+  - With prices that include tax, the pay sheet says how much of it is tax ("Of which VAT (21%): €4.17"), as the
+    booking and the receipt do.
+  - The staff Settings page no longer shows a file path from the code where it says how to set up answers.
 - **Paying out credit that came from a card refund is warned of too.** Paying a member's club credit out in cash or
   another way already warned when the credit came from gift cards bought by card. It now also warns when the credit
   is a card payment the club gave back as credit ("$40.00 of their credit came from card payments the club refunded

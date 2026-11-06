@@ -18,7 +18,8 @@ export function spanOfCourts(courts: { open: Open }[]): Open {
   return { opens: open.map((o) => o.opens).sort((a, b) => ms(a) - ms(b))[0]!, closes: open.map((o) => o.closes).sort((a, b) => ms(b) - ms(a))[0]! };
 }
 
-/** The desk's lengths that fit from a start before `until` (the court closing, or the next thing on it). */
-export function lengthsFitting(start: string, until: string, lengths = [60, 90, 120, 30, 150, 180]): number[] {
+/** The desk's lengths that fit from a start before `until` (the court closing, or the next thing on it), shortest
+ *  first (90 minutes is still the one chosen when it fits: DeskBooking). */
+export function lengthsFitting(start: string, until: string, lengths = [30, 60, 90, 120, 150, 180]): number[] {
   return start ? lengths.filter((m) => ms(start) + m * 60_000 <= ms(until)) : [];
 }

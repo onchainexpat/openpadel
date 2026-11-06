@@ -617,7 +617,7 @@ export const fixtureScore = defineAction({
     const c = await scorable(ctx.db, f, ctx.now);
     if (!matchWinner(c.match_format as MatchFormat, i.sets)) throw new KumiError("error.bad_match_score", { format: both(`match_format.${c.match_format}` as "match_format.one_set") }, 400);
     const pairs = await pairNames(ctx.db, [f.entry_a, f.entry_b]);
-    return { title: both("action.fixture.score"), summary: both("plan.fixture.score", { a: pairs.get(f.entry_a)!, b: pairs.get(f.entry_b)!, score: setsText(i.sets), counts: both(p.rated ? "result.counts_rated" : "result.counts_friendly"),
+    return { title: both("action.fixture.score"), summary: both("plan.fixture.score", { a: pairs.get(f.entry_a)!, b: pairs.get(f.entry_b)!, score: setsText(i.sets), counts: both(p.rated ? "result.counts_rated_sentence" : "result.counts_friendly_sentence"),
       window: i.final ? both("plan.fixture.score_final") : both("plan.fixture.score_window", { hours: DISPUTE_HOURS }) }),
       reads: [read], locationId: p.location_id, undo: { kind: "none" } };
   },
@@ -647,7 +647,7 @@ export const fixtureEnter = defineAction({
     if (!w) throw new KumiError("error.bad_match_score", { format: both(`match_format.${c.match_format}` as "match_format.one_set") }, 400);
     const pairs = await pairTexts(ctx.db, [theirs?.id ?? null], i.person_id);   // a junior opponent stays "Junior player"
     return { title: both("action.fixture.enter"), summary: both("plan.fixture.enter", { opponents: pairs.get(theirs!.id) ?? { en: "", es: "" }, result: both(w === "a" ? "result.won" : "result.lost"), score: setsText(sets), hours: CONFIRM_HOURS,
-      counts: both(p.rated ? "result.counts_rated" : "result.counts_friendly") }), reads: [read], locationId: p.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" } };
+      counts: both(p.rated ? "result.counts_rated_sentence" : "result.counts_friendly_sentence") }), reads: [read], locationId: p.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
     const f = await ctx.trx.selectFrom("fixture").selectAll().where("id", "=", i.fixture_id).forUpdate().executeTakeFirstOrThrow();

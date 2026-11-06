@@ -51,3 +51,9 @@ test("every Pay button for a waiting payment stands down while that payment is c
     assert.match(s, /useConfirming\(/, `${file} asks again until it's recorded`);
   }
 });
+
+test("with prices that include tax, the sheet says how much of it is tax", () => {
+  const pay = src("Pay.tsx");
+  assert.match(pay, /if \(it\.tax_cents\) setTax\(/);
+  assert.match(pay, /t\(tax\.rate \? "ui\.pay_tax_included_rate" : "ui\.pay_tax_included"/);
+});

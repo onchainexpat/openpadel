@@ -24,3 +24,13 @@ test("every button has words or an aria-label", () => {
   }
   assert.deepEqual(bad, [], `buttons with no name:\n${bad.join("\n")}`);
 });
+
+test("a choice of how money is taken or paid out is named for that, not \"Refund\"", () => {
+  // Phone check 5: the pay-out and desk sale selects read out as "Refund" to a screen reader.
+  const bad: string[] = [];
+  for (const f of files) {
+    const src = readFileSync(f, "utf8");
+    for (const m of src.matchAll(/<select name="method"[^>]*aria-label=\{t\("ui\.refund"\)\}/g)) bad.push(`${f.slice(root.length)}:${src.slice(0, m.index).split("\n").length}`);
+  }
+  assert.deepEqual(bad, []);
+});

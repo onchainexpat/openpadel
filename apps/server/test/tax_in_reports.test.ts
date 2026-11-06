@@ -79,7 +79,7 @@ test("Reports: revenue from courts and lessons is before tax, with the tax colle
   setClubFormat({ currency: "EUR", locale: "es-ES" });
   const { t } = await import("@kumi/i18n");
   assert.match(t("en", "ui.revenue_before_tax", { tax: "17,35 €" }), /^Revenue is before tax\. Tax collected on courts and lessons: 17,35 €\.$/);
-  assert.match(t("es", "ui.revenue_before_tax", { tax: "17,35 €" }), /^Los ingresos son sin impuestos\. Impuestos cobrados en pistas y clases: 17,35 €\.$/);
+  assert.match(t("es", "ui.revenue_before_tax", { tax: "17,35 €" }), /^Los ingresos son sin impuestos\. Impuestos cobrados en canchas y clases: 17,35 €\.$/);
 });
 
 test("Reports: a refund gives its share of the VAT back, so revenue and tax both come down", async () => {

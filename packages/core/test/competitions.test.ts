@@ -170,6 +170,10 @@ test("a knockout of 3 pairs: the top seed has a bye, staff scores move winners o
   assert.equal(final.entry_a, ids[0]); assert.equal(final.status, "waiting");
   const semi = fs.find((f) => f.round === 1 && f.status === "ready")!;
   await rejects(plan(db, "fixture.score", { fixture_id: semi.id, sets: [{ a: 6, b: 5 }] }, desk, later(t)), "error.bad_match_score");
+  // Its preview ends in a sentence of its own (phone check 5 read "...for 24 hours. it counts for levels").
+  const sp = await plan(db, "fixture.score", { fixture_id: semi.id, sets: [{ a: 7, b: 6 }] }, desk, later(t));
+  assert.match(sp.plan.summary.en, /\. (It counts for levels|It's a friendly, so levels don't move)\.$/);
+  assert.match(sp.plan.summary.es, /\. (Cuenta para los niveles|Es un amistoso, así que los niveles no cambian)\.$/);
   await run(db, "fixture.score", { fixture_id: semi.id, sets: [{ a: 7, b: 6 }] }, desk, later(t));
   fs = await fixtures(t.programId);
   assert.equal(fs.find((f) => f.id === final.id)!.status, "ready");
@@ -213,6 +217,9 @@ test("players enter their own score; the other pair confirms and the winner move
   await rejects(plan(db, "fixture.enter", { fixture_id: semi.id, person_id: me!, sets: [{ us: 6, them: 3 }, { us: 6, them: 4 }] }, as(me!)), "error.not_played_yet");
   const after = { now: new Date(semi.starts_at!.getTime() + 2 * 3600_000) };
   await rejects(plan(db, "fixture.enter", { fixture_id: semi.id, person_id: me!, sets: [{ us: 6, them: 3 }, { us: 4, them: 6 }] }, as(me!), after), "error.bad_match_score");
+  const ep = await plan(db, "fixture.enter", { fixture_id: semi.id, person_id: me!, sets: [{ us: 6, them: 3 }, { us: 4, them: 6 }, { us: 10, them: 7 }] }, as(me!), after);
+  assert.match(ep.plan.summary.en, /: you won 6-3 4-6 10-7\. .*\. (It counts for levels|It's a friendly, so levels don't move)\.$/);
+  assert.match(ep.plan.summary.es, /: ustedes ganaron 6-3 4-6 10-7\. .*\. (Cuenta para los niveles|Es un amistoso, así que los niveles no cambian)\.$/, "says who won");
   const g = ((await run(db, "fixture.enter", { fixture_id: semi.id, person_id: me!, sets: [{ us: 6, them: 3 }, { us: 4, them: 6 }, { us: 10, them: 7 }] }, as(me!), after)).result as { game_id: string }).game_id;
   assert.equal((await db.selectFrom("game").select("status").where("id", "=", g).executeTakeFirstOrThrow()).status, "awaiting_confirmation");
   assert.equal((await myCompetitions(db, them!)).entries[0]!.to_confirm[0], g, "the other pair has it to confirm");

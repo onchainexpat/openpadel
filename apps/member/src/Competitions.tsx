@@ -2,6 +2,7 @@
 // and times, enter or confirm a score, ask to move a match, and the group or league table.
 import { useEffect, useState } from "preact/hooks";
 import { api, clubTime, me, serverNow, t, usePreview } from "@kumi/ui";
+import { splitNext } from "./next_matches.ts";
 
 type Fixture = { id: string; stage: string; group: number | null; round: number; a: string; b: string; a_id: string | null; b_id: string | null; status: string; court: string | null; starts_at: string | null; score: string; walkover: boolean; move_asked: string | null; game_id: string | null; game_status: string | null };
 type Row = { entry: string; name: string; played: number; won: number; lost: number; points: number };
@@ -50,35 +51,44 @@ export function Competitions() {
                 <button onClick={() => preview("entry.decline", { entry_id: e.entry_id, person_id: pid })}>{t("action.entry.decline")}</button></p>
             </>
           ) : <p class="meta">{e.status === "invited" ? t("ui.waiting_for_partner", { name: e.partner }) : t("ui.partner_is", { name: e.partner })}{e.match_format ? ` · ${t(`match_format.${e.match_format}` as "match_format.one_set")}` : ""}</p>}
-          {e.next.length > 0 && <h3>{t("ui.next_matches")}</h3>}
-          {e.next.map((f) => (
-            <div class="game">
-              <div>{line(f)}</div>
-              <div class="meta">{f.starts_at ? `${f.court ?? ""} · ${clubTime(f.starts_at, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : f.status === "waiting" ? t("ui.match_waits") : t("ui.match_no_time")}</div>
-              {f.game_status === "awaiting_confirmation" && !e.to_confirm.includes(f.game_id!) && <p class="meta">{t("ui.score_waiting_other_pair")}</p>}
-              {e.to_confirm.includes(f.game_id ?? "") && (
-                <p>
-                  <button class="primary" onClick={() => preview("result.confirm", { game_id: f.game_id, person_id: pid })}>{t("action.result.confirm")}</button>{" "}
-                  <input aria-label={t("ui.dispute_reason")} placeholder={t("ui.dispute_reason")} value={why[f.id] ?? ""} onInput={(x) => setWhy({ ...why, [f.id]: x.currentTarget.value })} />
-                  <button disabled={(why[f.id] ?? "").trim().length < 3} onClick={() => preview("result.dispute", { game_id: f.game_id, person_id: pid, note: why[f.id] })}>{t("action.result.dispute")}</button>
-                </p>
-              )}
-              {f.status === "ready" && !f.game_id && started(f) && (
-                <form class="score" onSubmit={(x) => { x.preventDefault(); preview("fixture.enter", { fixture_id: f.id, person_id: pid, sets: parse(sets[f.id] ?? "") }); }}>
-                  <label>{t("ui.your_score")}<input inputMode="numeric" placeholder="6-3 6-4" value={sets[f.id] ?? ""} onInput={(x) => setSets({ ...sets, [f.id]: x.currentTarget.value })} /></label>
-                  <button class="small primary">{t("ui.enter_score")}</button>
-                </form>
-              )}
-              {f.status !== "played" && !started(f) && (f.move_asked ? <p class="meta">{t("ui.move_asked")}</p> : (
-                <details><summary>{t("action.fixture.ask_move")}</summary>
-                  <form onSubmit={(x) => { x.preventDefault(); preview("fixture.ask_move", { fixture_id: f.id, person_id: pid, note: note[f.id] ?? "" }); }}>
-                    <input aria-label={t("ui.move_why")} placeholder={t("ui.move_why")} value={note[f.id] ?? ""} onInput={(x) => setNote({ ...note, [f.id]: x.currentTarget.value })} />
-                    <button class="small" aria-label={t("action.fixture.ask_move")} disabled={(note[f.id] ?? "").trim().length < 3}>{t("ui.send")}</button>
+          {(() => {
+            // Played and waiting for its score apart from what's still ahead (next_matches.ts).
+            const { toScore, ahead } = splitNext(e.next, serverNow());
+            const game = (f: Fixture) => (
+              <div class="game">
+                <div>{line(f)}</div>
+                <div class="meta">{f.starts_at ? `${f.court ?? ""} · ${clubTime(f.starts_at, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : f.status === "waiting" ? t("ui.match_waits") : t("ui.match_no_time")}</div>
+                {f.game_status === "awaiting_confirmation" && !e.to_confirm.includes(f.game_id!) && <p class="meta">{t("ui.score_waiting_other_pair")}</p>}
+                {e.to_confirm.includes(f.game_id ?? "") && (
+                  <p>
+                    <button class="primary" onClick={() => preview("result.confirm", { game_id: f.game_id, person_id: pid })}>{t("action.result.confirm")}</button>{" "}
+                    <input aria-label={t("ui.dispute_reason")} placeholder={t("ui.dispute_reason")} value={why[f.id] ?? ""} onInput={(x) => setWhy({ ...why, [f.id]: x.currentTarget.value })} />
+                    <button disabled={(why[f.id] ?? "").trim().length < 3} onClick={() => preview("result.dispute", { game_id: f.game_id, person_id: pid, note: why[f.id] })}>{t("action.result.dispute")}</button>
+                  </p>
+                )}
+                {f.status === "ready" && !f.game_id && started(f) && (
+                  <form class="score" onSubmit={(x) => { x.preventDefault(); preview("fixture.enter", { fixture_id: f.id, person_id: pid, sets: parse(sets[f.id] ?? "") }); }}>
+                    <label>{t("ui.your_score")}<input inputMode="numeric" placeholder="6-3 6-4" value={sets[f.id] ?? ""} onInput={(x) => setSets({ ...sets, [f.id]: x.currentTarget.value })} /></label>
+                    <button class="small primary">{t("ui.enter_score")}</button>
                   </form>
-                </details>
-              ))}
-            </div>
-          ))}
+                )}
+                {f.status !== "played" && !started(f) && (f.move_asked ? <p class="meta">{t("ui.move_asked")}</p> : (
+                  <details><summary>{t("action.fixture.ask_move")}</summary>
+                    <form onSubmit={(x) => { x.preventDefault(); preview("fixture.ask_move", { fixture_id: f.id, person_id: pid, note: note[f.id] ?? "" }); }}>
+                      <input aria-label={t("ui.move_why")} placeholder={t("ui.move_why")} value={note[f.id] ?? ""} onInput={(x) => setNote({ ...note, [f.id]: x.currentTarget.value })} />
+                      <button class="small" aria-label={t("action.fixture.ask_move")} disabled={(note[f.id] ?? "").trim().length < 3}>{t("ui.send")}</button>
+                    </form>
+                  </details>
+                ))}
+              </div>
+            );
+            return <>
+              {toScore.length > 0 && <h3>{t("ui.matches_to_score")}</h3>}
+              {toScore.map(game)}
+              {ahead.length > 0 && <h3>{t("ui.next_matches")}</h3>}
+              {ahead.map(game)}
+            </>;
+          })()}
           {e.played.length > 0 && <><h3>{t("ui.results")}</h3><ul class="plain">{e.played.map((f) => <li>{line(f)} <strong>{f.walkover ? t("pub.walkover") : f.score}</strong></li>)}</ul></>}
           {e.tables.map((tb) => (
             <>

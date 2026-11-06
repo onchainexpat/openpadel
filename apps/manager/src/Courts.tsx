@@ -382,7 +382,9 @@ function ChangeForm({ it, court, g, clock, slots, preview, canMove, canResize, c
 function DeskBooking({ court, starts, until, clock, preview, onClose }: { court: Court; starts: string[]; until: string; clock: (s: string) => string; preview: Preview; onClose: () => void }) {
   // The lengths that fit before the court closes (or the next thing on it), from the start chosen.
   const fits = (start: string) => lengthsFitting(start, until);
-  const [f, setF] = useState({ start: starts[0] ?? "", minutes: fits(starts[0] ?? "").includes(90) ? 90 : fits(starts[0] ?? "")[0] ?? 30, guest: "", price: "", weekly: false, weeks: 8 }), [person, setPerson] = useState<{ id: string; display_name: string } | null>(null);
+  // Listed shortest first; the one chosen is 90 minutes when it fits, else the longest that does (as before).
+  const usual = (start: string) => { const l = fits(start); return l.includes(90) ? 90 : l.filter((m) => m < 90).at(-1) ?? l[0] ?? 30; };
+  const [f, setF] = useState({ start: starts[0] ?? "", minutes: usual(starts[0] ?? ""), guest: "", price: "", weekly: false, weeks: 8 }), [person, setPerson] = useState<{ id: string; display_name: string } | null>(null);
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string; email: string | null }[]>([]);
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
   // What the club's prices say it costs, as the start and length change; the desk can type another price.
@@ -400,7 +402,7 @@ function DeskBooking({ court, starts, until, clock, preview, onClose }: { court:
   return (
     <form class="card card-form" onSubmit={submit}>
       <h2>{t("ui.book_court", { court: court.name })}</h2>
-      <label>{t("ui.starts")}<select value={f.start} onChange={(e) => { const start = e.currentTarget.value; setF({ ...f, start, minutes: fits(start).includes(f.minutes) ? f.minutes : fits(start)[0] ?? 30 }); }}>
+      <label>{t("ui.starts")}<select value={f.start} onChange={(e) => { const start = e.currentTarget.value; setF({ ...f, start, minutes: fits(start).includes(f.minutes) ? f.minutes : usual(start) }); }}>
         {starts.filter((s) => fits(s).length).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
       <label>{t("ui.length")}<select value={f.minutes} onChange={(e) => setF({ ...f, minutes: Number(e.currentTarget.value) })}>{fits(f.start).map((m) => <option value={m}>{t("ui.minutes", { count: m })}</option>)}</select></label>
       {person ? <p>{person.display_name} <button type="button" class="link" onClick={() => setPerson(null)}>{t("ui.change")}</button></p> : <>

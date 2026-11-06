@@ -255,3 +255,20 @@ test("King of the Court seeded again: nobody keeps last round's partner", () => 
   const again = mexicanoRound(players, ["c1", "c2"], null, new Map(), "seed", undefined, partners);
   for (const g of again.games) for (const team of [g.a, g.b]) assert.ok(!partners.has([...team].sort().join("|")), `kept ${team.join("+")}`);
 });
+
+test("the dispute message says what was disputed: the score entered, one pair against the other", async () => {
+  // Phone check 5 read "Cal Test impugnó Ann Test y Ben Test 6-2 Cal Test y Dee Test".
+  const t = await competition("league", 2);
+  await pairAll(t);
+  await run(db, "competition.draw", { program_id: t.programId, format: "league" }, desk);
+  await run(db, "competition.schedule", { program_id: t.programId }, desk);
+  const [f] = await fixtures(t.programId);
+  const at = { now: new Date(f!.starts_at!.getTime() + 3 * 3600_000) };
+  const A = await who(f!.entry_a!), B = await who(f!.entry_b!);
+  const g = ((await run(db, "fixture.enter", { fixture_id: f!.id, person_id: A.person_a, sets: [{ us: 6, them: 2 }] }, as(A.person_a), at)).result as { game_id: string }).game_id;
+  await run(db, "result.dispute", { game_id: g, person_id: B.person_a, note: "It was 2-6" }, as(B.person_a), at);
+  await processOutbox(db, messageHandlers, 500, at.now);
+  const m = (await messages(A.person_a)).find((x) => x.kind === "result_disputed" && x.channel === "inbox") ?? (await messages(A.person_a)).find((x) => x.kind === "result_disputed");
+  assert.ok(m, "the pair who entered it is told");
+  assert.match(m!.body, /disputed the score entered for your match: .+ 6-2 against .+\. The club will decide/);
+});
