@@ -13,7 +13,7 @@ import { KumiError } from "./errors.ts";
 import { atLocal, localParts } from "./clock.ts";
 
 /** Actions whose plan's money is what the person themselves pays, when it's for them or a junior they manage. */
-const PAYS = new Set(["booking.request", "booking.request_courts", "booking.repeat_request", "booking.join", "booking.ask", "booking.take_place", "lesson.request",
+const PAYS = new Set(["gift_card.buy", "booking.request", "booking.request_courts", "booking.repeat_request", "booking.join", "booking.ask", "booking.take_place", "lesson.request",
   "enrolment.join", "enrolment.join_dates", "enrolment.accept_offer", "membership.join"]);
 /** Membership changes the membership's payer pays for: one more person now, or the next period once resumed. */
 const MEMBERSHIP = new Set(["membership.add_person", "membership.resume"]);

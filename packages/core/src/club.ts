@@ -70,6 +70,8 @@ export const clubUpdate = defineAction({
     tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
     // Players message each other inside the games they play together (chat.ts); off, no chat anywhere.
     players_chat: z.optional(z.boolean()),
+    // Gift cards (gift_cards.ts): sold in the app and at the desk, for amounts from the minimum to the maximum.
+    gift_cards: z.optional(z.boolean()), gift_card_min_cents: z.optional(z.number().check(z.int(), z.minimum(100))), gift_card_max_cents: z.optional(z.number().check(z.int(), z.maximum(500000))),
     public_page: z.optional(z.boolean()), about: z.optional(z.nullable(z.string().check(z.maxLength(600)))),
     // The club's own terms and privacy policy for members (docs/templates): linked where members join, beside the
     // yes to texts, on the profile and the public pages. Someone who joins after they're set agrees to them.

@@ -14,6 +14,7 @@ import { checkSessionCoach, coachBusy } from "./lessons.ts";
 import { clashList, dateClashes, weekly } from "./program_clashes.ts";
 import { afterBookingPayment } from "./booking_pay.ts";
 import { afterMembershipPayment } from "./memberships.ts";
+import { giftCardPaid } from "./gift_cards.ts";
 import { quietUntil } from "./messages.ts";
 import { priceFor, programPerks, programPrice, priceWords, type ProgramPrice } from "./program_prices.ts";
 import { manages, requireWaiver, withManagers } from "./households.ts";
@@ -1201,10 +1202,11 @@ export async function paidNow(ctx: ApplyContext, pay: Selectable<DB["payment"]>,
     await ctx.update("payment", pay.id, { status: "succeeded", ...(pay.save_card && i.saved_method ? { saved_customer: i.saved_customer ?? null, saved_method: i.saved_method } : {}),
       ...(o.from === "member_credit" ? { method: "credit", provider: "none" } : {}) });
     const kind = await revenueType(ctx.trx, pay);
-    await post(ctx.trx, ctx.runId, "payment", `${{ courts: "court booking payment", lessons: "lesson payment", memberships: "membership payment", programs: "program payment" }[kind]}${o.from === "member_credit" ? " from club credit" : ""}`, [
+    await post(ctx.trx, ctx.runId, "payment", `${{ courts: "court booking payment", lessons: "lesson payment", memberships: "membership payment", programs: "program payment", gift_cards: "gift card sold" }[kind]}${o.from === "member_credit" ? " from club credit" : ""}`, [
       { account: o.from === "member_credit" ? await account(ctx.trx, "member_credit", { personId: pay.person_id }) : await account(ctx.trx, "provider_clearing"), cents: pay.amount_cents },
       { account: await account(ctx.trx, "revenue", { revenueType: kind }), cents: -pay.amount_cents },
     ]);
+    if (pay.gift_card_id) await giftCardPaid(ctx, pay.gift_card_id);
     if (pay.booking_player_id) await afterBookingPayment(ctx, pay);
     if (pay.membership_plan_id || pay.membership_id) await afterMembershipPayment(ctx, pay, { customer: i.saved_customer ?? null, method: i.saved_method ?? null });
     if (pay.enrolment_id) {
@@ -1272,7 +1274,7 @@ export const refundSettle = defineAction({
     if (r.status !== "pending") return { already: r.status };
     if (!i.ok) { await ctx.update("refund", r.id, { status: "failed", failure: i.failure ?? null }); await ctx.emit("refund.failed", { refund_id: r.id }); return { status: "failed" }; }
     await ctx.update("refund", r.id, { status: "sent", provider_ref: i.provider_ref ?? null });
-    const paid = await ctx.trx.selectFrom("payment").select(["booking_player_id", "membership_plan_id", "membership_id", "enrolment_id", "person_id", "family_card_id"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
+    const paid = await ctx.trx.selectFrom("payment").select(["booking_player_id", "membership_plan_id", "membership_id", "enrolment_id", "person_id", "family_card_id", "gift_card_id"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
     // Back to the family card: the parents hear it, as they heard the charge.
     if (paid.family_card_id) {
       const card = await ctx.trx.selectFrom("family_card").select("household_id").where("id", "=", paid.family_card_id).executeTakeFirstOrThrow();

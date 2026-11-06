@@ -174,6 +174,13 @@ never more than they hold; it shows on the desk's day as money handed back, and 
 hold in all. A member with credit can't delete their account until it's paid out. Credit can't pay for memberships
 yet, nor a payment that saves a card for later, nor a junior's.
 
+**Gift cards** (Settings, "Sell gift cards", with the smallest and largest amount). Members buy them in the app under
+Gift cards, paid by card; the desk sells one from a member's page. The code is in the buyer's app, to give or print;
+whoever redeems it gets its value as club credit. Until a card is used it's money the club owes, shown on Reports
+with each card, where a manager can void one nobody has used (the buyer gets the money back the way they paid) or
+remind the buyer. Kumi's cards never expire and have no fees; check your state's rules on gift cards with a lawyer
+(some states require cash back for small balances: pay it out from the member's credit at the desk).
+
 Reports also has the desk's day ("At the desk"), for counting the drawer at closing: for each day on the club's
 clock, what was paid at the desk in cash, on the club's card reader and another way, what was given back
 there, and the drawer (the cash taken, less the cash given back). Tap a day to see each payment and refund,

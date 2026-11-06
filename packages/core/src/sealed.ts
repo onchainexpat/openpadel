@@ -83,6 +83,7 @@ export const SEALED_COLUMNS: { table: string; key: string; column: string; kind:
   { table: "auth_challenge", key: "id", column: "code_hash", kind: "text", where: "kind = 'totp_setup'" },
   { table: "push_key", key: "singleton", column: "private_key", kind: "text" },
   { table: "vault_blob", key: "id", column: "bytes", kind: "bytes" },
+  { table: "gift_card", key: "id", column: "code_sealed", kind: "text" },
 ];
 
 export interface ResealReport { sealed: number; resealed: number; current: number; plain: number; unreadable: number }

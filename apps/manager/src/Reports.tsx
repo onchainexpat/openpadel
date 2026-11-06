@@ -1,7 +1,7 @@
 // Occupancy and revenue by day for a location, with the same figures as a spreadsheet file.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, club, dollars, lang, me, ReceiptSheet, t, type ReceiptView, serverNow } from "@kumi/ui";
+import { api, club, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, serverNow } from "@kumi/ui";
 
 type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number; membership_revenue_cents: number };
 type Receipt = { id: string; number: string; kind: "payment" | "refund"; when: string; paid_by: string; for: string | null; what: string; more: number; total_cents: number };
@@ -33,6 +33,12 @@ export function Reports() {
   // The club credit members hold (credit.ts): what the club owes them, today.
   const [credit, setCredit] = useState<{ cents: number; people: number } | null>(null);
   useEffect(() => { api<{ cents: number; people: number }>("/staff/credit").then(setCredit).catch(() => setCredit(null)); }, []);
+  // The club's gift cards (gift_cards.ts): what's owed on those not used yet, and each one, to void or remind.
+  type Gift = { id: string; amount_cents: number; status: string; last4: string; buyer: string; redeemed_by: string | null };
+  const [gifts, setGifts] = useState<{ outstanding: { cents: number; count: number }; cards: Gift[] } | null>(null);
+  const loadGifts = () => api<{ outstanding: { cents: number; count: number }; cards: Gift[] }>("/staff/gift-cards").then(setGifts).catch(() => setGifts(null));
+  useEffect(() => { void loadGifts(); }, []);
+  const { preview, sheet: giftSheet } = usePreview(() => void loadGifts());
   useEffect(() => { if (from && to) api<DeskDay[]>(`/staff/desk-days?from=${from}&to=${to}`).then(setDesk).catch(() => setDesk(null)); setDeskDay(null); }, [from, to, lang.value]);
   const openDay = (date: string) => deskDay?.date === date ? setDeskDay(null) : api<DeskLine[]>(`/staff/desk-days/${date}`).then((lines) => setDeskDay({ date, lines }));
   const all = (m: ByMethod) => m.cash + m.terminal + m.other, usd = (c: number) => dollars(c, lang.value), back = (c: number) => c ? `-${usd(c)}` : usd(0);
@@ -71,6 +77,12 @@ export function Reports() {
         <h2>{t("ui.desk_title")}</h2>
         <p class="meta">{t("ui.desk_help")}</p>
         {credit && credit.cents > 0 && <p>{t("ui.credit_outstanding", { amount: dollars(credit.cents, lang.value), count: credit.people })}</p>}
+        {gifts && gifts.cards.length > 0 && <details><summary>{t("ui.gift_card_outstanding", { amount: dollars(gifts.outstanding.cents, lang.value), count: gifts.outstanding.count })}</summary>
+          <ul class="plain">{gifts.cards.map((g) => <li class="row" key={g.id}>
+            <span>{dollars(g.amount_cents, lang.value)} · …{g.last4} · {g.buyer}{g.redeemed_by ? ` → ${g.redeemed_by}` : ""} · {t(`ui.gift_card_status_${g.status}` as Key)}</span>
+            {g.status === "active" && <span>{mayDo("gift_card.resend") && <button class="small" onClick={() => preview("gift_card.resend", { gift_card_id: g.id })}>{t("ui.gift_card_resend")}</button>}{" "}
+              {mayDo("gift_card.void") && <button class="small" onClick={() => preview("gift_card.void", { gift_card_id: g.id })}>{t("ui.gift_card_void")}</button>}</span>}
+          </li>)}</ul></details>}
         {/* On a phone each day (and each line) stacks into rows of its own, each value beside its column's name (styles.css .stack). */}
         {!desk.length ? <p class="meta">{t("ui.desk_none")}</p> : <div class="table-scroll"><table class="stack">
           <thead><tr><th>{t("ui.day")}</th><th>{t("ui.col_cash")}</th><th>{t("ui.col_card_reader")}</th><th>{t("ui.col_other_way")}</th><th>{t("ui.col_given_back")}</th><th>{t("ui.col_drawer")}</th></tr></thead>
@@ -100,6 +112,7 @@ export function Reports() {
         {open && <><ReceiptSheet r={open} /><p class="no-print"><button onClick={() => window.print()}>{t("ui.receipt_print")}</button>{" "}
           <button class="secondary" onClick={() => setOpen(null)}>{t("ui.close")}</button></p></>}
       </section>}
+      {giftSheet}
     </main>
   );
 }

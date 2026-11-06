@@ -2,7 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
-import { AccountData, api, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
+import { AccountData, api, club, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
 import { WeeklyCourts, type WeeklyCourt } from "@kumi/ui/weekly";
 import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
 
@@ -166,6 +166,16 @@ export function Person({ id }: { id: string }) {
           <input name="amount" type="number" min="0.01" step="0.01" max={(p.credit_cents! / 100).toFixed(2)} defaultValue={(p.credit_cents! / 100).toFixed(2)} aria-label={t("ui.amount")} />
           <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="other">{t("paid_by.other")}</option></select>
           <button class="small">{t("ui.credit_pay_out")}</button></form>}
+      </section>}
+      {club.value?.gift_cards && mayDo("gift_card.sell") && <section class="card">
+        <h2>{t("action.gift_card.sell")}</h2>
+        <form class="inline" onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget as HTMLFormElement;
+          preview("gift_card.sell", { person_id: p.id, cents: Math.round(Number((f.elements.namedItem("amount") as HTMLInputElement).value) * 100), method: (f.elements.namedItem("method") as HTMLSelectElement).value,
+            for_name: (f.elements.namedItem("for") as HTMLInputElement).value || undefined }); }}>
+          <input name="amount" type="number" min="1" step="1" defaultValue="50" aria-label={t("ui.gift_card_amount")} />
+          <input name="for" maxLength={80} placeholder={t("ui.gift_card_for")} aria-label={t("ui.gift_card_for")} />
+          <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="terminal">{t("paid_by.terminal")}</option><option value="other">{t("paid_by.other")}</option></select>
+          <button class="small">{t("action.gift_card.sell")}</button></form>
       </section>}
       <PersonReceipts personId={p.id} preview={preview} />
       {privacy && <PersonAssistants personId={p.id} preview={preview} key={`${p.id}-${String(sheet ? 1 : 0)}`} />}

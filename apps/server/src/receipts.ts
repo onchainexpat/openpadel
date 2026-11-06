@@ -3,7 +3,7 @@
 // whoever takes or sees the club's money.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { outstandingCredit, clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db } from "@kumi/core";
+import { clubGiftCards, outstandingCredit, outstandingGiftCards, clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db } from "@kumi/core";
 import { csvCell } from "./csv.ts";
 
 type Me = { id: string } | null;
@@ -75,6 +75,11 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
   app.get("/staff/credit", async (c) => {
     await staffWithMoney(c);
     return c.json(await outstandingCredit(db));
+  });
+  // The club's gift cards (gift_cards.ts), never their codes, and what's owed on those not used yet.
+  app.get("/staff/gift-cards", async (c) => {
+    await staffWithMoney(c);
+    return c.json({ outstanding: await outstandingGiftCards(db), cards: await clubGiftCards(db) });
   });
   app.get("/staff/desk-days", async (c) => {
     await staffWithMoney(c);

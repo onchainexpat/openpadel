@@ -28,7 +28,8 @@ export const paidHow = (method: string): Text => both(`paid_by.${method}` as Key
 const deskAccount = (trx: Trx, method: string) => account(trx, method === "cash" ? "cash_drawer" : "provider_clearing");
 
 /** Which revenue a payment is: courts, lessons, memberships or programs. */
-export async function revenueType(db: Db | Trx, p: { booking_player_id: string | null; membership_plan_id: string | null; membership_id: string | null }) {
+export async function revenueType(db: Db | Trx, p: { booking_player_id: string | null; membership_plan_id: string | null; membership_id: string | null; gift_card_id?: string | null }) {
+  if (p.gift_card_id) return "gift_cards" as const;   // owed until redeemed, not revenue (money.ts account)
   if (p.booking_player_id) return await bookingRevenue(db, p.booking_player_id);
   return p.membership_plan_id || p.membership_id ? "memberships" as const : "programs" as const;
 }
@@ -41,7 +42,7 @@ export async function bookingRevenue(db: Db | Trx, bookingPlayerId: string): Pro
 /** Money paid at the desk: a payment that went through with no provider, into the cash drawer (or clearing) and
  *  out of what it's revenue for. Whoever records it has checked it's no more than is owed, under a lock. */
 export async function recordAtDesk(ctx: ApplyCtx, o: { personId: string; cents: number; method: DeskMethod; note?: string; revenue: string; memo: string;
-  link: { booking_player_id: string } | { membership_id: string } | { enrolment_id: string } }): Promise<string> {
+  link: { booking_player_id: string } | { membership_id: string } | { enrolment_id: string } | { gift_card_id: string } }): Promise<string> {
   const id = uuidv7();
   await ctx.insert("payment", { id, person_id: o.personId, amount_cents: o.cents, method: o.method, provider: "none", provider_ref: null, status: "succeeded", ...o.link });
   await post(ctx.trx, ctx.runId, "payment", `${o.memo} paid at the desk (${o.method})${o.note ? `: ${o.note}` : ""}`, [
@@ -67,7 +68,7 @@ export async function leftOf(db: Db | Trx, paymentId: string): Promise<number> {
  *  given back, and where. */
 export async function refundTo(ctx: ApplyCtx, paymentId: string, cents: number, o: { enrolmentId?: string | null; status?: "pending" | "waiting_for_sub"; credit?: boolean } = {}) {
   if (cents <= 0) return null;
-  const pay = await ctx.trx.selectFrom("payment").select(["provider", "method", "person_id", "booking_player_id", "membership_id", "membership_plan_id"]).where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
+  const pay = await ctx.trx.selectFrom("payment").select(["provider", "method", "person_id", "booking_player_id", "membership_id", "membership_plan_id", "gift_card_id"]).where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
   cents = Math.min(cents, await leftOf(ctx.trx, paymentId));
   if (cents <= 0) return null;
   // Paid from club credit, it goes back to club credit; and staff may give any refund back as club credit
@@ -155,7 +156,7 @@ export const refundGiveBack = defineAction({
   async apply(ctx, i) {
     const r = await ctx.trx.selectFrom("refund").selectAll().where("id", "=", i.refund_id).forUpdate().executeTakeFirstOrThrow();
     if (r.destination !== "desk" || r.status !== "pending") throw new KumiError("error.changed");   // handed over at another desk meanwhile
-    const pay = await ctx.trx.selectFrom("payment").select(["method", "booking_player_id", "membership_id", "membership_plan_id"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
+    const pay = await ctx.trx.selectFrom("payment").select(["method", "booking_player_id", "membership_id", "membership_plan_id", "gift_card_id"]).where("id", "=", r.payment_id).executeTakeFirstOrThrow();
     await ctx.update("refund", r.id, { status: "sent" });
     await post(ctx.trx, ctx.runId, "refund", `given back at the desk (${pay.method})`, [
       { account: await account(ctx.trx, "revenue", { revenueType: await revenueType(ctx.trx, pay) }), cents: r.amount_cents },

@@ -363,6 +363,12 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: s.organiser_id, kind: "booking_repeat_ended", params: { ...s.base, from: dayText(p.from), refund: backWords(cents("card"), cents("desk"), cents("credit")) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   /** Every member's weekly courts stopped by the club at once (weekly.end_all): each member hears once, with what came back. */
+  // A gift card ready to give (gift_cards.ts): the buyer hears where to find its code (in the app, never here).
+  async "gift_card.ready"({ db }, p: { gift_card_id: string }) {
+    const c = await db.selectFrom("gift_card").select(["buyer_id", "amount_cents", "for_name", "status"]).where("id", "=", p.gift_card_id).executeTakeFirst();
+    if (!c || c.status !== "active") return [];
+    return [{ to: c.buyer_id, kind: "gift_card_ready", params: { amount: amount(c.amount_cents), for: c.for_name ?? "" }, purpose: "account", essential: true, email: true, link: "/gift-cards" }];
+  },
   async "weekly.ended_all"({ db }, p: { person_id: string; series_ids: string[]; booked: "keep" | "cancel"; from: string }) {
     if (p.booked === "keep") return [{ to: p.person_id, kind: "weekly_all_stopped", params: { count: p.series_ids.length }, purpose: "account", essential: true, email: true, link: "/places" }];
     const back = p.series_ids.length ? await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")

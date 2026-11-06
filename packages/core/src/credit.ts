@@ -40,8 +40,9 @@ export async function outstandingCredit(db: Db | Trx): Promise<{ cents: number; 
 
 /** Why credit can't pay for this payment, if it can't: a membership (it renews from a card), one that saves a card
  *  for a later charge, several paid together, a kid's (the family card pays those), or a card form already open. */
-async function whyNot(db: Db | Trx, pay: { person_id: string; status: string; provider_ref: string | null; group_id: string | null; save_card: boolean; membership_id: string | null; membership_plan_id: string | null; family_card_id: string | null; parent_to_pay_at: Date | null }) {
+async function whyNot(db: Db | Trx, pay: { person_id: string; status: string; provider_ref: string | null; group_id: string | null; save_card: boolean; membership_id: string | null; membership_plan_id: string | null; family_card_id: string | null; parent_to_pay_at: Date | null; gift_card_id: string | null }) {
   if (pay.status !== "pending") return "error.credit_paid";
+  if (pay.gift_card_id) return "error.credit_gift_card";
   if (pay.provider_ref) return "error.credit_card_open";
   if (pay.membership_id || pay.membership_plan_id) return "error.credit_membership";
   if (pay.save_card) return "error.credit_saves_card";

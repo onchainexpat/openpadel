@@ -14,7 +14,7 @@ type Price = { id: string; name: string; translations?: unknown; court_ids: stri
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
+type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
 type Usage = { cents_per_segment: number; paused: boolean; resets: string; current: Month; history: Month[] };
@@ -154,6 +154,11 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       {f.weekly_bookings && <label>{t("ui.weekly_max_weeks")}<input type="number" min="2" max="26" step="1" value={String(f.weekly_max_weeks)} onChange={(e) => set("weekly_max_weeks", Math.max(2, Math.min(26, Math.round(Number(e.currentTarget.value) || 12))))} /></label>}
       {mayDo("weekly.end_all") && <EndAllWeekly preview={send} />}
       <label class="check"><input type="checkbox" checked={f.players_chat} onChange={(e) => set("players_chat", e.currentTarget.checked)} /> {t("ui.players_chat_on")}</label>
+      <label class="check"><input type="checkbox" checked={f.gift_cards} onChange={(e) => set("gift_cards", e.currentTarget.checked)} /> {t("ui.gift_cards_setting")}</label>
+      {f.gift_cards && <>
+        <label>{t("ui.gift_card_min")}<input type="number" min="1" step="1" value={f.gift_card_min_cents / 100} onChange={(e) => set("gift_card_min_cents", Math.round(Number(e.currentTarget.value) * 100))} /></label>
+        <label>{t("ui.gift_card_max")}<input type="number" min="1" max="5000" step="1" value={f.gift_card_max_cents / 100} onChange={(e) => set("gift_card_max_cents", Math.round(Number(e.currentTarget.value) * 100))} /></label>
+      </>}
       <label class="check"><input type="checkbox" checked={f.public_page} onChange={(e) => set("public_page", e.currentTarget.checked)} /> {t("ui.public_page_on")}</label>
       {c.public_page && <p class="meta"><a href={`${clubSignal.value?.member_url ?? ""}/public`} target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
       <label>{t("ui.about_club")}<textarea maxLength={600} rows={3} value={f.about ?? ""} onInput={(e) => set("about", e.currentTarget.value)} /></label>

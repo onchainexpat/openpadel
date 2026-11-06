@@ -126,6 +126,17 @@ server starts.
   hold; their data download has it, with what came and went; and an account can't be deleted while it holds credit
   (the club pays it out first). Two checkouts at once can't spend the same credit. Read-only spends no credit and
   still pays it out. Not for assistants: spending credit and paying it out are app-only, and never support access.
+- **Gift cards**, when the club turns them on (Settings, with the smallest and largest amount: $10 to $500 to start).
+  A member buys one in the app by card, for themselves to give (with who it's for and a message), or the desk sells
+  one for a member (cash, the card reader or another way, on the desk's day). They never expire, carry no fees and
+  aren't taxed when sold; until one is used it's money the club owes (in the books apart from revenue, and on
+  Reports with each card). The code is in the buyer's app under Gift cards, with a page to print: never in an email
+  or a message, sealed in the database with the club's key. Redeeming a code (in the app, never through an
+  assistant) puts its value into the redeemer's club credit, once, even if two people try at once; wrong codes are
+  limited to 10 an hour per person. A manager or the owner voids a card nobody has used, and the buyer gets the money
+  back the way they paid; staff can remind the buyer it's waiting. Members' assistants see their cards, never the
+  codes. Check your state's rules on gift cards (expiry, fees, cash back for small balances, unclaimed property)
+  with a lawyer: Kumi's cards never expire, and the owner or a manager can pay credit out at the desk.
 
 ### Changed
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
@@ -175,7 +186,9 @@ server starts.
 - Club credit can't pay for a membership yet (it renews from a card), nor a payment that saves a card for a later
   charge (a court's "pay my part", a weekly court's first week), courts paid together, or a junior's (the family
   card pays those); a court is paid from credit only when the credit covers all of it. Automatic charges (renewals,
-  deadline charges) don't use credit. Gift cards, passes and promo codes aren't here yet.
+  deadline charges) don't use credit. Gift cards are bought only by a signed-in member (not yet from the public
+  page), and their code goes to the buyer, who gives it on (Kumi doesn't email the person it's for). Passes and
+  promo codes aren't here yet.
 - Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures".
 
 ## 0.2.1 (2026-11-04)
