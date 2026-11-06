@@ -8,6 +8,13 @@ server starts.
 ## Unreleased
 
 ### Added
+- **A club's own currency.** Settings has the club's currency (its three-letter code: USD, EUR, GBP, MXN...),
+  USD until it's changed. Every amount Kumi shows, reads, sends to Stripe, puts on a receipt, a report, a
+  spreadsheet, an email or a notification is in it, written the club's way ("€40.50", "¥1,500"), and an amount staff
+  type is read the same way. Zero-decimal currencies (yen, won) are whole units; three-decimal ones (the Kuwaiti
+  dinar and a few others) aren't taken yet, since Stripe treats them differently. The currency can't change once the
+  club has taken a payment, and `kumi doctor` warns when it isn't the Stripe account's own (Stripe would convert
+  every payment, for a fee). See the setup guide's "Running Kumi outside the US".
 - **Mexicano and King of the Court nights**, beside the Americano. A Mexicano pairs each round by the night's
   standings (1st and 4th against 2nd and 3rd, the best four on the top court), with games to 16, 21, 24 or 32
   points, and a round sat out counts half a game's points. King of the Court plays timed rounds (12 minutes to
@@ -306,6 +313,9 @@ server starts.
   by the one who booked it, not a share; a pass covers the price, so a booking shortened later gives nothing back,
   and a use the club's rules refund only in part is spent. A pass past its date keeps its unused value in the books
   until a manager refunds it.
+- Outside the US: a club's currency is its own (above), but dates, times and numbers are still written the US way,
+  prices are before tax, phone numbers are US and Canadian, and texts reach US and Canadian numbers only. Which
+  countries, languages, data-protection duties, invoices and ways to pay come next is still to decide.
 - Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures", and
   with credit, gift cards and passes as above in place of "no credit, gift cards, vouchers or drop-in passes".
 

@@ -7,6 +7,7 @@ import { useEffect, useState } from "preact/hooks";
 import { AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { loadFamily } from "./ForWhom.tsx";
 import { PaySheet } from "./Pay.tsx";
+import { fromMajor, toMajor } from "@kumi/i18n/format";
 
 type Person = { id: string; display_name: string; me?: boolean };
 type Junior = Person & { birth_year: number | null; level: number | null; waiver: { version_no: number; accepted_at: string | null } | null };
@@ -141,12 +142,12 @@ function ParentFamily() {
 
 /** What a kid may book on the family card on their own, as a parent sets it. */
 function KidRules({ id, name, rules, send }: { id: string; name: string; rules: Rules; send: (action: string, input: unknown) => void }) {
-  const [r, setR] = useState(rules), [limit, setLimit] = useState(String(rules.monthly_limit_cents / 100));
+  const [r, setR] = useState(rules), [limit, setLimit] = useState(String(toMajor(rules.monthly_limit_cents)));
   const box = (key: keyof Rules, label: string) =>
     <label class="check"><input type="checkbox" checked={Boolean(r[key])} onChange={(e) => setR({ ...r, [key]: e.currentTarget.checked })} /> {label}</label>;
   return (
     <form class="card-form" onSubmit={(e) => { e.preventDefault();
-      send("kid.set_rules", { person_id: id, open_matches: r.open_matches, courts: r.courts, programs: r.programs, lessons: r.lessons, friends: r.friends, texts: r.texts, monthly_limit_cents: Math.round(Number(limit) * 100) }); }}>
+      send("kid.set_rules", { person_id: id, open_matches: r.open_matches, courts: r.courts, programs: r.programs, lessons: r.lessons, friends: r.friends, texts: r.texts, monthly_limit_cents: fromMajor(Number(limit)) }); }}>
       <p><strong>{t("ui.kid_rules", { name })}</strong></p>
       {box("open_matches", t("ui.kid_open_matches"))}
       {box("courts", t("ui.kid_courts"))}

@@ -178,6 +178,16 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
     }
   }
 
+  // The club's currency against the Stripe account's: a mismatch means Stripe converts every payment, with a fee.
+  if (sk && !(sk.includes("_live_") && !production)) {
+    try {
+      const st = new StripeProvider({ secretKey: sk, ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(env.KUMI_STRIPE_CONNECT === "1" ? { connect: clubStripeAccount(db) } : {}) });
+      const [stripe, club] = [await st.defaultCurrency(), (await db.selectFrom("club").select("currency").executeTakeFirst())?.currency ?? "USD"];
+      if (stripe && stripe !== club) add("currency", "warn", "currency.mismatch", { club, stripe }, "docs/setup/README.md");
+      else if (stripe) add("currency", "ok", "currency.ok", { currency: club });
+    } catch { /* Stripe unreachable: the payments check says so */ }
+  }
+
   // Playtomic, only for a club that also runs on it.
   if (!env.KUMI_PLAYTOMIC_CLIENT_ID) add("playtomic", "off", "playtomic.off");
   else {

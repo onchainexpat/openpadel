@@ -514,6 +514,28 @@ and stays up until the competition is finished. Pairs show as "Pair 1", "Pair 2"
 score previews, their level history) a junior is named only to their partner and their family. Once drawn, the
 page takes no more sign-ups.
 
+### Running Kumi outside the US: what works, what doesn't yet
+
+Kumi was built for US clubs. These parts work for a club anywhere:
+
+- **Currency.** Settings, The club: the club's currency, as its three-letter code (EUR, GBP, MXN, AUD...). Set it
+  before the first payment: it can't change after one. Every amount is then in it, on screens, receipts, reports,
+  spreadsheets, emails and notifications, and staff type amounts the club's way. The Stripe account should pay out in
+  the same currency (`kumi doctor` warns if it doesn't, since Stripe would convert every payment, for a fee).
+  Zero-decimal currencies (JPY, KRW) work in whole units; three-decimal ones (KWD, BHD, JOD, OMR, TND) aren't taken.
+
+Not done yet, and each needs a decision before a club outside the US goes live:
+
+- Which countries first, and in what order.
+- Languages beyond English and US Spanish.
+- Data protection where the club is (in the EU and UK, the GDPR: a data processing agreement with the club, where the
+  data is kept, a cookie notice, and the timelines for a copy or a deletion; Kumi already gives members a copy of their
+  data and deletes an account on request).
+- VAT registration and what an invoice must say in each country.
+- Texts outside the US and Canada (carrier rules and consent laws differ by country).
+- Ways to pay other than cards (SEPA, iDEAL, Bizum and others).
+- Local holidays.
+
 ### Signing in, roles and bots
 
 - **Two steps for staff.** Settings, "Sign-in and roles": owners, managers and the club's own roles (the

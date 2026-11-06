@@ -2,7 +2,7 @@
 // and courts. Every change goes through the preview, like everything else; only what changed is sent.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
+import { amountPattern, fromMajor, money, parseDollars, toMajor } from "@kumi/i18n/format";
 import { api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club, applyBrand } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
@@ -14,7 +14,7 @@ type Price = { id: string; name: string; translations?: unknown; court_ids: stri
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
+type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
 type Usage = { cents_per_segment: number; paused: boolean; resets: string; current: Month; history: Month[] };
@@ -143,6 +143,8 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       <label>{t("ui.brand_color")}<input type="color" value={f.brand_colour} onInput={(e) => set("brand_colour", e.currentTarget.value)} /></label>
       <label>{t("ui.time_zone")}<input list="zones" required value={f.time_zone} onInput={(e) => set("time_zone", e.currentTarget.value)} /></label>
       <datalist id="zones">{ZONES.map((z) => <option value={z} />)}</datalist>
+      <label>{t("ui.currency")}<input required maxLength={3} pattern="[A-Za-z]{3}" autocapitalize="characters" value={f.currency} onInput={(e) => set("currency", e.currentTarget.value.toUpperCase())} /></label>
+      <p class="meta">{t("ui.currency_note")}</p>
       <fieldset>
         <legend>{t("ui.languages")}</legend>
         {["en", "es"].map((l) => <label class="check"><input type="checkbox" checked={f.languages.includes(l)} onChange={(e) => toggleLang(l, e.currentTarget.checked)} /> {l === "es" ? "Español" : "English"}</label>)}
@@ -158,8 +160,8 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       <label class="check"><input type="checkbox" checked={f.players_chat} onChange={(e) => set("players_chat", e.currentTarget.checked)} /> {t("ui.players_chat_on")}</label>
       <label class="check"><input type="checkbox" checked={f.gift_cards} onChange={(e) => set("gift_cards", e.currentTarget.checked)} /> {t("ui.gift_cards_setting")}</label>
       {f.gift_cards && <>
-        <label>{t("ui.gift_card_min")}<input type="number" min="1" step="1" value={f.gift_card_min_cents / 100} onChange={(e) => set("gift_card_min_cents", Math.round(Number(e.currentTarget.value) * 100))} /></label>
-        <label>{t("ui.gift_card_max")}<input type="number" min="1" max="5000" step="1" value={f.gift_card_max_cents / 100} onChange={(e) => set("gift_card_max_cents", Math.round(Number(e.currentTarget.value) * 100))} /></label>
+        <label>{t("ui.gift_card_min")}<input type="number" min="1" step="1" value={toMajor(f.gift_card_min_cents)} onChange={(e) => set("gift_card_min_cents", fromMajor(Number(e.currentTarget.value)))} /></label>
+        <label>{t("ui.gift_card_max")}<input type="number" min="1" max="5000" step="1" value={toMajor(f.gift_card_max_cents)} onChange={(e) => set("gift_card_max_cents", fromMajor(Number(e.currentTarget.value)))} /></label>
       </>}
       <label class="check"><input type="checkbox" checked={f.public_page} onChange={(e) => set("public_page", e.currentTarget.checked)} /> {t("ui.public_page_on")}</label>
       {c.public_page && <p class="meta"><a href={`${clubSignal.value?.member_url ?? ""}/public`} target="_blank" rel="noopener">{t("ui.see_public_page")}</a></p>}
@@ -251,12 +253,12 @@ function OpeningHours({ l, send }: { l: Loc; send: Preview }) {
 }
 
 const ALL_DAYS = [1, 2, 3, 4, 5, 6, 0];
-const usd = (cents: number) => new Intl.NumberFormat(lang.value === "es" ? "es-US" : "en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+const usd = (cents: number) => money(cents, lang.value);
 
 function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
   const blank = { rule_id: "", name: "", dollars: "", days: [] as number[], allDay: true, starts: "17:00", ends: "22:00", valid_from: "", valid_to: "", courts: [] as string[], priority: 0, plans: [] as string[], name_tr: "" };
   const [f, setF] = useState(blank);
-  const edit = (r: Price) => setF({ rule_id: r.id, name: r.name, dollars: String(r.cents_per_hour / 100), days: r.weekdays ?? [], allDay: !r.starts, starts: r.starts ?? "17:00", ends: r.ends ?? "22:00",
+  const edit = (r: Price) => setF({ rule_id: r.id, name: r.name, dollars: String(toMajor(r.cents_per_hour)), days: r.weekdays ?? [], allDay: !r.starts, starts: r.starts ?? "17:00", ends: r.ends ?? "22:00",
     valid_from: r.valid_from ?? "", valid_to: r.valid_to ?? "", courts: r.court_ids ?? [], priority: r.priority, plans: r.plan_ids ?? [], name_tr: savedIn(r.translations, "name") });
   const describe = (r: Price) => [r.weekdays?.length ? r.weekdays.map(dayName).join(", ") : t("ui.every_day"), r.starts && `${r.starts} - ${r.ends}`,
     (r.valid_from || r.valid_to) && `${r.valid_from ?? ""} - ${r.valid_to ?? ""}`, r.court_ids && l.courts.filter((c) => r.court_ids!.includes(c.id)).map((c) => c.name).join(", "),
@@ -275,7 +277,7 @@ function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
         translations: translationsOf({ name: f.name_tr }) }); }}>
         <label>{f.rule_id ? t("ui.change_price") : t("ui.add_price")}<input required placeholder={t("ui.price_name_hint")} value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
         <OtherLang value={f.name_tr} onInput={(v) => setF({ ...f, name_tr: v })} source={f.name} maxLength={60} />
-        <label>{t("ui.dollars_per_hour")}<input required inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
+        <label>{t("ui.dollars_per_hour")}<input required inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
         <fieldset><legend>{t("ui.days_none_all")}</legend>{ALL_DAYS.map((w) => <label class="check inline"><input type="checkbox" checked={f.days.includes(w)} onChange={() => setF({ ...f, days: toggle(f.days, w) as number[] })} /> {dayName(w)}</label>)}</fieldset>
         <label class="check"><input type="checkbox" checked={f.allDay} onChange={(e) => setF({ ...f, allDay: e.currentTarget.checked })} /> {t("ui.all_day")}</label>
         {!f.allDay && <div class="court-row"><input type="time" step={1800} aria-label={t("ui.from")} value={f.starts} onInput={(e) => setF({ ...f, starts: e.currentTarget.value })} />
@@ -416,7 +418,7 @@ function PassProducts({ preview }: { preview: (action: string, input: unknown) =
         {covers === "programs" ? <fieldset><legend>{t("ui.pass_kinds")}</legend>{kinds.map((k) => <label class="check" key={k}><input type="checkbox" name={`kind_${k}`} /> {t(`kind.${k}` as Key)}</label>)}</fieldset>
           : <label>{t("ui.pass_max_minutes")}<input name="minutes" type="number" min="15" max="600" step="15" /></label>}
         <label>{t("ui.pass_uses")}<input name="uses" type="number" required min="1" max="100" step="1" defaultValue="10" /></label>
-        <label>{t("ui.pass_price")}<input name="price" required inputMode="decimal" pattern={AMOUNT_PATTERN} /></label>
+        <label>{t("ui.pass_price")}<input name="price" required inputMode="decimal" pattern={amountPattern()} /></label>
         <label>{t("ui.pass_valid_days")}<input name="days" type="number" min="365" max="3650" step="1" /></label>
         <button class="primary">{t("ui.pass_new")}</button>
       </form></details>
@@ -448,11 +450,11 @@ function PromoCodes({ preview }: { preview: (action: string, input: unknown) => 
         <label>{t("ui.promo_code")}<input name="code" required pattern="[A-Za-z0-9_-]{3,24}" maxLength={24} /></label>
         <label>{t("ui.promo_off")}<select value={kind} onChange={(e) => setKind(e.currentTarget.value as "percent" | "amount")}>
           <option value="percent">{t("ui.promo_percent")}</option><option value="amount">{t("ui.promo_amount_off")}</option></select></label>
-        <label>{kind === "percent" ? t("ui.promo_percent") : t("ui.promo_amount_off")}<input name="off" required {...(kind === "percent" ? { type: "number", min: "1", max: "100", step: "1" } : { inputMode: "decimal", pattern: AMOUNT_PATTERN })} /></label>
+        <label>{kind === "percent" ? t("ui.promo_percent") : t("ui.promo_amount_off")}<input name="off" required {...(kind === "percent" ? { type: "number", min: "1", max: "100", step: "1" } : { inputMode: "decimal", pattern: amountPattern() })} /></label>
         <fieldset><legend>{t("ui.promo_applies")}</legend>{areas.map((a) => <label class="check" key={a}><input type="checkbox" name={`area_${a}`} defaultChecked={a !== "memberships"} /> {t(`ui.promo_area_${a}` as Key)}</label>)}</fieldset>
         <label>{t("ui.promo_max_uses")}<input name="uses" type="number" min="1" step="1" /></label>
         <label>{t("ui.promo_per_person")}<input name="per" type="number" min="1" step="1" defaultValue="1" /></label>
-        <label>{t("ui.promo_min")}<input name="min" inputMode="decimal" pattern={AMOUNT_PATTERN} /></label>
+        <label>{t("ui.promo_min")}<input name="min" inputMode="decimal" pattern={amountPattern()} /></label>
         <label>{t("ui.promo_ends")}<input name="ends" type="date" /></label>
         <button class="primary">{t("ui.promo_new")}</button>
       </form></details>

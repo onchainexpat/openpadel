@@ -3,7 +3,7 @@
 import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
-import { dateTime, t, type Key, type Lang } from "@kumi/i18n";
+import { dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
 import { creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
@@ -119,7 +119,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const head = ["coach", "kind", "when", "minutes", "what", "status", "paid", "refunded", "net"].map((k) => t(l, `csv.${k}` as Key));
     const lines = [
       ...r.lessons.map((x) => [x.coach, t(l, "csv.lesson"), at(x.start), x.minutes, `${x.code} ${x.booked_by ?? ""} (${x.court})`, t(l, `csv.status_${x.status === "cancelled" ? "cancelled" : "held"}` as Key),
-        (x.paid_cents / 100).toFixed(2), (x.refunded_cents / 100).toFixed(2), (x.net_cents / 100).toFixed(2)]),
+        plainAmount(x.paid_cents), plainAmount(x.refunded_cents), plainAmount(x.net_cents)]),
       ...r.sessions.map((x) => [x.coach, t(l, "csv.session"), at(x.start), x.minutes, x.name, t(l, "csv.status_held"), "", "", ""]),
     ].sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2]))).map((row) => row.map(csvCell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-coaches-${r.from}-to-${r.to}.csv"`);
@@ -162,7 +162,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "gift_cards", "gift_card_min_cents", "gift_card_max_cents", "tax_rate_bp", "public_page", "about", "terms_url", "privacy_policy_url", "translations", "two_factor", "question_alert_hours", "auto_answers", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "gift_cards", "gift_card_min_cents", "gift_card_max_cents", "tax_rate_bp", "currency", "public_page", "about", "terms_url", "privacy_policy_url", "translations", "two_factor", "question_alert_hours", "auto_answers", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
     const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
     const policy = await currentPolicy(db), plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
@@ -234,7 +234,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const r = await report(c.req.query("location_id") ?? "", c.req.query("from") ?? "", c.req.query("to") ?? "");
     const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "lesson revenue", "program revenue", "membership revenue"];
     const lines = r.rows.map((x) => [x.date, x.open_hours, x.courts, x.court_hours, x.booked_hours, x.program_hours, x.playtomic_hours, x.blocked_hours, x.occupancy_percent,
-      (x.court_revenue_cents / 100).toFixed(2), (x.lesson_revenue_cents / 100).toFixed(2), (x.program_revenue_cents / 100).toFixed(2), (x.membership_revenue_cents / 100).toFixed(2)].map(csvCell).join(","));
+      plainAmount(x.court_revenue_cents), plainAmount(x.lesson_revenue_cents), plainAmount(x.program_revenue_cents), plainAmount(x.membership_revenue_cents)].map(csvCell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-${r.from}-to-${r.to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });

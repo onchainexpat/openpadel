@@ -2,6 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, lang, t } from "./state.ts";
 import { useBackCloses } from "./back.ts";
+import { money } from "@kumi/i18n/format";
 
 export type Pending = { runId: string; status: "planned" | "awaiting_approval"; summary: string };
 
@@ -43,4 +44,4 @@ export function usePreview(onDone: (result?: any) => void) {
   return { preview, sheet };
 }
 
-export const dollars = (cents: number, lang: string) => new Intl.NumberFormat(lang === "es" ? "es-US" : "en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+export const dollars = (cents: number, lang: string) => money(cents, lang === "es" ? "es" : "en");

@@ -1,9 +1,10 @@
 // The first actions: setting up the club, its details, locations, roles and profiles.
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, type Key, type Text } from "@kumi/i18n";
+import { both, currencyProblem, setClubFormat, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { KumiError } from "./errors.ts";
+import type { Db, Trx } from "./db.ts";
 import { mergeTranslations, translationsInput } from "./club_text.ts";
 import { withManagers } from "./households.ts";
 import { checkAssign, roleLabel } from "./roles.ts";
@@ -58,6 +59,21 @@ export const clubSetup = defineAction({
   },
 });
 
+/** A currency the club may change to: a real one Kumi takes, and only before any payment (amounts already taken are in
+ *  the old currency, and Stripe can't convert them). */
+async function currencyChange(db: Db | Trx, code: string) {
+  const problem = currencyProblem(code);
+  if (problem) throw new KumiError(problem === "three_decimals" ? "error.currency_three_decimals" : "error.currency_unknown", { currency: code.toUpperCase() }, 400);
+  if (await db.selectFrom("payment").select("id").limit(1).executeTakeFirst()) throw new KumiError("error.currency_has_payments", {}, 409);
+}
+
+/** The club's currency and formats for this server's money and dates (format.ts): read as the server starts and again
+ *  on each round of jobs, so a change made anywhere reaches every message. */
+export async function loadClubFormat(db: Db): Promise<void> {
+  const c = await db.selectFrom("club").select(["currency"]).executeTakeFirst();
+  if (c) setClubFormat({ currency: c.currency });
+}
+
 export const clubUpdate = defineAction({
   name: "club.update", version: 1, strongAuth: true,
   input: z.object({
@@ -68,6 +84,8 @@ export const clubUpdate = defineAction({
     // Members book the same court every week in the app (booking_series.ts), for at most this many weeks.
     weekly_bookings: z.optional(z.boolean()), weekly_max_weeks: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(26))),
     tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
+    // The club's currency (ISO 4217). It can't change once the club has taken a payment.
+    currency: z.optional(z.string().check(z.regex(/^[A-Za-z]{3}$/))),
     // Players message each other inside the games they play together (chat.ts); off, no chat anywhere.
     players_chat: z.optional(z.boolean()),
     // Gift cards (gift_cards.ts): sold in the app and at the desk, for amounts from the minimum to the maximum.
@@ -94,6 +112,7 @@ export const clubUpdate = defineAction({
     // Weekly bookings (or court bookings) switched off pause the members' weekly courts (booking_series.ts): say how many.
     const pausing = (row.weekly_bookings && i.weekly_bookings === false) || (row.court_bookings && i.court_bookings === false)
       ? Number((await ctx.db.selectFrom("booking_series").select(sql<string>`count(*)`.as("n")).where("ended_at", "is", null).where("source", "=", "app").where("paused_at", "is", null).executeTakeFirstOrThrow()).n) : 0;
+    if (i.currency !== undefined && i.currency.toUpperCase() !== row.currency) await currencyChange(ctx.db, i.currency);
     const summary = both("plan.club.update", { fields: fieldList(fields) });
     return { title: both("action.club.update"), summary: pausing ? { en: `${summary.en} ${both("plan.club.weekly_pause", { count: pausing }).en}`, es: `${summary.es} ${both("plan.club.weekly_pause", { count: pausing }).es}` } : summary,
       reads: [read], undo: { kind: "reversible" }, details: { fields } };
@@ -101,8 +120,14 @@ export const clubUpdate = defineAction({
   async apply(ctx, i) {
     const { translations, ...rest } = i;
     const patch: Record<string, unknown> = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+    if (i.currency !== undefined) {
+      patch.currency = i.currency.toUpperCase();
+      if (patch.currency !== (await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow()).currency) await currencyChange(ctx.trx, i.currency);
+    }
     if (translations) patch.translations = JSON.stringify(mergeTranslations((await ctx.trx.selectFrom("club").select("translations").executeTakeFirstOrThrow()).translations, translations));
-    await ctx.update("club", "singleton", patch); await ctx.emit("club.updated", {}); return null;
+    await ctx.update("club", "singleton", patch); await ctx.emit("club.updated", {});
+    if (patch.currency) setClubFormat({ currency: patch.currency as string });
+    return null;
   },
 });
 

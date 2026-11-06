@@ -2,7 +2,7 @@
 // prints; someone's, on their page in the staff app; and the club's, by dates, with a spreadsheet file, for
 // whoever takes or sees the club's money.
 import { Hono, type Context } from "hono";
-import type { Lang } from "@kumi/i18n";
+import { plainAmount, type Lang } from "@kumi/i18n";
 import { clubGiftCards, outstandingCredit, outstandingGiftCards, outstandingPasses, passesOf, passProducts, clubPromoCodes, clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db, refundedStillBooked } from "@kumi/core";
 import { csvCell } from "./csv.ts";
 
@@ -60,7 +60,7 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
   app.get("/staff/club-receipts.csv", async (c) => {
     await staffWithMoney(c);
     const { from, to } = range(c), l = lang(c), rows = await clubReceipts(db, from, to);
-    const money = (cents: number, kind: string) => ((kind === "refund" ? -cents : cents) / 100).toFixed(2);
+    const money = (cents: number, kind: string) => plainAmount(kind === "refund" ? -cents : cents);
     // What was bought in the reader's language, and in the other one: a club's own names can differ between them.
     const other = l === "es" ? "en" : "es", more = (r: { more: number }) => (r.more ? ` (+${r.more})` : "");
     const head = ["receipt", "kind", "date", "paid by", "for", "what", `what (${other})`, "subtotal", "tax", "total", "method", "card"];
@@ -119,7 +119,7 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
     const { from, to } = range(c), l = lang(c);
     const head = ["date", "time", "kind", "method", "amount", "person", "what", "recorded by"];
     const lines = (await deskLines(db, from, to, { what: true })).map((x) => [x.date, x.time, x.kind === "in" ? "paid" : "given back", x.method,
-      ((x.kind === "in" ? x.cents : -x.cents) / 100).toFixed(2), x.person, x.what[l], x.by ?? ""].map(csvCell).join(","));
+      plainAmount(x.kind === "in" ? x.cents : -x.cents), x.person, x.what[l], x.by ?? ""].map(csvCell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-desk-${from}-to-${to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });

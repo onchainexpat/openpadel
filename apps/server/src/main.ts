@@ -1,4 +1,4 @@
-import { checkMoneyAfterRestore, reviewFound, tidyChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
+import { loadClubFormat, checkMoneyAfterRestore, reviewFound, tidyChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -39,6 +39,8 @@ if (applied.length) console.log(`migrations applied: ${applied.join(", ")}`);
 const newTopics = await registerMessageTopics(db);   // before any event is handled: see message_topic
 if (newTopics.length) console.log(`messages: now telling people about ${newTopics.join(", ")}`);
 // Seal what isn't sealed yet (a server from before the key) and move what's under the previous key to this one.
+// The club's currency and formats for every amount and date this server writes (format.ts).
+await loadClubFormat(db);
 const sealed = await resealAll(db);
 if (sealed.sealed || sealed.resealed) console.log(`secrets: ${sealed.sealed} sealed, ${sealed.resealed} moved to the current key`);
 if (sealed.unreadable) console.error(`secrets: ${sealed.unreadable} sealed under a key this server doesn't have (set KUMI_SECRET_KEY_PREVIOUS to the old key)`);
@@ -146,6 +148,8 @@ console.log(`kumi server on ${describeListen(listenAt, server)}`);
 const pushContact = process.env.KUMI_PUSH_CONTACT ?? (publicUrl.startsWith("https://") ? publicUrl : "mailto:owner@localhost");
 const jobsState = newJobsState();
 const jobSteps: JobStep[] = [
+  // A change to the club's currency or formats reaches every message within a round.
+  ["club_format", () => loadClubFormat(db)],
   ["outbox", async () => {
     const sent = await processOutbox(db, handlers);
     if (sent.delivered || sent.failed) console.log(`outbox: ${sent.delivered} delivered, ${sent.failed} to retry`);

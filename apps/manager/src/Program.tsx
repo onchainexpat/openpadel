@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
+import { amountPattern, amountStep, fromMajor, parseDollars, toMajor } from "@kumi/i18n/format";
 import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf, clubTime, serverNow, clubMoment } from "@kumi/ui";
 import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
@@ -49,7 +49,7 @@ export function Program({ id }: { id: string }) {
 
   const remove = (e: Event) => {
     e.preventDefault();
-    preview("enrolment.remove", { enrolment_id: removing!.id, reason, ...(override ? { refund: { outcome, cents: Math.round(amount * 100), note: why } } : {}) });
+    preview("enrolment.remove", { enrolment_id: removing!.id, reason, ...(override ? { refund: { outcome, cents: fromMajor(amount), note: why } } : {}) });
   };
   const addDate = (e: Event) => { e.preventDefault(); preview("session.add", { program_id: id, starts_at: clubMoment(date.starts), ends_at: clubMoment(date.ends), court_ids: date.courts,
     ...(date.coach ? { coach_id: date.coach } : {}), ...(date.weeks > 1 ? { weeks: date.weeks } : {}) }); };
@@ -79,11 +79,11 @@ export function Program({ id }: { id: string }) {
         <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setNaming(null)}>{t("ui.cancel")}</button>
       </form>}
       <p class="meta">{t(`kind.${p.kind}` as Key)} · {byDate ? t("ui.per_date_label") : t("ui.places_taken", { booked: booked.length, capacity: p.capacity })} · {money(p.price_cents)}{p.member_price_cents !== null ? ` (${t("ui.members_pay", { amount: money(p.member_price_cents) })})` : ""} · {t(`ui.status_${p.status}` as Key)}{" "}
-        {!pricing && <button class="small" onClick={() => setPricing({ price: String(p.price_cents / 100), member: p.member_price_cents === null ? "" : String(p.member_price_cents / 100) })}>{t("ui.change_prices")}</button>}</p>
+        {!pricing && <button class="small" onClick={() => setPricing({ price: String(toMajor(p.price_cents)), member: p.member_price_cents === null ? "" : String(toMajor(p.member_price_cents)) })}>{t("ui.change_prices")}</button>}</p>
       {pricing && <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("program.set_prices", { program_id: id, price_cents: parseDollars(pricing.price) ?? NaN,
         member_price_cents: pricing.member.trim() ? parseDollars(pricing.member) ?? NaN : null }); }}>
-        <label>{t("ui.price")}<input required inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={pricing.price} onInput={(e) => setPricing({ ...pricing, price: e.currentTarget.value })} /></label>
-        <label>{t("ui.member_price_optional")}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={pricing.member} onInput={(e) => setPricing({ ...pricing, member: e.currentTarget.value })} /></label>
+        <label>{t("ui.price")}<input required inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={pricing.price} onInput={(e) => setPricing({ ...pricing, price: e.currentTarget.value })} /></label>
+        <label>{t("ui.member_price_optional")}<input inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={pricing.member} onInput={(e) => setPricing({ ...pricing, member: e.currentTarget.value })} /></label>
         {d.roster.some((r) => r.status !== "cancelled") && <p class="meta">{t("ui.member_price_note")}</p>}
         <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setPricing(null)}>{t("ui.cancel")}</button>
       </form>}
@@ -168,7 +168,7 @@ export function Program({ id }: { id: string }) {
             <label class="check"><input type="checkbox" checked={override} onChange={(e) => setOverride(e.currentTarget.checked)} /> {t("ui.change_refund")}</label>
             {override && <>
               <label>{t("ui.refund")}<select value={outcome} onChange={(e) => setOutcome(e.currentTarget.value)}>{["none", "full", "partial", "credit"].map((k) => <option value={k}>{t(`ui.outcome_${k}` as Key)}</option>)}</select></label>
-              {outcome === "partial" && <label>{t("ui.amount")}<input type="number" min="0" step="0.01" value={amount} onInput={(e) => setAmount(Number(e.currentTarget.value))} /></label>}
+              {outcome === "partial" && <label>{t("ui.amount")}<input type="number" min="0" step={amountStep()} value={amount} onInput={(e) => setAmount(Number(e.currentTarget.value))} /></label>}
               <label>{t("ui.note")}<input required value={why} onInput={(e) => setWhy(e.currentTarget.value)} /></label>
             </>}
             <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setRemoving(null)}>{t("ui.cancel")}</button>

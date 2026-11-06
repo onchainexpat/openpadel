@@ -3,7 +3,7 @@ import { signal, computed, effect } from "@preact/signals";
 import { h, type ComponentType } from "preact";
 import { lazy } from "preact-iso";
 import { useState } from "preact/hooks";
-import { format, LANGS, pickLang, type Catalog, type Key, type Lang, type Params } from "@kumi/i18n/format";
+import { format, LANGS, pickLang, setClubFormat, type Catalog, type Key, type Lang, type Params } from "@kumi/i18n/format";
 import { brandColours } from "./brand.ts";
 import { wallToMoment } from "./club_clock.ts";
 export { brandColours, contrastOf } from "./brand.ts";
@@ -41,7 +41,9 @@ export type Club = { name: string; brand_colour: string; languages: string[]; de
   /** The club's own terms and privacy policy for members (Policies.tsx), when it has set them. */
   terms_url?: string | null; privacy_policy_url?: string | null;
   /** The club's own clock (IANA zone): every time the apps show is on it, wherever the reader's phone is set. */
-  time_zone?: string };
+  time_zone?: string;
+  /** The club's currency (ISO 4217) and formats (BCP 47): every amount the apps show and read is in them. */
+  currency?: string; locale?: string };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
 /** Whether to offer a button for a change: a role the club made may not allow it (the server decides either way). */
@@ -49,6 +51,8 @@ export const mayDo = (action: string) => !me.value?.can || me.value.can.includes
 /** The account was just deleted: the sign-in page says so. */
 export const farewell = signal(false);
 export const club = signal<Club | null>(null);
+// The club's currency and formats reach every amount the app shows or reads (format.ts) as soon as /club loads.
+effect(() => { const c = club.value; if (c) setClubFormat({ ...(c.currency ? { currency: c.currency } : {}), ...(c.locale ? { locale: c.locale } : {}) }); });
 export const lang = signal<Lang>(pickLang(navigator.language));
 
 // The wording: only this app's keys, one language at a time, fetched when it's first needed (the build

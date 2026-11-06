@@ -3,6 +3,7 @@
 // cap (a manager's change goes to the owner to approve), through the preview like everything else.
 import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, t, usePreview, clubTime } from "@kumi/ui";
+import { fromMajor, plainAmount } from "@kumi/i18n/format";
 
 type Kind = "ai_decisions" | "ai_drafts" | "texts" | "email";
 type Line = { count: number; input_tokens: number; output_tokens: number; segments: number; cents: number };
@@ -48,8 +49,8 @@ export function Usage() {
 /** The cap and what's allowed over it, in dollars. */
 function CapForm({ u, send }: { u: U; send: (action: string, input: unknown) => Promise<void> }) {
   const owner = me.value?.roles.some((r) => r.key === "owner"), support = Boolean(me.value?.support);
-  const [cap, setCap] = useState((u.cap_cents / 100).toFixed(2)), [over, setOver] = useState((u.over_cents / 100).toFixed(2));
-  const cents = (s: string) => Math.round(Number(s) * 100), ok = (s: string) => s.trim() !== "" && Number.isFinite(Number(s)) && Number(s) >= 0;
+  const [cap, setCap] = useState(plainAmount(u.cap_cents)), [over, setOver] = useState(plainAmount(u.over_cents));
+  const cents = (s: string) => fromMajor(Number(s)), ok = (s: string) => s.trim() !== "" && Number.isFinite(Number(s)) && Number(s) >= 0;
   const changed = ok(cap) && ok(over) && (cents(cap) !== u.cap_cents || cents(over) !== u.over_cents);
   // Support access never changes the cap, nor asks to: it's told so, with nothing to fill in.
   if (support) return <section class="card"><h2>{t("ui.usage_cap_title")}</h2><p class="meta">{t("ui.usage_cap_support")}</p></section>;

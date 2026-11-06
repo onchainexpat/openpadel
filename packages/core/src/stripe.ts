@@ -234,6 +234,15 @@ export class StripeProvider implements PaymentProvider {
     const d = await this.call("POST", "/v1/account_links", { account, refresh_url: urls.refresh, return_url: urls.return, type: "account_onboarding" });
     return String(d.url);
   }
+  /** The currency the account pays out in (the club's own account under Connect, else the key's account), or null if
+   *  Stripe doesn't say. Reading only: the doctor compares it with the club's currency. */
+  async defaultCurrency(): Promise<string | null> {
+    let path = "/v1/account";
+    if (this.o.connect) { const a = await this.o.connect(); if (!a.id) return null; path = `/v1/accounts/${encodeURIComponent(a.id)}`; }
+    const d = await this.call("GET", path);
+    return typeof d.default_currency === "string" ? d.default_currency.toUpperCase() : null;
+  }
+
   async getAccount(account: string): Promise<AccountState> {
     const d = await this.call("GET", `/v1/accounts/${encodeURIComponent(account)}`);
     return { id: String(d.id), chargesEnabled: Boolean(d.charges_enabled), detailsSubmitted: Boolean(d.details_submitted),

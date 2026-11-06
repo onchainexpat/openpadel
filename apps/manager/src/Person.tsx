@@ -5,6 +5,7 @@ import { useLocation } from "preact-iso";
 import { AccountData, api, club, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
 import { WeeklyCourts, type WeeklyCourt } from "@kumi/ui/weekly";
 import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
+import { amountStep, fromMajor, plainAmount } from "@kumi/i18n/format";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
 type P = {
@@ -163,7 +164,7 @@ export function Person({ id }: { id: string }) {
         {mayDo("credit.pay_out") && <form class="inline" onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget as HTMLFormElement;
           const cents = Math.round(Number((f.elements.namedItem("amount") as HTMLInputElement).value) * 100);
           preview("credit.pay_out", { person_id: p.id, cents, method: (f.elements.namedItem("method") as HTMLSelectElement).value }); }}>
-          <input name="amount" type="number" min="0.01" step="0.01" max={(p.credit_cents! / 100).toFixed(2)} defaultValue={(p.credit_cents! / 100).toFixed(2)} aria-label={t("ui.amount")} />
+          <input name="amount" type="number" min={amountStep()} step={amountStep()} max={plainAmount(p.credit_cents!)} defaultValue={plainAmount(p.credit_cents!)} aria-label={t("ui.amount")} />
           <select name="method" aria-label={t("ui.refund")}><option value="cash">{t("paid_by.cash")}</option><option value="other">{t("paid_by.other")}</option></select>
           <button class="small">{t("ui.credit_pay_out")}</button></form>}
       </section>}
@@ -206,8 +207,8 @@ function PersonBookings({ bookings, preview }: { bookings: P["bookings"]; previe
                 <button class="small">{t("ui.cancel_booking")}</button></form>}
               {b.status !== "cancelled" && mayDo("booking.refund") && b.refundable.map((r) => (
                 <form class="inline" key={r.payment_id} onSubmit={(e) => { e.preventDefault(); const v = Number(((e.currentTarget as HTMLFormElement).elements.namedItem("amount") as HTMLInputElement).value);
-                  preview("booking.refund", { booking_id: b.id, payment_id: r.payment_id, cents: Math.round(v * 100) }); }}>
-                  <label>{t("ui.refund_up_to", { amount: dollars(r.left_cents, lang.value) })} <input name="amount" type="number" min="0.01" step="0.01" max={(r.left_cents / 100).toFixed(2)} value={(r.left_cents / 100).toFixed(2)} /></label>
+                  preview("booking.refund", { booking_id: b.id, payment_id: r.payment_id, cents: fromMajor(v) }); }}>
+                  <label>{t("ui.refund_up_to", { amount: dollars(r.left_cents, lang.value) })} <input name="amount" type="number" min={amountStep()} step={amountStep()} max={plainAmount(r.left_cents)} value={plainAmount(r.left_cents)} /></label>
                   <button class="small">{t("ui.refund")}</button></form>))}
             </li>);
         })}</ul>

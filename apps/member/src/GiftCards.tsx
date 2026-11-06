@@ -4,6 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, club, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { PaySheet } from "./Pay.tsx";
+import { fromMajor, toMajor } from "@kumi/i18n/format";
 
 type Card = { id: string; amount_cents: number; status: "pending" | "active" | "redeemed" | "void"; for_name: string | null; message: string | null; last4: string; bought: boolean; code: string | null };
 
@@ -17,9 +18,9 @@ export function GiftCards() {
     e.preventDefault(); setError(null);
     const f = e.currentTarget as HTMLFormElement, v = (n: string) => (f.elements.namedItem(n) as HTMLInputElement).value;
     try {
-      const p = await api<{ run_id: string }>("/actions/gift_card.buy/plan", { person_id: pid, cents: Math.round(Number(v("amount")) * 100), for_name: v("for") || undefined, message: v("message") || undefined });
+      const p = await api<{ run_id: string }>("/actions/gift_card.buy/plan", { person_id: pid, cents: fromMajor(Number(v("amount"))), for_name: v("for") || undefined, message: v("message") || undefined });
       const r = await api<{ result?: { payment_id: string } }>(`/runs/${p.run_id}/apply`, {}, { "idempotency-key": p.run_id });
-      if (r.result) setPaying({ id: r.result.payment_id, cents: Math.round(Number(v("amount")) * 100) });
+      if (r.result) setPaying({ id: r.result.payment_id, cents: fromMajor(Number(v("amount"))) });
     } catch (x) { setError(x instanceof ApiError ? x.message : String(x)); }
   };
   return (
@@ -28,7 +29,7 @@ export function GiftCards() {
       <p class="meta">{t("ui.gift_card_hint")}</p>
       {c?.gift_cards && <section class="card"><h2>{t("ui.gift_card_buy")}</h2>
         <form class="card-form" onSubmit={buy}>
-          <label>{t("ui.gift_card_amount")}<input name="amount" type="number" required min={(c.gift_card_min_cents ?? 1000) / 100} max={(c.gift_card_max_cents ?? 50000) / 100} step="1" defaultValue="50" /></label>
+          <label>{t("ui.gift_card_amount")}<input name="amount" type="number" required min={toMajor(c.gift_card_min_cents ?? 1000)} max={toMajor(c.gift_card_max_cents ?? 50000)} step="1" defaultValue="50" /></label>
           <label>{t("ui.gift_card_for")}<input name="for" maxLength={80} /></label>
           <label>{t("ui.gift_card_message")}<input name="message" maxLength={300} /></label>
           {error && <p class="error" role="alert">{error}</p>}

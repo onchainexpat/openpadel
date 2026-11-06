@@ -4,7 +4,7 @@
 // the club and its events. Nothing about members is shown; "Join the club" goes to the app's sign-up.
 import { sql } from "kysely";
 import { Hono, type Context } from "hono";
-import { isLang, money, t, type Key, type Lang } from "@kumi/i18n";
+import { isLang, money, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
 import { competitionView, coachPhoto, factIn, inLang, lessonCoaches, trSql, localDate, membersFrom, planCounts, ruleWhen, searchFacts, TEXTS_FORM, type Db } from "@kumi/core";
 
 /** Every value from the database goes through this before it reaches the page. */
@@ -80,7 +80,7 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl:
     eventStatus: "https://schema.org/EventScheduled", eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
     location: { "@type": "Place", name: `${clubName}, ${e.location}`, address: e.address ?? e.location },
     organizer: { "@type": "SportsOrganization", name: clubName, url: `${base}/public` },
-    offers: { "@type": "Offer", price: (e.price_cents / 100).toFixed(2), priceCurrency: currency, availability: e.left > 0 ? "https://schema.org/InStock" : "https://schema.org/SoldOut", url: `${base}/public/events/${e.id}` },
+    offers: { "@type": "Offer", price: plainAmount(e.price_cents, currency), priceCurrency: currency, availability: e.left > 0 ? "https://schema.org/InStock" : "https://schema.org/SoldOut", url: `${base}/public/events/${e.id}` },
     url: `${base}/public/events/${e.id}`,
   });
   const eventLine = (l: Lang, e: Awaited<ReturnType<typeof events>>[number]) =>

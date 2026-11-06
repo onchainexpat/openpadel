@@ -5,7 +5,7 @@
 // device's clock says.
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
+import { amountPattern, parseDollars } from "@kumi/i18n/format";
 import { api, club, dollars, lang, lazyPage, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
 import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
 
@@ -410,7 +410,7 @@ function DeskBooking({ court, starts, until, clock, preview, onClose }: { court:
         <label>{t("ui.or_guest_name")}<input value={f.guest} onInput={(e) => setF({ ...f, guest: e.currentTarget.value })} /></label>
       </>}
       {quoted && <p class="meta">{quoted.priced ? t("ui.quoted_price", { amount: dollars(quoted.total_cents, lang.value) }) : t("ui.no_price_then")}{quoted.member ? ` · ${t("ui.member_price", { plan: quoted.member })}` : ""}</p>}
-      <label>{t("ui.price_override")}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.price} placeholder={quoted ? dollars(quoted.total_cents, lang.value) : ""} onInput={(e) => setF({ ...f, price: e.currentTarget.value })} /></label>
+      <label>{t("ui.price_override")}<input inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={f.price} placeholder={quoted ? dollars(quoted.total_cents, lang.value) : ""} onInput={(e) => setF({ ...f, price: e.currentTarget.value })} /></label>
       {person && <label class="check"><input type="checkbox" checked={f.weekly} onChange={(e) => setF({ ...f, weekly: e.currentTarget.checked })} /> {t("ui.every_week")}</label>}
       {person && f.weekly && <label>{t("ui.how_many_weeks")}<input type="number" min="2" max="26" step="1" value={String(f.weeks)} onChange={(e) => setF({ ...f, weeks: Math.max(2, Math.min(26, Math.round(Number(e.currentTarget.value) || 8))) })} /></label>}
       <button class="primary" disabled={!f.start || (!person && !f.guest.trim())}>{t("ui.preview")}</button>

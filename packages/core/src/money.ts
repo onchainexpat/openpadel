@@ -42,7 +42,7 @@ export interface FoundIntent { ref: string; status: IntentStatus; amountCents: n
 export interface FoundRefund { ref: string; paymentRef: string; amountCents: number; ok: boolean; created: Date; kumiRefundId: string | null }
 export class TestProvider implements PaymentProvider {
   readonly name = "test" as const;
-  intents = new Map<string, { amountCents: number; description: string; status: IntentStatus; clientSecret: string; customer?: string; saveCard?: boolean; paymentMethod?: string; created?: Date; metadata?: Record<string, string> }>();
+  intents = new Map<string, { amountCents: number; currency?: string; description: string; status: IntentStatus; clientSecret: string; customer?: string; saveCard?: boolean; paymentMethod?: string; created?: Date; metadata?: Record<string, string> }>();
   customers = new Map<string, string>();
   charges: { customer: string; paymentMethod: string; amountCents: number; ref: string }[] = [];
   failNextCharge: string | null = null;
@@ -54,7 +54,7 @@ export class TestProvider implements PaymentProvider {
     const known = this.byKey.get(i.idempotencyKey);
     if (known) return { ref: known, clientSecret: this.intents.get(known)!.clientSecret, account: null };
     const ref = `pi_test_${randomBytes(6).toString("hex")}`, clientSecret = `${ref}_secret_${randomBytes(6).toString("hex")}`;
-    this.intents.set(ref, { amountCents: i.amountCents, description: i.description, status: "pending", clientSecret, customer: i.customer, saveCard: i.saveCard, created: new Date(), metadata: i.metadata });
+    this.intents.set(ref, { amountCents: i.amountCents, currency: i.currency, description: i.description, status: "pending", clientSecret, customer: i.customer, saveCard: i.saveCard, created: new Date(), metadata: i.metadata });
     this.byKey.set(i.idempotencyKey, ref);
     return { ref, clientSecret, account: null };
   }

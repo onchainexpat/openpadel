@@ -2,7 +2,7 @@
 // and how far ahead its members book; member prices are court prices for chosen plans (Settings, Prices).
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
+import { amountPattern, currencySign, parseDollars, plainAmount, toMajor } from "@kumi/i18n/format";
 import { api, dollars, lang, mayDo, OtherLang, savedIn, t, translationsOf, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 
@@ -94,11 +94,11 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
   const blank = { plan_id: "", name: "", dollars: "", period: "month" as "month" | "year", days_ahead: "", description: "", join_in_app: true, max_members: "", starts_on: "", perks_before_start: true,
     discount: "none" as "none" | "percent" | "dollars", off: "", included: "", kinds: ["clinic", "social"], family: "", extra: "", name_tr: "", description_tr: "" };
   const [f, setF] = useState(blank);
-  const edit = (p: Plan) => setF({ plan_id: p.id, name: p.name, dollars: String(p.price_cents / 100), period: p.period, days_ahead: p.days_ahead ? String(p.days_ahead) : "", description: p.description ?? "", join_in_app: p.join_in_app ?? true,
+  const edit = (p: Plan) => setF({ plan_id: p.id, name: p.name, dollars: String(toMajor(p.price_cents)), period: p.period, days_ahead: p.days_ahead ? String(p.days_ahead) : "", description: p.description ?? "", join_in_app: p.join_in_app ?? true,
     max_members: p.max_members ? String(p.max_members) : "", starts_on: p.starts_on ?? "", perks_before_start: p.perks_before_start ?? true,
-    discount: p.program_percent_off ? "percent" : p.program_cents_off ? "dollars" : "none", off: p.program_percent_off ? String(p.program_percent_off) : p.program_cents_off ? String(p.program_cents_off / 100) : "",
+    discount: p.program_percent_off ? "percent" : p.program_cents_off ? "dollars" : "none", off: p.program_percent_off ? String(p.program_percent_off) : p.program_cents_off ? String(toMajor(p.program_cents_off)) : "",
     included: p.included_sessions ? String(p.included_sessions) : "", kinds: p.included_kinds ?? ["clinic", "social"],
-    family: p.family_size ? String(p.family_size) : "", extra: p.extra_person_cents != null ? String(p.extra_person_cents / 100) : "",
+    family: p.family_size ? String(p.family_size) : "", extra: p.extra_person_cents != null ? String(toMajor(p.extra_person_cents)) : "",
     name_tr: savedIn(p.translations, "name"), description_tr: savedIn(p.translations, "description") });
   return (
     <section class="card">
@@ -119,7 +119,7 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
         translations: translationsOf({ name: f.name_tr, description: f.description_tr }) }); }}>
         <label>{f.plan_id ? t("ui.change_plan") : t("ui.add_plan")}<input required maxLength={60} placeholder={t("ui.plan_name_hint")} value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
         <OtherLang value={f.name_tr} onInput={(v) => setF({ ...f, name_tr: v })} source={f.name} maxLength={60} />
-        <div class="court-row"><label>{t("ui.plan_dollars")}<input required inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
+        <div class="court-row"><label>{t("ui.plan_dollars")}<input required inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
           <label>{t("ui.plan_period")}<select value={f.period} onChange={(e) => setF({ ...f, period: e.currentTarget.value as "month" | "year" })}><option value="month">{t("ui.period_month")}</option><option value="year">{t("ui.period_year")}</option></select></label></div>
         <label>{t("ui.plan_days_ahead")}<input type="number" min={1} max={365} value={f.days_ahead} onInput={(e) => setF({ ...f, days_ahead: e.currentTarget.value })} /></label>
         <label>{t("ui.plan_description")}<input maxLength={300} value={f.description} onInput={(e) => setF({ ...f, description: e.currentTarget.value })} /></label>
@@ -130,11 +130,11 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
         {f.starts_on && <label class="check"><input type="checkbox" checked={f.perks_before_start} onChange={(e) => setF({ ...f, perks_before_start: e.currentTarget.checked })} /> {t("ui.plan_perks_before_start")}</label>}
         <label class="check"><input type="checkbox" checked={f.join_in_app} onChange={(e) => setF({ ...f, join_in_app: e.currentTarget.checked })} /> {t("ui.plan_join_in_app")}</label>
         <div class="court-row"><label>{t("ui.plan_family_size")}<input type="number" min={2} max={12} value={f.family} onInput={(e) => setF({ ...f, family: e.currentTarget.value })} /></label>
-          {f.family && <label>{t("ui.plan_extra_person")}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.extra} onInput={(e) => setF({ ...f, extra: e.currentTarget.value })} /></label>}</div>
+          {f.family && <label>{t("ui.plan_extra_person")}<input inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={f.extra} onInput={(e) => setF({ ...f, extra: e.currentTarget.value })} /></label>}</div>
         <fieldset><legend>{t("ui.plan_program_perks")}</legend>
           <div class="court-row"><label>{t("ui.discount")}<select value={f.discount} onChange={(e) => setF({ ...f, discount: e.currentTarget.value as typeof f.discount })}>
             {(["none", "percent", "dollars"] as const).map((k) => <option value={k}>{t(`ui.discount_${k}`)}</option>)}</select></label>
-            {f.discount !== "none" && <label>{t("ui.discount_amount")} ({f.discount === "percent" ? "%" : "$"})<input required inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.off} onInput={(e) => setF({ ...f, off: e.currentTarget.value })} /></label>}</div>
+            {f.discount !== "none" && <label>{t("ui.discount_amount")} ({f.discount === "percent" ? "%" : currencySign()})<input required inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={f.off} onInput={(e) => setF({ ...f, off: e.currentTarget.value })} /></label>}</div>
           <label>{t("ui.plan_included_sessions")}<input type="number" min={1} max={100} value={f.included} onInput={(e) => setF({ ...f, included: e.currentTarget.value })} /></label>
           {f.included && <div role="group" aria-label={t("ui.plan_included_kinds")}><span class="meta">{t("ui.plan_included_kinds")}</span>{["clinic", "social", "tournament"].map((k) => <label class="check">
             <input type="checkbox" checked={f.kinds.includes(k)} onChange={(e) => setF({ ...f, kinds: e.currentTarget.checked ? [...f.kinds, k] : f.kinds.filter((x) => x !== k) })} /> {t(`kind.${k}` as Key)}</label>)}</div>}
@@ -166,7 +166,7 @@ export function GiveMembership({ plans, send, person }: { plans: Plan[]; send: P
       {mayDo("membership.sell") && <label>{t("ui.membership_how")}<select value={f.paid ? "paid" : "given"} onChange={(e) => setF({ ...f, paid: e.currentTarget.value === "paid", dollars: "" })}>
         <option value="given">{t("ui.membership_given")}</option><option value="paid">{t("ui.membership_paid_desk")}</option></select></label>}
       {f.paid ? <div class="court-row">
-        <label>{t("ui.amount_paid")}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} placeholder={chosen ? (chosen.price_cents / 100).toFixed(2) : ""} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
+        <label>{t("ui.amount_paid")}<input inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} placeholder={chosen ? plainAmount(chosen.price_cents) : ""} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
         <label>{t("ui.paid_how")}<select value={f.method} onChange={(e) => setF({ ...f, method: e.currentTarget.value })}>{["cash", "terminal", "other"].map((k) => <option value={k}>{t(`paid_by.${k}` as Key)}</option>)}</select></label>
       </div> : <label>{t("ui.membership_until")}<input type="date" value={f.until} onInput={(e) => setF({ ...f, until: e.currentTarget.value })} /></label>}
       <label>{t("ui.membership_note")}<input maxLength={200} placeholder={t("ui.membership_note_hint")} value={f.note} onInput={(e) => setF({ ...f, note: e.currentTarget.value })} /></label>

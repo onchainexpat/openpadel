@@ -3,7 +3,7 @@
 // the coach role on their page.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { AMOUNT_PATTERN, parseDollars } from "@kumi/i18n/format";
+import { amountPattern, parseDollars, toMajor } from "@kumi/i18n/format";
 import { api, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
 
 type Profile = { bio: string | null; translations?: unknown; level_min: string | null; level_max: string | null; languages: string[]; rates: Record<string, number>; photo: string | null; lessons: boolean; max_players: number };
@@ -64,7 +64,7 @@ function CoachEdit({ c, d, preview }: { c: Coach; d: Data; preview: Preview }) {
   const p = c.profile;
   const lengths = [...new Set([...d.lengths, ...Object.keys(p?.rates ?? {}).map(Number)])].sort((a, b) => a - b);
   const [f, setF] = useState({ bio: p?.bio ?? "", bio_tr: savedIn(p?.translations, "bio"), lmin: p?.level_min ?? "", lmax: p?.level_max ?? "", languages: p?.languages ?? ["en"], lessons: p?.lessons ?? true, players: p?.max_players ?? 4,
-    rates: Object.fromEntries(lengths.map((m) => [m, p?.rates[String(m)] !== undefined ? String(p.rates[String(m)]! / 100) : ""])) as Record<number, string> });
+    rates: Object.fromEntries(lengths.map((m) => [m, p?.rates[String(m)] !== undefined ? String(toMajor(p.rates[String(m)]!)) : ""])) as Record<number, string> });
   const [loc, setLoc] = useState(d.locations[0]?.id ?? ""), [photoError, setPhotoError] = useState(false);
   const [hours, setHours] = useState<Stretch[]>(c.hours);
   const [off, setOff] = useState({ from: "", to: "", note: "" });
@@ -92,7 +92,7 @@ function CoachEdit({ c, d, preview }: { c: Coach; d: Data; preview: Preview }) {
         <fieldset><legend>{t("ui.coach_langs")}</legend>{["en", "es"].map((x) => <label class="check"><input type="checkbox" checked={f.languages.includes(x)}
           onChange={(e) => setF({ ...f, languages: e.currentTarget.checked ? [...f.languages, x] : f.languages.filter((y) => y !== x) })} /> {t(`ui.lang_${x}` as Key)}</label>)}</fieldset>
         <fieldset><legend>{t("ui.lesson_rates")}</legend><div class="court-row">{lengths.map((m) =>
-          <label>{t("ui.minutes", { count: m })}<input inputMode="decimal" pattern={AMOUNT_PATTERN} title={t("ui.amount_format")} value={f.rates[m]} onInput={(e) => setF({ ...f, rates: { ...f.rates, [m]: e.currentTarget.value } })} /></label>)}</div></fieldset>
+          <label>{t("ui.minutes", { count: m })}<input inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={f.rates[m]} onInput={(e) => setF({ ...f, rates: { ...f.rates, [m]: e.currentTarget.value } })} /></label>)}</div></fieldset>
         <label class="check"><input type="checkbox" checked={f.lessons} onChange={(e) => setF({ ...f, lessons: e.currentTarget.checked })} /> {t("ui.takes_lessons")}</label>
         <label>{t("ui.max_players")}<select value={f.players} onChange={(e) => setF({ ...f, players: Number(e.currentTarget.value) })}>{[1, 2, 3, 4].map((n) => <option value={n}>{n}</option>)}</select></label>
         <button class="primary">{t("ui.preview")}</button>
