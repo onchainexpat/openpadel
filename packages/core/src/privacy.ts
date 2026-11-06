@@ -33,7 +33,7 @@ const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents,
 const iso = (d: Date | string | null | undefined) => d ? new Date(d).toISOString() : null;
 
 // ---- What's still running ----
-export type BlockerKind = "staff" | "bookings" | "weekly" | "programs" | "membership" | "balance" | "kid_requests" | "credit";
+export type BlockerKind = "staff" | "bookings" | "weekly" | "programs" | "membership" | "balance" | "kid_requests" | "credit" | "gift_cards";
 export interface Blocker { kind: BlockerKind; text: Text; how: Text }
 
 /** Juniors only this person manages: deleting them deletes these too. */
@@ -88,6 +88,10 @@ async function runningFor(db: Db | Trx, personId: string, now: Date, opts: { che
   // Club credit is the club's to pay out (credit.ts): deleting the account first would leave it owed to nobody.
   const credit = await creditBalance(db, personId);
   if (credit > 0) add("credit", { amount: usd(credit) });
+  // Gift cards they bought and nobody has redeemed: the code was only ever shown to them, so deleting the account
+  // first would leave a card nobody can reach.
+  const cards = await db.selectFrom("gift_card").select(sql<string>`count(*)`.as("n")).where("buyer_id", "=", personId).where("status", "=", "active").executeTakeFirstOrThrow();
+  if (Number(cards.n)) add("gift_cards", { count: Number(cards.n) });
   return out;
 }
 
@@ -249,7 +253,12 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     bookings, match_asks: asks.map((a) => ({ ...a, created_at: iso(a.created_at), decided_at: iso(a.decided_at) })),
     places_offered: offers.map((o) => ({ booking: o.code, status: o.status, yours: o.person_id === personId, offered_to_you: o.to_person_id === personId, taken_by_you: o.taken_by === personId, at: iso(o.created_at), decided_at: iso(o.decided_at) })),
     programs: enrolments.map((e) => ({ ...e, starts_at: iso(e.starts_at), created_at: iso(e.created_at), left_at: iso(e.left_at) })),
-    payments, receipts, club_credit: { cents: await creditBalance(db, personId), history: (await creditHistory(db, personId)).map((h) => ({ ...h, at: iso(h.at) })) },
+    payments, receipts, club_credit: { cents: await creditBalance(db, personId), history: (await creditHistory(db, personId, { all: true })).map((h) => ({ ...h, at: iso(h.at) })) },
+    // Cards they bought or redeemed: never the code (theirs in the app while it's to give), only its last 4.
+    gift_cards: (await db.selectFrom("gift_card").select(["amount_cents", "status", "last4", "for_name", "message", "sold_via", "created_at", "redeemed_at", "buyer_id", "redeemed_by"])
+      .where((w) => w.or([w("buyer_id", "=", personId), w("redeemed_by", "=", personId)])).orderBy("created_at").execute())
+      .map((c) => ({ bought: c.buyer_id === personId, redeemed: c.redeemed_by === personId, amount_cents: c.amount_cents, status: c.status, last4: c.last4,
+        for_name: c.buyer_id === personId ? c.for_name : null, message: c.buyer_id === personId ? c.message : null, sold_via: c.sold_via, bought_at: iso(c.created_at), redeemed_at: iso(c.redeemed_at) })),
     memberships, covered_by_family_plans: covered,
     level: rating ?? null, level_history: history.map((h) => ({ at: iso(h.at), kind: h.kind, before: h.level_before, after: h.level_after, why: say(h.explanation) })),
     level_reviews: reviews, games, score_answers: answers,
@@ -551,6 +560,9 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   }
   // What they wrote in chats: the words go, "message removed" stays under "Former member" (chat.ts).
   await eraseChats(db, personId, ctx.now);
+  // Gift cards they bought: who it was for and their message (often someone else's name) go; the card stays in
+  // the books.
+  await db.updateTable("gift_card").set({ for_name: null, message: null }).where("buyer_id", "=", personId).where((w) => w.or([w("for_name", "is not", null), w("message", "is not", null)])).execute();
   // Their questions: their words go, the staff's answers lose their name; anything still open is closed.
   if (said.length) await db.updateTable("question_message").set({ body: REMOVED }).where("id", "in", said.map((m) => m.id)).execute();
   if (threads.length) {

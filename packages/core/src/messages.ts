@@ -213,8 +213,8 @@ async function seriesInfo(db: Db, seriesId: string) {
     base: { court: s.court, weekday: f({ weekday: "long" }), time: f({ hour: "numeric", minute: "2-digit" }), minutes: s.minutes } };
 }
 /** What a change to a booking means for one player's money: more to pay at the desk (the organiser), or what goes back. */
-function changeMoney(personId: string, organiserId: string | null, p: { owed: number; refunds: Record<string, number>; desk?: Record<string, number> }): Text {
-  if (p.refunds[personId] || p.desk?.[personId]) return backWords(p.refunds[personId] ?? 0, p.desk?.[personId] ?? 0);
+function changeMoney(personId: string, organiserId: string | null, p: { owed: number; refunds: Record<string, number>; desk?: Record<string, number>; credit?: Record<string, number> }): Text {
+  if (p.refunds[personId] || p.desk?.[personId] || p.credit?.[personId]) return backWords(p.refunds[personId] ?? 0, p.desk?.[personId] ?? 0, p.credit?.[personId] ?? 0);
   if (p.owed > 0 && personId === organiserId) return both("msg.change_owed", { amount: amount(p.owed) });
   return NOTHING;
 }
@@ -902,9 +902,10 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: e.person_id, kind: "unpaid_reminder", params: { name: e.name, when: when(e.start, tz), amount: amount(await owes(db, e.id)), until: when(p.until ? new Date(p.until) : e.start, tz) },
       purpose: "account", essential: true, email: true, link: "/places", staleAt: p.until ? new Date(p.until) : e.start }];
   },
-  async "enrolment.lapsed"({ db, tz }, p: { enrolment_id: string }) {
+  async "enrolment.lapsed"({ db, tz }, p: { enrolment_id: string; credit_cents?: number }) {
     const e = await place(db, p.enrolment_id);
-    return [{ to: e.person_id, kind: "place_lapsed", params: { name: e.name, when: when(e.start, tz) }, purpose: "account", essential: true, email: true, link: "/" }];
+    const refund = p.credit_cents ? both("msg.refund_credit", { amount: amount(p.credit_cents) }) : NOTHING;
+    return [{ to: e.person_id, kind: "place_lapsed", params: { name: e.name, when: when(e.start, tz), refund }, purpose: "account", essential: true, email: true, link: "/" }];
   },
   async "enrolment.left"({ db, tz }, p: { enrolment_id: string; refund_outcome: string; refund_cents: number; refund_desk?: number; refund_credit?: number }) {
     const e = await place(db, p.enrolment_id);

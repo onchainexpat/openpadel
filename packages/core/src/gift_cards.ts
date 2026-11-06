@@ -3,8 +3,9 @@
 // aren't taxed when sold (tax is on what they're spent on). Until redeemed a card is the club's liability (a
 // gift_cards account, money.ts); redeemed, its value becomes the redeemer's club credit (credit.ts), once.
 // The code goes to whoever bought it, in the app: they give it (or print it) to whoever it's for. It's never in an
-// email or a message, sealed in the database with the club's key, and found by its hash; wrong codes are counted
-// per person, so codes can't be guessed. Staff can void a card nobody has redeemed (the buyer gets the money back
+// email or a message, sealed in the database with the club's key, and found by a fingerprint under that key (so a
+// copy of the database alone can't test guesses); it's never kept in the change log or with a preview. Wrong codes
+// are counted per person, the person redeeming, so codes can't be guessed. Staff can void a card nobody has redeemed (the buyer gets the money back
 // the way they paid) and remind the buyer it's there.
 import * as z from "zod/mini";
 import { createHash, randomInt } from "node:crypto";
@@ -15,7 +16,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
-import { openText, sealText } from "./sealed.ts";
+import { keyedHash, openText, sealText } from "./sealed.ts";
 import { deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 import { lockCredit } from "./credit.ts";
 
@@ -27,7 +28,21 @@ export function newGiftCode(): string {
   return `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8, 12)}-${c.slice(12)}`;
 }
 /** A code as typed: case, spaces and dashes don't matter. */
-export const giftCodeHash = (code: string) => createHash("sha256").update(code.toUpperCase().replace(/[^0-9A-Z]/g, "")).digest("hex");
+export const giftCodeNorm = (code: string) => code.toUpperCase().replace(/[^0-9A-Z]/g, "");
+/** A code's fingerprint under the server's key (sealed.ts keyedHash), the one stored. */
+export const giftCodeHash = (code: string) => keyedHash(giftCodeNorm(code))!;
+/** Every fingerprint a stored card may still carry for this code: under the key in use, the key before (while it's
+ *  being rotated), or the plain SHA-256 of cards made before keyed fingerprints (made again at the next start). */
+function codeHashes(code: string): string[] {
+  const n = giftCodeNorm(code);
+  return [keyedHash(n), keyedHash(n, "previous"), createHash("sha256").update(n).digest("hex")].filter((h): h is string => Boolean(h));
+}
+/** Work on one person's tries one change at a time (a lock held until it commits), inside a change of its own when
+ *  the caller isn't in one. */
+async function oneAtATime<T>(db: Db | Trx, key: string, fn: (trx: Trx) => Promise<T>): Promise<T> {
+  const go = async (trx: Trx) => { await sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`.execute(trx); return fn(trx); };
+  return (db as Trx).isTransaction ? go(db as Trx) : (db as Db).transaction().execute(go);
+}
 /** Wrong codes a person may try in an hour before redeeming is refused for a while. */
 export const GIFT_TRIES_PER_HOUR = 10;
 
@@ -95,20 +110,33 @@ export async function giftCardPaid(ctx: ApplyCtx, giftCardId: string) {
   await ctx.emit("gift_card.ready", { gift_card_id: giftCardId });
 }
 
-/** Someone redeems a code: its value becomes their club credit, once. A wrong code counts against them; after
- *  GIFT_TRIES_PER_HOUR wrong ones in an hour, they wait. App only: words an assistant reads could hold a code. */
+/** Someone redeems a code into their own club credit, once. Only for themselves: the person asking is the person
+ *  named, checked before the code is looked at (nobody can spend someone else's tries or learn whether a code is
+ *  live through them). A wrong code counts against them, one try at a time; after GIFT_TRIES_PER_HOUR wrong ones in
+ *  an hour, they wait. The code is read by the preview and never kept (planOnly). App only, never support access:
+ *  words an assistant reads could hold a code. */
 export const giftCardRedeem = defineAction({
-  name: "gift_card.redeem", version: 1,
+  name: "gift_card.redeem", version: 1, planOnly: ["code"],
   input: z.object({ person_id: z.uuid(), code: z.string().check(z.minLength(4), z.maxLength(40)) }),
   async plan(ctx, i) {
+    if (!ctx.actor.personId || ctx.actor.personId !== i.person_id) throw new KumiError("error.forbidden", {}, 403);
     const { read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
-    const tries = await ctx.db.selectFrom("gift_card_try").select(sql<string>`count(*)`.as("n")).where("person_id", "=", i.person_id).where("at", ">", new Date(ctx.now.getTime() - 3600_000)).executeTakeFirstOrThrow();
-    if (Number(tries.n) >= GIFT_TRIES_PER_HOUR) throw new KumiError("error.gift_card_tries");
-    const card = await ctx.db.selectFrom("gift_card").select(["id", "status", "amount_cents"]).where("code_hash", "=", giftCodeHash(i.code)).executeTakeFirst();
-    if (!card || card.status === "pending" || card.status === "void") {
-      await ctx.db.insertInto("gift_card_try").values({ person_id: i.person_id, at: ctx.now }).execute();
-      throw new KumiError("error.gift_card_unknown");
-    }
+    const found = await oneAtATime(ctx.db, `gift_try:${i.person_id}`, async (trx) => {
+      const tries = await trx.selectFrom("gift_card_try").select(sql<string>`count(*)`.as("n")).where("person_id", "=", i.person_id).where("at", ">", new Date(ctx.now.getTime() - 3600_000)).executeTakeFirstOrThrow();
+      if (Number(tries.n) >= GIFT_TRIES_PER_HOUR) return "tries" as const;
+      const hashes = codeHashes(i.code);
+      const card = await trx.selectFrom("gift_card").select(["id", "status", "amount_cents", "code_hash"]).where("code_hash", "in", hashes).executeTakeFirst();
+      if (!card || card.status === "pending" || card.status === "void") {
+        await trx.insertInto("gift_card_try").values({ person_id: i.person_id, at: ctx.now }).execute();
+        return "unknown" as const;
+      }
+      // A card found by an older fingerprint gets the one under the key in use.
+      if (card.code_hash !== hashes[0]) await trx.updateTable("gift_card").set({ code_hash: hashes[0]! }).where("id", "=", card.id).execute();
+      return card;
+    });
+    if (found === "tries") throw new KumiError("error.gift_card_tries");
+    if (found === "unknown") throw new KumiError("error.gift_card_unknown");
+    const card = found;
     if (card.status === "redeemed") throw new KumiError("error.gift_card_redeemed");
     return { title: both("action.gift_card.redeem"), reads: [read], ownerIds: [i.person_id], moneyCents: card.amount_cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
       summary: both("plan.gift_card.redeem", { amount: usd(card.amount_cents) }), details: { gift_card_id: card.id } };
@@ -116,9 +144,9 @@ export const giftCardRedeem = defineAction({
   async apply(ctx, i, plan) {
     const id = (plan.details as { gift_card_id: string }).gift_card_id;
     await lockCredit(ctx.trx, i.person_id);
-    const c = await ctx.trx.selectFrom("gift_card").select(["status", "amount_cents", "code_hash"]).where("id", "=", id).forUpdate().executeTakeFirstOrThrow();
+    const c = await ctx.trx.selectFrom("gift_card").select(["status", "amount_cents"]).where("id", "=", id).forUpdate().executeTakeFirstOrThrow();
     // Again under the lock: the same code redeemed twice at once goes to one person, once.
-    if (c.status !== "active" || c.code_hash !== giftCodeHash(i.code)) throw new KumiError("error.gift_card_redeemed");
+    if (c.status !== "active") throw new KumiError("error.gift_card_redeemed");
     await ctx.update("gift_card", id, { status: "redeemed", redeemed_by: i.person_id, redeemed_at: ctx.now });
     await post(ctx.trx, ctx.runId, "gift_card_redeemed", "gift card redeemed as club credit", [
       { account: await account(ctx.trx, "gift_cards"), cents: c.amount_cents },

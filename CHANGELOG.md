@@ -125,15 +125,25 @@ server starts.
   on the desk's day as money handed back. A member's profile shows their credit; Reports shows the credit members
   hold; their data download has it, with what came and went; and an account can't be deleted while it holds credit
   (the club pays it out first). Two checkouts at once can't spend the same credit. Read-only spends no credit and
-  still pays it out. Not for assistants: spending credit and paying it out are app-only, and never support access.
+  still pays it out; a club that has moved to another server pays nothing out (the new server does). Not for
+  assistants: spending credit and paying it out are app-only, and never support access. Only the member spends their
+  own credit, and nobody else is told what they hold. A junior's refund given as credit goes to the parent who looks
+  after them (the family card's saver), since a junior can't spend credit. A place paid in part only from credit is
+  reminded and let go like an unpaid one, its credit back; credit never shows on the desk's day as money taken
+  there; and a booking paid from credit, made shorter or moved, says the money goes back to club credit. The pay-out
+  preview says how much of a member's credit came from gift cards, and warns when any were bought by card (paying
+  those out in cash can be a way to cash out a stolen card).
 - **Gift cards**, when the club turns them on (Settings, with the smallest and largest amount: $10 to $500 to start).
   A member buys one in the app by card, for themselves to give (with who it's for and a message), or the desk sells
   one for a member (cash, the card reader or another way, on the desk's day). They never expire, carry no fees and
   aren't taxed when sold; until one is used it's money the club owes (in the books apart from revenue, and on
   Reports with each card). The code is in the buyer's app under Gift cards, with a page to print: never in an email
-  or a message, sealed in the database with the club's key. Redeeming a code (in the app, never through an
-  assistant) puts its value into the redeemer's club credit, once, even if two people try at once; wrong codes are
-  limited to 10 an hour per person. A manager or the owner voids a card nobody has used, and the buyer gets the money
+  or a message, sealed in the database with the club's key, found by a fingerprint under that key, and never kept
+  in the change log or with a preview. Redeeming a code (in the app, for yourself only: never through an assistant
+  or support access) puts its value into the redeemer's club credit, once, even if two people try at once; wrong
+  codes are limited to 10 an hour, counted against the person redeeming, one at a time. Someone with an active card
+  they bought can't delete their account until it's given or voided, and deleting it removes who the card was for
+  and their message; Download data lists the cards (never the codes). A manager or the owner voids a card nobody has used, and the buyer gets the money
   back the way they paid; staff can remind the buyer it's waiting. Members' assistants see their cards, never the
   codes. Check your state's rules on gift cards (expiry, fees, cash back for small balances, unclaimed property)
   with a lawyer: Kumi's cards never expire, and the owner or a manager can pay credit out at the desk.

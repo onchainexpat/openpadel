@@ -56,6 +56,9 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   /** Input it uses once and never keeps (a reason someone typed): left out of the stored input when the change is
    *  refused, taken out once it's applied, and out of a preview nobody confirmed once it expires (forgetStaleInputs). */
   forget?: string[];
+  /** Input only the preview reads (a gift card's code): never stored, not even with the preview, so apply works
+   *  from what the preview found (its details) and never sees it. */
+  planOnly?: string[];
   input: S;
   plan(ctx: PlanCtx, input: z.infer<S>): Promise<Plan>;
   apply(ctx: ApplyCtx, input: z.infer<S>, plan: Plan): Promise<unknown>;
@@ -150,7 +153,8 @@ const ENTITIES = {
 export type Entity = keyof typeof ENTITIES;
 /** Columns that are keys to something (a club news email's unsubscribe link, an authenticator's secret):
  *  never copied into the change log. */
-const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"], staff_factor: ["secret"], chat_message: ["body"], chat_report: ["reason"], chat_stop: ["reason"] };
+const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"], staff_factor: ["secret"], chat_message: ["body"], chat_report: ["reason"], chat_stop: ["reason"],
+  gift_card: ["code_hash", "code_sealed"] };
 const unkept = (entity: Entity, row: unknown) => {
   const drop = KEYS_NOT_KEPT[entity];
   if (!drop || !row || typeof row !== "object") return row;
@@ -209,8 +213,11 @@ function validate<S extends z.ZodMiniObject>(def: ActionDef<S>, raw: unknown): z
 }
 
 /** The input as it's kept: without what the action forgets. */
-const kept = (def: ActionDef<any>, input: unknown) =>
-  def.forget?.length && input && typeof input === "object" ? Object.fromEntries(Object.entries(input).filter(([k]) => !def.forget!.includes(k))) : input;
+const kept = (def: ActionDef<any>, input: unknown) => without(stored(def, input), def.forget);
+/** The input as it's stored with a preview: without what only the preview reads (planOnly). */
+const stored = (def: ActionDef<any>, input: unknown) => without(input, def.planOnly);
+const without = (input: unknown, keys: string[] | undefined) =>
+  keys?.length && input && typeof input === "object" ? Object.fromEntries(Object.entries(input).filter(([k]) => !keys.includes(k))) : input;
 
 async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor, plan: Plan | null, d: Decision): Promise<never> {
   // Every "no" is logged (permissions.md), with the support access it was tried under (and nothing the action forgets).
@@ -326,7 +333,7 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
   const runId = uuidv7(now.getTime());
   const row = {
     id: runId, action: name, action_version: def.version, actor_person_id: actor.personId, agent_id: actor.agentId ?? null, via: actor.via,
-    location_id: p.locationId ?? null, input: JSON.stringify(input), plan: JSON.stringify(p), status, undo_kind: p.undo.kind,
+    location_id: p.locationId ?? null, input: JSON.stringify(stored(def, input)), plan: JSON.stringify(p), status, undo_kind: p.undo.kind,
     undo_note: p.undo.note ? JSON.stringify(p.undo.note) : null, read_versions: JSON.stringify(Object.fromEntries(p.reads.map((r) => [keyOf(r.entity, r.id), r.version]))),
     plan_expires_at: expiresAt, money_cents: String(p.moneyCents ?? 0), undo_of: (input as any)?.run_id && name === "action.undo" ? (input as any).run_id : null,
     oauth_grant_id: actor.grantId ?? null, support_grant_id: d.support ?? null,
@@ -337,7 +344,7 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     // say yes would be told again, and two yeses would do it twice. One ask of each action at a time gets this far.
     await sql`SELECT pg_advisory_xact_lock(hashtext(${`ask:${name}`}))`.execute(trx);
     const waiting = await trx.selectFrom("action_run").select("created_at").where("action", "=", name).where("status", "=", "awaiting_approval")
-      .where("plan_expires_at", ">", now).where(sql<boolean>`input = ${JSON.stringify(input)}::jsonb`).orderBy("created_at").executeTakeFirst();
+      .where("plan_expires_at", ">", now).where(sql<boolean>`input = ${JSON.stringify(stored(def, input))}::jsonb`).orderBy("created_at").executeTakeFirst();
     if (waiting) {
       const tz = (await trx.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
       const at = (l: string) => new Intl.DateTimeFormat(l, { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(waiting.created_at);

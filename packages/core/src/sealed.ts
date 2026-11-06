@@ -2,7 +2,7 @@
 // install): AES-256-GCM, a fresh nonce each time, and the key's short id in front so a value sealed under the
 // key before (KUMI_SECRET_KEY_PREVIOUS) still opens while `kumi rotate-key` moves everything to the new one.
 // Without a key (development only: production refuses to start), values are kept as they are, and say so.
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import type { Db, Trx } from "./db.ts";
 
@@ -86,6 +86,20 @@ export const SEALED_COLUMNS: { table: string; key: string; column: string; kind:
   { table: "gift_card", key: "id", column: "code_sealed", kind: "text" },
 ];
 
+/** A fingerprint of a secret the database has to find without holding it in the open (a gift card's code): an
+ *  HMAC-SHA-256 under a key made from the server's own, so a copy of the database alone can't test guesses
+ *  against it. `previous`: under the key before (found while `kumi rotate-key` runs). Without a key
+ *  (development), a plain SHA-256, as before keys. */
+export function keyedHash(text: string, which: "current" | "previous" = "current"): string | null {
+  const k = which === "current" ? current : previous;
+  if (!k) return which === "current" ? createHash("sha256").update(text).digest("hex") : null;
+  return createHmac("sha256", createHash("sha256").update(Buffer.concat([Buffer.from("kumi keyed hash v1:"), k.bytes])).digest()).update(text).digest("hex");
+}
+/** Every column that holds a keyed fingerprint of a sealed one, made again from it when the key changes. */
+export const KEYED_HASHES: { table: string; key: string; from: string; to: string; normalize: (plain: string) => string }[] = [
+  { table: "gift_card", key: "id", from: "code_sealed", to: "code_hash", normalize: (c) => c.toUpperCase().replace(/[^0-9A-Z]/g, "") },
+];
+
 export interface ResealReport { sealed: number; resealed: number; current: number; plain: number; unreadable: number }
 /** Seal what isn't sealed yet, and move whatever was sealed under the previous key to the current one. Without
  *  a key it only counts. Run at every start (cheap: a club has a handful of these) and by `kumi rotate-key`. */
@@ -101,6 +115,16 @@ export async function resealAll(db: Db | Trx): Promise<ResealReport> {
       const next = c.kind === "text" ? sealText(openText(row.v as string)) : sealBytes(openBytes(row.v as Buffer));
       await sql`UPDATE ${sql.table(c.table)} SET ${sql.ref(c.column)} = ${next} WHERE ${sql.ref(c.key)} = ${row.k}`.execute(db);
       if (id) r.resealed++; else r.sealed++;
+    }
+  }
+  // Fingerprints under the key in use: made again from what they fingerprint (a club has a handful).
+  for (const h of KEYED_HASHES) {
+    const rows = (await sql<{ k: unknown; v: string; h: string }>`SELECT ${sql.ref(h.key)} AS k, ${sql.ref(h.from)} AS v, ${sql.ref(h.to)} AS h FROM ${sql.table(h.table)}`.execute(db)).rows;
+    for (const row of rows) {
+      let plain: string;
+      try { plain = openText(row.v); } catch { continue; }
+      const next = keyedHash(h.normalize(plain));
+      if (next && next !== row.h) await sql`UPDATE ${sql.table(h.table)} SET ${sql.ref(h.to)} = ${next} WHERE ${sql.ref(h.key)} = ${row.k}`.execute(db);
     }
   }
   return r;

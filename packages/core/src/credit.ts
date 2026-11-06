@@ -23,10 +23,11 @@ export async function lockCredit(trx: Trx, personId: string) {
 }
 
 /** What a member's credit has been: each time it came or went, newest first, with what the books say it was. */
-export async function creditHistory(db: Db | Trx, personId: string) {
+export async function creditHistory(db: Db | Trx, personId: string, o: { all?: boolean } = {}) {
   const rows = await db.selectFrom("ledger_entry").innerJoin("ledger_account", "ledger_account.id", "ledger_entry.account_id").innerJoin("ledger_txn", "ledger_txn.id", "ledger_entry.txn_id")
     .select(["ledger_txn.at", "ledger_txn.kind", "ledger_txn.memo", "ledger_entry.amount_cents"]).where("ledger_account.kind", "=", "member_credit").where("ledger_account.person_id", "=", personId)
-    .orderBy("ledger_txn.at", "desc").orderBy("ledger_entry.id", "desc").limit(200).execute();
+    // The app shows the latest; a member's download has all of it.
+    .orderBy("ledger_txn.at", "desc").orderBy("ledger_entry.id", "desc").$if(!o.all, (q) => q.limit(200)).execute();
   // A liability: credit given is a negative entry, credit used a positive one.
   return rows.map((r) => ({ at: r.at, cents: -Number(r.amount_cents), kind: r.kind, memo: r.memo }));
 }
@@ -62,6 +63,8 @@ export const paymentUseCredit = defineAction({
   async plan(ctx, i) {
     const { read } = await readRow(ctx.db, "payment", i.payment_id, "thing.payment");
     const pay = await ctx.db.selectFrom("payment").selectAll().where("id", "=", i.payment_id).executeTakeFirstOrThrow();
+    // Only the member themselves, before anything about their credit is said.
+    if (!ctx.actor.personId || ctx.actor.personId !== pay.person_id) throw new KumiError("error.forbidden", {}, 403);
     const why = await whyNot(ctx.db, pay);
     if (why) throw new KumiError(why);
     const have = await creditBalance(ctx.db, pay.person_id);
@@ -104,8 +107,19 @@ export const creditPayOut = defineAction({
     const { row: p, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const have = await creditBalance(ctx.db, i.person_id);
     if (i.cents > have) throw new KumiError("error.credit_more_than_held", { name: p.display_name, amount: usd(have) });
+    // Where their credit came from: gift cards redeemed (and of those, any bought by card) or refunds. Paying out
+    // credit from a card-bought gift card in cash is how a stolen card is cashed out: the preview says so, and the
+    // owner or manager decides.
+    const g = await ctx.db.selectFrom("gift_card").leftJoin("payment", (j) => j.onRef("payment.gift_card_id", "=", "gift_card.id").on("payment.status", "=", "succeeded"))
+      .select([sql<string>`coalesce(sum(gift_card.amount_cents), 0)`.as("all"),
+        sql<string>`coalesce(sum(gift_card.amount_cents) FILTER (WHERE payment.provider <> 'none' OR payment.method = 'terminal'), 0)`.as("card")])
+      .where("gift_card.redeemed_by", "=", i.person_id).where("gift_card.status", "=", "redeemed").executeTakeFirstOrThrow();
+    const fromCards = Number(g.all), byCard = Number(g.card);
+    const base = both("plan.credit.pay_out", { name: p.display_name, amount: usd(i.cents), how: both(`paid_by.${i.method}`), left: usd(have - i.cents) });
+    const notes = [fromCards > 0 ? both("plan.credit.pay_out_gift", { amount: usd(fromCards) }) : null, byCard > 0 ? both("plan.credit.pay_out_card_warn", { amount: usd(byCard) }) : null].filter((x): x is Text => Boolean(x));
+    const summary = { en: [base.en, ...notes.map((x) => x.en)].join(" "), es: [base.es, ...notes.map((x) => x.es)].join(" ") };
     return { title: both("action.credit.pay_out"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
-      summary: both("plan.credit.pay_out", { name: p.display_name, amount: usd(i.cents), how: both(`paid_by.${i.method}`), left: usd(have - i.cents) }) };
+      summary, details: { from_gift_cards: fromCards, gift_cards_by_card: byCard } };
   },
   async apply(ctx, i) {
     await lockCredit(ctx.trx, i.person_id);

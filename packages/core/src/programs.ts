@@ -785,6 +785,13 @@ export async function paidFor(db: Db | Trx, enrolmentId: string): Promise<number
   return Number(paid?.c ?? 0) - Number(back?.c ?? 0);
 }
 
+/** What was paid for a place in money, at the desk or by card: club credit alone doesn't hold a place past its time
+ *  (a member who ticks "Use my credit" for part and leaves the card form would keep it for ever). */
+export async function paidInMoney(db: Db | Trx, enrolmentId: string): Promise<number> {
+  const r = await db.selectFrom("payment").select(["payment.amount_cents", backSql.as("back")]).where("enrolment_id", "=", enrolmentId).where("status", "=", "succeeded").where("method", "!=", "credit").execute();
+  return r.reduce((n, p) => n + p.amount_cents - Number(p.back), 0);
+}
+
 /** Ask the provider for a payment. Nothing is charged until it confirms (payment.settle). */
 /** A payment owed. Nothing goes to the provider here, inside the change: the card payment is opened when
  *  the person goes to pay (openPayment), so a network call never holds a lock and an unpaid place costs nothing. */
@@ -1053,7 +1060,9 @@ export const enrolmentUnpaid = defineAction({
   },
   async apply(ctx, i) {
     const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).forUpdate().executeTakeFirstOrThrow();
-    if (e.status !== "booked" || await paidFor(ctx.trx, e.id) > 0) return { already: true };
+    // Paid in part at the desk or by card, the place stays (the rest is owed); paid in part only from club credit,
+    // it's reminded and let go like an unpaid one, and the credit goes back.
+    if (e.status !== "booked" || await paidInMoney(ctx.trx, e.id) > 0) return { already: true };
     const owed = await ctx.trx.selectFrom("payment").select("id").where("enrolment_id", "=", e.id).where("status", "=", "pending").where("provider_ref", "is", null).executeTakeFirst();
     if (!owed) return { already: true };   // being paid right now, or nothing owed
     if (i.step === "remind") {
@@ -1063,9 +1072,16 @@ export const enrolmentUnpaid = defineAction({
       return { reminded: true };
     }
     const p = await ctx.trx.selectFrom("program").select("refund_rule_version").where("id", "=", e.program_id).executeTakeFirstOrThrow();
-    await ctx.update("enrolment", e.id, { ...leaving({ outcome: "none", cents: 0, text: both("refund.nothing_paid"), changed: false }, "removed", "other", p.refund_rule_version, "not paid in time"), left_at: ctx.now });
+    let credit = 0;
+    for (const c of await ctx.trx.selectFrom("payment").select("id").where("enrolment_id", "=", e.id).where("status", "=", "succeeded").where("method", "=", "credit").execute()) {
+      const r = await refundTo(ctx, c.id, Number.MAX_SAFE_INTEGER, { enrolmentId: e.id });
+      credit += r?.cents ?? 0;
+    }
+    const refund = credit > 0 ? { outcome: "credit" as const, cents: credit, text: both("refund.credit", { amount: usd(credit) }), changed: false }
+      : { outcome: "none" as const, cents: 0, text: both("refund.nothing_paid"), changed: false };
+    await ctx.update("enrolment", e.id, { ...leaving(refund, "removed", "other", p.refund_rule_version, "not paid in time"), left_at: ctx.now });
     await dropUnpaid(ctx, e.id);
-    await ctx.emit("enrolment.lapsed", { enrolment_id: e.id });
+    await ctx.emit("enrolment.lapsed", { enrolment_id: e.id, credit_cents: credit });
     await placeFreed(ctx, e.program_id, [], e.session_id);
     return { lapsed: true };
   },

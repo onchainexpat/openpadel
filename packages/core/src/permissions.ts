@@ -80,7 +80,9 @@ export const CHAT_ACTIONS = ["chat.report", "chat.hide", "chat.stop", "chat.allo
  *  the club), every member's details in one file, deleting people or data, a person's sign-in, the club's secrets,
  *  the usage cap, the host's read-only and leaving switches, and support access itself. */
 export const SUPPORT_NEVER = ["support.*", "role.*", "club.payment_*", "club.export", "club.setup", "club.read_only", "club.moved*", "club.leaving*", "club.usage_cap_set",
-  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*", ...DESK_MONEY, ...CREDIT_MONEY, "pass_product.set", "promo_code.set", "chat.*", "weekly.end_all", "fixture.reopen"];
+  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*", ...DESK_MONEY, ...CREDIT_MONEY, "pass_product.set", "promo_code.set", "chat.*", "weekly.end_all", "fixture.reopen",
+  // A member's own credit and gift cards are theirs to spend and redeem, in the app (credit.ts, gift_cards.ts).
+  "payment.use_credit", "gift_card.redeem"];
 /** Their own account, which they look after like anyone (their second sign-in step first of all). */
 const SUPPORT_OWN = ["person.factor_*", "person.passkey_*", "person.update_profile"];
 

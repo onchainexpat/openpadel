@@ -67,9 +67,22 @@ export async function leftOf(db: Db | Trx, paymentId: string): Promise<number> {
  *  sub, given back once they pay. `enrolmentId` for a program place's. Never more than is left of the payment,
  *  however the caller worked it out (the payment is locked, so two changes at once can't both fit): what's
  *  given back, and where. */
+/** Whose club credit a refund given as credit goes to: the person who paid, and for a junior's payment the parent who
+ *  paid it (the family card's saver, else a parent who manages them), never the junior, who can't spend it. */
+export async function creditee(db: Db | Trx, pay: { person_id: string; family_card_id?: string | null }): Promise<string> {
+  const who = await db.selectFrom("person").select("junior").where("id", "=", pay.person_id).executeTakeFirst();
+  if (!who?.junior) return pay.person_id;
+  if (pay.family_card_id) {
+    const c = await db.selectFrom("family_card").select("saved_by").where("id", "=", pay.family_card_id).executeTakeFirst();
+    if (c?.saved_by) return c.saved_by;
+  }
+  const { managersOf } = await import("./households.ts");
+  return (await managersOf(db, pay.person_id))[0] ?? pay.person_id;
+}
+
 export async function refundTo(ctx: ApplyCtx, paymentId: string, cents: number, o: { enrolmentId?: string | null; status?: "pending" | "waiting_for_sub"; credit?: boolean } = {}) {
   if (cents <= 0) return null;
-  const pay = await ctx.trx.selectFrom("payment").select(["provider", "method", "person_id", "booking_player_id", "membership_id", "membership_plan_id", "gift_card_id", "pass_id", "id", "amount_cents"]).where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
+  const pay = await ctx.trx.selectFrom("payment").select(["provider", "method", "person_id", "family_card_id", "booking_player_id", "membership_id", "membership_plan_id", "gift_card_id", "pass_id", "id", "amount_cents"]).where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
   cents = Math.min(cents, await leftOf(ctx.trx, paymentId));
   if (cents <= 0) return null;
   // Covered by a pass: refunded in full, the use is the pass's again; in part, it's spent (passes.ts). No money moves.
@@ -83,7 +96,7 @@ export async function refundTo(ctx: ApplyCtx, paymentId: string, cents: number, 
     await ctx.insert("refund", { id, payment_id: paymentId, enrolment_id: o.enrolmentId ?? null, amount_cents: cents, destination: "credit", status: "sent" });
     await post(ctx.trx, ctx.runId, "credit_grant", pay.method === "credit" ? "back to club credit" : "refund as club credit", [
       { account: await account(ctx.trx, "revenue", { revenueType: await revenueType(ctx.trx, pay) }), cents },
-      { account: await account(ctx.trx, "member_credit", { personId: pay.person_id }), cents: -cents }]);
+      { account: await account(ctx.trx, "member_credit", { personId: await creditee(ctx.trx, pay) }), cents: -cents }]);
     return { id, desk: false, credit: true, cents };
   }
   const id = uuidv7(), credit = pay.method === "credit" || Boolean(o.credit), desk = !credit && pay.provider === "none", status = o.status ?? "pending";
@@ -108,12 +121,12 @@ export async function callOff(ctx: ApplyCtx, paymentId: string) {
 /** A refund that was waiting for a sub to pay is due now: a card's goes to the provider, the desk's waits there. */
 export async function refundDue(ctx: ApplyCtx, refundId: string) {
   const r = await ctx.trx.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
-    .select(["refund.destination", "refund.amount_cents", "payment.person_id", "payment.booking_player_id", "payment.membership_id", "payment.membership_plan_id"]).where("refund.id", "=", refundId).executeTakeFirstOrThrow();
+    .select(["refund.destination", "refund.amount_cents", "payment.person_id", "payment.family_card_id", "payment.booking_player_id", "payment.membership_id", "payment.membership_plan_id"]).where("refund.id", "=", refundId).executeTakeFirstOrThrow();
   if (r.destination === "credit") {
     await ctx.update("refund", refundId, { status: "sent" });
     await post(ctx.trx, ctx.runId, "credit_grant", "back to club credit", [
       { account: await account(ctx.trx, "revenue", { revenueType: await revenueType(ctx.trx, r) }), cents: r.amount_cents },
-      { account: await account(ctx.trx, "member_credit", { personId: r.person_id }), cents: -r.amount_cents }]);
+      { account: await account(ctx.trx, "member_credit", { personId: await creditee(ctx.trx, r) }), cents: -r.amount_cents }]);
     return;
   }
   await ctx.update("refund", refundId, { status: "pending" });
@@ -204,7 +217,9 @@ export async function deskLines(db: Db | Trx, from: string, to: string, o: { wha
   const ins = await db.selectFrom("payment")
     .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'payment' AND entity_change.op = 'insert' AND entity_change.entity_id = payment.id::text`))
     .innerJoin("action_run", "action_run.id", "entity_change.action_run_id").innerJoin("person", "person.id", "payment.person_id").leftJoin("person as by", "by.id", "action_run.actor_person_id")
-    .select([...cols, "payment.amount_cents as cents"]).where("payment.provider", "=", "none").where("payment.status", "=", "succeeded").$call(onDays).execute();
+    // Only what changed hands there: a payment the desk's change made and that was later paid another way (the
+    // rest of a place paid from club credit, a pass or a promo code) isn't money at the desk.
+    .select([...cols, "payment.amount_cents as cents"]).where("payment.provider", "=", "none").where("payment.method", "in", ["cash", "terminal", "other"]).where("payment.status", "=", "succeeded").$call(onDays).execute();
   // Handed back at the desk: the change that marked each refund given back.
   const backs = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
     .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'refund' AND entity_change.op = 'update' AND entity_change.entity_id = refund.id::text AND entity_change.after->>'status' = 'sent'`))

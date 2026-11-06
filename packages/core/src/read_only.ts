@@ -38,6 +38,15 @@ export const READ_ONLY_ALLOWED = new Set([
   "email.report", "person.email_unsuppress",
 ]);
 
+/** Money going out, and leaving or cancelling with money back: allowed while read-only (members are paid back), but
+ *  not once the club has moved to another server. The move took the bookings, credit and gift cards with it, so the
+ *  new server pays them back; paid here too, the money would go out twice. */
+export const MOVED_REFUSED = new Set([
+  "refund.give_back", "refund.resend", "credit.pay_out", "gift_card.void", "pass.refund", "booking.refund",
+  "booking.cancel", "booking.repeat_end", "weekly.end_all", "booking.leave", "booking.remove_player", "booking.withdraw_ask", "booking.withdraw_offer",
+  "enrolment.leave", "enrolment.remove", "entry.withdraw", "program.cancel", "series.cancel", "membership.cancel", "membership.end", "membership.remove_person",
+]);
+
 /** Since when the club is read-only, or null. */
 export async function readOnlySince(db: Db | Trx): Promise<Date | null> {
   const c = await db.selectFrom("club").select("read_only_since").executeTakeFirst();
@@ -58,9 +67,14 @@ async function refusal(db: Db | Trx): Promise<KumiError | null> {
 
 /** The action contract's check: refuses an action that doesn't work while read-only. */
 export async function readOnlyGate(db: Db | Trx, action: string): Promise<void> {
-  if (READ_ONLY_ALLOWED.has(action)) return;
-  const e = await refusal(db);
+  if (READ_ONLY_ALLOWED.has(action) && !MOVED_REFUSED.has(action)) return;
+  const e = MOVED_REFUSED.has(action) ? await movedRefusal(db) : await refusal(db);
   if (e) throw e;
+}
+async function movedRefusal(db: Db | Trx): Promise<KumiError | null> {
+  const c = await db.selectFrom("club").select(["moved_at", "moved_to"]).executeTakeFirst();
+  if (!c?.moved_at) return null;
+  return c.moved_to ? new KumiError("error.moved_to", { url: c.moved_to }, 403) : new KumiError("error.moved", {}, 403);
 }
 
 /** For the code that opens a card form or charges a saved card outside an action: nothing new is charged. */
