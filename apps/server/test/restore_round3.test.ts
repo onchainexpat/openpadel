@@ -2,6 +2,7 @@
 // erasing again, an undone email that signs nobody in, who asked kept through restores, nothing carried into a newer copy.
 // Reviewer's throwaway recheck of f6fca31 (not part of the repo).
 import { test, before, after } from "node:test";
+import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { Kysely, PostgresDialect, sql } from "kysely";
@@ -173,7 +174,9 @@ test("E. an export newer than the server's database (the club came back): what i
   } finally { await db.destroy(); }
 });
 
-test("F. release.sh / hosted: the factor strings through real psql COPY", async () => {
+// Through real psql, as release.sh runs it: only where the dev container is (not on CI's runner).
+const dockerPg = spawnSync("docker", ["inspect", "kumi-dev-pg"], { stdio: "ignore" }).status === 0;
+test("F. release.sh / hosted: the factor strings through real psql COPY", { skip: !dockerPg && "no kumi-dev-pg container here" }, async () => {
   for (const k of ["people", "factors"] as const) {
     const rows = psql(LIVE, ["-c", `COPY (${GONE[k].read}) TO STDOUT`]);
     const name = /^CREATE TEMP TABLE (\w+)/.exec(GONE[k].table)![1]!;
