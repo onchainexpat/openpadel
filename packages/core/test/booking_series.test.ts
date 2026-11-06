@@ -89,7 +89,9 @@ test("a member's own weekly court: off unless the club allows it, at most its we
   const p = await plan(db, "booking.repeat_request", { ...input, weeks: 4 }, as("Ann"), { now: NOW });
   assert.match(p.plan.summary.en, /^Book Court 1 every Wednesday at 10:00 AM, 90 minutes: 4 weeks, Wed, Dec 2 to Wed, Dec 23 \(\$60.00 a week, \$240.00 in all\)\. You pay \$60.00 for the first week now/);
   assert.match(p.plan.summary.en, /booked once it's within 14 days of the day, and goes on that card 24 hours before it starts/);
-  const r = (await run(db, "booking.repeat_request", { ...input, weeks: 4 }, as("Ann"), { now: NOW })).result as { series_id: string; booking_id: string; payment_id: string };
+  const r = (await run(db, "booking.repeat_request", { ...input, weeks: 4 }, as("Ann"), { now: NOW })).result as { series_id: string; booking_id: string; payment_id: string; later: { count: number; cents: number; hours: number } };
+  // The card form for the first week says what the later weeks put on that card (the third phone check).
+  assert.deepEqual(r.later, { count: 3, cents: 18000, hours: 24 });
   // Only the first week holds a court; the others wait for the window.
   assert.equal((await db.selectFrom("booking").select("id").where("series_id", "=", r.series_id).execute()).length, 1);
   assert.equal(await pay(r.payment_id, "Ann"), "succeeded");

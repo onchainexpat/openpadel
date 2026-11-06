@@ -274,3 +274,18 @@ test("a walkover sends the other pair through", async () => {
   const after = (await fixtures(t.programId))[0]!;
   assert.equal(after.status, "walkover"); assert.equal(after.winner, ids[0]);
 });
+
+test("the staff draw form and the members' partner form preview with exactly what they send (the third phone check)", async () => {
+  // What Competition.tsx sends with its defaults (groups then knockout, one set, groups of 4), and a league's.
+  const t = await competition("tournament", 4);
+  await pairAll(t);
+  const d = await plan(db, "competition.draw", { program_id: t.programId, format: "groups_knockout", match_format: "one_set", group_size: 4 }, owner);
+  assert.match(d.plan.summary.en, /^The draw for /);
+  const l = await competition("league", 4);
+  await pairAll(l);
+  assert.match((await plan(db, "competition.draw", { program_id: l.programId, format: "league", match_format: "one_set", legs: 1 }, owner)).plan.summary.en, /^The draw for /);
+  // What Competitions.tsx sends: asked twice (Back, then the same button again), it previews both times.
+  const e = await competition("tournament", 1), [a, b] = e.people[0]!;
+  await db.insertInto("friend").values([{ id: uuidv7(), person_id: a!, friend_id: b! }, { id: uuidv7(), person_id: b!, friend_id: a! }]).execute();
+  for (let k = 0; k < 2; k++) assert.match((await plan(db, "entry.invite", { program_id: e.programId, person_id: a!, partner_id: b! }, as(a!))).plan.summary.en, /accepts from their app/);
+});

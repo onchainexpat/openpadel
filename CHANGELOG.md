@@ -153,6 +153,13 @@ server starts.
   and the profile's "Your receipts" link is as easy to tap as a button.
 
 ### Fixed
+- **A form's refused details are said in plain words.** Staff saw the checker's own text when something was missing
+  (a program's "Add a date" without a court said "✖ Too small: expected array to have >=1 items → at court_ids").
+  Every form now says what to do, in English and Spanish ("Pick at least one court.", "Choose a date and time.",
+  "Enter an amount.", "Fill in the name."), and "Add a date" asks for a court before its preview.
+- **A weekly court's card form says what the card is for.** Paying the first week from the Book page said only
+  "Pay $60.00 for Court booking"; it now says, as My places does, how many later weeks go on the same card, what
+  they come to, and when each is charged.
 - **One job that fails no longer stops the others.** The server's regular jobs (reminders, charges at their
   deadlines, renewals, reconciliation with the card provider, receipts and the rest) ran one after another inside
   one guard, so one that kept throwing stopped every job after it, every 30 seconds (a weekly court on an archived
@@ -177,8 +184,8 @@ server starts.
   other week or several days a week); changing its court or time for all the weeks after one is done by ending
   it from that week and booking a new one (one week alone moves like any booking); a series the desk makes is paid
   at the desk week by week (the saved-card way is for one a member makes in the app).
-- "No chat between players" is gone from the list too: chats in games are above. Juniors don't see chats yet, even
-  ones with a login of their own; no photos or files; a changed message keeps no earlier version. A coach reads their
+- "No chat between players" is gone from the list too: chats in games are above. Juniors don't see chats yet,
+  including those 13 to 17 with a login of their own; no photos or files; a changed message keeps no earlier version. A coach reads their
   own dates' chats in the members' app (the staff app's Chats is front desk and up). Staff hear about reports once
   an hour per chat, so someone reporting in many chats can still raise one alert for each of them in an hour.
 - Tournaments and leagues are for doubles pairs. No consolation draw yet, no self-scheduling (players ask, staff

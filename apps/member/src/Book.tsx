@@ -5,6 +5,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
+import { weeklyLaterLine, type WeeklyLater } from "./weekly_later.ts";
 
 type Options = { locations: { id: string; name: string; time_zone: string }[]; lengths: number[]; days_ahead: number; split_deadline_hours: number; weekly: boolean; weekly_max_weeks: number; same_day_cutoff_hours: number; free_cancel_hours: number; late_refund_percent: number };
 type Free = { open: { opens: string; closes: string } | null; courts: { id: string; name: string; kind: string; starts: string[] }[] };
@@ -16,7 +17,7 @@ export function Book() {
   const [q, setQ] = useState<Quote | null>(null), [pay, setPay] = useState<"whole" | "split">("whole"), [players, setPlayers] = useState(4);
   // The same court every week (when the club allows it): the first week paid now, the card saved for the rest.
   const [weekly, setWeekly] = useState(false), [weeks, setWeeks] = useState(4);
-  const [provider, setProvider] = useState("test"), [paying, setPaying] = useState<{ id: string; cents: number } | null>(null), [done, setDone] = useState(false);
+  const [provider, setProvider] = useState("test"), [paying, setPaying] = useState<{ id: string; cents: number; later?: WeeklyLater | null } | null>(null), [done, setDone] = useState(false);
   // An open match: the level band (around my own level to start with), and who else may join.
   const [open, setOpen] = useState(false), [myLevel, setMyLevel] = useState<number | null>(null), [matchId, setMatchId] = useState<string | null>(null);
   const [om, setOm] = useState({ min: "3.00", max: "4.00", ask: true, rated: true, listed: true });
@@ -25,8 +26,8 @@ export function Book() {
   const cartTotal = cart.reduce((n, x) => n + x.cents, 0);
   const place = o?.locations.find((l) => l.id === loc), tz = place?.time_zone ?? "UTC";
   const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: tz, ...opts }).format(new Date(iso));
-  const { preview, sheet } = usePreview((r?: { payment_id?: string; booking_id?: string; total_cents?: number }) => {
-    if (r?.payment_id) setPaying({ id: r.payment_id, cents: r.total_cents ?? (cart.length ? cartTotal : pay === "whole" ? q!.total_cents : mine) });
+  const { preview, sheet } = usePreview((r?: { payment_id?: string; booking_id?: string; total_cents?: number; later?: WeeklyLater }) => {
+    if (r?.payment_id) setPaying({ id: r.payment_id, cents: r.total_cents ?? (cart.length ? cartTotal : pay === "whole" ? q!.total_cents : mine), later: r.later ?? null });
     setMatchId(open && r?.booking_id ? r.booking_id : null);
   });
 
@@ -72,7 +73,7 @@ export function Book() {
     <main>
       <h1>{t("ui.book_title")}</h1>
       {sheet}
-      {paying && <PaySheet paymentId={paying.id} amountCents={paying.cents} name={t("ui.court_booking")} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); setDone(true); }} />}
+      {paying && <PaySheet paymentId={paying.id} amountCents={paying.cents} name={t("ui.court_booking")} detail={weeklyLaterLine(paying.later)} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); setDone(true); }} />}
       {paying && provider === "test" && import.meta.env.DEV && <p><button class="primary" onClick={async () => { await api(`/dev/payments/${paying.id}/settle`, {}); setPaying(null); setDone(true); }}>{t("ui.pay_test")}</button></p>}
       <section class="card card-form">
         {o.locations.length > 1 && <label>{t("ui.location")}<select value={loc} onChange={(e) => { setLoc(e.currentTarget.value); setDay(""); }}>{o.locations.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>}

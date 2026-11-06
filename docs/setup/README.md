@@ -649,8 +649,8 @@ again. An export restored on another server doesn't bring the date with it.
 
 Players in the same game message each other in the app: a court booking with named players (an open match is
 one) and each program date (a clinic, a social night) has a chat for the people in it, and its coach. There are no
-messages between members outside a game they share, and juniors don't see chats in this version (a parent who
-plays in the same game reads it as themselves). It's on unless you untick "Players can message in their games"
+messages between members outside a game they share, and juniors don't see chats in this version, including those
+13 to 17 with a login of their own (a parent who plays in the same game reads it as themselves). It's on unless you untick "Players can message in their games"
 (Settings, The club).
 
 - Members report a message to the club; front desk and up hear once, and see every chat under Chats: hide a

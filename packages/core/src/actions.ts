@@ -6,6 +6,7 @@ import { sql } from "kysely";
 import { both, money, type Key, type Lang, type Params, type Text } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { plainIssues } from "./plain_issues.ts";
 import { checkAssistantSpend } from "./assistant_spend.ts";
 import { uuidv7 } from "./ids.ts";
 import { CHAT_ACTIONS, CREDIT_MONEY, decide, DESK_MONEY, type Decision } from "./permissions.ts";
@@ -198,7 +199,7 @@ export async function readRow(db: Db | Trx, entity: Entity, id: string, thing: K
 
 function validate<S extends z.ZodMiniObject>(def: ActionDef<S>, raw: unknown): z.infer<S> {
   const parsed = z.safeParse(def.input, raw);
-  if (!parsed.success) throw new KumiError("error.invalid_input", { details: z.prettifyError(parsed.error) }, 400);
+  if (!parsed.success) throw new KumiError("error.invalid_input", { details: plainIssues(parsed.error.issues, raw) }, 400);
   return parsed.data;
 }
 

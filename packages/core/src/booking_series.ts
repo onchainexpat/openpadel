@@ -204,7 +204,10 @@ export const bookingRepeatRequest = defineAction({
       await ctx.insert("booking_series_week", { ...row, ...(w === first ? { booking_id: bookingId } : w.clash ? { missed: w.clash } : {}) });
     }
     await ctx.emit("booking.requested", { booking_id: bookingId });
-    return { series_id: id, booking_id: bookingId, code, payment_id: payment, total_cents: first.price_cents };
+    // What the card form says beside the first week: the later weeks going on the same card, and when each is charged.
+    const rest = d.weeks.filter((w) => w !== first && !w.clash), pol = await ctx.trx.selectFrom("booking_policy").select("split_deadline_hours").where("id", "=", d.policy_id).executeTakeFirstOrThrow();
+    const later = { count: rest.length, cents: rest.reduce((n, w) => n + w.price_cents, 0), hours: pol.split_deadline_hours };
+    return { series_id: id, booking_id: bookingId, code, payment_id: payment, total_cents: first.price_cents, later };
   },
 });
 

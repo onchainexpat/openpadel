@@ -5,7 +5,7 @@
 import { Hono, type Context } from "hono";
 import * as z from "zod/mini";
 import { t, type Lang } from "@kumi/i18n";
-import { audience, broadcastCounts, customAreas, describeFilters, filtersInput, KumiError, supportRoleKeys, segmentMembers, unsubscribe, unsubscribeTarget, type Db, type Filters } from "@kumi/core";
+import { audience, broadcastCounts, customAreas, describeFilters, filtersInput, KumiError, plainIssues, supportRoleKeys, segmentMembers, unsubscribe, unsubscribeTarget, type Db, type Filters } from "@kumi/core";
 import { readArea } from "./reads.ts";
 
 type Me = { id: string } | null;
@@ -59,8 +59,9 @@ export function broadcastRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: C
   const CountBody = z.object({ filters: filtersInput, purpose: z.optional(z.enum(["club_news", "service"])) });
   app.post("/staff/segments/count", async (c) => {
     await desk(c);
-    const b = z.safeParse(CountBody, await c.req.json().catch(() => ({})));
-    if (!b.success) throw new KumiError("error.invalid_input", { details: z.prettifyError(b.error) }, 400);
+    const raw = await c.req.json().catch(() => ({}));
+    const b = z.safeParse(CountBody, raw);
+    if (!b.success) throw new KumiError("error.invalid_input", { details: plainIssues(b.error.issues, raw) }, 400);
     const a = await audience(db, b.data.filters, b.data.purpose ?? "club_news", new Date());
     // For a message, the names are of people it reaches (a club news "for example" never names someone left out);
     // for a group on its own, of people in it.

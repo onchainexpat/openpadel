@@ -33,7 +33,7 @@ export async function confirmPaid(paymentId: string, tries = 8, check = `/my/pay
 /** `cardFor`: save the card for that membership instead of paying (nothing is charged). `familyCard`: save the
  *  family card a parent's kids pay with. A kid's own payment never shows a card form: it goes on the family
  *  card, or to a parent to pay. */
-export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, amountCents: firstAmount, name, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; amountCents: number; name: string; onClose: () => void; onPaid: () => void }) {
+export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, amountCents: firstAmount, name, detail, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; amountCents: number; name: string; detail?: string | null; onClose: () => void; onPaid: () => void }) {
   const box = useRef<HTMLDivElement>(null), stripe = useRef<{ stripe: any; elements: any } | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "paying" | "checking">("loading"), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
   // The phone's back button closes the card form, as its Cancel does.
@@ -104,6 +104,7 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, amountC
     <div class="dock">
       <div class="card sheet" role="dialog" aria-modal="true" aria-label={title}>
         <p><strong>{title}</strong></p>
+        {detail && <p class="meta">{detail}</p>}
         {cardFor && <p class="meta">{t("ui.save_card_hint", { amount })}</p>}
         {familyCard && <p class="meta">{t("ui.family_card_hint")}</p>}
         {step === "credit" && credit !== null && credit > 0 && <div class="credit-step">

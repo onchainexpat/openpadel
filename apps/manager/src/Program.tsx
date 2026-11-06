@@ -142,7 +142,8 @@ export function Program({ id }: { id: string }) {
           <fieldset><legend>{t("ui.courts")}</legend>{courts.map((c) => <label class="check"><input type="checkbox" checked={date.courts.includes(c.id)} onChange={(e) => setDate({ ...date, courts: e.currentTarget.checked ? [...date.courts, c.id] : date.courts.filter((x) => x !== c.id) })} /> {c.name}</label>)}</fieldset>
           {d.coaches.length > 0 && <label>{t("ui.coach")}{coachPick(date.coach, (v) => setDate({ ...date, coach: v }))}</label>}
           <label>{t("ui.weeks")}<input type="number" min="1" max="52" value={date.weeks} onInput={(e) => setDate({ ...date, weeks: Math.max(1, Math.min(52, Number(e.currentTarget.value) || 1)) })} /></label>
-          <button class="primary">{t("ui.preview")}</button> <button type="button" onClick={() => setAdding(false)}>{t("ui.cancel")}</button>
+          {!date.courts.length && <p class="meta">{t("issue.court")}</p>}
+          <button class="primary" disabled={!date.courts.length}>{t("ui.preview")}</button> <button type="button" onClick={() => setAdding(false)}>{t("ui.cancel")}</button>
         </form>}
       </section>
 
