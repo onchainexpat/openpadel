@@ -69,9 +69,11 @@ export async function leftOf(db: Db | Trx, paymentId: string): Promise<number> {
  *  given back, and where. */
 /** Whose club credit a refund given as credit goes to: the person who paid, and for a junior's payment the parent who
  *  paid it (the family card's saver, else a parent who manages them), never the junior, who can't spend it. */
-export async function creditee(db: Db | Trx, pay: { person_id: string; family_card_id?: string | null }): Promise<string> {
+export async function creditee(db: Db | Trx, pay: { person_id: string; family_card_id?: string | null; paid_by?: string | null }): Promise<string> {
   const who = await db.selectFrom("person").select("junior").where("id", "=", pay.person_id).executeTakeFirst();
   if (!who?.junior) return pay.person_id;
+  // Whoever really paid it (a parent paying in the app: payment.open records them), when known.
+  if (pay.paid_by && pay.paid_by !== pay.person_id) return pay.paid_by;
   if (pay.family_card_id) {
     const c = await db.selectFrom("family_card").select("saved_by").where("id", "=", pay.family_card_id).executeTakeFirst();
     if (c?.saved_by) return c.saved_by;
@@ -82,11 +84,12 @@ export async function creditee(db: Db | Trx, pay: { person_id: string; family_ca
 
 export async function refundTo(ctx: ApplyCtx, paymentId: string, cents: number, o: { enrolmentId?: string | null; status?: "pending" | "waiting_for_sub"; credit?: boolean } = {}) {
   if (cents <= 0) return null;
-  const pay = await ctx.trx.selectFrom("payment").select(["provider", "method", "person_id", "family_card_id", "booking_player_id", "membership_id", "membership_plan_id", "gift_card_id", "pass_id", "id", "amount_cents"]).where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
+  const pay = await ctx.trx.selectFrom("payment").select(["provider", "method", "person_id", "family_card_id", "paid_by", "booking_player_id", "membership_id", "membership_plan_id", "gift_card_id", "pass_id", "id", "amount_cents"]).where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
   cents = Math.min(cents, await leftOf(ctx.trx, paymentId));
   if (cents <= 0) return null;
   // Covered by a pass: refunded in full, the use is the pass's again; in part, it's spent (passes.ts). No money moves.
-  if (pay.method === "pass") return (await import("./passes.ts")).passUseBack(ctx, pay, cents, o.enrolmentId ?? null);
+  // Waiting for a sub, the use waits too: it's the pass's again only once they pay (refundDue).
+  if (pay.method === "pass") return (await import("./passes.ts")).passUseBack(ctx, pay, cents, o.enrolmentId ?? null, o.status ?? "pending");
   // Made free by a promo code: nothing was paid, so nothing goes back.
   if (pay.method === "promo") return null;
   // Paid from club credit, it goes back to club credit; and staff may give any refund back as club credit
@@ -121,7 +124,8 @@ export async function callOff(ctx: ApplyCtx, paymentId: string) {
 /** A refund that was waiting for a sub to pay is due now: a card's goes to the provider, the desk's waits there. */
 export async function refundDue(ctx: ApplyCtx, refundId: string) {
   const r = await ctx.trx.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
-    .select(["refund.destination", "refund.amount_cents", "payment.person_id", "payment.family_card_id", "payment.booking_player_id", "payment.membership_id", "payment.membership_plan_id"]).where("refund.id", "=", refundId).executeTakeFirstOrThrow();
+    .select(["refund.destination", "refund.amount_cents", "refund.payment_id", "payment.person_id", "payment.family_card_id", "payment.paid_by", "payment.booking_player_id", "payment.membership_id", "payment.membership_plan_id"]).where("refund.id", "=", refundId).executeTakeFirstOrThrow();
+  if (r.destination === "pass") { await (await import("./passes.ts")).passUseDue(ctx, refundId); return; }
   if (r.destination === "credit") {
     await ctx.update("refund", refundId, { status: "sent" });
     await post(ctx.trx, ctx.runId, "credit_grant", "back to club credit", [
@@ -137,13 +141,13 @@ export async function refundDue(ctx: ApplyCtx, refundId: string) {
  *  never more back from one than is left of it. What went where. */
 export async function refundAcross(ctx: ApplyCtx, pays: { id: string; left: number; desk: boolean }[], cents: number, o: { enrolmentId?: string | null; status?: "pending" | "waiting_for_sub"; credit?: boolean } = {}) {
   let rest = cents;
-  const out = { card: 0, desk: 0, credit: 0 };
+  const out = { card: 0, desk: 0, credit: 0, pass: 0 };
   for (const p of [...pays.filter((x) => !x.desk), ...pays.filter((x) => x.desk)]) {
     const c = Math.min(rest, p.left);
     if (c <= 0) continue;
     const r = await refundTo(ctx, p.id, c, o);
     if (!r) continue;
-    out[r.credit ? "credit" : r.desk ? "desk" : "card"] += r.cents;
+    out["pass" in r && r.pass ? "pass" : r.credit ? "credit" : r.desk ? "desk" : "card"] += r.cents;
     rest -= r.cents;
   }
   return out;

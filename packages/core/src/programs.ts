@@ -518,7 +518,10 @@ async function goingPlan(ctx: PlanCtx, enrolmentId: string, reason: string, refu
   const freesPlace = e.status === "booked" || Boolean(await openOffer(ctx.db, e.id, ctx.now));   // a booked place, or one offered to them
   // An included session comes back when leaving in time (as money would), or when staff give a refund.
   const back = e.price_basis !== "included" ? null : refundIn ? refundIn.outcome !== "none" : ruleGivesBack(p as any, reason, await firstStart(ctx.db, e.program_id, e.session_id), ctx.now);
-  const refundText = back === null ? refund.text : both(back ? "refund.included_back" : "refund.included_used");
+  // Paid with a pass: no money comes back, the use does (all of it back) or is spent (part or nothing), as passes.ts does.
+  const byPass = refund.outcome !== "none" && paid > 0 && !(await ctx.db.selectFrom("payment").select("id").where("enrolment_id", "=", e.id).where("status", "=", "succeeded").where("method", "!=", "pass").executeTakeFirst());
+  const refundText = back !== null ? both(back ? "refund.included_back" : "refund.included_used")
+    : byPass ? both(refund.cents >= paid ? "refund.pass_back" : "refund.pass_spent") : refund.text;
   return { e, p, person, refund: { ...refund, text: refundText }, back: Boolean(back), read, offer: await offerText(ctx.db, e.program_id, freesPlace, ctx.now, e.session_id) };
 }
 
@@ -589,7 +592,7 @@ export const enrolmentLeave = defineAction({
     await ctx.update("enrolment", e.id, { ...leaving(refund, "left", "late_cancel", p.refund_rule_version), left_at: ctx.now, included_back: back });
     await dropUnpaid(ctx, e.id);
     const money = await startRefund(ctx, e.id, e.person_id, refund);
-    await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: refund.outcome, refund_cents: refund.cents, refund_desk: money.desk, refund_credit: money.credit });
+    await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: refund.outcome, refund_cents: refund.cents, refund_desk: money.desk, refund_credit: money.credit, refund_pass: "pass" in money ? money.pass : 0 });
     if (e.status === "booked" || await declineOffer(ctx, e.id)) await placeFreed(ctx, e.program_id, [], e.session_id);
     return { refund_outcome: refund.outcome, refund_cents: refund.cents };
   },
@@ -606,7 +609,7 @@ export async function leaveForErase(ctx: ApplyContext, enrolmentId: string): Pro
   await ctx.update("enrolment", e.id, { ...leaving(g.refund, "left", "late_cancel", p.refund_rule_version), left_at: ctx.now, included_back: g.back });
   await dropUnpaid(ctx, e.id);
   const money = await startRefund(ctx, e.id, e.person_id, g.refund);
-  await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: g.refund.outcome, refund_cents: g.refund.cents, refund_desk: money.desk, refund_credit: money.credit });
+  await ctx.emit("enrolment.left", { enrolment_id: e.id, refund_outcome: g.refund.outcome, refund_cents: g.refund.cents, refund_desk: money.desk, refund_credit: money.credit, refund_pass: "pass" in money ? money.pass : 0 });
   if (e.status === "booked" || await declineOffer(ctx, e.id)) await placeFreed(ctx, e.program_id, [], e.session_id);
   return { cents: g.refund.cents, desk: money.desk };
 }
@@ -629,7 +632,7 @@ export const enrolmentRemove = defineAction({
     await ctx.update("enrolment", e.id, { ...leaving(refund, i.reason === "no_show" ? "no_show" : "removed", i.reason, p.refund_rule_version, i.refund?.note), left_at: ctx.now, included_back: back });
     await dropUnpaid(ctx, e.id);
     const money = await startRefund(ctx, e.id, e.person_id, refund);
-    await ctx.emit("enrolment.removed", { enrolment_id: e.id, reason: i.reason, refund_outcome: refund.outcome, refund_cents: refund.cents, refund_desk: money.desk, refund_credit: money.credit });
+    await ctx.emit("enrolment.removed", { enrolment_id: e.id, reason: i.reason, refund_outcome: refund.outcome, refund_cents: refund.cents, refund_desk: money.desk, refund_credit: money.credit, refund_pass: "pass" in money ? money.pass : 0 });
     const offer = e.status === "booked" || await declineOffer(ctx, e.id) ? await placeFreed(ctx, e.program_id, [], e.session_id) : null;
     return { refund_outcome: refund.outcome, refund_cents: refund.cents, offer_id: offer };
   },
@@ -782,11 +785,20 @@ export type ApplyContext = Parameters<NonNullable<Parameters<typeof defineAction
 
 /** What was actually paid for a place: payments that went through, less refunds on their way or sent. */
 export async function paidFor(db: Db | Trx, enrolmentId: string): Promise<number> {
-  const paid = await db.selectFrom("payment").select((eb) => eb.fn.sum<string>("amount_cents").as("c")).where("enrolment_id", "=", enrolmentId).where("status", "=", "succeeded").executeTakeFirst();
+  // Money and pass uses: a place a promo code made free took nothing (promo_codes.ts), so nothing of it goes back.
+  const paid = await db.selectFrom("payment").select((eb) => eb.fn.sum<string>("amount_cents").as("c")).where("enrolment_id", "=", enrolmentId).where("status", "=", "succeeded").where("method", "!=", "promo").executeTakeFirst();
   const back = await db.selectFrom("refund").select((eb) => eb.fn.sum<string>("amount_cents").as("c")).where("enrolment_id", "=", enrolmentId).where("status", "in", ["pending", "sent", "waiting_for_sub"]).executeTakeFirst();
   return Number(paid?.c ?? 0) - Number(back?.c ?? 0);
 }
 
+/** How much of a place's price is covered: what was paid (paidFor) and what promo codes took off, on payments that
+ *  went through (a free one, all of it) or are still asked for (promised). What's owed is the price less this, so the
+ *  desk can't take a discount again as money. */
+export async function coveredFor(db: Db | Trx, enrolmentId: string): Promise<number> {
+  const r = await db.selectFrom("payment").select(sql<string>`coalesce(sum(CASE WHEN method = 'promo' THEN amount_cents ELSE discount_cents END), 0)`.as("c"))
+    .where("enrolment_id", "=", enrolmentId).where("status", "in", ["succeeded", "pending"]).where((w) => w.or([w("method", "=", "promo"), w("discount_cents", ">", 0)])).executeTakeFirst();
+  return await paidFor(db, enrolmentId) + Number(r?.c ?? 0);
+}
 /** What was paid for a place in money, at the desk or by card: club credit alone doesn't hold a place past its time
  *  (a member who ticks "Use my credit" for part and leaves the card form would keep it for ever). */
 export async function paidInMoney(db: Db | Trx, enrolmentId: string): Promise<number> {
@@ -812,11 +824,25 @@ export async function askAgain(ctx: ApplyContext, paymentId: string, cents: numb
   const old = await ctx.trx.selectFrom("payment").selectAll().where("id", "=", paymentId).forUpdate().executeTakeFirstOrThrow();
   if (old.status !== "pending" || old.provider_ref) throw new KumiError("error.changed");
   await callOff(ctx, old.id);
-  if (cents <= 0) return null;
+  if (cents <= 0) {
+    // All paid another way (at the desk, from credit): a promo code's use stays counted, on the newest payment that went through.
+    if (old.promo_code_id) {
+      const paid = await ctx.trx.selectFrom("payment").select("id").where((w) => old.enrolment_id ? w("enrolment_id", "=", old.enrolment_id) : w("booking_player_id", "=", old.booking_player_id))
+        .where("status", "=", "succeeded").orderBy("created_at", "desc").executeTakeFirst();
+      if (paid) {
+        await ctx.update("payment", paid.id, { promo_code_id: old.promo_code_id, discount_cents: old.discount_cents });
+        await ctx.trx.updateTable("promo_use").set({ payment_id: paid.id }).where("payment_id", "=", old.id).execute();
+      }
+    }
+    return null;
+  }
   const id = uuidv7();
   await ctx.insert("payment", { id, person_id: old.person_id, amount_cents: cents, method: old.method, provider: paymentProvider().name, provider_ref: null, status: "pending",
     enrolment_id: old.enrolment_id, booking_player_id: old.booking_player_id, membership_id: old.membership_id, membership_plan_id: old.membership_plan_id, save_card: old.save_card,
-    for_period_no: old.for_period_no, family_declines: old.family_declines, parent_to_pay_at: old.parent_to_pay_at });
+    for_period_no: old.for_period_no, family_declines: old.family_declines, parent_to_pay_at: old.parent_to_pay_at,
+    // A promo code applied to it stays applied, and its use with it (promo_codes.ts): asked again, it still counts.
+    ...(old.promo_code_id ? { promo_code_id: old.promo_code_id, discount_cents: old.discount_cents } : {}) });
+  if (old.promo_code_id) await ctx.trx.updateTable("promo_use").set({ payment_id: id }).where("payment_id", "=", old.id).execute();
   return id;
 }
 
@@ -832,7 +858,7 @@ export const enrolmentRecordPayment = defineAction({
     const person = await personName(ctx.db, e.person_id);
     if (e.status !== "booked") throw new KumiError(e.status === "waitlisted" ? "error.place_waiting_desk" : "error.not_on_roster", { person });
     const { row: p } = await readRow(ctx.db, "program", e.program_id, "thing.program");
-    const owed = e.price_cents - await paidFor(ctx.db, e.id);
+    const owed = e.price_cents - await coveredFor(ctx.db, e.id);
     placeOwed(owed, i.cents);
     const rest = owed - i.cents;
     return { title: both("action.enrolment.record_payment"), reads: [read], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [e.person_id]), moneyCents: i.cents, undo: { kind: "compensating" },
@@ -842,7 +868,7 @@ export const enrolmentRecordPayment = defineAction({
   async apply(ctx, i) {
     const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).forUpdate().executeTakeFirstOrThrow();
     if (e.status !== "booked") throw new KumiError("error.changed");
-    const owed = e.price_cents - await paidFor(ctx.trx, e.id);
+    const owed = e.price_cents - await coveredFor(ctx.trx, e.id);
     placeOwed(owed, i.cents);   // again under the lock: two desks at once can't both fit
     const payment = await recordAtDesk(ctx, { personId: e.person_id, cents: i.cents, method: i.method, note: i.note, revenue: "programs", memo: "program place", link: { enrolment_id: e.id } });
     if (e.paid_by === "none") await ctx.update("enrolment", e.id, { paid_by: "desk" });
@@ -871,7 +897,7 @@ async function overPaid(ctx: ApplyContext, enrolmentId: string, paymentId: strin
   const e = await ctx.trx.selectFrom("enrolment").select(["status", "price_cents"]).where("id", "=", enrolmentId).executeTakeFirstOrThrow();
   if (e.status === "cancelled") return;
   const pay = await ctx.trx.selectFrom("payment").select("amount_cents").where("id", "=", paymentId).executeTakeFirstOrThrow();
-  const over = (await paidFor(ctx.trx, enrolmentId)) - e.price_cents;
+  const over = (await coveredFor(ctx.trx, enrolmentId)) - e.price_cents;
   if (over > 0) await refundTo(ctx, paymentId, Math.min(over, pay.amount_cents), { enrolmentId });
   // Paid in full (a card form opened before the place was asked again for less, say): nothing more is asked.
   if (over >= 0) await dropUnpaid(ctx, enrolmentId);
@@ -882,6 +908,7 @@ export const paymentOpen = defineAction({
   name: "payment.open", version: 1, system: true, internal: true,
   input: z.object({ payment_id: z.uuid(), provider: z.enum(["test", "stripe"]), provider_ref: z.string().check(z.minLength(1)), provider_account: z.optional(z.string()),
     family_card_id: z.optional(z.uuid()),   // a kid's payment, charged to the family card
+    paid_by: z.optional(z.uuid()),   // who opened the card form (a parent paying their junior's): a refund as credit goes to them
     amount_cents: z.optional(z.number().check(z.int())) }),   // what the provider was asked for: it has to be what these payments ask
   async plan(ctx, i) {
     const { row: pay } = await readRow(ctx.db, "payment", i.payment_id, "thing.payment");
@@ -904,7 +931,7 @@ export const paymentOpen = defineAction({
       const sum = (await ctx.trx.selectFrom("payment").select("amount_cents").where("id", "in", rows.map((r) => r.id)).execute()).reduce((n, r) => n + r.amount_cents, 0);
       if (sum !== i.amount_cents) throw new KumiError("error.changed");
     }
-    for (const r of rows) await ctx.update("payment", r.id, { provider: i.provider, provider_ref: i.provider_ref, provider_account: i.provider_account ?? null, ...(i.family_card_id ? { family_card_id: i.family_card_id } : {}) });
+    for (const r of rows) await ctx.update("payment", r.id, { provider: i.provider, provider_ref: i.provider_ref, provider_account: i.provider_account ?? null, ...(i.family_card_id ? { family_card_id: i.family_card_id } : {}), ...(i.paid_by ? { paid_by: i.paid_by } : {}) });
     return null;
   },
 });
@@ -938,7 +965,7 @@ export async function openPayment(db: Db, paymentId: string, personId: string): 
     const cents = group.reduce((n, g) => n + g.amount_cents, 0);
     const it = await pv.createIntent({ amountCents: cents, currency, description,
       idempotencyKey: group[0]!.enrolment_id ? `${pay.group_id}:${group.length}` : pay.group_id, metadata: { kumi_payment_id: group[0]!.id } });
-    await opened(db, pay.id, it, cents);
+    await opened(db, pay.id, it, cents, personId);
     return { clientSecret: it.clientSecret, provider: pv.name, account: it.account };
   }
   // "Pay my part" and memberships: the card is saved for a later charge (the deadline, the renewal), under a
@@ -950,14 +977,14 @@ export async function openPayment(db: Db, paymentId: string, personId: string): 
   }
   const it = await pv.createIntent({ amountCents: pay.amount_cents, currency, description: pay.what ?? (pay.code ? `Court booking ${pay.code}` : pay.plan ? `${pay.plan} membership` : "Kumi"), idempotencyKey: pay.id,
     metadata: { kumi_payment_id: pay.id }, customer, saveCard: pay.save_card });
-  await opened(db, pay.id, it, pay.amount_cents);
+  await opened(db, pay.id, it, pay.amount_cents, personId);
   return { clientSecret: it.clientSecret, provider: pv.name, account: it.account };
 }
 /** The intent made for a payment is its card payment now, if the payment still asks for what the intent does. If
  *  it changed meanwhile (paid at the desk, called off), the intent is called off at the provider and never shown. */
-async function opened(db: Db, paymentId: string, it: { ref: string; account?: string | null }, cents: number) {
+async function opened(db: Db, paymentId: string, it: { ref: string; account?: string | null }, cents: number, paidBy?: string) {
   try {
-    await runAsSystem(db, "payment.open", { payment_id: paymentId, provider: paymentProvider().name, provider_ref: it.ref, ...(it.account ? { provider_account: it.account } : {}), amount_cents: cents }, "payments");
+    await runAsSystem(db, "payment.open", { payment_id: paymentId, provider: paymentProvider().name, provider_ref: it.ref, ...(it.account ? { provider_account: it.account } : {}), amount_cents: cents, ...(paidBy ? { paid_by: paidBy } : {}) }, "payments");
   } catch (e) {
     if (!(e instanceof KumiError && e.code === "error.changed")) throw e;
     await paymentProvider().cancelIntent(it.ref, it.account ?? null).catch(() => undefined);   // nobody has its form: it can't be paid
@@ -1123,24 +1150,17 @@ export async function lapseUnpaidPlaces(db: Db, now = new Date(), limit = 50) {
 
 /** Start a refund: club credit at once; a card refund through the outbox, after this change commits; and of money
  *  paid at the desk, waiting there to be handed back (desk_pay.ts), the card's first. What went back where. */
-export async function startRefund(ctx: ApplyContext, enrolmentId: string, personId: string, refund: Refund, status: "pending" | "waiting_for_sub" = "pending"): Promise<{ card: number; desk: number; credit: number }> {
-  const none = { card: 0, desk: 0, credit: 0 };
+export async function startRefund(ctx: ApplyContext, enrolmentId: string, _personId: string, refund: Refund, status: "pending" | "waiting_for_sub" = "pending"): Promise<{ card: number; desk: number; credit: number; pass: number }> {
+  const none = { card: 0, desk: 0, credit: 0, pass: 0 };
   if (refund.cents <= 0 || refund.outcome === "none") return none;
   const pays = await ctx.trx.selectFrom("payment").select(["id", "amount_cents", "provider"])
     .select((eb) => eb.selectFrom("refund").select(sql<string>`coalesce(sum(refund.amount_cents), 0)`.as("c")).whereRef("refund.payment_id", "=", "payment.id").where("refund.status", "!=", "failed").as("back"))
     .where("enrolment_id", "=", enrolmentId).where("status", "=", "succeeded").orderBy("created_at", "desc").execute();
-  const pay = pays[0];
-  if (!pay) return none;
-  const id = uuidv7();
-  if (refund.outcome === "credit") {
-    await ctx.insert("refund", { id, payment_id: pay.id, enrolment_id: enrolmentId, amount_cents: refund.cents, destination: "credit", status: "sent" });
-    await post(ctx.trx, ctx.runId, "credit_grant", "refund as club credit", [
-      { account: await account(ctx.trx, "revenue", { revenueType: "programs" }), cents: refund.cents },
-      { account: await account(ctx.trx, "member_credit", { personId }), cents: -refund.cents },
-    ]);
-    return none;
-  }
-  return refundAcross(ctx, pays.map((p) => ({ id: p.id, left: p.amount_cents - Number(p.back ?? 0), desk: p.provider === "none" })), refund.cents, { enrolmentId, status });
+  if (!pays.length) return none;
+  // As club credit too, payment by payment through refundTo: a pass's use goes back to the pass (or is spent), a free
+  // promo place gives nothing, and never more than is left of a payment, to whoever paid it (creditee).
+  return refundAcross(ctx, pays.map((p) => ({ id: p.id, left: p.amount_cents - Number(p.back ?? 0), desk: p.provider === "none" })), refund.cents,
+    { enrolmentId, status, ...(refund.outcome === "credit" ? { credit: true } : {}) });
 }
 
 

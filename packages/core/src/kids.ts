@@ -298,7 +298,7 @@ export async function payWithFamilyCard(db: Db, paymentId: string, now = new Dat
       idempotencyKey: `family:${pay.group_id ?? pay.id}:${card!.id}:${pay.family_declines}`, account: card!.provider_account });
     if (c.status === "succeeded") {
       try {
-        await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: c.ref, family_card_id: card!.id, amount_cents: cents, ...(card!.provider_account ? { provider_account: card!.provider_account } : {}) }, "family_card", { now });
+        await runAsSystem(db, "payment.open", { payment_id: pay.id, provider: pv.name, provider_ref: c.ref, family_card_id: card!.id, amount_cents: cents, ...(card!.saved_by ? { paid_by: card!.saved_by } : {}), ...(card!.provider_account ? { provider_account: card!.provider_account } : {}) }, "family_card", { now });
       } catch (e) {
         // What it was for changed while the card was charged (paid at the desk, called off): the charge can't be
         // recorded against it, so all of it goes back to the card at once, and nothing is paid here.

@@ -141,9 +141,12 @@ server starts.
   or a message, sealed in the database with the club's key, found by a fingerprint under that key, and never kept
   in the change log or with a preview. Redeeming a code (in the app, for yourself only: never through an assistant
   or support access) puts its value into the redeemer's club credit, once, even if two people try at once; wrong
-  codes are limited to 10 an hour, counted against the person redeeming, one at a time. Someone with an active card
-  they bought can't delete their account until it's given or voided, and deleting it removes who the card was for
-  and their message; Download data lists the cards (never the codes). A manager or the owner voids a card nobody has used, and the buyer gets the money
+  codes are limited to 10 an hour, counted against the person redeeming, one at a time; someone trying for another
+  person is refused before anything is looked up, and the refusal is logged (without the code). A buyer can always
+  delete their account: the preview says to save the code of any card nobody has redeemed, which stays usable
+  (who it was for and the message go with the account); Download data lists the cards (never the codes). A refund
+  given as credit for a junior's payment goes to whoever paid it (the parent whose card or app paid). After an
+  import, cards can be redeemed at once (their fingerprints are made under this server's key straight away). A manager or the owner voids a card nobody has used, and the buyer gets the money
   back the way they paid; staff can remind the buyer it's waiting. Members' assistants see their cards, never the
   codes. Check your state's rules on gift cards (expiry, fees, cash back for small balances, unclaimed property)
   with a lawyer: Kumi's cards never expire, and the owner or a manager can pay credit out at the desk.
@@ -160,7 +163,18 @@ server starts.
   price to revenue, the last use whatever is left. Two checkouts at once can't take a pass's last use twice. The
   owner or a manager refunds a pass's unused uses, pro rata, the way it was paid for; a pass is never through an
   assistant (it reads them, and buying one counts on its weekly limit) or through support access. Read-only sells
-  and takes no pass, and still refunds one.
+  and takes no pass, and still refunds one. After the review, before any club used them:
+  - **A program's "club credit inside the window" rule paid out a pass use, or a place a code made free, as club
+    credit at the full place price** (a $10 use on a $200 tournament became $200 of credit, which could be paid out
+    in cash). That rule now goes payment by payment like every refund: a pass's use goes back to the pass (or is
+    spent), a free place gives nothing, and never more than was paid.
+  - A courts pass covers court bookings only. Coach lessons have a pass of their own ("Coach lessons", made only
+    if the club wants one) and an area of their own for promo codes.
+  - A place paid with a pass and passed to a sub who pays: the use comes back once the sub has paid, never before.
+  - A pass with uses left stops the account being deleted (the club refunds the unused uses first), and the data
+    download has a person's passes, each use, and the codes they used.
+  - Cancelling or shortening something paid with a pass, or made free by a code, says so ("the use goes back to the
+    pass", "the use is spent", "nothing to give back: it was free") instead of quoting money for the desk.
 - **Promo codes** (Settings, "Promo codes"): a percentage or an amount off court bookings, program places or a
   membership's first payment, with uses in all (optional), uses per person (one to start), a smallest spend and a
   last day. Never on a gift card or a pass, never on a renewal, one code per payment. A member types it in the pay
@@ -168,6 +182,19 @@ server starts.
   or, all of it off, it goes through with nothing to pay. The receipt names the discount; a refund is never more
   than was paid. Two checkouts at once can't take a code's last use twice, and a use whose payment is never paid
   doesn't count. Making codes is the owner's and managers', in the app (never support access or an assistant).
+  After the review, before any club used them:
+  - **A code used before paying part from club credit (or at the desk) dropped off the payment**, so it stopped
+    counting and could be used again on the rest. The code now stays with the payment it was applied to, and
+    there's one code per place or court player, whichever payment it's on.
+  - **A membership's first payment with a code set the price it renewed at.** The code is for the first payment
+    only; it renews at the plan's price, and the receipt says "off the first payment".
+  - A code's percentage and smallest spend are worked out on the whole price, even after part was paid another way,
+    and the discount counts as paid: the desk can't take it again.
+  - A code can't make a payment that saves a card free (a membership's first, a split court's organiser), since the
+    card is needed for what comes later.
+  - Wrong codes count per person, ten an hour, and a code that isn't for this (or that you've used up) gets the same
+    answer as one that doesn't exist, so a private code can't be found by guessing. Support access never applies a
+    code or spends a member's pass.
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
   where Add to Home Screen is (Share). Neither shows once the app runs from the home screen.
 - **The phone's back button closes what's open** (a preview to confirm, the card form, a booking picked on the

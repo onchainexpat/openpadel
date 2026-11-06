@@ -419,9 +419,12 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
   const open = choice === "rule" && Boolean(await openMatchOf(db, bookingId));
   const refunds = paid.map((p) => {
     const joiner = open && p.person_id !== b.organiser_id;
-    // Everything back as club credit (credit.ts): staff only, the whole of what's left, to each player's credit.
-    return { payment_id: p.id, cents: Math.round(Math.max(0, p.amount_cents - Number(p.back)) * (joiner ? 100 : percent) / 100), joiner,
-      desk: choice !== "credit" && p.method !== "credit" && p.provider === "none", ...(choice === "credit" || p.method === "credit" ? { credit: true } : {}) };
+    // Everything back as club credit (credit.ts): staff only, the whole of what's left, to each player's credit. Paid
+    // with a pass: the use goes back with all of it, or is spent (passes.ts). Made free by a code: nothing goes back.
+    const free = p.method === "promo", pass = p.method === "pass";
+    return { payment_id: p.id, cents: free ? 0 : Math.round(Math.max(0, p.amount_cents - Number(p.back)) * (joiner ? 100 : percent) / 100), joiner,
+      desk: !free && !pass && choice !== "credit" && p.method !== "credit" && p.provider === "none", ...(choice === "credit" || p.method === "credit" ? { credit: true } : {}),
+      ...(pass ? { pass: true, whole: Math.max(0, p.amount_cents - Number(p.back)) } : {}), ...(free ? { free: true } : {}) };
   });
   return { percent, early, hours: policy.free_cancel_hours, refunds };
 }
@@ -441,7 +444,10 @@ export const bookingCancel = defineAction({
     const joiners = r.refunds.filter((x) => x.joiner).reduce((n, x) => n + x.cents, 0), host = total - joiners, hours = both("count.hours", { count: r.hours });
     // Paid at the desk goes back at the desk, not to a card.
     const desk = r.refunds.filter((x) => x.desk).reduce((n, x) => n + x.cents, 0), credit = r.refunds.filter((x) => x.credit).reduce((n, x) => n + x.cents, 0), card = total - desk - credit;
+    const passes = r.refunds.filter((x) => "pass" in x && x.pass) as { cents: number; whole: number }[];
     const money = !r.refunds.length ? both("refund.nothing_paid")
+      : r.refunds.every((x) => "free" in x && x.free) ? both("plan.booking.refund_free")
+      : passes.length && passes.length === r.refunds.length ? both(passes.every((x) => x.cents >= x.whole) ? "plan.booking.refund_pass_back" : "plan.booking.refund_pass_spent")
       : credit > 0 && credit === total ? both("plan.booking.refund_credit", { amount: usd(total) })
       : joiners ? both(host ? "plan.booking.refund_open" : "plan.booking.no_refund_open", { host: usd(host), others: usd(joiners), hours })
       : !total ? both("plan.booking.no_refund", { hours })

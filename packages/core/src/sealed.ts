@@ -117,7 +117,12 @@ export async function resealAll(db: Db | Trx): Promise<ResealReport> {
       if (id) r.resealed++; else r.sealed++;
     }
   }
-  // Fingerprints under the key in use: made again from what they fingerprint (a club has a handful).
+  await rehashKeyed(db);
+  return r;
+}
+/** Fingerprints under the key in use: made again from what they fingerprint (a club has a handful). At every start,
+ *  after a key change, and at the end of an import (its cards came under another server's key). */
+export async function rehashKeyed(db: Db | Trx): Promise<void> {
   for (const h of KEYED_HASHES) {
     const rows = (await sql<{ k: unknown; v: string; h: string }>`SELECT ${sql.ref(h.key)} AS k, ${sql.ref(h.from)} AS v, ${sql.ref(h.to)} AS h FROM ${sql.table(h.table)}`.execute(db)).rows;
     for (const row of rows) {
@@ -127,5 +132,4 @@ export async function resealAll(db: Db | Trx): Promise<ResealReport> {
       if (next && next !== row.h) await sql`UPDATE ${sql.table(h.table)} SET ${sql.ref(h.to)} = ${next} WHERE ${sql.ref(h.key)} = ${row.k}`.execute(db);
     }
   }
-  return r;
 }

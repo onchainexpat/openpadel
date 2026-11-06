@@ -292,7 +292,7 @@ async function dropPayNow(ctx: ApplyCtx, membershipId: string) {
 /** After a membership payment succeeds (called by payment.settle): joining starts the membership; paying a
  *  late renewal by hand renews it. Paid for a membership that can't be had any more: all of it back. */
 export async function afterMembershipPayment(ctx: ApplyCtx, pay: { id: string; person_id: string; amount_cents: number; membership_plan_id: string | null; membership_id: string | null;
-  provider_account: string | null; save_card: boolean; for_period_no?: number | null }, card: { customer: string | null; method: string | null }) {
+  provider_account: string | null; save_card: boolean; for_period_no?: number | null; method?: string; discount_cents?: number }, card: { customer: string | null; method: string | null }) {
   if (pay.membership_id) {
     const m = await ctx.trx.selectFrom("membership").select(["status", "period_no", "balance_cents"]).where("id", "=", pay.membership_id).forUpdate().executeTakeFirstOrThrow();
     if (m.status === "ended") { await refundCard(ctx, pay.id, pay.amount_cents); return; }
@@ -315,9 +315,10 @@ export async function afterMembershipPayment(ctx: ApplyCtx, pay: { id: string; p
     return;
   }
   const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period", "max_members", "family_size", "extra_person_cents"]).where("id", "=", pay.membership_plan_id!).forUpdate().executeTakeFirstOrThrow();
-  // The price paid is the price it renews at. Paid for the last place someone else took meanwhile: back.
+  // The price paid is the price it renews at, before any promo code: a code is for the first payment only
+  // (promo_codes.ts). Paid for the last place someone else took meanwhile: back.
   const id = await holds(ctx.trx, pay.person_id) || !await hasRoom(ctx.trx, plan) ? null
-    : await startMembership(ctx, pay.person_id, { ...plan, price_cents: pay.amount_cents }, { customer: card.customer, method: card.method, account: pay.provider_account });
+    : await startMembership(ctx, pay.person_id, { ...plan, price_cents: pay.amount_cents + (pay.method === "promo" ? 0 : pay.discount_cents ?? 0) }, { customer: card.customer, method: card.method, account: pay.provider_account });
   if (!id) { await refundCard(ctx, pay.id, pay.amount_cents); return; }   // paid twice, or already a member
   await ctx.update("payment", pay.id, { membership_id: id });
 }

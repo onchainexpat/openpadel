@@ -425,7 +425,9 @@ export const programMinHeadsUp = defineAction({
 /** The job: programs with a minimum, heads-up first, then the decision (for one signed up per date, each date in
  *  turn). Nothing due means no action run. */
 export async function decidePrograms(db: Db, now = new Date()) {
-  const club = await db.selectFrom("club").select(["program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
+  const club = await db.selectFrom("club").select(["program_decide_hours", "program_heads_up_hours", "moved_at"]).executeTakeFirstOrThrow();
+  // Moved to another server: that one decides (and refunds); deciding here too would pay back twice.
+  if (club.moved_at) return { cancelled: 0, ran: 0, warned: 0 };
   const rows = await db.selectFrom("program").select(["id", "min_players", "decide_hours", "min_heads_up_at"])
     .select((eb) => [
       eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first_start"),

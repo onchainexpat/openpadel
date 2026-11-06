@@ -12,7 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
-import { connect, holdPending, isSealedText, migrate, openBytes, openSupportCount, openText, runAsSystem, sealBytes, sealText, SEALED_COLUMNS, SealedError, type Db, type HeldCounts } from "@kumi/core";
+import { connect, holdPending, isSealedText, migrate, openBytes, openSupportCount, openText, rehashKeyed, runAsSystem, sealBytes, sealText, SEALED_COLUMNS, SealedError, type Db, type HeldCounts } from "@kumi/core";
 import { carryGoneAfterImport, carryMeterAfterImport, readGoneBefore, readMeterBefore } from "./after_restore.ts";
 import { makeBackup, readOpsRecords, safeRestore, writeOpsRecords, type Manifest } from "./backups.ts";
 import { REVISION, VERSION } from "./version.ts";
@@ -232,6 +232,8 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
       const r = await sql`UPDATE ${sql.table(c.table)} SET ${sql.ref(c.column)} = ${value} WHERE ${sql.ref(c.key)} = ${s.k}`.execute(db);
       carried += Number(r.numAffectedRows ?? 0);
     }
+    // Gift card fingerprints under this server's key, now (not only at the next start): its cards can be redeemed at once.
+    await rehashKeyed(db);
     // And what it had taken away on request since the file was made (an account deleted, words taken back) stays away.
     // After the keys above: an authenticator set up again on this server since keeps this server's secret.
     const goneCarried = await carryGoneAfterImport(db, gone, now);

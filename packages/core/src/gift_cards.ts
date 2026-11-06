@@ -39,7 +39,7 @@ function codeHashes(code: string): string[] {
 }
 /** Work on one person's tries one change at a time (a lock held until it commits), inside a change of its own when
  *  the caller isn't in one. */
-async function oneAtATime<T>(db: Db | Trx, key: string, fn: (trx: Trx) => Promise<T>): Promise<T> {
+export async function oneAtATime<T>(db: Db | Trx, key: string, fn: (trx: Trx) => Promise<T>): Promise<T> {
   const go = async (trx: Trx) => { await sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`.execute(trx); return fn(trx); };
   return (db as Trx).isTransaction ? go(db as Trx) : (db as Db).transaction().execute(go);
 }
@@ -116,7 +116,7 @@ export async function giftCardPaid(ctx: ApplyCtx, giftCardId: string) {
  *  an hour, they wait. The code is read by the preview and never kept (planOnly). App only, never support access:
  *  words an assistant reads could hold a code. */
 export const giftCardRedeem = defineAction({
-  name: "gift_card.redeem", version: 1, planOnly: ["code"],
+  name: "gift_card.redeem", version: 1, planOnly: ["code"], selfOnly: async (_db, i: { person_id: string }) => i.person_id,
   input: z.object({ person_id: z.uuid(), code: z.string().check(z.minLength(4), z.maxLength(40)) }),
   async plan(ctx, i) {
     if (!ctx.actor.personId || ctx.actor.personId !== i.person_id) throw new KumiError("error.forbidden", {}, 403);

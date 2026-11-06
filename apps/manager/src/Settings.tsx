@@ -395,7 +395,7 @@ function EndAllWeekly({ preview }: { preview: Preview }) {
  *  expiry is at least 365 days, or none. */
 function PassProducts({ preview }: { preview: (action: string, input: unknown) => Promise<void> | void }) {
   type Product = { id: string; name: string; covers: "programs" | "courts"; program_kinds: string[] | null; max_minutes: number | null; price_cents: number; uses: number; valid_days: number | null; on_sale: boolean };
-  const [list, setList] = useState<Product[]>([]), [covers, setCovers] = useState<"programs" | "courts">("programs");
+  const [list, setList] = useState<Product[]>([]), [covers, setCovers] = useState<"programs" | "courts" | "lessons">("programs");
   useEffect(() => { api<{ products: Product[] }>("/staff/passes").then((r) => setList(r.products)).catch(() => setList([])); }, []);
   const kinds = ["clinic", "course", "league", "tournament", "social"];
   const toggle = (x: Product) => preview("pass_product.set", { product_id: x.id, name: x.name, covers: x.covers, program_kinds: x.program_kinds ?? undefined, max_minutes: x.max_minutes, price_cents: x.price_cents, uses: x.uses, valid_days: x.valid_days, on_sale: !x.on_sale });
@@ -409,10 +409,10 @@ function PassProducts({ preview }: { preview: (action: string, input: unknown) =
       <form class="card-form" onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget as HTMLFormElement, v = (n: string) => (f.elements.namedItem(n) as HTMLInputElement).value;
         const price = parseDollars(v("price"));
         preview("pass_product.set", { name: v("name"), covers, price_cents: price ?? 0, uses: Number(v("uses")), valid_days: v("days") ? Number(v("days")) : null,
-          ...(covers === "courts" ? { max_minutes: v("minutes") ? Number(v("minutes")) : null } : { program_kinds: kinds.filter((k) => (f.elements.namedItem(`kind_${k}`) as HTMLInputElement).checked) }) }); }}>
+          ...(covers !== "programs" ? { max_minutes: v("minutes") ? Number(v("minutes")) : null } : { program_kinds: kinds.filter((k) => (f.elements.namedItem(`kind_${k}`) as HTMLInputElement).checked) }) }); }}>
         <label>{t("ui.pass_name")}<input name="name" required maxLength={80} /></label>
-        <label>{t("ui.pass_covers")}<select value={covers} onChange={(e) => setCovers(e.currentTarget.value as "programs" | "courts")}>
-          <option value="programs">{t("ui.pass_covers_programs")}</option><option value="courts">{t("ui.pass_covers_courts")}</option></select></label>
+        <label>{t("ui.pass_covers")}<select value={covers} onChange={(e) => setCovers(e.currentTarget.value as "programs" | "courts" | "lessons")}>
+          <option value="programs">{t("ui.pass_covers_programs")}</option><option value="courts">{t("ui.pass_covers_courts")}</option><option value="lessons">{t("ui.pass_covers_lessons")}</option></select></label>
         {covers === "programs" ? <fieldset><legend>{t("ui.pass_kinds")}</legend>{kinds.map((k) => <label class="check" key={k}><input type="checkbox" name={`kind_${k}`} /> {t(`kind.${k}` as Key)}</label>)}</fieldset>
           : <label>{t("ui.pass_max_minutes")}<input name="minutes" type="number" min="15" max="600" step="15" /></label>}
         <label>{t("ui.pass_uses")}<input name="uses" type="number" required min="1" max="100" step="1" defaultValue="10" /></label>
@@ -430,7 +430,7 @@ function PromoCodes({ preview }: { preview: (action: string, input: unknown) => 
     max_uses: number | null; max_per_person: number; min_spend_cents: number; active: boolean; used: number };
   const [list, setList] = useState<Code[]>([]), [kind, setKind] = useState<"percent" | "amount">("percent");
   useEffect(() => { api<Code[]>("/staff/promo-codes").then(setList).catch(() => setList([])); }, []);
-  const areas = ["courts", "programs", "memberships"];
+  const areas = ["courts", "lessons", "programs", "memberships"];
   const again = (x: Code, active: boolean) => preview("promo_code.set", { promo_code_id: x.id, code: x.code, kind: x.kind, percent: x.percent, amount_cents: x.amount_cents, applies_to: x.applies_to,
     starts_at: x.starts_at, ends_at: x.ends_at, max_uses: x.max_uses, max_per_person: x.max_per_person, min_spend_cents: x.min_spend_cents, active });
   return <section class="card">

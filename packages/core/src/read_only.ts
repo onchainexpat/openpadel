@@ -45,6 +45,8 @@ export const MOVED_REFUSED = new Set([
   "refund.give_back", "refund.resend", "credit.pay_out", "gift_card.void", "pass.refund", "booking.refund",
   "booking.cancel", "booking.repeat_end", "weekly.end_all", "booking.leave", "booking.remove_player", "booking.withdraw_ask", "booking.withdraw_offer",
   "enrolment.leave", "enrolment.remove", "entry.withdraw", "program.cancel", "series.cancel", "membership.cancel", "membership.end", "membership.remove_person",
+  // A program decided here (cancelled for too few, everyone refunded) would be refunded again on the new server.
+  "program.decide",
 ]);
 
 /** Since when the club is read-only, or null. */

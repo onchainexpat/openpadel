@@ -59,6 +59,7 @@ async function whyNot(db: Db | Trx, pay: { person_id: string; status: string; pr
  *  credit only all at once: a court held for a card that never comes is let go, and part paid would be stranded. */
 export const paymentUseCredit = defineAction({
   name: "payment.use_credit", version: 1,
+  selfOnly: async (db, i: { payment_id: string }) => (await db.selectFrom("payment").select("person_id").where("id", "=", i.payment_id).executeTakeFirst())?.person_id ?? null,
   input: z.object({ payment_id: z.uuid() }),
   async plan(ctx, i) {
     const { read } = await readRow(ctx.db, "payment", i.payment_id, "thing.payment");
@@ -114,7 +115,10 @@ export const creditPayOut = defineAction({
       .select([sql<string>`coalesce(sum(gift_card.amount_cents), 0)`.as("all"),
         sql<string>`coalesce(sum(gift_card.amount_cents) FILTER (WHERE payment.provider <> 'none' OR payment.method = 'terminal'), 0)`.as("card")])
       .where("gift_card.redeemed_by", "=", i.person_id).where("gift_card.status", "=", "redeemed").executeTakeFirstOrThrow();
-    const fromCards = Number(g.all), byCard = Number(g.card);
+    // Only what of it is still unspent: credit spent on things (less what came back of them) is taken from it first.
+    const sp = await ctx.db.selectFrom("payment").select(sql<string>`coalesce(sum(amount_cents - coalesce((SELECT sum(r.amount_cents) FROM refund r WHERE r.payment_id = payment.id AND r.status = 'sent' AND r.destination = 'credit'), 0)), 0)`.as("c"))
+      .where("person_id", "=", i.person_id).where("method", "=", "credit").where("status", "=", "succeeded").executeTakeFirstOrThrow();
+    const fromCards = Math.min(have, Math.max(0, Number(g.all) - Number(sp.c))), byCard = Math.min(fromCards, Number(g.card));
     const base = both("plan.credit.pay_out", { name: p.display_name, amount: usd(i.cents), how: both(`paid_by.${i.method}`), left: usd(have - i.cents) });
     const notes = [fromCards > 0 ? both("plan.credit.pay_out_gift", { amount: usd(fromCards) }) : null, byCard > 0 ? both("plan.credit.pay_out_card_warn", { amount: usd(byCard) }) : null].filter((x): x is Text => Boolean(x));
     const summary = { en: [base.en, ...notes.map((x) => x.en)].join(" "), es: [base.es, ...notes.map((x) => x.es)].join(" ") };

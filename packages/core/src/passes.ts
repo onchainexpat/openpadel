@@ -40,7 +40,7 @@ async function nextUseValue(db: Db | Trx, pass: { id: string; price_cents: numbe
   return pass.uses_left <= 1 ? left : Math.min(left, Math.floor(pass.price_cents / pass.uses));
 }
 
-type What = { covers: "courts"; minutes: number; startMinute: number } | { covers: "programs"; programId: string; kind: string };
+type What = { covers: "courts" | "lessons"; minutes: number; startMinute: number } | { covers: "programs"; programId: string; kind: string };
 type PassRow = Selectable<DB["pass"]>;
 
 /** What a payment is for, as a pass sees it, or why no pass can pay it: a court paid whole by the one who booked it, or
@@ -57,13 +57,15 @@ async function whatFor(db: Db | Trx, pay: Selectable<DB["payment"]>): Promise<Wh
   }
   if (pay.booking_player_id) {
     const b = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").innerJoin("location", "location.id", "booking.location_id")
-      .select(["booking.id", "booking.pay_mode", "booking.organiser_id", "location.time_zone"]).where("booking_player.id", "=", pay.booking_player_id).executeTakeFirstOrThrow();
+      .select(["booking.id", "booking.kind", "booking.pay_mode", "booking.organiser_id", "location.time_zone"]).where("booking_player.id", "=", pay.booking_player_id).executeTakeFirstOrThrow();
     if (b.pay_mode !== "whole" || b.organiser_id !== pay.person_id) return { why: "error.pass_not_for_this" };
+    // A courts pass is for court bookings; a coach's lesson only on a pass made for lessons (its price is the coach's).
+    if (b.kind !== "court" && b.kind !== "lesson") return { why: "error.pass_not_for_this" };
     const t = await db.selectFrom("court_time").select([sql<string>`extract(epoch from max(upper(during)) - min(lower(during)))`.as("secs"),
       sql<string>`(extract(hour from min(lower(during)) AT TIME ZONE ${b.time_zone}) * 60 + extract(minute from min(lower(during)) AT TIME ZONE ${b.time_zone}))`.as("start")])
       .where("booking_id", "=", b.id).where("active", "=", true).executeTakeFirst();
     if (!t?.secs) return { why: "error.pass_not_for_this" };
-    return { covers: "courts", minutes: Math.round(Number(t.secs) / 60), startMinute: Number(t.start) };
+    return { covers: b.kind === "lesson" ? "lessons" : "courts", minutes: Math.round(Number(t.secs) / 60), startMinute: Number(t.start) };
   }
   return { why: "error.pass_not_for_this" };
 }
@@ -94,7 +96,7 @@ export async function passesFor(db: Db | Trx, personId: string, paymentId: strin
 
 // ---- The club's products ----
 const productInput = {
-  name: z.string().check(z.minLength(1), z.maxLength(80)), covers: z.enum(["programs", "courts"]),
+  name: z.string().check(z.minLength(1), z.maxLength(80)), covers: z.enum(["programs", "courts", "lessons"]),
   program_kinds: z.optional(z.array(z.enum(PROGRAM_KINDS))), program_ids: z.optional(z.array(z.uuid())),
   max_minutes: z.optional(z.nullable(z.number().check(z.int(), z.minimum(15), z.maximum(600)))),
   from_minute: z.optional(z.nullable(z.number().check(z.int(), z.minimum(0), z.maximum(1439)))), to_minute: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(1440)))),
@@ -110,15 +112,16 @@ export const passProductSet = defineAction({
   async plan(ctx, i) {
     if (i.from_minute != null && i.to_minute != null && i.to_minute <= i.from_minute) throw new KumiError("error.pass_hours");
     const reads = i.product_id ? [(await readRow(ctx.db, "pass_product", i.product_id, "thing.pass")).read] : [];
-    const what = i.covers === "courts" ? both(i.max_minutes ? "plan.pass_courts_up_to" : "plan.pass_courts", { minutes: String(i.max_minutes ?? "") }) : both("plan.pass_programs");
+    const what = i.covers === "courts" ? both(i.max_minutes ? "plan.pass_courts_up_to" : "plan.pass_courts", { minutes: String(i.max_minutes ?? "") })
+      : i.covers === "lessons" ? both(i.max_minutes ? "plan.pass_lessons_up_to" : "plan.pass_lessons", { minutes: String(i.max_minutes ?? "") }) : both("plan.pass_programs");
     return { title: both("action.pass_product.set"), reads, undo: { kind: "compensating" },
       summary: both(i.on_sale === false ? "plan.pass_product.off" : i.product_id ? "plan.pass_product.change" : "plan.pass_product.make",
         { name: i.name, uses: String(i.uses), price: usd(i.price_cents), what, expiry: i.valid_days ? both("plan.pass_expires_days", { days: String(i.valid_days) }) : both("plan.pass_never_expires") }) };
   },
   async apply(ctx, i) {
     const row = { name: i.name, covers: i.covers, program_kinds: i.covers === "programs" && i.program_kinds?.length ? i.program_kinds : null,
-      program_ids: i.covers === "programs" && i.program_ids?.length ? i.program_ids : null, max_minutes: i.covers === "courts" ? i.max_minutes ?? null : null,
-      from_minute: i.covers === "courts" ? i.from_minute ?? null : null, to_minute: i.covers === "courts" ? i.to_minute ?? null : null,
+      program_ids: i.covers === "programs" && i.program_ids?.length ? i.program_ids : null, max_minutes: i.covers !== "programs" ? i.max_minutes ?? null : null,
+      from_minute: i.covers !== "programs" ? i.from_minute ?? null : null, to_minute: i.covers !== "programs" ? i.to_minute ?? null : null,
       price_cents: i.price_cents, uses: i.uses, valid_days: i.valid_days ?? null, on_sale: i.on_sale ?? true };
     if (i.product_id) { await ctx.update("pass_product", i.product_id, row); return { product_id: i.product_id }; }
     const id = uuidv7();
@@ -155,6 +158,7 @@ export const passBuy = defineAction({
   },
   async apply(ctx, i) {
     const p = await onSale(ctx.trx, i.product_id);
+    if (await kidOf(ctx.trx, i.person_id)) throw new KumiError("error.pass_kid");
     const pass = await makePass(ctx, p, i.person_id, "app", "pending");
     const payment = uuidv7();
     await ctx.insert("payment", { id: payment, person_id: i.person_id, amount_cents: p.price_cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", pass_id: pass });
@@ -177,6 +181,7 @@ export const passSell = defineAction({
   async apply(ctx, i) {
     const p = await onSale(ctx.trx, i.product_id);
     if (i.cents !== p.price_cents) throw new KumiError("error.changed");
+    if (await kidOf(ctx.trx, i.person_id)) throw new KumiError("error.pass_kid");
     const pass = await makePass(ctx, p, i.person_id, "desk", "active");
     const payment = await recordAtDesk(ctx, { personId: i.person_id, cents: p.price_cents, method: i.method, note: i.note, revenue: "passes", memo: "pass", link: { pass_id: pass } });
     return { pass_id: pass, payment_id: payment };
@@ -225,22 +230,43 @@ export const paymentUsePass = defineAction({
 
 /** A payment a pass covered, refunded (refundTo): in full, the use is the pass's again (its share of the price back
  *  into the passes account); in part or not at all, the use is spent, as a card would get that part or nothing back.
- *  A pass refunded since can't take a use back: its share goes to the member's club credit instead. */
-export async function passUseBack(ctx: ApplyCtx, pay: { id: string; amount_cents: number; person_id: string; booking_player_id: string | null; membership_id: string | null; membership_plan_id: string | null }, cents: number, enrolmentId: string | null) {
+ *  A pass refunded since can't take a use back: its share goes to the member's club credit instead. A place passed to
+ *  a sub who pays: the use waits for them (a refund to the pass, waiting_for_sub), and is back only once they pay
+ *  (refundDue -> passUseDue), never if they don't. */
+export async function passUseBack(ctx: ApplyCtx, pay: { id: string; amount_cents: number; person_id: string; booking_player_id: string | null; membership_id: string | null; membership_plan_id: string | null }, cents: number, enrolmentId: string | null, status: "pending" | "waiting_for_sub" = "pending") {
   if (cents < pay.amount_cents) return null;
   const use = await ctx.trx.selectFrom("pass_use").selectAll().where("payment_id", "=", pay.id).executeTakeFirst();
   if (!use || use.returned_at) return null;
+  const id = uuidv7();
+  if (status === "waiting_for_sub") {
+    await ctx.insert("refund", { id, payment_id: pay.id, enrolment_id: enrolmentId, amount_cents: cents, destination: "pass", status: "waiting_for_sub" });
+    return { id, desk: false, credit: false, pass: true, cents };
+  }
+  const toCredit = await returnUse(ctx, pay, use);
+  // The refund says what really went back: the use's share of the price, when it went to club credit.
+  await ctx.insert("refund", { id, payment_id: pay.id, enrolment_id: enrolmentId, amount_cents: toCredit ? use.value_cents || cents : cents, destination: toCredit ? "credit" : "pass", status: "sent" });
+  return { id, desk: false, credit: toCredit, pass: !toCredit, cents };
+}
+/** The use is the pass's again (or, the pass refunded since, its share goes to club credit): whether it went to credit. */
+async function returnUse(ctx: ApplyCtx, pay: { person_id: string; booking_player_id: string | null; membership_id: string | null; membership_plan_id: string | null }, use: Selectable<DB["pass_use"]>) {
   await lockPass(ctx.trx, use.pass_id);
   const pass = await ctx.trx.selectFrom("pass").select(["status", "uses_left"]).where("id", "=", use.pass_id).forUpdate().executeTakeFirstOrThrow();
   const toCredit = pass.status !== "active";
   await ctx.trx.updateTable("pass_use").set({ returned_at: ctx.now }).where("id", "=", use.id).execute();
   if (!toCredit) await ctx.update("pass", use.pass_id, { uses_left: pass.uses_left + 1 });
-  const id = uuidv7();
-  await ctx.insert("refund", { id, payment_id: pay.id, enrolment_id: enrolmentId, amount_cents: cents, destination: toCredit ? "credit" : "pass", status: "sent" });
   if (use.value_cents > 0) await post(ctx.trx, ctx.runId, "pass_use_back", toCredit ? "pass use back as club credit" : "pass use given back", [
     { account: await account(ctx.trx, "revenue", { revenueType: await revenueType(ctx.trx, pay) }), cents: use.value_cents },
     { account: toCredit ? await account(ctx.trx, "member_credit", { personId: pay.person_id }) : await account(ctx.trx, "passes"), cents: -use.value_cents }]);
-  return { id, desk: false, credit: toCredit, pass: !toCredit, cents };
+  return toCredit;
+}
+/** A use that was waiting for a sub to pay is due: the pass's again (or club credit, the pass refunded meanwhile). */
+export async function passUseDue(ctx: ApplyCtx, refundId: string) {
+  const r = await ctx.trx.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
+    .select(["refund.payment_id", "payment.person_id", "payment.booking_player_id", "payment.membership_id", "payment.membership_plan_id"]).where("refund.id", "=", refundId).executeTakeFirstOrThrow();
+  const use = await ctx.trx.selectFrom("pass_use").selectAll().where("payment_id", "=", r.payment_id).executeTakeFirst();
+  if (!use || use.returned_at) { await ctx.update("refund", refundId, { status: "sent" }); return; }
+  const toCredit = await returnUse(ctx, r, use);
+  await ctx.update("refund", refundId, { status: "sent", ...(toCredit ? { destination: "credit", ...(use.value_cents > 0 ? { amount_cents: use.value_cents } : {}) } : {}) });
 }
 
 /** The owner or a manager refunds a pass's unused uses, pro rata (what's left of its price), the way it was paid

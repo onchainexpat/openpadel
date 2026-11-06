@@ -82,7 +82,9 @@ export const CHAT_ACTIONS = ["chat.report", "chat.hide", "chat.stop", "chat.allo
 export const SUPPORT_NEVER = ["support.*", "role.*", "club.payment_*", "club.export", "club.setup", "club.read_only", "club.moved*", "club.leaving*", "club.usage_cap_set",
   "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*", ...DESK_MONEY, ...CREDIT_MONEY, "pass_product.set", "promo_code.set", "chat.*", "weekly.end_all", "fixture.reopen",
   // A member's own credit and gift cards are theirs to spend and redeem, in the app (credit.ts, gift_cards.ts).
-  "payment.use_credit", "gift_card.redeem"];
+  "payment.use_credit", "gift_card.redeem",
+  // A member's passes and the codes they use are theirs too (passes.ts, promo_codes.ts).
+  "payment.use_pass", "payment.use_promo"];
 /** Their own account, which they look after like anyone (their second sign-in step first of all). */
 const SUPPORT_OWN = ["person.factor_*", "person.passkey_*", "person.update_profile"];
 

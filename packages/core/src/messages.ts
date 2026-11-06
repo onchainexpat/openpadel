@@ -147,9 +147,16 @@ async function nameOf(db: Db, personId: string): Promise<string> {
   return (await db.selectFrom("person").select("display_name").where("id", "=", personId).executeTakeFirst())?.display_name ?? "";
 }
 /** `desk`: the part paid at the desk, which waits there to be collected rather than going to a card. */
-function refundLine(outcome: string, cents: number, paid: number, desk = 0, credit = 0): Text {
+function refundLine(outcome: string, cents: number, paid: number, desk = 0, credit = 0, pass = 0, byPass = false): Text {
+  // Paid with a pass: its use went back, or (part or nothing back) is spent, never an amount of money (passes.ts).
+  if (byPass) return both(pass > 0 ? "msg.refund_pass_back" : "msg.refund_pass_spent");
   if (cents > 0) return outcome === "credit" ? both("msg.refund_credit", { amount: amount(cents) }) : backWords(cents - desk - credit, desk, credit);
   return paid > 0 ? both("msg.refund_none") : NOTHING;
+}
+/** Whether a place was paid with a pass alone. */
+async function paidByPass(db: Db, enrolmentId: string): Promise<boolean> {
+  const r = await db.selectFrom("payment").select(["method"]).where("enrolment_id", "=", enrolmentId).where("status", "=", "succeeded").execute();
+  return r.length > 0 && r.every((x) => x.method === "pass");
 }
 /** What goes back to the card, and what's to collect at the desk (money paid there goes back there). */
 function backWords(card: number, desk: number, credit = 0): Text {
@@ -907,13 +914,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const refund = p.credit_cents ? both("msg.refund_credit", { amount: amount(p.credit_cents) }) : NOTHING;
     return [{ to: e.person_id, kind: "place_lapsed", params: { name: e.name, when: when(e.start, tz), refund }, purpose: "account", essential: true, email: true, link: "/" }];
   },
-  async "enrolment.left"({ db, tz }, p: { enrolment_id: string; refund_outcome: string; refund_cents: number; refund_desk?: number; refund_credit?: number }) {
+  async "enrolment.left"({ db, tz }, p: { enrolment_id: string; refund_outcome: string; refund_cents: number; refund_desk?: number; refund_credit?: number; refund_pass?: number }) {
     const e = await place(db, p.enrolment_id);
-    return [{ to: e.person_id, kind: "left", params: { name: e.name, when: when(e.start, tz), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id), p.refund_desk, p.refund_credit) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: e.person_id, kind: "left", params: { name: e.name, when: when(e.start, tz), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id), p.refund_desk, p.refund_credit, p.refund_pass ?? 0, await paidByPass(db, e.id)) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
-  async "enrolment.removed"({ db, tz }, p: { enrolment_id: string; reason: string; refund_outcome: string; refund_cents: number; refund_desk?: number; refund_credit?: number }) {
+  async "enrolment.removed"({ db, tz }, p: { enrolment_id: string; reason: string; refund_outcome: string; refund_cents: number; refund_desk?: number; refund_credit?: number; refund_pass?: number }) {
     const e = await place(db, p.enrolment_id);
-    return [{ to: e.person_id, kind: "removed", params: { name: e.name, when: when(e.start, tz), reason: both(`reason.${p.reason}` as Key), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id), p.refund_desk, p.refund_credit) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: e.person_id, kind: "removed", params: { name: e.name, when: when(e.start, tz), reason: both(`reason.${p.reason}` as Key), refund: refundLine(p.refund_outcome, p.refund_cents, await paidFor(db, e.id), p.refund_desk, p.refund_credit, p.refund_pass ?? 0, await paidByPass(db, e.id)) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "enrolment.transferred"({ db, tz }, p: { from: string; to: string; pay: "sub_pays" | "gift" }) {
     const from = await place(db, p.from), to = await place(db, p.to);

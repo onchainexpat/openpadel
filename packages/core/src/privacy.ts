@@ -34,7 +34,7 @@ const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents,
 const iso = (d: Date | string | null | undefined) => d ? new Date(d).toISOString() : null;
 
 // ---- What's still running ----
-export type BlockerKind = "staff" | "bookings" | "weekly" | "programs" | "membership" | "balance" | "kid_requests" | "credit" | "gift_cards";
+export type BlockerKind = "staff" | "bookings" | "weekly" | "programs" | "membership" | "balance" | "kid_requests" | "credit" | "passes";
 export interface Blocker { kind: BlockerKind; text: Text; how: Text }
 
 /** Juniors only this person manages: deleting them deletes these too. */
@@ -89,10 +89,10 @@ async function runningFor(db: Db | Trx, personId: string, now: Date, opts: { che
   // Club credit is the club's to pay out (credit.ts): deleting the account first would leave it owed to nobody.
   const credit = await creditBalance(db, personId);
   if (credit > 0) add("credit", { amount: usd(credit) });
-  // Gift cards they bought and nobody has redeemed: the code was only ever shown to them, so deleting the account
-  // first would leave a card nobody can reach.
-  const cards = await db.selectFrom("gift_card").select(sql<string>`count(*)`.as("n")).where("buyer_id", "=", personId).where("status", "=", "active").executeTakeFirstOrThrow();
-  if (Number(cards.n)) add("gift_cards", { count: Number(cards.n) });
+  // Passes with uses left: prepaid, the club's to refund (passes.ts), so deleting the account first would leave them
+  // owed to nobody.
+  const passes = await db.selectFrom("pass").select(sql<string>`count(*)`.as("n")).where("person_id", "=", personId).where("status", "=", "active").where("uses_left", ">", 0).executeTakeFirstOrThrow();
+  if (Number(passes.n)) add("passes", { count: Number(passes.n) });
   return out;
 }
 
@@ -112,6 +112,10 @@ export async function deleteCheck(db: Db | Trx, personId: string, now: Date) {
     .where((w) => w.or([w("membership_member.ends_at", "is", null), w("membership_member.ends_at", ">", now)])).executeTakeFirst())
     ends.push(both("plan.privacy.ends_cover"));
   if (await db.selectFrom("family_card").select("id").where("saved_by", "=", personId).where("status", "in", ["pending", "saved"]).executeTakeFirst()) ends.push(both("plan.privacy.ends_card"));
+  // Gift cards they bought that nobody has redeemed: a buyer can always delete their account, so the preview says to
+  // save the code first. The card stays usable, under "Former member" (who it was for and the message go).
+  const cards = await db.selectFrom("gift_card").select(sql<string>`count(*)`.as("n")).where("buyer_id", "=", personId).where("status", "=", "active").executeTakeFirstOrThrow();
+  if (Number(cards.n)) ends.push(both("plan.privacy.gift_cards_stay", { count: Number(cards.n) }));
   return { blockers, juniors, ends };
 }
 
@@ -260,6 +264,13 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
       .where((w) => w.or([w("buyer_id", "=", personId), w("redeemed_by", "=", personId)])).orderBy("created_at").execute())
       .map((c) => ({ bought: c.buyer_id === personId, redeemed: c.redeemed_by === personId, amount_cents: c.amount_cents, status: c.status, last4: c.last4,
         for_name: c.buyer_id === personId ? c.for_name : null, message: c.buyer_id === personId ? c.message : null, sold_via: c.sold_via, bought_at: iso(c.created_at), redeemed_at: iso(c.redeemed_at) })),
+    // Passes they bought, with each use, and the promo codes they used.
+    passes: await Promise.all((await db.selectFrom("pass").select(["id", "name", "covers", "uses", "uses_left", "price_cents", "status", "expires_at", "sold_via", "created_at", "refunded_at"]).where("person_id", "=", personId).orderBy("created_at").execute())
+      .map(async (x) => ({ name: x.name, covers: x.covers, uses: x.uses, uses_left: x.uses_left, price_cents: x.price_cents, status: x.status, sold_via: x.sold_via, bought_at: iso(x.created_at), expires_at: iso(x.expires_at), refunded_at: iso(x.refunded_at),
+        used: (await db.selectFrom("pass_use").select(["value_cents", "at", "returned_at"]).where("pass_id", "=", x.id).orderBy("at").execute()).map((u) => ({ value_cents: u.value_cents, at: iso(u.at), given_back_at: iso(u.returned_at) })) }))),
+    promo_codes_used: (await db.selectFrom("promo_use").innerJoin("promo_code", "promo_code.id", "promo_use.promo_code_id").innerJoin("payment", "payment.id", "promo_use.payment_id")
+      .select(["promo_code.code", "promo_use.discount_cents", "promo_use.at", "payment.status"]).where("promo_use.person_id", "=", personId).orderBy("promo_use.at").execute())
+      .map((u) => ({ code: u.code, discount_cents: u.discount_cents, at: iso(u.at), counted: u.status !== "failed" })),
     memberships, covered_by_family_plans: covered,
     level: rating ?? null, level_history: history.map((h) => ({ at: iso(h.at), kind: h.kind, before: h.level_before, after: h.level_after, why: say(h.explanation) })),
     level_reviews: reviews, games, score_answers: answers,

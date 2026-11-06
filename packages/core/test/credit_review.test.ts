@@ -60,11 +60,11 @@ after(async () => { await drop(); setSecretKeys({}); });
 
 test("M1: only the person redeeming is counted or answered: nobody can spend someone else's tries or learn whether a code is live", async () => {
   const { code: good } = await bought("Ann", 2000);
-  for (let i = 0; i < GIFT_TRIES_PER_HOUR; i++) await rejects(plan(db, "gift_card.redeem", { person_id: people.Cal, code: `WRONG-${i}` }, as("Ben"), opts), "error.forbidden");
+  for (let i = 0; i < GIFT_TRIES_PER_HOUR; i++) await rejects(plan(db, "gift_card.redeem", { person_id: people.Cal, code: `WRONG-${i}` }, as("Ben"), opts), "error.forbidden_reason");
   assert.equal((await db.selectFrom("gift_card_try").select("person_id").execute()).length, 0, "no tries charged to anyone");
   // The same answer for a live code and a dead one, when it isn't yours.
-  await rejects(plan(db, "gift_card.redeem", { person_id: people.Dee, code: good }, as("Ben"), opts), "error.forbidden");
-  await rejects(plan(db, "gift_card.redeem", { person_id: people.Dee, code: "NOPE-NOPE-NOPE-NOPE" }, as("Ben"), opts), "error.forbidden");
+  await rejects(plan(db, "gift_card.redeem", { person_id: people.Dee, code: good }, as("Ben"), opts), "error.forbidden_reason");
+  await rejects(plan(db, "gift_card.redeem", { person_id: people.Dee, code: "NOPE-NOPE-NOPE-NOPE" }, as("Ben"), opts), "error.forbidden_reason");
   // Cal still redeems a real card.
   await run(db, "gift_card.redeem", { person_id: people.Cal, code: good }, as("Cal"), opts);
   assert.equal(await creditBalance(db, people.Cal!), 2000);
@@ -80,7 +80,7 @@ test("M2: no copy of a code anywhere but its sealed column: not with a preview, 
   const row = await db.selectFrom("gift_card").select(["code_hash", "code_sealed"]).where("id", "=", gift_card_id).executeTakeFirstOrThrow();
   assert.notEqual(row.code_hash, plain, "keyed by the server's key, not a plain SHA-256");
   await plan(db, "gift_card.redeem", { person_id: people.Fay, code: good }, as("Fay"), opts);   // previewed, never confirmed
-  await rejects(plan(db, "gift_card.redeem", { person_id: people.Gus, code: good }, as("Fay"), opts), "error.forbidden");   // refused
+  await rejects(plan(db, "gift_card.redeem", { person_id: people.Gus, code: good }, as("Fay"), opts), "error.forbidden_reason");   // refused
   const p = await plan(db, "gift_card.redeem", { person_id: people.Fay, code: good.toLowerCase() }, as("Fay"), opts);
   await apply(db, p.runId, as("Fay"), opts);   // applied
   const runs = JSON.stringify(await db.selectFrom("action_run").select(["input", "plan", "result", "error"]).execute());
@@ -136,19 +136,20 @@ test("L1: moved to another server, no money goes out here (the new server pays i
   assert.equal(await creditBalance(db, people.Dee!), 3000);
 });
 
-test("L2: an active card the person bought stops deleting their account; once it's given, the account goes and the card loses their words", async () => {
+test("L2 (as decided after the recheck, N2): an active card the person bought doesn't stop deleting their account; the preview says to save the code, and the card stays usable without their words", async () => {
   const { code: good, gift_card_id } = await bought("Ivy", 2000);
   const check = await deleteCheck(db, people.Ivy!, NOW);
-  assert.ok(check.blockers.some((b) => b.kind === "gift_cards" && b.how.en.includes("void")));
+  assert.ok(!check.blockers.length, "a buyer can always delete their account");
+  assert.ok(check.ends.some((t) => t.en.includes("save its code first")));
   // The data download has the cards (never the code) and all of the credit history.
   const data = await exportData(db, people.Ivy!, NOW, "en") as any;
   assert.ok(data.gift_cards.some((c: any) => c.bought && c.last4 === good.slice(-4)));
   assert.ok(!JSON.stringify(data).includes(good));
-  await run(db, "gift_card.redeem", { person_id: people.Gus, code: good }, as("Gus"), opts);
-  assert.ok(!(await deleteCheck(db, people.Ivy!, NOW)).blockers.some((b) => b.kind === "gift_cards"));
   await run(db, "privacy.erase", { person_id: people.Ivy }, as("Ivy"), opts);
   const c = await db.selectFrom("gift_card").select(["for_name", "message", "status"]).where("id", "=", gift_card_id).executeTakeFirstOrThrow();
-  assert.deepEqual(c, { for_name: null, message: null, status: "redeemed" });
+  assert.deepEqual(c, { for_name: null, message: null, status: "active" });
+  await run(db, "gift_card.redeem", { person_id: people.Gus, code: good }, as("Gus"), opts);
+  assert.equal((await db.selectFrom("gift_card").select("status").where("id", "=", gift_card_id).executeTakeFirstOrThrow()).status, "redeemed");
 });
 
 test("L3: a booking paid from credit, made shorter: the preview and the money both say club credit", async () => {
@@ -170,7 +171,7 @@ test("L4a-b: credit and gift cards are their own person's, never support access'
   await creditOf40("Gus");
   const g = (await run(db, "enrolment.join", { program_id: clinic, person_id: people.Gus }, as("Gus"), opts)).result as { payment_id: string };
   for (const who of [as("Ben"), owner]) await assert.rejects(plan(db, "payment.use_credit", { payment_id: g.payment_id }, who, opts), (e: unknown) => {
-    assert.ok(e instanceof KumiError); assert.equal(e.code, "error.forbidden"); assert.ok(!JSON.stringify(e.params ?? {}).includes("40"), "no balance said"); return true;
+    assert.ok(e instanceof KumiError); assert.equal(e.code, "error.forbidden_reason"); assert.ok(!JSON.stringify(e.params ?? {}).includes("40"), "no balance said"); return true;
   });
 });
 

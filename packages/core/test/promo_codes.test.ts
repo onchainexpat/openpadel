@@ -62,7 +62,8 @@ test("25% off a clinic place: asked again for $45, paid by card, the receipt nam
   assert.equal(await cardPaid(r.payment_id, "Ann"), "succeeded");
   // Once per person.
   const again = await join("Ann", drills);
-  await rejects(plan(db, "payment.use_promo", { payment_id: again.payment_id, code: "WELCOME25" }, as("Ann"), opts), "error.promo_used_by_you");
+  // Used up by this person: the same answer as a code that doesn't exist (nothing to learn by guessing).
+  await rejects(plan(db, "payment.use_promo", { payment_id: again.payment_id, code: "WELCOME25" }, as("Ann"), opts), "error.promo_unknown");
   // The receipt (issued for the payment) says what was taken off.
   await runAsSystem(db, "receipt.issue", { payment_id: r.payment_id }, "test", opts);
   const line = await db.selectFrom("receipt").innerJoin("receipt_payment", "receipt_payment.receipt_id", "receipt.id").select("receipt.lines").where("receipt_payment.payment_id", "=", r.payment_id).executeTakeFirstOrThrow();
@@ -80,7 +81,8 @@ test("all of it off goes through with nothing to pay; codes keep to their areas,
   const b = (await run(db, "booking.request", { court_id: court, starts_at: "2026-11-12T10:00:00-08:00", minutes: 60, person_id: people.Ben, pay: "whole" }, as("Ben"), opts)).result as { booking_id: string; payment_id: string };
   await rejects(plan(db, "payment.use_promo", { payment_id: b.payment_id, code: "BIG" }, as("Ben"), opts), "error.promo_min_spend");
   const e = await join("Ben");
-  await rejects(plan(db, "payment.use_promo", { payment_id: e.payment_id, code: "FREECOURT" }, as("Ben"), opts), "error.promo_not_for_this");
+  // A code for another area: the same answer as one that doesn't exist (nothing to learn by guessing).
+  await rejects(plan(db, "payment.use_promo", { payment_id: e.payment_id, code: "FREECOURT" }, as("Ben"), opts), "error.promo_unknown");
   await rejects(plan(db, "payment.use_promo", { payment_id: e.payment_id, code: "OVER" }, as("Ben"), opts), "error.promo_dates");
   await rejects(plan(db, "payment.use_promo", { payment_id: e.payment_id, code: "NOPE" }, as("Ben"), opts), "error.promo_unknown");
   const r = await use(b.payment_id, "freecourt", "Ben");

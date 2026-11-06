@@ -4,11 +4,11 @@ import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, clubTime, dollars, lang, me, t } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 
-type Product = { id: string; name: string; covers: "programs" | "courts"; uses: number; price_cents: number; max_minutes: number | null; valid_days: number | null };
-type Mine = { id: string; name: string; covers: "programs" | "courts"; uses: number; uses_left: number; expires_at: string | null; status: "active" | "refunded"; max_minutes: number | null };
+type Product = { id: string; name: string; covers: "programs" | "courts" | "lessons"; uses: number; price_cents: number; max_minutes: number | null; valid_days: number | null };
+type Mine = { id: string; name: string; covers: "programs" | "courts" | "lessons"; uses: number; uses_left: number; expires_at: string | null; status: "active" | "refunded"; max_minutes: number | null };
 
-const covers = (x: { covers: "programs" | "courts"; max_minutes: number | null }) =>
-  x.covers === "programs" ? t("ui.pass_covers_programs") : `${t("ui.pass_covers_courts")}${x.max_minutes ? `, ${t("ui.pass_up_to", { minutes: String(x.max_minutes) })}` : ""}`;
+const covers = (x: { covers: "programs" | "courts" | "lessons"; max_minutes: number | null }) =>
+  x.covers === "programs" ? t("ui.pass_covers_programs") : `${t(x.covers === "lessons" ? "ui.pass_covers_lessons" : "ui.pass_covers_courts")}${x.max_minutes ? `, ${t("ui.pass_up_to", { minutes: String(x.max_minutes) })}` : ""}`;
 
 export function Passes() {
   const [data, setData] = useState<{ mine: Mine[]; on_sale: Product[] } | null>(null), [paying, setPaying] = useState<{ id: string; cents: number; name: string } | null>(null), [error, setError] = useState<string | null>(null);

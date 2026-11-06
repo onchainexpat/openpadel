@@ -37,7 +37,8 @@ export const receiptNo = (n: string | number) => `R-${String(n).padStart(6, "0")
 async function lineOf(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: number; locationId: string | null }> {
   // A promo code's discount is named on the line (promo_codes.ts): what was paid, after it.
   const l = await lineWithout(db, p, tz);
-  return p.discount_cents ? { ...l, what: both("receipt.line_promo", { what: l.what, off: { en: money(p.discount_cents, "en"), es: money(p.discount_cents, "es") } }) } : l;
+  // A membership's: the code is for its first payment only; it renews at the plan's price.
+  return p.discount_cents ? { ...l, what: both(p.membership_plan_id ? "receipt.line_promo_first" : "receipt.line_promo", { what: l.what, off: { en: money(p.discount_cents, "en"), es: money(p.discount_cents, "es") } }) } : l;
 }
 async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: number; locationId: string | null }> {
   if (p.booking_player_id) {

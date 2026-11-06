@@ -59,6 +59,9 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   /** Input only the preview reads (a gift card's code): never stored, not even with the preview, so apply works
    *  from what the preview found (its details) and never sees it. */
   planOnly?: string[];
+  /** Only this person may do it (their own credit, their own code): anyone else is refused before the preview is
+   *  built, and the refusal is logged like any other (without what only the preview reads). */
+  selfOnly?: (db: Db | Trx, input: any) => Promise<string | null>;
   input: S;
   plan(ctx: PlanCtx, input: z.infer<S>): Promise<Plan>;
   apply(ctx: ApplyCtx, input: z.infer<S>, plan: Plan): Promise<unknown>;
@@ -313,6 +316,10 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
   const judged = await judgedAs(db, def, input);
   if (judged) await requireStrongAuth(db, judged.def, actor, judged.input);
   const now = opts.now ?? new Date();
+  if (def.selfOnly) {
+    const self = await def.selfOnly(db, input);
+    if (self && actor.personId !== self) return refuse(db, def, input, actor, null, { mode: "no", reason: "reason.self_only" });
+  }
   const p = await def.plan({ db, actor, now }, input);
   const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
   if (d.mode === "no") return refuse(db, def, input, actor, p, d);

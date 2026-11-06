@@ -45,12 +45,16 @@ type Facts = Awaited<ReturnType<typeof facts>>;
  *  club credit (which goes back to club credit), and what was paid at the desk (which goes back at the desk). */
 async function cardPays(db: Db | Trx, bookingId: string) {
   const rows = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-    .select(["payment.id", "payment.amount_cents", "payment.person_id", "payment.provider", "payment.method"])
+    .select(["payment.id", "payment.amount_cents", "payment.person_id", "payment.provider", "payment.method", "payment.discount_cents"])
     .select((eb) => eb.selectFrom("refund").select(sql<string>`coalesce(sum(refund.amount_cents), 0)`.as("c")).whereRef("refund.payment_id", "=", "payment.id").where("refund.status", "!=", "failed").as("back"))
     .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "succeeded").orderBy("payment.id").execute();
-  const all = rows.map((r) => ({ id: r.id, person_id: r.person_id, card: r.provider !== "none", credit: r.method === "credit", left: r.amount_cents - Number(r.back ?? 0) }));
-  const left = all.filter((p) => p.left > 0);
-  return { net: all.reduce((n, p) => n + p.left, 0), card: left.filter((p) => p.card), credit: left.filter((p) => p.credit), desk: left.filter((p) => !p.card && !p.credit) };
+  // A pass's use and a promo code's discount are their own: covered, but nothing of them comes back as money (a pass
+  // use goes back only with the whole booking; a free one gave nothing). The discount counts as paid.
+  const all = rows.map((r) => ({ id: r.id, person_id: r.person_id, card: r.provider !== "none", credit: r.method === "credit", other: r.method === "pass" || r.method === "promo",
+    left: r.amount_cents - Number(r.back ?? 0), off: r.method === "promo" ? 0 : r.discount_cents }));
+  const left = all.filter((p) => p.left > 0 && !p.other);
+  return { net: all.reduce((n, p) => n + p.left + p.off, 0), card: left.filter((p) => p.card), credit: left.filter((p) => p.credit), desk: left.filter((p) => !p.card && !p.credit),
+    other: all.some((p) => p.other && p.left > 0) };
 }
 
 /** What comes back when a booking costs less than was paid: `over` is what was paid beyond the new price. */
@@ -58,10 +62,11 @@ async function moneyBack(db: Db | Trx, b: Facts, over: number, choice: "rule" | 
   const policy = await policyOf(db, b.id);
   const early = b.start.getTime() - now.getTime() >= policy.free_cancel_hours * 3600_000;
   const percent = choice === "full" ? 100 : choice === "none" ? 0 : early ? 100 : policy.late_refund_percent;
-  const pays = await cardPays(db, b.id), cardLeft = pays.card.reduce((n, p) => n + p.left, 0), creditLeft = pays.credit.reduce((n, p) => n + p.left, 0);
-  const due = Math.round(over * percent / 100), cards = Math.min(due, cardLeft), credit = Math.min(due - cards, creditLeft);
+  const pays = await cardPays(db, b.id), cardLeft = pays.card.reduce((n, p) => n + p.left, 0), creditLeft = pays.credit.reduce((n, p) => n + p.left, 0), deskLeft = pays.desk.reduce((n, p) => n + p.left, 0);
+  const due = Math.round(over * percent / 100), cards = Math.min(due, cardLeft), credit = Math.min(due - cards, creditLeft), desk = Math.min(due - cards - credit, deskLeft);
   const why = choice === "rule" ? both("change.why_rule", { percent }) : both(choice === "full" ? "change.why_full" : "change.why_none");
-  return { percent, due, cards, credit, desk: due - cards - credit, why };
+  // Paid with a pass or a promo code: what's beyond the new price has nowhere to go (the use is spent; free gave nothing).
+  return { percent, due, cards, credit, desk, why, kept: pays.other && due > cards + credit + desk };
 }
 
 /** Send `cents` back across the card payments, in proportion to what's left of each; who got how much. */
@@ -83,9 +88,10 @@ async function giveBackAtDesk(ctx: ApplyCtx, bookingId: string, cents: number, f
   for (const p of (await cardPays(ctx.trx, bookingId))[from]) {
     const c = Math.min(rest, p.left);
     if (c <= 0) break;
-    await refundPayment(ctx, p.id, c);
-    out[p.person_id] = (out[p.person_id] ?? 0) + c;
-    rest -= c;
+    const got = await refundPayment(ctx, p.id, c);
+    if (got <= 0) continue;
+    out[p.person_id] = (out[p.person_id] ?? 0) + got;
+    rest -= got;
   }
   return out;
 }
@@ -98,6 +104,7 @@ function moneyText(o: { owed: number; price?: number; back?: Awaited<ReturnType<
     if (o.back.cards > 0) parts.push(both("change.back_card", { amount: usd(o.back.cards), why: o.back.why }));
     if (o.back.credit > 0) parts.push(both("change.back_credit", { amount: usd(o.back.credit), why: o.back.why }));
     if (o.back.desk > 0) parts.push(both("change.back_desk", { amount: usd(o.back.desk), why: o.back.why }));
+    if (o.back.kept) parts.push(both("change.back_pass_promo"));
     if (!parts.length) parts.push(both("change.back_none", { why: o.back.why }));
     const lead = o.price !== undefined ? both("change.repriced", { price: usd(o.price) }) : null;
     const all = lead ? [lead, ...parts] : parts;
