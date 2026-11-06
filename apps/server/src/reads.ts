@@ -273,6 +273,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.organiser_id", "booking.coach_id", "booking.price_cents", "booking.balance_cents", "booking.invite_code", "person.display_name", "coach.display_name as coach"])
       .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select((x) => x.fn.sum<string>("payment.amount_cents").as("c"))
         .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("paid_cents"))
+      // What promo codes took off: covered, not owed, so the desk isn't shown a discount to take as money.
+      .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(sql<string>`coalesce(sum(CASE WHEN payment.method = 'promo' THEN 0 ELSE payment.discount_cents END), 0)`.as("c"))
+        .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("off_cents"))
       // What has gone back, so "paid" on the Today view is what the club still holds.
       .select((eb) => eb.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
         .select((x) => x.fn.sum<string>("refund.amount_cents").as("c")).whereRef("booking_player.booking_id", "=", "booking.id").where("refund.status", "!=", "failed").as("back_cents"))
@@ -301,7 +304,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       const base = { start: x.start, end: x.end, kind: x.kind };
       if (x.booking_id && coachView && bookings.find((y) => y.id === x.booking_id)?.coach_id !== viewer) return { ...base, label: t(l, "grid.booked") };
       if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", price_cents: b?.price_cents ?? 0,
-        paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0), balance_cents: b?.balance_cents ?? 0, booking_kind: b?.kind ?? "court", coach: b?.coach ?? null, status: b?.status,
+        paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0), off_cents: Number(b?.off_cents ?? 0), balance_cents: b?.balance_cents ?? 0, booking_kind: b?.kind ?? "court", coach: b?.coach ?? null, status: b?.status,
         players: players.filter((p) => p.booking_id === x.booking_id).map((p) => p.display_name ?? p.guest_name ?? ""), late: lateFor(x.booking_id),
         // A member's court paid in full: the desk can name its players (booking_players.ts), and take them off.
         whole: b?.kind === "court" && b.pay_mode === "whole" && Boolean(b.organiser_id) && b.status === "confirmed",

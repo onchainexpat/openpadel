@@ -40,7 +40,7 @@ export function Passes() {
         </li>)}</ul>
         {error && <p class="error" role="alert">{error}</p>}
       </section>
-      {paying && <PaySheet paymentId={paying.id} amountCents={paying.cents} name={paying.name} onClose={() => { setPaying(null); void load(); }} onPaid={() => { setPaying(null); void load(); }} />}
+      {paying && <PaySheet paymentId={paying.id} cardOnly amountCents={paying.cents} name={paying.name} onClose={() => { setPaying(null); void load(); }} onPaid={() => { setPaying(null); void load(); }} />}
     </main>
   );
 }

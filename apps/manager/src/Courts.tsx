@@ -15,7 +15,7 @@ const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
 type Seat = { id: string; name: string; booker: boolean };
-type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; balance_cents?: number; booking_kind?: string;
+type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; off_cents?: number; balance_cents?: number; booking_kind?: string;
   coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; invite_code?: string | null; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string; program_id?: string; label?: string; empty_places?: Empty[] };
 // `open`: that court's own hours that day (they can differ from the location's); null when it's closed all day.
 type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
@@ -31,7 +31,7 @@ const ms = (iso: string) => new Date(iso).getTime();
 const length = (it: Item) => Math.round((ms(it.end) - ms(it.start)) / 60_000);
 // One item, wherever it is now: picked stays picked after it moves to another court.
 const keyOf = (it: Item, court: string) => it.booking_id ?? it.session_id ?? it.block_id ?? `${court}|${it.start}`;
-const unpaid = (it: Item) => Math.max(0, (it.price_cents ?? 0) - (it.paid_cents ?? 0));
+const unpaid = (it: Item) => Math.max(0, (it.price_cents ?? 0) - (it.paid_cents ?? 0) - (it.off_cents ?? 0));
 const isBooking = (it: Item) => Boolean(it.booking_id) && it.kind === "booking";
 
 export function Courts() {

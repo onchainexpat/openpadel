@@ -3,7 +3,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { apply, checkPayment, creditBalance, deskLines, giftCardsOf, messageHandlers, openPayment, outstandingGiftCards, plan, processOutbox, run, runAsSystem, setPaymentProvider,
+import { apply, checkPayment, creditBalance, deskLines, giftCardsOf, issueReceipts, messageHandlers, receiptView, openPayment, outstandingGiftCards, plan, processOutbox, run, runAsSystem, setPaymentProvider,
   GIFT_TRIES_PER_HOUR, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, desk: Actor;
@@ -49,6 +49,11 @@ test("off until the club sells them; then within its amounts; paid, it's owed (n
   await run(db, "club.update", { gift_cards: true }, { ...owner, auth: "passkey" } as Actor, opts);
   await rejects(plan(db, "gift_card.buy", { person_id: people.Ann, cents: 500 }, as("Ann"), opts), "error.gift_card_amount");
   const { payment_id } = await bought("Ann", 5000);
+  // Its receipt says what it was for, written when read: "Gift card for Sam", not "Payment".
+  await issueReceipts(db, { now: NOW });
+  const rc = await db.selectFrom("receipt_payment").select("receipt_id").where("payment_id", "=", payment_id).executeTakeFirst();
+  assert.ok(rc, "a receipt for the gift card");
+  assert.deepEqual((await receiptView(db, rc.receipt_id))!.lines[0]!.what, { en: "Gift card for Sam", es: "Tarjeta regalo para Sam" });
   assert.deepEqual([await held("gift_cards"), await held("revenue")], [-5000, 0], "a liability until it's used");
   // Club credit can't buy one.
   await rejects(plan(db, "payment.use_credit", { payment_id }, as("Ann"), opts), "error.credit_paid");

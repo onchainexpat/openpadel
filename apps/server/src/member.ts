@@ -177,6 +177,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
         eb.selectFrom("payment").select("id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_payment_id"),
         eb.selectFrom("payment").select("amount_cents").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending").limit(1).as("pending_cents"),
         eb.selectFrom("payment").select((x) => x.fn.sum<string>("amount_cents").as("c")).whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded").as("paid_cents"),
+        eb.selectFrom("payment").select(sql<string>`coalesce(sum(CASE WHEN method = 'promo' THEN 0 ELSE discount_cents END), 0)`.as("c")).whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded").as("off_cents"),
         // Several courts paid together: paying one pays them all, for their total.
         eb.selectFrom("payment as p").innerJoin("payment as g", "g.group_id", "p.group_id").select((x) => x.fn.sum<string>("g.amount_cents").as("c"))
           .whereRef("p.booking_player_id", "=", "booking_player.id").where("p.status", "=", "pending").where("g.status", "=", "pending").as("group_cents"),
@@ -198,7 +199,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     }
     return c.json(rows.map(({ person_id, ...r }) => {
       const mine = r.organiser_id === pid || (r.organiser_id === person_id && person_id !== pid);
-      return { ...r, mine, weekly_later: r.series_id && r.pending_payment_id ? later.get(r.series_id) ?? null : null, for_name: forName(person_id), paid_cents: Number(r.paid_cents ?? 0), joined: Number(r.joined ?? 0), group_cents: r.group_cents === null ? null : Number(r.group_cents),
+      return { ...r, mine, weekly_later: r.series_id && r.pending_payment_id ? later.get(r.series_id) ?? null : null, for_name: forName(person_id), paid_cents: Number(r.paid_cents ?? 0), off_cents: Number(r.off_cents ?? 0), joined: Number(r.joined ?? 0), group_cents: r.group_cents === null ? null : Number(r.group_cents),
         invite_code: mine && !r.settled_at ? r.invite_code : null, organiser_id: undefined };
     }));
   });

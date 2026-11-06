@@ -56,6 +56,15 @@ test("a court priced with tax included costs its price, and its receipt says the
   const p = (await receiptParams(db, r!.id))!;
   assert.equal((p.params.subtotal as { en: string }).en, "");
   assert.match((p.params.included as { en: string }).en, /^Of which VAT \(21\s%\): 6,94\s€/);   // amounts the club's way, words in English
+  // The line is written when read: switch the club's formats and the same receipt follows (a stored line keeps its key
+  // and the booking's start, not text from the day it was issued).
+  const before = v.lines[0]!.what.en;
+  setClubFormat({ currency: "EUR", locale: "en-US" });
+  try {
+    const after = (await receiptView(db, r!.id))!.lines[0]!.what.en;
+    assert.notEqual(after, before, "the date follows the club's formats when read");
+    assert.match(after, /(AM|PM)/);
+  } finally { setClubFormat({ currency: "EUR", locale: "es-ES" }); }
 });
 
 test("a promo code takes its share of the tax, and the US way is unchanged when switched back", async () => {

@@ -197,3 +197,31 @@ test("the revenue report has memberships as their own lines, net of refunds", as
   const csv = await (await app.request(`/staff/reports.csv?location_id=${loc}&from=${d}&to=${d}`, { headers: { cookie } })).text();
   assert.match(csv.trim().split("\r\n")[1]!, /,80\.00$/);
 });
+
+test("a court paid after a promo code reads as paid in full, for the member and on the desk's grid", async () => {
+  const dee = (await run(db, "person.create", { display_name: "Dee", email: "dee@example.test" }, owner)).result as { person_id: string };
+  await run(db, "club.update", { court_bookings: true }, owner);
+  await run(db, "promo_code.set", { code: "SAVE25", kind: "percent", percent: 25, applies_to: ["courts"] }, owner);
+  await app.request("/auth/email/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "dee@example.test" }) });
+  const code = mailer.last("dee@example.test")!.text.match(/\b(\d{6})\b/)![1]!;
+  const deeCookie = (await app.request("/auth/email/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "dee@example.test", code }) })).headers.get("set-cookie")!.split(";")[0]!;
+  const as = async (path: string, body?: unknown) => { const r = await app.request(path, { method: body ? "POST" : "GET", headers: { cookie: deeCookie, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, json: await r.json().catch(() => null) as any }; };
+  const d = localDate(new Date(Date.now() + 5 * 86400_000), TZ);
+  const start = (await as(`/availability?location_id=${loc}&date=${d}&minutes=60`)).json.courts[0].starts[3];
+  const plan = (await as("/actions/booking.request/plan", { court_id: c1, starts_at: start, minutes: 60, pay: "whole", person_id: dee.person_id })).json;
+  assert.ok(plan.run_id, JSON.stringify(plan));
+  const first = (await as(`/runs/${plan.run_id}/apply`, {})).json.result;
+  assert.ok(first?.payment_id, JSON.stringify(first));
+  const promo = (await as("/actions/payment.use_promo/plan", { payment_id: first.payment_id, code: "SAVE25" })).json;
+  const rest = (await as(`/runs/${promo.run_id}/apply`, {})).json.result as { paid: boolean; payment_id: string; rest_cents: number };
+  assert.equal(rest.paid, false);
+  await as(`/dev/payments/${rest.payment_id}/settle`, {});
+  const mine = (await as("/my/bookings")).json.find((b: any) => b.status === "confirmed" && b.off_cents > 0);
+  assert.ok(mine, "the booking is confirmed with the code's discount");
+  assert.equal(mine.paid_cents + mine.off_cents, mine.share_cents, "paid and the discount cover the court: nothing owed");
+  assert.equal(mine.paid_cents, rest.rest_cents);
+  const g = (await get(`/staff/grid?location_id=${loc}&date=${d}`)).json;
+  const it = JSON.stringify(g).includes(mine.id) ? (g.courts as any[]).flatMap((c: any) => c.items).find((x: any) => x.booking_id === mine.id) : null;
+  assert.ok(it, "on the desk's grid");
+  assert.equal(it.price_cents - it.paid_cents - it.off_cents, 0, "the desk sees nothing to take");
+});

@@ -241,6 +241,19 @@ server starts.
   and the profile's "Your receipts" link is as easy to tap as a button.
 
 ### Fixed
+- What a real phone showed on 5 November:
+  - A court paid after a promo code read "Paid $30.00 of $40.00". What the code took off now counts as paid on court
+    bookings, for the member ("Paid $30.00 ($10.00 off with a code)") and on the desk's grid, which no longer offers
+    to take the discount as money. Just after paying, the booking shows "Paid, thank you: confirming" instead of
+    "Being paid for" and a Pay button again.
+  - Buying a gift card or a pass no longer offers club credit or a promo code, which can't pay for them.
+  - The gift cards page lists the cards you bought apart from the cards you redeemed.
+  - The profile says club credit comes from gift cards you redeem and refunds the club gives as credit.
+  - Receipt lines are written when the receipt is read, in the reader's language and the club's formats as they
+    are then (a line issued before keeps its text). Gift card and pass receipts say what they were for ("Gift card
+    for Sam", "Pass: 5 clinic places") instead of "Payment".
+  - The move request's Send button on a tournament says what it sends, and a test now refuses any button with no
+    words or label in either app.
 - **A form's refused details are said in plain words.** Staff saw the checker's own text when something was missing
   (a program's "Add a date" without a court said "✖ Too small: expected array to have >=1 items → at court_ids").
   Every form now says what to do, in English and Spanish ("Pick at least one court.", "Choose a date and time.",

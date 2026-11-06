@@ -4,7 +4,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { apply, checkPayment, openPayment, plan, run, runAsSystem, setPaymentProvider, weekSpent, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { apply, checkPayment, issueReceipts, openPayment, plan, receiptView, run, runAsSystem, setPaymentProvider, weekSpent, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, desk: Actor, loc: string, court: string, clinic: string, clinicPass: string, courtPass: string;
 const stripe = new TestProvider();
@@ -125,6 +125,12 @@ test("bought by card in the app; a manager refunds the unused uses pro rata, to 
   await rejects(plan(db, "payment.use_credit", { payment_id: r.payment_id }, as("Cal"), opts), "error.credit_pass");
   assert.equal(await cardPaid(r.payment_id, "Cal"), "succeeded");
   assert.equal((await pass(r.pass_id)).status, "active");
+  // Its receipt names the pass (written when read, in the reader's language), not just "Payment".
+  await issueReceipts(db, { now: NOW });
+  const rc = await db.selectFrom("receipt_payment").select("receipt_id").where("payment_id", "=", r.payment_id).executeTakeFirst();
+  assert.ok(rc, "a receipt for the pass");
+  const v = await receiptView(db, rc.receipt_id);
+  assert.deepEqual(v!.lines[0]!.what, { en: "Pass: 3 clinic places", es: "Bono: 3 clinic places" });
   const e = await join("Cal");
   await run(db, "payment.use_pass", { payment_id: e.payment_id, pass_id: r.pass_id }, as("Cal"), opts);
   // The desk can't refund a pass; the owner can: 2 of 3 uses left, $100 of $150.

@@ -19,9 +19,17 @@ import { uuidv7 } from "./ids.ts";
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const NOTHING: Text = { en: "", es: "" };
 type Card = { brand: string; last4: string };
-type Line = { what: Text; cents: number };
+/** What a line says, kept as its wording key and raw values (a date as an instant, an amount in cents), so a receipt is
+ *  written at read time in the reader's language and the club's formats as they are then; older lines keep their text. */
+type Src = { key: string; court?: string; coach?: string; at?: string; name?: Text; for?: string; off?: number; inner?: Src };
+type Line = { what: Text; cents: number; src?: Src };
+function srcText(src: Src, tz: string): Text {
+  return both(src.key as never, { ...(src.court !== undefined ? { court: src.court } : {}), ...(src.coach !== undefined ? { coach: src.coach } : {}),
+    ...(src.at ? { when: whenText(new Date(src.at), tz) } : {}), ...(src.name ? { name: src.name } : {}), ...(src.for !== undefined ? { for: src.for } : {}),
+    ...(src.off !== undefined ? { off: { en: money(src.off, "en"), es: money(src.off, "es") } } : {}), ...(src.inner ? { what: srcText(src.inner, tz) } : {}) });
+}
 type Paid = { id: string; person_id: string; amount_cents: number; method: string; booking_player_id: string | null; enrolment_id: string | null; membership_plan_id: string | null;
-  membership_id: string | null; membership_member_id: string | null; family_card_id: string | null; discount_cents?: number };
+  membership_id: string | null; membership_member_id: string | null; family_card_id: string | null; discount_cents?: number; gift_card_id?: string | null; pass_id?: string | null };
 
 /** A date and time with the year, in the club's time: a receipt is kept. */
 export function receiptDate(d: Date, lang: Lang, timeZone: string): string {
@@ -62,7 +70,9 @@ async function lineOf(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: 
   // A promo code's discount is named on the line (promo_codes.ts): what was paid, after it.
   const l = await lineWithout(db, p, tz);
   // A membership's: the code is for its first payment only; it renews at the plan's price.
-  return p.discount_cents ? { ...l, what: both(p.membership_plan_id ? "receipt.line_promo_first" : "receipt.line_promo", { what: l.what, off: { en: money(p.discount_cents, "en"), es: money(p.discount_cents, "es") } }) } : l;
+  if (!p.discount_cents) return l;
+  const key = p.membership_plan_id ? "receipt.line_promo_first" : "receipt.line_promo";
+  return { ...l, what: both(key, { what: l.what, off: { en: money(p.discount_cents, "en"), es: money(p.discount_cents, "es") } }), ...(l.src ? { src: { key, off: p.discount_cents, inner: l.src } } : {}) };
 }
 async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { tax: number; locationId: string | null; sold?: Sold }> {
   if (p.booking_player_id) {
@@ -72,7 +82,8 @@ async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { 
       .where("booking_player.id", "=", p.booking_player_id).orderBy(sql`court_time.active`, "desc").executeTakeFirst();
     if (b) {
       const params = { court: b.court, when: whenText(new Date(b.start), tz), coach: b.coach ?? "" };
-      const what = b.kind === "lesson" ? both("receipt.line_lesson", params) : p.amount_cents + (p.discount_cents ?? 0) >= b.price_cents ? both("receipt.line_court", params) : both("receipt.line_share", params);
+      const key = b.kind === "lesson" ? "receipt.line_lesson" : p.amount_cents + (p.discount_cents ?? 0) >= b.price_cents ? "receipt.line_court" : "receipt.line_share";
+      const what = both(key, params), src: Src = { key, court: b.court, coach: b.coach ?? "", at: new Date(b.start).toISOString() };
       // The tax in what this payment paid, at the rate it was sold at: a share's receipt states the VAT on its own
       // amount (a quarter of a €10.00 court at 21% is €0.43), not a share of the court's rounded tax. A booking from
       // before quotes kept the rate: its tax in proportion, as before.
@@ -81,7 +92,7 @@ async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { 
       const paidAll = p.amount_cents + (p.discount_cents ?? 0) >= b.price_cents;
       const tax = !b.tax_cents || b.price_cents <= 0 ? 0 : paidAll && !p.discount_cents ? b.tax_cents
         : sold ? Math.round(p.amount_cents * sold.bp / (10_000 + sold.bp)) : Math.round(b.tax_cents * p.amount_cents / b.price_cents);
-      return { what, cents: p.amount_cents, tax, locationId: b.location_id, sold };
+      return { what, cents: p.amount_cents, tax, locationId: b.location_id, sold, src };
     }
   }
   if (p.enrolment_id) {
@@ -93,19 +104,31 @@ async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { 
       // Each language's receipt names the program in that language, when the club wrote one.
       const name = textOf(e.name, e.translations, "name");
       const what = s?.s ? both("receipt.line_program", { name, when: whenText(new Date(s.s as Date), tz) }) : both("receipt.line_program_only", { name });
-      return { what, cents: p.amount_cents, tax: 0, locationId: e.location_id };
+      const src: Src = s?.s ? { key: "receipt.line_program", name, at: new Date(s.s as Date).toISOString() } : { key: "receipt.line_program_only", name };
+      return { what, cents: p.amount_cents, tax: 0, locationId: e.location_id, src };
     }
   }
   const planId = p.membership_plan_id ?? (p.membership_id ? (await db.selectFrom("membership").select("plan_id").where("id", "=", p.membership_id).executeTakeFirst())?.plan_id : null);
   if (planId) {
     const plan = await db.selectFrom("membership_plan").select(["name", "translations"]).where("id", "=", planId).executeTakeFirstOrThrow();
-    return { what: both(p.membership_member_id ? "receipt.line_membership_extra" : "receipt.line_membership", { name: textOf(plan.name, plan.translations, "name") }), cents: p.amount_cents, tax: 0, locationId: null };
+    const key = p.membership_member_id ? "receipt.line_membership_extra" : "receipt.line_membership", name = textOf(plan.name, plan.translations, "name");
+    return { what: both(key, { name }), cents: p.amount_cents, tax: 0, locationId: null, src: { key, name } };
+  }
+  // A gift card bought, and a pass bought (a use of one has no receipt of its own: the pass's purchase had it).
+  if (p.gift_card_id) {
+    const g = await db.selectFrom("gift_card").select("for_name").where("id", "=", p.gift_card_id).executeTakeFirst();
+    const key = g?.for_name ? "receipt.line_gift_card_for" : "receipt.line_gift_card";
+    return { what: both(key, { for: g?.for_name ?? "" }), cents: p.amount_cents, tax: 0, locationId: null, src: { key, for: g?.for_name ?? "" } };
+  }
+  if (p.pass_id) {
+    const pp = await db.selectFrom("pass").select("name").where("id", "=", p.pass_id).executeTakeFirst();
+    if (pp) { const name = { en: pp.name, es: pp.name } as Text; return { what: both("receipt.line_pass", { name }), cents: p.amount_cents, tax: 0, locationId: null, src: { key: "receipt.line_pass", name } }; }
   }
   return { what: both("receipt.line_other"), cents: p.amount_cents, tax: 0, locationId: null };
 }
 
 const PAID_COLUMNS = ["id", "person_id", "amount_cents", "method", "booking_player_id", "enrolment_id", "membership_plan_id", "membership_id", "membership_member_id", "family_card_id",
-  "group_id", "provider_ref", "discount_cents"] as const;
+  "group_id", "provider_ref", "discount_cents", "gift_card_id", "pass_id"] as const;
 
 /** Who a payment's receipt is for: whoever paid, which for a kid's charge on the family card is the parent who
  *  saved the card (the kid is named on it). */
@@ -141,7 +164,7 @@ export const receiptIssue = defineAction({
       const { to, forPerson } = await payerOf(ctx.trx, pay);
       const id = uuidv7(ctx.now.getTime());
       await ctx.trx.insertInto("receipt").values({ id, kind: "payment", person_id: to, for_person_id: forPerson, payment_id: rows[0]!.id, refund_id: null,
-        location_id: lines.find((l) => l.locationId)?.locationId ?? await firstLocation(ctx.trx), lines: JSON.stringify(lines.map((l) => ({ what: l.what, cents: l.cents }))),
+        location_id: lines.find((l) => l.locationId)?.locationId ?? await firstLocation(ctx.trx), lines: JSON.stringify(lines.map((l) => ({ what: l.what, cents: l.cents, ...(l.src ? { src: l.src } : {}) }))),
         subtotal_cents: total - tax, tax_cents: tax, total_cents: total, method: pay.method, card: card ? JSON.stringify(card) : null, paid_at: ctx.now, ...await taxFacts(ctx.trx, lines.find((l) => l.sold)?.sold) }).execute();
       await ctx.trx.insertInto("receipt_payment").values(rows.map((r) => ({ payment_id: r.id, receipt_id: id }))).execute();
       await ctx.emit("receipt.issued", { receipt_id: id });
@@ -161,7 +184,7 @@ export const receiptIssue = defineAction({
     const { to, forPerson } = await payerOf(ctx.trx, pay);
     const id = uuidv7(ctx.now.getTime());
     await ctx.trx.insertInto("receipt").values({ id, kind: "refund", person_id: to, for_person_id: forPerson, payment_id: pay.id, refund_id: r.id,
-      location_id: paidReceipt?.location_id ?? line.locationId ?? await firstLocation(ctx.trx), lines: JSON.stringify([{ what: line.what, cents: r.amount_cents }]),
+      location_id: paidReceipt?.location_id ?? line.locationId ?? await firstLocation(ctx.trx), lines: JSON.stringify([{ what: line.what, cents: r.amount_cents, ...(line.src ? { src: line.src } : {}) }]),
       subtotal_cents: r.amount_cents - tax, tax_cents: tax, total_cents: r.amount_cents, method: r.destination === "credit" ? "credit" : pay.method,
       card: r.destination === "credit" ? null : paidReceipt?.card ? JSON.stringify(paidReceipt.card) : card ? JSON.stringify(card) : null, paid_at: ctx.now, ...facts }).execute();
     await ctx.emit("receipt.issued", { receipt_id: id });
@@ -204,7 +227,7 @@ export async function receiptView(db: Db | Trx, receiptId: string) {
   const card = r.card as Card | null, refund = r.kind === "refund";
   const original = refund ? await db.selectFrom("receipt_payment").innerJoin("receipt", "receipt.id", "receipt_payment.receipt_id").select("receipt.number")
     .where("receipt_payment.payment_id", "=", r.payment_id).executeTakeFirst() : null;
-  const lines = (r.lines as { what: Text; cents: number }[]).map((l) => ({ what: l.what, amount: usd(l.cents) }));
+  const lines = (r.lines as Line[]).map((l) => ({ what: l.src ? srcText(l.src, club.time_zone) : l.what, amount: usd(l.cents) }));
   return {
     id: r.id, number: receiptNo(r.number), kind: r.kind, person_id: r.person_id, club: club.legal_name ?? club.name, address: addressLine(r) ?? null,
     when: { en: receiptDate(r.paid_at, "en", club.time_zone), es: receiptDate(r.paid_at, "es", club.time_zone) } as Text,

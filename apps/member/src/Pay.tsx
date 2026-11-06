@@ -33,12 +33,14 @@ export async function confirmPaid(paymentId: string, tries = 8, check = `/my/pay
 /** `cardFor`: save the card for that membership instead of paying (nothing is charged). `familyCard`: save the
  *  family card a parent's kids pay with. A kid's own payment never shows a card form: it goes on the family
  *  card, or to a parent to pay. */
-export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, amountCents: firstAmount, name, detail, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; amountCents: number; name: string; detail?: string | null; onClose: () => void; onPaid: () => void }) {
+export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnly, amountCents: firstAmount, name, detail, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; cardOnly?: boolean; amountCents: number; name: string; detail?: string | null; onClose: () => void; onPaid: () => void }) {
   const box = useRef<HTMLDivElement>(null), stripe = useRef<{ stripe: any; elements: any } | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "paying" | "checking">("loading"), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
   // The phone's back button closes the card form, as its Cancel does.
   useBackCloses(true, onClose);
-  const setup = Boolean(cardFor || familyCard);
+  // A gift card or a pass is bought by card only: club credit and promo codes can't buy them (the server refuses), so
+  // the sheet doesn't offer either.
+  const setup = Boolean(cardFor || familyCard || cardOnly);
   // Club credit first (credit.ts): asked before the card form opens, since a card form already open can't change.
   // Paid all from credit, the sheet is done; part of a place, the card is asked for the rest, a payment of its own.
   const [paymentId, setPaymentId] = useState(firstPayment), [amountCents, setAmountCents] = useState(firstAmount);

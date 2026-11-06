@@ -73,7 +73,7 @@ export function Competitions() {
                 <details><summary>{t("action.fixture.ask_move")}</summary>
                   <form onSubmit={(x) => { x.preventDefault(); preview("fixture.ask_move", { fixture_id: f.id, person_id: pid, note: note[f.id] ?? "" }); }}>
                     <input aria-label={t("ui.move_why")} placeholder={t("ui.move_why")} value={note[f.id] ?? ""} onInput={(x) => setNote({ ...note, [f.id]: x.currentTarget.value })} />
-                    <button class="small" disabled={(note[f.id] ?? "").trim().length < 3}>{t("ui.send")}</button>
+                    <button class="small" aria-label={t("action.fixture.ask_move")} disabled={(note[f.id] ?? "").trim().length < 3}>{t("ui.send")}</button>
                   </form>
                 </details>
               ))}

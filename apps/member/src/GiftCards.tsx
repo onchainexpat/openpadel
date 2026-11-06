@@ -39,14 +39,20 @@ export function GiftCards() {
         <form class="inline" onSubmit={(e) => { e.preventDefault(); preview("gift_card.redeem", { person_id: pid, code: ((e.currentTarget as HTMLFormElement).elements.namedItem("code") as HTMLInputElement).value }); }}>
           <input name="code" required autocomplete="off" aria-label={t("ui.gift_card_code")} placeholder="XXXX-XXXX-XXXX-XXXX" />
           <button>{t("ui.gift_card_redeem")}</button></form></section>
-      {cards.length > 0 && <section class="card"><h2>{t("ui.gift_card_yours")}</h2>
-        <ul class="plain">{cards.map((x) => <li key={x.id} class="gift">
+      {/* Cards bought (with their codes, to give) apart from cards redeemed: someone else's card isn't "yours, bought". */}
+      {cards.some((x) => x.bought) && <section class="card"><h2>{t("ui.gift_card_yours")}</h2>
+        <ul class="plain">{cards.filter((x) => x.bought).map((x) => <li key={x.id} class="gift">
           <p><strong>{dollars(x.amount_cents, lang.value)}</strong>{x.for_name ? ` · ${x.for_name}` : ""} · {t(`ui.gift_card_status_${x.status}` as Key)}</p>
           {x.code && <p class="code">{x.code}</p>}
           {x.message && <p class="meta">{x.message}</p>}
           {x.code && <button class="small" onClick={() => print()}>{t("ui.gift_card_print")}</button>}
         </li>)}</ul></section>}
-      {paying && <PaySheet paymentId={paying.id} amountCents={paying.cents} name={t("ui.gift_cards_title")} onClose={() => { setPaying(null); void load(); }} onPaid={() => { setPaying(null); void load(); }} />}
+      {cards.some((x) => !x.bought) && <section class="card"><h2>{t("ui.gift_card_redeemed_list")}</h2>
+        <ul class="plain">{cards.filter((x) => !x.bought).map((x) => <li key={x.id} class="gift">
+          <p><strong>{dollars(x.amount_cents, lang.value)}</strong> · {t("ui.gift_card_into_credit")}</p>
+          {x.message && <p class="meta">{t("ui.gift_card_their_message", { message: x.message })}</p>}
+        </li>)}</ul></section>}
+      {paying && <PaySheet paymentId={paying.id} cardOnly amountCents={paying.cents} name={t("ui.gift_cards_title")} onClose={() => { setPaying(null); void load(); }} onPaid={() => { setPaying(null); void load(); }} />}
       {sheet}
     </main>
   );
