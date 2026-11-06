@@ -53,10 +53,10 @@ export function format(catalog: Catalog, lang: Lang, key: Key, params: Params = 
 /** The club's currency and formats. A Kumi server runs one club, and so does each app, so this is set once: the
  *  server from the club's settings as it starts and whenever they change (setClubFormat), each app from /club.
  *  Until then, and in a club that never changes them, US dollars the US way. */
-export interface ClubFormat { currency: string; locale: string }
-let clubFmt: ClubFormat = { currency: "USD", locale: "en-US" };
+export interface ClubFormat { currency: string; locale: string; country?: string }
+let clubFmt: ClubFormat = { currency: "USD", locale: "en-US", country: "US" };
 export function setClubFormat(f: Partial<ClubFormat>): void {
-  clubFmt = { currency: (f.currency || clubFmt.currency).toUpperCase(), locale: f.locale || clubFmt.locale };
+  clubFmt = { currency: (f.currency || clubFmt.currency).toUpperCase(), locale: f.locale || clubFmt.locale, country: (f.country || clubFmt.country || "US").toUpperCase() };
 }
 export const clubFormat = (): ClubFormat => clubFmt;
 

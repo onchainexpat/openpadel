@@ -11,10 +11,10 @@ type Hours = { weekday: number; opens: string | null; closes: string | null };
 type Court = { id: string; location_id: string; name: string; kind: string; bookable: boolean; sort: number; hours: Hours[] };
 type Special = { id: string; court_id: string | null; on_date: string; opens: string | null; closes: string | null; note: string | null };
 type Price = { id: string; name: string; translations?: unknown; court_ids: string[] | null; weekdays: number[] | null; starts: string | null; ends: string | null; valid_from: string | null; valid_to: string | null; cents_per_hour: number; priority: number; plan_ids: string[] | null };
-type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
+type Loc = { id: string; name: string; address: string | null; postal_code?: string | null; region?: string | null; country?: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; prices_include_tax: boolean; tax_label: string | null; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
+type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; country: string; prices_include_tax: boolean; tax_label: string | null; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
 type Usage = { cents_per_segment: number; paused: boolean; resets: string; current: Month; history: Month[] };
@@ -151,6 +151,8 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       <label>{t("ui.locale")}<input required list="locales" value={f.format_locale} onInput={(e) => set("format_locale", e.currentTarget.value)} /></label>
       <datalist id="locales">{LOCALES.map((l) => <option value={l} />)}</datalist>
       <p class="meta">{t("ui.locale_note")}</p>
+      <label>{t("ui.country")}<input required maxLength={2} pattern="[A-Za-z]{2}" autocapitalize="characters" value={f.country} onInput={(e) => set("country", e.currentTarget.value.toUpperCase())} /></label>
+      <p class="meta">{t("ui.country_note")}</p>
       <fieldset>
         <legend>{t("ui.languages")}</legend>
         {["en", "es"].map((l) => <label class="check"><input type="checkbox" checked={f.languages.includes(l)} onChange={(e) => toggleLang(l, e.currentTarget.checked)} /> {l === "es" ? "Español" : "English"}</label>)}
@@ -193,7 +195,7 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
 }
 
 function LocationCard({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
-  const start = { name: l.name, address: l.address ?? "", time_zone: l.time_zone };
+  const start = { name: l.name, address: l.address ?? "", postal_code: l.postal_code ?? "", region: l.region ?? "", country: l.country ?? "", time_zone: l.time_zone };
   const [f, setF] = useState(start), [court, setCourt] = useState({ name: "", kind: "indoor" });
   return (
     <section class="card">
@@ -201,6 +203,9 @@ function LocationCard({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview
         <h2>{l.name}</h2>
         <label>{t("ui.name")}<input required value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
         <label>{t("ui.address")}<input value={f.address} onInput={(e) => setF({ ...f, address: e.currentTarget.value })} /></label>
+        <div class="court-row"><label>{t("ui.postal_code")}<input maxLength={16} value={f.postal_code} onInput={(e) => setF({ ...f, postal_code: e.currentTarget.value })} /></label>
+          <label>{t("ui.region")}<input maxLength={60} value={f.region} onInput={(e) => setF({ ...f, region: e.currentTarget.value })} /></label>
+          <label>{t("ui.country_code")}<input maxLength={2} pattern="[A-Za-z]{2}" value={f.country} onInput={(e) => setF({ ...f, country: e.currentTarget.value.toUpperCase() })} /></label></div>
         <label>{t("ui.time_zone")}<input list="zones" required value={f.time_zone} onInput={(e) => setF({ ...f, time_zone: e.currentTarget.value })} /></label>
         <button>{t("ui.preview")}</button>
       </form>
@@ -370,13 +375,16 @@ function CourtHours({ c, l, send }: { c: Court; l: Loc; send: Preview }) {
 }
 
 function NewLocation({ tz, send }: { tz: string; send: Preview }) {
-  const [open, setOpen] = useState(false), [f, setF] = useState({ name: "", address: "", time_zone: tz });
+  const [open, setOpen] = useState(false), [f, setF] = useState({ name: "", address: "", postal_code: "", region: "", country: "", time_zone: tz });
   if (!open) return <button onClick={() => setOpen(true)}>{t("ui.add_location")}</button>;
   return (
-    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("location.create", { name: f.name, time_zone: f.time_zone, address: f.address || undefined }); }}>
+    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("location.create", { name: f.name, time_zone: f.time_zone, address: f.address || undefined, postal_code: f.postal_code || undefined, region: f.region || undefined, country: f.country || undefined }); }}>
       <h2>{t("ui.add_location")}</h2>
       <label>{t("ui.name")}<input required value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
       <label>{t("ui.address")}<input value={f.address} onInput={(e) => setF({ ...f, address: e.currentTarget.value })} /></label>
+      <div class="court-row"><label>{t("ui.postal_code")}<input maxLength={16} value={f.postal_code} onInput={(e) => setF({ ...f, postal_code: e.currentTarget.value })} /></label>
+          <label>{t("ui.region")}<input maxLength={60} value={f.region} onInput={(e) => setF({ ...f, region: e.currentTarget.value })} /></label>
+          <label>{t("ui.country_code")}<input maxLength={2} pattern="[A-Za-z]{2}" value={f.country} onInput={(e) => setF({ ...f, country: e.currentTarget.value.toUpperCase() })} /></label></div>
       <label>{t("ui.time_zone")}<input list="zones" required value={f.time_zone} onInput={(e) => setF({ ...f, time_zone: e.currentTarget.value })} /></label>
       <button class="primary">{t("ui.preview")}</button>
     </form>

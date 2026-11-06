@@ -63,13 +63,13 @@ export async function connectStripe(db: Db, stripe: StripeProvider, actor: Actor
   : Promise<{ url: string } | { awaiting_approval: string }> {
   // Nothing is asked of Stripe for someone who could never set the club's account (owners do; managers ask).
   if (!actor.personId || !(await mayEverDo(db, actor.personId, "club.payment_account_set"))) throw new KumiError("error.forbidden", {}, 403);
-  const club = await db.selectFrom("club").select(["stripe_account_id"]).executeTakeFirstOrThrow();
+  const club = await db.selectFrom("club").select(["stripe_account_id", "country"]).executeTakeFirstOrThrow();
   let account = club.stripe_account_id;
   if (!account) {
     // The retry key must be this club's own: the platform key is shared by every hosted club, and Stripe
     // would hand a second club the first one's account. The run that set the club up is unique to it.
     const setup = await db.selectFrom("action_run").select("id").where("action", "=", "club.setup").orderBy("id").limit(1).executeTakeFirstOrThrow();
-    account = await stripe.createAccount({ country: "US", email, idempotencyKey: `club:${setup.id}` });
+    account = await stripe.createAccount({ country: club.country, email, idempotencyKey: `club:${setup.id}` });
     const r = await run(db, "club.payment_account_set", { stripe_account_id: account }, actor);
     if (r.status === "awaiting_approval") return { awaiting_approval: r.runId };
   }

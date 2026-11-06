@@ -26,6 +26,11 @@ server starts.
   shows the total, then "Of which VAT (21%): €6.94". A refund or a promo code takes its share of the tax, as before.
   Each receipt keeps how it was taxed when it was issued. What's taxed is unchanged: court bookings and lessons;
   places, memberships, passes and gift cards aren't.
+- **A club's country, and phone numbers from anywhere.** Settings has the club's country (US until changed). A
+  number typed without a + is read in it and kept as an international number, and a club's own Stripe account (under
+  Connect) is opened there. Texts still reach US and Canadian numbers only: someone who gives another country's number
+  is told so plainly, and gets the same messages by email. A location's address has its postal code, region and
+  country, and a receipt writes the address that way.
 - **Mexicano and King of the Court nights**, beside the Americano. A Mexicano pairs each round by the night's
   standings (1st and 4th against 2nd and 3rd, the best four on the top court), with games to 16, 21, 24 or 32
   points, and a round sat out counts half a game's points. King of the Court plays timed rounds (12 minutes to
@@ -324,9 +329,11 @@ server starts.
   by the one who booked it, not a share; a pass covers the price, so a booking shortened later gives nothing back,
   and a use the club's rules refund only in part is spent. A pass past its date keeps its unused value in the books
   until a manager refunds it.
-- Outside the US: a club's currency, formats and tax-included prices are its own (above), but only courts and
-  lessons are taxed, phone numbers are US and Canadian, and texts reach US and Canadian numbers only. Which
-  countries, languages, data-protection duties, invoices and ways to pay come next is still to decide.
+- Outside the US: a club's currency, formats, tax-included prices, country and phone numbers are its own (above),
+  but only courts and lessons are taxed, texts reach US and Canadian numbers only, and texting registration is for a
+  US or Canadian number. Which countries first, more languages, data protection (GDPR in the EU and UK), VAT
+  registration and invoice rules, texting elsewhere, ways to pay other than cards and local holidays are still to
+  decide (the setup guide lists them).
 - Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures", and
   with credit, gift cards and passes as above in place of "no credit, gift cards, vouchers or drop-in passes".
 

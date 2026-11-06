@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@kumi/i18n";
-import { promosOn, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { anyPhone, promosOn, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, usPhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -299,7 +299,7 @@ export function makeApp(deps: AppDeps) {
   });
   // ---- Sign in (or join) by a texted code, when the club texts ----
   const texter = () => { const tx = deps.texts?.texter ?? null; if (!phoneSignInOn(tx)) throw new KumiError("error.phone_sign_in_off", {}, 409); return tx!; };
-  const phoneOf = (raw: string) => { const p = usPhone(raw); if (!p) throw new KumiError("error.phone_bad", {}, 400); return p; };
+  const phoneOf = (raw: string) => { const p = usPhone(raw); if (!p) throw new KumiError(anyPhone(raw) ? "error.phone_not_textable" : "error.phone_bad", {}, 400); return p; };
   app.post("/auth/phone/start", async (c) => {
     const tx = texter();
     const parsed = z.safeParse(PhoneStart, await c.req.json().catch(() => ({})));

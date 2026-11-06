@@ -530,6 +530,10 @@ Kumi was built for US clubs. These parts work for a club anywhere:
   GST in them, and give the tax its name. A €40 court then costs €40, and its receipt shows "Of which VAT (21%):
   €6.94" under the total. Kumi taxes court bookings and lessons only (as in the US); places, memberships, passes and
   gift cards carry no tax. Whether that fits the club's country is for the club's accountant.
+- **Country and phone numbers.** Settings, The club: the club's country. Numbers typed without a + are read in it;
+  Stripe (under Connect) opens the club's account there. Each location's address has a postal code, a region and a
+  country, and receipts write it that way. Texts reach US and Canadian numbers only: members with other numbers are
+  told so and get everything by email.
 
 Not done yet, and each needs a decision before a club outside the US goes live:
 

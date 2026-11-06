@@ -11,7 +11,7 @@
 // accent never doubles what it costs.
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, t, type Lang } from "@kumi/i18n";
+import { both, t, type Lang, clubFormat } from "@kumi/i18n";
 import { defineAction, runAsSystem } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -19,6 +19,7 @@ import { uuidv7 } from "./ids.ts";
 import { countHeld, countText, textAllowed, textPrice } from "./text_usage.ts";
 import { skipRepeatsAfterRestore } from "./repeats.ts";
 import { movedAway } from "./club_exit.ts";
+import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js/min";
 
 /** The version of the words a member says yes to. A new wording gets a new version, and the old yes stands. */
 export const TEXTS_FORM = "texts-2026-11-01";
@@ -54,6 +55,12 @@ export function usPhone(input: string): string | null {
   if (!/^[2-9]/.test(area) || !/^[2-9]/.test(exchange) || exchange.slice(1) === "11") return null;
   if (area[1] === area[2] || ELSEWHERE.has(area) || NOT_A_PLACE.has(area)) return null;
   return `+1${d}`;
+}
+/** A number from any country as E.164 (+34612345678), read in the club's country when typed without a +; null if
+ *  it isn't a real number. Texts still go only to US and Canadian numbers (usPhone): others are told so, and get email. */
+export function anyPhone(input: string, country: string = clubFormat().country ?? "US"): string | null {
+  const p = parsePhoneNumberFromString(input.trim(), country as CountryCode);
+  return p && p.isValid() ? p.number : null;
 }
 /** +15035550123 as (503) 555-0123. */
 export const showPhone = (e164: string) => /^\+1\d{10}$/.test(e164) ? `(${e164.slice(2, 5)}) ${e164.slice(5, 8)}-${e164.slice(8)}` : e164;

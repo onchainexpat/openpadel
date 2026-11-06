@@ -33,6 +33,14 @@ const whenText = (d: Date, tz: string): Text => ({
 /** "R-001042": the number as printed. */
 export const receiptNo = (n: string | number) => `R-${String(n).padStart(6, "0")}`;
 
+/** A location's address as it's written where it is: the street, then the postal code and region, then the country. */
+function addressLine(r: { address: string | null; postal_code: string | null; region: string | null; country: string | null }): string | null {
+  const place = [r.postal_code, r.region].filter(Boolean).join(" ");
+  const country = r.country ? (() => { try { return new Intl.DisplayNames([formatLocale("en")], { type: "region" }).of(r.country!) ?? r.country; } catch { return r.country; } })() : null;
+  const line = [r.address, place, country].filter(Boolean).join(", ");
+  return line || null;
+}
+
 /** How the club taxes, kept on each receipt as it's issued (a later change never rewrites one already given). */
 async function taxFacts(db: Db | Trx) {
   const c = await db.selectFrom("club").select(["prices_include_tax", "tax_label", "tax_rate_bp"]).executeTakeFirstOrThrow();
@@ -174,7 +182,7 @@ const brandName = (b: string) => BRANDS[b.toLowerCase()] ?? b.charAt(0).toUpperC
 /** A receipt as it's shown and sent, in both languages: everything on it, worked out from the stored row. */
 export async function receiptView(db: Db | Trx, receiptId: string) {
   const r = await db.selectFrom("receipt").leftJoin("location", "location.id", "receipt.location_id").leftJoin("person as kid", "kid.id", "receipt.for_person_id")
-    .selectAll("receipt").select(["location.address", "location.name as location", "kid.display_name as kid"]).where("receipt.id", "=", receiptId).executeTakeFirst();
+    .selectAll("receipt").select(["location.address", "location.postal_code", "location.region", "location.country", "location.name as location", "kid.display_name as kid"]).where("receipt.id", "=", receiptId).executeTakeFirst();
   if (!r) return null;
   const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone"]).executeTakeFirstOrThrow();
   const card = r.card as Card | null, refund = r.kind === "refund";
@@ -182,7 +190,7 @@ export async function receiptView(db: Db | Trx, receiptId: string) {
     .where("receipt_payment.payment_id", "=", r.payment_id).executeTakeFirst() : null;
   const lines = (r.lines as { what: Text; cents: number }[]).map((l) => ({ what: l.what, amount: usd(l.cents) }));
   return {
-    id: r.id, number: receiptNo(r.number), kind: r.kind, person_id: r.person_id, club: club.legal_name ?? club.name, address: r.address ?? null,
+    id: r.id, number: receiptNo(r.number), kind: r.kind, person_id: r.person_id, club: club.legal_name ?? club.name, address: addressLine(r) ?? null,
     when: { en: receiptDate(r.paid_at, "en", club.time_zone), es: receiptDate(r.paid_at, "es", club.time_zone) } as Text,
     lines, subtotal: usd(r.subtotal_cents), tax: r.tax_cents ? usd(r.tax_cents) : null, total: usd(r.total_cents), total_cents: r.total_cents,
     tax_included: r.tax_included, tax_name: taxWord(r.tax_label, r.tax_included), tax_rate: r.tax_bp ? rateText(r.tax_bp) : null,

@@ -10,7 +10,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { t, type Lang } from "@kumi/i18n";
 import { confirmedPhone, countText, keyword, KumiError, segments, textAllowed, runAsSystem, showPhone, startNumber, stopNumber, textingOn, textsAnswer, textStatus, textWords, TEXTS_FORM, TextError,
-  UNSUBSCRIBED, usPhone, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
+  UNSUBSCRIBED, anyPhone, usPhone, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import { RateLimiter } from "./limits.ts";
 import { validSignature } from "./twilio.ts";
 import { sendUndoLink, tryCode } from "./auth.ts";
@@ -84,7 +84,7 @@ export function textRoutes(d: TextDeps) {
     if (!parsed.success) throw new KumiError("error.phone_bad", {}, 400);
     if ((await d.botGuard(c)) === "honeypot") return c.json({ sent: true });
     const phone = usPhone(parsed.data.phone);
-    if (!phone) throw new KumiError("error.phone_bad", {}, 400);
+    if (!phone) throw new KumiError(anyPhone(parsed.data.phone) ? "error.phone_not_textable" : "error.phone_bad", {}, 400);
     // Another account's number gets the same answer as a free one (numbers can't be probed): a code nobody is sent.
     const taken = Boolean(await db.selectFrom("auth_identity").select("person_id").where("kind", "=", "phone").where("value", "=", phone).where("person_id", "!=", id).executeTakeFirst());
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0"), cid = uuidv7(now.getTime());

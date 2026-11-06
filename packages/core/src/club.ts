@@ -70,8 +70,8 @@ async function currencyChange(db: Db | Trx, code: string) {
 /** The club's currency and formats for this server's money and dates (format.ts): read as the server starts and again
  *  on each round of jobs, so a change made anywhere reaches every message. */
 export async function loadClubFormat(db: Db): Promise<void> {
-  const c = await db.selectFrom("club").select(["currency", "format_locale"]).executeTakeFirst();
-  if (c) setClubFormat({ currency: c.currency, locale: c.format_locale });
+  const c = await db.selectFrom("club").select(["currency", "format_locale", "country"]).executeTakeFirst();
+  if (c) setClubFormat({ currency: c.currency, locale: c.format_locale, country: c.country });
 }
 
 export const clubUpdate = defineAction({
@@ -85,6 +85,9 @@ export const clubUpdate = defineAction({
     weekly_bookings: z.optional(z.boolean()), weekly_max_weeks: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(26))),
     tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
     // Prices entered and shown include the tax (VAT, IVA, GST), and what the tax is called on receipts.
+    // The club's country (ISO 3166-1 alpha-2): phone numbers typed without a + are read in it, and Stripe opens the
+    // club's own account there.
+    country: z.optional(z.string().check(z.regex(/^[A-Za-z]{2}$/))),
     prices_include_tax: z.optional(z.boolean()), tax_label: z.optional(z.nullable(z.string().check(z.minLength(1), z.maxLength(20)))),
     // The club's currency (ISO 4217). It can't change once the club has taken a payment.
     currency: z.optional(z.string().check(z.regex(/^[A-Za-z]{3}$/))),
@@ -130,21 +133,29 @@ export const clubUpdate = defineAction({
     }
     if (translations) patch.translations = JSON.stringify(mergeTranslations((await ctx.trx.selectFrom("club").select("translations").executeTakeFirstOrThrow()).translations, translations));
     if (i.format_locale !== undefined) patch.format_locale = Intl.getCanonicalLocales(i.format_locale)[0];
+    if (i.country !== undefined) patch.country = i.country.toUpperCase();
     await ctx.update("club", "singleton", patch); await ctx.emit("club.updated", {});
-    if (patch.currency || patch.format_locale) setClubFormat({ currency: patch.currency as string | undefined, locale: patch.format_locale as string | undefined });
+    if (patch.currency || patch.format_locale || patch.country) setClubFormat({ currency: patch.currency as string | undefined, locale: patch.format_locale as string | undefined, country: patch.country as string | undefined });
     return null;
   },
 });
 
+/** An address written as it is where the club is: the street in address, then a postal code, a region (state,
+ *  province, county) and a country, each optional. */
+const addressParts = {
+  postal_code: z.optional(z.nullable(z.string().check(z.maxLength(16)))), region: z.optional(z.nullable(z.string().check(z.maxLength(60)))),
+  country: z.optional(z.nullable(z.string().check(z.regex(/^[A-Za-z]{2}$/)))),
+};
+
 export const locationCreate = defineAction({
   name: "location.create", version: 1,
-  input: z.object({ name: z.string().check(z.minLength(1)), time_zone: timeZone, address: z.optional(z.string()) }),
+  input: z.object({ name: z.string().check(z.minLength(1)), time_zone: timeZone, address: z.optional(z.string()), ...addressParts }),
   async plan(_ctx, i) {
     return { title: both("action.location.create"), summary: both("plan.location.create", { name: i.name, tz: i.time_zone }), reads: [], undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const id = uuidv7();
-    await ctx.insert("location", { id, name: i.name, time_zone: i.time_zone, address: i.address ?? null });
+    await ctx.insert("location", { id, name: i.name, time_zone: i.time_zone, address: i.address ?? null, postal_code: i.postal_code ?? null, region: i.region ?? null, country: i.country?.toUpperCase() ?? null });
     await ctx.emit("location.created", { location_id: id });
     return { location_id: id };
   },
@@ -152,7 +163,7 @@ export const locationCreate = defineAction({
 
 export const locationUpdate = defineAction({
   name: "location.update", version: 1,
-  input: z.object({ location_id: z.uuid(), name: z.optional(z.string().check(z.minLength(1))), time_zone: z.optional(timeZone), address: z.optional(z.string()) }),
+  input: z.object({ location_id: z.uuid(), name: z.optional(z.string().check(z.minLength(1))), time_zone: z.optional(timeZone), address: z.optional(z.string()), ...addressParts }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "location", i.location_id, "thing.location");
     const { location_id, ...rest } = i;
