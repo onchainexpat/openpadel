@@ -13,6 +13,7 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "gen:gone": "node tools/gen_gone.ts",
+    "test:sweep": "node tools/sweep_test_dbs.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p apps/manager/tsconfig.json && tsc -p apps/member/tsconfig.json",
     "kumi": "node apps/server/src/cli.ts",
     "test": "node --test --test-concurrency=4 'packages/*/test/*.test.ts' 'apps/*/test/*.test.ts'"
