@@ -2,6 +2,7 @@
 // coach who runs it (or front desk and up) marks "came" or "didn't come" from the start until 48 hours after.
 import { useEffect, useState } from "preact/hooks";
 import { api, lang, t, usePreview, serverNow } from "@kumi/ui";
+import { formatLocale } from "@kumi/i18n/format";
 
 type Player = { person_id: string; name: string; level: string | null; provisional: boolean | null; junior: boolean; parents: string[]; waiver: "accepted" | "missing" | null; came: boolean | null };
 type R = { item: { kind: "lesson" | "session"; id: string; program_id: string | null; name: string | null; code: string | null; start: string; end: string; cancelled: boolean; coach: string | null; courts: string[]; location: string };
@@ -13,7 +14,7 @@ export function Roster({ kind, id }: { kind: string; id: string }) {
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [kind, id, lang.value]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
-  const fmt = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: d.time_zone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  const fmt = (iso: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: d.time_zone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
   const changed = d.players.filter((p) => marks[p.person_id] !== p.came);
   const count = (v: boolean | null) => d.players.filter((p) => p.came === v).length;
   const toggle = (pid: string, v: boolean) => setMarks({ ...marks, [pid]: marks[pid] === v ? null : v });

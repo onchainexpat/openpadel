@@ -9,7 +9,7 @@
 // payments and refunds from the update that added receipts on get one (club.receipts_from).
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, money, type Lang, type Text } from "@kumi/i18n";
+import { both, money, type Lang, type Text, formatLocale } from "@kumi/i18n";
 import { defineAction, runAsSystem } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { textOf } from "./club_text.ts";
@@ -25,11 +25,11 @@ type Paid = { id: string; person_id: string; amount_cents: number; method: strin
 
 /** A date and time with the year, in the club's time: a receipt is kept. */
 export function receiptDate(d: Date, lang: Lang, timeZone: string): string {
-  return new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { timeZone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d);
+  return new Intl.DateTimeFormat(formatLocale(lang), { timeZone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d);
 }
 const whenText = (d: Date, tz: string): Text => ({
-  en: new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d),
-  es: new Intl.DateTimeFormat("es-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d) });
+  en: new Intl.DateTimeFormat(formatLocale("en"), { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d),
+  es: new Intl.DateTimeFormat(formatLocale("es"), { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d) });
 /** "R-001042": the number as printed. */
 export const receiptNo = (n: string | number) => `R-${String(n).padStart(6, "0")}`;
 

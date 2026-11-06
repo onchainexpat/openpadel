@@ -2,6 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, club, clubTime, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, serverNow } from "@kumi/ui";
+import { formatLocale } from "@kumi/i18n/format";
 
 type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number; membership_revenue_cents: number };
 type Receipt = { id: string; number: string; kind: "payment" | "refund"; when: string; paid_by: string; for: string | null; what: string; more: number; total_cents: number };
@@ -54,8 +55,8 @@ export function Reports() {
   const show = (id: string) => api<ReceiptView>(`/staff/receipts/${id}`).then(setOpen);
   const sum = (k: keyof Row) => (rows ?? []).reduce((n, r) => n + (r[k] as number), 0);
   const usable = sum("court_hours") - sum("blocked_hours"), used = sum("booked_hours") + sum("program_hours") + sum("playtomic_hours");
-  const hrs = (n: number) => (Math.round(n * 10) / 10).toLocaleString(lang.value === "es" ? "es-US" : "en-US");
-  const day = (d: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T12:00:00Z`));
+  const hrs = (n: number) => (Math.round(n * 10) / 10).toLocaleString(formatLocale(lang.value));
+  const day = (d: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T12:00:00Z`));
   return (
     <main>
       <h1>{t(money === false ? "ui.my_work_title" : "ui.reports_title")}</h1>

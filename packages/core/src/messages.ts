@@ -2,7 +2,7 @@
 // in the person's in-app inbox at once, and its email copy waits for the sender job, outside quiet
 // hours unless it's essential. Every row keeps the exact words sent and the event behind it.
 import { sql } from "kysely";
-import { both, dateTime, money, t, pickLang, type Key, type Lang, type Params, type Text } from "@kumi/i18n";
+import { both, dateTime, money, t, pickLang, type Key, type Lang, type Params, type Text, formatLocale } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
 import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
@@ -215,7 +215,7 @@ async function seriesInfo(db: Db, seriesId: string) {
     .where("booking_series.id", "=", seriesId).executeTakeFirstOrThrow();
   const weeks = await db.selectFrom("booking_series_week").select(["on_date", "booking_id"]).where("series_id", "=", seriesId).where("booking_id", "is not", null).orderBy("on_date").execute();
   const start = onDate(s.first_date, s.starts.slice(0, 5), s.time_zone);
-  const f = (o: Intl.DateTimeFormatOptions): Text => ({ en: new Intl.DateTimeFormat("en-US", { timeZone: s.time_zone, ...o }).format(start), es: new Intl.DateTimeFormat("es-US", { timeZone: s.time_zone, ...o }).format(start) });
+  const f = (o: Intl.DateTimeFormatOptions): Text => ({ en: new Intl.DateTimeFormat(formatLocale("en"), { timeZone: s.time_zone, ...o }).format(start), es: new Intl.DateTimeFormat(formatLocale("es"), { timeZone: s.time_zone, ...o }).format(start) });
   return { organiser_id: s.organiser_id, booked: weeks.length, firstText: dayText(weeks[0]?.on_date ?? s.first_date), lastText: dayText(weeks.at(-1)?.on_date ?? s.last_date),
     base: { court: s.court, weekday: f({ weekday: "long" }), time: f({ hour: "numeric", minute: "2-digit" }), minutes: s.minutes } };
 }

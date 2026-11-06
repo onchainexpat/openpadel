@@ -10,7 +10,7 @@
 import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, money, type Key, type Text } from "@kumi/i18n";
+import { both, money, type Key, type Text, formatLocale } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -32,7 +32,7 @@ type Missed = "taken" | "closed" | "not_bookable" | "too_late" | "no_card" | "un
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 const addDays = (date: string, n: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
-const fmt = (d: Date, tz: string, o: Intl.DateTimeFormatOptions): Text => ({ en: new Intl.DateTimeFormat("en-US", { timeZone: tz, ...o }).format(d), es: new Intl.DateTimeFormat("es-US", { timeZone: tz, ...o }).format(d) });
+const fmt = (d: Date, tz: string, o: Intl.DateTimeFormatOptions): Text => ({ en: new Intl.DateTimeFormat(formatLocale("en"), { timeZone: tz, ...o }).format(d), es: new Intl.DateTimeFormat(formatLocale("es"), { timeZone: tz, ...o }).format(d) });
 const dayOf = (date: string): Text => fmt(new Date(`${date}T12:00:00Z`), "UTC", { weekday: "short", month: "short", day: "numeric" });
 const join = (parts: Text[], sep = " "): Text => ({ en: parts.map((p) => p.en).filter(Boolean).join(sep), es: parts.map((p) => p.es).filter(Boolean).join(sep) });
 const hhmm = (d: Date, tz: string) => { const p = localParts(d, tz); return `${String(p.h).padStart(2, "0")}:${String(p.min).padStart(2, "0")}`; };

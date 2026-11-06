@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, t, shortTime, usePreview, clubTime } from "@kumi/ui";
 import { confirmPaid, PaySheet } from "./Pay.tsx";
 import { weeklyLaterLine, type WeeklyLater } from "./weekly_later.ts";
+import { formatLocale } from "@kumi/i18n/format";
 
 type Place = { id: string; status: string; waitlist_position: number | null; name: string; price_cents: number; first_start: string | null; offer_expires_at: string | null; pending_payment_id: string | null; pending_cents: number | null; paid_cents: number; for_name: string | null };
 
@@ -59,7 +60,7 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
   if (!rows.length) return null;
-  const when = (b: Booking) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: b.time_zone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(b.start));
+  const when = (b: Booking) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: b.time_zone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(b.start));
   const link = (b: Booking) => `${location.origin}/join/${b.invite_code}`;
   const share = async (b: Booking) => {
     const url = link(b);

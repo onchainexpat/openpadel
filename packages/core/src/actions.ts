@@ -3,7 +3,7 @@
 // in the way its plan said.
 import * as z from "zod/mini";
 import { sql } from "kysely";
-import { both, money, type Key, type Lang, type Params, type Text } from "@kumi/i18n";
+import { both, money, type Key, type Lang, type Params, type Text, formatLocale } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { plainIssues } from "./plain_issues.ts";
@@ -356,7 +356,7 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     if (waiting) {
       const tz = (await trx.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
       const at = (l: string) => new Intl.DateTimeFormat(l, { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(waiting.created_at);
-      throw new KumiError("error.ask_waiting", { when: { en: at("en-US"), es: at("es-US") } }, 409);
+      throw new KumiError("error.ask_waiting", { when: { en: at(formatLocale("en")), es: at(formatLocale("es")) } }, 409);
     }
     await trx.insertInto("action_run").values(row).execute();
     // Whoever can say yes hears it's waiting (messages.ts), once for this ask.

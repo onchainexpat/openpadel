@@ -523,6 +523,9 @@ Kumi was built for US clubs. These parts work for a club anywhere:
   spreadsheets, emails and notifications, and staff type amounts the club's way. The Stripe account should pay out in
   the same currency (`kumi doctor` warns if it doesn't, since Stripe would convert every payment, for a fee).
   Zero-decimal currencies (JPY, KRW) work in whole units; three-decimal ones (KWD, BHD, JOD, OMR, TND) aren't taken.
+- **Formats.** Settings, The club: the club's locale (en-GB, es-ES, fr-FR, de-DE...). It sets how dates, times and
+  amounts are written, the 12- or 24-hour clock and the first day of the week. Members keep their own language
+  (English or Spanish), written the club's way.
 
 Not done yet, and each needs a decision before a club outside the US goes live:
 

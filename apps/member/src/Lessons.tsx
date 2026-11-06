@@ -5,6 +5,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { ForWhom } from "./ForWhom.tsx";
+import { formatLocale } from "@kumi/i18n/format";
 
 type Coach = { id: string; name: string; bio: string | null; level_min: string | null; level_max: string | null; languages: string[]; rates: Record<string, number>; photo: string | null; max_players: number };
 type Data = { coaches: Coach[]; time_zone: string; split_deadline_hours: number; free_cancel_hours: number; late_refund_percent: number };
@@ -30,7 +31,7 @@ export function Lessons() {
   useEffect(() => { if (coach && day) { setPick(null); setTimes(null); api<{ times: Time[]; days_ahead: number }>(`/my/lessons/times?coach_id=${coach.id}&date=${day}&minutes=${minutes}&for=${who}`).then((r) => { setTimes(r.times); setDaysAhead(r.days_ahead); }); } }, [coach?.id, day, minutes, who]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const zone = d.time_zone;
-  const fmt = (iso: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: zone, ...o }).format(new Date(iso));
+  const fmt = (iso: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: zone, ...o }).format(new Date(iso));
   const money = (c: number) => dollars(c, lang.value);
   const rateList = (c: Coach) => Object.entries(c.rates).sort((a, b) => Number(a[0]) - Number(b[0])).map(([m, cents]) => t("ui.lesson_rate", { minutes: t("ui.minutes", { count: Number(m) }), price: money(cents) })).join(" · ");
   const langs = (c: Coach) => c.languages.map((x) => t(x === "es" ? "ui.lang_es" : "ui.lang_en")).join(", ");

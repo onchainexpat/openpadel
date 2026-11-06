@@ -5,7 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, dateTime, money, t, type Key, type Lang, type Text } from "@kumi/i18n";
+import { both, dateTime, money, t, type Key, type Lang, type Text, formatLocale } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -22,7 +22,7 @@ export async function locationTz(db: Db | Trx, locationId: string): Promise<stri
   return (await readRow(db, "location", locationId, "thing.location")).row.time_zone;
 }
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : null);
-const dayOf = (date: string, lang: Lang) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }).format(new Date(`${date}T12:00:00Z`));
+const dayOf = (date: string, lang: Lang) => new Intl.DateTimeFormat(formatLocale(lang), { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }).format(new Date(`${date}T12:00:00Z`));
 
 type Open = { opens: Date; closes: Date };
 /** When a location is open on a club date: its special day if it has one, otherwise its weekday. A special day
@@ -92,7 +92,7 @@ export async function freeCourts(db: Db | Trx, i: { locationId: string; date: st
 
 // ---- Hours ----
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
-function dayName(w: number, lang: Lang) { return new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w))); }
+function dayName(w: number, lang: Lang) { return new Intl.DateTimeFormat(formatLocale(lang), { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w))); }
 /** "Mon to Fri 07:00 to 22:00; Sat, Sun 08:00 to 20:00; closed Tue": days with the same hours together. With
  *  `all` false, only the days listed (a court's own), and only days next to each other share a "to". */
 function hoursText(days: { weekday: number; opens: string | null; closes: string | null }[], lang: Lang, all = true): string {

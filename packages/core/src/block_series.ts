@@ -5,7 +5,7 @@
 // Changing or ending a series works like programming: this date, this and the following ones, or all still to come.
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, money, type Key, type Lang, type Text } from "@kumi/i18n";
+import { both, money, type Key, type Lang, type Text, formatLocale } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -26,14 +26,14 @@ const refundChoice = z.optional(z.enum(["rule", "full", "none"]));
 const scope = z.enum(["this", "following", "all"]);
 
 const addDays = (date: string, n: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-const dayIn = (date: string, lang: Lang) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }).format(new Date(`${date}T12:00:00Z`));
+const dayIn = (date: string, lang: Lang) => new Intl.DateTimeFormat(formatLocale(lang), { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }).format(new Date(`${date}T12:00:00Z`));
 const day = (date: string): Text => ({ en: dayIn(date, "en"), es: dayIn(date, "es") });
 const hhmm = (t: string) => t.slice(0, 5);
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const join = (parts: Text[], sep = ", "): Text => ({ en: parts.map((p) => p.en).filter(Boolean).join(sep), es: parts.map((p) => p.es).filter(Boolean).join(sep) });
 /** "Tue, Thu": the weekdays, Monday first. */
 function daysText(ws: number[]): Text {
-  const name = (w: number, lang: Lang) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
+  const name = (w: number, lang: Lang) => new Intl.DateTimeFormat(formatLocale(lang), { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
   const order = [1, 2, 3, 4, 5, 6, 0].filter((w) => ws.includes(w));
   return { en: order.map((w) => name(w, "en")).join(", "), es: order.map((w) => name(w, "es")).join(", ") };
 }

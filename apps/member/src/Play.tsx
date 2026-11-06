@@ -4,6 +4,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, club, dollars, lang, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
+import { formatLocale } from "@kumi/i18n/format";
 
 export type Match = {
   id: string; court: string; location: string; time_zone: string; start: string; end: string; host: string | null; host_is_me: boolean; open: boolean; cancelled: boolean; rated: boolean; listed: boolean;
@@ -24,7 +25,7 @@ type Rec = { no_shows: number; late_leaves: number };
 const recText = (r?: Rec) => (r && (r.no_shows || r.late_leaves) ? t("ui.player_record", { no_shows: r.no_shows, late: r.late_leaves }) : "");
 const band = (m: Match) => `${Number(m.level_min).toFixed(2)}-${Number(m.level_max).toFixed(2)}`;
 const lv = (n: number | null) => (n === null ? t("ui.no_level_yet") : n.toFixed(2));
-const when = (m: Match, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: m.time_zone, ...opts }).format(new Date(m.start));
+const when = (m: Match, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: m.time_zone, ...opts }).format(new Date(m.start));
 
 /** The facts of a match, the same on the list and on its page. */
 function Facts({ m }: { m: Match }) {
@@ -36,7 +37,7 @@ function Facts({ m }: { m: Match }) {
       {p.saved ? ` · ${t("ui.place_saved_for")}` : ""}{p.leaving ? ` · ${t("ui.cant_make_it_tag")}` : ""}{p.no_show ? ` · ${t("ui.didnt_come")}` : ""}
       {recText(p.record) && <span class="meta"> · {recText(p.record)}</span>}</li>)}
       {Array.from({ length: m.spots_left }, () => <li class="meta">{t(m.is_match ? "ui.open_place" : "ui.player_not_named")}</li>)}</ul>
-    {m.open && !m.cancelled && m.spots_left > 0 && new Date(m.full_by) > new Date(serverNow()) && <p class="meta">{t("ui.match_cutoff", { time: new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US",
+    {m.open && !m.cancelled && m.spots_left > 0 && new Date(m.full_by) > new Date(serverNow()) && <p class="meta">{t("ui.match_cutoff", { time: new Intl.DateTimeFormat(formatLocale(lang.value),
       { timeZone: m.time_zone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(m.full_by)) })}</p>}
   </>;
 }

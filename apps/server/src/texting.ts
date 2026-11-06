@@ -11,7 +11,7 @@
 // and managers hear once it's decided; a rejection is explained with its fix, and `apply` sends the corrected
 // one (or, once Twilio no longer allows editing, a new one, with --yes). Local numbers (A2P 10DLC) are for
 // clubs that text a lot more; they're registered in Twilio's console (docs/setup/accounts/twilio.md).
-import { both, t, type Key, type Lang, type Text } from "@kumi/i18n";
+import { both, t, type Key, type Lang, type Text, formatLocale } from "@kumi/i18n";
 import { numberFailures, runAsSystem, textingRegistration, textWords, type Db, type Rejection, type TextingRegistration, type TextingStatus } from "@kumi/core";
 import type { TextingDetails } from "./setup.ts";
 import { TwilioApi, TwilioApiError, type Form, type TollfreeVerification } from "./twilio_admin.ts";
@@ -209,7 +209,7 @@ export async function checkTextingNumber(db: Db, api: TwilioApi, now = new Date(
 export function textingStatusText(reg: TextingRegistration | null, lang: Lang, tz: string): string[] {
   if (!reg) return [t(lang, "texting.status.none")];
   const number = reg.phone_number ?? "";
-  const day = (d: Date) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { timeZone: tz, dateStyle: "medium", timeStyle: "short" }).format(d);
+  const day = (d: Date) => new Intl.DateTimeFormat(formatLocale(lang), { timeZone: tz, dateStyle: "medium", timeStyle: "short" }).format(d);
   switch (reg.status) {
     case "started": return [t(lang, "texting.status.started", { number })];
     case "submitted": return [t(lang, "texting.status.submitted", { number, date: reg.submitted_at ? day(reg.submitted_at) : "" })];

@@ -5,7 +5,7 @@
 // device's clock says.
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { amountPattern, parseDollars } from "@kumi/i18n/format";
+import { amountPattern, parseDollars, formatLocale, weekOrder } from "@kumi/i18n/format";
 import { api, club, dollars, lang, lazyPage, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
 import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
 
@@ -53,7 +53,7 @@ export function Courts() {
   }, [g?.date, g?.today, loc]);
   if (!g) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
-  const clock = (iso: string | number) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: g.time_zone, hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  const clock = (iso: string | number) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: g.time_zone, hour: "numeric", minute: "2-digit" }).format(new Date(iso));
   const today = g.date === g.today;
   // Every half hour the location is open, as instants: the same list for choosing a start or a block.
   const slots: string[] = [];
@@ -103,7 +103,7 @@ export function Courts() {
         <div class="court-row">
           <button type="button" class="small" onClick={() => shift(-1)} aria-label={t("ui.day_before")}>‹</button>
           <input type="date" aria-label={t("ui.day")} value={date} onInput={(e) => setDate(e.currentTarget.value)} />
-          {date && <span class="meta">{new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`))}</span>}
+          {date && <span class="meta">{new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`))}</span>}
           <button type="button" class="small" onClick={() => shift(1)} aria-label={t("ui.day_after")}>›</button>
           {!today && <button type="button" class="small" onClick={() => setDate(g.today)}>{t("ui.today_button")}</button>}
         </div>
@@ -154,8 +154,7 @@ const clubTime = (iso: string, tz: string, end = false) => {
   const s = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
   return end && s === "00:00" ? "24:00" : s;
 };
-const dayName = (w: number) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
-const WEEK = [1, 2, 3, 4, 5, 6, 0];
+const dayName = (w: number) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
 
 /** The parts of the grid's hours a court is closed: before it opens and after it closes, or all of it. */
 function closedBands(c: Court, from: number, to: number) {
@@ -471,7 +470,7 @@ function BlockForm({ courts, g, slots: daySlots, clock, preview }: { courts: Cou
       <label class="check"><input type="checkbox" checked={rep.on} onChange={(e) => setRep({ ...rep, on: e.currentTarget.checked })} /> {t("ui.block_every_week")}</label>
       {rep.on && <>
         <fieldset><legend>{t("ui.block_on_days")}</legend>
-          {WEEK.map((w) => <label class="check"><input type="checkbox" checked={rep.days.includes(w)} onChange={(e) => setRep({ ...rep, days: e.currentTarget.checked ? [...rep.days, w] : rep.days.filter((x) => x !== w) })} /> {dayName(w)}</label>)}
+          {weekOrder().map((w) => <label class="check"><input type="checkbox" checked={rep.days.includes(w)} onChange={(e) => setRep({ ...rep, days: e.currentTarget.checked ? [...rep.days, w] : rep.days.filter((x) => x !== w) })} /> {dayName(w)}</label>)}
         </fieldset>
         <label>{t("ui.block_until")}<input type="date" min={g.date} value={rep.until} onInput={(e) => setRep({ ...rep, until: e.currentTarget.value })} /></label>
         <InTheWay way={rep.way} refund={rep.refund} onChange={(way, refund) => setRep({ ...rep, way, refund })} />
@@ -515,7 +514,7 @@ function SeriesChange({ it, g, slots, clock, preview }: { it: Item; g: Grid; slo
 
 type Series = { id: string; courts: { id: string; name: string }[]; weekdays: number[]; starts: string; ends: string; from_date: string; until_date: string | null; reason: string;
   note: string | null; left: number; dates: { block_id: string; date: string }[] };
-const shortDay = (date: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
+const shortDay = (date: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
 /** Every half hour of a day as a club writes it, "00:00" to "24:00". */
 const HALVES = Array.from({ length: 49 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
 
@@ -530,7 +529,7 @@ function SeriesList({ loc, courts, stamp, preview }: { loc: string; courts: Cour
       <h2>{t("ui.repeating_blocks")}</h2>
       {list.length === 0 ? <p class="meta">{t("ui.repeating_blocks_none")}</p> : <ul class="plain">{list.map((s) => (
         <li>
-          <div class="row"><div><strong>{s.courts.map((c) => c.name).join(", ")}</strong> · {WEEK.filter((w) => s.weekdays.includes(w)).map(dayName).join(", ")} · {s.starts} - {s.ends}
+          <div class="row"><div><strong>{s.courts.map((c) => c.name).join(", ")}</strong> · {weekOrder().filter((w) => s.weekdays.includes(w)).map(dayName).join(", ")} · {s.starts} - {s.ends}
             <p class="meta">{t(`block.${s.reason}` as Key)}{s.note ? `: ${s.note}` : ""} · {s.until_date ? t("ui.series_span", { from: shortDay(s.from_date), until: shortDay(s.until_date) })
               : t("ui.series_span_open", { from: shortDay(s.from_date) })} · {t("ui.series_next", { date: shortDay(s.dates[0]!.date) })} · {t("count.series_dates_left", { count: s.left })}</p></div>
             <button class="small" onClick={() => setOpen(open === s.id ? null : s.id)}>{t(open === s.id ? "ui.close" : "ui.change")}</button></div>
@@ -566,7 +565,7 @@ function SeriesEdit({ s, courts, preview }: { s: Series; courts: Court[]; previe
         <option value="this">{t("ui.scope_this")}</option><option value="following">{t("ui.scope_following")}</option><option value="all">{t("ui.scope_all")}</option></select></label>
       <fieldset><legend>{t("ui.courts")}</legend>{courts.map((c) => <label class="check"><input type="checkbox" checked={f.courts.includes(c.id)}
         onChange={(e) => setF({ ...f, courts: e.currentTarget.checked ? [...f.courts, c.id] : f.courts.filter((x) => x !== c.id) })} /> {c.name}</label>)}</fieldset>
-      {!one && <fieldset><legend>{t("ui.block_on_days")}</legend>{WEEK.map((w) => <label class="check"><input type="checkbox" checked={f.days.includes(w)}
+      {!one && <fieldset><legend>{t("ui.block_on_days")}</legend>{weekOrder().map((w) => <label class="check"><input type="checkbox" checked={f.days.includes(w)}
         onChange={(e) => setF({ ...f, days: e.currentTarget.checked ? [...f.days, w] : f.days.filter((x) => x !== w) })} /> {dayName(w)}</label>)}</fieldset>}
       <label>{t("ui.from")}<select value={f.starts} onChange={(e) => starts(e.currentTarget.value)}>{HALVES.slice(0, -1).map((h) => <option value={h}>{h}</option>)}</select></label>
       <label>{t("ui.to")}<select value={f.ends} onChange={(e) => setF({ ...f, ends: e.currentTarget.value })}>{HALVES.filter((h) => h > f.starts).map((h) => <option value={h}>{h}</option>)}</select></label>

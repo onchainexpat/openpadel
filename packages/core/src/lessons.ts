@@ -7,7 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, dateTime, money, type Lang, type Text } from "@kumi/i18n";
+import { both, dateTime, money, type Lang, type Text, formatLocale } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -192,7 +192,7 @@ function stretchesText(rows: { weekday: number; starts: string; ends: string }[]
   const f = (lang: Lang) => [1, 2, 3, 4, 5, 6, 0].map((w) => {
     const day = rows.filter((r) => r.weekday === w).sort((a, b) => a.starts.localeCompare(b.starts));
     if (!day.length) return null;
-    const name = new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
+    const name = new Intl.DateTimeFormat(formatLocale(lang), { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
     return `${name} ${day.map((r) => `${r.starts} ${lang === "es" ? "a" : "to"} ${r.ends}`).join(", ")}`;
   }).filter(Boolean).join("; ");
   return { en: f("en"), es: f("es") };
@@ -241,7 +241,7 @@ export const coachTimeOffAdd = defineAction({
   },
 });
 const dayLong = (date: string): Text => {
-  const f = (lang: Lang) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
+  const f = (lang: Lang) => new Intl.DateTimeFormat(formatLocale(lang), { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
   return { en: f("en"), es: f("es") };
 };
 

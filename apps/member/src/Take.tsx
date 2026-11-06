@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
+import { formatLocale } from "@kumi/i18n/format";
 
 type Offer = { from: string; share_cents: number; can: "take" | "outside" | "closed" | "not_yours" | "in";
   match: { id: string; court: string; location: string; time_zone: string; start: string; level_min: string; level_max: string; rated: boolean; my_level: number | null;
@@ -16,7 +17,7 @@ export function TakePlace({ code }: { code: string }) {
   if (error) return <main class="card"><p class="error">{error}</p></main>;
   if (!o) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const m = o.match, amount = dollars(o.share_cents, lang.value), band = `${Number(m.level_min).toFixed(2)}-${Number(m.level_max).toFixed(2)}`;
-  const when = new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: m.time_zone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(m.start));
+  const when = new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: m.time_zone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(m.start));
   const pending = m.me?.sub ? m.me.pending_payment_id : null;
   return (
     <main>

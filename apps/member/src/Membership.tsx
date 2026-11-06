@@ -5,6 +5,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
 import { confirmPaid, PaySheet } from "./Pay.tsx";
+import { formatLocale } from "@kumi/i18n/format";
 
 type Perks = { days_ahead: number | null; member_prices: boolean; period: "month" | "year"; program_percent_off: number | null; program_cents_off: number | null;
   included_sessions: number | null; included_kinds: string[]; included_used?: number | null };
@@ -16,7 +17,7 @@ type Mine = Perks & { id: string; name: string; description: string | null; pric
 type Offer = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; places_left: number | null; starts_on: string | null;
   family_size: number | null; extra_person_cents: number | null };
 
-const clubDay = (date: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
+const clubDay = (date: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
 const price = (p: { price_cents: number; period: string }) => t(p.period === "year" ? "ui.price_a_year" : "ui.price_a_month", { amount: dollars(p.price_cents, lang.value) });
 
 function PerkList({ p }: { p: Perks }) {

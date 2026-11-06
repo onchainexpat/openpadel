@@ -7,7 +7,7 @@ import { useEffect, useState } from "preact/hooks";
 import { AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { loadFamily } from "./ForWhom.tsx";
 import { PaySheet } from "./Pay.tsx";
-import { fromMajor, toMajor } from "@kumi/i18n/format";
+import { fromMajor, toMajor, formatLocale } from "@kumi/i18n/format";
 
 type Person = { id: string; display_name: string; me?: boolean };
 type Junior = Person & { birth_year: number | null; level: number | null; waiver: { version_no: number; accepted_at: string | null } | null };
@@ -19,7 +19,7 @@ const KINDS = ["open_matches", "courts", "programs", "lessons"] as const;
 /** A kid can have a login of their own from the year they turn this. */
 const KID_AGE = 13;
 
-const dayWords = (date: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
+const dayWords = (date: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
 const usd = (cents: number) => dollars(cents, lang.value);
 
 export function Family() {

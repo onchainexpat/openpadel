@@ -85,8 +85,42 @@ export function currencyProblem(code: string): "unknown" | "three_decimals" | nu
 /** The locale numbers are written in for the club (its own locale's separators: "1,200.50" in the US, "1.200,50"
  *  in Spain), and the reader's language for words. */
 export function formatLocale(lang: Lang): string {
-  return lang === "es" ? "es-US" : "en-US";
+  const key = `${lang}|${clubFmt.locale}`, known = localeCache.get(key);
+  if (known) return known;
+  let tag = lang === "es" ? "es-US" : "en-US";
+  try {
+    const club = new Intl.Locale(clubFmt.locale), region = club.maximize().region;
+    // The reader's words in the club's region ("en-ES": English, Spain's order and separators), and the club's clock:
+    // 24 hours where the club's locale uses them, whatever the reader's language would.
+    const hc = new Intl.DateTimeFormat(clubFmt.locale, { hour: "numeric" }).resolvedOptions().hourCycle;
+    tag = new Intl.Locale(lang, { ...(region ? { region } : {}), ...(hc ? { hourCycle: hc } : {}) }).toString();
+    new Intl.DateTimeFormat(tag);   // a tag Intl refuses falls back to the US one
+  } catch { tag = lang === "es" ? "es-US" : "en-US"; }
+  localeCache.set(key, tag);
+  return tag;
 }
+const localeCache = new Map<string, string>();
+/** The first day of the club's week (1 Monday ... 7 Sunday), from its locale: Sunday in the US, Monday in most of
+ *  Europe. */
+export function firstDayOfWeek(locale: string = clubFmt.locale): number {
+  try {
+    const l = new Intl.Locale(locale) as Intl.Locale & { getWeekInfo?: () => { firstDay: number }; weekInfo?: { firstDay: number } };
+    const d = l.getWeekInfo?.().firstDay ?? l.weekInfo?.firstDay;
+    if (d) return d;
+  } catch { /* an odd tag: the table below */ }
+  const region = (() => { try { return new Intl.Locale(locale).maximize().region ?? ""; } catch { return ""; } })();
+  return ["US", "CA", "MX", "BR", "JP", "KR", "AU", "IL", "PH", "ZA", "IN", "CO", "PE", "VE", "GT", "HN", "SV", "NI", "PA", "DO", "PR", "TW", "HK"].includes(region) ? 7 : 1;
+}
+/** The days of the club's week in order, as weekday numbers 0 (Sunday) to 6 (Saturday), first day first. */
+export function weekOrder(locale?: string): number[] {
+  const first = firstDayOfWeek(locale) % 7;   // 7 (Sunday) -> 0
+  return Array.from({ length: 7 }, (_, i) => (first + i) % 7);
+}
+/** Whether the club's clock runs to 24 hours (so "17:00", not "5:00 PM"). */
+export const clock24 = (locale: string = clubFmt.locale): boolean => {
+  const hc = new Intl.DateTimeFormat(locale, { hour: "numeric" }).resolvedOptions().hourCycle;
+  return hc === "h23" || hc === "h24";
+};
 
 const esc = (c: string) => /[\\^$.*+?()[\]{}|/]/.test(c) ? `\\${c}` : c === "\u00a0" ? "\\u00a0" : c;
 function separators(locale: string): { group: string; decimal: string } {
@@ -130,5 +164,5 @@ export function money(minor: number, lang: Lang, currency: string = clubFmt.curr
 }
 
 export function dateTime(d: Date, lang: Lang, timeZone: string): string {
-  return new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { timeZone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(d);
+  return new Intl.DateTimeFormat(formatLocale(lang), { timeZone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(d);
 }

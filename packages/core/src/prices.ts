@@ -3,7 +3,7 @@
 // members of its plans), adds the club's tax, and is stored with the booking: the price shown is the price
 // paid. The booking rules come in versions, and a booking keeps the version it was made under.
 import * as z from "zod/mini";
-import { both, money, type Lang, type Text } from "@kumi/i18n";
+import { both, money, type Lang, type Text, formatLocale } from "@kumi/i18n";
 import { defineAction, readRow } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -58,7 +58,7 @@ export async function currentPolicy(db: Db | Trx) {
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 function dayNames(days: number[] | null | undefined, lang: Lang): string {
   if (!days?.length || days.length === 7) return lang === "es" ? "todos los días" : "every day";
-  const f = (w: number) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
+  const f = (w: number) => new Intl.DateTimeFormat(formatLocale(lang), { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
   return [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map(f).join(", ");
 }
 /** "every day 17:00 to 22:00, 2026-06-01 to 2026-08-31", in each language (also on the public page). */

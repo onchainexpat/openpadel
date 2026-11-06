@@ -6,6 +6,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { weeklyLaterLine, type WeeklyLater } from "./weekly_later.ts";
+import { formatLocale } from "@kumi/i18n/format";
 
 type Options = { locations: { id: string; name: string; time_zone: string }[]; lengths: number[]; days_ahead: number; split_deadline_hours: number; weekly: boolean; weekly_max_weeks: number; same_day_cutoff_hours: number; free_cancel_hours: number; late_refund_percent: number };
 type Free = { open: { opens: string; closes: string } | null; courts: { id: string; name: string; kind: string; starts: string[] }[] };
@@ -25,7 +26,7 @@ export function Book() {
   const [cart, setCart] = useState<{ court: string; name: string; start: string; minutes: number; cents: number }[]>([]);
   const cartTotal = cart.reduce((n, x) => n + x.cents, 0);
   const place = o?.locations.find((l) => l.id === loc), tz = place?.time_zone ?? "UTC";
-  const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: tz, ...opts }).format(new Date(iso));
+  const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: tz, ...opts }).format(new Date(iso));
   const { preview, sheet } = usePreview((r?: { payment_id?: string; booking_id?: string; total_cents?: number; later?: WeeklyLater }) => {
     if (r?.payment_id) setPaying({ id: r.payment_id, cents: r.total_cents ?? (cart.length ? cartTotal : pay === "whole" ? q!.total_cents : mine), later: r.later ?? null });
     setMatchId(open && r?.booking_id ? r.booking_id : null);

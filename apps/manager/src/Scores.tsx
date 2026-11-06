@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, lang, t, usePreview } from "@kumi/ui";
+import { formatLocale } from "@kumi/i18n/format";
 
 type Score = { id: string; status: string; rated: boolean; played_at: string; court: string; time_zone: string; sets: { a: number; b: number }[]; a: string[]; b: string[];
   answers: { answer: string; note: string | null; at: string; display_name: string | null }[] };
@@ -13,7 +14,7 @@ export function Scores() {
   const { preview, sheet } = usePreview(load);
   useEffect(() => { void load(); }, []);
   if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;
-  const when = (s: Score) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: s.time_zone, dateStyle: "medium", timeStyle: "short" }).format(new Date(s.played_at));
+  const when = (s: Score) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: s.time_zone, dateStyle: "medium", timeStyle: "short" }).format(new Date(s.played_at));
   return (
     <main>
       <h1>{t("ui.nav_scores")}</h1>

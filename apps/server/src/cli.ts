@@ -33,7 +33,7 @@
 //   (on a one-server install, as root: kumi update <release.tar>, kumi rollback --yes, kumi releases)
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { money, t, pickLang, type Lang, type Text } from "@kumi/i18n";
+import { money, t, pickLang, type Lang, type Text, formatLocale } from "@kumi/i18n";
 import { connect, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS, type Db } from "@kumi/core";
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
@@ -62,7 +62,7 @@ const serverKeys = () => setSecretKeys({ current: process.env.KUMI_SECRET_KEY, p
 /** A moment on the club's own clock ("Nov 3, 2026, 2:05 PM"), for the status lines. */
 async function clubClock(db: Db): Promise<(d: Date) => string> {
   const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
-  const f = new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeStyle: "short", timeZone: tz });
+  const f = new Intl.DateTimeFormat(formatLocale(lang), { dateStyle: "medium", timeStyle: "short", timeZone: tz });
   return (d) => f.format(d);
 }
 

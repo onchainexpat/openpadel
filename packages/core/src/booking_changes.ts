@@ -6,7 +6,7 @@
 // cancellation rule, all of it, or nothing, as staff choose. Players hear what changed, in their language.
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, dateTime, money, type Text } from "@kumi/i18n";
+import { both, dateTime, money, type Text, formatLocale } from "@kumi/i18n";
 import { defineAction, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -21,8 +21,8 @@ import { withManagers } from "./households.ts";
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const when = (d: Date, tz: string): Text => ({ en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) });
 const at = (court: string, d: Date, tz: string): Text => { const w = when(d, tz); return { en: `${court}, ${w.en}`, es: `${court}, ${w.es}` }; };
-const clockOf = (d: Date, tz: string): Text => ({ en: new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(d),
-  es: new Intl.DateTimeFormat("es-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(d) });
+const clockOf = (d: Date, tz: string): Text => ({ en: new Intl.DateTimeFormat(formatLocale("en"), { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(d),
+  es: new Intl.DateTimeFormat(formatLocale("es"), { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(d) });
 const refundChoice = z.optional(z.enum(["rule", "full", "none"]).check(z.describe("What goes back when less is owed: the club's cancellation rule (the default), all of it, or nothing.")));
 
 /** The booking as it stands: its one active court time, its court and location, and what it cost. */

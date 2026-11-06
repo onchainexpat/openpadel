@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
 import { api, lang, t } from "@kumi/ui";
+import { formatLocale } from "@kumi/i18n/format";
 
 type S = { person_id: string; name: string; junior: boolean; times: number; last_at: string | null; last_kind: "lesson" | "session" | null; last_name: string | null;
   next_at: string | null; next_kind: "lesson" | "session" | null; next_name: string | null; level: string | null; provisional: boolean | null };
@@ -13,7 +14,7 @@ export function Students() {
   const [d, setD] = useState<D | null>(null);
   useEffect(() => { api<D>(`/staff/students${coach ? `?coach=${encodeURIComponent(coach)}` : ""}`).then(setD); }, [coach, lang.value]);
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
-  const day = (iso: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { timeZone: d.time_zone, weekday: "short", month: "short", day: "numeric" }).format(new Date(iso));
+  const day = (iso: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: d.time_zone, weekday: "short", month: "short", day: "numeric" }).format(new Date(iso));
   return (
     <main>
       <h1>{d.coach && d.coaches.length ? t("ui.students_of", { coach: d.coach.name }) : t("ui.my_students")}</h1>

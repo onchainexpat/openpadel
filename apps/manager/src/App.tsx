@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, club, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts } from "./Courts.tsx";
+import { formatLocale } from "@kumi/i18n/format";
 
 // Pages loaded when first opened (Courts and a coach's schedule are in the first screen: they're where most staff start).
 const Changes = lazyPage(() => import("./Changes.tsx").then((m) => m.Changes));
@@ -101,7 +102,7 @@ function QuestionsLink() {
 
 /** The day the club's Kumi ends (leaving.ts), for the owner and managers: the owner's link goes to Download everything. */
 function leavingNotice(on: string, owner: boolean) {
-  const date = new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${on}T12:00:00Z`));
+  const date = new Intl.DateTimeFormat(formatLocale(lang.value), { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${on}T12:00:00Z`));
   return <>{t(owner ? "ui.leaving_banner_owner" : "ui.leaving_banner_staff", { date })}{owner && <> <a href="/settings#download-everything">{t("ui.leaving_download")}</a></>}</>;
 }
 

@@ -4,15 +4,15 @@
 // the club and its events. Nothing about members is shown; "Join the club" goes to the app's sign-up.
 import { sql } from "kysely";
 import { Hono, type Context } from "hono";
-import { isLang, money, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
+import { isLang, money, plainAmount, t, weekOrder, type Key, type Lang, formatLocale } from "@kumi/i18n";
 import { competitionView, coachPhoto, factIn, inLang, lessonCoaches, trSql, localDate, membersFrom, planCounts, ruleWhen, searchFacts, TEXTS_FORM, type Db } from "@kumi/core";
 
 /** Every value from the database goes through this before it reaches the page. */
 const h = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 /** JSON for a script tag: nothing in it can close the tag. */
 const ld = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
-const fmt = (lang: Lang, tz: string, d: Date, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { timeZone: tz, ...o }).format(d);
-const weekday = (lang: Lang, w: number) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
+const fmt = (lang: Lang, tz: string, d: Date, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(formatLocale(lang), { timeZone: tz, ...o }).format(d);
+const weekday = (lang: Lang, w: number) => new Intl.DateTimeFormat(formatLocale(lang), { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
 
 const STYLE = `:root{--brand:#0B5A55}*{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1d2321;background:#f6f6f2}
 main{max-width:720px;margin:0 auto;padding:16px}header{padding:24px 0 8px}h1{margin:0 0 4px;font-size:28px}h2{font-size:20px;margin:0 0 8px}
@@ -102,7 +102,7 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl:
     const t5 = (x: string | null) => (x ? x.slice(0, 5) : "");
     const where = locations.map((loc) => {
       const mine = courts.filter((x) => x.location_id === loc.id), kinds = [...new Set(mine.map((x) => x.kind))];
-      const week = [1, 2, 3, 4, 5, 6, 0].map((w) => { const x = hours.find((y) => y.location_id === loc.id && y.weekday === w); return `<tr><td>${h(weekday(l, w))}</td><td>${x?.opens ? `${t5(x.opens)} - ${t5(x.closes)}` : h(t(l, "ui.closed"))}</td></tr>`; }).join("");
+      const week = weekOrder().map((w) => { const x = hours.find((y) => y.location_id === loc.id && y.weekday === w); return `<tr><td>${h(weekday(l, w))}</td><td>${x?.opens ? `${t5(x.opens)} - ${t5(x.closes)}` : h(t(l, "ui.closed"))}</td></tr>`; }).join("");
       const days = special.filter((x) => x.location_id === loc.id).map((x) => `<li>${h(fmt(l, "UTC", new Date(`${x.on_date}T12:00:00Z`), { weekday: "short", month: "short", day: "numeric" }))}: ${x.opens ? `${t5(x.opens)} - ${t5(x.closes)}` : h(t(l, "ui.closed"))}${x.note ? ` (${h(x.note)})` : ""}</li>`).join("");
       const list = prices.filter((r) => r.location_id === loc.id).map((r) => `<li>${h(inLang(r.name, r.translations, "name", l))}: ${h(money(r.cents_per_hour, l))}${h(t(l, "ui.per_hour"))}, ${h(ruleWhen(r)[l])}${r.plan_ids ? ` <span class="meta">(${h(t(l, "pub.members_of", { plans: r.plan_ids.map((id) => planName.get(id)).filter(Boolean).join(", ") }))})</span>` : ""}</li>`).join("");
       return `<section><h2>${h(loc.name)}</h2>${loc.address ? `<p>${h(loc.address)}</p>` : ""}<p class="meta">${h(t(l, "pub.courts", { count: mine.length }))}${kinds.length ? `: ${h(kinds.map((k) => t(l, `ui.kind_${k}` as Key)).join(", "))}` : ""}</p>

@@ -70,8 +70,8 @@ async function currencyChange(db: Db | Trx, code: string) {
 /** The club's currency and formats for this server's money and dates (format.ts): read as the server starts and again
  *  on each round of jobs, so a change made anywhere reaches every message. */
 export async function loadClubFormat(db: Db): Promise<void> {
-  const c = await db.selectFrom("club").select(["currency"]).executeTakeFirst();
-  if (c) setClubFormat({ currency: c.currency });
+  const c = await db.selectFrom("club").select(["currency", "format_locale"]).executeTakeFirst();
+  if (c) setClubFormat({ currency: c.currency, locale: c.format_locale });
 }
 
 export const clubUpdate = defineAction({
@@ -86,6 +86,8 @@ export const clubUpdate = defineAction({
     tax_rate_bp: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(3000))),
     // The club's currency (ISO 4217). It can't change once the club has taken a payment.
     currency: z.optional(z.string().check(z.regex(/^[A-Za-z]{3}$/))),
+    // How dates, times, numbers and amounts are written (a BCP 47 locale: en-US, es-ES, en-GB...).
+    format_locale: z.optional(z.string().check(z.regex(/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/), z.refine((l) => { try { return Intl.getCanonicalLocales(l).length === 1; } catch { return false; } }, "a locale like en-US or es-ES"))),
     // Players message each other inside the games they play together (chat.ts); off, no chat anywhere.
     players_chat: z.optional(z.boolean()),
     // Gift cards (gift_cards.ts): sold in the app and at the desk, for amounts from the minimum to the maximum.
@@ -125,8 +127,9 @@ export const clubUpdate = defineAction({
       if (patch.currency !== (await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow()).currency) await currencyChange(ctx.trx, i.currency);
     }
     if (translations) patch.translations = JSON.stringify(mergeTranslations((await ctx.trx.selectFrom("club").select("translations").executeTakeFirstOrThrow()).translations, translations));
+    if (i.format_locale !== undefined) patch.format_locale = Intl.getCanonicalLocales(i.format_locale)[0];
     await ctx.update("club", "singleton", patch); await ctx.emit("club.updated", {});
-    if (patch.currency) setClubFormat({ currency: patch.currency as string });
+    if (patch.currency || patch.format_locale) setClubFormat({ currency: patch.currency as string | undefined, locale: patch.format_locale as string | undefined });
     return null;
   },
 });

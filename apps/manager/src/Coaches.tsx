@@ -3,7 +3,7 @@
 // the coach role on their page.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { amountPattern, parseDollars, toMajor } from "@kumi/i18n/format";
+import { amountPattern, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
 import { api, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
 
 type Profile = { bio: string | null; translations?: unknown; level_min: string | null; level_max: string | null; languages: string[]; rates: Record<string, number>; photo: string | null; lessons: boolean; max_players: number };
@@ -26,9 +26,8 @@ async function shrink(file: File): Promise<string> {
   }
   throw new Error("too big");
 }
-const weekdays = [1, 2, 3, 4, 5, 6, 0];
-const dayName = (w: number) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
-const dayText = (d: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T12:00:00Z`));
+const dayName = (w: number) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
+const dayText = (d: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T12:00:00Z`));
 const toCents = (v: string) => parseDollars(v) ?? NaN;
 
 export function Coaches() {
@@ -106,7 +105,7 @@ function CoachEdit({ c, d, preview }: { c: Coach; d: Data; preview: Preview }) {
         <h2>{t("ui.lesson_hours")}</h2>
         {d.locations.length > 1 && <label>{t("ui.location")}<select value={loc} onChange={(e) => setLoc(e.currentTarget.value)}>{d.locations.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>}
         <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("coach.set_hours", { person_id: c.id, location_id: loc, stretches: here.map(({ weekday, starts, ends }) => ({ weekday, starts, ends })) }); }}>
-          {weekdays.map((w) => <div>
+          {weekOrder().map((w) => <div>
             <strong>{dayName(w)}</strong>
             {here.filter((h) => h.weekday === w).map((h) => <div class="court-row">
               <label>{t("ui.from")}<input type="time" required value={h.starts} onInput={(e) => setStretch(h, { starts: e.currentTarget.value })} /></label>

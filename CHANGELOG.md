@@ -15,6 +15,12 @@ server starts.
   dinar and a few others) aren't taken yet, since Stripe treats them differently. The currency can't change once the
   club has taken a payment, and `kumi doctor` warns when it isn't the Stripe account's own (Stripe would convert
   every payment, for a fee). See the setup guide's "Running Kumi outside the US".
+- **A club's own formats.** Settings has the club's locale (en-US until changed: en-GB, es-ES, fr-FR...). Dates,
+  times, numbers and amounts are written the club's way (day or month first, "1.200,50" or "1,200.50"), its clock
+  runs to 12 or 24 hours, and its week starts on its first day (Sunday in the US, Monday in most of Europe), in the
+  Courts week, opening hours and the public page alike. Each member still reads Kumi in their own language: an
+  English speaker at a club in Spain sees "Thu, 12 Nov, 17:00". A US club reads as before, except that its weeks now
+  start on Sunday, as US calendars do.
 - **Mexicano and King of the Court nights**, beside the Americano. A Mexicano pairs each round by the night's
   standings (1st and 4th against 2nd and 3rd, the best four on the top court), with games to 16, 21, 24 or 32
   points, and a round sat out counts half a game's points. King of the Court plays timed rounds (12 minutes to
@@ -313,8 +319,7 @@ server starts.
   by the one who booked it, not a share; a pass covers the price, so a booking shortened later gives nothing back,
   and a use the club's rules refund only in part is spent. A pass past its date keeps its unused value in the books
   until a manager refunds it.
-- Outside the US: a club's currency is its own (above), but dates, times and numbers are still written the US way,
-  prices are before tax, phone numbers are US and Canadian, and texts reach US and Canadian numbers only. Which
+- Outside the US: a club's currency and formats are its own (above), but prices are before tax, phone numbers are US and Canadian, and texts reach US and Canadian numbers only. Which
   countries, languages, data-protection duties, invoices and ways to pay come next is still to decide.
 - Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures", and
   with credit, gift cards and passes as above in place of "no credit, gift cards, vouchers or drop-in passes".

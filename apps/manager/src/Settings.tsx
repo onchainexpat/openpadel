@@ -2,7 +2,7 @@
 // and courts. Every change goes through the preview, like everything else; only what changed is sent.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { amountPattern, fromMajor, money, parseDollars, toMajor } from "@kumi/i18n/format";
+import { amountPattern, fromMajor, money, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
 import { api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club, applyBrand } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
@@ -14,7 +14,7 @@ type Price = { id: string; name: string; translations?: unknown; court_ids: stri
 type Loc = { id: string; name: string; address: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
+type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; two_factor: "owner_manager" | "all_staff" | "off" };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
 type Usage = { cents_per_segment: number; paused: boolean; resets: string; current: Month; history: Month[] };
@@ -67,7 +67,7 @@ export function Settings() {
 /** Texts: on or off, where the club's registration with US carriers stands (done from the server, `kumi
  *  texting`), and this month's texts. They count toward the club's one monthly cap, on the Usage page. */
 function TextingCard({ x, tz }: { x: Texting; tz: string }) {
-  const u = x.usage, usd = (cents: number) => dollars(cents, lang.value), loc = lang.value === "es" ? "es-US" : "en-US";
+  const u = x.usage, usd = (cents: number) => dollars(cents, lang.value), loc = formatLocale(lang.value);
   const monthName = (m: string) => new Intl.DateTimeFormat(loc, { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${m}T12:00:00Z`));
   const day = (iso: string) => new Intl.DateTimeFormat(loc, { day: "numeric", month: "long", timeZone: tz }).format(new Date(iso));
   const boss = me.value?.roles.some((r) => r.key === "owner" || r.key === "manager");
@@ -127,6 +127,9 @@ function WaiverForm({ w, send }: { w: S["waiver"]; send: Preview }) {
   );
 }
 
+/** Locales a club might pick (any BCP 47 tag works): the reader's language is their own, these set the formats. */
+const LOCALES = ["en-US", "en-CA", "es-US", "es-MX", "en-GB", "en-IE", "en-AU", "en-NZ", "es-ES", "ca-ES", "pt-PT", "fr-FR", "it-IT", "de-DE", "nl-NL", "sv-SE", "en-AE", "ar-AE", "en-ZA", "es-AR", "pt-BR", "ja-JP"];
+
 function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: Preview }) {
   const { translations, ...rest } = c, aboutTr0 = savedIn(translations, "about");
   const start = { ...rest, legal_name: c.legal_name ?? "", about: c.about ?? "", terms_url: c.terms_url ?? "", privacy_policy_url: c.privacy_policy_url ?? "" };
@@ -145,6 +148,9 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       <datalist id="zones">{ZONES.map((z) => <option value={z} />)}</datalist>
       <label>{t("ui.currency")}<input required maxLength={3} pattern="[A-Za-z]{3}" autocapitalize="characters" value={f.currency} onInput={(e) => set("currency", e.currentTarget.value.toUpperCase())} /></label>
       <p class="meta">{t("ui.currency_note")}</p>
+      <label>{t("ui.locale")}<input required list="locales" value={f.format_locale} onInput={(e) => set("format_locale", e.currentTarget.value)} /></label>
+      <datalist id="locales">{LOCALES.map((l) => <option value={l} />)}</datalist>
+      <p class="meta">{t("ui.locale_note")}</p>
       <fieldset>
         <legend>{t("ui.languages")}</legend>
         {["en", "es"].map((l) => <label class="check"><input type="checkbox" checked={f.languages.includes(l)} onChange={(e) => toggleLang(l, e.currentTarget.checked)} /> {l === "es" ? "Español" : "English"}</label>)}
@@ -209,8 +215,7 @@ function LocationCard({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview
   );
 }
 
-const ORDER = [1, 2, 3, 4, 5, 6, 0];
-const dayName = (w: number) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
+const dayName = (w: number) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
 /** A phone's time picker can't show 24:00, so closing at 00:00 means midnight at the end of the day. */
 const closing = (v: string) => (v === "00:00" ? "24:00" : v);
 
@@ -222,7 +227,7 @@ function OpeningHours({ l, send }: { l: Loc; send: Preview }) {
     <>
       <h3>{t("ui.hours_title")}</h3>
       <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("hours.set", { location_id: l.id, days: days.filter((d) => d.opens && d.closes).map((d) => ({ weekday: d.weekday, opens: d.opens, closes: closing(d.closes!) })) }); }}>
-        {ORDER.map((w) => { const d = days.find((x) => x.weekday === w)!; return (
+        {weekOrder().map((w) => { const d = days.find((x) => x.weekday === w)!; return (
           <div class="hours-row">
             <label class="check"><input type="checkbox" checked={Boolean(d.opens)} onChange={(e) => set(w, e.currentTarget.checked ? { opens: "08:00", closes: "22:00" } : { opens: null, closes: null })} /> {dayName(w)}</label>
             {d.opens ? <>
@@ -252,7 +257,6 @@ function OpeningHours({ l, send }: { l: Loc; send: Preview }) {
   );
 }
 
-const ALL_DAYS = [1, 2, 3, 4, 5, 6, 0];
 const usd = (cents: number) => money(cents, lang.value);
 
 function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
@@ -278,7 +282,7 @@ function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
         <label>{f.rule_id ? t("ui.change_price") : t("ui.add_price")}<input required placeholder={t("ui.price_name_hint")} value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
         <OtherLang value={f.name_tr} onInput={(v) => setF({ ...f, name_tr: v })} source={f.name} maxLength={60} />
         <label>{t("ui.dollars_per_hour")}<input required inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>
-        <fieldset><legend>{t("ui.days_none_all")}</legend>{ALL_DAYS.map((w) => <label class="check inline"><input type="checkbox" checked={f.days.includes(w)} onChange={() => setF({ ...f, days: toggle(f.days, w) as number[] })} /> {dayName(w)}</label>)}</fieldset>
+        <fieldset><legend>{t("ui.days_none_all")}</legend>{weekOrder().map((w) => <label class="check inline"><input type="checkbox" checked={f.days.includes(w)} onChange={() => setF({ ...f, days: toggle(f.days, w) as number[] })} /> {dayName(w)}</label>)}</fieldset>
         <label class="check"><input type="checkbox" checked={f.allDay} onChange={(e) => setF({ ...f, allDay: e.currentTarget.checked })} /> {t("ui.all_day")}</label>
         {!f.allDay && <div class="court-row"><input type="time" step={1800} aria-label={t("ui.from")} value={f.starts} onInput={(e) => setF({ ...f, starts: e.currentTarget.value })} />
           <input type="time" step={1800} aria-label={t("ui.to")} value={f.ends} onInput={(e) => setF({ ...f, ends: e.currentTarget.value })} /></div>}
@@ -340,7 +344,7 @@ function CourtRow({ c, l, send }: { c: Court; l: Loc; send: Preview }) {
 /** A court's own week: each day the location's hours, closed, or its own times. */
 function CourtHours({ c, l, send }: { c: Court; l: Loc; send: Preview }) {
   type Day = { weekday: number; mode: "location" | "closed" | "open"; opens: string; closes: string };
-  const [days, setDays] = useState<Day[]>(ORDER.map((w) => {
+  const [days, setDays] = useState<Day[]>(weekOrder().map((w) => {
     const own = c.hours.find((h) => h.weekday === w), loc = l.hours.find((h) => h.weekday === w);
     return { weekday: w, mode: !own ? "location" : own.opens ? "open" : "closed", opens: own?.opens ?? loc?.opens ?? "08:00", closes: (own?.closes ?? loc?.closes ?? "22:00").replace("24:00", "00:00") };
   }));

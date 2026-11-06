@@ -7,7 +7,7 @@
 // household too (see memberships covered below).
 import * as z from "zod/mini";
 import { sql } from "kysely";
-import { both, money, type Key, type Lang, type Text } from "@kumi/i18n";
+import { both, money, type Key, type Lang, type Text, formatLocale } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -48,7 +48,7 @@ export function planPrice(cents: number, period: "month" | "year"): Text {
 }
 /** A club date as people say it: "December 31, 2026", "31 de diciembre de 2026". */
 export function dayText(date: string): Text {
-  const f = (lang: Lang) => new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
+  const f = (lang: Lang) => new Intl.DateTimeFormat(formatLocale(lang), { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
   return { en: f("en"), es: f("es") };
 }
 

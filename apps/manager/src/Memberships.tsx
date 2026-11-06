@@ -2,7 +2,7 @@
 // and how far ahead its members book; member prices are court prices for chosen plans (Settings, Prices).
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { amountPattern, currencySign, parseDollars, plainAmount, toMajor } from "@kumi/i18n/format";
+import { amountPattern, currencySign, parseDollars, plainAmount, toMajor, formatLocale } from "@kumi/i18n/format";
 import { api, dollars, lang, mayDo, OtherLang, savedIn, t, translationsOf, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 
@@ -19,7 +19,7 @@ type Preview = (action: string, input: unknown) => Promise<void>;
 
 const day = (iso: string) => clubTime(iso, { dateStyle: "medium" });
 /** A club date ("2026-11-30"), as written here. */
-const clubDay = (date: string) => new Intl.DateTimeFormat(lang.value === "es" ? "es-US" : "en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
+const clubDay = (date: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
 /** When it runs until or renews, and how it came: the line under a member's name. */
 export const pausedNow = (m: { paused_until?: string | null }) => Boolean(m.paused_until && new Date(m.paused_until) > new Date(serverNow()));
 export function membershipLine(m: { status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null;

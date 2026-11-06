@@ -3,7 +3,7 @@
 // cap (a manager's change goes to the owner to approve), through the preview like everything else.
 import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, t, usePreview, clubTime } from "@kumi/ui";
-import { fromMajor, plainAmount } from "@kumi/i18n/format";
+import { fromMajor, plainAmount, formatLocale } from "@kumi/i18n/format";
 
 type Kind = "ai_decisions" | "ai_drafts" | "texts" | "email";
 type Line = { count: number; input_tokens: number; output_tokens: number; segments: number; cents: number };
@@ -19,7 +19,7 @@ export function Usage() {
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const u = d.usage;
   if (!u) return <main class="card"><p>{t("ui.loading")}</p></main>;
-  const usd = (cents: number) => dollars(cents, lang.value), loc = lang.value === "es" ? "es-US" : "en-US";
+  const usd = (cents: number) => dollars(cents, lang.value), loc = formatLocale(lang.value);
   const monthName = (m: string) => new Intl.DateTimeFormat(loc, { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${m}T12:00:00Z`));
   const day = clubTime(u.resets, { day: "numeric", month: "long" });
   const share = u.share === null ? 100 : Math.round(u.share * 100);
