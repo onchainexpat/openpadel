@@ -6,7 +6,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { loadFamily } from "./ForWhom.tsx";
-import { PaySheet } from "./Pay.tsx";
+import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { capFor, fromMajor, toMajor, formatLocale } from "@kumi/i18n/format";
 
 type Person = { id: string; display_name: string; me?: boolean };
@@ -38,6 +38,7 @@ function ParentFamily() {
   const { preview, sheet } = usePreview(() => { setName(""); setYear(""); setLoginFor(null); setKidLoginFor(null); setRulesFor(null); setEmail(""); void load(); void loadFamily(); });
   useEffect(() => { void load(); }, [lang.value]);
   useEffect(() => { api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {}); }, []);
+  useConfirming((k?.to_pay ?? []).map((p) => p.payment_id), loadKids);
   /** A parent's yes: done there and then, and paid on the family card. */
   const approve = async (id: string) => {
     setNote(null);
@@ -105,7 +106,8 @@ function ParentFamily() {
         <h2>{t("ui.kid_to_pay")}</h2>
         <ul class="plain">{k.to_pay.map((p) => (
           <li class="row"><span>{p.name}: {p.what}</span>
-            <button class="small primary" onClick={() => setPaying({ id: p.payment_id, cents: p.cents, name: p.what })}>{t("ui.pay_now", { amount: usd(p.cents) })}</button></li>))}</ul>
+            {isConfirming(p.payment_id) ? <span class="meta" role="status">{t("ui.paid_confirming")}</span>
+              : <button class="small primary" onClick={() => setPaying({ id: p.payment_id, cents: p.cents, name: p.what })}>{t("ui.pay_now", { amount: usd(p.cents) })}</button>}</li>))}</ul>
       </section>}
       {parent && h && h.juniors.length > 0 && <section class="card">
         <h2>{t("ui.family_card")}</h2>

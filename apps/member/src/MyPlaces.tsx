@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, t, shortTime, usePreview, clubTime } from "@kumi/ui";
-import { confirmPaid, PaySheet } from "./Pay.tsx";
+import { confirmPaid, isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { weeklyLaterLine, type WeeklyLater } from "./weekly_later.ts";
 import { formatLocale } from "@kumi/i18n/format";
 
@@ -15,6 +15,7 @@ export function MyPlaces() {
   const load = () => api<Place[]>("/my/places").then(setRows);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
+  useConfirming((rows ?? []).map((p) => p.pending_payment_id), load);
   useEffect(() => {
     api<{ provider: string; ready: boolean }>("/payments/config").then((c) => { setProvider(c.provider); setReady(c.ready); }).catch(() => {});
     // Back from a bank's own check (only some cards need one): see whether the payment went through.
@@ -37,10 +38,10 @@ export function MyPlaces() {
         <li class="card" key={p.id}>
           <div class="summary">{p.name}{p.for_name ? <span class="meta"> · {t("ui.for_name", { name: p.for_name })}</span> : null}</div>
           <div class="meta">{when(p.first_start)} · {p.status === "booked" ? t("ui.youre_in") : t("ui.on_waitlist", { n: p.waitlist_position ?? 0 })}
-            {p.paid_cents > 0 ? ` · ${paidOf(p.paid_cents, p.price_cents)}` : p.pending_payment_id ? ` · ${t("ui.pay_pending")}` : ""}</div>
+            {p.paid_cents > 0 ? ` · ${paidOf(p.paid_cents, p.price_cents)}` : isConfirming(p.pending_payment_id) ? ` · ${t("ui.paid_confirming")}` : p.pending_payment_id ? ` · ${t("ui.pay_pending")}` : ""}</div>
           {p.offer_expires_at && <p class="note">{t("ui.offer_ends", { time: shortTime(p.offer_expires_at) })} <button class="small primary" onClick={() => preview("enrolment.accept_offer", { enrolment_id: p.id })}>{t("ui.take_place")}</button></p>}
           {p.pending_payment_id && provider === "stripe" && !ready && <p class="meta">{t("error.payments_not_set_up")}</p>}
-          {p.pending_payment_id && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(p)}>{t("ui.pay_now", { amount: dollars(p.pending_cents ?? p.price_cents, lang.value) })}</button>}
+          {p.pending_payment_id && !isConfirming(p.pending_payment_id) && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(p)}>{t("ui.pay_now", { amount: dollars(p.pending_cents ?? p.price_cents, lang.value) })}</button>}
           {import.meta.env.DEV && p.pending_payment_id && provider === "test" && <button class="small" onClick={() => payTest(p.pending_payment_id!)}>{t("ui.pay_test")}</button>}
           {" "}<button class="small" onClick={() => preview("enrolment.leave", { enrolment_id: p.id })}>{t("ui.leave")}</button>
         </li>
@@ -61,6 +62,9 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
   const load = () => api<Booking[]>("/my/bookings").then(setRows).catch(() => {});
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
+  // Taken by the card form and not recorded yet (confirming.ts): "Paid, thank you: confirming", and no Pay button.
+  const confirming = (b: Booking) => !b.paid_cents && (paid.has(b.id) || isConfirming(b.pending_payment_id));
+  useConfirming(rows.map((b) => b.pending_payment_id), load);
   if (!rows.length) return null;
   const when = (b: Booking) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: b.time_zone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(b.start));
   const link = (b: Booking) => `${location.origin}/join/${b.invite_code}`;
@@ -77,11 +81,11 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
       <ul class="changes">{rows.map((b) => (
         <li class="card" key={b.id}>
           <div class="summary">{b.kind === "lesson" ? `${t("ui.lesson_with", { coach: b.coach ?? "" })} · ` : ""}{b.court} · {when(b)}{b.for_name ? <span class="meta"> · {t("ui.for_name", { name: b.for_name })}</span> : null}</div>
-          <div class="meta">{b.code} · {b.location}{b.status === "held" && !paid.has(b.id) ? ` · ${t("ui.being_paid")}` : ""}{paid.has(b.id) && !b.paid_cents ? ` · ${t("ui.paid_confirming")}` : b.paid_cents > 0 ? ` · ${b.off_cents > 0 && b.paid_cents + b.off_cents >= b.share_cents ? t("ui.you_paid_off", { amount: dollars(b.paid_cents, lang.value), off: dollars(b.off_cents, lang.value) }) : paidOf(b.paid_cents + b.off_cents, b.share_cents)}` : ""}
+          <div class="meta">{b.code} · {b.location}{b.status === "held" && !confirming(b) ? ` · ${t("ui.being_paid")}` : ""}{confirming(b) ? ` · ${t("ui.paid_confirming")}` : b.paid_cents > 0 ? ` · ${b.off_cents > 0 && b.paid_cents + b.off_cents >= b.share_cents ? t("ui.you_paid_off", { amount: dollars(b.paid_cents, lang.value), off: dollars(b.off_cents, lang.value) }) : paidOf(b.paid_cents + b.off_cents, b.share_cents)}` : ""}
             {b.pay_mode === "split" ? ` · ${t("count.joined", { count: b.joined, total: b.players })}` : ""}</div>
           {b.balance_cents > 0 && b.mine && <p class="error">{t("ui.still_owed", { amount: dollars(b.balance_cents, lang.value) })}</p>}
           {weeklyLaterLine(b.weekly_later) && <p class="meta">{weeklyLaterLine(b.weekly_later)}</p>}
-          {b.pending_payment_id && !paid.has(b.id) && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(b)}>{t("ui.pay_now", { amount: dollars(b.group_cents ?? b.pending_cents ?? b.share_cents, lang.value) })}</button>}
+          {b.pending_payment_id && !confirming(b) && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(b)}>{t("ui.pay_now", { amount: dollars(b.group_cents ?? b.pending_cents ?? b.share_cents, lang.value) })}</button>}
           {import.meta.env.DEV && b.pending_payment_id && provider === "test" && <button class="small" onClick={async () => { await api(`/dev/payments/${b.pending_payment_id}/settle`, {}); load(); }}>{t("ui.pay_test")}</button>}
           {b.open_match_id ? <><a class="small" href={`/match/${b.open_match_id}`}>{t("ui.see_match")}</a>{" "}</>
             : b.kind === "court" && b.status === "confirmed" && <><a class="small" href={`/match/${b.id}`}>{t("ui.players_and_score")}</a>{" "}</>}

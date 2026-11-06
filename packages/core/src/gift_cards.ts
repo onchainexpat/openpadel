@@ -17,7 +17,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { keyedHash, openText, sealText } from "./sealed.ts";
-import { deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
+import { callOff, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 import { lockCredit } from "./credit.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
@@ -76,6 +76,11 @@ export const giftCardBuy = defineAction({
   },
   async apply(ctx, i) {
     await amountAllowed(ctx.trx, i.cents);
+    // One bought before and never paid (the card form closed, a card declined, a page that couldn't open its form)
+    // is called off, so the list doesn't fill with cards waiting for a payment that isn't coming. If its card went
+    // through after all, payment.settle records it and gives it all back (callOff).
+    for (const p of await ctx.trx.selectFrom("payment").innerJoin("gift_card", "gift_card.id", "payment.gift_card_id").select("payment.id")
+      .where("gift_card.buyer_id", "=", i.person_id).where("gift_card.sold_via", "=", "app").where("gift_card.status", "=", "pending").where("payment.status", "=", "pending").execute()) await callOff(ctx, p.id);
     const card = await makeCard(ctx, { buyer: i.person_id, cents: i.cents, forName: i.for_name, message: i.message, via: "app", status: "pending" });
     const payment = uuidv7();
     await ctx.insert("payment", { id: payment, person_id: i.person_id, amount_cents: i.cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", gift_card_id: card });
@@ -192,9 +197,13 @@ export const giftCardResend = defineAction({
 
 /** The cards a person bought (with their codes, theirs to give) and redeemed. */
 export async function giftCardsOf(db: Db | Trx, personId: string) {
-  const rows = await db.selectFrom("gift_card").selectAll().where((w) => w.or([w("buyer_id", "=", personId), w("redeemed_by", "=", personId)])).orderBy("created_at", "desc").execute();
-  return rows.map((c) => ({ id: c.id, amount_cents: c.amount_cents, status: c.status, for_name: c.for_name, message: c.message, last4: c.last4, created_at: c.created_at,
-    bought: c.buyer_id === personId, code: c.buyer_id === personId && c.status === "active" ? openText(c.code_sealed) : null, redeemed_at: c.redeemed_at }));
+  // One waiting for its payment is listed while that payment still can be made (with its id, for "confirming");
+  // one whose payment was called off or failed was never theirs, and isn't.
+  const rows = await db.selectFrom("gift_card").selectAll()
+    .select((eb) => eb.selectFrom("payment").select("payment.id").whereRef("payment.gift_card_id", "=", "gift_card.id").where("payment.status", "=", "pending").limit(1).as("pending_payment_id"))
+    .where((w) => w.or([w("buyer_id", "=", personId), w("redeemed_by", "=", personId)])).orderBy("created_at", "desc").execute();
+  return rows.filter((c) => c.status !== "pending" || c.pending_payment_id).map((c) => ({ id: c.id, amount_cents: c.amount_cents, status: c.status, for_name: c.for_name, message: c.message, last4: c.last4, created_at: c.created_at,
+    bought: c.buyer_id === personId, code: c.buyer_id === personId && c.status === "active" ? openText(c.code_sealed) : null, redeemed_at: c.redeemed_at, pending_payment_id: c.pending_payment_id ?? null }));
 }
 /** The club's cards, for staff: never the code. */
 export async function clubGiftCards(db: Db | Trx) {

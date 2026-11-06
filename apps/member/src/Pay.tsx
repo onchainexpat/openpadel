@@ -2,7 +2,12 @@
 // browser to Stripe and never touch Kumi. Kumi then checks with Stripe that the payment went through.
 // The same form saves a card without paying (a membership joined before its plan starts).
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, ApiError, club, dollars, lang, protectedPost, t, useBackCloses } from "@kumi/ui";
+import { api, ApiError, club, dollars, lang, protectedPost, serverNow, t, useBackCloses } from "@kumi/ui";
+import { payMode } from "./pay_mode.ts";
+import { clearConfirming, isConfirmingAt, markConfirmingAt } from "./confirming.ts";
+
+/** Whether a payment still waiting in a list was taken by the card form a moment ago (confirming.ts). */
+export const isConfirming = (paymentId: string | null | undefined) => isConfirmingAt(paymentId, serverNow());
 
 declare global { interface Window { Stripe?: (publishableKey: string, options?: object) => any } }
 
@@ -19,36 +24,50 @@ function loadStripeJs(): Promise<void> {
   return stripeJs;
 }
 
-/** Ask Kumi to check with Stripe, a few times: a card can take a moment to settle. */
-export async function confirmPaid(paymentId: string, tries = 8, check = `/my/payments/${paymentId}/check`): Promise<boolean> {
+/** Ask Kumi to check with Stripe, a few times: a card can take a moment to settle. "pending": still processing,
+ *  and the minute job or Stripe's webhook will record it. */
+export async function waitPaid(paymentId: string, tries = 8, check = `/my/payments/${paymentId}/check`): Promise<"succeeded" | "failed" | "pending"> {
   for (let i = 0; i < tries; i++) {
-    const r = await api<{ status: string }>(check, {});
-    if (r.status === "succeeded") return true;
-    if (r.status === "failed") return false;
+    const r = await api<{ status: string }>(check, {}).catch(() => ({ status: "pending" }));
+    if (r.status === "succeeded" || r.status === "failed") return r.status;
     await new Promise((ok) => setTimeout(ok, 1000));
   }
-  return false;   // still processing: the minute job or Stripe's webhook will record it
+  return "pending";
+}
+export async function confirmPaid(paymentId: string, tries = 8, check = `/my/payments/${paymentId}/check`): Promise<boolean> {
+  return (await waitPaid(paymentId, tries, check)) === "succeeded";
+}
+
+/** While any of these payments reads as confirming (confirming.ts), the list is asked again every few seconds, so
+ *  it turns to paid as soon as it's recorded. */
+export function useConfirming(paymentIds: (string | null | undefined)[], reload: () => unknown) {
+  const waiting = paymentIds.some((id) => isConfirming(id));
+  useEffect(() => {
+    if (!waiting) return;
+    const id = setTimeout(() => void reload(), 4000);
+    return () => clearTimeout(id);
+  });
 }
 
 /** `cardFor`: save the card for that membership instead of paying (nothing is charged). `familyCard`: save the
  *  family card a parent's kids pay with. A kid's own payment never shows a card form: it goes on the family
  *  card, or to a parent to pay. */
-export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnly, amountCents: firstAmount, name, detail, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; cardOnly?: boolean; amountCents: number; name: string; detail?: string | null; onClose: () => void; onPaid: () => void }) {
+export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnly, back, amountCents: firstAmount, name, detail, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; cardOnly?: boolean; back?: string; amountCents: number; name: string; detail?: string | null; onClose: () => void; onPaid: () => void }) {
   const box = useRef<HTMLDivElement>(null), stripe = useRef<{ stripe: any; elements: any } | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "paying" | "checking">("loading"), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
   // The phone's back button closes the card form, as its Cancel does.
   useBackCloses(true, onClose);
-  // A gift card or a pass is bought by card only: club credit and promo codes can't buy them (the server refuses), so
-  // the sheet doesn't offer either.
-  const setup = Boolean(cardFor || familyCard || cardOnly);
+  // Saving a card charges nothing; a gift card or a pass is paid by card only (no credit, passes or promo codes),
+  // but it's still a payment: the bot check, then confirmed as a payment (pay_mode.ts).
+  const { saveCard, extras } = payMode({ cardFor, familyCard, cardOnly });
   // Club credit first (credit.ts): asked before the card form opens, since a card form already open can't change.
   // Paid all from credit, the sheet is done; part of a place, the card is asked for the rest, a payment of its own.
   const [paymentId, setPaymentId] = useState(firstPayment), [amountCents, setAmountCents] = useState(firstAmount);
-  const [credit, setCredit] = useState<number | null>(setup ? 0 : null), [useCredit, setUseCredit] = useState(true), [step, setStep] = useState<"credit" | "card">(setup ? "card" : "credit");
+  const [credit, setCredit] = useState<number | null>(extras ? null : 0), [useCredit, setUseCredit] = useState(true), [step, setStep] = useState<"credit" | "card">(extras ? "credit" : "card");
   // A pass of theirs that covers this (passes.ts) is offered first, with the credit; either pays it before any card.
   const [passes, setPasses] = useState<{ id: string; name: string; uses_left: number }[]>([]);
   useEffect(() => {
-    if (setup) return;
+    if (!extras) return;
     Promise.all([api<{ cents: number }>("/my/credit").catch(() => ({ cents: 0 })), firstPayment ? api<{ id: string; name: string; uses_left: number }[]>(`/my/payments/${firstPayment}/passes`).catch(() => []) : Promise.resolve([])])
       .then(([c, p]) => { setCredit(c.cents); setPasses(p); if (c.cents <= 0 && p.length === 0 && !club.value?.promos) setStep("card"); });
   }, []);
@@ -83,7 +102,7 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
   const amount = dollars(amountCents, lang.value);
   const urls = familyCard ? { open: "/my/family/card", check: "", back: "/family?card=1" }
     : cardFor ? { open: `/my/memberships/${cardFor}/card`, check: `/my/memberships/${cardFor}/card/check`, back: `/membership?card=${cardFor}` }
-    : { open: `/my/payments/${paymentId}/intent`, check: `/my/payments/${paymentId}/check`, back: `/places?paid=${paymentId}` };
+    : { open: `/my/payments/${paymentId}/intent`, check: `/my/payments/${paymentId}/check`, back: back ?? `/places?paid=${paymentId}` };
   const check = useRef(urls.check);
   const title = familyCard ? t("ui.family_card_title") : cardFor ? t("ui.save_card_title", { name }) : t("ui.pay_title", { amount, name });
 
@@ -92,10 +111,11 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
     let gone = false;
     (async () => {
       try {
-        type Opened = { client_secret: string; publishable_key: string | null; stripe_account: string | null; card_id?: string; family?: "paid" | "parent"; cents?: number };
+        type Opened = { client_secret: string; publishable_key: string | null; stripe_account: string | null; card_id?: string; family?: "paid" | "parent"; cents?: number; paid?: boolean };
         // A card form for a payment passes the bot check first (the server's bot.ts); saving a card doesn't charge.
-        const it = setup ? await api<Opened>(urls.open, {}) : await protectedPost<Opened>(urls.open, {});
-        if (it.family === "paid") { onPaid(); return; }
+        const it = saveCard ? await api<Opened>(urls.open, {}) : await protectedPost<Opened>(urls.open, {});
+        // Paid already (a second tap after the card went through): nothing to pay twice.
+        if (it.family === "paid" || it.paid) { onPaid(); return; }
         if (it.family === "parent") { setNote(t("ui.kid_parent_pays")); return; }
         if (it.card_id) check.current = `/my/family/card/${it.card_id}/check`;
         if (!it.publishable_key) throw new Error("no publishable key");
@@ -118,10 +138,15 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
     setState("paying"); setError(null);
     // Only cards that need a bank's page leave the app.
     const confirm = { elements: stripe.current.elements, redirect: "if_required", confirmParams: { return_url: `${location.origin}${urls.back}` } };
-    const r = setup ? await stripe.current.stripe.confirmSetup(confirm) : await stripe.current.stripe.confirmPayment(confirm);
+    const r = saveCard ? await stripe.current.stripe.confirmSetup(confirm) : await stripe.current.stripe.confirmPayment(confirm);
     if (r.error) { setError(r.error.message ?? t("ui.pay_failed")); setState("ready"); return; }
+    // The card was taken: it reads as paid, being confirmed, everywhere until it's recorded (confirming.ts).
+    if (!saveCard && paymentId) markConfirmingAt(paymentId, serverNow());
     setState("checking");
-    if (await confirmPaid(paymentId ?? "", 8, check.current)) onPaid(); else { setError(t("ui.pay_still_processing")); setState("ready"); }
+    const status = await waitPaid(paymentId ?? "", 8, check.current);
+    if (status === "succeeded" || (status === "pending" && !saveCard)) { onPaid(); return; }
+    if (status === "failed" && paymentId) clearConfirming(paymentId);
+    setError(t(status === "failed" ? "ui.pay_failed" : "ui.pay_still_processing")); setState("ready");
   };
 
   return (

@@ -2,7 +2,8 @@
 // spent in the pay sheet ("Pay with ..."), before the card form opens.
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, clubTime, dollars, lang, me, t } from "@kumi/ui";
-import { PaySheet } from "./Pay.tsx";
+import { clearConfirming } from "./confirming.ts";
+import { confirmPaid, isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 
 type Product = { id: string; name: string; covers: "programs" | "courts" | "lessons"; uses: number; price_cents: number; max_minutes: number | null; valid_days: number | null };
 type Mine = { id: string; name: string; covers: "programs" | "courts" | "lessons"; uses: number; uses_left: number; expires_at: string | null; status: "active" | "refunded"; max_minutes: number | null };
@@ -13,7 +14,17 @@ const covers = (x: { covers: "programs" | "courts" | "lessons"; max_minutes: num
 export function Passes() {
   const [data, setData] = useState<{ mine: Mine[]; on_sale: Product[] } | null>(null), [paying, setPaying] = useState<{ id: string; cents: number; name: string } | null>(null), [error, setError] = useState<string | null>(null);
   const load = async () => setData(await api<{ mine: Mine[]; on_sale: Product[] }>("/my/passes").catch(() => ({ mine: [], on_sale: [] })));
-  useEffect(() => { void load(); }, []);
+  // Just paid: "confirming" until the pass is recorded and listed (a pass waiting for its payment isn't listed).
+  const [justPaid, setJustPaid] = useState<{ id: string; had: number } | null>(null);
+  useEffect(() => {
+    void load();
+    // Back from a bank's own check (only some cards need one): see whether the card went through.
+    const back = new URLSearchParams(location.search).get("paid");
+    if (back) { history.replaceState(null, "", "/passes"); void confirmPaid(back).then(() => load()); }
+  }, []);
+  const listed = Boolean(justPaid && data && data.mine.length > justPaid.had);
+  useEffect(() => { if (listed && justPaid) clearConfirming(justPaid.id); }, [listed]);
+  useConfirming([justPaid && !listed ? justPaid.id : null], load);
   const buy = async (p: Product) => {
     setError(null);
     try {
@@ -26,6 +37,7 @@ export function Passes() {
     <main>
       <h1>{t("ui.passes_title")}</h1>
       <p class="meta">{t("ui.passes_hint")}</p>
+      {justPaid && <p class="note" role="status">{t(listed || !isConfirming(justPaid.id) ? "ui.pay_done" : "ui.paid_confirming")}</p>}
       {data && data.mine.length > 0 && <section class="card"><h2>{t("ui.pass_yours")}</h2>
         <ul class="plain">{data.mine.map((x) => <li key={x.id} class="row">
           <span><strong>{x.name}</strong> · {covers(x)}</span>
@@ -40,7 +52,8 @@ export function Passes() {
         </li>)}</ul>
         {error && <p class="error" role="alert">{error}</p>}
       </section>
-      {paying && <PaySheet paymentId={paying.id} cardOnly amountCents={paying.cents} name={paying.name} onClose={() => { setPaying(null); void load(); }} onPaid={() => { setPaying(null); void load(); }} />}
+      {paying && <PaySheet paymentId={paying.id} cardOnly back={`/passes?paid=${paying.id}`} amountCents={paying.cents} name={paying.name} onClose={() => { setPaying(null); void load(); }}
+        onPaid={() => { setJustPaid({ id: paying.id, had: data?.mine.length ?? 0 }); setPaying(null); void load(); }} />}
     </main>
   );
 }

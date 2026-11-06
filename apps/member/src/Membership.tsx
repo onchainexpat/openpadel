@@ -4,7 +4,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
-import { confirmPaid, PaySheet } from "./Pay.tsx";
+import { confirmPaid, isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 
 type Perks = { days_ahead: number | null; member_prices: boolean; period: "month" | "year"; program_percent_off: number | null; program_cents_off: number | null;
@@ -74,6 +74,7 @@ export function Membership() {
     if (back) { history.replaceState(null, "", "/membership"); confirmPaid("", 8, `/my/memberships/${back}/card/check`).then(() => load()); }
   }, [lang.value]);
   const paid = async () => { setPaying(null); setWelcome(!mine); setChosen(null); await load(); };
+  useConfirming([mine?.pay_now?.payment_id], load);
   if (mine === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
   return (
@@ -100,7 +101,8 @@ export function Membership() {
           </>}
           {mine.mine && mine.status === "past_due" && mine.pay_now && <div class="note">
             <p>{t("ui.renewal_declined", { amount: dollars(mine.pay_now.cents, lang.value), date: mine.retry_on ? clubDay(mine.retry_on) : "" })}</p>
-            <button class="primary" onClick={() => setPaying({ id: mine.pay_now!.payment_id, cents: mine.pay_now!.cents, name: mine.name })}>{t("ui.pay_now", { amount: dollars(mine.pay_now.cents, lang.value) })}</button>
+            {isConfirming(mine.pay_now.payment_id) ? <p class="meta" role="status">{t("ui.paid_confirming")}</p>
+              : <button class="primary" onClick={() => setPaying({ id: mine.pay_now!.payment_id, cents: mine.pay_now!.cents, name: mine.name })}>{t("ui.pay_now", { amount: dollars(mine.pay_now.cents, lang.value) })}</button>}
           </div>}
           {mine.status === "upcoming" || !mine.mine ? null : mine.source === "app" ? <>
             <p class="meta">{mine.cancel_at_period_end ? t("ui.cancelled_runs_until", { date: clubDay(mine.ends_on!) })

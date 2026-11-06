@@ -3,16 +3,22 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, club, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
-import { PaySheet } from "./Pay.tsx";
+import { confirmPaid, isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { capFor, fromMajor, toMajor } from "@kumi/i18n/format";
 
-type Card = { id: string; amount_cents: number; status: "pending" | "active" | "redeemed" | "void"; for_name: string | null; message: string | null; last4: string; bought: boolean; code: string | null };
+type Card = { id: string; amount_cents: number; status: "pending" | "active" | "redeemed" | "void"; for_name: string | null; message: string | null; last4: string; bought: boolean; code: string | null; pending_payment_id: string | null };
 
 export function GiftCards() {
   const [cards, setCards] = useState<Card[]>([]), [paying, setPaying] = useState<{ id: string; cents: number } | null>(null), [error, setError] = useState<string | null>(null);
   const { preview, sheet } = usePreview(() => void load());
   const load = async () => setCards(await api<Card[]>("/my/gift-cards").catch(() => []));
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    // Back from a bank's own check (only some cards need one): see whether the card went through.
+    const back = new URLSearchParams(location.search).get("paid");
+    if (back) { history.replaceState(null, "", "/gift-cards"); void confirmPaid(back).then(() => load()); }
+  }, []);
+  useConfirming(cards.map((x) => x.pending_payment_id), load);
   const c = club.value, pid = me.value?.person.id;
   const buy = async (e: Event) => {
     e.preventDefault(); setError(null);
@@ -42,7 +48,7 @@ export function GiftCards() {
       {/* Cards bought (with their codes, to give) apart from cards redeemed: someone else's card isn't "yours, bought". */}
       {cards.some((x) => x.bought) && <section class="card"><h2>{t("ui.gift_card_yours")}</h2>
         <ul class="plain">{cards.filter((x) => x.bought).map((x) => <li key={x.id} class="gift">
-          <p><strong>{dollars(x.amount_cents, lang.value)}</strong>{x.for_name ? ` · ${x.for_name}` : ""} · {t(`ui.gift_card_status_${x.status}` as Key)}</p>
+          <p><strong>{dollars(x.amount_cents, lang.value)}</strong>{x.for_name ? ` · ${x.for_name}` : ""} · {x.status === "pending" && isConfirming(x.pending_payment_id) ? t("ui.paid_confirming") : t(`ui.gift_card_status_${x.status}` as Key)}</p>
           {x.code && <p class="code">{x.code}</p>}
           {x.message && <p class="meta">{x.message}</p>}
           {x.code && <button class="small" onClick={() => print()}>{t("ui.gift_card_print")}</button>}
@@ -52,7 +58,7 @@ export function GiftCards() {
           <p><strong>{dollars(x.amount_cents, lang.value)}</strong> · {t("ui.gift_card_into_credit")}</p>
           {x.message && <p class="meta">{t("ui.gift_card_their_message", { message: x.message })}</p>}
         </li>)}</ul></section>}
-      {paying && <PaySheet paymentId={paying.id} cardOnly amountCents={paying.cents} name={t("ui.gift_cards_title")} onClose={() => { setPaying(null); void load(); }} onPaid={() => { setPaying(null); void load(); }} />}
+      {paying && <PaySheet paymentId={paying.id} cardOnly back={`/gift-cards?paid=${paying.id}`} amountCents={paying.cents} name={t("ui.gift_cards_title")} onClose={() => { setPaying(null); void load(); }} onPaid={() => { setPaying(null); void load(); }} />}
       {sheet}
     </main>
   );

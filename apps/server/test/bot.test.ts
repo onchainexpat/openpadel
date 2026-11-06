@@ -5,9 +5,11 @@ import { run, runAsSystem, setPaymentProvider, TestProvider, type Actor, type Db
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 import { createHash } from "node:crypto";
+import { sql } from "kysely";
 import { BotCheck, BASE_BITS, solve, zeroBits } from "../src/bot.ts";
 
-let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor, court: string;
+let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor, court: string, pass: string;
+const provider = new TestProvider();
 const mailer = new MemoryMailer(), people: Record<string, string> = {};
 let ip = "198.51.100.1";
 const post = async (path: string, body: unknown, cookie = "") => {
@@ -53,7 +55,7 @@ test("the check itself: solved is fine; reused, late, wrong, forged, too easy or
 
 before(async () => {
   ({ db, drop } = await freshDb());
-  setPaymentProvider(new TestProvider());
+  setPaymentProvider(provider);
   const s = await runAsSystem(db, "club.setup", { name: "Kestrel Padel", time_zone: "America/Los_Angeles", owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
   owner = { personId: (s.result as any).owner_person_id, via: "test", lang: "en" };
   people.Robin = owner.personId!;
@@ -63,6 +65,9 @@ before(async () => {
   await run(db, "price.rule_set", { location_id: loc, name: "Standard", cents_per_hour: 4000 }, owner);
   await run(db, "club.update", { court_bookings: true, sign_up_open: true }, owner);
   people.Sam = ((await run(db, "person.create", { display_name: "Sam", email: "sam@example.test" }, owner)).result as any).person_id;
+  people.Ana = ((await run(db, "person.create", { display_name: "Ana", email: "ana@example.test" }, owner)).result as any).person_id;
+  await run(db, "club.update", { gift_cards: true }, { ...owner, auth: "passkey" } as Actor);
+  pass = ((await run(db, "pass_product.set", { name: "5 courts", covers: "courts", price_cents: 17500, uses: 5 }, owner)).result as any).product_id;
   app = makeApp({ db, mailer, secureCookies: false, clientIp: () => ip, botCheck: true });
 });
 after(async () => drop());
@@ -104,6 +109,66 @@ test("a card form for a member's payment needs it; staff at the desk don't", asy
   assert.equal((await post(`/my/payments/${paySam}/intent`, { pow: await proof() }, sam)).status, 200);
   const robin = await signIn("robin@example.test"), payRobin = await book("Robin", robin, 11);
   assert.equal((await post(`/my/payments/${payRobin}/intent`, {}, robin)).status, 200);
+});
+
+test("a gift card and a pass bought by card in the app: the card form passes the check, is a payment, and they're theirs once paid", async () => {
+  // Phone check 5: the card-only sheet opened as a save-a-card sheet, with no proof, and the server refused it.
+  ip = "198.51.100.230";
+  await post("/auth/email/start", { email: "ana@example.test", pow: await proof() });
+  const ana = (await post("/auth/email/verify", { email: "ana@example.test", code: mailer.last("ana@example.test")!.text.match(/\b(\d{6})\b/)![1]! })).cookie;
+  const buy = async (action: string, input: object) => {
+    const p = await post(`/actions/${action}/plan`, { person_id: people.Ana, ...input }, ana);
+    return (await post(`/runs/${p.json.run_id}/apply`, {}, ana)).json.result.payment_id as string;
+  };
+  const get = async (path: string) => (await app.request(path, { headers: { cookie: ana } })).json() as Promise<any>;
+  const refOf = async (id: string) => (await db.selectFrom("payment").select("provider_ref").where("id", "=", id).executeTakeFirstOrThrow()).provider_ref!;
+
+  const card = await buy("gift_card.buy", { cents: 5000, for_name: "Ben" });
+  assert.equal((await post(`/my/payments/${card}/intent`, {}, ana)).json.error, "error.bot_check");
+  const opened = await post(`/my/payments/${card}/intent`, { pow: await proof() }, ana);
+  assert.equal(opened.status, 200);
+  assert.match(opened.json.client_secret, /^pi_test_/, "a payment's card form, not a card setup's");
+  provider.settle(await refOf(card), "succeeded");
+  // A second tap on Pay after the card went through, before anything here recorded it: recorded now, no second form.
+  assert.deepEqual((await post(`/my/payments/${card}/intent`, { pow: await proof() }, ana)).json, { paid: true });
+  assert.equal((await post(`/my/payments/${card}/check`, {}, ana)).json.status, "succeeded");
+  const mine = (await get("/my/gift-cards")).filter((x: any) => x.bought);
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].status, "active");
+  assert.match(mine[0].code, /^[0-9A-Z]{4}-/);
+
+  const pay = await buy("pass.buy", { product_id: pass });
+  assert.equal((await post(`/my/payments/${pay}/intent`, {}, ana)).json.error, "error.bot_check");
+  assert.equal((await post(`/my/payments/${pay}/intent`, { pow: await proof() }, ana)).status, 200);
+  provider.settle(await refOf(pay), "succeeded");
+  assert.equal((await post(`/my/payments/${pay}/check`, {}, ana)).json.status, "succeeded");
+  assert.deepEqual((await get("/my/passes")).mine.map((x: any) => [x.name, x.status, x.uses_left]), [["5 courts", "active", 5]]);
+  assert.equal(provider.intents.size >= 2, true);
+  assert.equal([...provider.intents.values()].filter((i) => i.status === "succeeded").length, 2, "each paid once");
+});
+
+test("buying again after a try that wasn't paid: the earlier one is called off, not left waiting on the list", async () => {
+  ip = "198.51.100.231";
+  await post("/auth/email/start", { email: "sam@example.test", pow: await proof() });
+  const sam = (await post("/auth/email/verify", { email: "sam@example.test", code: mailer.last("sam@example.test")!.text.match(/\b(\d{6})\b/)![1]! })).cookie;
+  const buy = async (action: string, input: object) => {
+    const p = await post(`/actions/${action}/plan`, { person_id: people.Sam, ...input }, sam);
+    return (await post(`/runs/${p.json.run_id}/apply`, {}, sam)).json.result.payment_id as string;
+  };
+  const cards = async () => (await (await app.request("/my/gift-cards", { headers: { cookie: sam } })).json() as any[]).filter((x) => x.bought);
+  const status = async (id: string) => (await db.selectFrom("payment").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status;
+  // A form that never opened (as on the phone), then one opened and closed: neither stays.
+  const first = await buy("gift_card.buy", { cents: 5000 });
+  const second = await buy("gift_card.buy", { cents: 5000 });
+  assert.equal(await status(first), "failed");
+  assert.equal((await post(`/my/payments/${second}/intent`, { pow: await proof() }, sam)).status, 200);
+  const third = await buy("gift_card.buy", { cents: 6000 });
+  assert.equal(await status(second), "failed");
+  assert.ok(await db.selectFrom("event_outbox").select("id").where("topic", "=", "payment.call_off").where(sql<string>`payload->>'payment_id'`, "=", second).executeTakeFirst(), "its card form is called off at the provider");
+  assert.deepEqual((await cards()).map((x) => [x.amount_cents, x.status, x.pending_payment_id]), [[6000, "pending", third]]);
+  const p1 = await buy("pass.buy", { product_id: pass });
+  const p2 = await buy("pass.buy", { product_id: pass });
+  assert.deepEqual([await status(p1), await status(p2)], ["failed", "pending"]);
 });
 
 test("production never runs without it; a practice server can leave it off", async () => {

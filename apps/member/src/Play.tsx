@@ -3,7 +3,7 @@
 // save places for friends (each has added the other), share the link and mark who didn't come.
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, club, dollars, lang, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
-import { PaySheet } from "./Pay.tsx";
+import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 
 export type Match = {
@@ -76,6 +76,7 @@ export function MatchPage({ id }: { id: string }) {
   const load = () => api<Match>(`/matches/${id}${code ? `?code=${encodeURIComponent(code)}` : ""}`).then(setM).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   const { preview, sheet } = usePreview((r?: { payment_id?: string }) => { if (r?.payment_id) setPaying(r.payment_id); void load(); });
   useEffect(() => { void load(); api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {}); }, [id, lang.value]);
+  useConfirming([m?.me?.pending_payment_id], load);
   if (error) return <main class="card"><p class="error">{error}</p></main>;
   if (!m) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const pid = me.value!.person.id, payNow = m.me?.pending_payment_id;
@@ -91,7 +92,8 @@ export function MatchPage({ id }: { id: string }) {
       <section class="card">
         <Facts m={m} />
         {m.note && <p>{m.note}</p>}
-        {payNow && <div class="note"><p>{m.me!.held_until ? t("ui.pay_to_keep", { amount: dollars(m.share_cents, lang.value), time: shortTime(m.me!.held_until) })
+        {payNow && isConfirming(payNow) && <p class="note" role="status">{t("ui.paid_confirming")}</p>}
+        {payNow && !isConfirming(payNow) && <div class="note"><p>{m.me!.held_until ? t("ui.pay_to_keep", { amount: dollars(m.share_cents, lang.value), time: shortTime(m.me!.held_until) })
           : t("ui.place_saved_for_you", { host: m.host ?? "", amount: dollars(m.share_cents, lang.value) })}</p>
           <button class="primary" onClick={() => setPaying(payNow)}>{t("ui.pay_now", { amount: dollars(m.share_cents, lang.value) })}</button></div>}
         {m.can === "join" && <NewOnly><button class="primary" onClick={() => preview("booking.join", { booking_id: m.id, person_id: pid })}>{t("ui.join_and_pay", { amount: dollars(m.share_cents, lang.value) })}</button></NewOnly>}

@@ -2,7 +2,7 @@
 // place is the sub's once the payment goes through; until then its player is still in.
 import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
-import { PaySheet } from "./Pay.tsx";
+import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 
 type Offer = { from: string; share_cents: number; can: "take" | "outside" | "closed" | "not_yours" | "in";
@@ -13,6 +13,7 @@ export function TakePlace({ code }: { code: string }) {
   const [o, setO] = useState<Offer | null>(null), [error, setError] = useState<string | null>(null), [paying, setPaying] = useState<string | null>(null), [provider, setProvider] = useState("test");
   const load = () => api<Offer>(`/my/place-offers/${encodeURIComponent(code)}`).then(setO).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   const { preview, sheet } = usePreview((r?: { payment_id?: string }) => { if (r?.payment_id) setPaying(r.payment_id); void load(); });
+  useConfirming([o?.match.me?.sub ? o.match.me.pending_payment_id : null], load);
   useEffect(() => { void load(); api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {}); }, [code]);
   if (error) return <main class="card"><p class="error">{error}</p></main>;
   if (!o) return <main class="card"><p>{t("ui.loading")}</p></main>;
@@ -28,7 +29,7 @@ export function TakePlace({ code }: { code: string }) {
       <section class="card">
         <p><strong>{when}</strong> · {m.court}, {m.location}</p>
         <p class="meta">{t("ui.levels_band", { band })} · {t(m.rated ? "ui.match_rated" : "ui.match_friendly")} · {t("ui.place_price", { amount })}</p>
-        {o.can === "take" && (pending
+        {o.can === "take" && (pending && isConfirming(pending) ? <p class="note" role="status">{t("ui.paid_confirming")}</p> : pending
           ? <button class="primary" onClick={() => setPaying(pending)}>{t("ui.pay_now", { amount })}</button>
           : <button class="primary" onClick={() => preview("booking.take_place", { code, person_id: me.value!.person.id })}>{t("ui.take_pay", { amount })}</button>)}
         {o.can === "outside" && <p class="meta">{t("error.take_outside_band", { level: m.my_level === null ? t("ui.no_level_yet") : m.my_level.toFixed(2), band })}</p>}

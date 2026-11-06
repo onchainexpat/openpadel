@@ -17,7 +17,7 @@ import type { DB, Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
-import { deskPaid, paidHow, recordAtDesk, refundTo, revenueType } from "./desk_pay.ts";
+import { callOff, deskPaid, paidHow, recordAtDesk, refundTo, revenueType } from "./desk_pay.ts";
 import { kidOf, paymentWhat } from "./kids.ts";
 import { paidNow } from "./programs.ts";
 
@@ -161,6 +161,10 @@ export const passBuy = defineAction({
   async apply(ctx, i) {
     const p = await onSale(ctx.trx, i.product_id);
     if (await kidOf(ctx.trx, i.person_id)) throw new KumiError("error.pass_kid");
+    // One bought before and never paid is called off (as gift_card.buy does): gone through after all, it's
+    // recorded and given back in full.
+    for (const x of await ctx.trx.selectFrom("payment").innerJoin("pass", "pass.id", "payment.pass_id").select("payment.id")
+      .where("pass.person_id", "=", i.person_id).where("pass.sold_via", "=", "app").where("pass.status", "=", "pending").where("payment.status", "=", "pending").execute()) await callOff(ctx, x.id);
     const pass = await makePass(ctx, p, i.person_id, "app", "pending");
     const payment = uuidv7();
     await ctx.insert("payment", { id: payment, person_id: i.person_id, amount_cents: p.price_cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", pass_id: pass });

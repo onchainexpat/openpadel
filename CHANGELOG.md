@@ -241,6 +241,17 @@ server starts.
   and the profile's "Your receipts" link is as easy to tap as a button.
 
 ### Fixed
+- What a real phone showed on 6 November:
+  - **Buying a gift card or a pass by card works again.** Since the sheet stopped offering credit and promo codes for
+    them, it opened as a "save a card" sheet: without the page check, and the server refused it ("We couldn't check
+    this page"). It's a payment again, checked and confirmed as one. A try that wasn't paid (the form closed, a card
+    declined) no longer leaves a card "Waiting for payment" on the list: buying again calls the earlier one off, and
+    if its card went through after all, that money goes back in full. Paid with a card that needs the bank's own
+    page, the member comes back to the gift cards or passes page, not My places.
+  - After paying, nothing offers Pay again while the payment is being confirmed: a court, a place, a match share, a
+    junior's payment, a renewal and a gift card read "Paid, thank you: confirming" until it's recorded, even after
+    leaving the page, and the page asks again every few seconds. A Pay tapped again for a payment that has gone
+    through records it instead of opening a second card form, so it can't be paid twice.
 - What a real phone showed on 5 November:
   - A court paid after a promo code read "Paid $30.00 of $40.00". What the code took off now counts as paid on court
     bookings, for the member ("Paid $30.00 ($10.00 off with a code)") and on the desk's grid, which no longer offers

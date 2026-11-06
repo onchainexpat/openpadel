@@ -937,7 +937,7 @@ export const paymentOpen = defineAction({
 });
 
 /** The card form for one of the person's own pending payments: the provider's intent, opened once and reused. */
-export async function openPayment(db: Db, paymentId: string, personId: string): Promise<{ clientSecret: string; provider: "test" | "stripe"; account: string | null }> {
+export async function openPayment(db: Db, paymentId: string, personId: string): Promise<{ clientSecret: string; provider: "test" | "stripe"; account: string | null; paid?: boolean }> {
   await refuseWhenReadOnly(db);
   const pay = await db.selectFrom("payment").leftJoin("enrolment", "enrolment.id", "payment.enrolment_id").leftJoin("program", "program.id", "enrolment.program_id")
     .leftJoin("booking_player", "booking_player.id", "payment.booking_player_id").leftJoin("booking", "booking.id", "booking_player.booking_id")
@@ -951,7 +951,13 @@ export async function openPayment(db: Db, paymentId: string, personId: string): 
   if (pay.booking_status === "cancelled") throw new KumiError("error.booking_cancelled", {}, 409);
   if (pay.membership_status === "ended") throw new KumiError("error.membership_ended", {}, 409);
   const pv = paymentProvider();
-  if (pay.provider_ref) return { clientSecret: (await pv.getIntent(pay.provider_ref, pay.provider_account)).clientSecret, provider: pv.name, account: pay.provider_account };
+  if (pay.provider_ref) {
+    const it = await pv.getIntent(pay.provider_ref, pay.provider_account);
+    // Gone through already, and not recorded here yet (the check after the card form, or the webhook, is on its way):
+    // recorded now, and no card form, so a second tap on Pay can't pay twice.
+    if (it.status === "succeeded") { await checkPayment(db, pay.id, "payments"); return { clientSecret: "", provider: pv.name, account: pay.provider_account, paid: true }; }
+    return { clientSecret: it.clientSecret, provider: pv.name, account: pay.provider_account };
+  }
   const { currency } = await db.selectFrom("club").select("currency").executeTakeFirstOrThrow();
   // Several courts paid together: one card payment for all of them (any one of them opens it).
   if (pay.group_id) {
