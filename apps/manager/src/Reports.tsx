@@ -39,9 +39,11 @@ export function Reports() {
   const loadGifts = () => api<{ outstanding: { cents: number; count: number }; cards: Gift[] }>("/staff/gift-cards").then(setGifts).catch(() => setGifts(null));
   useEffect(() => { void loadGifts(); }, []);
   // Card payments the payment provider took that nothing here records (payments_after_restore.ts): refund or record.
-  type Found = { id: string; amount_cents: number; paid_at: string; email: string | null; description: string | null; status: string };
+  type Found = { id: string; amount_cents: number; paid_at: string; email: string | null; description: string | null; status: string; kind: string };
+  type StillBooked = { bookings: { id: string; amount_cents: number; code: string; display_name: string }[]; places: { id: string; amount_cents: number; program: string; display_name: string }[] };
   const [found, setFound] = useState<Found[]>([]);
-  const loadFound = () => api<Found[]>("/staff/payments-found").then(setFound).catch(() => setFound([]));
+  const [still, setStill] = useState<StillBooked>({ bookings: [], places: [] });
+  const loadFound = () => api<{ found: Found[]; still_booked: StillBooked }>("/staff/payments-found").then((r) => { setFound(r.found); setStill(r.still_booked); }).catch(() => setFound([]));
   useEffect(() => { void loadFound(); }, []);
   const { preview, sheet: giftSheet } = usePreview(() => { void loadGifts(); void loadFound(); });
   useEffect(() => { if (from && to) api<DeskDay[]>(`/staff/desk-days?from=${from}&to=${to}`).then(setDesk).catch(() => setDesk(null)); setDeskDay(null); }, [from, to, lang.value]);
@@ -123,10 +125,16 @@ export function Reports() {
         <div class="scroll"><table class="stack"><tbody>{found.map((f) => <tr>
           <td data-label={t("ui.col_date")}>{clubTime(f.paid_at, { dateStyle: "medium", timeStyle: "short" })}</td>
           <td data-label={t("ui.col_total")}>{dollars(f.amount_cents, lang.value)}</td>
-          <td data-label={t("ui.found_who")}>{[f.email, f.description].filter(Boolean).join(" · ")}</td>
+          <td data-label={t("ui.found_who")}>{[f.kind === "kumi_charge" ? t("ui.found_kumi_charge") : null, f.email, f.description].filter(Boolean).join(" · ")}</td>
           <td>{f.status === "open" ? <span>{mayDo("payment_found.refund") && <button class="small" onClick={() => preview("payment_found.refund", { id: f.id })}>{t("ui.found_refund")}</button>}{" "}
-            {mayDo("payment_found.paid_elsewhere") && <button class="small secondary" onClick={() => preview("payment_found.paid_elsewhere", { id: f.id })}>{t("ui.found_elsewhere")}</button>}</span> : t(({ refund_asked: "ui.found_status_refund_asked", refunded: "ui.found_status_refunded", handled: "ui.found_status_handled", refund_failed: "ui.found_status_refund_failed" } as const)[f.status as "refunded"] ?? "ui.found_status_handled")}</td>
+            {mayDo("payment_found.paid_elsewhere") && <button class="small secondary" onClick={() => preview("payment_found.paid_elsewhere", { id: f.id })}>{t("ui.found_elsewhere")}</button>}</span> : t(({ refund_asked: "ui.found_status_refund_asked", refunded: "ui.found_status_refunded", handled: "ui.found_status_handled", refund_failed: "ui.found_status_refund_failed", recorded: "ui.found_status_recorded" } as const)[f.status as "refunded"] ?? "ui.found_status_handled")}</td>
         </tr>)}</tbody></table></div>
+      </section>}
+      {(still.bookings.length > 0 || still.places.length > 0) && <section class="card">
+        <h2>{t("ui.still_booked_title")}</h2>
+        <p>{t("ui.still_booked_lead")}</p>
+        <ul>{still.bookings.map((b) => <li>{t("ui.still_booked_booking", { code: b.code, person: b.display_name, amount: usd(b.amount_cents) })}</li>)}
+          {still.places.map((p) => <li>{t("ui.still_booked_place", { program: p.program, person: p.display_name, amount: usd(p.amount_cents) })}</li>)}</ul>
       </section>}
       {giftSheet}
     </main>

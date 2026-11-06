@@ -249,7 +249,17 @@ server starts.
   Reports, "Paid with nothing here", to refund in full or record as paid elsewhere (never refunded by itself; they hear
   once). Stripe's message for such a payment is noticed too, not answered silently. And before any job can let a
   payment go, every pending one is asked about, whatever its age, so a court paid after the copy is confirmed, not
-  released and refunded.
+  released and refunded. A charge Kumi made by itself after the backup (a renewal, a weekly court week, an unpaid
+  share, a family card charge) isn't listed as unknown: Kumi makes it again by its own key and records it, so it waits
+  for the jobs and closes as recorded, and is listed only if no record of it ever appears ("a charge Kumi made that
+  this copy doesn't know"). Nothing Kumi records by then can be refunded from the list: "Refund it" is refused, and a
+  refund already asked for is checked again before it goes. The staff hear once while anything is left (later ones
+  join the same list), and the provider is read back to the copy's time, or the alert says it was cut short.
+- **A refund made after a backup could be added to by the club's rule.** A refund the provider made after the backup
+  now counts against the place as well as the payment, and a booking or place it went with that's still booked here
+  is listed under Reports ("Refunded after the backup, still booked here") for the staff to cancel without a refund or
+  keep. Cancelling such a booking by the club's rule gives nothing more back for it (a $60 court under a 50% late rule,
+  $30 already refunded: no $15 more); the staff can still choose a refund.
 - After a restore, who asked for each deletion is kept with the account (the person, their family, or the club), and
   only the club's can be kept back (`--keep`, `--keep-staff-deleted`). An export newer than the server's database (the
   club come back) carries nothing back into it. Credit is no longer cut to what it was before: pay-outs since are

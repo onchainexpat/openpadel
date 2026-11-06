@@ -412,7 +412,8 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
   // A place let go was already paid back (or never paid): only the players still in it. Of each payment, what's
   // left of it: part may have gone back already (the booking made shorter, or moved somewhere cheaper).
   const paid = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-    .select(["payment.id", "payment.amount_cents", "payment.provider", "payment.method", "booking_player.person_id", backSql.as("back")]).where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null)
+    .select(["payment.id", "payment.amount_cents", "payment.provider", "payment.method", "booking_player.person_id", backSql.as("back"),
+      sql<boolean>`EXISTS (SELECT 1 FROM refund r WHERE r.payment_id = payment.id AND r.seen_after_restore AND r.status != 'failed')`.as("seen")]).where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null)
     .where("payment.status", "=", "succeeded").execute();
   const early = start?.s ? new Date(start.s).getTime() - now.getTime() >= policy.free_cancel_hours * 3600_000 : true;
   const percent = choice === "full" || choice === "credit" ? 100 : choice === "none" ? 0 : early ? 100 : policy.late_refund_percent;
@@ -422,6 +423,9 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
     // Everything back as club credit (credit.ts): staff only, the whole of what's left, to each player's credit. Paid
     // with a pass: the use goes back with all of it, or is spent (passes.ts). Made free by a code: nothing goes back.
     const free = p.method === "promo", pass = p.method === "pass";
+    // A refund the provider made after the backup a restore brought back (payments_after_restore.ts): it may be this
+    // cancellation's own, which this copy doesn't have. By the rule nothing more goes back; the staff can choose more.
+    if (p.seen && choice === "rule") return { payment_id: p.id, cents: 0, joiner, desk: false, credit: false, seen: true };
     return { payment_id: p.id, cents: free ? 0 : Math.round(Math.max(0, p.amount_cents - Number(p.back)) * (joiner ? 100 : percent) / 100), joiner,
       desk: !free && !pass && choice !== "credit" && p.method !== "credit" && p.provider === "none", ...(choice === "credit" || p.method === "credit" ? { credit: true } : {}),
       ...(pass ? { pass: true, whole: Math.max(0, p.amount_cents - Number(p.back)) } : {}), ...(free ? { free: true } : {}) };
@@ -445,7 +449,9 @@ export const bookingCancel = defineAction({
     // Paid at the desk goes back at the desk, not to a card.
     const desk = r.refunds.filter((x) => x.desk).reduce((n, x) => n + x.cents, 0), credit = r.refunds.filter((x) => x.credit).reduce((n, x) => n + x.cents, 0), card = total - desk - credit;
     const passes = r.refunds.filter((x) => "pass" in x && x.pass) as { cents: number; whole: number }[];
+    const seen = r.refunds.filter((x) => "seen" in x && x.seen).length;
     const money = !r.refunds.length ? both("refund.nothing_paid")
+      : seen && seen === r.refunds.length ? both("plan.booking.refund_seen_after_restore")
       : r.refunds.every((x) => "free" in x && x.free) ? both("plan.booking.refund_free")
       : passes.length && passes.length === r.refunds.length ? both(passes.every((x) => x.cents >= x.whole) ? "plan.booking.refund_pass_back" : "plan.booking.refund_pass_spent")
       : credit > 0 && credit === total ? both("plan.booking.refund_credit", { amount: usd(total) })

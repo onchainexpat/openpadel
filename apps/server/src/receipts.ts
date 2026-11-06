@@ -3,7 +3,7 @@
 // whoever takes or sees the club's money.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { clubGiftCards, outstandingCredit, outstandingGiftCards, outstandingPasses, passesOf, passProducts, clubPromoCodes, clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db } from "@kumi/core";
+import { clubGiftCards, outstandingCredit, outstandingGiftCards, outstandingPasses, passesOf, passProducts, clubPromoCodes, clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db, refundedStillBooked } from "@kumi/core";
 import { csvCell } from "./csv.ts";
 
 type Me = { id: string } | null;
@@ -80,7 +80,10 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
   // Card payments the payment provider took that nothing here records (payments_after_restore.ts), newest first.
   app.get("/staff/payments-found", async (c) => {
     await staffWithMoney(c);
-    return c.json(await db.selectFrom("payment_found").select(["id", "amount_cents", "paid_at", "email", "description", "status"]).orderBy("found_at", "desc").limit(200).execute());
+    // Kumi's own charges still waiting for the jobs aren't the staff's (yet); refunds seen after a restore whose booking
+    // or place is still active here are, to cancel without a refund or keep.
+    const found = await db.selectFrom("payment_found").select(["id", "amount_cents", "paid_at", "email", "description", "status", "kind"]).where("status", "!=", "waiting").orderBy("found_at", "desc").limit(200).execute();
+    return c.json({ found, still_booked: await refundedStillBooked(db) });
   });
   app.get("/staff/gift-cards", async (c) => {
     await staffWithMoney(c);

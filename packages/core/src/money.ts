@@ -32,13 +32,13 @@ export interface PaymentProvider {
   refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string; account?: string | null }): Promise<{ ref: string; ok: boolean; failure?: string }>;
   /** Card payments and refunds made since a time (after a restore, to find what the club's database has no record
    *  of). Optional: a provider without it isn't checked. */
-  listSince?(since: Date, account?: string | null): Promise<{ intents: FoundIntent[]; refunds: FoundRefund[] }>;
+  listSince?(since: Date, account?: string | null): Promise<{ intents: FoundIntent[]; refunds: FoundRefund[]; cut?: boolean }>;
   /** The card a payment was made with, for its receipt: the brand and the last four digits, never more. */
   cardOf?(ref: string, account?: string | null): Promise<{ brand: string; last4: string } | null>;
 }
 
 /** A stand-in for Stripe: records what was asked, and can be told to fail. */
-export interface FoundIntent { ref: string; status: IntentStatus; amountCents: number; created: Date; kumiPaymentId: string | null; email: string | null; description: string | null }
+export interface FoundIntent { ref: string; status: IntentStatus; amountCents: number; created: Date; kumiPaymentId: string | null; kumiChargeId?: string | null; email: string | null; description: string | null }
 export interface FoundRefund { ref: string; paymentRef: string; amountCents: number; ok: boolean; created: Date; kumiRefundId: string | null }
 export class TestProvider implements PaymentProvider {
   readonly name = "test" as const;
@@ -128,7 +128,7 @@ export class TestProvider implements PaymentProvider {
   /** As Stripe lists them: payments and refunds made since a time, with Kumi's own ids for them. */
   async listSince(since: Date) {
     const intents: FoundIntent[] = [...this.intents.entries()].filter(([, it]) => (it.created ?? new Date(0)) >= since)
-      .map(([ref, it]) => ({ ref, status: it.status, amountCents: it.amountCents, created: it.created ?? new Date(0), kumiPaymentId: it.metadata?.kumi_payment_id ?? null, email: null, description: it.description }));
+      .map(([ref, it]) => ({ ref, status: it.status, amountCents: it.amountCents, created: it.created ?? new Date(0), kumiPaymentId: it.metadata?.kumi_payment_id ?? null, kumiChargeId: it.metadata?.kumi_charge_id ?? null, email: null, description: it.description }));
     const refunds: FoundRefund[] = [...this.refunds.entries()].filter(([, r]) => (r.created ?? new Date(0)) >= since)
       .map(([key, r]) => ({ ref: r.ref, paymentRef: r.paymentRef, amountCents: r.amountCents, ok: true, created: r.created ?? new Date(0), kumiRefundId: key }));
     return { intents, refunds };
