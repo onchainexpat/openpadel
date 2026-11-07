@@ -521,7 +521,7 @@ function keepDeleted(): KeepDeleted {
 /** What a restore did with the accounts the database before it had deleted, one line each, and what's left to do. */
 function sayGone(g: AfterRestore["gone"]) {
   if (g.unvouched) console.log(t(lang, g.from_backup ? "cli.restore_gone_unvouched_backup" : "cli.restore_gone_unvouched", { file: g.from_backup ?? "" }));
-  for (const p of g.people) console.log(t(lang, p.kept ? "cli.restore_person_kept" : p.by === "staff" ? "cli.restore_person_staff" : "cli.restore_person_again", { name: p.name, id: p.id }));
+  for (const p of g.people) console.log(t(lang, p.kept ? "cli.restore_person_kept" : p.by === "staff" ? "cli.restore_person_staff" : "cli.restore_person_again", { name: plain(p.name), id: p.id }));
   if (g.people.some((p) => p.by === "staff" && !p.kept)) console.log(t(lang, "cli.restore_keep_hint"));
   if (g.erased) console.log(t(lang, "cli.restore_erased_again", { count: g.erased }));
   if (g.last_owner_kept.length) console.log(t(lang, "cli.restore_last_owner_kept", { count: g.last_owner_kept.length }));

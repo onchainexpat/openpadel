@@ -111,3 +111,16 @@ test("with no answer in 48 hours it counts as entered; a friendly never moves le
   assert.equal(await level("Ann"), before);
   assert.equal((await db.selectFrom("rating_event").select("id").where("game_id", "=", id).execute()).length, 0);
 });
+
+test("a court's result is changed only through its result: game.score refuses it (0.3.0 security review); the desk still enters one", async () => {
+  const b = await fullMatch("2026-12-04", "10:00", true), after = at("2026-12-04", "12:00");
+  // The desk enters the four's score for them, the usual way (result.enter, for a player in it).
+  const g = ((await run(db, "result.enter", { booking_id: b, person_id: people.Hal, partner_id: people.Ann, sets: [{ us: 6, them: 2 }] }, owner, { now: after })).result as { game_id: string }).game_id;
+  await rejects(plan(db, "game.score", { game_id: g, a: 0, b: 6 }, owner, { now: after }), "error.score_not_a_night");
+  await run(db, "result.confirm", { game_id: g, person_id: people.Dee }, as("Dee"), { now: after });
+  const lv = await level("Hal");
+  // Confirmed by the players: game.score can't rewrite it or move levels behind their backs.
+  await rejects(plan(db, "game.score", { game_id: g, a: 0, b: 6 }, owner, { now: after }), "error.score_not_a_night");
+  assert.equal(await level("Hal"), lv);
+  assert.deepEqual(await db.selectFrom("game_set").select(["a", "b"]).where("game_id", "=", g).execute(), [{ a: 6, b: 2 }]);
+});

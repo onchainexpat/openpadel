@@ -19,6 +19,7 @@ import { account, paymentProvider, post } from "./money.ts";
 import { keyedHash, openText, sealText } from "./sealed.ts";
 import { callOff, deskPaid, paidHow, recordAtDesk, refundTo, stillUnpaid } from "./desk_pay.ts";
 import { lockCredit } from "./credit.ts";
+import { plainName, plainText } from "./plain_text.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 /** No 0/O, 1/I/L, 2/Z, 5/S or 8/B to misread: 26 letters and digits, 16 of them (about 75 bits). */
@@ -61,7 +62,9 @@ async function makeCard(ctx: ApplyCtx, o: { buyer: string; cents: number; forNam
     for_name: o.forName?.trim() || null, message: o.message?.trim() || null, sold_via: o.via, status: o.status });
   return id;
 }
-const forWhom = { for_name: z.optional(z.string().check(z.maxLength(80))), message: z.optional(z.string().check(z.maxLength(300))) };
+// Typed by a member: made plain (plain_text.ts), so no control or invisible formatting character (a bidi override
+// that turns "Sam" around on a receipt) reaches the receipt, its email or the club's download.
+const forWhom = { for_name: z.optional(z.string().check(z.overwrite(plainName), z.maxLength(80))), message: z.optional(z.string().check(z.overwrite(plainText), z.maxLength(300))) };
 
 /** The payments of gift cards this person bought in the app that are still waiting for their card. */
 export const waitingCards = (db: Db | Trx, personId: string) => db.selectFrom("payment").innerJoin("gift_card", "gift_card.id", "payment.gift_card_id")

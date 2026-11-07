@@ -287,6 +287,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "error.not_enough_players": "Las rondas necesitan al menos 4 jugadores.",
   "error.score_total": "Los dos resultados deben sumar {points}.",
   "error.no_draw": "Todavía no hay rondas para esta fecha.",
+  "error.score_not_a_night": "El resultado de este partido no se anota aquí: el de un torneo o una liga se cambia desde la competición, y el de una cancha, desde su resultado.",
   "error.draw_exists": "Esta fecha ya tiene sus rondas.",
   "error.nothing_to_repair": "Ya se jugaron todas las rondas.",
   "action.draw.next_round": "Hacer la siguiente ronda",

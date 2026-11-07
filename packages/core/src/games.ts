@@ -245,6 +245,10 @@ export const gameScore = defineAction({
   input: z.object({ game_id: z.uuid(), a: z.number().check(z.int(), z.minimum(0)), b: z.number().check(z.int(), z.minimum(0)) }),
   async plan(ctx, i) {
     const { row: g, read } = await readRow(ctx.db, "game", i.game_id, "thing.session");
+    // A draw night's game only. A tournament or league match changes only through its fixture (fixture.reopen, kept
+    // for owners and managers in the app), and a court's result through result.* (the players answer, the staff
+    // resolve a dispute): scoring either here skipped the rules that keep a decided result decided.
+    if (!g.session_id || g.fixture_id || g.booking_id) throw new KumiError("error.score_not_a_night");
     if (g.status === "void") throw new KumiError("error.no_draw");
     // A score is for a round that has been played: a rated night would otherwise move levels days early.
     const s = g.session_id ? await ctx.db.selectFrom("session").select("starts_at").where("id", "=", g.session_id).executeTakeFirst() : undefined;
@@ -258,7 +262,8 @@ export const gameScore = defineAction({
     return { title: both("action.game.score"), summary: both("plan.game.score", { round: g.round ?? 1, court, a: i.a, b: i.b }), reads: [read], locationId: loc, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
-    const before = await ctx.trx.selectFrom("game").select(["status", "played_at", "rated"]).where("id", "=", i.game_id).executeTakeFirstOrThrow();
+    const before = await ctx.trx.selectFrom("game").select(["status", "played_at", "rated", "session_id", "fixture_id", "booking_id"]).where("id", "=", i.game_id).forUpdate().executeTakeFirstOrThrow();
+    if (!before.session_id || before.fixture_id || before.booking_id) throw new KumiError("error.score_not_a_night", {}, 409);
     await ctx.update("game", i.game_id, { status: "confirmed", played_at: before.played_at ?? ctx.now, entered_by: ctx.actor.personId });
     await ctx.trx.insertInto("game_set").values({ game_id: i.game_id, set_no: 1, a: i.a, b: i.b }).onConflict((oc) => oc.columns(["game_id", "set_no"]).doUpdateSet({ a: i.a, b: i.b })).execute();
     // A rated game moves levels; a corrected score replays every rating from the events.

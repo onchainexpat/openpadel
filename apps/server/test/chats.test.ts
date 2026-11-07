@@ -4,7 +4,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { checkPayment, openPayment, run, runAsSystem, setPaymentProvider, uuidv7, TestProvider, type Actor, type Db } from "@kumi/core";
+import { base32Decode, checkPayment, openPayment, run, runAsSystem, setPaymentProvider, totp, uuidv7, TestProvider, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
@@ -20,6 +20,15 @@ async function signIn(email: string) {
   const r = await app.request("/auth/email/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, code }) });
   cookies.set(email, r.headers.get("set-cookie")!.split(";")[0]!);
   return cookies.get(email)!;
+}
+/** Signed in with both steps (support access always needs two): the emailed code, then an authenticator set up now. */
+async function twoStep(email: string) {
+  const cookie = await signIn(email);
+  const post = (path: string, body: unknown) => app.request(path, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const s = await (await post("/auth/totp/setup", {})).json() as { key: string; challenge_id: string };
+  const c = await post("/auth/totp/confirm", { challenge_id: s.challenge_id, code: totp(base32Decode(s.key.replaceAll(" ", "")), new Date()) });
+  assert.equal(c.status, 200, await c.text());
+  return cookie;
 }
 async function call(name: string, path: string, body?: unknown) {
   const cookie = await signIn(`${name.toLowerCase()}@example.test`);
@@ -88,9 +97,28 @@ test("the staff's view: front desk and up; not a coach on their own, a member or
   const one = await call("Fay", `/staff/chats/${desk.json[0].id}`);
   assert.equal(one.status, 200);
   assert.ok(one.json.messages.some((m: any) => m.body === "Bring water"));
+  // Sue with both steps done, so the no below is seesChats's, not the second step's.
+  await twoStep("sue@example.test");
+  assert.equal((await call("Sue", "/staff/people")).status, 200, "Sue is signed in with both steps: the staff screens open");
   for (const name of ["Cole", "Ann", "Sue"]) assert.equal((await call(name, "/staff/chats")).status, 403, name);
-  assert.equal((await call("Sue", `/staff/chats/${desk.json[0].id}`)).status, 403);
+  const sue = await call("Sue", `/staff/chats/${desk.json[0].id}`);
+  assert.deepEqual([sue.status, sue.json.error], [403, "error.staff_only"]);
   // Support access never moderates players' chats.
   const plan = await call("Sue", "/actions/chat.hide/plan", { message_id: one.json.messages.at(-1).id, hidden: true });
   assert.equal(plan.status, 403);
+});
+
+// The 0.3.0 security review: support access read who reported whom, and who was stopped posting, in Changes.
+test("Changes leaves chat moderation out for anyone who can't read chats (support access on its own)", async () => {
+  const fay = await call("Fay", "/staff/chats"), one = await call("Fay", `/staff/chats/${fay.json[0].id}`);
+  const p = await call("Fay", "/actions/chat.hide/plan", { message_id: one.json.messages.at(-1).id, hidden: true });
+  assert.equal(p.status, 200, JSON.stringify(p.json));
+  assert.equal((await call("Fay", `/runs/${p.json.run_id}/apply`, {})).status, 200);
+  const theirs = await call("Robin", "/staff/changes");
+  assert.equal(theirs.status, 200, JSON.stringify(theirs.json));
+  assert.ok(theirs.json.some((r: any) => r.action === "chat.hide"), "the owner, who reads chats, sees it");
+  const sue = await call("Sue", "/staff/changes");
+  assert.equal(sue.status, 200);
+  assert.ok(sue.json.length > 0, "Sue still reads the club's other changes");
+  assert.ok(sue.json.every((r: any) => !String(r.action).startsWith("chat.")), JSON.stringify(sue.json.map((r: any) => r.action)));
 });

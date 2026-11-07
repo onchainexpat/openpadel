@@ -41,6 +41,20 @@ server starts.
   keys, any event that names an account), and found payments are listed, kept and refunded only on the club's own
   account (or one its payments were made on before it moved). As the server starts, any kept from another club's
   account that nobody acted on are removed, and the rest lose the payer's email and description.
+- **Entering a draw night's score could rewrite a decided match (in 0.1.0 to 0.3.0; tournament and league matches in
+  0.3.0).** "Enter a score" took any game: the front desk, or support access at manager level, could rewrite a
+  tournament's decided result (levels replayed, the winner kept), confirm a score a player had entered without the
+  match deciding (stuck until reopened), or change a court result the players had confirmed. It's for a draw night's
+  games only now. A tournament or league match changes through its own screen (reopening it stays the owner's and
+  managers', in the app), and a court's result through the players' answers and the staff's dispute ruling.
+- **Support access read chat moderation in Changes (in 0.3.0).** Who reported whose message, and who was stopped
+  posting, showed in Changes to someone who can't read chats. Changes now leaves chat changes out for anyone the
+  chats are closed to.
+- **Typed text saved before 0.3.0 could carry control and invisible characters (in 0.3.0 and before).** Names
+  saved before names were made plain, and a gift card's who-for and message (never made plain), could hold a
+  terminal's escape sequences or a bidi override, which `kumi restore` printed to the operator's terminal and the
+  receipt and its download carried. Gift card words are made plain as they're typed, the restore prints names made
+  plain, and as the server starts, names and gift card words saved before are made plain once.
 - **A split court's organiser was charged what a promo code took off another player's share (in 0.3.0).** At the
   deadline, Kumi charged the organiser's saved card for what it took to be unpaid, counting the money paid but not
   what a code took off a share, the organiser's own included. Everyone had paid, yet the card was charged the

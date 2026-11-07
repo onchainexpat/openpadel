@@ -5,6 +5,8 @@
 // letters of a subdivision flag (England's). Characters drawn as nothing (Hangul fillers, the blank Braille cell)
 // go, and marks stacked on one letter stop at three, so "zalgo" text can't cover the lines around it.
 import * as z from "zod/mini";
+import { sql } from "kysely";
+import type { Db } from "./db.ts";
 
 const CONTROL = /[\p{Cc}\p{Cf}]/u, MARK = /\p{M}/u, PICTO = /\p{Extended_Pictographic}/u, LETTER = /[\p{L}\p{M}]/u, KEYCAP = /^[0-9#*]$/;
 /** Drawn as nothing though they're letters or symbols: the Hangul fillers and the blank Braille cell. */
@@ -65,4 +67,25 @@ export const nameInput = (max = 80) => z.string().check(z.overwrite(plainName), 
 export function shortText(s: string, max = 120): string {
   const one = s.replace(/\s+/g, " ").trim(), chars = [...one];
   return chars.length > max ? `${chars.slice(0, max - 1).join("").trimEnd()}…` : one;
+}
+
+/** What people typed before 0.3.0 made it plain as it's saved (names, a gift card's who-for and message): made plain
+ *  now, so a control character (a terminal's escape) or a bidi override saved then can't reach a screen, an email, a
+ *  download or the operator's terminal. As the server starts; once it's done there's nothing left to change. A name
+ *  with nothing left that draws is stored empty, which the apps show as "A player". */
+export async function plainStoredText(db: Db): Promise<{ names: number; giftCards: number }> {
+  let names = 0, giftCards = 0;
+  for (const p of await db.selectFrom("person").select(["id", "display_name"]).execute()) {
+    const clean = plainName(p.display_name);
+    if (clean === p.display_name) continue;
+    await db.updateTable("person").set({ display_name: visible(clean) ? clean : "", version: sql`version + 1` }).where("id", "=", p.id).where("display_name", "=", p.display_name).execute();
+    names++;
+  }
+  for (const g of await db.selectFrom("gift_card").select(["id", "for_name", "message"]).where((w) => w.or([w("for_name", "is not", null), w("message", "is not", null)])).execute()) {
+    const forName = g.for_name === null ? null : plainName(g.for_name) || null, message = g.message === null ? null : plainText(g.message) || null;
+    if (forName === g.for_name && message === g.message) continue;
+    await db.updateTable("gift_card").set({ for_name: forName, message, version: sql`version + 1` }).where("id", "=", g.id).execute();
+    giftCards++;
+  }
+  return { names, giftCards };
 }

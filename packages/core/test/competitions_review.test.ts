@@ -231,3 +231,26 @@ test("re-pairing a half-scored Mexicano round keeps its scored game and the leve
   const now2 = await db.selectFrom("game").innerJoin("game_side", "game_side.game_id", "game.id").select("game_side.person_id").where("game.session_id", "=", s.session_id).where("game.round", "=", 2).where("game.status", "!=", "void").execute();
   assert.ok(!now2.some((x) => x.person_id === leaving));
 });
+
+// The 0.3.0 security review: game.score took any game, so it rewrote a tournament's decided result (levels replayed,
+// the winner kept) and confirmed a score a player entered without the fixture deciding, stuck for good. It's for a
+// draw night's games only; a competition's results change through fixture.* and result.*.
+test("game.score refuses a tournament match's game: decided, or with a score a player entered", async () => {
+  const t = await competition("tournament", 2);
+  await pairAll(t);
+  await run(db, "competition.draw", { program_id: t.programId, format: "knockout" }, desk);
+  await run(db, "competition.schedule", { program_id: t.programId }, desk);
+  const final = (await fixtures(t.programId))[0]!;
+  const at = { now: new Date(final.starts_at!.getTime() + 3 * 3600_000) };
+  // (b) A player enters 6-2: the desk can't confirm it past the fixture.
+  const [p0] = t.people[0]!, [p1] = t.people[1]!;
+  const [enterer, other] = [p0!, p1!];
+  const g = ((await run(db, "fixture.enter", { fixture_id: final.id, person_id: enterer, sets: [{ us: 6, them: 2 }] }, as(enterer), at)).result as { game_id: string }).game_id;
+  await rejects(plan(db, "game.score", { game_id: g, a: 6, b: 2 }, desk, at), "error.score_not_a_night");
+  await run(db, "result.confirm", { game_id: g, person_id: other }, as(other), at);
+  assert.equal((await db.selectFrom("fixture").select("status").where("id", "=", final.id).executeTakeFirstOrThrow()).status, "played", "the fixture decides the usual way");
+  // (a) Decided: neither the desk nor support access at manager level can rewrite it.
+  const help = (await run(db, "support.grant", { email: "sue@help.test", name: "Sue", reason: "Looking at the draws", level: "manager", hours: 24 }, { ...owner, auth: "passkey" } as Actor)).result as { person_id: string };
+  for (const who of [desk, as(help.person_id)]) await rejects(plan(db, "game.score", { game_id: g, a: 0, b: 6 }, who, at), "error.score_not_a_night");
+  assert.deepEqual(await db.selectFrom("game_set").select(["a", "b"]).where("game_id", "=", g).execute(), [{ a: 6, b: 2 }]);
+});

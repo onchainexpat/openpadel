@@ -85,3 +85,13 @@ test("kumi usage in a euro club: the meter is in US dollars, as it's counted and
   const doc = (await kumi(url, "doctor")).split("\n").find((l) => l.includes("Usage this month"));
   assert.ok(doc?.includes(`${money(1234, "en", "USD")} of the club's ${money(5000, "en", "USD")} cap`), doc);
 });
+
+// The 0.3.0 security review: a restore printed deleted accounts' names to root's terminal as they were saved, and a
+// name saved before 0.3.0 could carry a terminal's escape sequences. Every name and reference it prints is plain.
+test("kumi restore's lines about deleted accounts print their names made plain", async () => {
+  const { readFileSync } = await import("node:fs");
+  const cli = readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8");
+  const body = cli.slice(cli.indexOf("function sayGone("), cli.indexOf("\n}\n", cli.indexOf("function sayGone(")));
+  assert.ok(body.length > 0);
+  for (const m of body.matchAll(/\b(name|person|ref): ([^,}]+)/g)) assert.match(m[2]!.trim(), /^plain\(/, `${m[1]}: ${m[2]} is printed as saved`);
+});

@@ -29,7 +29,7 @@ import { broadcastRoutes } from "./broadcasts.ts";
 import { publicRoutes } from "./public.ts";
 import { memberUrl } from "./addresses.ts";
 import { memberRoutes } from "./member.ts";
-import { staffChatRoutes } from "./chats.ts";
+import { seesChats, staffChatRoutes } from "./chats.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import { textRoutes } from "./texts.ts";
 import { emailEventRoutes } from "./email_events.ts";
@@ -447,10 +447,14 @@ export function makeApp(deps: AppDeps) {
     const d = await decide(db, "changes.view", { personId: a.personId, at: now() });
     if (d.mode !== "allow") throw new KumiError("error.staff_only", {}, 403);
     const lang = c.get("lang");
+    // Chats are the players' and the club's: someone who can't read them (support access on its own, a coach on their
+    // own) doesn't read their reports and stops here either, which name who reported whom.
+    const chats = a.personId ? await seesChats(db, a.personId) : false;
     const rows = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
       .leftJoin("person as approver", "approver.id", "action_run.approved_by")
       .select(["action_run.id", "action_run.action", "action_run.status", "action_run.plan", "action_run.input", "action_run.location_id", "action_run.actor_person_id", "action_run.error", "action_run.via",
         "action_run.created_at", "action_run.applied_at", "action_run.undo_kind", "action_run.undo_until", "person.display_name", "support_grant.name as support_name", "approver.display_name as approver_name"])
+      .$if(!chats, (q) => q.where("action_run.action", "not like", "chat.%"))
       .orderBy("action_run.id", "desc").limit(Number(c.req.query("limit") ?? 50)).execute();
     // A change made under support access says so, with the name the owner gave.
     const by = (r: (typeof rows)[number]) => (r.support_name ? t(lang, "ui.support_by", { name: r.support_name }) : r.display_name ?? "Kumi");

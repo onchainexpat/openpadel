@@ -284,6 +284,7 @@ export const en = {
   "error.not_enough_players": "The rounds need at least 4 players.",
   "error.score_total": "The two scores must add up to {points}.",
   "error.no_draw": "There are no rounds for this date yet.",
+  "error.score_not_a_night": "This match's score isn't entered here: a tournament or league match's is changed from the competition, and a court's from its result.",
   "error.draw_exists": "This date already has its rounds.",
   "error.nothing_to_repair": "Every round has been played.",
   "action.draw.next_round": "Make the next round",
