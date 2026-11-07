@@ -103,11 +103,12 @@ preview says the same: what goes back is given back in Playtomic.
 
 ### Wallets and credit
 
-<!-- kumi-ptmovein fills this -->
+How Playtomic wallet balances come in as club credit: see
+[playtomic-wallets-and-memberships.md](playtomic-wallets-and-memberships.md).
 
 ### Memberships
 
-<!-- kumi-ptmovein fills this -->
+How Playtomic memberships come in: see [playtomic-wallets-and-memberships.md](playtomic-wallets-and-memberships.md).
 
 **At the switch, in one sitting at a quiet hour:**
 
