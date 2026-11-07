@@ -5,7 +5,7 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
-## 0.3.0 (2026-11-XX)
+## 0.3.0 (2026-11-06)
 
 Tournaments and leagues with draws and fixtures, and Mexicano and King of the Court nights; the same court every
 week; chats for the players in a game; club credit, gift cards, passes and promo codes; a club's own currency,
