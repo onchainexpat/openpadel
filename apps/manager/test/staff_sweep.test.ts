@@ -42,5 +42,9 @@ test("a row of a list wraps rather than pushing the page sideways", () => {
 test("on a touch screen, toggles are 44 px tall and every checkbox is the larger size", () => {
   assert.ok(coarse, "the touch-screen rules");
   assert.match(coarse, /summary \{ min-height: 44px;/);
-  assert.match(coarse, /input\[type="checkbox"\], input\[type="radio"\] \{ width: 24px; height: 24px; \}/);
+  assert.match(coarse, /input\[type="checkbox"\], input\[type="radio"\] \{ width: 24px; height: 24px; min-width: 24px; min-height: 24px; \}/);
+});
+
+test("a checkbox or choice keeps its size beside a long label (phone run 7: 13 of 46 in Settings were squeezed)", () => {
+  assert.match(css, /input\[type="checkbox"\], input\[type="radio"\] \{ flex-shrink: 0; \}/);
 });
