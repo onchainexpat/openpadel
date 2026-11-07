@@ -1,10 +1,22 @@
 // Clock time in a club's time zone (house rule 5: never the server's). Dates as "2026-11-07" and times as
 // "07:30" or "24:00" are what a club means; these turn them into instants and back, across clock changes.
 
+// One formatter per time zone, kept: making one costs about 60 µs, and a report or a desk's day reads the clock
+// thousands of times (atLocal three times a call). A club has a zone or two.
+const partsFormats = new Map<string, Intl.DateTimeFormat>();
+function partsFormat(tz: string): Intl.DateTimeFormat {
+  let f = partsFormats.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", weekday: "short" });
+    if (partsFormats.size >= 64) partsFormats.clear();
+    partsFormats.set(tz, f);
+  }
+  return f;
+}
+
 /** What the clock in `tz` shows at `d`. */
 export function localParts(d: Date, tz: string) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", weekday: "short" })
-    .formatToParts(d).map((x) => [x.type, x.type === "weekday" ? x.value : Number(x.value)]));
+  const p = Object.fromEntries(partsFormat(tz).formatToParts(d).map((x) => [x.type, x.type === "weekday" ? x.value : Number(x.value)]));
   return { y: p.year as number, m: p.month as number, d: p.day as number, h: p.hour as number, min: p.minute as number, weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.weekday as string) };
 }
 

@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
@@ -199,9 +199,17 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const courts = await db.selectFrom("court").select("id").where("location_id", "=", loc.id).where("archived_at", "is", null).where("bookable", "=", true).execute();
     const days: string[] = [];
     for (let d = new Date(`${from}T12:00:00Z`); d.toISOString().slice(0, 10) <= to && days.length < 92; d.setUTCDate(d.getUTCDate() + 1)) days.push(d.toISOString().slice(0, 10));
+    // The days' own bounds on the club's clock, a day wider each side, let the books be read by time (ledger_txn_at);
+    // the club date of each still decides which day it counts on.
+    // A report shows at most 92 days, so the books past the last of them aren't read.
+    const last = days.at(-1) ?? to;
+    const ymd = (d: string) => d.split("-").map(Number) as [number, number, number];
+    const [fy, fm, fd] = ymd(from), [ty, tm, td] = ymd(last);
+    const readFrom = atLocal(fy, fm, fd - 1, 0, loc.time_zone), readTo = atLocal(ty, tm, td + 2, 0, loc.time_zone);
     const money = await db.selectFrom("ledger_entry").innerJoin("ledger_txn", "ledger_txn.id", "ledger_entry.txn_id").innerJoin("ledger_account", "ledger_account.id", "ledger_entry.account_id")
       .select([sql<string>`to_char(ledger_txn.at AT TIME ZONE ${loc.time_zone}, 'YYYY-MM-DD')`.as("day"), "ledger_account.revenue_type", sql<string>`sum(-ledger_entry.amount_cents)`.as("cents")])
-      .where("ledger_account.kind", "=", "revenue").where(sql<boolean>`(ledger_txn.at AT TIME ZONE ${loc.time_zone})::date BETWEEN ${from}::date AND ${to}::date`)
+      .where("ledger_account.kind", "=", "revenue").where("ledger_txn.at", ">=", readFrom).where("ledger_txn.at", "<", readTo)
+      .where(sql<boolean>`(ledger_txn.at AT TIME ZONE ${loc.time_zone})::date BETWEEN ${from}::date AND ${last}::date`)
       .groupBy(["day", "ledger_account.revenue_type"]).execute();
     // Revenue is shown before tax: the books post what was paid, tax included, so the tax on each day's receipts for
     // courts and lessons (the only taxed things) comes off, refunds giving theirs back. The receipt's day is when it
@@ -211,20 +219,25 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .select([sql<string>`to_char(receipt.paid_at AT TIME ZONE ${loc.time_zone}, 'YYYY-MM-DD')`.as("day"), sql<string>`CASE WHEN booking.kind = 'lesson' THEN 'lessons' ELSE 'courts' END`.as("revenue_type"),
         sql<string>`sum(CASE WHEN receipt.kind = 'refund' THEN -receipt.tax_cents ELSE receipt.tax_cents END)`.as("cents")])
       .where("booking.location_id", "=", loc.id).where("receipt.tax_cents", ">", 0)
-      .where(sql<boolean>`(receipt.paid_at AT TIME ZONE ${loc.time_zone})::date BETWEEN ${from}::date AND ${to}::date`).groupBy(["day", "revenue_type"]).execute();
+      .where("receipt.paid_at", ">=", readFrom).where("receipt.paid_at", "<", readTo)
+      .where(sql<boolean>`(receipt.paid_at AT TIME ZONE ${loc.time_zone})::date BETWEEN ${from}::date AND ${last}::date`).groupBy(["day", "revenue_type"]).execute();
+    // Each court's hours and what held it, read once for all the days, not once a day.
+    const openings = await courtOpeningsOn(db, loc.id, courts.map((x) => x.id), days);
+    const bounds = (day: string) => { const [y, mo, dd] = ymd(day); return [atLocal(y, mo, dd, 0, loc.time_zone).getTime(), atLocal(y, mo, dd + 1, 0, loc.time_zone).getTime()] as const; };
+    const held = days.length ? await occupied(db, courts.map((x) => x.id), new Date(bounds(days[0]!)[0]), new Date(bounds(days.at(-1)!)[1]), new Date(0)) : [];
     const rows = [];
     for (const day of days) {
       // Each court counts its own hours that day (a court's own week, or the location's).
-      const hours = await courtOpenings(db, loc.id, courts.map((x) => x.id), day), open = spanOf([...hours.values()]);
+      const hours = openings.get(day)!, open = spanOf([...hours.values()]);
       const openMin = open ? (open.closes.getTime() - open.opens.getTime()) / 60_000 : 0;
       // What was booked counts whatever the hours say (a match kept after its court's hours changed is still
       // booked and paid for); the hours only shape the capacity, so occupancy counts the time inside them.
       const all: Record<string, number> = {}, inside: Record<string, number> = {};
       let capacity = 0;
       for (const h of hours.values()) if (h) capacity += (h.closes.getTime() - h.opens.getTime()) / 60_000;
-      const [y, mo, dd] = day.split("-").map(Number) as [number, number, number];
-      const dayStart = atLocal(y, mo, dd, 0, loc.time_zone).getTime(), dayEnd = atLocal(y, mo, dd + 1, 0, loc.time_zone).getTime();
-      for (const it of await occupied(db, courts.map((x) => x.id), new Date(dayStart), new Date(dayEnd), new Date(0))) {
+      const [dayStart, dayEnd] = bounds(day);
+      // What overlapped the day, as the query for that day alone would have found it.
+      for (const it of held.filter((t) => new Date(t.start).getTime() < dayEnd && new Date(t.end).getTime() > dayStart)) {
         const s = Math.max(new Date(it.start).getTime(), dayStart), e = Math.min(new Date(it.end).getTime(), dayEnd);
         if (e <= s) continue;
         all[it.kind] = (all[it.kind] ?? 0) + (e - s) / 60_000;

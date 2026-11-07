@@ -424,10 +424,29 @@ export async function staffChats(db: Db, now = new Date()) {
     .orderBy(sql`(SELECT count(*) FROM chat_report r JOIN chat_message m ON m.id = r.message_id WHERE m.thread_id = chat_thread.id AND r.dealt_at IS NULL)`, "desc")
     .orderBy(sql`(SELECT max(created_at) FROM chat_message m WHERE m.thread_id = chat_thread.id)`, "desc")
     .limit(200).execute();
-  const out = [];
-  for (const r of rows) {
-    const g = await gameOf(db, r.kind, r.ref_id);
-    out.push({ id: r.id, kind: r.kind, ref_id: r.ref_id, title: g?.title ?? "", starts_at: g?.starts_at ?? r.ends_at, last_at: r.last_at, messages: Number(r.messages ?? 0), reports: Number(r.reports ?? 0) });
+  const heads = await gameHeads(db, rows);
+  return rows.map((r) => {
+    const g = heads.get(`${r.kind}:${r.ref_id}`);
+    return { id: r.id, kind: r.kind, ref_id: r.ref_id, title: g?.title ?? "", starts_at: g?.starts_at ?? r.ends_at, last_at: r.last_at, messages: Number(r.messages ?? 0), reports: Number(r.reports ?? 0) };
+  });
+}
+
+/** The title and start gameOf gives each of these chats' games, read in two queries for the lot (the staff's list
+ *  of up to 200 asked gameOf, four reads, one chat at a time). A game gameOf finds nothing for isn't in the map. */
+export async function gameHeads(db: Db | Trx, chats: { kind: string; ref_id: string }[]): Promise<Map<string, { title: string; starts_at: Date }>> {
+  const out = new Map<string, { title: string; starts_at: Date }>();
+  const bookings = [...new Set(chats.filter((c) => c.kind === "booking").map((c) => c.ref_id))], sessions = [...new Set(chats.filter((c) => c.kind !== "booking").map((c) => c.ref_id))];
+  if (bookings.length) {
+    const spans = await db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id").innerJoin("booking", "booking.id", "court_time.booking_id")
+      .select(["court_time.booking_id", sql<Date | null>`coalesce(min(lower(court_time.during)) FILTER (WHERE court_time.active), min(lower(court_time.during)))`.as("starts"),
+        sql<Date | null>`coalesce(max(upper(court_time.during)) FILTER (WHERE court_time.active), max(upper(court_time.during)))`.as("ends"),
+        sql<string | null>`coalesce(min(court.name) FILTER (WHERE court_time.active), min(court.name))`.as("court")])
+      .where("court_time.booking_id", "in", bookings).groupBy("court_time.booking_id").execute();
+    for (const s of spans) if (s.booking_id && s.starts && s.ends) out.set(`booking:${s.booking_id}`, { title: s.court ?? "", starts_at: new Date(s.starts) });
+  }
+  if (sessions.length) {
+    for (const s of await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.id", "session.starts_at", "program.name"]).where("session.id", "in", sessions).execute())
+      out.set(`session:${s.id}`, { title: s.name, starts_at: new Date(s.starts_at) });
   }
   return out;
 }

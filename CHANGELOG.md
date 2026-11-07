@@ -34,6 +34,20 @@ server starts.
   Amounts and dates keep the club's formats.
 
 ### Fixed
+- A big club was slow in places, and slower every day. Tried with two years of one: 3,000 members, 12 courts, 90,000
+  court bookings, 300 programs, 60,000 chat messages. Indexes (database change 097) and reads that use them; nothing
+  changes but the speed.
+  - Every change that moves money checked that the books balance by reading all of them: 14 ms an entry at 160,000
+    entries, inside the change. A member booking a court and paying by card took 265 ms; now 45.
+  - A member's booking or sign-up counted their bookings and what they owe by reading every booking (180 ms).
+  - The outbox stepped over every event nothing handles to find the next one to send: 55 ms an event, five and a half
+    seconds for a run of 100.
+  - Reports read the whole of the books, and each day's courts one day at a time: a year took 750 ms, now 150; a
+    month 360, now 75. The desk's day read every change the club ever made once gift cards and passes were sold at
+    the desk: 700 ms, now 140.
+  - The staff's Chats asked about each chat's game one at a time: 260 ms, now 25.
+  - After a restore, each card payment the provider listed was looked up through all the club's payments: a week of
+    them took 16 s, now under half a second.
 - **Under Stripe Connect, a club kept other clubs' card payments as its own (in 0.3.0, under Connect).** One webhook
   endpoint hears every connected account's events, and a paid one with no record here was kept as a payment found
   after a restore: the staff saw the other club's payer's email and what was bought, and an owner or manager could

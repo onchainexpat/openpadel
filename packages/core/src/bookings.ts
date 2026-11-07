@@ -40,16 +40,27 @@ export async function openingOn(db: Db | Trx, locationId: string, day: string): 
  *  of its own follows the location's. Special days: the court's own for that date, otherwise the location's,
  *  which apply to every court. */
 export async function courtOpenings(db: Db | Trx, locationId: string, courtIds: string[], day: string): Promise<Map<string, Open | null>> {
-  const tz = await locationTz(db, locationId), w = weekdayOf(day);
-  const special = await db.selectFrom("hours_exception").select(["court_id", "opens", "closes"]).where("location_id", "=", locationId).where("on_date", "=", day).where("active", "=", true).execute();
-  const own = courtIds.length ? await db.selectFrom("court_hours").select(["court_id", "opens", "closes"]).where("court_id", "in", courtIds).where("weekday", "=", w).where("active", "=", true).execute() : [];
-  const week = await db.selectFrom("opening_hours").select(["opens", "closes"]).where("location_id", "=", locationId).where("weekday", "=", w).executeTakeFirst();
-  const out = new Map<string, Open | null>();
-  for (const id of courtIds) {
-    const row = special.find((x) => x.court_id === id) ?? special.find((x) => x.court_id === null) ?? own.find((x) => x.court_id === id) ?? week;
-    out.set(id, row?.opens && row.closes ? { opens: onDate(day, hhmm(row.opens)!, tz), closes: onDate(day, hhmm(row.closes)!, tz) } : null);
+  return (await courtOpeningsOn(db, locationId, courtIds, [day])).get(day)!;
+}
+/** courtOpenings for several club dates at once (Reports' days, up to a quarter): the same rules, read once
+ *  instead of once a day. */
+export async function courtOpeningsOn(db: Db | Trx, locationId: string, courtIds: string[], days: string[]): Promise<Map<string, Map<string, Open | null>>> {
+  const all = new Map<string, Map<string, Open | null>>();
+  if (!days.length) return all;
+  const tz = await locationTz(db, locationId);
+  const special = await db.selectFrom("hours_exception").select(["on_date", "court_id", "opens", "closes"]).where("location_id", "=", locationId).where("on_date", "in", days).where("active", "=", true).execute();
+  const own = courtIds.length ? await db.selectFrom("court_hours").select(["weekday", "court_id", "opens", "closes"]).where("court_id", "in", courtIds).where("active", "=", true).execute() : [];
+  const weeks = await db.selectFrom("opening_hours").select(["weekday", "opens", "closes"]).where("location_id", "=", locationId).execute();
+  for (const day of days) {
+    const w = weekdayOf(day), sp = special.filter((x) => String(x.on_date) === day), mine = own.filter((x) => x.weekday === w), week = weeks.find((x) => x.weekday === w);
+    const out = new Map<string, Open | null>();
+    for (const id of courtIds) {
+      const row = sp.find((x) => x.court_id === id) ?? sp.find((x) => x.court_id === null) ?? mine.find((x) => x.court_id === id) ?? week;
+      out.set(id, row?.opens && row.closes ? { opens: onDate(day, hhmm(row.opens)!, tz), closes: onDate(day, hhmm(row.closes)!, tz) } : null);
+    }
+    all.set(day, out);
   }
-  return out;
+  return all;
 }
 /** When one court is open on a club date (courtOpenings). */
 export async function courtOpening(db: Db | Trx, court: { id: string; location_id: string }, day: string): Promise<Open | null> {

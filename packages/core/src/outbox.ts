@@ -24,7 +24,10 @@ export async function processOutbox(db: Db, handlers: Record<string, Handler>, l
       const e = await trx.selectFrom("event_outbox").selectAll().where("delivered_at", "is", null).where("held_at", "is", null).where("topic", "in", Object.keys(handlers))
         .where((w) => w.or([w("attempts", "<", MAX_ATTEMPTS), w("topic", "in", [...MONEY_TOPICS])]))
         .where((w) => w.or([w("next_attempt_at", "is", null), w("next_attempt_at", "<=", now)]))
-        .$if(tried.size > 0, (q) => q.where("id", "not in", [...tried])).orderBy("id").limit(1).forUpdate().skipLocked().executeTakeFirst();
+        // Oldest first, but not by walking the id index: events for topics nothing handles stay undelivered for good, and
+        // a club's years of them sit in front of the next one to send (55 ms a pick at 130,000). Ordered by id + 0, the
+        // waiting events of the handled topics come from their own index (097) and the oldest of those is taken.
+        .$if(tried.size > 0, (q) => q.where("id", "not in", [...tried])).orderBy(sql`id + 0`).limit(1).forUpdate().skipLocked().executeTakeFirst();
       if (e) await trx.updateTable("event_outbox").set({ attempts: sql`attempts + 1` }).where("id", "=", e.id).execute();
       return e;
     });

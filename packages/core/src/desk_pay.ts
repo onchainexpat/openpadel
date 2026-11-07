@@ -235,14 +235,16 @@ export async function deskLines(db: Db | Trx, from: string, to: string, o: { wha
     "payment.booking_player_id", "payment.enrolment_id", "payment.membership_id", "payment.membership_plan_id"] as const;
   // Paid at the desk: the change that recorded each payment.
   const ins = await db.selectFrom("payment")
-    .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'payment' AND entity_change.op = 'insert' AND entity_change.entity_id = payment.id::text`))
+    // The change's id read as the payment's (only for a payment's change, so no other kind of id is ever read as one):
+    // the day's changes find their payments by key, rather than every desk payment ever looking for its change.
+    .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'payment' AND entity_change.op = 'insert' AND payment.id = (CASE WHEN entity_change.entity = 'payment' THEN entity_change.entity_id::uuid END)`))
     .innerJoin("action_run", "action_run.id", "entity_change.action_run_id").innerJoin("person", "person.id", "payment.person_id").leftJoin("person as by", "by.id", "action_run.actor_person_id")
     // Only what changed hands there: a payment the desk's change made and that was later paid another way (the
     // rest of a place paid from club credit, a pass or a promo code) isn't money at the desk.
     .select([...cols, "payment.amount_cents as cents"]).where("payment.provider", "=", "none").where("payment.method", "in", ["cash", "terminal", "other"]).where("payment.status", "=", "succeeded").$call(onDays).execute();
   // Handed back at the desk: the change that marked each refund given back.
   const backs = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
-    .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'refund' AND entity_change.op = 'update' AND entity_change.entity_id = refund.id::text AND entity_change.after->>'status' = 'sent'`))
+    .innerJoin("entity_change", (j) => j.on(sql<boolean>`entity_change.entity = 'refund' AND entity_change.op = 'update' AND refund.id = (CASE WHEN entity_change.entity = 'refund' THEN entity_change.entity_id::uuid END) AND entity_change.after->>'status' = 'sent'`))
     .innerJoin("action_run", "action_run.id", "entity_change.action_run_id").innerJoin("person", "person.id", "payment.person_id").leftJoin("person as by", "by.id", "action_run.actor_person_id")
     .select([...cols, "refund.amount_cents as cents"]).where("refund.destination", "=", "desk").where("refund.status", "=", "sent").where("action_run.action", "=", "refund.give_back").$call(onDays).execute();
   // Club credit paid out at the desk (credit.ts): money handed back there too.
