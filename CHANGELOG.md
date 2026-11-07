@@ -13,6 +13,9 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 - A person's page offered front desk (and anyone below a manager) the form to give or take away a role, including
   owner, and then refused it. Only owners and managers see it now. A refusal to give a role says what the role
   would let them do in words ("Undo a change"), not the action's internal name.
+- Allow clicked twice at once on a device sign-in (two taps, or two tabs) could make two connections for one code.
+  The code is taken at the first click now, and a check that fails after it (a wrong authenticator code) leaves it
+  waiting to be answered again.
 
 ## 0.4.0 (2026-11-07)
 

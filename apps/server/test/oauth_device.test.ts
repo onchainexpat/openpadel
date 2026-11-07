@@ -150,11 +150,11 @@ test("when the codes are near full, a network holding none still starts one; not
 
 // ---- Checked by the review, and still fine ----
 
-test("allow clicked twice at once: one connection", async () => {
+test("allow clicked five times at once: one connection", async () => {
   const d = await startDevice("kumi (laptop)");
   const robin = await session(owner.personId!);
   const c = await consent(d.user_code, robin);
-  await Promise.all([1, 2].map(() => req("/oauth/device/decide", form({ code: c.code!, req: c.id!, decision: "allow", cap: "0" }, robin))));
+  await Promise.all([1, 2, 3, 4, 5].map(() => req("/oauth/device/decide", form({ code: c.code!, req: c.id!, decision: "allow", cap: "0" }, robin))));
   assert.equal((await db.selectFrom("oauth_grant").select("id").where("client_id", "=", d.client_id).execute()).length, 1);
 });
 

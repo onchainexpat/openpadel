@@ -324,7 +324,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
   // The device asks for a code and shows it with this address; the person opens it on their phone or computer, signs
   // in as on the consent page, checks the code matches and allows it, with the same weekly limit; the device, asking
   // every few seconds, then gets its tokens. Kept in memory, ten minutes each, as the consent screens are.
-  type Device = { at: number; clientId: string; clientName: string; userCode: string; resource: string; status: "waiting" | "allowed" | "denied"; grantId?: string; polled: number; interval: number;
+  type Device = { at: number; clientId: string; clientName: string; userCode: string; resource: string; status: "waiting" | "deciding" | "allowed" | "denied"; grantId?: string; polled: number; interval: number;
     /** Where it was started from, shown on the consent screen beside the name the device gave itself; and its network
      *  (networkOf), for the count of codes one network holds. */
     ip: string | null; net: string | null;
@@ -416,22 +416,27 @@ ${step === "code" ? html`<label>${t(lang, "consent.device_factor_label")}<input 
     if (!me || me.gate) throw new KumiError("error.signed_out", {}, 401);
     // Only the answer to the consent screen this person was shown: never a form posted from anywhere else.
     if (!found.d.consent || found.d.consent.id !== String(f.req ?? "") || found.d.consent.personId !== me.id) throw new KumiError("error.oauth_expired", {}, 400);
-    if (await supportOnly(deps.db, me.id)) throw new KumiError("error.support_no_assistant", {}, 403);
-    if (f.decision !== "allow") {
-      found.d.status = "denied";
-      return c.html(page(lang, t(lang, "consent.device_denied_title"), html`<p>${t(lang, "consent.device_denied", { client: found.d.clientName })}</p>`));
-    }
-    const step = await deviceStep(me);
-    if (step === "stale") throw new KumiError("error.device_fresh_step", {}, 403);
-    if (step === "code") {
-      if (!secondStep.take(me.id, deps.now().getTime())) throw new KumiError("error.too_many_attempts", {}, 429);
-      if (!(await useAuthenticatorCode(deps.db, me.id, String(f.factor_code ?? ""), deps.now()))) throw new KumiError("error.bad_factor_code", {}, 401);
-    }
-    const grantId = uuidv7(), cap = Number(f.cap ?? 0);
-    await deps.db.insertInto("oauth_grant").values({ id: grantId, person_id: me.id, client_id: found.d.clientId, scopes: [SCOPE], revoked_at: null,
-      weekly_cap_cents: CAP_CHOICES.includes(cap) ? cap : 0, powers: JSON.stringify(await powersOf(deps.db, me.id)), second_step: step === "code" || step === "fresh" || gaveSecondStep(me) }).execute();
-    found.d.status = "allowed"; found.d.grantId = grantId;
-    return c.html(page(lang, t(lang, "consent.device_done_title"), html`<p>${t(lang, "consent.device_done", { client: found.d.clientName })}</p>`));
+    // Taken before anything is awaited, so Allow clicked twice at once (or in two tabs) makes one connection: the
+    // second finds it no longer waiting. A check that fails below puts it back to waiting, to be answered again.
+    found.d.status = "deciding";
+    try {
+      if (await supportOnly(deps.db, me.id)) throw new KumiError("error.support_no_assistant", {}, 403);
+      if (f.decision !== "allow") {
+        found.d.status = "denied";
+        return c.html(page(lang, t(lang, "consent.device_denied_title"), html`<p>${t(lang, "consent.device_denied", { client: found.d.clientName })}</p>`));
+      }
+      const step = await deviceStep(me);
+      if (step === "stale") throw new KumiError("error.device_fresh_step", {}, 403);
+      if (step === "code") {
+        if (!secondStep.take(me.id, deps.now().getTime())) throw new KumiError("error.too_many_attempts", {}, 429);
+        if (!(await useAuthenticatorCode(deps.db, me.id, String(f.factor_code ?? ""), deps.now()))) throw new KumiError("error.bad_factor_code", {}, 401);
+      }
+      const grantId = uuidv7(), cap = Number(f.cap ?? 0);
+      await deps.db.insertInto("oauth_grant").values({ id: grantId, person_id: me.id, client_id: found.d.clientId, scopes: [SCOPE], revoked_at: null,
+        weekly_cap_cents: CAP_CHOICES.includes(cap) ? cap : 0, powers: JSON.stringify(await powersOf(deps.db, me.id)), second_step: step === "code" || step === "fresh" || gaveSecondStep(me) }).execute();
+      found.d.status = "allowed"; found.d.grantId = grantId;
+      return c.html(page(lang, t(lang, "consent.device_done_title"), html`<p>${t(lang, "consent.device_done", { client: found.d.clientName })}</p>`));
+    } catch (e) { if (found.d.status === "deciding") found.d.status = "waiting"; throw e; }
   });
 
   app.post("/oauth/token", async (c) => {
@@ -488,7 +493,7 @@ ${step === "code" ? html`<label>${t(lang, "consent.device_factor_label")}<input 
       if (!d || Date.now() - d.at > DEVICE_SECONDS * 1000) { forget(key); return err("expired_token"); }
       if (d.clientId !== client.client_id) return err("invalid_grant");
       if (d.status === "denied") { forget(key); return err("access_denied"); }
-      if (d.status === "waiting") {
+      if (d.status === "waiting" || d.status === "deciding") {
         const early = Date.now() - d.polled < d.interval * 1000;
         d.polled = Date.now();
         if (early) { d.interval += 5; return err("slow_down"); }
