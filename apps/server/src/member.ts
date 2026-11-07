@@ -507,7 +507,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .select(["membership.id", "membership.person_id", "payer.display_name as payer", trSql("membership_plan", "name", l).as("name"), trSql("membership_plan", "description", l).as("description"), "membership_plan.price_cents as plan_price_cents", "membership_plan.period as plan_period",
         "membership_plan.days_ahead", "membership.plan_id", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.price_cents",
         "membership.period", "membership.next_attempt_at", "membership.saved_method", "membership.paused_until", "membership.family_size", "membership.extra_person_cents",
-        "membership.balance_cents", "membership_plan.join_in_app"])
+        "membership.balance_cents", "membership_plan.join_in_app", "membership.brought_from"])
       .where("membership.status", "in", ["upcoming", "active", "past_due"]);
     // Mine, or a family plan someone else pays that covers me.
     const m = await q().where("membership.person_id", "=", pid).executeTakeFirst() ?? await q().where((eb) => eb.exists(eb.selectFrom("membership_member").select("membership_member.id")
@@ -539,7 +539,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       // A founding member before the start: the plan's prices and discounts may apply already (memberPlan says when).
       perks_now: m.status === "upcoming" && (await memberPlan(db, pid, now))?.membership_id === m.id,
       paused_until: paused_until && paused_until > now ? localDate(new Date(paused_until.getTime() - 1), tz) : null,
-      ends_on: current_period_end ? endDay({ current_period_end, source: m.source }, tz) : null, retry_on: next_attempt_at ? localDate(next_attempt_at, tz) : null,
+      // Carried over from Playtomic, with no card here yet: the last day it's paid for (it ends as that day is over).
+      ends_on: current_period_end ? endDay({ current_period_end, source: m.brought_from && !saved_method ? "desk" : m.source }, tz) : null, retry_on: next_attempt_at ? localDate(next_attempt_at, tz) : null,
       pay_now: owed ? { payment_id: owed.id, cents: owed.amount_cents } : null, pay_next: due?.next ? { cents: due.cents } : null } });
   });
   // The plans a member can join here, with what each gives.

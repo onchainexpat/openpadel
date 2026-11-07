@@ -20,3 +20,5 @@ Playtomic, when the club uses it, only sends the club's own bookings to openPade
 openPadel keeps a copy of each booking it reads, with its players' names and emails, in the club's own database
 (the club's record, since Playtomic keeps bookings only three months back). A member's name and email go from it
 when their account is deleted ([moving-from-playtomic.md](setup/moving-from-playtomic.md)).
+Moving in from Playtomic, staff can also read the club's own players from it (name, email, phone, wallet balances and memberships), kept on the
+club's server for the move-in and deleted with the person ([wallets and memberships](setup/playtomic-wallets-and-memberships.md)).

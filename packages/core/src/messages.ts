@@ -7,7 +7,7 @@ import type { Db, Trx } from "./db.ts";
 import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts, onDate } from "./clock.ts";
-import { dayText, endDay, kindList, lastTryAt, periodCents } from "./memberships.ts";
+import { dayText, endDay, kindList, lastTryAt, periodCents, planPrice } from "./memberships.ts";
 import { band } from "./match_rules.ts";
 import { gameView, teamsFor } from "./results.ts";
 import { namesFor, pairText } from "./junior_names.ts";
@@ -814,6 +814,31 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: m.person_id, kind: "membership_ending", params: { name: m.name, date: dayText(endDay({ current_period_end: m.current_period_end, source: m.source }, tz)), amount: amount(next),
       app: plan.join_in_app ? both("msg.membership_ending_app") : NOTHING, owed: m.balance_cents > 0 ? both("msg.membership_owed", { amount: amount(m.balance_cents) }) : NOTHING },
       purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
+  // Carried over from Playtomic (brought_in.ts) and renewing here: within a week of the day, add a card to keep it.
+  async "membership.brought_ending"({ db, tz }, p: { membership_id: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    if (!m.current_period_end) return [];
+    // The last day paid, as Playtomic gave it (it renews, or ends, as that day is over).
+    return [{ to: m.person_id, kind: "membership_brought_ending", params: { name: m.name, date: dayText(endDay({ current_period_end: m.current_period_end, source: "desk" }, tz)),
+      price: planPrice(m.price_cents ?? 0, m.period) }, purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
+  async "membership.brought_card"({ db, tz }, p: { membership_id: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    if (!m.current_period_end) return [];
+    return [{ to: m.person_id, kind: "membership_brought_card", params: { name: m.name, date: dayText(endDay({ current_period_end: m.current_period_end, source: m.source }, tz)),
+      price: planPrice(m.price_cents ?? 0, m.period) }, purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
+  async "membership.brought_ended"({ db, tz }, p: { membership_id: string }) {
+    const m = await membershipInfo(db, p.membership_id);
+    if (!m.current_period_end) return [];
+    return [{ to: m.person_id, kind: "membership_brought_ended", params: { name: m.name, date: dayText(endDay({ current_period_end: m.current_period_end, source: "desk" }, tz)) },
+      purpose: "account", essential: true, email: true, link: "/membership" }];
+  },
+  // Club credit came over from Playtomic's wallets: the owner and managers zero those wallets in the same hour (Today).
+  async "credit.brought_in"({ db }, p: { people: number; cents: number }) {
+    return (await managers(db)).map((to) => ({ to, kind: "playtomic_wallets_staff", params: { people: both("count.people", { count: p.people }), amount: amount(p.cents) },
+      purpose: "staff" as const, essential: false, email: true, link: "/playtomic/move-in" }));
   },
   async "membership.cancelled"({ db, tz }, p: { membership_id: string }) {
     const m = await membershipInfo(db, p.membership_id);

@@ -27,6 +27,7 @@ const Coaches = lazyPage(() => import("./Coaches.tsx").then((m) => m.Coaches));
 const Reports = lazyPage(() => import("./Reports.tsx").then((m) => m.Reports));
 const Payments = lazyPage(() => import("./Payments.tsx").then((m) => m.Payments));
 const Mirror = lazyPage(() => import("./Mirror.tsx").then((m) => m.Mirror));
+const MoveIn = lazyPage(() => import("./MoveIn.tsx").then((m) => m.MoveIn));
 // The club's own roles, and the owner's vault, from Settings.
 const Roles = lazyPage(() => import("./Roles.tsx").then((m) => m.Roles));
 const Vault = lazyPage(() => import("./Vault.tsx").then((m) => m.Vault));
@@ -165,6 +166,7 @@ export function App() {
         <Route path="/people/:id" component={coachOnly ? Person : only("members", Person)} />
         <Route path="/people/:id/level" component={only("levels", Level)} />
         <Route path="/playtomic" component={only("bookings", Mirror)} />
+        <Route path="/playtomic/move-in" component={only("money", MoveIn)} />
         <Route path="/payments" component={only("money", Payments)} />
         <Route path="/inbox" component={Inbox} />
         <Route path="/settings" component={only("settings", Settings)} />

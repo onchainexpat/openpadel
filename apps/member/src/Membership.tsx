@@ -10,7 +10,7 @@ import { formatLocale } from "@kumi/i18n/format";
 type Perks = { days_ahead: number | null; member_prices: boolean; period: "month" | "year"; program_percent_off: number | null; program_cents_off: number | null;
   included_sessions: number | null; included_kinds: string[]; included_used?: number | null };
 type Family = { size: number; extra_cents: number | null; payer: string; covered: { person_id: string; display_name: string; until: string | null }[]; can_add: { id: string; display_name: string }[] };
-type Mine = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; status: string; source: string; cancel_at_period_end: boolean;
+type Mine = Perks & { id: string; brought_from?: string | null; name: string; description: string | null; price_cents: number; period: "month" | "year"; status: string; source: string; cancel_at_period_end: boolean;
   ends_on: string | null; retry_on: string | null; pay_now: { payment_id: string; cents: number } | null; starts_on: string | null; card_saved: boolean; perks_now: boolean; paused_until: string | null;
   balance_cents: number; pay_next: { cents: number } | null;
   mine: boolean; covered_by: string | null; family: Family | null };
@@ -104,7 +104,11 @@ export function Membership() {
             {isConfirming(mine.pay_now.payment_id) ? <p class="meta" role="status">{t("ui.paid_confirming")}</p>
               : <button class="primary" onClick={() => setPaying({ id: mine.pay_now!.payment_id, cents: mine.pay_now!.cents, name: mine.name })}>{t("ui.pay_now", { amount: dollars(mine.pay_now.cents, lang.value) })}</button>}
           </div>}
-          {mine.status === "upcoming" || !mine.mine ? null : mine.source === "app" ? <>
+          {mine.mine && mine.brought_from && mine.source === "app" && !mine.card_saved && mine.status === "active" && <div class="note">
+            <p>{t("ui.brought_keep", { date: clubDay(mine.ends_on!), amount: dollars(mine.price_cents, lang.value), period: t(`ui.period_${mine.period}` as Key) })}</p>
+            <button class="primary" onClick={() => setPaying({ id: mine.id, cents: mine.price_cents, name: mine.name, card: true })}>{t("ui.brought_add_card")}</button>
+          </div>}
+          {mine.status === "upcoming" || !mine.mine || (mine.brought_from && mine.source === "app" && !mine.card_saved) ? null : mine.source === "app" ? <>
             <p class="meta">{mine.cancel_at_period_end ? t("ui.cancelled_runs_until", { date: clubDay(mine.ends_on!) })
               : t("ui.renews_on_for", { date: clubDay(mine.ends_on!), amount: dollars(mine.price_cents, lang.value) })}</p>
             {mine.cancel_at_period_end

@@ -13,7 +13,10 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 
 export const ALERT_KINDS = ["match_late_cancel_staff", "question_unanswered_staff", "booking_balance_due_staff", "program_min_short", "program_min_cancelled_staff", "refund_failed", "ops_failed_staff", "ops_restore_staff",
-  "membership_payment_failed_staff", "membership_ended_unpaid_staff", "usage_reached_staff", "usage_paused_staff", "chat_reported_staff", "playtomic_refund_staff"] as const;
+  "membership_payment_failed_staff", "membership_ended_unpaid_staff", "usage_reached_staff", "usage_paused_staff", "chat_reported_staff", "playtomic_refund_staff", "playtomic_wallets_staff"] as const;
+/** Alerts that stay however old they are, until handled: what a restore left for staff, and the Playtomic wallets to
+ *  set to zero after their credit came over (brought_in.ts; the owner marks that done on the Playtomic page). */
+const KEPT_KINDS = ["ops_restore_staff", "playtomic_wallets_staff"] as const;
 /** How far back the list looks: older alerts have been dealt with one way or another. Not what a restore left for
  *  staff (ops_restore_staff): that stays until someone handles it, however long ago the restore was. */
 export const ALERT_DAYS = 14;
@@ -28,7 +31,7 @@ export async function staffAlerts(db: Db | Trx, personId: string, now: Date) {
       "staff_alert.handled_at", "by.display_name as handled_by"])
     .where("outbound_message.person_id", "=", personId).where("outbound_message.channel", "=", "inbox").where("outbound_message.purpose", "=", "staff")
     .where("outbound_message.kind", "in", [...ALERT_KINDS]).where("outbound_message.event_id", "is not", null)
-    .where((eb) => eb.or([eb("outbound_message.created_at", ">=", since), eb.and([eb("outbound_message.kind", "=", "ops_restore_staff"), eb("staff_alert.handled_at", "is", null)])]))
+    .where((eb) => eb.or([eb("outbound_message.created_at", ">=", since), eb.and([eb("outbound_message.kind", "in", [...KEPT_KINDS]), eb("staff_alert.handled_at", "is", null)])]))
     .where((eb) => eb.or([eb("staff_alert.id", "is not", null), eb("outbound_message.stale_at", "is", null), eb("outbound_message.stale_at", ">", now)]))
     .orderBy("outbound_message.created_at", "desc").limit(100).execute();
   const day = now.getTime() - 86400_000;
@@ -48,6 +51,8 @@ export const alertHandle = defineAction({
       .orderBy(sql`person_id = ${ctx.actor.personId ?? "00000000-0000-0000-0000-000000000000"}`, "desc").limit(1).executeTakeFirst();
     if (!m) throw new KumiError("error.not_found", { thing: both("thing.alert") }, 404);
     if (await ctx.db.selectFrom("staff_alert").select("id").where("event_id", "=", i.event_id).where("kind", "=", i.kind).executeTakeFirst()) throw new KumiError("error.alert_handled");
+    // Done only by saying the wallets are at zero (credit.brought_zeroed), which stops credit coming over again.
+    if (i.kind === "playtomic_wallets_staff") throw new KumiError("error.alert_wallets_on_page");
     return { title: both("action.alert.handle"), summary: both("plan.alert.handle", { subject: m.subject }), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {

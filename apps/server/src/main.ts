@@ -1,4 +1,4 @@
-import { loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
+import { playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -365,6 +365,11 @@ if (pt.clientId && pt.secret && pt.tenantId) {
       // Once a club day: Playtomic and Kumi compared, and any new difference told to the owners (playtomic_archive.ts).
       const cmp = r.ok ? await comparePlaytomic(db).catch((e: Error) => { console.error("playtomic comparison:", e.message); return null; }) : null;
       if (cmp?.ran) console.log(`playtomic comparison: ${cmp.differences} differences, ${cmp.told} new told to the owners`);
+      // Staff asked for Playtomic's players (moving in, brought_in.ts): read them all, at the same pace.
+      if (await playersWanted(db)) {
+        const p = await readPlaytomicPlayers(db, client);
+        console.log(p.ok ? `playtomic players: ${p.read} read, ${p.changed} changed` : `playtomic players failed: ${p.error}`);
+      }
     } catch (e) { console.error("playtomic mirror:", (e as Error).message); }
     finally { setTimeout(loop, every); }
   };

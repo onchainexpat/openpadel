@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, usePreview, clubTime } from "@kumi/ui";
+import { api, lang, mayDo, t, usePreview, clubTime } from "@kumi/ui";
 
 type M = { status: { last_sync_at: string; last_ok_at: string | null; failed: boolean; fetched: number | null } | null;
   unmapped: { courtRef: string; courtName: string; bookings: number }[];
@@ -23,6 +23,7 @@ export function Mirror() {
   return (
     <main>
       <h1>{t("ui.mirror_title")}</h1>
+      {mayDo("credit.bring_in") && <p><a href="/playtomic/move-in">{t("ui.movein_link")}</a></p>}
       <section class="card">
         <p>{!d.status ? t("ui.mirror_off") : d.status.failed ? t("ui.mirror_failed", { when: fmt(d.status.last_sync_at) }) : t("ui.mirror_ok", { when: fmt(d.status.last_sync_at) })}</p>
       </section>

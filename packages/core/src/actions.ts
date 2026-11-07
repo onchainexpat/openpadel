@@ -149,6 +149,7 @@ const ENTITIES = {
   chat_report: { table: "chat_report", key: "id", retire: null },
   payment_found: { table: "payment_found", key: "id", retire: null },
   credit_payout: { table: "credit_payout", key: "id", retire: null },
+  brought_credit: { table: "brought_credit", key: "id", retire: null },
   gift_card: { table: "gift_card", key: "id", retire: null },
   pass_product: { table: "pass_product", key: "id", retire: { on_sale: false } },
   pass: { table: "pass", key: "id", retire: null },
@@ -250,7 +251,11 @@ export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.
   "fixture.reopen",
   // A members' list: its preview says who of them is already here, which through an assistant would tell whose an
   // email is (shortened everywhere else) one guess at a time. The app, or `openpadel import members` on the server.
-  "person.import"]);
+  "person.import",
+  // Moving in from Playtomic (brought_in.ts): credit members are owed and memberships, in bulk, from the club's own
+  // export or Playtomic itself, and saying Playtomic's wallets are at zero. Rows an assistant typed could make credit
+  // from nothing: the app, or `openpadel playtomic` on the server, which read the file or Playtomic themselves.
+  "credit.bring_in", "membership.bring_in", "credit.brought_zeroed"]);
 export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news"]);
 /** Whether an action is the app's alone, never an assistant's: with `input`, for this input. */
 export function appOnly(def: ActionDef<any>, input?: unknown): boolean {

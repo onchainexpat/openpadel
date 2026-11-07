@@ -30,7 +30,7 @@ export const CARD_HOURS = 2;
 
 /** Whoever already holds a membership, of any kind (given, paid, or waiting for its plan to start), or is
  *  covered by someone's family plan. */
-async function holds(db: Db | Trx, personId: string) {
+export async function holds(db: Db | Trx, personId: string) {
   return (await db.selectFrom("membership").select("id").where("person_id", "=", personId).where("status", "in", HELD).executeTakeFirst())
     ?? (await db.selectFrom("membership_member").innerJoin("membership", "membership.id", "membership_member.membership_id").select("membership.id")
       .where("membership_member.person_id", "=", personId).where("membership_member.ends_at", "is", null).where("membership.status", "in", HELD).executeTakeFirst()) ?? null;
@@ -263,10 +263,13 @@ async function startMembership(ctx: ApplyCtx, personId: string, plan: PlanRow, c
  *  more on the count of its periods (a pause moves the dates, never the count). */
 async function extend(ctx: ApplyCtx, membershipId: string, card?: { customer: string | null; method: string | null }) {
   const m = await ctx.trx.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .select(["membership.current_period_end", "membership.started_at", "membership.period", "membership.period_no", "membership_plan.period as plan_period"]).where("membership.id", "=", membershipId).executeTakeFirstOrThrow();
+    .select(["membership.current_period_end", "membership.started_at", "membership.period", "membership.period_no", "membership.brought_from", "membership_plan.period as plan_period"]).where("membership.id", "=", membershipId).executeTakeFirstOrThrow();
   const tz = await clubTz(ctx.trx), from = m.current_period_end ?? ctx.now;
+  // Its day of the month: the day it was joined, or for one carried over from Playtomic, the day Playtomic's period ended
+  // (each renewal keeps it, so a 31st renewed into a shorter month drifts to that month's last day).
+  const anchor = m.brought_from && m.current_period_end ? localParts(m.current_period_end, tz).d : localParts(m.started_at, tz).d;
   await ctx.update("membership", membershipId, { status: "active", failed_attempts: 0, next_attempt_at: null, period_no: m.period_no + 1,
-    current_period_end: addPeriod(from, m.period ?? m.plan_period, tz, localParts(m.started_at, tz).d), ...(card?.method ? { saved_customer: card.customer, saved_method: card.method } : {}) });
+    current_period_end: addPeriod(from, m.period ?? m.plan_period, tz, anchor), ...(card?.method ? { saved_customer: card.customer, saved_method: card.method } : {}) });
 }
 
 /** Give a membership payment back, all of it, to the card (the outbox sends it; paid at the desk, it waits there). */
@@ -468,6 +471,14 @@ export const membershipRenew = defineAction({
       await ctx.emit("membership.ended", { membership_id: m.id });
       return { outcome: "ended" };
     }
+    // Carried over from Playtomic and no card added here: it ends the day Playtomic's period did, with nothing charged
+    // and nobody's renewal failing (brought_in.ts). The member was reminded before.
+    if (m.brought_from && !m.saved_method) {
+      await ctx.update("membership", m.id, { status: "ended", ended_at: m.current_period_end, end_reason: "not_continued", next_attempt_at: null });
+      await dropPayNow(ctx, m.id);
+      await ctx.emit("membership.brought_ended", { membership_id: m.id });
+      return { outcome: "ended" };
+    }
     const plan = await ctx.trx.selectFrom("membership_plan").select(["name", "price_cents"]).where("id", "=", m.plan_id).executeTakeFirstOrThrow();
     const cents = await periodCents(ctx.trx, m, plan.price_cents, ctx.now), club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
     if (cents === 0) {
@@ -516,11 +527,16 @@ export const membershipRenew = defineAction({
 });
 
 // ---- Presales: saving the card of a member who joined before the plan starts ----
+/** Whether a membership is waiting for a card: one joined before its plan starts, or one carried over from Playtomic
+ *  that renews here (brought_in.ts) from the day Playtomic's period ends. */
+export function cardWanted(m: { status: string; brought_from?: string | null; source?: string }): boolean {
+  return m.status === "upcoming" || (Boolean(m.brought_from) && m.source === "app" && (m.status === "active" || m.status === "past_due"));
+}
 /** The card form for an upcoming membership's card: a setup at the provider, opened once and reused. */
 export async function openCardSetup(db: Db, membershipId: string, personId: string): Promise<{ clientSecret: string; provider: "test" | "stripe"; account: string | null }> {
   const m = await db.selectFrom("membership").selectAll().where("id", "=", membershipId).executeTakeFirst();
   if (!m || m.person_id !== personId) throw new KumiError("error.not_found", { thing: both("thing.membership") }, 404);
-  if (m.status !== "upcoming" || m.saved_method) throw new KumiError("error.not_pending", {}, 409);
+  if (!cardWanted(m) || m.saved_method) throw new KumiError("error.not_pending", {}, 409);
   await refuseWhenReadOnly(db);
   const pv = paymentProvider();
   if (m.provider_ref) return { clientSecret: (await pv.getSetup(m.provider_ref, m.provider_account)).clientSecret, provider: pv.name, account: m.provider_account };
@@ -534,10 +550,10 @@ export async function openCardSetup(db: Db, membershipId: string, personId: stri
 /** Ask the provider whether the card was saved, and record it once it is. Safe to call any number of times:
  *  after the card form, from a webhook, and from the job that catches what both missed. */
 export async function checkCardSetup(db: Db, membershipId: string, via = "payments", now?: Date): Promise<"pending" | "succeeded" | "failed" | null> {
-  const m = await db.selectFrom("membership").select(["id", "status", "provider_ref", "provider_account", "saved_method"]).where("id", "=", membershipId).executeTakeFirst();
+  const m = await db.selectFrom("membership").select(["id", "status", "provider_ref", "provider_account", "saved_method", "brought_from", "source"]).where("id", "=", membershipId).executeTakeFirst();
   if (!m) return null;
   if (m.saved_method) return "succeeded";
-  if (!m.provider_ref || m.status !== "upcoming") return m.status === "ended" ? "failed" : "pending";
+  if (!m.provider_ref || !cardWanted(m)) return m.status === "ended" ? "failed" : "pending";
   const st = await paymentProvider().getSetup(m.provider_ref, m.provider_account);
   if (st.status === "succeeded" && st.paymentMethod)
     await runAsSystem(db, "membership.card_saved", { membership_id: m.id, saved_method: st.paymentMethod, ...(st.customer ? { saved_customer: st.customer } : {}) }, via, now ? { now } : {});
@@ -552,9 +568,9 @@ export const membershipCardOpen = defineAction({
     return { title: both("action.membership.card_open"), summary: both("action.membership.card_open"), reads: [read], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
-    const m = await ctx.trx.selectFrom("membership").select(["provider_ref", "status"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    const m = await ctx.trx.selectFrom("membership").select(["provider_ref", "status", "brought_from", "source"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
     if (m.provider_ref === i.provider_ref) return { already: true };   // two taps: the same setup
-    if (m.provider_ref || m.status !== "upcoming") throw new KumiError("error.changed");
+    if (m.provider_ref || !cardWanted(m)) throw new KumiError("error.changed");
     await ctx.update("membership", i.membership_id, { provider_ref: i.provider_ref, saved_customer: i.saved_customer, provider_account: i.provider_account ?? null });
     return null;
   },
@@ -568,12 +584,13 @@ export const membershipCardSaved = defineAction({
     return { title: both("action.membership.card_saved"), summary: both("action.membership.card_saved"), reads: [read], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
-    const m = await ctx.trx.selectFrom("membership").select(["saved_method", "status"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    const m = await ctx.trx.selectFrom("membership").select(["saved_method", "status", "brought_from", "source"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
     if (m.saved_method) return { already: true };
     // Let go meanwhile (no card in time): the card is saved, but the place is gone; nothing was charged.
-    if (m.status !== "upcoming") return { gone: true };
+    if (!cardWanted(m)) return { gone: true };
     await ctx.update("membership", i.membership_id, { saved_method: i.saved_method, ...(i.saved_customer ? { saved_customer: i.saved_customer } : {}) });
-    await ctx.emit("membership.reserved", { membership_id: i.membership_id });
+    // A membership carried over from Playtomic now renews here from that card; one joined ahead of its plan is held.
+    await ctx.emit(m.status === "upcoming" ? "membership.reserved" : "membership.brought_card", { membership_id: i.membership_id });
     return null;
   },
 });
@@ -582,7 +599,8 @@ export const membershipCardSaved = defineAction({
 export async function tidyPresales(db: Db, now = new Date()) {
   // Read-only: nobody can save a card, so no presale place is let go for want of one.
   if (await isReadOnly(db)) return { saved: 0, released: 0 };
-  const open = await db.selectFrom("membership").select("id").where("status", "=", "upcoming").where("saved_method", "is", null).where("provider_ref", "is not", null).execute();
+  const open = await db.selectFrom("membership").select("id").where((w) => w.or([w("status", "=", "upcoming"), w.and([w("brought_from", "is not", null), w("source", "=", "app"), w("status", "=", "active")])]))
+    .where("saved_method", "is", null).where("provider_ref", "is not", null).execute();
   let saved = 0;
   for (const m of open) {
     try { if ((await checkCardSetup(db, m.id, "job:payments", now)) === "succeeded") saved++; }
@@ -932,11 +950,13 @@ export const membershipEndRemind = defineAction({
     return { title: both("action.membership.end_remind"), summary: both("action.membership.end_remind"), reads: [read], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
-    const m = await ctx.trx.selectFrom("membership").select(["status", "source", "price_cents", "current_period_end", "end_reminded_for"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
-    if (m.status !== "active" || m.source !== "desk" || m.price_cents == null || !m.current_period_end || m.current_period_end <= ctx.now
+    const m = await ctx.trx.selectFrom("membership").select(["status", "source", "price_cents", "current_period_end", "end_reminded_for", "brought_from", "saved_method"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    // Carried over from Playtomic, renewing here: told to add a card before the day, until they have.
+    const brought = Boolean(m.brought_from) && m.source === "app" && !m.saved_method;
+    if (m.status !== "active" || (!brought && (m.source !== "desk" || m.price_cents == null)) || !m.current_period_end || m.current_period_end <= ctx.now
       || m.end_reminded_for?.getTime() === m.current_period_end.getTime()) return { already: true };
     await ctx.update("membership", i.membership_id, { end_reminded_for: m.current_period_end });
-    await ctx.emit("membership.ending", { membership_id: i.membership_id });
+    await ctx.emit(brought ? "membership.brought_ending" : "membership.ending", { membership_id: i.membership_id });
     return null;
   },
 });
@@ -944,7 +964,8 @@ export const membershipEndRemind = defineAction({
 export async function remindMembershipEnds(db: Db, now = new Date()): Promise<number> {
   // Read-only: nothing can be paid, so nobody's told to pay.
   if (await isReadOnly(db)) return 0;
-  const due = await db.selectFrom("membership").select("id").where("status", "=", "active").where("source", "=", "desk").where("price_cents", "is not", null)
+  const due = await db.selectFrom("membership").select("id").where("status", "=", "active")
+    .where((w) => w.or([w.and([w("source", "=", "desk"), w("price_cents", "is not", null)]), w.and([w("source", "=", "app"), w("brought_from", "is not", null), w("saved_method", "is", null)])]))
     .where("current_period_end", ">", now).where("current_period_end", "<=", new Date(now.getTime() + END_REMINDER_DAYS * 86400_000))
     .where(sql<boolean>`end_reminded_for IS DISTINCT FROM current_period_end`).execute();
   for (const m of due) await runAsSystem(db, "membership.end_remind", { membership_id: m.id }, "jobs", { now });

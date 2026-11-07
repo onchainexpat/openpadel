@@ -128,17 +128,23 @@ export const creditPayOut = defineAction({
       .where((w) => w.or([w("payment.person_id", "=", i.person_id), w("payment.paid_by", "=", i.person_id), w.exists(w.selectFrom("person as pj").select("pj.id").whereRef("pj.id", "=", "payment.person_id").where("pj.junior", "=", true))])).execute();
     let cardRefunds = 0;
     for (const r of refunds) if (await creditee(ctx.db, r) === i.person_id) cardRefunds += r.amount_cents;
+    // Credit brought from Playtomic's wallets (brought_in.ts): money members may have topped up there by card.
+    const b = await ctx.db.selectFrom("brought_credit").select(sql<string>`coalesce(sum(cents), 0)`.as("c")).where("person_id", "=", i.person_id).executeTakeFirstOrThrow();
+    const broughtIn = Number(b.c);
     // What they spent or had paid out is taken from what wasn't card money first, so what's left is card money as far
-    // as it can be: the warning is never spent away. Gift cards bought by card are said first, then card refunds.
-    const cardLeft = Math.min(have, Number(g.card) + cardRefunds);
+    // as it can be: the warning is never spent away. Gift cards bought by card are said first, then card refunds,
+    // then what came from Playtomic.
+    const cardLeft = Math.min(have, Number(g.card) + cardRefunds + broughtIn);
     const byCard = Math.min(cardLeft, Number(g.card)), refundByCard = Math.min(cardLeft - byCard, cardRefunds);
+    const fromPlaytomic = Math.min(cardLeft - byCard - refundByCard, broughtIn);
     const fromCards = Math.max(byCard, Math.min(have, Number(g.all)));
     const base = both("plan.credit.pay_out", { name: p.display_name, amount: usd(i.cents), how: both(`paid_by.${i.method}`), left: usd(have - i.cents) });
     const notes = [fromCards > 0 ? both("plan.credit.pay_out_gift", { amount: usd(fromCards) }) : null, byCard > 0 ? both("plan.credit.pay_out_card_warn", { amount: usd(byCard) }) : null,
-      refundByCard > 0 ? both("plan.credit.pay_out_refund_warn", { amount: usd(refundByCard) }) : null].filter((x): x is Text => Boolean(x));
+      refundByCard > 0 ? both("plan.credit.pay_out_refund_warn", { amount: usd(refundByCard) }) : null,
+      fromPlaytomic > 0 ? both("plan.credit.pay_out_brought_warn", { amount: usd(fromPlaytomic) }) : null].filter((x): x is Text => Boolean(x));
     const summary = { en: [base.en, ...notes.map((x) => x.en)].join(" "), es: [base.es, ...notes.map((x) => x.es)].join(" ") };
     return { title: both("action.credit.pay_out"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("reason.refund_sent") },
-      summary, details: { from_gift_cards: fromCards, gift_cards_by_card: byCard, card_refunds: refundByCard } };
+      summary, details: { from_gift_cards: fromCards, gift_cards_by_card: byCard, card_refunds: refundByCard, from_playtomic: fromPlaytomic } };
   },
   async apply(ctx, i) {
     await lockCredit(ctx.trx, i.person_id);

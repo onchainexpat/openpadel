@@ -50,6 +50,31 @@ export class PlaytomicClient {
     }
     return out;
   }
+  /** The club's players (Playtomic's customers) with their wallets and benefits, 100 a page, cursor by cursor, at the
+   *  same pace as bookings (brought_in.ts keeps what it reads). The docs show the list's paging fields but not the key
+   *  the players come under, so the usual ones are tried. */
+  async players(maxPages = 300): Promise<unknown[]> {
+    const out: unknown[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < maxPages; page++) {
+      const wait = this.lastPage + this.o.pageDelayMs - Date.now();
+      if (this.lastPage && wait > 0) await new Promise((r) => setTimeout(r, wait));
+      this.lastPage = Date.now();
+      const q = new URLSearchParams({ limit: "100" });
+      q.append("include", "WALLETS"); q.append("include", "BENEFITS");
+      if (cursor) q.set("cursor_id", cursor);
+      const r = await this.o.fetch(`${this.o.baseUrl}/api/v1/venues/${encodeURIComponent(this.o.tenantId)}/players?${q}`, { headers: { authorization: `Bearer ${await this.bearer()}` } });
+      if (!r.ok) throw new Error(`playtomic players failed: ${r.status}`);
+      const d = await r.json() as any;
+      const items = Array.isArray(d) ? d : [d?.players, d?.items, d?.data, d?.results].find(Array.isArray);
+      if (!Array.isArray(items)) throw new Error("playtomic players: not a list");
+      out.push(...items);
+      const next = Array.isArray(d) ? null : (typeof d?.next_cursor_id === "string" && d.next_cursor_id ? d.next_cursor_id : null);
+      if (!next || d?.has_more === false || !items.length) break;
+      cursor = next;
+    }
+    return out;
+  }
 }
 
 export interface Booking { ref: string; courtRef: string; courtName: string; start: Date; end: Date; type: string; cancelled: boolean }

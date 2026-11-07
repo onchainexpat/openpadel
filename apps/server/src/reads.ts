@@ -4,9 +4,9 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
-import { csvCell, readPeopleCsv } from "./csv.ts";
+import { csvCell, readMoveInCsv, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
 import { translatorOn } from "./translate.ts";
 import { clubFileStem } from "./file_names.ts";
@@ -21,7 +21,7 @@ const COACH_ALSO = /^\/staff\/(coach-earnings(\.csv)?|questions\/count)$/;
 const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
   [/^\/staff\/(people|tags|chats)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
-  [/^\/staff\/(reports|coach-earnings|payments|receipts|desk)/, "money"], [/^\/staff\/(settings|roles|vault|usage)/, "settings"],
+  [/^\/staff\/(reports|coach-earnings|payments|receipts|desk|move-in)/, "money"], [/^\/staff\/(settings|roles|vault|usage)/, "settings"],
   [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|quote|mirror|alerts|block-series)/, "bookings"],
   [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
 ];
@@ -599,6 +599,36 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   });
 
   // The Playtomic mirror: how the last copy went, courts still to link, and bookings that clash with Kumi.
+  // Moving in from Playtomic (brought_in.ts): what's been brought over, Playtomic's players as last read and the
+  // memberships among them, for the owner and managers. Club credit and members' details: money and members both.
+  const ownerOrManager = async (c: Context<any>) => {
+    if (!(await rolesOf(me(c)!.id)).some((r) => r === "owner" || r === "manager")) throw new KumiError("error.staff_only", {}, 403);
+  };
+  const benefitCounts = (players: { benefits?: { name: string; until: string | null }[] }[]) => {
+    const n = new Map<string, { name: string; people: number }>();
+    for (const p of players) for (const b of p.benefits ?? []) { const k = b.name.trim().toLowerCase(); const e = n.get(k) ?? { name: b.name.trim(), people: 0 }; e.people++; n.set(k, e); }
+    return [...n.values()].sort((a, b) => b.people - a.people);
+  };
+  app.get("/staff/move-in", async (c) => {
+    await ownerOrManager(c);
+    const st = await moveInStatus(db);
+    const kept = await db.selectFrom("playtomic_player").select("benefits").execute();
+    const plans = await db.selectFrom("membership_plan").select(["id", "name", "translations", "price_cents", "period", "join_in_app"]).where("active", "=", true).orderBy("sort").execute();
+    const l = lang(c);
+    return c.json({ ...st, has_keys: Boolean(process.env.KUMI_PLAYTOMIC_CLIENT_ID && process.env.KUMI_PLAYTOMIC_SECRET && process.env.KUMI_PLAYTOMIC_TENANT_ID),
+      benefits: benefitCounts(kept.map((k) => ({ benefits: k.benefits as { name: string; until: string | null }[] }))),
+      plans: plans.map((p) => ({ id: p.id, name: inLang(p.name, p.translations, "name", l), join_in_app: p.join_in_app })) });
+  });
+  // Read the club's customer export; nothing changes until credit.bring_in or membership.bring_in is confirmed.
+  app.post("/staff/move-in/file", async (c) => {
+    await ownerOrManager(c);
+    const { csv } = await c.req.json().catch(() => ({ csv: "" })) as { csv?: string };
+    const club = await db.selectFrom("club").select("format_locale").executeTakeFirstOrThrow();
+    const r = readMoveInCsv(String(csv ?? "").slice(0, 5_000_000), { dayFirst: club.format_locale !== "en-US" });
+    const l = lang(c);
+    return c.json({ rows: r.rows, benefits: benefitCounts(r.rows), problems: r.problems.map((p) => ({ line: p.line, text: p.text[l] })), ...(r.fatal ? { fatal: r.fatal[l] } : {}) });
+  });
+
   app.get("/staff/mirror", async (c) => {
     const l = lang(c);
     const status = await db.selectFrom("connector_status").selectAll().where("system", "=", PLAYTOMIC).executeTakeFirst();

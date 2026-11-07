@@ -124,6 +124,16 @@ export async function deleteCheck(db: Db | Trx, personId: string, now: Date) {
 const joinTexts = (xs: Text[], sep: string): Text => ({ en: xs.map((x) => x.en).join(sep), es: xs.map((x) => x.es).join(sep) });
 
 // ---- The export ----
+/** A person's Playtomic record as last read for the move-in, by their Playtomic id or email, and the wallet credit brought
+ *  from it, for their data download. */
+async function playtomicOf(db: Db | Trx, personId: string, email: string | null) {
+  const ids = (await db.selectFrom("external_ref").select("external_id").where("entity", "=", "person").where("entity_id", "=", personId).where("system", "=", "playtomic").execute()).map((r) => r.external_id);
+  const read = ids.length || email ? await db.selectFrom("playtomic_player").select(["player_id", "name", "email", "phone", "wallets", "benefits", "read_at"])
+    .where((w) => w.or([...(ids.length ? [w("player_id", "in", ids)] : []), ...(email ? [w(sql<string>`lower(email)`, "=", email.toLowerCase())] : [])])).execute() : [];
+  const credit = await db.selectFrom("brought_credit").select(["wallet_name", "cents", "at", "updated_at"]).where("person_id", "=", personId).orderBy("at").execute();
+  return { as_read: read.map((r) => ({ ...r, read_at: r.read_at.toISOString() })), wallets_brought_in: credit.map((c) => ({ wallet: c.wallet_name, cents: c.cents, at: c.at.toISOString(), updated_at: c.updated_at.toISOString() })) };
+}
+
 async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lang) {
   const p = await db.selectFrom("person").selectAll().where("id", "=", personId).executeTakeFirstOrThrow();
   const name = async (id: string | null) => id ? ((await db.selectFrom("person").select("display_name").where("id", "=", id).executeTakeFirst())?.display_name ?? null) : null;
@@ -274,6 +284,9 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
       .select(["promo_code.code", "promo_use.discount_cents", "promo_use.at", "payment.status"]).where("promo_use.person_id", "=", personId).orderBy("promo_use.at").execute())
       .map((u) => ({ code: u.code, discount_cents: u.discount_cents, at: iso(u.at), counted: u.status !== "failed" })),
     memberships, covered_by_family_plans: covered,
+    // What Playtomic said about them when the club moved in (brought_in.ts): their record as read, and the credit it
+    // brought.
+    playtomic: await playtomicOf(db, personId, p.email),
     level: rating ?? null, level_history: history.map((h) => ({ at: iso(h.at), kind: h.kind, before: h.level_before, after: h.level_after, why: say(h.explanation) })),
     level_reviews: reviews, games, score_answers: answers,
     messages, consents, policies_agreed: agreed.map((a) => ({ ...a, accepted_at: iso(a.accepted_at) })), quiet_hours: { from: `${String(QUIET.from).padStart(2, "0")}:00`, until: `${String(QUIET.until).padStart(2, "0")}:00`, set_by: "club" },
@@ -592,6 +605,10 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   }
   // Playtomic's archive (playtomic_archive.ts): their name and email go from it, read while their Playtomic ids are known.
   await eraseArchiveOf(db, personId, x.emails, ctx.now);
+  // Playtomic's record of them as last read for the move-in (brought_in.ts): by their Playtomic id or any address.
+  const ptIds = (await db.selectFrom("external_ref").select("external_id").where("entity", "=", "person").where("entity_id", "=", personId).where("system", "=", "playtomic").execute()).map((r) => r.external_id);
+  if (ptIds.length || x.emails.length)
+    await db.deleteFrom("playtomic_player").where((w) => w.or([...(ptIds.length ? [w("player_id", "in", ptIds)] : []), ...(x.emails.length ? [w(sql<string>`lower(email)`, "in", x.emails)] : [])])).execute();
   await db.deleteFrom("external_ref").where("entity", "=", "person").where("entity_id", "=", personId).execute();
   await db.deleteFrom("kid_rule").where("person_id", "=", personId).execute();
   // Friends and family links.

@@ -159,7 +159,7 @@ let provider: PaymentProvider = new TestProvider();
 export function setPaymentProvider(p: PaymentProvider): void { provider = p; }
 export function paymentProvider(): PaymentProvider { return provider; }
 
-export type AccountKind = "member_credit" | "receivable" | "revenue" | "provider_clearing" | "cash_drawer" | "refunds_payable" | "adjustment" | "gift_cards" | "passes";
+export type AccountKind = "member_credit" | "receivable" | "revenue" | "provider_clearing" | "cash_drawer" | "refunds_payable" | "adjustment" | "gift_cards" | "passes" | "brought_in";
 
 export async function account(trx: Trx, kind: AccountKind, opts: { personId?: string; revenueType?: string } = {}): Promise<string> {
   // A gift card sold isn't revenue: it's owed until it's redeemed (gift_cards.ts). The paths every payment takes

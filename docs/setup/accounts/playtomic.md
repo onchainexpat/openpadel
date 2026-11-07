@@ -52,3 +52,8 @@ comparison, the switch): see [moving-from-playtomic.md](../moving-from-playtomic
 - **`playtomic` fails with 401:** the credentials are wrong or were revoked; create new ones.
 - **Bookings missing:** only linked courts hold time in openPadel; check the Playtomic page for
   unlinked courts.
+
+## Moving the club off Playtomic: wallets and memberships
+
+Members' Playtomic wallet balances become club credit here, and their memberships carry over, paid through Playtomic's
+date: [playtomic-wallets-and-memberships.md](../playtomic-wallets-and-memberships.md).

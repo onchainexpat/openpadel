@@ -4,6 +4,11 @@
 //   kumi setup plan [club.yaml]    what setting the club up from the file would change (changes nothing)
 //   kumi setup apply [club.yaml]   make those changes; run it again after editing the file
 //   kumi import members <file.csv> [--apply]   members from a spreadsheet (a preview unless --apply)
+//   kumi move-in players           read every player from Playtomic now, with their wallets and memberships
+//   kumi move-in wallets [<export.csv>] [--apply]   Playtomic wallet balances become club credit (a preview unless
+//                                  --apply): from the players last read, or the club's customer export
+//   kumi move-in memberships [<export.csv>] [--map "<Playtomic name>=<plan name or id|skip>"]... [--apply]
+//                                  Playtomic memberships carried over, paid through Playtomic's date (brought_in.ts)
 //   kumi doctor                    is everything working? each check, and the next step when it isn't
 //   kumi reset-sign-in <email>     start someone's second sign-in step over (a lost phone; an owner locked out)
 //   kumi owner add <email> [--yes] give someone the owner role (a club left with no owner who can sign in)
@@ -39,7 +44,7 @@ import { connect, loadClubFormat, dayText, heldSummary, KumiError, leavingStatus
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
-import { readPeopleCsv } from "./csv.ts";
+import { readMoveInCsv, readPeopleCsv } from "./csv.ts";
 import { doctor, type Check } from "./doctor.ts";
 import { ClubFileError, ownerActor, readClubFile, setupClub } from "./setup.ts";
 import { applyTexting, refreshTexting, textingPlan, textingStatusText, twilioProblem, verificationForm, withClubLinks, type TextingDeps, type TextingPlan } from "./texting.ts";
@@ -106,7 +111,7 @@ async function formatOf(url: string): Promise<void> {
 
 /** The commands that run on the club's server itself, against its database. Everything else is the club's own
  *  commands, from any computer signed in to the club (cli_remote.ts: kumi login, kumi help). */
-const ON_SERVER = new Set(["setup", "import", "texting", "usage", "export", "moved", "read-only", "leaving", "held", "doctor", "reset-sign-in", "owner", "backup",
+const ON_SERVER = new Set(["setup", "import", "move-in", "texting", "usage", "export", "moved", "read-only", "leaving", "held", "doctor", "reset-sign-in", "owner", "backup",
   "offsite", "pitr", "restore", "restore-test", "rotate-key", "update", "rollback", "releases"]);
 
 async function main(): Promise<number> {
@@ -156,6 +161,58 @@ async function main(): Promise<number> {
       const added = (res as { result?: { added?: number } }).result?.added ?? 0;
       console.log(apply ? t(lang, "cli.imported", { people: t(lang, "count.people", { count: added }) }) : t(lang, "cli.import_hint", { file: rest[0] }));
       return 0;
+    } finally { await db.destroy(); }
+  }
+  // Moving in from Playtomic (brought_in.ts): the players read now, then wallets and memberships, each a preview
+  // unless --apply, as the owner. The same as the staff app's Playtomic page, Moving in.
+  if (cmd === "move-in" && (sub === "players" || sub === "wallets" || sub === "memberships")) {
+    const db = await clubDb();
+    try {
+      const owner = await ownerActor(db, lang);
+      if (!owner) { console.error(t(lang, "doctor.club.missing")); return 2; }
+      if (sub === "players") {
+        const { PlaytomicClient, readPlaytomicPlayers } = await import("@kumi/core");
+        const e = process.env;
+        if (!e.KUMI_PLAYTOMIC_CLIENT_ID || !e.KUMI_PLAYTOMIC_SECRET || !e.KUMI_PLAYTOMIC_TENANT_ID) { console.error(t(lang, "cli.move_in_no_keys")); return 2; }
+        const client = new PlaytomicClient({ clientId: e.KUMI_PLAYTOMIC_CLIENT_ID, secret: e.KUMI_PLAYTOMIC_SECRET, tenantId: e.KUMI_PLAYTOMIC_TENANT_ID, pageDelayMs: Number(e.KUMI_MIRROR_PAGE_SECONDS ?? 60) * 1000 });
+        if (!json) console.log(t(lang, "cli.move_in_reading"));
+        const r = await readPlaytomicPlayers(db, client);
+        if (json) { out(r); return r.ok ? 0 : 1; }
+        console.log(r.ok ? t(lang, "cli.move_in_read", { count: r.read, changed: r.changed }) : r.error);
+        return r.ok ? 0 : 1;
+      }
+      const file = rest.find((a) => !a.startsWith("--") && !args[args.indexOf(a) - 1]?.startsWith("--map"));
+      let players: unknown[] | undefined;
+      if (file) {
+        const club = await db.selectFrom("club").select("format_locale").executeTakeFirstOrThrow();
+        const r = readMoveInCsv(readFileSync(resolve(process.env.KUMI_CALLER_DIR ?? ".", file), "utf8"), { dayFirst: club.format_locale !== "en-US" });
+        if (r.fatal) { console.error(say(r.fatal)); return 2; }
+        for (const p of r.problems) console.log(`! ${say(p.text)}`);
+        players = r.rows;
+      }
+      const src = file ? { source: "file", players } : { source: "playtomic" };
+      let input: Record<string, unknown> = src, name = "credit.bring_in";
+      if (sub === "memberships") {
+        // --map "Gold=Gold monthly": a plan here by its name or id, or skip.
+        const plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).execute();
+        const map: Record<string, string> = {};
+        for (let k = 0; k < args.length; k++) if (args[k] === "--map" && args[k + 1]) {
+          const [from, to] = args[k + 1]!.split("=").map((x) => x.trim());
+          const plan = to === "skip" ? "skip" : plans.find((p) => p.id === to || p.name.toLowerCase() === (to ?? "").toLowerCase())?.id;
+          if (!from || !plan) { console.error(t(lang, "cli.move_in_bad_map", { map: args[k + 1]! })); return 2; }
+          map[from] = plan;
+        }
+        input = { ...src, map }; name = "membership.bring_in";
+      }
+      const apply = args.includes("--apply");
+      const res = apply ? await run(db, name, input, owner) : await plan(db, name, input, owner);
+      if (json) { out({ ok: true, applied: apply, summary: say(res.plan.summary), details: res.plan.details }); return 0; }
+      console.log(say(res.plan.summary));
+      console.log(apply ? t(lang, "cli.move_in_done") : t(lang, "cli.move_in_hint"));
+      return 0;
+    } catch (e) {
+      if (e instanceof KumiError) { console.error(say(e.text)); return 2; }
+      throw e;
     } finally { await db.destroy(); }
   }
   if (cmd === "texting" && (sub === "plan" || sub === "apply" || sub === "status")) {
