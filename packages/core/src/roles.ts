@@ -11,6 +11,12 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { specificity, type Asker, type Mode } from "./permissions.ts";
 
+/** An action in words ("Undo a change"), for a refusal staff read; its name only if the catalogs have no words for it. */
+const actionWords = (name: string): Text => {
+  const w = both(`action.${name}` as Key);
+  return w.en === `action.${name}` ? { en: name, es: name } : w;
+};
+
 /** The areas actions fall in, by the first part of their name. */
 export const AREAS: { key: string; prefixes: string[] }[] = [
   { key: "bookings", prefixes: ["booking", "lesson", "alert"] },
@@ -84,11 +90,11 @@ async function checkGrants(ctx: PlanCtx, grants: GrantIn[]): Promise<void> {
   const allowed = new Set(await grantableActions(ctx.db));
   const seen = new Set<string>();
   for (const g of grants) {
-    if (seen.has(g.action)) throw new KumiError("error.role_grant_twice", { action: g.action });
+    if (seen.has(g.action)) throw new KumiError("error.role_grant_twice", { action: actionWords(g.action) });
     seen.add(g.action);
-    if (!allowed.has(g.action)) throw new KumiError("error.role_owner_only", { action: g.action });
+    if (!allowed.has(g.action)) throw new KumiError("error.role_owner_only", { action: actionWords(g.action) });
     if (ctx.actor.personId && exceeds({ mode: g.approval ? "ask" : "allow", scope: g.scope }, await heldBy(ctx.db, ctx.actor, g.action)))
-      throw new KumiError("error.role_more_than_you", { action: g.action });
+      throw new KumiError("error.role_more_than_you", { action: actionWords(g.action) });
   }
 }
 
@@ -188,7 +194,7 @@ export async function checkAssign(ctx: PlanCtx, roleId: string): Promise<void> {
   for (const a of actions()) {
     if (a.internal) continue;
     const want = roleAllows(grants, a.name);
-    if (want && exceeds(want, await heldBy(ctx.db, ctx.actor, a.name))) throw new KumiError("error.role_more_than_you", { action: a.name });
+    if (want && exceeds(want, await heldBy(ctx.db, ctx.actor, a.name))) throw new KumiError("error.role_more_than_you", { action: actionWords(a.name) });
   }
 }
 

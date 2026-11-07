@@ -7,6 +7,13 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## Unreleased
+
+### Fixed
+- A person's page offered front desk (and anyone below a manager) the form to give or take away a role, including
+  owner, and then refused it. Only owners and managers see it now. A refusal to give a role says what the role
+  would let them do in words ("Undo a change"), not the action's internal name.
+
 ## 0.4.0 (2026-11-07)
 
 The club's commands for agents and people (`openpadel`, from any computer), the new name openPadel with members

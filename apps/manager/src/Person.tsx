@@ -119,14 +119,15 @@ export function Person({ id }: { id: string }) {
         {staffRoles.length === 0 ? <p class="meta">{t("role.member")}</p> : (
           <ul class="plain">{staffRoles.map((r) => (
             <li class="row"><span>{r.name ?? t(`role.${r.key}` as Key)}{r.location_name ? ` · ${r.location_name}` : ""}</span>
-              <button class="small" onClick={() => preview("role.remove", { person_id: p.id, role: r.key, location_id: r.location_id ?? undefined })}>{t("ui.remove")}</button></li>
+              {privacy && <button class="small" onClick={() => preview("role.remove", { person_id: p.id, role: r.key, location_id: r.location_id ?? undefined })}>{t("ui.remove")}</button>}</li>
           ))}</ul>
         )}
-        <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("role.assign", { person_id: p.id, role, location_id: where || undefined }); }}>
+        {/* Only an owner or a manager gives or takes away roles; the server refuses anyone else, so the form isn't offered. */}
+        {privacy && <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("role.assign", { person_id: p.id, role, location_id: where || undefined }); }}>
           <label>{t("ui.add_role")}<select value={role} onChange={(e) => setRole(e.currentTarget.value)}>{STAFF_ROLES.map((k) => <option value={k}>{t(`role.${k}` as Key)}</option>)}{custom.map((r) => <option value={r.key}>{r.name}</option>)}</select></label>
           <label>{t("ui.location")}<select value={where} onChange={(e) => setWhere(e.currentTarget.value)}><option value="">{t("ui.everywhere")}</option>{locations.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>
           <button>{t("ui.preview")}</button>
-        </form>
+        </form>}
       </section>}
 
       {owner && p.sign_in && (p.sign_in.authenticator || p.sign_in.passkeys > 0 || p.sign_in.recovery_left > 0) && <section class="card">
