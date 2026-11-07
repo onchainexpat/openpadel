@@ -1,5 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { run, runAsSystem, setSecretKeys, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
@@ -79,8 +80,11 @@ test("a document: checked by its first bytes, kept, and downloaded only as a fil
   assert.match(await (await get("/staff/vault", "robin@example.test")).text(), /"downloads":\[\{"at":/);
 });
 
+// The release in the root package.json, so cutting one doesn't mean editing this test.
+const RELEASE = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")).version;
+
 test("/health names the release; /health/deep is for this machine, or an owner or manager", async () => {
-  assert.deepEqual(await (await get("/health")).json(), { ok: true, version: "0.3.0", revision: "dev" });
+  assert.deepEqual(await (await get("/health")).json(), { ok: true, version: RELEASE, revision: "dev" });
   assert.equal((await get("/health/deep")).status, 401);
   assert.equal((await get("/health/deep", "ann@example.test")).status, 403);
   const deep = await get("/health/deep", "mia@example.test");

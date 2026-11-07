@@ -33,6 +33,16 @@ server starts.
 ### Changed
 - An assistant's list of what it can do is made from one read of the person's roles instead of one per action, so
   every assistant call answers sooner (about 15 ms instead of 180 for an owner).
+
+## 0.3.1 (2026-11-07)
+
+Fixes for 0.3.0. A split court's organiser is no longer charged what a promo code took off another player's share;
+clubs on Stripe Connect no longer keep each other's card payments; a Playtomic recurring booking or league match over
+a Kumi event is now a clash the staff hear about; a card payment found after a restore and kept counts in the books;
+and a big club reads and writes faster as it grows. Every club should update, first those on Stripe Connect or
+running beside Playtomic.
+
+### Changed
 - A card payment found after a restore that the staff keep as paid elsewhere now counts in the books the way they
   say, so Kumi's revenue matches the payment provider's. Reports, "Paid with nothing here", offers two ways to keep
   it, and the preview says plainly which was chosen:
@@ -140,6 +150,18 @@ server starts.
     sideways, as it did in Spanish.
   - On a touch screen, a section that opens and closes is 44 px tall, and every checkbox and choice is the larger
     size, not only those beside their label.
+
+### When updating
+- The database changes (095 to 097) apply by themselves as the server starts. 097 adds indexes; on a big club the
+  first start takes a little longer while they're built. `kumi update` snapshots the database first, and
+  `sudo kumi rollback --yes` goes back to 0.3.0 with it. On Docker, `deploy/docker/update.sh v0.3.1`.
+- Nothing to set. Two new settings for clubs beside Playtomic keep their defaults unless changed:
+  `KUMI_MIRROR_FAR_EVERY_HOURS` (6) and `KUMI_MIRROR_PAGE_SECONDS` (60), in `docs/settings.md`.
+- **Beside Playtomic:** the first reads after the update can tell the staff about clashes that were already there and
+  went unnoticed (a player's recurring booking or league match on a court with a Kumi event). Look at each one.
+
+### Known limits
+- As in 0.3.0.
 
 ## 0.3.0 (2026-11-06)
 
