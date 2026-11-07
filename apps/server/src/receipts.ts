@@ -83,7 +83,7 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
     await staffWithMoney(c);
     // Kumi's own charges still waiting for the jobs aren't the staff's (yet); refunds seen after a restore whose booking
     // or place is still active here are, to cancel without a refund or keep.
-    const found = await db.selectFrom("payment_found").select(["id", "amount_cents", "paid_at", "email", "description", "status", "kind"]).where("status", "!=", "waiting").orderBy("found_at", "desc").limit(200).execute();
+    const found = await db.selectFrom("payment_found").select(["id", "amount_cents", "paid_at", "email", "description", "status", "kind", "kept_as", "disputed_at"]).where("status", "!=", "waiting").orderBy("found_at", "desc").limit(200).execute();
     return c.json({ found, still_booked: await refundedStillBooked(db) });
   });
   app.get("/staff/gift-cards", async (c) => {

@@ -40,7 +40,7 @@ export function Reports() {
   const loadGifts = () => api<{ outstanding: { cents: number; count: number }; cards: Gift[] }>("/staff/gift-cards").then(setGifts).catch(() => setGifts(null));
   useEffect(() => { void loadGifts(); }, []);
   // Card payments the payment provider took that nothing here records (payments_after_restore.ts): refund or record.
-  type Found = { id: string; amount_cents: number; paid_at: string; email: string | null; description: string | null; status: string; kind: string };
+  type Found = { id: string; amount_cents: number; paid_at: string; email: string | null; description: string | null; status: string; kind: string; kept_as?: "income" | "already" | null; disputed_at?: string | null };
   type StillBooked = { bookings: { id: string; amount_cents: number; code: string; booking_id: string; person_id: string; display_name: string }[];
     places: { id: string; amount_cents: number; program: string; program_id: string; person_id: string; display_name: string }[] };
   const [found, setFound] = useState<Found[]>([]);
@@ -126,6 +126,7 @@ export function Reports() {
       {found.length > 0 && <section class="card">
         <h2>{t("ui.found_title")}</h2>
         <p>{t("ui.found_lead")}</p>
+        <p class="meta">{t("ui.found_keep_help")}</p>
         {/* A table like the others on Reports: column names on a wide screen, one line per date, rows stacked on a phone. */}
         <div class="table-scroll"><table class="stack">
           <thead><tr><th>{t("ui.col_date")}</th><th>{t("ui.col_total")}</th><th>{t("ui.found_who")}</th><th>{t("ui.found_col_next")}</th></tr></thead>
@@ -134,7 +135,12 @@ export function Reports() {
           <td data-label={t("ui.col_total")}>{dollars(f.amount_cents, lang.value)}</td>
           <td class="wrap" data-label={t("ui.found_who")}>{[f.kind === "kumi_charge" ? t("ui.found_kumi_charge") : null, f.email, f.description].filter(Boolean).join(" · ")}</td>
           <td data-label={t("ui.found_col_next")}>{f.status === "open" ? <span>{mayDo("payment_found.refund") && <button class="small" onClick={() => preview("payment_found.refund", { id: f.id })}>{t("ui.found_refund")}</button>}{" "}
-            {mayDo("payment_found.paid_elsewhere") && <button class="small secondary" onClick={() => preview("payment_found.paid_elsewhere", { id: f.id })}>{t("ui.found_elsewhere")}</button>}</span> : t(({ refund_asked: "ui.found_status_refund_asked", refunded: "ui.found_status_refunded", handled: "ui.found_status_handled", refund_failed: "ui.found_status_refund_failed", recorded: "ui.found_status_recorded" } as const)[f.status as "refunded"] ?? "ui.found_status_handled")}</td>
+            {/* Kept as paid elsewhere, two ways: counted as income, or already in the books (put right with a payment Kumi records). */}
+            {mayDo("payment_found.paid_elsewhere") && <><button class="small secondary" onClick={() => preview("payment_found.paid_elsewhere", { id: f.id, books: "income" })}>{t("ui.found_keep_income")}</button>{" "}
+              <button class="small secondary" onClick={() => preview("payment_found.paid_elsewhere", { id: f.id, books: "already" })}>{t("ui.found_keep_already")}</button></>}</span>
+            : <span>{t(f.status === "handled" ? (f.kept_as === "income" ? "ui.found_status_handled_income" : f.kept_as === "already" ? "ui.found_status_handled_already" : "ui.found_status_handled")
+              : ({ refund_asked: "ui.found_status_refund_asked", refunded: "ui.found_status_refunded", refund_failed: "ui.found_status_refund_failed", recorded: "ui.found_status_recorded" } as const)[f.status as "refunded"] ?? "ui.found_status_handled")}
+              {f.disputed_at && <><br /><strong>{t("ui.found_disputed")}</strong></>}</span>}</td>
         </tr>)}</tbody></table></div>
       </section>}
       {(still.bookings.length > 0 || still.places.length > 0) && <section class="card">

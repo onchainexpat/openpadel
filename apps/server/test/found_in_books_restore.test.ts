@@ -41,9 +41,9 @@ before(async () => {
   await sql.raw(`CREATE DATABASE ${COPY} TEMPLATE ${LIVE}`).execute(admin);
   live = connect(urlFor(LIVE));
   // ---- after the copy: A kept, B found and kept ----
-  await run(live, "payment_found.paid_elsewhere", { id: await idOf(live, A.ref) }, owner);
+  await run(live, "payment_found.paid_elsewhere", { id: await idOf(live, A.ref), books: "income" }, owner);
   await noteFound(live, B, null, new Date(), { tell: false });
-  await run(live, "payment_found.paid_elsewhere", { id: await idOf(live, B.ref) }, owner);
+  await run(live, "payment_found.paid_elsewhere", { id: await idOf(live, B.ref), books: "income" }, owner);
   assert.equal(await otherIncome(live), 6500);
 });
 after(async () => {
@@ -65,9 +65,9 @@ test("after a restore to before they were kept: open again or found again, nothi
     const m = await checkMoneyAfterRestore(db);
     assert.equal(m.found, 1, "B, found again; A was already listed");
     assert.equal(await otherIncome(db), 0, "nothing counted by itself");
-    for (const ref of [A.ref, B.ref]) await run(db, "payment_found.paid_elsewhere", { id: await idOf(db, ref) }, owner);
+    for (const ref of [A.ref, B.ref]) await run(db, "payment_found.paid_elsewhere", { id: await idOf(db, ref), books: "income" }, owner);
     assert.equal(await otherIncome(db), 6500, "each once");
-    await assert.rejects(run(db, "payment_found.paid_elsewhere", { id: await idOf(db, A.ref) }, owner), /changed/);
+    await assert.rejects(run(db, "payment_found.paid_elsewhere", { id: await idOf(db, A.ref), books: "income" }, owner), /changed/);
     await db.insertInto("restore_check").values({ since: new Date(Date.now() - 86400_000) } as any).execute();
     await checkMoneyAfterRestore(db);
     assert.equal(await otherIncome(db), 6500, "a later check counts nothing more");

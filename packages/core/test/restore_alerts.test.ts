@@ -45,7 +45,7 @@ test("payments found after a restore: \"After a restore\", what to do in Reports
   const open = await staffAlerts(db, owner.personId!, NOW);
   assert.equal(open.open.filter((o) => o.kind === "ops_restore_staff").length, 1, "on Today");
   // Both handled on Reports: the alert closes by itself, with no "working again" message.
-  for (const f of await db.selectFrom("payment_found").select("id").execute()) await run(db, "payment_found.paid_elsewhere", { id: f.id }, owner, { now: NOW });
+  for (const f of await db.selectFrom("payment_found").select("id").execute()) await run(db, "payment_found.paid_elsewhere", { id: f.id, books: "income" }, owner, { now: NOW });
   await reviewFound(db, new Date(NOW.getTime() + 60_000));
   await processOutbox(db, messageHandlers);
   assert.equal((await staffAlerts(db, owner.personId!, new Date(NOW.getTime() + 60_000))).open.filter((o) => o.kind === "ops_restore_staff").length, 0, "closed");

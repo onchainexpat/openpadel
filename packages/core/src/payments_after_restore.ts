@@ -21,7 +21,7 @@ import { defineAction, readRow, runAsSystem } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
-import { account, paymentProvider, post, type FoundIntent } from "./money.ts";
+import { account, paymentProvider, post, type FoundIntent, type FoundRefund } from "./money.ts";
 import { leftOf, revenueType } from "./desk_pay.ts";
 import { fitWords, jobFailed, jobWorked } from "./ops.ts";
 
@@ -119,17 +119,20 @@ export async function checkMoneyAfterRestore(db: Db, now = new Date()): Promise<
         const known = await db.selectFrom("payment").select("id").where((w) => w.or([w("provider_ref", "=", it.ref), ...(it.kumiPaymentId && UUID.test(it.kumiPaymentId) ? [w("id", "=", it.kumiPaymentId)] : [])])).executeTakeFirst();
         if (!known && await noteFound(db, it, acct, now, { tell: false }) && !it.kumiChargeId) found++;
       }
-      for (const rf of list.refunds.filter((x) => x.ok)) {
+      for (const rf of list.refunds) {
+        // A refund of a payment nothing here records (it's in payment_found), as it stands: kept counted as income, its
+        // part comes out of the books once it has gone through; still to decide, it's remembered, so keeping it later
+        // counts only what's left.
+        if (await db.selectFrom("payment_found").select("id").where("provider_ref", "=", rf.paymentRef).executeTakeFirst()
+          && !(await db.selectFrom("payment").select("id").where("provider_ref", "=", rf.paymentRef).executeTakeFirst())) {
+          if (await noteFoundRefund(db, rf.paymentRef, rf, now)) refunds++;
+          continue;
+        }
+        if (!rf.ok) continue;
         const had = await db.selectFrom("refund").select("id").where((w) => w.or([w("provider_ref", "=", rf.ref), ...(rf.kumiRefundId && UUID.test(rf.kumiRefundId) ? [w("id", "=", rf.kumiRefundId)] : [])])).executeTakeFirst();
         if (had) continue;
         const pay = await db.selectFrom("payment").select("id").where("provider_ref", "=", rf.paymentRef).where("status", "=", "succeeded").orderBy("id").executeTakeFirst();
-        if (!pay) {
-          // Its payment is one nothing here records: it's in payment_found. Kept as paid elsewhere, its part comes out
-          // of the books (once); still to decide, it's remembered, so keeping it later counts only what's left.
-          const r = await runAsSystem(db, "payment_found.refund_seen", { payment_ref: rf.paymentRef, refund_ref: rf.ref, cents: rf.amountCents }, "jobs", { now });
-          if ((r.result as { unbooked?: number } | null)?.unbooked) refunds++;
-          continue;
-        }
+        if (!pay) continue;   // its payment is one nothing here records, and not one found either
         const r = await runAsSystem(db, "payment.refund_seen", { payment_id: pay.id, cents: rf.amountCents, provider_ref: rf.ref, refund_id: rf.kumiRefundId && UUID.test(rf.kumiRefundId) ? rf.kumiRefundId : null }, "jobs", { now });
         if ((r.result as { recorded?: boolean } | null)?.recorded) refunds++;
       }
@@ -183,8 +186,12 @@ export const paymentFoundRefund = defineAction({
   input: z.object({ id: z.uuid() }),
   async plan(ctx, i) {
     const { row, read } = await foundPlan(ctx, i.id);
-    return { title: both("action.payment_found.refund"), summary: both("plan.payment_found.refund", { amount: { en: money(row.amount_cents, "en"), es: money(row.amount_cents, "es") } }),
-      reads: [read], moneyCents: row.amount_cents, undo: { kind: "none", note: both("reason.refund_sent") } };
+    // What's left of it: a refund the provider made of it already (seen here) isn't asked for again.
+    const left = await refundable(ctx.db, row as { id: string; amount_cents: number }), back = row.amount_cents - left;
+    if (left <= 0) throw new KumiError("error.payment_found_nothing_left");
+    const summary = back > 0 ? both("plan.payment_found.refund_left", { left: amountOf(left), amount: amountOf(row.amount_cents), back: amountOf(back) })
+      : both("plan.payment_found.refund", { amount: amountOf(row.amount_cents) });
+    return { title: both("action.payment_found.refund"), summary, reads: [read], moneyCents: left, undo: { kind: "none", note: both("reason.refund_sent") } };
   },
   async apply(ctx, i) {
     if (!(await stillUnknown(ctx as any, i.id))) return { recorded: true };
@@ -196,77 +203,139 @@ export const paymentFoundRefund = defineAction({
 /** The club's currency: the books are in it. A found payment in another (the provider said so) stays out of them. */
 const clubCurrency = async (db: Db | Trx) => (await db.selectFrom("club").select("currency").executeTakeFirst())?.currency ?? "USD";
 const inBooks = (currency: string | null, club: string) => !currency || currency === club;
-/** What of a found payment can count: what was paid, less refunds the provider has made of it that were seen here. */
-async function keepable(db: Db | Trx, f: { id: string; amount_cents: number }) {
-  const back = await db.selectFrom("payment_found_refund").select(sql<string>`coalesce(sum(cents), 0)`.as("c")).where("payment_found_id", "=", f.id).executeTakeFirstOrThrow();
-  return Math.max(0, f.amount_cents - Number(back.c));
+/** Refunds of a found payment seen here: those gone through, and those still on their way. */
+async function seenBack(db: Db | Trx, id: string) {
+  const r = await db.selectFrom("payment_found_refund").select([sql<string>`coalesce(sum(cents) FILTER (WHERE status = 'succeeded'), 0)`.as("done"),
+    sql<string>`coalesce(sum(cents) FILTER (WHERE status = 'pending'), 0)`.as("pending")]).where("payment_found_id", "=", id).executeTakeFirstOrThrow();
+  return { done: Number(r.done), pending: Number(r.pending) };
 }
+/** What of a found payment counts when it's kept: what was paid, less refunds of it that have gone through. One still
+ *  on its way comes out of the books when it goes through (refund_seen). */
+async function keepable(db: Db | Trx, f: { id: string; amount_cents: number }) { return Math.max(0, f.amount_cents - (await seenBack(db, f.id)).done); }
+/** What's left to refund of it: what was paid, less every refund of it gone through or on its way (the provider never
+ *  refunds more than that). */
+async function refundable(db: Db | Trx, f: { id: string; amount_cents: number }) { const b = await seenBack(db, f.id); return Math.max(0, f.amount_cents - b.done - b.pending); }
 const OTHER_INCOME = "after_restore";   // a revenue line of its own: Reports' "Card payments recorded after a restore"
+const amountOf = (cents: number, c?: string) => ({ en: money(cents, "en", c), es: money(cents, "es", c) });
 
-/** Or record it as paid elsewhere (it was for something the staff have put right by hand). The money stays, so it
- *  counts in the books as other income on the day it was paid, once (under the row's lock). */
+/** Or record it as paid elsewhere (it was for something the staff have put right by hand), and say how it's kept:
+ *  "income", added to the books as other income on the day it was paid, once (under the row's lock), so Kumi's
+ *  revenue matches the provider's; or "already", when what put it right is in the books already (a court booked again
+ *  at the desk and its payment recorded there, say): nothing is added, so the same money never counts twice. */
 export const paymentFoundPaidElsewhere = defineAction({
-  name: "payment_found.paid_elsewhere", version: 1, clubWide: true,
-  input: z.object({ id: z.uuid(), note: z.optional(z.string().check(z.maxLength(300))) }),
+  name: "payment_found.paid_elsewhere", version: 2, clubWide: true,
+  input: z.object({ id: z.uuid(), books: z.enum(["income", "already"]), note: z.optional(z.string().check(z.maxLength(300))) }),
   async plan(ctx, i) {
     const { row, read } = await foundPlan(ctx, i.id);
     const club = await clubCurrency(ctx.db), cur = (row as { currency?: string | null }).currency ?? null;
-    const amount = (cents: number, c?: string) => ({ en: money(cents, "en", c), es: money(cents, "es", c) });
-    const summary = inBooks(cur, club) ? both("plan.payment_found.paid_elsewhere", { amount: amount(await keepable(ctx.db, row as { id: string; amount_cents: number })) })
-      : both("plan.payment_found.paid_elsewhere_other_currency", { amount: amount(row.amount_cents, cur!), currency: { en: club, es: club } });
+    const summary = i.books === "already" ? both("plan.payment_found.paid_elsewhere_already", { amount: amountOf(row.amount_cents, cur ?? undefined) })
+      : inBooks(cur, club) ? both("plan.payment_found.paid_elsewhere", { amount: amountOf(await keepable(ctx.db, row as { id: string; amount_cents: number })) })
+      : both("plan.payment_found.paid_elsewhere_other_currency", { amount: amountOf(row.amount_cents, cur!), currency: { en: club, es: club } });
     return { title: both("action.payment_found.paid_elsewhere"), summary, reads: [read], moneyCents: 0, undo: { kind: "none" } };
   },
   async apply(ctx, i) {
     if (!(await stillUnknown(ctx as any, i.id))) return { recorded: true };
     const f = await ctx.trx.selectFrom("payment_found").select(["id", "amount_cents", "paid_at", "currency"]).where("id", "=", i.id).executeTakeFirstOrThrow();
-    const cents = inBooks(f.currency, await clubCurrency(ctx.trx)) ? await keepable(ctx.trx, f) : 0;
-    if (cents > 0) await post(ctx.trx, ctx.runId, "payment", "card payment found after a restore, kept as paid elsewhere", [
+    const cents = i.books === "income" && inBooks(f.currency, await clubCurrency(ctx.trx)) ? await keepable(ctx.trx, f) : 0;
+    if (cents > 0) await post(ctx.trx, ctx.runId, "payment", "card payment found after a restore, kept as paid elsewhere and counted as income", [
       { account: await account(ctx.trx, "provider_clearing"), cents },
       { account: await account(ctx.trx, "revenue", { revenueType: OTHER_INCOME }), cents: -cents }], { at: new Date(f.paid_at) });
-    await ctx.update("payment_found", i.id, { status: "handled", note: i.note ?? null, done_at: ctx.now, booked_cents: cents });
+    await ctx.update("payment_found", i.id, { status: "handled", note: i.note ?? null, done_at: ctx.now, booked_cents: cents, kept_as: i.books });
     return { booked_cents: cents };
   },
 });
-/** Out of other income: what of a found payment the books count, by `cents` (all of it when not given). */
-async function unbook(ctx: { trx: Trx; runId: string }, f: { id: string; booked_cents: number }, cents: number, memo: string) {
+/** Out of other income: up to `cents` of what the books count of a found payment, dated `at` (a refund on its own day;
+ *  a payment Kumi records later on the day it was paid, so the day it was counted on comes out even). */
+async function unbook(ctx: { trx: Trx; runId: string }, f: { id: string; booked_cents: number }, cents: number, memo: string, at: Date) {
   const out = Math.min(cents, f.booked_cents);
   if (out <= 0) return 0;
   await post(ctx.trx, ctx.runId, "refund", memo, [
     { account: await account(ctx.trx, "revenue", { revenueType: OTHER_INCOME }), cents: out },
-    { account: await account(ctx.trx, "provider_clearing"), cents: -out }]);
+    { account: await account(ctx.trx, "provider_clearing"), cents: -out }], { at });
   await ctx.trx.updateTable("payment_found").set({ booked_cents: f.booked_cents - out, version: sql`version + 1` }).where("id", "=", f.id).execute();
   return out;
 }
-/** A refund the provider made of a found payment (seen after a restore): each refund once. Kept as paid elsewhere,
- *  its part comes out of the books; not decided yet, it's remembered, so keeping it counts only what's left. */
+/** A refund the provider has of a found payment, as it stands now (seen after a restore, or asked again of a kept one):
+ *  remembered once, and its status followed. When it has gone through and the payment is kept counted as income, its
+ *  part comes out of the books, once, on the refund's own day. One still on its way takes nothing out until it goes
+ *  through; one that failed never does. Not kept yet, it's remembered, so keeping it counts only what's left. */
 export const paymentFoundRefundSeen = defineAction({
-  name: "payment_found.refund_seen", version: 1, system: true, internal: true,
-  input: z.object({ payment_ref: z.string(), refund_ref: z.string(), cents: z.number().check(z.int(), z.minimum(0)) }),
+  name: "payment_found.refund_seen", version: 2, system: true, internal: true,
+  input: z.object({ payment_ref: z.string(), refund_ref: z.string(), cents: z.number().check(z.int(), z.minimum(0)),
+    status: z.enum(["succeeded", "pending", "failed"]), at: z.iso.datetime({ offset: true }) }),
   async plan() { return { title: both("action.payment_found.refund_seen"), summary: both("plan.payment_found.refund_seen"), reads: [], undo: { kind: "none" } }; },
   async apply(ctx, i) {
     const f = await ctx.trx.selectFrom("payment_found").select(["id", "status", "booked_cents"]).where("provider_ref", "=", i.payment_ref).forUpdate().executeTakeFirst();
     if (!f) return { unbooked: 0 };
-    const first = await ctx.trx.insertInto("payment_found_refund").values({ provider_ref: i.refund_ref, payment_found_id: f.id, cents: i.cents })
-      .onConflict((oc) => oc.column("provider_ref").doNothing()).returning("provider_ref").executeTakeFirst();
-    if (!first) return { unbooked: 0 };
-    return { unbooked: f.status === "handled" ? await unbook(ctx as any, f, i.cents, "refund of a card payment kept as paid elsewhere (found at the provider)") : 0 };
+    const prev = await ctx.trx.selectFrom("payment_found_refund").select(["status", "cents"]).where("provider_ref", "=", i.refund_ref).forUpdate().executeTakeFirst();
+    // Gone through is where a refund ends: seen again (or said otherwise), nothing changes.
+    if (prev && (prev.status === "succeeded" || (prev.status === i.status && prev.cents === i.cents))) return { unbooked: 0 };
+    if (prev) await ctx.trx.updateTable("payment_found_refund").set({ status: i.status, cents: i.cents }).where("provider_ref", "=", i.refund_ref).execute();
+    else await ctx.trx.insertInto("payment_found_refund").values({ provider_ref: i.refund_ref, payment_found_id: f.id, cents: i.cents, status: i.status }).execute();
+    if (i.status !== "succeeded" || f.status !== "handled") return { unbooked: 0 };
+    const out = await unbook(ctx as any, f, i.cents, "refund of a card payment kept as paid elsewhere (at the provider)", new Date(i.at));
+    if (out) await ctx.trx.updateTable("payment_found_refund").set({ out_cents: out }).where("provider_ref", "=", i.refund_ref).execute();
+    return { unbooked: out };
   },
 });
 /** Kept as paid elsewhere, and Kumi records a payment for it by now: that payment counts the money, so all of it comes
- *  out of other income, and it's closed as recorded. */
+ *  out of other income (on the day it was paid, where it was counted), and it's closed as recorded. */
 export const paymentFoundUnbook = defineAction({
   name: "payment_found.unbook", version: 1, system: true, internal: true,
   input: z.object({ id: z.uuid() }),
   async plan() { return { title: both("action.payment_found.unbook"), summary: both("plan.payment_found.unbook"), reads: [], undo: { kind: "none" } }; },
   async apply(ctx, i) {
-    const f = await ctx.trx.selectFrom("payment_found").select(["id", "status", "provider_ref", "booked_cents"]).where("id", "=", i.id).forUpdate().executeTakeFirstOrThrow();
+    const f = await ctx.trx.selectFrom("payment_found").select(["id", "status", "provider_ref", "booked_cents", "paid_at"]).where("id", "=", i.id).forUpdate().executeTakeFirstOrThrow();
     if (f.status !== "handled" || !(await recordedRef(ctx.trx as any, f.provider_ref))) return { unbooked: 0 };
-    const out = await unbook(ctx as any, f, f.booked_cents, "card payment kept as paid elsewhere, recorded by Kumi since (counted there)");
+    const out = await unbook(ctx as any, f, f.booked_cents, "card payment kept as paid elsewhere, recorded by Kumi since (counted there)", new Date(f.paid_at));
     await ctx.trx.updateTable("payment_found").set({ status: "recorded", done_at: ctx.now, version: sql`version + 1` }).where("id", "=", f.id).execute();
     return { unbooked: out };
   },
 });
-/** The outbox's: the refund to the provider, once (its id is the idempotency key), then the outcome. */
+/** A refund the provider has of a found payment, to remember (refund_seen), unless it's as already seen. */
+async function noteFoundRefund(db: Db, paymentRef: string, rf: FoundRefund, now: Date): Promise<number> {
+  const status = rf.status ?? (rf.ok ? "succeeded" : "failed");
+  const prev = await db.selectFrom("payment_found_refund").select(["status", "cents"]).where("provider_ref", "=", rf.ref).executeTakeFirst();
+  if (prev && (prev.status === "succeeded" || (prev.status === status && prev.cents === rf.amountCents))) return 0;
+  const r = await runAsSystem(db, "payment_found.refund_seen", { payment_ref: paymentRef, refund_ref: rf.ref, cents: rf.amountCents, status, at: new Date(rf.created).toISOString() }, "jobs", { now });
+  return (r.result as { unbooked?: number } | null)?.unbooked ?? 0;
+}
+/** A kept one is disputed at the provider: the owner and managers hear once (it stays on Today until handled). Kumi's
+ *  books still count it; the dispute is answered in the provider's own dashboard. */
+async function tellDisputed(db: Db, f: { amount_cents: number; provider_ref: string; currency: string | null }, now: Date) {
+  const a = amountOf(f.amount_cents, f.currency ?? undefined);
+  const words = { en: `A card payment kept as paid elsewhere after a restore (${a.en}, ${f.provider_ref}) is disputed at the payment provider. Answer the dispute in the provider's own dashboard: Kumi's books still count the payment.`,
+    es: `Un pago con tarjeta conservado como pagado por otra vía tras una restauración (${a.es}, ${f.provider_ref}) tiene una disputa en el proveedor de pagos. Respóndela en el panel del propio proveedor: la contabilidad de Kumi aún cuenta el pago.` };
+  await runAsSystem(db, "ops.report_failure", { job: "restore_disputed", error: words.en.slice(0, 300), words: fitWords([words]) }, "jobs", { now })
+    .catch((e) => console.error(`payments: couldn't tell the staff (${(e as Error).message})`));
+}
+const KEPT_CHECK_HOURS = 6, KEPT_CHECK_DAYS = 365, KEPT_CHECK_EACH_RUN = 10;
+/** Each job run, a few at a time: kept found payments asked of the provider again (each at most every 6 hours, for a
+ *  year after it was paid) for refunds made of them since (in its dashboard, say: "Refund it" is gone once kept, and
+ *  nothing else here would see one) and for a dispute. */
+export async function checkKeptFound(db: Db, now = new Date(), o: { limit?: number } = {}): Promise<{ checked: number; unbooked: number; disputed: number }> {
+  const provider = paymentProvider();
+  if (!provider.refundsOf) return { checked: 0, unbooked: 0, disputed: 0 };
+  const rows = await db.selectFrom("payment_found").select(["id", "provider_ref", "account", "amount_cents", "currency", "disputed_at"]).where("status", "=", "handled")
+    .where("paid_at", ">", new Date(now.getTime() - KEPT_CHECK_DAYS * 864e5))
+    .where((w) => w.or([w("checked_at", "is", null), w("checked_at", "<", new Date(now.getTime() - KEPT_CHECK_HOURS * 3600_000))]))
+    .orderBy(sql`checked_at NULLS FIRST`).orderBy("id").limit(o.limit ?? KEPT_CHECK_EACH_RUN).execute();
+  let unbooked = 0, disputed = 0;
+  for (const f of rows) {
+    try {
+      const r = await provider.refundsOf(f.provider_ref, f.account);
+      for (const rf of r.refunds) if (await noteFoundRefund(db, f.provider_ref, rf, now)) unbooked++;
+      if (r.disputed && !f.disputed_at) {
+        const first = await db.updateTable("payment_found").set({ disputed_at: now }).where("id", "=", f.id).where("disputed_at", "is", null).returning("id").executeTakeFirst();
+        if (first) { await tellDisputed(db, f, now); disputed++; }
+      }
+      await db.updateTable("payment_found").set({ checked_at: now }).where("id", "=", f.id).execute();
+    } catch (e) { console.error(`payments: couldn't ask the payment provider about ${f.provider_ref} (${(e as Error).message})`); }
+  }
+  return { checked: rows.length, unbooked, disputed };
+}
+/** The outbox's: the refund to the provider, once (its id is the idempotency key), then the outcome. What's asked for is
+ *  what's left of it: refunds of it the provider has made already (seen here) are never asked for again. */
 export async function sendFoundRefund(db: Db, payload: { id: string }) {
   const f = await db.selectFrom("payment_found").selectAll().where("id", "=", payload.id).executeTakeFirst();
   if (!f || f.status !== "refund_asked") return;
@@ -275,6 +344,7 @@ export async function sendFoundRefund(db: Db, payload: { id: string }) {
     await db.updateTable("payment_found").set({ status: "recorded", done_at: new Date(), version: sql`version + 1` }).where("id", "=", f.id).execute();
     return;
   }
-  const r = await paymentProvider().refund({ paymentRef: f.provider_ref, amountCents: f.amount_cents, idempotencyKey: f.id, account: f.account });
+  const left = await refundable(db, f);
+  const r = left > 0 ? await paymentProvider().refund({ paymentRef: f.provider_ref, amountCents: left, idempotencyKey: f.id, account: f.account }) : { ok: true as const, failure: undefined };
   await db.updateTable("payment_found").set({ status: r.ok ? "refunded" : "refund_failed", note: r.ok ? f.note : (r.failure ?? "failed").slice(0, 300), done_at: new Date(), version: sql`version + 1` }).where("id", "=", f.id).execute();
 }

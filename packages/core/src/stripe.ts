@@ -29,6 +29,11 @@ export function stripeForm(params: Record<string, unknown>, prefix = ""): string
 /** The club's own Stripe account, under Connect: its id, and whether Stripe lets it take payments yet. */
 export type ConnectedAccount = () => Promise<{ id: string | null; ready: boolean }>;
 
+/** A refund as Stripe lists it: gone through, on its way (pending, or waiting on the bank), or failed (or cancelled). */
+const refundOf = (d: any) => ({ ref: String(d.id), paymentRef: String(d.payment_intent ?? ""), amountCents: Number(d.amount ?? 0),
+  ok: ["succeeded", "pending", "requires_action"].includes(String(d.status)), created: new Date(Number(d.created) * 1000), kumiRefundId: d.metadata?.kumi_refund_id ?? null,
+  status: (String(d.status) === "succeeded" ? "succeeded" : ["pending", "requires_action"].includes(String(d.status)) ? "pending" : "failed") as "succeeded" | "pending" | "failed" });
+
 /**
  * Two ways to run. Direct (self-hosting): the key is the club's own, and payments land in its account.
  * Connect (the hosted service): the key is Kumi's platform key, and every payment is made on the club's
@@ -183,9 +188,14 @@ export class StripeProvider implements PaymentProvider {
     const intents = (await page("/v1/payment_intents")).map((d) => ({ ref: String(d.id), status: status(String(d.status)), amountCents: Number(d.amount_received ?? d.amount ?? 0),
       created: new Date(Number(d.created) * 1000), kumiPaymentId: d.metadata?.kumi_payment_id ?? null, kumiChargeId: d.metadata?.kumi_charge_id ?? null, email: d.receipt_email ?? null, description: d.description ?? null,
       currency: typeof d.currency === "string" ? d.currency.toUpperCase() : null }));
-    const refunds = (await page("/v1/refunds")).map((d) => ({ ref: String(d.id), paymentRef: String(d.payment_intent ?? ""), amountCents: Number(d.amount ?? 0),
-      ok: ["succeeded", "pending", "requires_action"].includes(String(d.status)), created: new Date(Number(d.created) * 1000), kumiRefundId: d.metadata?.kumi_refund_id ?? null }));
+    const refunds = (await page("/v1/refunds")).map(refundOf);
     return { intents, refunds, cut };
+  }
+  /** One payment's refunds as Stripe has them now (up to 100), and whether it has a dispute. */
+  async refundsOf(paymentRef: string, account?: string | null) {
+    const r = await this.call("GET", `/v1/refunds?payment_intent=${encodeURIComponent(paymentRef)}&limit=100`, undefined, undefined, account);
+    const d = await this.call("GET", `/v1/disputes?payment_intent=${encodeURIComponent(paymentRef)}&limit=1`, undefined, undefined, account);
+    return { refunds: (r?.data ?? []).map(refundOf), disputed: Boolean(d?.data?.length) };
   }
 
   /** The card a payment went through on (its latest charge), for the receipt: brand and last four only. */

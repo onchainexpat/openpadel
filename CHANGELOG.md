@@ -8,14 +8,25 @@ server starts.
 ## Unreleased
 
 ### Changed
-- A card payment found after a restore that the staff record as paid elsewhere now counts in the books, as other
-  income on the day it was paid, so Kumi's revenue matches the payment provider's. Reports shows it on a line of
-  its own, "Card payments recorded after a restore", and the Reports download has a column for it. It counts once,
-  even recorded twice at the same moment; a refund the provider made of it takes its part back out, each refund
-  once (and one seen before it was recorded leaves only what's left to count); and if Kumi later records a payment
-  for it (a charge of its own made again), it comes out of other income, so it never counts twice. One paid in
-  another currency than the club's stays out of the books, and the preview says so. After a restore it's like any
-  other card payment: a copy from before it was recorded has it to decide again, with nothing counted by itself.
+- A card payment found after a restore that the staff keep as paid elsewhere now counts in the books the way they
+  say, so Kumi's revenue matches the payment provider's. Reports, "Paid with nothing here", offers two ways to keep
+  it, and the preview says plainly which was chosen:
+  - "Count it as income": it's added to the books as other income on the day it was paid. Reports shows it on a
+    line of its own, "Card payments recorded after a restore", and the Reports download has a column for it.
+  - "It's already in the books": when it was put right with a payment Kumi records (the court booked again at the
+    desk and paid there, say), nothing is added, so the same money doesn't count twice.
+
+  Counted as income, it counts once, even kept twice at the same moment. A refund of it at the provider takes its
+  part back out once the refund has gone through, each refund once, on the refund's own day: one made in the
+  provider's dashboard later is found too, because Kumi asks the provider about kept payments now and then (a few
+  at a time, each at most every 6 hours, for a year after it was paid). A refund still on its way takes nothing out
+  until it goes through, and one that fails never does. If Kumi later records a payment for it (a charge of its own
+  made again), it comes out of other income on the day it was paid. A kept payment that's disputed at the provider
+  is told to the owner and managers once, on Today, to answer in the provider's dashboard. One paid in another
+  currency than the club's stays out of the books, and the preview says so. "Refund it" asks only for what's left
+  of a payment a refund was already seen for, and says so; with nothing left, it's refused. After a restore it's
+  like any other card payment: a copy from before it was kept has it to decide again, with nothing counted by
+  itself.
 - Every spreadsheet download names its columns in English, whatever the reader's language, so the same file reads
   the same in a spreadsheet or an accounting tool from anyone on staff. The coach earnings download followed the
   reader (and its kinds and statuses: "lesson", "session", "scheduled", "cancelled" now); the club receipts download
