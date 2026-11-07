@@ -84,7 +84,9 @@ month's lines by kind (calls, tokens, segments, emails and cents to four places)
 |---|---|---|
 | `KUMI_PLAYTOMIC_CLIENT_ID`, `KUMI_PLAYTOMIC_SECRET`, `KUMI_PLAYTOMIC_TENANT_ID` | Third Party API credentials; with all three, Kumi copies the club's bookings in, read-only. | not set |
 | `KUMI_MIRROR_EVERY_MINUTES` | How often it reads. | `10` |
-| `KUMI_MIRROR_DAYS_AHEAD` | How far ahead it reads. | `30` |
+| `KUMI_MIRROR_DAYS_AHEAD` | How far ahead it reads every time (the near window). | `30` |
+| `KUMI_MIRROR_FAR_EVERY_HOURS` | How often each 30 days further ahead is read again, out to as far as members can book or Kumi has anything on a linked court (a year at most). One 30-day part is read after each near read. `0` reads only the near window. | `6` |
+| `KUMI_MIRROR_PAGE_SECONDS` | The wait between two pages of bookings, for every read. Playtomic's docs and its help pages give different limits, so it's careful. | `60` |
 
 ## Keys the server keeps
 

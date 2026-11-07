@@ -34,6 +34,17 @@ server starts.
   Amounts and dates keep the club's formats.
 
 ### Fixed
+- **Playtomic: a player's recurring booking or league match over a Kumi event went unnoticed.** Kumi took any kind of
+  Playtomic booking it didn't list as the club's own block, so nobody heard of the clash, and a Kumi event could even
+  be put on top of one. Now only the club's own tournaments and open play count as the club's. Every other kind,
+  including one Kumi doesn't know yet, is a clash the staff hear about once. One already copied the old way is judged
+  again at the next read, and the clash is said then.
+  - Bookings further ahead than 30 days are read too: as far as members can book or Kumi has anything on a linked
+    court (a year at most), 30 days at a time after each read, each again every 6 hours (`KUMI_MIRROR_FAR_EVERY_HOURS`).
+    Pages stay a minute apart, whichever read they're for (`KUMI_MIRROR_PAGE_SECONDS`).
+  - A booking's end comes from Playtomic's end time, not from guessing the unit of its length.
+  - The Playtomic page, the courts' day and the clash email name each kind of Playtomic booking in the reader's
+    language (the email used Playtomic's own English words, in Spanish too).
 - A big club was slow in places, and slower every day. Tried with two years of one: 3,000 members, 12 courts, 90,000
   court bookings, 300 programs, 60,000 chat messages. Indexes (database change 097) and reads that use them; nothing
   changes but the speed.

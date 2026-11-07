@@ -3,7 +3,7 @@
 // Kumi, so Kumi never puts an event on a court Playtomic has sold. It never writes to Playtomic.
 import * as z from "zod/mini";
 import { sql } from "kysely";
-import { both } from "@kumi/i18n";
+import { both, type Key } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -16,9 +16,11 @@ type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 export class PlaytomicClient {
   private token: string | null = null;
   private tokenUntil = 0;
+  private lastPage = 0;
   private readonly o: { clientId: string; secret: string; tenantId: string; fetch: Fetch; baseUrl: string; pageDelayMs: number };
   constructor(o: { clientId: string; secret: string; tenantId: string; fetch?: Fetch; baseUrl?: string; pageDelayMs?: number }) {
-    // About one call a minute is what the API takes in practice, so pages are a minute apart by default.
+    // About one call a minute is what the API takes in practice, so pages are a minute apart by default: every page,
+    // whichever read it's for, so a read of further ahead right after the near one keeps the same pace.
     this.o = { fetch: globalThis.fetch.bind(globalThis), baseUrl: "https://thirdparty.playtomic.io", pageDelayMs: 60_000, ...o };
   }
   private async bearer(): Promise<string> {
@@ -34,7 +36,9 @@ export class PlaytomicClient {
   async bookings(from: Date, to: Date, size = 200, maxPages = 50): Promise<unknown[]> {
     const out: unknown[] = [];
     for (let page = 0; page < maxPages; page++) {
-      if (page > 0 && this.o.pageDelayMs) await new Promise((r) => setTimeout(r, this.o.pageDelayMs));
+      const wait = this.lastPage + this.o.pageDelayMs - Date.now();
+      if (this.lastPage && wait > 0) await new Promise((r) => setTimeout(r, wait));
+      this.lastPage = Date.now();
       const q = new URLSearchParams({ tenant_id: this.o.tenantId, start_booking_date: from.toISOString().slice(0, 19), end_booking_date: to.toISOString().slice(0, 19), page: String(page), size: String(size) });
       const r = await this.o.fetch(`${this.o.baseUrl}/api/v1/bookings?${q}`, { headers: { authorization: `Bearer ${await this.bearer()}` } });
       if (!r.ok) throw new Error(`playtomic bookings failed: ${r.status}`);
@@ -58,20 +62,37 @@ export function durationMs(v: unknown): number | null {
   return n * 60_000;
 }
 
-/** One API row to a booking, or null when it can't be read safely. Times without a zone are UTC. */
+const instant = (v: string) => new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(v) ? v : `${v}Z`);
+
+/**
+ * One API row to a booking, or null when it can't be read safely. Times without a zone are UTC. The end comes
+ * from `booking_end_date`, which every row has; the duration (its unit described one way in Playtomic's docs
+ * and shown another) only when the end is missing or unreadable.
+ */
 export function normalize(raw: any): Booking | null {
   const id = raw?.booking_id ?? raw?.id, court = raw?.resource_id, startRaw = raw?.booking_start_date;
   if (!id || !court || typeof startRaw !== "string") return null;
-  const start = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(startRaw) ? startRaw : `${startRaw}Z`), ms = durationMs(raw.duration_ms ?? raw.duration);
+  const start = instant(startRaw), endAt = typeof raw.booking_end_date === "string" ? instant(raw.booking_end_date) : null;
+  const ms = endAt && endAt.getTime() > start.getTime() ? endAt.getTime() - start.getTime() : durationMs(raw.duration_ms ?? raw.duration);
   if (Number.isNaN(start.getTime()) || !ms) return null;
   return { ref: `${id}:${court}`, courtRef: String(court), courtName: String(raw.resource_name ?? court).trim(), start, end: new Date(start.getTime() + ms), type: String(raw.booking_type ?? ""), cancelled: Boolean(raw.is_canceled) };
 }
 
-// Players' own bookings and the club's lessons, classes and courses are real use of the court. Anything
-// else Playtomic shows over a Kumi event (its tournaments and open play) is taken as the club's own event,
-// holding the court for it. Seen in a real club's feed in October 2026: seven types, and no court blocks.
-export const PLAYER_TYPES: ReadonlySet<string> = new Set(["REGULAR_BOOKING", "OPEN_MATCH", "PRIVATE_CLASS", "COURSE_CLASS", "PUBLIC_CLASS"]);
-export const isClubBlock = (type: string | null | undefined) => Boolean(type) && !PLAYER_TYPES.has(type!);
+// Playtomic's booking types, as its Third Party API documents them (third-party.playtomic.io/endpoints/bookings/,
+// checked 7 November 2026). Only the club's own tournaments and open play are taken as the club holding the court
+// for a Kumi event they lie under (and a Kumi event can be put inside one). Every other type is someone's real use
+// of the court: a player's booking, one-off or the recurring kind the club makes for them, an open or league match,
+// a lesson, a class or a course. So is a booking with no type, and any type Playtomic adds later: one Kumi doesn't
+// know is a clash staff hear about, never taken as the club's.
+export const PLAYTOMIC_TYPES = ["REGULAR_BOOKING", "RECURRING_BOOKING", "OPEN_MATCH", "LEAGUE_MATCH", "PRIVATE_CLASS", "COURSE_CLASS", "PUBLIC_CLASS", "TOURNAMENT", "OPEN_PLAY"] as const;
+export const CLUB_TYPES: ReadonlySet<string> = new Set(["TOURNAMENT", "OPEN_PLAY"]);
+export const isClubBlock = (type: string | null | undefined) => CLUB_TYPES.has(type ?? "");
+const TYPE_KEYS: Record<string, Key> = {
+  REGULAR_BOOKING: "pt.regular_booking", RECURRING_BOOKING: "pt.recurring_booking", OPEN_MATCH: "pt.open_match", LEAGUE_MATCH: "pt.league_match",
+  PRIVATE_CLASS: "pt.private_class", COURSE_CLASS: "pt.course_class", PUBLIC_CLASS: "pt.public_class", TOURNAMENT: "pt.tournament", OPEN_PLAY: "pt.open_play",
+};
+/** What staff call a Playtomic booking of this type, in their language. */
+export const typeKey = (type: string | null | undefined): Key => TYPE_KEYS[type ?? ""] ?? "pt.other";
 
 interface Slot { id: string; courtId: string; kind: string; s: number; e: number }
 type Verdict = { status: "held" | "covered" | "conflict"; clashId: string | null };
@@ -187,10 +208,25 @@ export const mirrorApply = defineAction({
   },
 });
 
+type Counts = { held: number; covered: number; conflict: number; gone: number };
+
+/** Read Playtomic's bookings starting in [from, to), work out what changed there, and write only that. */
+async function readWindow(db: Db, client: PlaytomicClient, from: Date, to: Date, now: Date) {
+  const raw = await client.bookings(from, to);
+  // Paging over a list that changes while it's read can return a booking twice; the last copy wins.
+  const fetched = [...new Map(raw.map(normalize).filter((b): b is Booking => b !== null).map((b) => [b.ref, b])).values()];
+  const diff = await diffMirror(db, fetched, from, to);
+  const result = diff.changes.length
+    ? (await runAsSystem(db, "mirror.apply", { changes: diff.changes }, "mirror:playtomic", { now })).result as Counts
+    : { held: 0, covered: 0, conflict: 0, gone: 0 };
+  const courts = [...new Map(fetched.map((b) => [b.courtRef, b.courtName])).entries()].map(([courtRef, courtName]) => ({ courtRef, courtName }));
+  return { raw: raw.length, unreadable: raw.length - fetched.length, changes: diff.changes.length, unmapped: diff.unmapped, courts, ...result };
+}
+
 /**
- * One sync: read Playtomic, work out what changed, write only that. Nothing changed means no action
- * run at all. How it went is kept in connector_status for the staff screen (not an action: it's
- * Kumi's own bookkeeping, like a sign-in session).
+ * One sync of the near window (a day back, `daysAhead` ahead): read Playtomic, work out what changed, write only
+ * that. Nothing changed means no action run at all. How it went is kept in connector_status for the staff screen
+ * (not an action: it's Kumi's own bookkeeping, like a sign-in session).
  */
 export async function syncMirror(db: Db, client: PlaytomicClient, o: { now?: Date; daysBack?: number; daysAhead?: number } = {}) {
   const now = o.now ?? new Date();
@@ -200,19 +236,63 @@ export async function syncMirror(db: Db, client: PlaytomicClient, o: { now?: Dat
     return db.insertInto("connector_status").values({ system: PLAYTOMIC, ...row } as any).onConflict((oc) => oc.column("system").doUpdateSet(row as any)).execute();
   };
   try {
-    const raw = await client.bookings(from, to);
-    // Paging over a list that changes while it's read can return a booking twice; the last copy wins.
-    const fetched = [...new Map(raw.map(normalize).filter((b): b is Booking => b !== null).map((b) => [b.ref, b])).values()];
-    const diff = await diffMirror(db, fetched, from, to);
-    type Counts = { held: number; covered: number; conflict: number; gone: number };
-    const result = diff.changes.length
-      ? (await runAsSystem(db, "mirror.apply", { changes: diff.changes }, "mirror:playtomic", { now })).result as Counts
-      : { held: 0, covered: 0, conflict: 0, gone: 0 };
-    const courts = [...new Map(fetched.map((b) => [b.courtRef, b.courtName])).entries()].map(([courtRef, courtName]) => ({ courtRef, courtName }));
-    await status({ last_ok_at: now, last_error: null, fetched: raw.length, unmapped: diff.unmapped, courts });
-    return { ok: true as const, fetched: raw.length, unreadable: raw.length - fetched.length, changes: diff.changes.length, unmapped: diff.unmapped, ...result };
+    const { raw, courts, ...r } = await readWindow(db, client, from, to, now);
+    await status({ last_ok_at: now, last_error: null, fetched: raw, unmapped: r.unmapped, courts });
+    return { ok: true as const, fetched: raw, ...r };
   } catch (e) {
     await status({ last_error: (e as Error).message.slice(0, 500) });
     return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+export const FAR_MAX_DAYS = 365, FAR_SLICE_DAYS = 30;
+
+/**
+ * How far ahead the mirror has to read: as far as members can book (the club's rule, or a membership's longer one),
+ * and to the end of the last thing already on a linked court (a program's date, a weekly court, a block) or of a
+ * Playtomic booking still held, so a hold is always read again. At most a year, the most Playtomic gives at once.
+ */
+export async function mirrorHorizon(db: Db | Trx, now: Date): Promise<Date> {
+  const cap = now.getTime() + FAR_MAX_DAYS * 864e5;
+  const policy = await db.selectFrom("booking_policy").select("days_ahead").where("active", "=", true).orderBy("version_no", "desc").limit(1).executeTakeFirst();
+  const plan = await db.selectFrom("membership_plan").select(sql<number | null>`max(days_ahead)`.as("d")).where("active", "=", true).executeTakeFirst();
+  const courts = (await db.selectFrom("external_ref").select("entity_id").where("system", "=", PLAYTOMIC).where("entity", "=", "court").execute()).map((r) => r.entity_id);
+  const onCourt = courts.length ? await db.selectFrom("court_time").select(sql<Date | null>`max(upper(during))`.as("e"))
+    .where("court_id", "in", courts).where("active", "=", true).where("kind", "!=", "mirror").executeTakeFirst() : null;
+  const held = await db.selectFrom("mirror_booking").select(sql<Date | null>`max(upper(during))`.as("e")).where("system", "=", PLAYTOMIC).where("status", "!=", "gone").executeTakeFirst();
+  const days = Math.max(policy?.days_ahead ?? 0, Number(plan?.d ?? 0));
+  const ends = [now.getTime() + days * 864e5, onCourt?.e ? new Date(onCourt.e).getTime() : 0, held?.e ? new Date(held.e).getTime() : 0];
+  return new Date(Math.min(cap, Math.max(...ends)));
+}
+
+/**
+ * The part of the far window (from the near window's end to the horizon, in 30-day slices) to read now: the nearest
+ * slice not read in the last `everyMs`, or none. One slice a sync, so a year ahead never holds the near read up.
+ */
+export function farSlice(o: { nearEnd: Date; horizon: Date; now: Date; everyMs: number; lastRead: ReadonlyMap<number, number> }) {
+  for (let k = 0; ; k++) {
+    const from = o.nearEnd.getTime() + k * FAR_SLICE_DAYS * 864e5;
+    if (from >= o.horizon.getTime()) return null;
+    const last = o.lastRead.get(k);
+    if (last === undefined || o.now.getTime() - last >= o.everyMs) return { k, from: new Date(from), to: new Date(Math.min(from + FAR_SLICE_DAYS * 864e5, o.horizon.getTime())) };
+  }
+}
+
+/**
+ * Read one due slice of what's further ahead than the near window, at the client's usual pace. `lastRead` is the
+ * caller's memory of when each slice was last read well (a restart reads them all again, one a sync). It leaves
+ * connector_status to the near read, which the staff screen and `kumi doctor` show; a failure here is returned to be
+ * logged, and the slice is tried again at the next sync.
+ */
+export async function syncMirrorFar(db: Db, client: PlaytomicClient, o: { now?: Date; daysAhead?: number; everyMs: number; lastRead: Map<number, number> }) {
+  const now = o.now ?? new Date(), nearEnd = new Date(now.getTime() + (o.daysAhead ?? 30) * 864e5);
+  const slice = farSlice({ nearEnd, horizon: await mirrorHorizon(db, now), now, everyMs: o.everyMs, lastRead: o.lastRead });
+  if (!slice) return null;
+  try {
+    const { raw, courts: _courts, ...r } = await readWindow(db, client, slice.from, slice.to, now);
+    o.lastRead.set(slice.k, now.getTime());
+    return { ok: true as const, from: slice.from, to: slice.to, fetched: raw, ...r };
+  } catch (e) {
+    return { ok: false as const, from: slice.from, to: slice.to, error: (e as Error).message };
   }
 }

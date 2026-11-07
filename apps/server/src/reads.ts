@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
@@ -332,7 +332,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: e.name, open: e.fill_refund_percent !== null })) }; }
       if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, series: Boolean(k?.series_id), label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
       if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, label: s?.name ?? "" }; }
-      return { ...base, label: `Playtomic: ${(mirror.find((m) => m.court_time_id === x.id)?.booking_type ?? "").toLowerCase().replace(/_/g, " ")}` };
+      return { ...base, label: `Playtomic: ${t(l, typeKey(mirror.find((m) => m.court_time_id === x.id)?.booking_type))}` };
     }) })) });
   });
   // A location's repeating blocks still to come: the pattern, and the next dates a change or an end starts from.
@@ -593,7 +593,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const refs = await db.selectFrom("external_ref").select(["external_id", "entity_id"]).where("system", "=", PLAYTOMIC).where("entity", "=", "court").execute();
     const courts = new Map((await db.selectFrom("court").select(["id", "name"]).execute()).map((r) => [r.id, r.name]));
     const ptNames = new Map(((status?.courts ?? []) as { courtRef: string; courtName: string }[]).map((x) => [x.courtRef, x.courtName]));
-    const kind = (type: string) => t(l, ({ REGULAR_BOOKING: "pt.regular_booking", OPEN_MATCH: "pt.open_match", PRIVATE_CLASS: "pt.private_class", COURSE_CLASS: "pt.course_class" } as const)[type as "OPEN_MATCH"] ?? "pt.other");
+    const kind = (type: string) => t(l, typeKey(type));
     const conflicts = await db.selectFrom("mirror_booking").leftJoin("court_time", "court_time.id", "mirror_booking.clash_id").leftJoin("session", "session.id", "court_time.session_id").leftJoin("program", "program.id", "session.program_id")
       .select(["mirror_booking.ref", "mirror_booking.court_id", "mirror_booking.booking_type", "program.name as event", "session.id as session_id", sql<Date>`lower(mirror_booking.during)`.as("starts_at"), sql<Date>`upper(mirror_booking.during)`.as("ends_at")])
       .where("mirror_booking.system", "=", PLAYTOMIC).where("mirror_booking.status", "=", "conflict").where(sql<boolean>`upper(mirror_booking.during) > now()`).orderBy(sql`lower(mirror_booking.during)`).execute();

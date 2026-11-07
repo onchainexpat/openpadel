@@ -28,6 +28,7 @@ import { lastClubExport } from "./club_exit.ts";
 import { mayAnswer } from "./actions.ts";
 import { emailSuppressed } from "./email_suppression.ts";
 import { gameOf } from "./chat.ts";
+import { typeKey } from "./playtomic.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -991,7 +992,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return (await managers(db)).map((to) => ({ to, kind: "refund_failed", params, purpose: "staff" as const, essential: false, email: true, link: e ? `/programs/${e.program_id}` : `/people/${r.person_id}` }));
   },
   async "mirror.conflict"({ db, tz }, p: { court_name: string | null; start: string; type: string }) {
-    const params = { court: p.court_name ?? "", when: when(new Date(p.start), tz), type: p.type.toLowerCase().replace(/_/g, " ") };
+    const params = { court: p.court_name ?? "", when: when(new Date(p.start), tz), type: both(typeKey(p.type)) };
     return (await managers(db)).map((to) => ({ to, kind: "mirror_conflict", params, purpose: "staff" as const, essential: false, email: true, link: "/playtomic" }));
   },
   // A copy of someone's data left Kumi: they hear of it (if it wasn't them, they can say so), and so does the

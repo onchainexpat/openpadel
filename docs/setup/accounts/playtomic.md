@@ -17,6 +17,7 @@ Playtomic account can). The agent sets Kumi up and links the courts with the own
    KUMI_PLAYTOMIC_SECRET=...
    KUMI_PLAYTOMIC_TENANT_ID=...
    # optional: KUMI_MIRROR_EVERY_MINUTES=10  KUMI_MIRROR_DAYS_AHEAD=30
+   #           KUMI_MIRROR_FAR_EVERY_HOURS=6  KUMI_MIRROR_PAGE_SECONDS=60
    ```
 2. **Agent:** `systemctl restart kumi`. The first read starts straight away and is gentle on
    Playtomic: one page of bookings a minute.
@@ -25,12 +26,19 @@ Playtomic account can). The agent sets Kumi up and links the courts with the own
 4. **`kumi doctor`:** `playtomic` should say when it last read.
 
 ## What a copied booking does
-- **On a free court:** it holds the court in Kumi.
+- **On a free court:** it holds the court in Kumi, whatever kind of booking it is.
 - **The club's own Playtomic tournament or open play over a Kumi event:** taken as the club
-  holding the court for that event.
-- **A player's booking, lesson or class over a Kumi event:** a clash, listed for staff and sent to
-  managers once.
+  holding the court for that event. Those are the only two.
+- **Anything else over a Kumi event:** a clash, listed for staff and sent to managers once. That's a
+  player's booking (one-off, or a recurring one made for them), an open or league match, a lesson, a
+  class or a course, and any kind of booking Kumi doesn't know yet (one Playtomic adds later).
 - **Cancelled in Playtomic:** the court is free again in Kumi.
+
+**How far ahead:** the next 30 days at every read (every 10 minutes). Further ahead, out to as far as
+members can book or Kumi has anything on a linked court (a program's date, a weekly court, a block),
+at most a year: 30 days of it after each read, each 30 days again every 6 hours. After a restart the
+further reads start again from the nearest. Every page of bookings waits a minute after the one
+before, whichever read it's for.
 
 Court blocks made in Playtomic don't come through its API, so block Kumi's event times in Playtomic
 yourself (one recurring block per series) to stop players booking them there.

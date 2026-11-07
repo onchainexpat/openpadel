@@ -1,4 +1,4 @@
-import { loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
+import { loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, syncMirror, syncMirrorFar, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -347,14 +347,21 @@ void jobs();
 
 // The read-only Playtomic mirror, when the club has given Kumi its Third Party API keys (through the
 // environment, never the database or the code). One sync at a time, then a rest; pages are a minute apart.
+// Each sync reads the near window, then at most one 30-day slice of what's further ahead (as far as Kumi has
+// anything on a court, or members can book), each slice again after KUMI_MIRROR_FAR_EVERY_HOURS.
 const pt = { clientId: process.env.KUMI_PLAYTOMIC_CLIENT_ID, secret: process.env.KUMI_PLAYTOMIC_SECRET, tenantId: process.env.KUMI_PLAYTOMIC_TENANT_ID };
 if (pt.clientId && pt.secret && pt.tenantId) {
-  const client = new PlaytomicClient({ clientId: pt.clientId, secret: pt.secret, tenantId: pt.tenantId });
-  const every = Number(process.env.KUMI_MIRROR_EVERY_MINUTES ?? 10) * 60_000, daysAhead = Number(process.env.KUMI_MIRROR_DAYS_AHEAD ?? 30);
+  const num = (v: string | undefined, d: number) => { const n = Number(v); return v !== undefined && v !== "" && Number.isFinite(n) && n >= 0 ? n : d; };
+  const client = new PlaytomicClient({ clientId: pt.clientId, secret: pt.secret, tenantId: pt.tenantId, pageDelayMs: num(process.env.KUMI_MIRROR_PAGE_SECONDS, 60) * 1000 });
+  const every = num(process.env.KUMI_MIRROR_EVERY_MINUTES, 10) * 60_000, daysAhead = num(process.env.KUMI_MIRROR_DAYS_AHEAD, 30);
+  const farEvery = num(process.env.KUMI_MIRROR_FAR_EVERY_HOURS, 6) * 3600_000, farRead = new Map<number, number>();
+  const day = (d: Date) => d.toISOString().slice(0, 10);
   const loop = async () => {
     try {
       const r = await syncMirror(db, client, { daysAhead });
       console.log(r.ok ? `playtomic mirror: ${r.fetched} read, ${r.changes} changed, ${r.unmapped.length} courts to link` : `playtomic mirror failed: ${r.error}`);
+      const f = r.ok && farEvery > 0 ? await syncMirrorFar(db, client, { daysAhead, everyMs: farEvery, lastRead: farRead }) : null;
+      if (f) console.log(f.ok ? `playtomic mirror, ${day(f.from)} to ${day(f.to)}: ${f.fetched} read, ${f.changes} changed` : `playtomic mirror, ${day(f.from)} to ${day(f.to)}, failed (tried again next time): ${f.error}`);
     } catch (e) { console.error("playtomic mirror:", (e as Error).message); }
     finally { setTimeout(loop, every); }
   };

@@ -153,7 +153,7 @@ test("staff hear about a Playtomic clash; members don't", async () => {
   await deliver();
   for (const staff of [owner.personId!, monica.personId!]) {
     const m = (await messages(staff, "email")).find((x) => x.kind === "mirror_conflict")!;
-    assert.equal(m.purpose, "staff"); assert.match(m.body, /A Playtomic regular booking on Court 1/);
+    assert.equal(m.purpose, "staff"); assert.match(m.body, /A Playtomic booking \(Court booking\) on Court 1/);
   }
 });
 

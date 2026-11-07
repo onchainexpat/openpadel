@@ -137,19 +137,24 @@ plans include them) and the server reads them from its environment:
 
 ```bash
 KUMI_PLAYTOMIC_CLIENT_ID=… KUMI_PLAYTOMIC_SECRET=… KUMI_PLAYTOMIC_TENANT_ID=… node apps/server/src/main.ts
-# optional: KUMI_MIRROR_EVERY_MINUTES (10), KUMI_MIRROR_DAYS_AHEAD (30)
+# optional: KUMI_MIRROR_EVERY_MINUTES (10), KUMI_MIRROR_DAYS_AHEAD (30), KUMI_MIRROR_FAR_EVERY_HOURS (6), KUMI_MIRROR_PAGE_SECONDS (60)
 ```
 
 Then staff link each Playtomic court to a Kumi court on the manager's Playtomic page. What a
 copied booking does:
 
-- **On a free court:** it holds the court in Kumi.
+- **On a free court:** it holds the court in Kumi, whatever kind of booking it is.
 - **The club's own Playtomic tournament or open play over a Kumi event:** taken as the club
   holding the court for it. A Kumi event can also be added inside one that came first. (Court
   blocks made in Playtomic don't come through its API at all, so they never clash.)
-- **A player's booking, lesson, class or course over a Kumi event:** a clash, listed for staff and
-  said once.
+- **Anything else over a Kumi event:** a clash, listed for staff and said once. That's a player's
+  booking (one-off, or a recurring one the club made for them), an open or league match, a lesson,
+  a class or a course, and any kind of booking Kumi doesn't know (one Playtomic adds later).
 - **Cancelled or gone in Playtomic:** the court is free again in Kumi.
+
+It reads the next 30 days every 10 minutes. Further ahead, as far as members can book or Kumi has
+anything on a linked court (a year at most), it reads 30 days at a time after each of those reads,
+each 30 days again every 6 hours. Pages of bookings stay a minute apart, whichever read they're for.
 
 ### What outside services cost: one monthly cap
 
