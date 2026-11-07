@@ -24,6 +24,7 @@ import { cancelBooking } from "./booking_pay.ts";
 import { leaveForErase } from "./programs.ts";
 import { endSeriesForErase } from "./booking_series.ts";
 import { chatsOf, eraseChats } from "./chat.ts";
+import { archiveOf, eraseArchiveOf } from "./playtomic_archive.ts";
 import { creditBalance } from "./money.ts";
 import { creditHistory } from "./credit.ts";
 
@@ -292,6 +293,10 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     questions,
     // What they wrote in their games' chats (others' messages are theirs).
     chats: (await chatsOf(db, personId)).map((m) => ({ ...m, at: iso(m.at), edited_at: iso(m.edited_at), taken_back_at: iso(m.taken_back_at) })),
+    // Their bookings in Playtomic, as the club's copy of Playtomic keeps them (playtomic_archive.ts), with the others
+    // in each by the names Playtomic showed.
+    playtomic_bookings: (await archiveOf(db, personId)).map((b) => ({ starts_at: iso(b.starts_at), ends_at: iso(b.ends_at), court: b.court, type: b.type, price: b.price,
+      payment: b.payment_status, cancelled: b.cancelled, booked_by_you: b.owner, made_in: b.origin, now_booking: b.taken_over_as, other_players: b.others })),
   };
 }
 
@@ -585,6 +590,8 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
     await db.updateTable("oauth_grant").set({ revoked_at: ctx.now }).where("person_id", "=", personId).where("revoked_at", "is", null).execute();
     await db.updateTable("oauth_token").set({ revoked_at: ctx.now }).where("grant_id", "in", grants.map((g) => g.id)).where("revoked_at", "is", null).execute();
   }
+  // Playtomic's archive (playtomic_archive.ts): their name and email go from it, read while their Playtomic ids are known.
+  await eraseArchiveOf(db, personId, x.emails, ctx.now);
   await db.deleteFrom("external_ref").where("entity", "=", "person").where("entity_id", "=", personId).execute();
   await db.deleteFrom("kid_rule").where("person_id", "=", personId).execute();
   // Friends and family links.

@@ -280,8 +280,9 @@ export async function issueReceipts(db: Db, o: { card?: CardLookup; now?: Date; 
   const now = o.now ?? new Date(), out = { issued: 0 };
   const from = (await db.selectFrom("club").select("receipts_from").executeTakeFirst())?.receipts_from;
   if (!from) return out;
-  // A pass or a promo code that paid all of something took no money: its receipt is the pass's, or none.
-  const pays = await db.selectFrom("payment").select(["id", "method", "provider", "provider_ref", "provider_account"]).where("status", "=", "succeeded").where("created_at", ">=", from).where("method", "not in", ["pass", "promo"])
+  // A pass or a promo code that paid all of something took no money: its receipt is the pass's, or none. Paid in
+  // Playtomic (a booking taken over, playtomic_archive.ts): Playtomic gave its receipt.
+  const pays = await db.selectFrom("payment").select(["id", "method", "provider", "provider_ref", "provider_account"]).where("status", "=", "succeeded").where("created_at", ">=", from).where("method", "not in", ["pass", "promo", "playtomic"])
     .where((eb) => eb.not(eb.exists(eb.selectFrom("receipt_payment").select("receipt_payment.payment_id").whereRef("receipt_payment.payment_id", "=", "payment.id"))))
     .orderBy("created_at").limit(o.limit ?? 50).execute();
   for (const p of pays) {

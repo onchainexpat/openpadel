@@ -50,11 +50,12 @@ async function cardPays(db: Db | Trx, bookingId: string) {
     .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "succeeded").orderBy("payment.id").execute();
   // A pass's use and a promo code's discount are their own: covered, but nothing of them comes back as money (a pass
   // use goes back only with the whole booking; a free one gave nothing). The discount counts as paid.
-  const all = rows.map((r) => ({ id: r.id, person_id: r.person_id, card: r.provider !== "none", credit: r.method === "credit", other: r.method === "pass" || r.method === "promo",
+  // Paid in Playtomic (a booking taken over): the same, and what's beyond the new price goes back in Playtomic.
+  const all = rows.map((r) => ({ id: r.id, person_id: r.person_id, card: r.provider !== "none", credit: r.method === "credit", other: r.method === "pass" || r.method === "promo" || r.method === "playtomic", pt: r.method === "playtomic",
     left: r.amount_cents - Number(r.back ?? 0), off: r.method === "promo" ? 0 : r.discount_cents }));
   const left = all.filter((p) => p.left > 0 && !p.other);
   return { net: all.reduce((n, p) => n + p.left + p.off, 0), card: left.filter((p) => p.card), credit: left.filter((p) => p.credit), desk: left.filter((p) => !p.card && !p.credit),
-    other: all.some((p) => p.other && p.left > 0) };
+    other: all.some((p) => p.other && p.left > 0), playtomic: all.some((p) => p.pt && p.left > 0) };
 }
 
 /** What comes back when a booking costs less than was paid: `over` is what was paid beyond the new price. */
@@ -66,7 +67,7 @@ async function moneyBack(db: Db | Trx, b: Facts, over: number, choice: "rule" | 
   const due = Math.round(over * percent / 100), cards = Math.min(due, cardLeft), credit = Math.min(due - cards, creditLeft), desk = Math.min(due - cards - credit, deskLeft);
   const why = choice === "rule" ? both("change.why_rule", { percent }) : both(choice === "full" ? "change.why_full" : "change.why_none");
   // Paid with a pass or a promo code: what's beyond the new price has nowhere to go (the use is spent; free gave nothing).
-  return { percent, due, cards, credit, desk, why, kept: pays.other && due > cards + credit + desk };
+  return { percent, due, cards, credit, desk, why, kept: pays.other && due > cards + credit + desk, inPlaytomic: pays.playtomic && due > cards + credit + desk };
 }
 
 /** Send `cents` back across the card payments, in proportion to what's left of each; who got how much. */
@@ -104,7 +105,8 @@ function moneyText(o: { owed: number; price?: number; back?: Awaited<ReturnType<
     if (o.back.cards > 0) parts.push(both("change.back_card", { amount: usd(o.back.cards), why: o.back.why }));
     if (o.back.credit > 0) parts.push(both("change.back_credit", { amount: usd(o.back.credit), why: o.back.why }));
     if (o.back.desk > 0) parts.push(both("change.back_desk", { amount: usd(o.back.desk), why: o.back.why }));
-    if (o.back.kept) parts.push(both("change.back_pass_promo"));
+    if (o.back.inPlaytomic) parts.push(both("change.back_playtomic"));
+    else if (o.back.kept) parts.push(both("change.back_pass_promo"));
     if (!parts.length) parts.push(both("change.back_none", { why: o.back.why }));
     const lead = o.price !== undefined ? both("change.repriced", { price: usd(o.price) }) : null;
     const all = lead ? [lead, ...parts] : parts;

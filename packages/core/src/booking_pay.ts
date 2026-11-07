@@ -16,6 +16,7 @@ import { uuidv7 } from "./ids.ts";
 import { holdsRole, type Asker } from "./permissions.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { promoOff, towardPrice } from "./promo_off.ts";
+import { playtomicTwin } from "./playtomic_archive.ts";
 import { courtOpening, occupied } from "./bookings.ts";
 import { currentPolicy, quote } from "./prices.ts";
 import { memberPlan } from "./memberships.ts";
@@ -29,6 +30,7 @@ import { seriesCard } from "./booking_series.ts";
 /** How long a court is held while the organiser pays. */
 export const HOLD_MINUTES = 10;
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
+const joinText = (xs: (Text | null)[]): Text => ({ en: xs.filter((x): x is Text => Boolean(x)).map((x) => x.en).join(" "), es: xs.filter((x): x is Text => Boolean(x)).map((x) => x.es).join(" ") });
 const when = (d: Date, tz: string): Text => ({ en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) });
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const levelInput = z.number().check(z.minimum(0.5), z.maximum(7));
@@ -425,6 +427,9 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
     // Everything back as club credit (credit.ts): staff only, the whole of what's left, to each player's credit. Paid
     // with a pass: the use goes back with all of it, or is spent (passes.ts). Made free by a code: nothing goes back.
     const free = p.method === "promo", pass = p.method === "pass";
+    // Paid in Playtomic (a booking taken over, playtomic_archive.ts): what the rule gives back is given back in
+    // Playtomic, never as money here. The staff are told how much.
+    if (p.method === "playtomic") return { payment_id: p.id, cents: 0, joiner, desk: false, credit: false, playtomic: Math.round(Math.max(0, p.amount_cents - Number(p.back)) * (joiner ? 100 : percent) / 100) };
     // A refund the provider made after the backup a restore brought back (payments_after_restore.ts): it may be this
     // cancellation's own, which this copy doesn't have. By the rule nothing more goes back; the staff can choose more.
     if (p.seen && choice === "rule") return { payment_id: p.id, cents: 0, joiner, desk: false, credit: false, seen: true };
@@ -449,13 +454,16 @@ export const bookingCancel = defineAction({
     const lesson = b.kind === "lesson", organisers = await withManagers(ctx.db, [b.organiser_id]);
     const byCoach = lesson && ctx.actor.personId === b.coach_id && await holdsRole(ctx.db, ctx.actor, ["coach"]);   // as the coach, not through a member's reach
     const choice = byCoach ? "full" : i.refund ?? (lesson && !organisers.includes(ctx.actor.personId ?? "") ? "full" : "rule");
-    const r = await cancelRefunds(ctx.db, b.id, ctx.now, choice), total = r.refunds.reduce((n, x) => n + x.cents, 0);
+    const all = await cancelRefunds(ctx.db, b.id, ctx.now, choice);
+    // What was paid in Playtomic is said apart: it goes back there, if anything does.
+    const inPt = all.refunds.filter((x) => "playtomic" in x) as { playtomic: number }[], ptBack = inPt.reduce((n, x) => n + x.playtomic, 0);
+    const r = { ...all, refunds: all.refunds.filter((x) => !("playtomic" in x)) }, total = r.refunds.reduce((n, x) => n + x.cents, 0);
     const joiners = r.refunds.filter((x) => x.joiner).reduce((n, x) => n + x.cents, 0), host = total - joiners, hours = both("count.hours", { count: r.hours });
     // Paid at the desk goes back at the desk, not to a card.
     const desk = r.refunds.filter((x) => x.desk).reduce((n, x) => n + x.cents, 0), credit = r.refunds.filter((x) => x.credit).reduce((n, x) => n + x.cents, 0), card = total - desk - credit;
     const passes = r.refunds.filter((x) => "pass" in x && x.pass) as { cents: number; whole: number }[];
     const seen = r.refunds.filter((x) => "seen" in x && x.seen).length;
-    const money = !r.refunds.length ? both("refund.nothing_paid")
+    const kumiMoney = !r.refunds.length ? both("refund.nothing_paid")
       : seen && seen === r.refunds.length ? both("plan.booking.refund_seen_after_restore")
       : r.refunds.every((x) => "free" in x && x.free) ? both("plan.booking.refund_free")
       : passes.length && passes.length === r.refunds.length ? both(passes.every((x) => x.cents >= x.whole) ? "plan.booking.refund_pass_back" : "plan.booking.refund_pass_spent")
@@ -464,11 +472,17 @@ export const bookingCancel = defineAction({
       // Why nothing comes back: the staff chose nothing, everything paid has gone back already, or it's late by the rule.
       : !total ? (choice === "none" ? both("plan.booking.no_refund_chosen") : r.left === 0 ? both("plan.booking.no_refund_left") : both("plan.booking.no_refund", { hours }))
       : desk ? both(card ? "plan.booking.refund_card_desk" : "plan.booking.refund_desk", { amount: usd(desk), card: usd(card) }) : both("plan.booking.refund", { amount: usd(total) });
+    const ptMoney = inPt.length ? both(ptBack ? "plan.booking.refund_playtomic" : "plan.booking.refund_playtomic_none", { amount: usd(ptBack) }) : null;
+    // A booking that took over a Playtomic one still booked there: Kumi holds the court for it again once it's cancelled here.
+    const twin = await playtomicTwin(ctx.db, b.id);
+    const money = joinText([inPt.length && !r.refunds.length ? null : kumiMoney, ptMoney, twin && !twin.canceled ? both("plan.booking.cancel_playtomic_twin") : null]);
     return { title: both("action.booking.cancel"), summary: both(lesson ? "plan.lesson.cancel_refund" : "plan.booking.cancel_refund", { code: b.code, refund: money }), reads: [read], locationId: b.location_id,
-      ownerIds: [...organisers, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };
+      ownerIds: [...organisers, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" },
+      details: { refunds: [...r.refunds, ...all.refunds.filter((x) => "playtomic" in x)], playtomic_back: ptBack } };
   },
   async apply(ctx, i, plan) {
     const planned = (plan.details as { refunds: { payment_id: string; cents: number; credit?: boolean }[] }).refunds;
+    const ptBack = (plan.details as { playtomic_back?: number }).playtomic_back ?? 0;
     const b = await lockBooking(ctx.trx, i.booking_id);
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
     // Someone who paid after the preview was made never agreed to its rule: all of theirs back.
@@ -476,6 +490,8 @@ export const bookingCancel = defineAction({
       .where("booking_player.booking_id", "=", i.booking_id).where("booking_player.removed_at", "is", null).where("payment.status", "=", "succeeded")
       .$if(planned.length > 0, (q) => q.where("payment.id", "not in", planned.map((r) => r.payment_id))).execute();
     await cancelBooking(ctx, i.booking_id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents - Number(p.back) }))], i.reason ?? null);
+    // Paid in Playtomic: the staff are told to give it back there (said once, until someone marks it handled).
+    if (ptBack > 0) await ctx.emit("booking.refund_in_playtomic", { booking_id: i.booking_id, cents: ptBack });
     return null;
   },
 });
@@ -505,10 +521,11 @@ export const bookingRefund = defineAction({
 /** A card payment on this booking and how much of it can still go back. */
 async function refundable(db: Db | Trx, bookingId: string, paymentId: string) {
   const pay = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-    .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider"])
+    .select(["payment.id", "payment.person_id", "payment.amount_cents", "payment.status", "payment.provider", "payment.method"])
     .select(backSql.as("back"))
     .where("payment.id", "=", paymentId).where("booking_player.booking_id", "=", bookingId).executeTakeFirst();
   if (!pay || pay.status !== "succeeded") throw new KumiError("error.refund_not_paid");
+  if (pay.method === "playtomic") throw new KumiError("error.refund_in_playtomic");
   if (pay.provider === "none") throw new KumiError("error.refund_cash");
   return { person_id: pay.person_id, left: pay.amount_cents - Number(pay.back) };
 }

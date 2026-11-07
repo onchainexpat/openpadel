@@ -43,6 +43,11 @@ before, whichever read it's for.
 Court blocks made in Playtomic don't come through its API, so block openPadel's event times in Playtomic
 yourself (one recurring block per series) to stop players booking them there.
 
+**The archive:** every booking read is also kept as Playtomic gave it, players included, from the first read and
+three months back (Playtomic keeps no more than that). Staff see a person's on their page; it comes with their data
+download, and goes with their account. **Moving the club off Playtomic** (taking upcoming bookings over, the daily
+comparison, the switch): see [moving-from-playtomic.md](../moving-from-playtomic.md).
+
 ## Common problems
 - **`playtomic` fails with 401:** the credentials are wrong or were revoked; create new ones.
 - **Bookings missing:** only linked courts hold time in openPadel; check the Playtomic page for

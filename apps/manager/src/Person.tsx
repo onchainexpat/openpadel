@@ -30,6 +30,7 @@ type P = {
   redacted_at: string | null;
   tags: { id: string; name: string }[];
   sign_in?: { authenticator: boolean; passkeys: number; recovery_left: number };
+  playtomic?: { booking_id: string; starts_at: string; court: string; kind: string; price: string | null; cancelled: boolean; taken_over_as: string | null; others: string[] }[];
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;
 
@@ -145,6 +146,7 @@ export function Person({ id }: { id: string }) {
         )}
       </section>
       <PersonBookings bookings={p.bookings} preview={preview} />
+      {p.playtomic && p.playtomic.length > 0 && <PersonPlaytomic rows={p.playtomic} />}
       <WeeklyCourts series={p.series ?? []} preview={preview} staff />
       {p.failed_refunds?.length > 0 && <section class="card">
         <h2>{t("ui.refunds_failed")}</h2>
@@ -217,6 +219,23 @@ function PersonBookings({ bookings, preview }: { bookings: P["bookings"]; previe
             </li>);
         })}</ul>
       )}
+    </section>
+  );
+}
+
+/** Their bookings in the club's copy of Playtomic (kept from the first read, moving-from-playtomic.md), read only. */
+function PersonPlaytomic({ rows }: { rows: NonNullable<P["playtomic"]> }) {
+  const when = (iso: string) => clubTime(iso, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return (
+    <section class="card">
+      <h2>{t("ui.person_playtomic")}</h2>
+      <p class="meta">{t("ui.person_playtomic_help")}</p>
+      <ul class="plain">{rows.map((b) => (
+        <li class="row" key={b.booking_id}>
+          <span>{when(b.starts_at)} · {b.court} · {b.kind}</span>
+          <span class="meta">{[b.price, b.cancelled ? t("ui.person_playtomic_cancelled") : null, b.taken_over_as ? t("ui.person_playtomic_taken", { code: b.taken_over_as }) : null,
+            b.others.length ? t("ui.person_playtomic_with", { names: b.others.join(", ") }) : null].filter(Boolean).join(" · ")}</span>
+        </li>))}</ul>
     </section>
   );
 }

@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
@@ -455,7 +455,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // Their club credit (credit.ts), for staff who see money: what the club owes them, to pay out at the desk.
     const credit = money ? await creditBalance(db, p.id) : null;
     return c.json({ ...p, email_problem: emailProblem, kid, roles, sign_in: signIn, places, bookings, series, credit_cents: credit, failed_refunds: money ? failedRefunds : [], to_give_back: giveBack.map(({ id, amount_cents, method, created_at }) => ({ id, amount_cents, method, created_at })), consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
-      membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null, due } : null });
+      membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null, due } : null,
+      // Their bookings in the club's copy of Playtomic, newest first, read only (playtomic_archive.ts).
+      playtomic: (await archiveOf(db, id, { limit: 30 })).map((b) => ({ ...b, kind: t(lang(c), typeKey(b.type)) })) });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.
   app.post("/staff/people/import-preview", async (c) => {
@@ -613,6 +615,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       unmapped: ((status?.unmapped ?? []) as { courtRef: string }[]).filter((u) => !refs.some((r) => r.external_id === u.courtRef)),
       linked: refs.map((r) => ({ resource_id: r.external_id, name: ptNames.get(r.external_id) ?? r.external_id, court_id: r.entity_id, court: courts.get(r.entity_id) ?? "" })),
       conflicts: conflicts.map((r) => ({ ref: r.ref, court: courts.get(r.court_id) ?? "", kind: kind(r.booking_type), starts_at: r.starts_at, ends_at: r.ends_at, event: r.event, session_id: r.session_id })),
+      // Moving from Playtomic (playtomic_archive.ts): the two side by side, a week ahead; and upcoming player
+      // bookings that can be taken over.
+      compare: status ? await comparison(db, new Date(), 7).then((x) => ({ days: x.days, diffs: x.diffs.map((d) => ({ ...d, kind_label: kind(d.type) })) })) : null,
+      take_over: status ? (await takeOverCandidates(db, new Date())).map((x) => ({ ...x, kind: kind(x.type) })) : [],
     });
   });
   // ---- Members' questions and the club's facts (front desk and up) ----

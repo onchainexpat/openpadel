@@ -47,7 +47,7 @@ take a few days.
 | 5k | Texts (optional): the club's own Twilio number, registered with US carriers | Owner signs up and registers, agent sets up | 1 hour, then days to weeks of review | [accounts/twilio.md](accounts/twilio.md) |
 | 5l | The phone apps: installed from the club's address; store apps only if the club wants them | Owner decides, and creates any store accounts | 10 min (store apps: days to weeks) | [apps.md](apps.md) |
 | 6 | Card payments, in test mode first | Owner copies keys, agent sets up | 30 min | [accounts/stripe.md](accounts/stripe.md) |
-| 7 | Playtomic, only if the club also uses it | Owner creates keys, agent sets up | 20 min | [accounts/playtomic.md](accounts/playtomic.md) |
+| 7 | Playtomic, only if the club also uses it; moving off it, in four stages | Owner creates keys, agent sets up | 20 min, then the stages | [accounts/playtomic.md](accounts/playtomic.md), [moving-from-playtomic.md](moving-from-playtomic.md) |
 | 8 | Practice with the club's own staff | Everyone | a few days | below |
 | 9 | Go live | Owner decides | 10 min | below |
 

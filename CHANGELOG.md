@@ -9,6 +9,25 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+### Added
+- **Moving a club from Playtomic** ([docs/setup/moving-from-playtomic.md](docs/setup/moving-from-playtomic.md)): the
+  four stages (shadow, side by side, openPadel first, Playtomic off), what openPadel does and what staff do at each,
+  and the traps at the switch.
+  - **The archive.** Every Playtomic booking the mirror reads is kept as Playtomic gave it, players by name and email
+    included, from the first read and three months back (Playtomic keeps no more), matched to members by email or
+    Playtomic id. Staff see a person's on their page, read only; it comes with the member's data download; and their
+    name and email go from it with their account, without coming back at a later read.
+  - **Taking over upcoming bookings** (staff app, Playtomic; owners and managers). Chosen Playtomic bookings become
+    bookings here on their linked court, with their players. What was paid in Playtomic stays paid there: nothing is
+    owed, nothing enters the books, and no receipt is made. A refund of it is made in Playtomic: cancelling one, the
+    preview says how much, and the managers are told (on Today until handled). Recurring ones every week become a
+    weekly court. What can't be taken over (a class, a player not a member here yet, partly paid, a clash) stays in
+    Playtomic, held here, and the preview says why by name. The mirror doesn't hold a taken-over booking twice, and
+    holds it again if it's cancelled here.
+  - **A daily comparison for the owner**: each linked court and day, Playtomic and openPadel side by side, on the
+    Playtomic page; a clash, a booking not held yet, or a taken-over one moved or cancelled in Playtomic is told to the
+    owners once.
+
 ### Fixed
 - A person's page offered front desk (and anyone below a manager) the form to give or take away a role, including
   owner, and then refused it. Only owners and managers see it now. A refusal to give a role says what the role

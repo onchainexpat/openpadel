@@ -90,8 +90,9 @@ export async function refundTo(ctx: ApplyCtx, paymentId: string, cents: number, 
   // Covered by a pass: refunded in full, the use is the pass's again; in part, it's spent (passes.ts). No money moves.
   // Waiting for a sub, the use waits too: it's the pass's again only once they pay (refundDue).
   if (pay.method === "pass") return (await import("./passes.ts")).passUseBack(ctx, pay, cents, o.enrolmentId ?? null, o.status ?? "pending");
-  // Made free by a promo code: nothing was paid, so nothing goes back.
-  if (pay.method === "promo") return null;
+  // Made free by a promo code: nothing was paid, so nothing goes back. Paid in Playtomic (a booking taken over): it
+  // goes back in Playtomic, never as money here (booking.cancel tells the staff).
+  if (pay.method === "promo" || pay.method === "playtomic") return null;
   // Paid from club credit, it goes back to club credit; and staff may give any refund back as club credit
   // (credit.ts), at once, with nothing to send. Waiting for a sub, it waits like any other.
   if ((pay.method === "credit" || o.credit) && (o.status ?? "pending") === "pending") {

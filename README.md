@@ -173,6 +173,11 @@ It reads the next 30 days every 10 minutes. Further ahead, as far as members can
 anything on a linked court (a year at most), it reads 30 days at a time after each of those reads,
 each 30 days again every 6 hours. Pages of bookings stay a minute apart, whichever read they're for.
 
+Every booking it reads is also kept, as Playtomic gave it and with its players, from the first read and three
+months back (Playtomic itself keeps no more). **Moving the club off Playtomic** goes in four stages, with upcoming
+bookings taken over as openPadel's and a daily comparison of the two for the owner: see
+[docs/setup/moving-from-playtomic.md](docs/setup/moving-from-playtomic.md).
+
 ### What outside services cost: one monthly cap
 
 AI (the decisions "ask the club" makes, and drafts of the club's words in its other language), texts and

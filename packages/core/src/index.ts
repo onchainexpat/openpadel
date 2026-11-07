@@ -59,6 +59,7 @@ export * from "./broadcasts.ts";
 export * from "./staff_alerts.ts";
 export * from "./privacy.ts";
 export * from "./playtomic.ts";
+export * from "./playtomic_archive.ts";
 export * from "./stripe.ts";
 export * from "./connect.ts";
 export * from "./totp.ts";

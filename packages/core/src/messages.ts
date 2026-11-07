@@ -999,6 +999,22 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const params = { amount: amount(r.amount_cents), person: r.display_name, what, where, reason: refundReason(r.failure) };
     return (await managers(db)).map((to) => ({ to, kind: "refund_failed", params, purpose: "staff" as const, essential: false, email: true, link: e ? `/programs/${e.program_id}` : `/people/${r.person_id}` }));
   },
+  // Moving from Playtomic (playtomic_archive.ts): a cancelled booking that had been paid in Playtomic, to give back
+  // there; and the owner's daily comparison, each difference said once.
+  async "booking.refund_in_playtomic"({ db }, p: { booking_id: string; cents: number }) {
+    const b = await db.selectFrom("booking").leftJoin("person", "person.id", "booking.organiser_id").select(["booking.code", "booking.organiser_id", "person.display_name"])
+      .where("booking.id", "=", p.booking_id).executeTakeFirst();
+    if (!b) return [];
+    const params = { amount: amount(p.cents), code: b.code, person: b.display_name ?? "" };
+    return (await managers(db)).map((to) => ({ to, kind: "playtomic_refund_staff", params, purpose: "staff" as const, essential: false, email: true, link: b.organiser_id ? `/people/${b.organiser_id}` : "/playtomic" }));
+  },
+  async "mirror.compared"({ db, tz }, p: { lines: { kind: "clash" | "missing" | "moved" | "cancelled"; court: string; starts_at: string; type: string; code: string | null }[]; more: number }) {
+    const kinds: Record<string, Key> = { clash: "msg.playtomic_compare.clash", missing: "msg.playtomic_compare.missing", moved: "msg.playtomic_compare.moved", cancelled: "msg.playtomic_compare.cancelled" };
+    const lines = p.lines.map((l) => both(kinds[l.kind]!, { court: l.court, when: when(new Date(l.starts_at), tz), type: both(typeKey(l.type)), code: l.code ?? "" }));
+    const list: Text = { en: lines.map((x) => `- ${x.en}`).join("\n"), es: lines.map((x) => `- ${x.es}`).join("\n") };
+    const params = { count: p.lines.length + p.more, list, more: p.more ? both("msg.playtomic_compare.more", { count: p.more }) : { en: "", es: "" } };
+    return (await owners(db)).map((to) => ({ to, kind: "playtomic_compare", params, purpose: "staff" as const, essential: false, email: true, link: "/playtomic" }));
+  },
   async "mirror.conflict"({ db, tz }, p: { court_name: string | null; start: string; type: string }) {
     const params = { court: p.court_name ?? "", when: when(new Date(p.start), tz), type: both(typeKey(p.type)) };
     return (await managers(db)).map((to) => ({ to, kind: "mirror_conflict", params, purpose: "staff" as const, essential: false, email: true, link: "/playtomic" }));

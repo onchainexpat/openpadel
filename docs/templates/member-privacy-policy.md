@@ -106,7 +106,7 @@ the public page, in level lists or on leaderboards.
 | Apple, Google or Mozilla | Notifications, if you turn them on | Each notification, encrypted so only your device can read it |
 | TypeSafe and Anthropic [IF THE CLUB USES "ASK THE CLUB"] | Matching your question to the club's own answers | The words of your question and the club's answers. We send no names, emails or numbers with it, so don't put personal details in a question you'd rather the club's staff read first. Under their terms, they may not use it to train AI models |
 | [HOSTING PROVIDER OR "KUMI'S HOSTED SERVICE AND THE COMPANIES IT USES"] | Running the club's app and its backups | Everything the app holds. Backups are sealed before they leave the server, so the storage company can't read them |
-| [PLAYTOMIC, IF THE CLUB USES IT] | Court bookings made on Playtomic | Nothing from the app: the club only reads its own Playtomic bookings into it |
+| [PLAYTOMIC, IF THE CLUB USES IT] | Court bookings made on Playtomic | Nothing from the app: the club only reads its own Playtomic bookings into it, and keeps a copy of them (below) |
 
 **Your own AI assistant.** If you connect an assistant (Claude, ChatGPT or another) to the club, it gets what you
 ask it to read or do, under your own agreement with that company. You choose how much it may spend for you each
@@ -125,6 +125,10 @@ week, and you can disconnect it in the app at any time.
   you take back loses its words at once (unless someone reported it and the staff haven't looked yet). A notification
   about a chat keeps none of its words after it's shown. When you delete your account, your words in chats go too; the other players
   see "message removed".
+- [IF THE CLUB USES PLAYTOMIC] We keep a copy of your bookings on Playtomic (court, time, price, whether it was paid,
+  and the players in it by name and email), as our own record of the club's bookings. You see yours in your data
+  download. When you delete your account here, your name and email go from that copy too; Playtomic's own number for
+  you stays on it, without either, so they aren't copied back. Your Playtomic account itself is Playtomic's.
 - Backups keep a copy for a while after: [BACKUP DAYS ON THE SERVER] days on the server, and up to
   [OFFSITE DAILY DAYS] days (monthly copies [OFFSITE MONTHLY MONTHS] months) offsite. *Note: with openPadel's defaults
   that's 14 days, 30 days and 12 months.* If we ever put a backup back, anything you deleted or took back since it

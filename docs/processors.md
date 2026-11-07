@@ -17,3 +17,6 @@ leaves the club's server except what the club's own email and payments need.
 | The club's offsite storage (optional) | Nightly backups | The whole database, sealed with the club's backup key before it leaves; the storage company can't read it. | [setup/accounts/offsite-backups.md](setup/accounts/offsite-backups.md) |
 
 Playtomic, when the club uses it, only sends the club's own bookings to openPadel; openPadel never writes to it.
+openPadel keeps a copy of each booking it reads, with its players' names and emails, in the club's own database
+(the club's record, since Playtomic keeps bookings only three months back). A member's name and email go from it
+when their account is deleted ([moving-from-playtomic.md](setup/moving-from-playtomic.md)).

@@ -87,6 +87,7 @@ const ENTITIES = {
   session: { table: "session", key: "id", retire: { status: "cancelled" } },
   court_time: { table: "court_time", key: "id", retire: { active: false } },
   mirror_booking: { table: "mirror_booking", key: "ref", retire: null },
+  playtomic_booking: { table: "playtomic_booking", key: "booking_id", retire: null },
   enrolment: { table: "enrolment", key: "id", retire: { status: "cancelled" } },
   waitlist_offer: { table: "waitlist_offer", key: "id", retire: { outcome: "expired" } },
   program_watch: { table: "program_watch", key: "id", retire: { ended_at: "now" } },

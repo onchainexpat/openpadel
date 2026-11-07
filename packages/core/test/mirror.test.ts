@@ -294,6 +294,11 @@ test("further ahead is read a 30-day slice a sync, as far as Kumi has anything o
   const f3 = await syncMirrorFar(db, c, { now, everyMs: every, lastRead });
   assert.deepEqual([f3?.from.getTime(), f3?.to.getTime()], [base + 90 * D * H, base + (100 * D + 2) * H]);
   assert.equal((await mb("f95:pt-1")).status, "held");
+  // Then three months back, for the archive only (playtomic_archive.ts): a past booking holds nothing.
+  for (let k = 1; k <= 3; k++) {
+    const p = await syncMirrorFar(db, c, { now, everyMs: every, lastRead });
+    assert.ok(p?.ok && p.from < now && p.held === 0 && p.changes === 0, JSON.stringify(p));
+  }
   assert.equal(await syncMirrorFar(db, c, { now, everyMs: every, lastRead }), null);   // all read lately
   assert.equal((await db.selectFrom("mirror_booking").select("ref").where("ref", "=", "f200:pt-1").executeTakeFirst()), undefined);   // past anything Kumi has
   for (let i = 1; i < pt.pageTimes.length; i++) assert.ok(pt.pageTimes[i]! - pt.pageTimes[i - 1]! >= pace - 2);

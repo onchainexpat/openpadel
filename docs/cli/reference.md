@@ -389,7 +389,7 @@ Its preview reads: "Mark this as handled for everyone: {subject}"
 | Flag | Takes | | What it is |
 |---|---|---|---|
 | `--event-id` | text | needed |  |
-| `--kind` | match_late_cancel_staff \| question_unanswered_staff \| booking_balance_due_staff \| program_min_short \| program_min_cancelled_staff \| refund_failed \| ops_failed_staff \| ops_restore_staff \| membership_payment_failed_staff \| membership_ended_unpaid_staff \| usage_reached_staff \| usage_paused_staff \| chat_reported_staff | needed |  |
+| `--kind` | match_late_cancel_staff \| question_unanswered_staff \| booking_balance_due_staff \| program_min_short \| program_min_cancelled_staff \| refund_failed \| ops_failed_staff \| ops_restore_staff \| membership_payment_failed_staff \| membership_ended_unpaid_staff \| usage_reached_staff \| usage_paused_staff \| chat_reported_staff \| playtomic_refund_staff | needed |  |
 
 ```
 openpadel alert handle --event-id ... --kind match_late_cancel_staff
@@ -2170,6 +2170,20 @@ Its preview reads: "End the pause on {person}'s {name} membership now. Its benef
 
 ```
 openpadel membership unpause --membership-id <id>
+```
+
+### mirror
+
+#### openpadel mirror take-over
+
+Take over Playtomic bookings. Who may: owner, manager.
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--booking-ids` | strings, with commas | needed |  |
+
+```
+openpadel mirror take-over --booking-ids '[...]'
 ```
 
 ### pass
