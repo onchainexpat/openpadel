@@ -54,20 +54,27 @@ name>)`.
 kumi login https://staff.yourclub.com --device
 ```
 
-It prints a link and a code such as `TKBW-VMFJ`. The person opens the link on their phone, signs in, checks the page
-shows the same code, and allows it. The command waits up to 10 minutes and finishes by itself.
+It prints the club's page and a code such as `TKBW-VMFJ`. The person opens the page on their phone, signs in, types
+the code, and allows it. The link never carries the code: a code someone else started and sent can't be allowed by
+following a link. The consent says when and from which address the code was started, beside the name the device
+gave itself. An owner or a manager (anyone who signs in with two steps) gives a fresh second step to allow it: their
+authenticator's code there, or with only a passkey, a passkey sign-in in the last 10 minutes. The command waits up
+to 10 minutes and finishes by itself.
 
 **For an agent**, which shouldn't sit on one command for minutes, there's a two-step version:
 
 ```bash
 kumi login https://staff.yourclub.com --device --no-wait --json
-# {"status":"waiting_sign_in","link":"https://staff.yourclub.com/oauth/device?code=TKBW-VMFJ","code":"TKBW-VMFJ",...}   exit 12
-#   ...the agent shows the person the link and the code, and they allow it...
+# {"status":"waiting_sign_in","link":"https://staff.yourclub.com/oauth/device","code":"TKBW-VMFJ",...}   exit 12
+#   ...the agent shows the person the page and the code; they type the code there and allow it...
 kumi login https://staff.yourclub.com --device --json
 # {"status":"done","club_name":"Kestrel Padel","person":"Robin Hale",...}   exit 0
 ```
 
 The agent never sees a password or a code from an email. The person types those on the club's page.
+
+`kumi login` signs in only at the club's own addresses: the sign-in server the club names must be on the same domain
+(the staff app's address beside the members'), over https (http only on this computer), with every endpoint on it.
 
 **Where the sign-in is kept:**
 
@@ -93,7 +100,9 @@ each other.
 - the members' reads, for anyone, about themselves: `kumi my-places`, `kumi open-programs`, `kumi free-courts`;
 - the staff reads, for staff: `kumi day`, `kumi people`, `kumi alerts`, `kumi reports`. A coach sees only their own
   work, as in the staff app. Emails and phone numbers come shortened (`m...@example.com`): enough to tell two people
-  apart, never a way to reach members from outside the club's apps.
+  apart, never a way to reach members from outside the club's apps. That's everywhere in what comes back: inside
+  notes, alerts and previews too, except what you typed yourself. `kumi people` searches names only, so a shortened
+  address can't be pieced back together from its answers; look someone up by email in the staff app.
 
 **Changes** are `kumi <thing> <change>`. Each one first prints its preview, worded exactly as the apps and the
 connector word it, and stops with exit code 10. Nothing has changed yet. Then either:
@@ -105,11 +114,19 @@ connector word it, and stops with exit code 10. Nothing has changed yet. Then ei
 A preview lasts 15 minutes. A change that needs a staff member's approval waits for it, up to a week (exit code 11).
 
 **Asked twice, done once.** The same command with the same input, within 10 minutes of being done, isn't done
-again: it says it was done and gives the run. So an agent that retries after a dropped connection doesn't book twice.
+again: it says it was done (`already: true`, exit 0) and gives the run. So an agent that retries after a dropped
+connection doesn't book twice.
 
+- A different change to the same thing in between makes it a new change: rename a court A, then B, then A again, and
+  the third is previewed and made like any other (not "already done").
 - `--again` does it a second time.
-- `--key <yours>` names a change, so a retry with the same key is the same change for a day.
+- `--key <yours>` names one change, so a retry with the same key is the same change for a day. The same key with a
+  different input is refused (exit 7, `cli.key_reused`), and nothing is made: use a new key.
+- After a conflict (exit 7), the preview is forgotten here: the same command again previews afresh, and with
+  `--yes` does it.
 - `kumi confirm` on a run already done just says so.
+- The previews kept on a computer are the signed-in person's: when someone else signs in to the club there, the
+  earlier person's go.
 
 **Names where ids go.** For staff, `--person "Maria Lopez"`, `--coach`, `--court`, `--courts "Court 1,Court 2"`,
 `--location`, `--program` and `--plan` take a name or an id.

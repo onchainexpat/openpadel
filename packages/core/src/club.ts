@@ -332,15 +332,29 @@ export const roleAssign = defineAction({
     const { row: person, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     if (person.junior) throw new KumiError("error.not_an_adult");   // a junior has no login, so no role
     await checkAssign(ctx, await roleId(ctx, i.role));
-    return { title: both("action.role.assign"), summary: both("plan.role.assign", { person: person.display_name, role: await roleLabel(ctx.db, i.role), where: await whereText(ctx, i.location_id) }), reads: [read], locationId: i.location_id ?? null, undo: { kind: "reversible" } };
+    // An assistant they connected before was allowed what they could do then: with a staff role it would reach the
+    // staff's reads and changes without their saying so (or giving a second step), so it's disconnected and they
+    // connect it again.
+    const assistants = i.role === "member" ? 0 : (await connectedGrants(ctx.db, i.person_id)).length;
+    return { title: both("action.role.assign"), summary: both("plan.role.assign", { person: person.display_name, role: await roleLabel(ctx.db, i.role), where: await whereText(ctx, i.location_id),
+      assistants: assistants ? both("plan.role.assign_assistants", { count: assistants }) : { en: "", es: "" } }), reads: [read], locationId: i.location_id ?? null, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
     const id = uuidv7();
     await ctx.insert("person_role", { id, person_id: i.person_id, role_id: await roleId(ctx, i.role), location_id: i.location_id ?? null });
-    await ctx.emit("role.assigned", { person_id: i.person_id, role: i.role, location_id: i.location_id ?? null, by: ctx.actor.personId ?? null });
+    let ended = 0;
+    if (i.role !== "member") for (const g of await connectedGrants(ctx.trx, i.person_id)) {
+      await ctx.update("oauth_grant", g.id, { revoked_at: ctx.now });
+      await ctx.trx.updateTable("oauth_token").set({ revoked_at: ctx.now }).where("grant_id", "=", g.id).where("revoked_at", "is", null).execute();
+      ended++;
+    }
+    await ctx.emit("role.assigned", { person_id: i.person_id, role: i.role, location_id: i.location_id ?? null, by: ctx.actor.personId ?? null, assistants_ended: ended });
     return { person_role_id: id };
   },
 });
+
+/** A person's connected assistants (not disconnected). */
+const connectedGrants = (db: Db | Trx, personId: string) => db.selectFrom("oauth_grant").select("id").where("person_id", "=", personId).where("revoked_at", "is", null).execute();
 
 export const roleRemove = defineAction({
   name: "role.remove", version: 1, strongAuth: true,

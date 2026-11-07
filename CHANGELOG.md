@@ -9,13 +9,16 @@ server starts.
 
 ### Added
 - **The club's commands from any computer, for agents and people** (`kumi`, [docs/cli](docs/cli/README.md)).
-  - `kumi login <the club's address>` signs in in the browser, or with `--device` by a link and a code allowed from a
-    phone, for a server or an agent's machine with no browser of its own.
+  - `kumi login <the club's address>` signs in in the browser, or with `--device` by a code typed and allowed on the
+    club's page from a phone, for a server or an agent's machine with no browser of its own. It signs in only at the
+    club's own addresses, over https.
   - It's an ordinary assistant connection: in Profile, Assistants, with its weekly spending limit, and ended there or
     by `kumi logout`.
   - Then every read and change the club's assistant connector offers is a command: `kumi day`, `kumi people maria`,
     `kumi program create`, `kumi enrolment join`. Each change previews first and changes nothing until
-    `kumi confirm <run_id>` or `--yes`, and the same command asked twice is done once.
+    `kumi confirm <run_id>` or `--yes`, and the same command asked twice is done once (asked again after a
+    different change to the same thing, it's a new change). A `--key` names one change: used again for another, it's
+    refused. The previews it keeps are the signed-in person's.
   - Staff can give names where ids go (`--person "Maria Lopez"`), and a time without a zone is on the club's clock.
   - Every command takes `--json`, and the exit codes say what happened.
   - What's only done in the app stays there, as for any assistant.
@@ -26,13 +29,26 @@ server starts.
   alerts, reports, memberships and members' questions.
   - Each goes through that screen's own checks: a coach reads only their own work, and support access never reaches
     an assistant.
-  - Emails and phone numbers come shortened, enough to tell two people apart.
+  - Emails and phone numbers come shortened, enough to tell two people apart, in what each read names and inside
+    notes, alerts and previews too (except what the asker typed). People are found by name only there, so a
+    shortened address can't be pieced back together from the answers.
 - **Signing in from a device with no browser.** An assistant or a program on a machine with no browser can ask for a
-  code, which the person allows at the club's `/oauth/device` page after signing in as usual.
+  code, which the person types and allows at the club's `/oauth/device` page after signing in as usual. A link never
+  carries the code, the page says when and from which address it was started, and an owner or a manager gives a
+  fresh second step to allow it (their authenticator's code, or a passkey sign-in in the last 10 minutes).
 
 ### Changed
 - An assistant's list of what it can do is made from one read of the person's roles instead of one per action, so
   every assistant call answers sooner (about 15 ms instead of 180 for an owner).
+
+### Fixed
+- **An assistant connected as a member kept working after they were given a staff role (in 0.1.0 to 0.3.1).** It
+  reached the staff's changes (and now their reads) without the person allowing it again or giving the second step
+  their role needs. Now giving someone a staff role disconnects their assistants: the preview says so, and their
+  message says why and that they connect them again in Profile, Assistants. One connected before this update and
+  promoted before it isn't found: an owner or a manager sees and ends any connection on the person's page.
+- **The result of someone else's change could be read again by its run id (in 0.1.0 to 0.3.1).** Run ids are long and
+  hard to guess, and the change itself was never made twice; now an earlier result is given only to whoever made it.
 
 ## 0.3.1 (2026-11-07)
 

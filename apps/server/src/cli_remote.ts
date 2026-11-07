@@ -36,9 +36,16 @@ export function defaultDeps(): RemoteDeps {
   };
 }
 const hasBrowser = () => process.env.KUMI_NO_BROWSER !== "1" && (process.platform === "darwin" || process.platform === "win32" || Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY));
+/** The program that opens a web page, and its arguments (never a shell): on Windows not cmd.exe's start, which
+ *  would cut the link at its first & and could run what follows it. Null for anything but an http(s) page. */
+export function browserCommand(platform: string, url: string): [string, string[]] | null {
+  if (!/^https?:\/\/[^\s"]+$/i.test(url)) return null;
+  return platform === "darwin" ? ["open", [url]] : platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]] : ["xdg-open", [url]];
+}
 function openBrowser(url: string): void {
-  const [cmd, args] = process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
-  try { const p = spawn(cmd as string, args as string[], { stdio: "ignore", detached: true }); p.on("error", () => {}); p.unref(); } catch { /* the link is printed too */ }
+  const c = browserCommand(process.platform, url);
+  if (!c) return;   // the link is printed too
+  try { const p = spawn(c[0], c[1], { stdio: "ignore", detached: true, shell: false }); p.on("error", () => {}); p.unref(); } catch { /* the link is printed too */ }
 }
 
 /** A failure with its exit code, worded in both languages. */
@@ -131,9 +138,12 @@ class Club {
   }
 }
 
+/** How long a sign-in request may take: under the minute after which another command takes the refresh lock over
+ *  (cli_store.ts), so a refresh that hangs can't be made twice, which would end the sign-in. */
+export const POST_TIMEOUT_MS = 30_000;
 async function post(d: RemoteDeps, url: string, form: Record<string, string>): Promise<{ ok: boolean; status: number; body: any }> {
   let res: Response;
-  try { res = await d.fetch(url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: new URLSearchParams(form).toString() }); }
+  try { res = await d.fetch(url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: new URLSearchParams(form).toString(), signal: AbortSignal.timeout(POST_TIMEOUT_MS) }); }
   catch (e) { throw stop(EXIT.unreachable, "cli.unreachable", { club: new URL(url).host, why: (e as Error).message }); }
   return { ok: res.ok, status: res.status, body: await res.json().catch(() => ({})) };
 }
@@ -245,6 +255,10 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     const issuer = String(prm.authorization_servers?.[0] ?? url), resource = String(prm.resource);
     const as = await getJson(d, `${issuer}/.well-known/oauth-authorization-server`);
     const clubName = String(prm.resource_name ?? new URL(url).host);
+    // Sign in only at the club's own addresses: its sign-in server is this address or its staff app's (the same
+    // domain), over https (http only on this computer), and every endpoint it names is on that server.
+    const notSafe = clubsOwn(url, issuer, resource, as);
+    if (notSafe) throw stop(EXIT.refused, "cli.not_safe_club", { url, where: notSafe });
     const register = async (redirect: string) => {
       const r = await d.fetch(as.registration_endpoint, { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ client_name: `kumi (${d.hostname})`.slice(0, 80), redirect_uris: [redirect], token_endpoint_auth_method: "none", software_id: "kumi-cli" }) })
@@ -265,7 +279,9 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
         const cid = await register("http://127.0.0.1/kumi-device");
         const r = await post(d, as.device_authorization_endpoint, { client_id: cid, resource, scope: "kumi" });
         if (!r.ok) throw stop(EXIT.unreachable, "cli.unreachable", { club: clubName, why: String(r.body.error ?? r.status) });
-        p = { client_id: cid, device_code: r.body.device_code, user_code: r.body.user_code, link: r.body.verification_uri_complete, expires_at: d.now() + r.body.expires_in * 1000, interval: r.body.interval };
+        // The page to type the code on; never a link with the code in it (oauth.ts).
+        if (sameOrigin(String(r.body.verification_uri ?? ""), issuer) !== true) throw stop(EXIT.refused, "cli.not_safe_club", { url, where: String(r.body.verification_uri ?? "") });
+        p = { client_id: cid, device_code: r.body.device_code, user_code: r.body.user_code, link: r.body.verification_uri, expires_at: d.now() + r.body.expires_in * 1000, interval: r.body.interval };
         store.setPending(url, p);
       }
       if (g.json && (noWait || started)) emit({ status: "waiting_sign_in", club: url, link: p.link, code: p.user_code, expires_at: new Date(p.expires_at).toISOString(),
@@ -323,8 +339,11 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     const kept = store.saveClub(draft, tok);
     const club = new Club({ ...draft, store: kept }, d);
     const me = await club.call("whoami", {});
-    const who = me.ok ? me.data as { person: string; language: Lang; club: { name: string; time_zone: string } } : null;
-    const e: ClubEntry = { ...draft, store: kept, person: who?.person ?? "", lang: who?.language ?? lang, club_name: who?.club.name ?? clubName, time_zone: who?.club.time_zone ?? "UTC" };
+    const who = me.ok ? me.data as { person: string; person_id?: string; connection?: { id: string }; language: Lang; club: { name: string; time_zone: string } } : null;
+    const e: ClubEntry = { ...draft, store: kept, person: who?.person ?? "", lang: who?.language ?? lang, club_name: who?.club.name ?? clubName, time_zone: who?.club.time_zone ?? "UTC",
+      person_id: who?.person_id, connection_id: who?.connection?.id };
+    // Someone else signed in to this club here: the previews kept are the other person's, and go.
+    store.dropRuns(url, (r) => Boolean(e.person_id) && r.person === e.person_id);
     store.saveClub(e, tok);
     lang = pickLang(g.lang ?? e.lang, "en");
     if (g.json) emit({ status: "done", club: url, club_name: e.club_name, person: e.person, kept_in: kept === "keychain" ? "keychain" : join(store.dir, "secrets.json"), server_version: e.server_version, cli_version: VERSION });
@@ -420,18 +439,27 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
       if (g.json) emit({ status: "ok", data: r.data }); else d.out(typeof r.data === "string" ? r.data : JSON.stringify(r.data, null, 2));
       return EXIT.done;
     }
-    // The same change asked again (the same input, or the same --key): its preview is confirmed rather than made
-    // twice, and one already done isn't done again unless --again says so.
-    const key = g.key ? `key:${g.key}` : `in:${createHash("sha256").update(JSON.stringify([cmd.tool, sorted(input)])).digest("hex")}`;
-    const recent = (r: RunEntry) => r.club === club.e.url && r.tool === cmd.tool && r.key === key
-      && (r.done_at ? d.now() - new Date(r.done_at).getTime() < (g.key ? 864e5 : 10 * 60_000) : new Date(r.expires_at).getTime() > d.now());
-    const prior = g.again ? undefined : store.runs().find(recent);
+    // The same change asked again: a retry of one just done (a lost answer) comes back done and isn't made twice;
+    // its preview is confirmed rather than made again. The same input asked again after a different change to the
+    // same thing (A, then B, then A) is a new change, previewed and made. A --key names one change: used again for a
+    // different input it's refused, never made as the first one.
+    const inputHash = createHash("sha256").update(JSON.stringify([cmd.tool, sorted(input)])).digest("hex");
+    const key = g.key ? `key:${g.key}` : `in:${inputHash}`, targets = targetsOf(input);
+    const mine = store.runs().filter((r) => r.club === club.e.url && (!club.e.person_id || r.person === club.e.person_id));   // newest first
+    if (g.key && mine.some((r) => r.key === key && (r.tool !== cmd.tool || (r.input && r.input !== inputHash)))) throw stop(EXIT.conflict, "cli.key_reused", { key: g.key });
+    const live = (r: RunEntry) => r.done_at ? d.now() - new Date(r.done_at).getTime() < (g.key ? 864e5 : 10 * 60_000) : new Date(r.expires_at).getTime() > d.now();
+    const at = g.again ? -1 : mine.findIndex((r) => r.tool === cmd.tool && r.key === key && live(r));
+    let prior = at >= 0 ? mine[at] : undefined;
+    // Without a --key: a different change since, to the same thing (one of the same ids, or both naming none), and
+    // this isn't a retry of the earlier one.
+    if (prior && !g.key && mine.slice(0, at).some((r) => r.tool === cmd.tool && r.key !== key && overlap(r.targets ?? [], targets))) prior = undefined;
     if (prior?.done_at) return alreadyDone(prior);
     if (prior && g.yes) return await apply(club, cmd.tool, prior);
     const p = await club.call(`${cmd.tool}_preview`, input);
     if (!p.ok) return failed(p, cmd);
     const v = p.data as { run_id: string; status: string; summary: string; undo: string; expires_at: string };
-    const entryRun: RunEntry = { club: club.e.url, tool: cmd.tool, key, run_id: v.run_id, summary: v.summary, expires_at: v.expires_at };
+    const entryRun: RunEntry = { club: club.e.url, tool: cmd.tool, key, run_id: v.run_id, summary: v.summary, expires_at: v.expires_at,
+      input: inputHash, person: club.e.person_id, connection: club.e.connection_id, targets, at: new Date(d.now()).toISOString() };
     store.saveRun(entryRun);
     if (v.status === "awaiting_approval") {
       if (g.json) emit({ status: "waiting_approval", run_id: v.run_id, summary: v.summary }); else { d.out(v.summary); d.out(say("cli.waiting_approval")); }
@@ -447,7 +475,11 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
   }
   async function apply(club: Club, tool: string, r: RunEntry): Promise<number> {
     const a = await club.call(`${tool}_confirm`, { run_id: r.run_id });
-    if (!a.ok) return failed(a);
+    if (!a.ok) {
+      // A preview that's out of date or gone is forgotten here, so the same command again previews afresh.
+      if (exitOf(a.key, a.status) === EXIT.conflict) store.dropRun(r.run_id);
+      return failed(a);
+    }
     const result = (a.data as { result?: unknown }).result ?? null;
     store.saveRun({ ...r, done_at: new Date(d.now()).toISOString(), result });
     if (g.json) emit({ status: "done", run_id: r.run_id, summary: r.summary, result }); else { d.out(r.summary); d.out(say("cli.done")); }
@@ -460,11 +492,45 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
   }
   async function confirm(club: Club, runId: string | undefined): Promise<number> {
     if (!runId) throw stop(EXIT.usage, "cli.confirm_which");
-    const r = store.runs().find((x) => x.club === club.e.url && x.run_id === runId);
+    const r = store.runs().find((x) => x.club === club.e.url && x.run_id === runId && (!club.e.person_id || x.person === club.e.person_id));
     if (!r) throw stop(EXIT.not_found, "cli.confirm_unknown", { run: runId });
     if (r.done_at) return alreadyDone(r);
     return apply(club, r.tool, r);
   }
+}
+
+/** The ids an input names (a court, a person, a booking): a later change naming one of them is to the same thing. */
+export function targetsOf(v: unknown, out: string[] = []): string[] {
+  if (typeof v === "string") { if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) out.push(v.toLowerCase()); }
+  else if (Array.isArray(v)) for (const x of v) targetsOf(x, out);
+  else if (v && typeof v === "object") for (const x of Object.values(v)) targetsOf(x, out);
+  return [...new Set(out)];
+}
+const overlap = (a: string[], b: string[]) => (!a.length && !b.length) || a.some((x) => b.includes(x));
+const LOCAL = ["localhost", "127.0.0.1", "[::1]", "::1"];
+/** True when `raw` is on `base`'s origin and over https (http only on this computer); otherwise why not. */
+export function sameOrigin(raw: string, base: string): true | string {
+  try {
+    const x = new URL(raw), b = new URL(base);
+    if (x.origin !== b.origin) return raw;
+    return x.protocol === "https:" || (x.protocol === "http:" && LOCAL.includes(x.hostname)) ? true : raw;
+  } catch { return raw || "?"; }
+}
+/** Null when a club's sign-in server and its endpoints are the club's own; otherwise the address that isn't. */
+export function clubsOwn(club: string, issuer: string, resource: string, as: Record<string, unknown>): string | null {
+  let c: URL, i: URL;
+  try { c = new URL(club); i = new URL(issuer); } catch { return issuer || "?"; }
+  const domain = (h: string) => h.split(".").slice(-2).join(".");
+  const local = LOCAL.includes(c.hostname) && LOCAL.includes(i.hostname);
+  if (!local && (i.protocol !== "https:" || domain(i.hostname) !== domain(c.hostname))) return issuer;
+  if (local && i.protocol !== "http:" && i.protocol !== "https:") return issuer;
+  for (const k of ["authorization_endpoint", "token_endpoint", "registration_endpoint", "device_authorization_endpoint"]) {
+    if (as[k] === undefined && k === "device_authorization_endpoint") continue;
+    const ok = sameOrigin(String(as[k] ?? ""), issuer);
+    if (ok !== true) return ok;
+  }
+  if (sameOrigin(resource, club) !== true && sameOrigin(resource, issuer) !== true) return resource;
+  return null;
 }
 
 /** An input with its keys in order, so the same input written two ways is the same change. */

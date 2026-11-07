@@ -10,7 +10,7 @@ import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setSession } from "./session_cookie.ts";
 import { money, t, type Lang } from "@kumi/i18n";
-import { activeFactor, KumiError, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
+import { activeFactor, KumiError, needsTwoFactor, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 import { RateLimiter } from "./limits.ts";
@@ -18,6 +18,11 @@ import { RateLimiter } from "./limits.ts";
 export const ACCESS_SECONDS = 3600, REFRESH_DAYS = 30, CODE_SECONDS = 300, SCOPE = "kumi", REGISTER_BYTES = 16_384, UNUSED_CLIENT_DAYS = 7;
 /** A sign-in from a device with no browser of its own (RFC 8628): how long its code waits, and how often it may ask. */
 export const DEVICE_SECONDS = 600, DEVICE_INTERVAL = 5, DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
+/** Codes waiting at once: from one address, and in all (past that, the oldest nobody has opened gives way, so codes
+ *  started from many addresses can't stop a person signing in a device). */
+export const DEVICE_PER_ADDRESS = 5, DEVICE_WAITING = 2000;
+/** How recent a passkey sign-in must be for an owner or a manager to allow a device without an authenticator code. */
+export const DEVICE_FRESH_SECONDS = 600;
 const USER_CODE_LETTERS = "BCDFGHJKLMNPQRSTVWXZ";   // no vowels, so a code never spells a word; no look-alike digits
 export const userCodeOf = (raw: string) => raw.toUpperCase().replace(/[^A-Z]/g, "");
 /** What a person can let an assistant spend for them a week, chosen as they connect it ($0 unless they pick more;
@@ -92,7 +97,10 @@ function okRedirect(u: string): boolean {
   catch { return false; }
 }
 
-export interface OAuthDeps { db: Db; mailer: Mailer; publicUrl: string; secureCookies: boolean; fetchMetadata: FetchMetadata; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => { id: string; display_name: string; token_hash: string; gate: "setup" | "verify" | null } | null;
+export interface OAuthDeps { db: Db; mailer: Mailer; publicUrl: string; secureCookies: boolean; fetchMetadata: FetchMetadata; now: () => Date; lang: (c: Context<any>) => Lang;
+  me: (c: Context<any>) => { id: string; display_name: string; token_hash: string; gate: "setup" | "verify" | null; method?: string; created_at?: Date } | null;
+  /** The address a request came from (limits.ts), shown on a device's consent screen. */
+  ip?: (c: Context<any>) => string | null;
   /** The club's texts, when it sends them: then the sign-in can be by a texted code too. */
   texter?: Texter | null; memberUrl?: string;
   /** Wrong second-step codes per person: the same count as the apps' sign-in (two_factor.ts). */
@@ -306,6 +314,8 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
   // in as on the consent page, checks the code matches and allows it, with the same weekly limit; the device, asking
   // every few seconds, then gets its tokens. Kept in memory, ten minutes each, as the consent screens are.
   type Device = { at: number; clientId: string; clientName: string; userCode: string; resource: string; status: "waiting" | "allowed" | "denied"; grantId?: string; polled: number; interval: number;
+    /** Where it was started from, shown on the consent screen beside the name the device gave itself. */
+    ip: string | null;
     /** The consent screen shown, and to whom: its answer must carry this, as the assistant's consent does (req). */
     consent?: { id: string; personId: string } };
   const devices = new Map<string, Device>(), byUserCode = new Map<string, string>();
@@ -318,6 +328,16 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     return k ? { key: k, d: devices.get(k)! } : null;
   };
   const shownCode = (u: string) => `${u.slice(0, 4)}-${u.slice(4)}`;
+  const forget = (key: string) => { const d = devices.get(key); if (d) { devices.delete(key); byUserCode.delete(d.userCode); } };
+  /** Owners and managers (anyone who signs in with two steps) give a fresh second step to allow a device: their
+   *  authenticator's code at Allow, or, with only a passkey, a passkey sign-in in the last 10 minutes. A link someone
+   *  else sent can't then be allowed by one click in a browser that's been signed in all day. */
+  const deviceStep = async (me: NonNullable<ReturnType<OAuthDeps["me"]>>): Promise<"none" | "code" | "fresh" | "stale"> => {
+    if (!(await needsTwoFactor(deps.db, me.id))) return "none";
+    if (await activeFactor(deps.db, me.id)) return "code";
+    const fresh = me.method === "passkey" && me.created_at && deps.now().getTime() - new Date(me.created_at).getTime() < DEVICE_FRESH_SECONDS * 1000;
+    return fresh ? "fresh" : "stale";
+  };
 
   app.post("/oauth/device_authorization", async (c) => {
     const f = await c.req.parseBody();
@@ -326,35 +346,54 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     const resource = f.resource ? String(f.resource) : resources[0]!;
     if (!resources.includes(resource)) return c.json({ error: "invalid_target" }, 400);
     tidyDevices();
-    if (devices.size >= 500) return c.json({ error: "slow_down" }, 429);
+    const ip = deps.ip?.(c) ?? null;
+    if (ip && [...devices.values()].filter((d) => d.ip === ip && d.status === "waiting").length >= DEVICE_PER_ADDRESS) return c.json({ error: "slow_down" }, 429);
+    // Full: the oldest code nobody has opened gives way (a code someone is looking at is kept).
+    while (devices.size >= DEVICE_WAITING) {
+      const idle = [...devices].find(([, d]) => !d.consent && d.status === "waiting");
+      if (!idle) return c.json({ error: "slow_down" }, 429);
+      forget(idle[0]);
+    }
     const deviceCode = b64url(randomBytes(32));
     let userCode = "";
     do userCode = Array.from(randomBytes(8), (b) => USER_CODE_LETTERS[b % USER_CODE_LETTERS.length]).join(""); while (byUserCode.has(userCode));
-    devices.set(sha(deviceCode), { at: Date.now(), clientId: client.client_id, clientName: client.name ?? "An app", userCode, resource, status: "waiting", polled: 0, interval: DEVICE_INTERVAL });
+    devices.set(sha(deviceCode), { at: Date.now(), clientId: client.client_id, clientName: client.name ?? "An app", userCode, resource, status: "waiting", polled: 0, interval: DEVICE_INTERVAL, ip });
     byUserCode.set(userCode, sha(deviceCode));
-    return c.json({ device_code: deviceCode, user_code: shownCode(userCode), verification_uri: `${issuer}/oauth/device`, verification_uri_complete: `${issuer}/oauth/device?code=${shownCode(userCode)}`,
+    // No link with the code filled in (RFC 8628's verification_uri_complete): the person types the code their device
+    // shows, so a link someone else started and sent them can't be allowed by following it.
+    return c.json({ device_code: deviceCode, user_code: shownCode(userCode), verification_uri: `${issuer}/oauth/device`,
       expires_in: DEVICE_SECONDS, interval: DEVICE_INTERVAL }, 200, { "cache-control": "no-store" });
   });
 
-  app.get("/oauth/device", async (c) => {
-    const lang = deps.lang(c), clubName = await club(), raw = c.req.query("code");
-    const enter = (note?: string) => c.html(page(lang, t(lang, "consent.device_enter_title", { club: clubName }), html`${note ? html`<p>${note}</p>` : ""}
-<form method="get" action="/oauth/device"><label>${t(lang, "consent.device_enter_label")}<input name="code" required autocomplete="off" autocapitalize="characters"></label><button class="primary">${t(lang, "consent.device_continue")}</button></form>`));
-    if (!raw) return enter();
-    const found = deviceOf(raw);
-    if (!found || found.d.status !== "waiting") return enter(t(lang, "consent.device_unknown"));
+  // The code is typed here, never taken from the link: a link with ?code= opens the empty form.
+  const deviceEnter = async (c: Context, note?: string) => {
+    const lang = deps.lang(c), clubName = await club();
+    return c.html(page(lang, t(lang, "consent.device_enter_title", { club: clubName }), html`${note ? html`<p>${note}</p>` : ""}
+<form method="post" action="/oauth/device"><label>${t(lang, "consent.device_enter_label")}<input name="code" required autocomplete="off" autocapitalize="characters"></label><button class="primary">${t(lang, "consent.device_continue")}</button></form>`));
+  };
+  app.get("/oauth/device", async (c) => deviceEnter(c, c.req.query("code") ? t(deps.lang(c), "consent.device_type_code") : undefined));
+  app.post("/oauth/device", async (c) => {
+    const f = await c.req.parseBody(), lang = deps.lang(c), clubName = await club();
+    const found = deviceOf(String(f.code ?? ""));
+    if (!found || found.d.status !== "waiting") return deviceEnter(c, t(lang, "consent.device_unknown"));
     const me = deps.me(c);
     const first = await beforeConsent(c, lang, clubName, me);
     if (first || !me) return first!;
+    const step = await deviceStep(me);
     found.d.consent = { id: b64url(randomBytes(16)), personId: me.id };
+    const minutes = Math.floor((Date.now() - found.d.at) / 60_000), ip = found.d.ip ?? t(lang, "consent.device_ip_unknown");
+    const started = minutes < 1 ? t(lang, "consent.device_started_now", { ip }) : t(lang, "consent.device_started", { count: minutes, ip });
     return c.html(page(lang, t(lang, "consent.title", { client: found.d.clientName, club: clubName }), html`
 <p>${t(lang, "consent.device_body", { client: found.d.clientName, club: clubName })}</p>
 <p style="font-size:28px;letter-spacing:4px;font-weight:600">${shownCode(found.d.userCode)}</p>
+<p>${started} ${t(lang, "consent.device_name_note", { client: found.d.clientName })}</p>
 <p>${t(lang, "consent.signed_in_as", { name: me.display_name })}</p>
+${step === "stale" ? html`<p>${t(lang, "consent.device_fresh_passkey", { club: clubName })}</p>` : html`
 <form method="post" action="/oauth/device/decide"><input type="hidden" name="code" value="${found.d.userCode}"><input type="hidden" name="req" value="${found.d.consent.id}">
 <label>${t(lang, "consent.cap_label")}<select name="cap" style="font:inherit;padding:8px;width:100%;margin:6px 0 4px">${CAP_CHOICES.map((x) => html`<option value="${x}">${x ? money(x, lang) : t(lang, "consent.cap_none")}</option>`)}</select></label>
 <p style="font-size:14px;color:#55605c">${t(lang, "consent.cap_note")}</p>
-<button class="primary" name="decision" value="allow">${t(lang, "consent.allow")}</button> <button name="decision" value="deny">${t(lang, "consent.deny")}</button></form>`));
+${step === "code" ? html`<label>${t(lang, "consent.device_factor_label")}<input name="factor_code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code"></label>` : ""}
+<button class="primary" name="decision" value="allow">${t(lang, "consent.allow")}</button> <button name="decision" value="deny">${t(lang, "consent.deny")}</button></form>`}`));
   });
 
   app.post("/oauth/device/decide", async (c) => {
@@ -368,6 +407,12 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     if (f.decision !== "allow") {
       found.d.status = "denied";
       return c.html(page(lang, t(lang, "consent.device_denied_title"), html`<p>${t(lang, "consent.device_denied", { client: found.d.clientName })}</p>`));
+    }
+    const step = await deviceStep(me);
+    if (step === "stale") throw new KumiError("error.device_fresh_step", {}, 403);
+    if (step === "code") {
+      if (!secondStep.take(me.id, deps.now().getTime())) throw new KumiError("error.too_many_attempts", {}, 429);
+      if (!(await useAuthenticatorCode(deps.db, me.id, String(f.factor_code ?? ""), deps.now()))) throw new KumiError("error.bad_factor_code", {}, 401);
     }
     const grantId = uuidv7(), cap = Number(f.cap ?? 0);
     await deps.db.insertInto("oauth_grant").values({ id: grantId, person_id: me.id, client_id: found.d.clientId, scopes: [SCOPE], revoked_at: null,
@@ -427,7 +472,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     if (f.grant_type === DEVICE_GRANT) {
       // RFC 8628 3.5: waiting, asked too often, said no, or gone; or the tokens, once.
       const key = sha(String(f.device_code ?? "")), d = devices.get(key);
-      if (!d || Date.now() - d.at > DEVICE_SECONDS * 1000) { if (d) { devices.delete(key); byUserCode.delete(d.userCode); } return err("expired_token"); }
+      if (!d || Date.now() - d.at > DEVICE_SECONDS * 1000) { forget(key); return err("expired_token"); }
       if (d.clientId !== client.client_id) return err("invalid_grant");
       if (d.status === "denied") { devices.delete(key); byUserCode.delete(d.userCode); return err("access_denied"); }
       if (d.status === "waiting") {

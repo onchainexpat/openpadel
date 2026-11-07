@@ -10,12 +10,13 @@ type Me = { id: string } | null;
 const MONEY_ROLES = ["owner", "manager", "front_desk", "accountant"];
 /** The club's money people: owners, managers, front desk and accountants, or a role the club made that covers money.
  *  Support access reads as a manager would (support.ts). */
-export async function seesMoney(db: Db, personId: string): Promise<boolean> {
+/** `assistant`: asked through the assistant door, where support access never counts (support.ts). */
+export async function seesMoney(db: Db, personId: string, opts: { assistant?: boolean } = {}): Promise<boolean> {
   const areas = await customAreas(db, personId);
   if (areas) return areas.includes("money");
   const roles = (await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
     .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true).execute()).map((r) => r.key);
-  roles.push(...await supportRoleKeys(db, personId));
+  if (!opts.assistant) roles.push(...await supportRoleKeys(db, personId));
   return roles.some((r) => MONEY_ROLES.includes(r));
 }
 /** Each { en, es } in a receipt, in the reader's language. */

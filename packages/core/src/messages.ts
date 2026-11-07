@@ -1028,10 +1028,11 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   // Someone given a staff role hears it once, with where to sign in; and once when it's taken away. Not the person
   // who did it to themselves, and not the member role every account has.
-  async "role.assigned"({ db }, p: { person_id: string; role: string; location_id?: string | null; by?: string | null }) {
+  async "role.assigned"({ db }, p: { person_id: string; role: string; location_id?: string | null; by?: string | null; assistants_ended?: number }) {
     if (p.role === "member" || p.by === p.person_id) return [];
     const params = { ...await roleParams(db, p), url: staffAddress ?? both("msg.staff_app"),
-      two_step: await needsTwoFactor(db, p.person_id) ? both("msg.staff_role_two_step") : NOTHING };
+      two_step: await needsTwoFactor(db, p.person_id) ? both("msg.staff_role_two_step") : NOTHING,
+      assistants: p.assistants_ended ? both("msg.staff_role_assistants", { count: p.assistants_ended }) : NOTHING };
     return [{ to: p.person_id, kind: "staff_role_given", params, purpose: "staff" as const, essential: true, email: true, push: false, link: "/" }];
   },
   async "role.removed"({ db }, p: { person_id: string; role: string; location_id?: string | null; by?: string | null }) {

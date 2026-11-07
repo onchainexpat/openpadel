@@ -369,7 +369,10 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
 export async function apply(db: Db, runId: string, actor: Actor, opts: { idempotencyKey?: string; now?: Date; approvedBy?: string; system?: boolean } = {}): Promise<unknown> {
   const now = opts.now ?? new Date();
   if (opts.idempotencyKey) {
-    const prior = await db.selectFrom("action_run").select(["result", "status"]).where("idempotency_key", "=", opts.idempotencyKey).executeTakeFirst();
+    const prior = await db.selectFrom("action_run").select(["result", "status", "actor_person_id"]).where("idempotency_key", "=", opts.idempotencyKey).executeTakeFirst();
+    // An earlier answer is given again only to whoever made the change: a key (or a run id) someone else holds
+    // tells them nothing of it.
+    if (prior?.status === "applied" && !opts.system && !opts.approvedBy && prior.actor_person_id !== actor.personId) throw new KumiError("error.plan_not_yours", {}, 403);
     if (prior?.status === "applied") return prior.result;
   }
   let after: (() => Promise<unknown>) | null = null;

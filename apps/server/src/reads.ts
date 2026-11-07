@@ -369,7 +369,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     if (within && !within.length) return c.json([]);
     // An account made for support access (support.ts) isn't one of the club's people.
     return c.json(await db.selectFrom("person").select(["id", "display_name", "email", "junior", "created_at"]).select((eb) => [roles(eb).as("roles"), tags(eb).as("tags")]).where("status", "!=", "archived").where("created_via", "!=", "support")
-      .where((eb) => eb.or([eb("display_name", "ilike", q), eb("email", "ilike", q), ...(digits.length >= 3 ? [eb(sql<string>`regexp_replace(coalesce(phone, ''), '\\D', '', 'g')`, "like", `%${digits}%`)] : [])]))
+      // Through the assistant door, names only: an email or phone it can match is a yes or no on the whole of one, and
+      // the door shows them shortened (mcp.ts), so matching them would let the shortening be undone one letter at a time.
+      .where((eb) => eb.or([eb("display_name", "ilike", q), ...(opts.assistant ? [] : [eb("email", "ilike", q), ...(digits.length >= 3 ? [eb(sql<string>`regexp_replace(coalesce(phone, ''), '\\D', '', 'g')`, "like", `%${digits}%`)] : [])])]))
       .$if(Boolean(role), (qb) => qb.where((eb) => eb.exists(eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id")
         .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true)
         .where("role.key", role === "staff" ? "!=" : "=", role === "staff" ? "member" : role!))))
@@ -423,7 +425,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("membership.person_id", "=", id).where("membership.status", "in", ["upcoming", "active", "past_due"]).executeTakeFirst();
     // What the desk would take for it now (what's owed, or the next period), and what waits there to give back to
     // them: for the club's money people, not a coach looking at their own student.
-    const money = await seesMoney(db, me(c)!.id);
+    const money = await seesMoney(db, me(c)!.id, { assistant: opts.assistant });
     const due = membership ? await membershipDue(db, membership.id) : null, giveBack = money ? await toGiveBack(db, id) : [];
     const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "translations", "price_cents", "period", "days_ahead", "join_in_app", "max_members", "starts_on", "sort"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const tz = await clubTz();

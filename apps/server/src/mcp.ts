@@ -61,9 +61,9 @@ export const READS: DoorRead[] = [
   // work, a role the club made only its areas, and support access never reaches here. Emails and phone numbers come
   // shortened: enough to tell two people apart, never a way to reach them from outside the club's apps.
   { name: "people", staff: true, title: { en: "People", es: "Personas" }, path: (a) => `/staff/people?${qs({ q: a.q ?? "", role: a.role, limit: a.limit })}`,
-    input: { q: z.optional(z.string().check(z.describe("A name, email or phone to search for; empty lists the first ones by name"))),
+    input: { q: z.optional(z.string().check(z.describe("A name (or part of one) to search for; empty lists the first ones by name. Emails and phone numbers aren't searched here"))),
       role: z.optional(z.string().check(z.describe("staff, or one role's key: owner, manager, front_desk, coach, accountant"))), limit: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(200))) },
-    description: "The club's people whose name, email or phone matches, with their ids, roles and tags (emails shortened). Use an id from here wherever a change asks for a person." },
+    description: "The club's people whose name matches, with their ids, roles and tags (emails shortened). Use an id from here wherever a change asks for a person." },
   { name: "person_page", staff: true, title: { en: "A person's page", es: "La página de una persona" }, input: { person_id: z.uuid() }, path: (a) => `/staff/people/${encodeURIComponent(a.person_id)}`,
     description: "One person's page, as the staff app shows it: bookings, places, membership, family, what they owe and what's owed back (contact details shortened)." },
   { name: "locations", staff: true, title: { en: "Locations", es: "Sedes" }, input: {}, path: () => "/staff/locations",
@@ -95,10 +95,30 @@ export function shortContact(kind: "email" | "phone", v: unknown): unknown {
   return `...${v.replace(/\D/g, "").slice(-2)}`;
 }
 const CONTACT: Record<string, "email" | "phone"> = { email: "email", contact_email: "email", reply_to: "email", phone: "phone", contact_phone: "phone" };
-export function shortenContacts(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(shortenContacts);
+// An email, or a phone number written as one (+1 415 555 0142, (415) 555-0142, 4155550142), inside any text: an alert, a note, why
+// an address is held back. Never inside an id or a date (not after a letter, digit or hyphen, nor before one).
+const EMAIL_IN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+const PHONE_IN = /(?<![\w-])(?:\+\d[\d\s().-]{6,}\d|\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\d{10,15})(?![\w-])/g;
+/** What the asker gave in their own input (emails, and phones as digits): those come back as they were typed. */
+export function givenContacts(v: unknown, out = new Set<string>()): Set<string> {
+  if (typeof v === "string") {
+    for (const m of v.match(EMAIL_IN) ?? []) out.add(m.toLowerCase());
+    const digits = v.replace(/\D/g, "");
+    if (digits.length >= 7 && /^[+\d\s().-]+$/.test(v.trim())) out.add(digits);
+  } else if (Array.isArray(v)) for (const x of v) givenContacts(x, out);
+  else if (v && typeof v === "object") for (const x of Object.values(v)) givenContacts(x, out);
+  return out;
+}
+export function shortenInText(text: string, given: Set<string> = new Set()): string {
+  return text.replace(EMAIL_IN, (m) => given.has(m.toLowerCase()) ? m : String(shortContact("email", m)))
+    .replace(PHONE_IN, (m) => given.has(m.replace(/\D/g, "")) ? m : String(shortContact("phone", m)));
+}
+/** A staff read, a preview or a result as the door returns it: emails and phones shortened, by field and in text. */
+export function shortenContacts(v: unknown, given: Set<string> = new Set()): unknown {
+  if (typeof v === "string") return shortenInText(v, given);
+  if (Array.isArray(v)) return v.map((x) => shortenContacts(x, given));
   if (!v || typeof v !== "object" || v instanceof Date) return v;
-  return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, CONTACT[k] ? shortContact(CONTACT[k]!, x) : shortenContacts(x)]));
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, CONTACT[k] && !(typeof x === "string" && given.has(CONTACT[k] === "email" ? x.toLowerCase() : x.replace(/\D/g, ""))) ? shortContact(CONTACT[k]!, x) : shortenContacts(x, given)]));
 }
 const titleOf = (action: string): Text => (`action.${action}` in en ? both(`action.${action}` as Key) : { en: action, es: action });
 
@@ -173,7 +193,8 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
     }, async (args: unknown) => {
       try {
         const p = await plan(db, a.name, args, actor, { now: now() });
-        return text({ run_id: p.runId, status: p.status, summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt,
+        // A preview's words shortened as staff reads are: what it names that the asker didn't type comes back short.
+        return text({ run_id: p.runId, status: p.status, summary: shortenInText(p.plan.summary[lang], givenContacts(args)), undo: p.plan.undo.kind, expires_at: p.expiresAt,
           next: p.status === "awaiting_approval" ? "This needs a staff member's approval; it will happen once they approve." : `Show the person the summary. If they agree, call ${base}_confirm with this run_id.` });
       } catch (e) { return fail(e); }
     });
@@ -182,7 +203,7 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
       description: `${title.en}: do it, once the person agreed to the ${base}_preview summary. Takes its run_id.`,
       inputSchema: { run_id: z.uuid() }, annotations: { readOnlyHint: false, idempotentHint: true },
     }, async (args: { run_id: string }) => {
-      try { return text({ done: true, result: await apply(db, args.run_id, actor, { now: now(), idempotencyKey: `mcp:${args.run_id}` }) }); }
+      try { return text({ done: true, result: shortenContacts(await apply(db, args.run_id, actor, { now: now(), idempotencyKey: `mcp:${args.run_id}` })) }); }
       catch (e) { return fail(e); }
     });
   }

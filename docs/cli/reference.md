@@ -209,13 +209,13 @@ kumi lesson-times --coach "Ana Ruiz" --date 2026-11-20 --minutes 90
 
 ### kumi people
 
-People. The club's people whose name, email or phone matches, with their ids, roles and tags (emails shortened). Use an id from here wherever a change asks for a person.
+People. The club's people whose name matches, with their ids, roles and tags (emails shortened). Use an id from here wherever a change asks for a person.
 
 Who may: staff (each sees what their staff screens show).
 
 | Flag | Takes | | What it is |
 |---|---|---|---|
-| `--q` | text |  | A name, email or phone to search for; empty lists the first ones by name |
+| `--q` | text |  | A name (or part of one) to search for; empty lists the first ones by name. Emails and phone numbers aren't searched here |
 | `--role` | text |  | staff, or one role's key: owner, manager, front_desk, coach, accountant |
 | `--limit` | whole number |  |  |
 

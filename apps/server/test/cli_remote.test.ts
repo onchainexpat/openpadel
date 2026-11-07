@@ -45,10 +45,10 @@ async function allowInBrowser(link: string, email: string, cap = "0", decision =
   const r = await req("/oauth/decide", form({ req: id, decision, cap }, cookie));
   await fetch(r.headers.get("location")!);   // the browser follows the redirect to the command line's own page
 }
-async function allowDevice(link: string, email: string, cap = "0") {
+/** The person types the device's code on the club's page (a link never carries it), then allows it. */
+async function allowDevice(link: string, typed: string, email: string, cap = "0") {
   const cookie = await signInAt(link, email);
-  const u = new URL(link);
-  const page = await (await req(`${u.pathname}${u.search}`, { headers: { cookie } })).text();
+  const page = await (await req("/oauth/device", form({ code: typed }, cookie))).text();
   assert.match(page, /your agent showed you this same code/);
   const code = page.match(/name="code" value="([^"]+)"/)![1]!, id = page.match(/name="req" value="([^"]+)"/)![1]!;
   const forged = await req("/oauth/device/decide", form({ code, decision: "allow", cap }, cookie));
@@ -81,7 +81,7 @@ async function signedIn(email: string, cap = "0") {
   const c = computer();
   const start = await c.kumi("login", BASE, "--device", "--no-wait", "--json");
   assert.equal(start.code, EXIT.sign_in_waiting, start.text);
-  await allowDevice(start.json().link, email, cap);
+  await allowDevice(start.json().link, start.json().code, email, cap);
   const done = await c.kumi("login", BASE, "--device", "--json");
   assert.equal(done.code, EXIT.done, done.text);
   return c;
@@ -139,11 +139,11 @@ test("a device with no browser: a link and a code, allowed from a phone; --no-wa
   assert.equal(start.code, EXIT.sign_in_waiting);
   const s = start.json();
   assert.match(s.code, /^[B-DF-HJ-NP-TV-XZ]{4}-[B-DF-HJ-NP-TV-XZ]{4}$/);
-  assert.equal(s.link, `${BASE}/oauth/device?code=${s.code}`);
+  assert.equal(s.link, `${BASE}/oauth/device`, "the page to type the code on: never a link with the code in it");
   const early = await c.kumi("login", BASE, "--device", "--no-wait", "--json");
   assert.equal(early.code, EXIT.sign_in_waiting, "not allowed yet: still waiting, the same code");
   assert.equal(early.json().code, s.code);
-  await allowDevice(s.link, DESK, "2500");
+  await allowDevice(s.link, s.code, DESK, "2500");
   const done = await c.kumi("login", BASE, "--device", "--json");
   assert.equal(done.code, EXIT.done, done.text);
   assert.equal(done.json().person, "Dana Desk");

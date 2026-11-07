@@ -111,6 +111,8 @@ export function makeApp(deps: AppDeps) {
     ["/auth/totp/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/recovery", new RateLimiter(20, 15 * 60_000)], ["/oauth/two-step", new RateLimiter(10, 15 * 60_000)],
     ["/oauth/register", new RateLimiter(10, 60 * 60_000)], ["/auth/passkey/sign-in/options", new RateLimiter(60, 15 * 60_000)],
     ["/oauth/device_authorization", new RateLimiter(10, 15 * 60_000)], ["/oauth/device/decide", new RateLimiter(20, 15 * 60_000)],
+    // A typed device code: guessing one would take billions of tries, and this keeps it that way.
+    ["/oauth/device", new RateLimiter(30, 15 * 60_000)],
   ]);
   // The consent page can make the server fetch a client's published identity from an address in the request, so
   // it's limited too (a sign-in on it reloads it a few times; 30 in 15 minutes is plenty).
@@ -245,7 +247,7 @@ export function makeApp(deps: AppDeps) {
   // ---- The MCP door: OAuth, then tools generated from the registry ----
   const publicUrl = (deps.publicUrl ?? "http://127.0.0.1:8790").replace(/\/$/, "");
   app.route("/", oauthRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, fetchMetadata: deps.fetchMetadata ?? defaultFetchMetadata, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"),
-    texter: deps.texts?.texter ?? null, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}), secondStepTries: secondStep }));
+    texter: deps.texts?.texter ?? null, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}), secondStepTries: secondStep, ip: ipOf }));
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"), tries: secondStep }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));

@@ -14,9 +14,14 @@ import { join } from "node:path";
 export interface ClubEntry {
   url: string; issuer: string; resource: string; token_endpoint: string; client_id: string;
   person: string; lang: "en" | "es"; club_name: string; time_zone: string; store: "keychain" | "file"; server_version: string;
+  /** Who signed in, and their connection at the club (whoami): a preview kept here is only ever theirs. */
+  person_id?: string; connection_id?: string;
 }
 export interface Tokens { access_token: string; refresh_token: string; expires_at: number }
-export interface RunEntry { club: string; tool: string; key: string; run_id: string; summary: string; expires_at: string; done_at?: string; result?: unknown }
+/** A preview made here: `input` is a hash of the command's input (a --key reused with a different one is refused),
+ *  `person` and `connection` whose it is, `targets` the ids it names (what a later change to the same thing shares). */
+export interface RunEntry { club: string; tool: string; key: string; run_id: string; summary: string; expires_at: string; done_at?: string; result?: unknown;
+  input?: string; person?: string; connection?: string; targets?: string[]; at?: string }
 interface Clubs { current: string | null; clubs: Record<string, ClubEntry> }
 
 export function configDir(env = process.env): string {
@@ -125,6 +130,9 @@ export class Store {
     const kept = [r, ...this.runs().filter((x) => x.run_id !== r.run_id && new Date(x.done_at ?? x.expires_at).getTime() > day)].slice(0, 200);
     this.write("runs.json", kept);
   }
+  dropRun(runId: string) { this.write("runs.json", this.runs().filter((r) => r.run_id !== runId)); }
+  /** A club's previews, gone: when someone else signs in to it on this computer, theirs aren't the new person's. */
+  dropRuns(club: string, keep: (r: RunEntry) => boolean = () => false) { this.write("runs.json", this.runs().filter((r) => r.club !== club || keep(r))); }
   pending(device: string): unknown { return this.read<Record<string, unknown>>("pending.json", {})[device] ?? null; }
   setPending(device: string, v: unknown | null) {
     const p = this.read<Record<string, unknown>>("pending.json", {});
