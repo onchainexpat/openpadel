@@ -19,6 +19,13 @@ server, `kumi setup plan` and `kumi setup apply` turn a `club.yaml` (see
 [`club.example.yaml`](club.example.yaml)) into the club, and `kumi doctor` says what still needs
 doing.
 
+## Working the club from a terminal
+
+`kumi login https://staff.yourclub.com` signs an agent (or a person) in, and then the club's day runs from the command
+line: `kumi day`, `kumi people maria`, `kumi program create ...`. Each change previews first, and it never does more
+than the person could in the app. See [`docs/cli`](docs/cli/README.md); every command is in
+[`docs/cli/reference.md`](docs/cli/reference.md).
+
 ## Layout
 
 | Path | What |

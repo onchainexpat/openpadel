@@ -7,7 +7,32 @@ server starts.
 
 ## Unreleased
 
+### Added
+- **The club's commands from any computer, for agents and people** (`kumi`, [docs/cli](docs/cli/README.md)).
+  - `kumi login <the club's address>` signs in in the browser, or with `--device` by a link and a code allowed from a
+    phone, for a server or an agent's machine with no browser of its own.
+  - It's an ordinary assistant connection: in Profile, Assistants, with its weekly spending limit, and ended there or
+    by `kumi logout`.
+  - Then every read and change the club's assistant connector offers is a command: `kumi day`, `kumi people maria`,
+    `kumi program create`, `kumi enrolment join`. Each change previews first and changes nothing until
+    `kumi confirm <run_id>` or `--yes`, and the same command asked twice is done once.
+  - Staff can give names where ids go (`--person "Maria Lopez"`), and a time without a zone is on the club's clock.
+  - Every command takes `--json`, and the exit codes say what happened.
+  - What's only done in the app stays there, as for any assistant.
+  - Every command is listed, with who may use it, in [docs/cli/reference.md](docs/cli/reference.md), made from the
+    catalogue itself.
+- **Staff reads for assistants.** A staff member's assistant (Claude, ChatGPT, or the command line) can now read what
+  the staff app's main screens show: the day at a location, people, a person's page, programs, courts, coaches,
+  alerts, reports, memberships and members' questions.
+  - Each goes through that screen's own checks: a coach reads only their own work, and support access never reaches
+    an assistant.
+  - Emails and phone numbers come shortened, enough to tell two people apart.
+- **Signing in from a device with no browser.** An assistant or a program on a machine with no browser can ask for a
+  code, which the person allows at the club's `/oauth/device` page after signing in as usual.
+
 ### Changed
+- An assistant's list of what it can do is made from one read of the person's roles instead of one per action, so
+  every assistant call answers sooner (about 15 ms instead of 180 for an owner).
 - A card payment found after a restore that the staff keep as paid elsewhere now counts in the books the way they
   say, so Kumi's revenue matches the payment provider's. Reports, "Paid with nothing here", offers two ways to keep
   it, and the preview says plainly which was chosen:

@@ -1,5 +1,6 @@
 // kumi: the command line a club owner, or the owner's agent, runs on the server. Nothing prompts, every
-// command takes --json, and none of them prints a secret.
+// command takes --json, and none of them prints a secret. The club's own commands (kumi login, then a booking, a
+// clinic, a refund) run from any computer: cli_remote.ts, and docs/cli/README.md.
 //   kumi setup plan [club.yaml]    what setting the club up from the file would change (changes nothing)
 //   kumi setup apply [club.yaml]   make those changes; run it again after editing the file
 //   kumi import members <file.csv> [--apply]   members from a spreadsheet (a preview unless --apply)
@@ -103,7 +104,17 @@ async function formatOf(url: string): Promise<void> {
   try { await loadClubFormat(db); } catch { /* not a club's database (yet): US dollars, as before */ } finally { await db.destroy(); }
 }
 
+/** The commands that run on the club's server itself, against its database. Everything else is the club's own
+ *  commands, from any computer signed in to the club (cli_remote.ts: kumi login, kumi help). */
+const ON_SERVER = new Set(["setup", "import", "texting", "usage", "export", "moved", "read-only", "leaving", "held", "doctor", "reset-sign-in", "owner", "backup",
+  "offsite", "pitr", "restore", "restore-test", "rotate-key", "update", "rollback", "releases"]);
+
 async function main(): Promise<number> {
+  const first = args.find((a) => !a.startsWith("-"));
+  if (first !== undefined && !ON_SERVER.has(first)) {
+    const { remoteMain } = await import("./cli_remote.ts");
+    return remoteMain(args);
+  }
   if (cmd === "setup" && (sub === "plan" || sub === "apply")) {
     // A relative path is from where the person ran kumi (the server's wrapper runs it from the app's folder).
     const path = resolve(process.env.KUMI_CALLER_DIR ?? ".", rest[0] ?? process.env.KUMI_CLUB_FILE ?? "club.yaml");
@@ -447,6 +458,7 @@ async function main(): Promise<number> {
     } finally { await db.destroy(); }
   }
   console.log(t(lang, "cli.usage"));
+  console.log(t(lang, "cli.usage_club"));
   return cmd ? 2 : 0;
 }
 

@@ -16,6 +16,10 @@ import type { Mailer } from "./mailer.ts";
 import { RateLimiter } from "./limits.ts";
 
 export const ACCESS_SECONDS = 3600, REFRESH_DAYS = 30, CODE_SECONDS = 300, SCOPE = "kumi", REGISTER_BYTES = 16_384, UNUSED_CLIENT_DAYS = 7;
+/** A sign-in from a device with no browser of its own (RFC 8628): how long its code waits, and how often it may ask. */
+export const DEVICE_SECONDS = 600, DEVICE_INTERVAL = 5, DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
+const USER_CODE_LETTERS = "BCDFGHJKLMNPQRSTVWXZ";   // no vowels, so a code never spells a word; no look-alike digits
+export const userCodeOf = (raw: string) => raw.toUpperCase().replace(/[^A-Z]/g, "");
 /** What a person can let an assistant spend for them a week, chosen as they connect it ($0 unless they pick more;
  *  any amount up to $500 later, in the app). */
 export const CAP_CHOICES = [0, 2500, 5000, 10000, 20000];
@@ -153,7 +157,8 @@ export function oauthRoutes(deps: OAuthDeps) {
   app.get("/.well-known/oauth-protected-resource/mcp", prm);
   app.get("/.well-known/oauth-authorization-server", (c) => c.json({
     issuer, authorization_endpoint: `${issuer}/oauth/authorize`, token_endpoint: `${issuer}/oauth/token`, registration_endpoint: `${issuer}/oauth/register`,
-    response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"],
+    device_authorization_endpoint: `${issuer}/oauth/device_authorization`,
+    response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token", DEVICE_GRANT], code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"], scopes_supported: [SCOPE], client_id_metadata_document_supported: true,
   }));
 
@@ -177,13 +182,10 @@ export function oauthRoutes(deps: OAuthDeps) {
   // the club texts. Only a number already confirmed on an account is ever texted here (no joining), so the page
   // needs no bot check for it; the club's limits on texts per number and per hour apply as everywhere.
   const phoneOn = () => phoneSignInOn(deps.texter ?? null);
-  app.get("/oauth/authorize", async (c) => {
-    const lang = deps.lang(c), q = c.req.query();
-    if (q.response_type !== "code" || !q.client_id || !q.redirect_uri || !q.code_challenge || q.code_challenge_method !== "S256") throw new KumiError("error.oauth_request", {}, 400);
-    if (q.resource && !resources.includes(q.resource)) throw new KumiError("error.oauth_request", {}, 400);
-    const client = await resolveClient(deps, fetched, q.client_id);
-    if (!client.redirect_uris.includes(q.redirect_uri)) throw new KumiError("error.oauth_client", {}, 400);
-    const clubName = await club(), me = deps.me(c);
+  /** What comes before a consent screen (the assistant's or a device's): signing in, by an emailed code or (when the
+   *  club texts) a texted one; then the second step for someone who signs in with two; and no consent at all for an
+   *  account made only for support access. Null once the person may see the consent screen. */
+  async function beforeConsent(c: Context, lang: Lang, clubName: string, me: ReturnType<OAuthDeps["me"]>): Promise<Response | null> {
     if (!me) {
       const back = c.req.url, sent = Boolean(c.req.query("sent")), byPhone = c.req.query("by") === "phone" && phoneOn();
       const other = new URL(back); other.searchParams.delete("sent"); other.searchParams.delete("email"); other.searchParams.delete("phone");
@@ -207,6 +209,23 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     // An account made only for support access has nothing of its own for an assistant, and support access is never
     // through one (support.ts): no consent screen for it.
     if (await supportOnly(deps.db, me.id)) return c.html(page(lang, t(lang, "consent.support_title"), html`<p>${t(lang, "consent.support_only", { club: clubName })}</p>`), 403);
+    return null;
+  }
+  /** The sign-in and second-step forms go back only to this club's own consent screens. */
+  const backTo = (raw: unknown) => {
+    const u = new URL(String(raw ?? ""), issuer);
+    if (u.origin !== new URL(issuer).origin || (u.pathname !== "/oauth/authorize" && u.pathname !== "/oauth/device")) throw new KumiError("error.oauth_request", {}, 400);
+    return u;
+  };
+  app.get("/oauth/authorize", async (c) => {
+    const lang = deps.lang(c), q = c.req.query();
+    if (q.response_type !== "code" || !q.client_id || !q.redirect_uri || !q.code_challenge || q.code_challenge_method !== "S256") throw new KumiError("error.oauth_request", {}, 400);
+    if (q.resource && !resources.includes(q.resource)) throw new KumiError("error.oauth_request", {}, 400);
+    const client = await resolveClient(deps, fetched, q.client_id);
+    if (!client.redirect_uris.includes(q.redirect_uri)) throw new KumiError("error.oauth_client", {}, 400);
+    const clubName = await club(), me = deps.me(c);
+    const first = await beforeConsent(c, lang, clubName, me);
+    if (first || !me) return first!;
     const id = b64url(randomBytes(16));
     pending.set(id, { at: Date.now(), clientName: client.name, published: client.published ? client : undefined, params: { client_id: client.client_id, redirect_uri: q.redirect_uri, code_challenge: q.code_challenge, state: q.state, scope: SCOPE, resource: q.resource || resources[0]! } });
     const host = new URL(q.redirect_uri).host;
@@ -221,8 +240,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
   app.post("/oauth/sign-in", async (c) => {
     const f = await c.req.parseBody(), lang = deps.lang(c);
     const email = String(f.email ?? "");
-    const u = new URL(String(f.back ?? ""), issuer);   // only ever back to this club's own consent page
-    if (u.origin !== new URL(issuer).origin || u.pathname !== "/oauth/authorize") throw new KumiError("error.oauth_request", {}, 400);
+    const u = backTo(f.back);   // only ever back to this club's own consent page
     if (f.phone !== undefined) {
       if (!phoneOn()) throw new KumiError("error.phone_sign_in_off", {}, 409);
       const phone = textablePhone(String(f.phone));
@@ -254,8 +272,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
 
   app.post("/oauth/two-step", async (c) => {
     const f = await c.req.parseBody(), me = deps.me(c);
-    const u = new URL(String(f.back ?? ""), issuer);
-    if (u.origin !== new URL(issuer).origin || u.pathname !== "/oauth/authorize") throw new KumiError("error.oauth_request", {}, 400);
+    const u = backTo(f.back);
     if (!me) throw new KumiError("error.signed_out", {}, 401);
     if (!secondStep.take(me.id, deps.now().getTime())) throw new KumiError("error.too_many_attempts", {}, 429);
     if (!(await useAuthenticatorCode(deps.db, me.id, String(f.code ?? ""), deps.now()))) throw new KumiError("error.bad_factor_code", {}, 401);
@@ -282,6 +299,81 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     await deps.db.insertInto("oauth_code").values({ code_hash: sha(code), grant_id: grantId, redirect_uri: p.params.redirect_uri, code_challenge: p.params.code_challenge, resource: p.params.resource, expires_at: new Date(deps.now().getTime() + CODE_SECONDS * 1000), consumed_at: null }).execute();
     u.searchParams.set("code", code);
     return c.redirect(u.toString(), 302);
+  });
+
+  // ---- A device with no browser of its own (RFC 8628): the command line on a server, or an agent's machine ----
+  // The device asks for a code and shows it with this address; the person opens it on their phone or computer, signs
+  // in as on the consent page, checks the code matches and allows it, with the same weekly limit; the device, asking
+  // every few seconds, then gets its tokens. Kept in memory, ten minutes each, as the consent screens are.
+  type Device = { at: number; clientId: string; clientName: string; userCode: string; resource: string; status: "waiting" | "allowed" | "denied"; grantId?: string; polled: number; interval: number;
+    /** The consent screen shown, and to whom: its answer must carry this, as the assistant's consent does (req). */
+    consent?: { id: string; personId: string } };
+  const devices = new Map<string, Device>(), byUserCode = new Map<string, string>();
+  const tidyDevices = () => {
+    for (const [k, d] of devices) if (Date.now() - d.at > DEVICE_SECONDS * 1000) { devices.delete(k); byUserCode.delete(d.userCode); }
+  };
+  const deviceOf = (raw: string | undefined) => {
+    tidyDevices();
+    const k = byUserCode.get(userCodeOf(raw ?? ""));
+    return k ? { key: k, d: devices.get(k)! } : null;
+  };
+  const shownCode = (u: string) => `${u.slice(0, 4)}-${u.slice(4)}`;
+
+  app.post("/oauth/device_authorization", async (c) => {
+    const f = await c.req.parseBody();
+    const client = await deps.db.selectFrom("oauth_client").select(["client_id", "name"]).where("client_id", "=", String(f.client_id ?? "")).executeTakeFirst();
+    if (!client) return c.json({ error: "invalid_client" }, 400);
+    const resource = f.resource ? String(f.resource) : resources[0]!;
+    if (!resources.includes(resource)) return c.json({ error: "invalid_target" }, 400);
+    tidyDevices();
+    if (devices.size >= 500) return c.json({ error: "slow_down" }, 429);
+    const deviceCode = b64url(randomBytes(32));
+    let userCode = "";
+    do userCode = Array.from(randomBytes(8), (b) => USER_CODE_LETTERS[b % USER_CODE_LETTERS.length]).join(""); while (byUserCode.has(userCode));
+    devices.set(sha(deviceCode), { at: Date.now(), clientId: client.client_id, clientName: client.name ?? "An app", userCode, resource, status: "waiting", polled: 0, interval: DEVICE_INTERVAL });
+    byUserCode.set(userCode, sha(deviceCode));
+    return c.json({ device_code: deviceCode, user_code: shownCode(userCode), verification_uri: `${issuer}/oauth/device`, verification_uri_complete: `${issuer}/oauth/device?code=${shownCode(userCode)}`,
+      expires_in: DEVICE_SECONDS, interval: DEVICE_INTERVAL }, 200, { "cache-control": "no-store" });
+  });
+
+  app.get("/oauth/device", async (c) => {
+    const lang = deps.lang(c), clubName = await club(), raw = c.req.query("code");
+    const enter = (note?: string) => c.html(page(lang, t(lang, "consent.device_enter_title", { club: clubName }), html`${note ? html`<p>${note}</p>` : ""}
+<form method="get" action="/oauth/device"><label>${t(lang, "consent.device_enter_label")}<input name="code" required autocomplete="off" autocapitalize="characters"></label><button class="primary">${t(lang, "consent.device_continue")}</button></form>`));
+    if (!raw) return enter();
+    const found = deviceOf(raw);
+    if (!found || found.d.status !== "waiting") return enter(t(lang, "consent.device_unknown"));
+    const me = deps.me(c);
+    const first = await beforeConsent(c, lang, clubName, me);
+    if (first || !me) return first!;
+    found.d.consent = { id: b64url(randomBytes(16)), personId: me.id };
+    return c.html(page(lang, t(lang, "consent.title", { client: found.d.clientName, club: clubName }), html`
+<p>${t(lang, "consent.device_body", { client: found.d.clientName, club: clubName })}</p>
+<p style="font-size:28px;letter-spacing:4px;font-weight:600">${shownCode(found.d.userCode)}</p>
+<p>${t(lang, "consent.signed_in_as", { name: me.display_name })}</p>
+<form method="post" action="/oauth/device/decide"><input type="hidden" name="code" value="${found.d.userCode}"><input type="hidden" name="req" value="${found.d.consent.id}">
+<label>${t(lang, "consent.cap_label")}<select name="cap" style="font:inherit;padding:8px;width:100%;margin:6px 0 4px">${CAP_CHOICES.map((x) => html`<option value="${x}">${x ? money(x, lang) : t(lang, "consent.cap_none")}</option>`)}</select></label>
+<p style="font-size:14px;color:#55605c">${t(lang, "consent.cap_note")}</p>
+<button class="primary" name="decision" value="allow">${t(lang, "consent.allow")}</button> <button name="decision" value="deny">${t(lang, "consent.deny")}</button></form>`));
+  });
+
+  app.post("/oauth/device/decide", async (c) => {
+    const f = await c.req.parseBody(), me = deps.me(c), lang = deps.lang(c);
+    const found = deviceOf(String(f.code ?? ""));
+    if (!found || found.d.status !== "waiting") throw new KumiError("error.oauth_expired", {}, 400);
+    if (!me || me.gate) throw new KumiError("error.signed_out", {}, 401);
+    // Only the answer to the consent screen this person was shown: never a form posted from anywhere else.
+    if (!found.d.consent || found.d.consent.id !== String(f.req ?? "") || found.d.consent.personId !== me.id) throw new KumiError("error.oauth_expired", {}, 400);
+    if (await supportOnly(deps.db, me.id)) throw new KumiError("error.support_no_assistant", {}, 403);
+    if (f.decision !== "allow") {
+      found.d.status = "denied";
+      return c.html(page(lang, t(lang, "consent.device_denied_title"), html`<p>${t(lang, "consent.device_denied", { client: found.d.clientName })}</p>`));
+    }
+    const grantId = uuidv7(), cap = Number(f.cap ?? 0);
+    await deps.db.insertInto("oauth_grant").values({ id: grantId, person_id: me.id, client_id: found.d.clientId, scopes: [SCOPE], revoked_at: null,
+      weekly_cap_cents: CAP_CHOICES.includes(cap) ? cap : 0 }).execute();
+    found.d.status = "allowed"; found.d.grantId = grantId;
+    return c.html(page(lang, t(lang, "consent.device_done_title"), html`<p>${t(lang, "consent.device_done", { client: found.d.clientName })}</p>`));
   });
 
   app.post("/oauth/token", async (c) => {
@@ -331,6 +423,21 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
         await trx.updateTable("oauth_token").set({ used_at: now }).where("token_hash", "=", row.token_hash).execute();
         return issue(row.grant_id, row.family, row.resource, trx);
       });
+    }
+    if (f.grant_type === DEVICE_GRANT) {
+      // RFC 8628 3.5: waiting, asked too often, said no, or gone; or the tokens, once.
+      const key = sha(String(f.device_code ?? "")), d = devices.get(key);
+      if (!d || Date.now() - d.at > DEVICE_SECONDS * 1000) { if (d) { devices.delete(key); byUserCode.delete(d.userCode); } return err("expired_token"); }
+      if (d.clientId !== client.client_id) return err("invalid_grant");
+      if (d.status === "denied") { devices.delete(key); byUserCode.delete(d.userCode); return err("access_denied"); }
+      if (d.status === "waiting") {
+        const early = Date.now() - d.polled < d.interval * 1000;
+        d.polled = Date.now();
+        if (early) { d.interval += 5; return err("slow_down"); }
+        return err("authorization_pending");
+      }
+      devices.delete(key); byUserCode.delete(d.userCode);
+      return issue(d.grantId!, uuidv7(), d.resource);
     }
     return c.json({ error: "unsupported_grant_type" }, 400);
   });

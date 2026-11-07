@@ -25,15 +25,18 @@ const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
 ];
 export const readArea = (path: string) => READ_AREAS.find(([re]) => re.test(path))?.[1] ?? null;
-export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang) {
+/** `assistant`: read through the assistant door (mcp.ts) for someone's own connection, where support access never
+ *  reaches (support.ts): only the person's own staff roles count. */
+export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { assistant?: boolean } = {}) {
   const app = new Hono();
+  const supportKeys = (id: string) => opts.assistant ? Promise.resolve([] as string[]) : supportRoleKeys(db, id);
   app.use("/staff/*", async (c, next) => {
     const m = me(c);
     if (!m) throw new KumiError("error.signed_out", {}, 401);
     const staff = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
       .where("person_role.person_id", "=", m.id).where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst();
     // Support access the owner gave (support.ts) reads as a manager would, while it lasts.
-    if (!staff && !(await supportRoleKeys(db, m.id)).length) throw new KumiError("error.staff_only", {}, 403);
+    if (!staff && !(await supportKeys(m.id)).length) throw new KumiError("error.staff_only", {}, 403);
     // Someone whose only staff roles are ones the club made reads only the areas those roles cover.
     const areas = await customAreas(db, m.id), area = readArea(c.req.path);
     if (areas && area && !areas.includes(area)) throw new KumiError("error.staff_only", {}, 403);
@@ -48,7 +51,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   const coachOnly = async (id: string) => { const k = (await rolesOf(id)).filter((r) => r !== "member"); return k.length > 0 && k.every((r) => r === "coach"); };
 
   const rolesOf = async (id: string) => [...(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
-    .where("person_role.person_id", "=", id).where("person_role.active", "=", true).execute()).map((r) => r.key), ...await supportRoleKeys(db, id)];
+    .where("person_role.person_id", "=", id).where("person_role.active", "=", true).execute()).map((r) => r.key), ...await supportKeys(id)];
   const deskUp = (roles: string[]) => roles.some((r) => ["owner", "manager", "front_desk"].includes(r));
 
   // ---- Coaches ----

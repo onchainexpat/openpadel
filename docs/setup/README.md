@@ -583,6 +583,10 @@ Not done yet, and each needs a decision before a club outside the US goes live:
   spent this week, change its limit (up to $500) or disconnect it. Staff working for the club through an
   assistant (a refund, someone else's booking) aren't limited, since it isn't their own money; every change
   is still previewed first, and an assistant never does more than the person could.
+- **Staff's assistants, and the command line.** Staff connect theirs the same way. A staff member's assistant also
+  reads what their staff screens show (the day, people, programs, alerts, reports), with emails and phone numbers
+  shortened. Agents that prefer a terminal use `kumi login <the staff app's address>`, then the club's commands
+  ([docs/cli](../cli/README.md)): the same connection, the same previews and limits.
 - **What an assistant never does.** Its own limit, how the person signs in, deleting the account,
   accepting a waiver, moving their own level, downloading their data, the family card and saved cards, a
   parent's say over their children (a junior's login and rules, a charge past them, a second parent, leaving

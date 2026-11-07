@@ -110,10 +110,11 @@ export function makeApp(deps: AppDeps) {
     ["/auth/passkey/sign-in/verify", new RateLimiter(30, 15 * 60_000)], ["/my/phone/start", new RateLimiter(10, 60 * 60_000)], ["/my/phone/verify", new RateLimiter(20, 15 * 60_000)],
     ["/auth/totp/verify", new RateLimiter(20, 15 * 60_000)], ["/auth/recovery", new RateLimiter(20, 15 * 60_000)], ["/oauth/two-step", new RateLimiter(10, 15 * 60_000)],
     ["/oauth/register", new RateLimiter(10, 60 * 60_000)], ["/auth/passkey/sign-in/options", new RateLimiter(60, 15 * 60_000)],
+    ["/oauth/device_authorization", new RateLimiter(10, 15 * 60_000)], ["/oauth/device/decide", new RateLimiter(20, 15 * 60_000)],
   ]);
   // The consent page can make the server fetch a client's published identity from an address in the request, so
   // it's limited too (a sign-in on it reloads it a few times; 30 in 15 minutes is plenty).
-  const getLimits = new Map<string, RateLimiter>([["/oauth/authorize", new RateLimiter(30, 15 * 60_000)]]);
+  const getLimits = new Map<string, RateLimiter>([["/oauth/authorize", new RateLimiter(30, 15 * 60_000)], ["/oauth/device", new RateLimiter(60, 15 * 60_000)]]);
   app.use("*", async (c, next) => {
     const l = c.req.method === "POST" ? limits.get(c.req.path) : c.req.method === "GET" ? getLimits.get(c.req.path) : undefined, ip = l ? ipOf(c) : null;
     if (l && ip && !l.take(ip)) throw new KumiError("error.too_many_requests", {}, 429);
@@ -280,7 +281,12 @@ export function makeApp(deps: AppDeps) {
     const reads = memberRoutes(db, () => ({ id: who.id }), () => (isLang(who.locale) ? who.locale : "en"), { production: deps.production ?? false, now });
     reads.onError((e) => { throw e; });
     const read = async (path: string) => (await reads.request(`http://kumi${path}`)).json();
-    return handleMcp(c.req.raw, await mcpServerFor(db, who, now, read));
+    // And for staff, the staff screens' reads with their own checks, never through support access (reads.ts).
+    const lang = isLang(who.locale) ? who.locale : "en";
+    const staffReads = readRoutes(db, () => ({ id: who.id, locale: lang }), () => lang, { assistant: true });
+    staffReads.onError((e) => { throw e; });
+    const readStaff = async (path: string) => (await staffReads.request(`http://kumi${path}`)).json();
+    return handleMcp(c.req.raw, await mcpServerFor(db, who, now, read, readStaff));
   });
 
   // ---- Sign in by an emailed code ----

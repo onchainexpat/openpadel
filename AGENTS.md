@@ -5,6 +5,11 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
 
 - **Setting up Kumi for a club** (an owner, or the owner's agent): start at
   [`docs/setup/README.md`](docs/setup/README.md) and follow the rules just below.
+- **Working a club day to day** (an owner's, a desk's or a coach's agent): use the command line first,
+  [`docs/cli/README.md`](docs/cli/README.md). `kumi login <the staff app's address> --device --no-wait --json`
+  gives a link and a code for the person to allow, then `kumi help`. Every change previews first: show the
+  person the preview's words and confirm only on their say-so. Chat assistants (Claude, ChatGPT) use the club's
+  connector at `/mcp` instead: the same tools, the same rules.
 - **Changing Kumi's code:** the rules further down.
 
 ## Setting up a club: the rules
