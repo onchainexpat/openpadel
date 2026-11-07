@@ -430,7 +430,9 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
       desk: !free && !pass && choice !== "credit" && p.method !== "credit" && p.provider === "none", ...(choice === "credit" || p.method === "credit" ? { credit: true } : {}),
       ...(pass ? { pass: true, whole: Math.max(0, p.amount_cents - Number(p.back)) } : {}), ...(free ? { free: true } : {}) };
   });
-  return { percent, early, hours: policy.free_cancel_hours, refunds };
+  // Nothing left of any of it to give back (refunded already, by the desk or after the backup): said as such, not as late.
+  const left = paid.reduce((n, p) => n + Math.max(0, p.amount_cents - Number(p.back)), 0);
+  return { percent, early, hours: policy.free_cancel_hours, refunds, left };
 }
 export const bookingCancel = defineAction({
   name: "booking.cancel", version: 1,
@@ -456,7 +458,8 @@ export const bookingCancel = defineAction({
       : passes.length && passes.length === r.refunds.length ? both(passes.every((x) => x.cents >= x.whole) ? "plan.booking.refund_pass_back" : "plan.booking.refund_pass_spent")
       : credit > 0 && credit === total ? both("plan.booking.refund_credit", { amount: usd(total) })
       : joiners ? both(host ? "plan.booking.refund_open" : "plan.booking.no_refund_open", { host: usd(host), others: usd(joiners), hours })
-      : !total ? both("plan.booking.no_refund", { hours })
+      // Why nothing comes back: the staff chose nothing, everything paid has gone back already, or it's late by the rule.
+      : !total ? (choice === "none" ? both("plan.booking.no_refund_chosen") : r.left === 0 ? both("plan.booking.no_refund_left") : both("plan.booking.no_refund", { hours }))
       : desk ? both(card ? "plan.booking.refund_card_desk" : "plan.booking.refund_desk", { amount: usd(desk), card: usd(card) }) : both("plan.booking.refund", { amount: usd(total) });
     return { title: both("action.booking.cancel"), summary: both(lesson ? "plan.lesson.cancel_refund" : "plan.booking.cancel_refund", { code: b.code, refund: money }), reads: [read], locationId: b.location_id,
       ownerIds: [...organisers, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" }, details: { refunds: r.refunds } };

@@ -57,14 +57,14 @@ test("the cut-short alert stays on Today through the 30-second job's runs, until
   const [a] = (await db.selectFrom("event_outbox").select(["id", "payload"]).where("topic", "=", "ops.failed").execute())
     .filter((e) => /newest 20,000/.test((e.payload as { error: string }).error));
   assert.ok(a, "the staff were told");
-  const open = () => staffAlerts(db, owner.personId!, NOW).then((x) => x.open.filter((o) => o.event_id === a!.id && o.kind === "ops_failed_staff"));
+  const open = () => staffAlerts(db, owner.personId!, NOW).then((x) => x.open.filter((o) => o.event_id === a!.id && o.kind === "ops_restore_staff"));
   assert.equal((await open()).length, 1, "on the owner's Today");
   // The server's 30-second job, run a while (it closes the restore's other alert once Payments has nothing left).
   for (let i = 1; i <= 40; i++) await reviewFound(db, new Date(NOW.getTime() + i * 30_000));
   assert.equal((await open()).length, 1, "still there after 20 minutes of the job");
   assert.equal((await db.selectFrom("staff_alert").select("id").where("event_id", "=", a!.id).execute()).length, 0, "closed by nobody");
   // The owner marks it handled: gone from the list, with their name.
-  await run(db, "alert.handle", { event_id: a!.id, kind: "ops_failed_staff" }, owner, { now: NOW });
+  await run(db, "alert.handle", { event_id: a!.id, kind: "ops_restore_staff" }, owner, { now: NOW });
   assert.equal((await open()).length, 0);
   const done = (await staffAlerts(db, owner.personId!, NOW)).handled.find((h) => h.event_id === a!.id);
   assert.equal(done?.handled_by, "Robin Hale");

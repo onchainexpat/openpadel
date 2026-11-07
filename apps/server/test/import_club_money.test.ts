@@ -62,7 +62,9 @@ test("an export brought back to a server the club ran on before: what it deletes
   const [a] = await db.selectFrom("event_outbox").select("payload").where("topic", "=", "ops.failed").where(sql<string>`payload->>'job'`, "=", "restore_erase").execute();
   assert.ok(a, "the staff are told what to check");
   const words = (a!.payload as { words: { en: string; es: string } }).words;
-  assert.ok(words.en.includes(`(${money(4000, "en")} had been paid on them)`), words.en);
+  assert.ok(words.en.includes(`(${money(4000, "en")} had been paid)`), words.en);
+  assert.match(words.en, /Freed with nothing refunded after the restore: booking [A-Z0-9]+-[A-Z0-9]+ /, "which one, by its code");
+  assert.doesNotMatch(`${words.en} ${words.es}`, /Ann/, "never the deleted person's name");
   assert.match(words.en, /40,00\s€/, "euros, written the Spanish way");
   assert.match(words.es, /40,00\s€/);
   assert.doesNotMatch(`${words.en} ${words.es}`, /\$/, "no dollar amounts");

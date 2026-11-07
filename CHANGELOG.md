@@ -241,6 +241,14 @@ server starts.
   and the profile's "Your receipts" link is as easy to tap as a button.
 
 ### Fixed
+- What a browser check of the staff app showed on 6 November:
+  - Cancelling a court with nothing back said "it's less than 24 hours before" when that wasn't why: when the staff
+    chose nothing, or when everything paid on it had gone back already. It now says which.
+  - What a restore leaves for the staff to look at read as a failure ("... failed. Run kumi doctor"), pointed at
+    Payments instead of Reports, counted "2 card payment(s)", and could stop in the middle of a word. It now reads
+    "After a restore: ...", says what to do and where, opens on Reports, and keeps to whole sentences. When nothing is
+    left it just closes. Courts and places freed by deleting an account again are named by their code (never the
+    deleted person's name), so they can be found at the payment provider.
 - After a restore, when the payment provider's list was cut short (more than 20,000 card payments since the backup),
   the alert saying older ones weren't checked closed by itself within a minute. It's now an alert of its own that
   stays on Today until someone marks it handled, and says where to look for them.

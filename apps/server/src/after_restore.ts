@@ -28,7 +28,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { sql } from "kysely";
 import { newestLocal } from "./backups.ts";
-import { connect, eraseAfterRestore, holdableTopics, holdPending, migrate, MESSAGE_FP, openSupportCount, REPEAT_WINDOW_DAYS, runAsSystem, USAGE_KINDS, type Db, type HeldCounts, type Trx } from "@kumi/core";
+import { connect, eraseAfterRestore, fitWords, holdableTopics, holdPending, migrate, MESSAGE_FP, openSupportCount, REPEAT_WINDOW_DAYS, runAsSystem, USAGE_KINDS, type Db, type HeldCounts, type Trx } from "@kumi/core";
 
 export interface SentBefore {
   timeline: string;
@@ -270,8 +270,10 @@ async function eraseQueued(db: Db, people: GonePerson[], now: Date, check: Check
 async function tellCheck(db: Db, check: CheckItem[], now: Date) {
   if (!check.length) return;
   const n = (w: CheckItem["what"]) => check.filter((c) => c.what === w).length;
-  const words = { en: `After a restore: ${n("credit")} members' club credit differs from before it, ${n("gift_void") + n("gift_redeemed")} gift cards and ${n("payout")} credit pay-outs need a look (the restore's output lists them). Confirmations sent after the backup may refer to bookings or gift card codes this copy doesn't have.`.slice(0, 300),
-    es: `Tras una restauración: el saldo a favor de ${n("credit")} socios no coincide con el de antes, ${n("gift_void") + n("gift_redeemed")} tarjetas regalo y ${n("payout")} pagos de saldo necesitan revisión (la salida de la restauración los lista). Las confirmaciones enviadas después de la copia pueden referirse a reservas o códigos que esta copia no tiene.`.slice(0, 300) };
+  // Whole sentences (an alert is at most 300 characters): the second is left off rather than cut in the middle.
+  const words = fitWords([{ en: `${n("credit")} members' club credit differs from before the restore, and ${n("gift_void") + n("gift_redeemed")} gift cards and ${n("payout")} credit pay-outs need a look (the restore's output lists them).`,
+    es: `El saldo a favor de ${n("credit")} socios no coincide con el de antes de la restauración, y ${n("gift_void") + n("gift_redeemed")} tarjetas regalo y ${n("payout")} pagos de saldo necesitan revisión (la salida de la restauración los lista).` },
+  { en: "Confirmations sent after the backup may refer to bookings or gift card codes this copy doesn't have.", es: "Las confirmaciones enviadas después de la copia pueden referirse a reservas o códigos que esta copia no tiene." }]);
   await runAsSystem(db, "ops.report_failure", { job: "restore_erase", error: words.en, words }, "restore", { now }).catch((e) => console.error(`restore: couldn't tell the staff (${(e as Error).message})`));
 }
 /** Card payments and refunds the payment provider has from after the copy: checked when the server next starts (it

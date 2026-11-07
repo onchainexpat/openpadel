@@ -10,6 +10,7 @@ import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, FORMER_MEMBER, formerMember, money, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts";
+import { fitWords } from "./ops.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
@@ -486,9 +487,13 @@ export async function eraseAfterRestore(db: Db, now = new Date()): Promise<{ era
   }
   const paid = toCheck.filter((x) => x.paid_cents > 0);
   if (lastOwnerKept.length || paid.length) {
-    const parts = [lastOwnerKept.length ? both("ops.why_restore_erase_owner") : null,
-      paid.length ? both("ops.why_restore_erase_check", { count: paid.length, amount: usd(paid.reduce((n, x) => n + x.paid_cents, 0)) }) : null].filter((x): x is Text => Boolean(x));
-    const words = { en: parts.map((x) => x.en).join(" ").slice(0, 300), es: parts.map((x) => x.es).join(" ").slice(0, 300) };
+    // Which ones, by their code or program (never the deleted person's name: that's what was deleted), so the staff can
+    // find each at the payment provider; the first few, then how many more. Whole sentences, never a word cut short.
+    const shown = paid.slice(0, 4).map((x) => both(`ops.restore_freed_${x.what}`, { ref: x.ref }));
+    const more = paid.length > shown.length ? [both("ops.restore_freed_more", { count: paid.length - shown.length })] : [];
+    const list = { en: [...shown, ...more].map((x) => x.en).join(", "), es: [...shown, ...more].map((x) => x.es).join(", ") };
+    const words = fitWords([lastOwnerKept.length ? both("ops.why_restore_erase_owner") : null,
+      paid.length ? both("ops.why_restore_erase_check", { count: paid.length, list, amount: usd(paid.reduce((n, x) => n + x.paid_cents, 0)) }) : null].filter((x): x is Text => Boolean(x)));
     await runAsSystem(db, "ops.report_failure", { job: "restore_erase", error: words.en, words }, "restore", { now }).catch((e) => console.error(`privacy: couldn't tell the staff (${(e as Error).message})`));
   }
   return { erased, failed, lastOwnerKept, toCheck };

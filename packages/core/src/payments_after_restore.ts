@@ -11,14 +11,14 @@
 // is it listed, as a charge Kumi made that this copy doesn't know. Nothing with a payment row is ever refunded here.
 import * as z from "zod/mini";
 import { sql } from "kysely";
-import { both, money } from "@kumi/i18n";
+import { both, money, type Text } from "@kumi/i18n";
 import { defineAction, readRow, runAsSystem } from "./actions.ts";
 import type { Db } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post, type FoundIntent } from "./money.ts";
 import { leftOf, revenueType } from "./desk_pay.ts";
-import { jobFailed, jobWorked } from "./ops.ts";
+import { fitWords, jobFailed, jobWorked } from "./ops.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -42,13 +42,10 @@ async function tellFound(db: Db, now: Date, more: { stillBooked?: number } = {})
   const open = await db.selectFrom("payment_found").select((eb) => [eb.fn.countAll<string>().as("n")]).where("status", "=", "open").executeTakeFirstOrThrow();
   const n = Number(open.n), booked = more.stillBooked ?? 0;
   if (!n && !booked) return;
-  const en = [n ? `${n} card payment(s) the payment provider took have no record here (Payments, "Paid with nothing here"): refund each or record it as paid elsewhere.` : "",
-    booked ? `${booked} refund(s) made after the backup are for bookings or places still booked here: cancel each without a refund, or keep it.` : "",
-    "Confirmations sent after a backup may refer to things this copy doesn't have."].filter(Boolean).join(" ");
-  const es = [n ? `${n} pago(s) con tarjeta que el proveedor cobró no constan aquí (Pagos, "Pagado sin registro"): devuelve cada uno o regístralo como pagado por otra vía.` : "",
-    booked ? `${booked} devolución(es) hechas después de la copia son de reservas o plazas que aquí siguen reservadas: cancela cada una sin devolución, o mantenla.` : "",
-    "Las confirmaciones enviadas después de una copia pueden referirse a cosas que esta copia no tiene."].filter(Boolean).join(" ");
-  await jobFailed(db, "restore_money", en, now, { en: en.slice(0, 300), es: es.slice(0, 300) }).catch((e) => console.error(`payments: couldn't tell the staff (${(e as Error).message})`));
+  // Both lists are on Reports. Whole sentences, the most important first: the last is left off if they don't all fit.
+  const words = fitWords([n ? both("ops.why_restore_found", { count: n }) : null, booked ? both("ops.why_restore_still_booked", { count: booked }) : null,
+    both("ops.why_restore_confirmations")].filter((x): x is Text => Boolean(x)));
+  await jobFailed(db, "restore_money", words.en, now, words).catch((e) => console.error(`payments: couldn't tell the staff (${(e as Error).message})`));
 }
 /** The provider's list was cut short (20,000 of each): older card payments since the backup weren't looked at, and
  *  no later check will. An alert of its own, said once for this restore, that stays on Today until someone marks it

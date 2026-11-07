@@ -22,7 +22,7 @@ import { roleLabel } from "./roles.ts";
 import { needsTwoFactor } from "./two_factor.ts";
 import { skipRepeatsAfterRestore } from "./repeats.ts";
 import { movedAway } from "./club_exit.ts";
-import type { OpsJob } from "./ops.ts";
+import { isRestoreJob, type OpsJob } from "./ops.ts";
 import { currentPrices, monthOf, nextMonthStart, usageAllows } from "./usage.ts";
 import { lastClubExport } from "./club_exit.ts";
 import { mayAnswer } from "./actions.ts";
@@ -662,11 +662,16 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   // The server's own jobs: the owner and managers hear once when the backup, its offsite copy or the restore test starts failing.
   async "ops.failed"({ db }, p: { job: OpsJob; error: string; words?: Text }) {
+    // What a restore left to look at isn't a failure: said as what to do, opening where it's done (Reports for money).
+    if (isRestoreJob(p.job)) return (await managers(db)).map((to) => ({ to, kind: "ops_restore_staff", params: { what: both(`ops.restore_about_${p.job}` as Key), error: p.words ?? p.error },
+      purpose: "staff" as const, essential: true, email: true, link: p.job === "restore_erase" ? "/" : "/reports" }));
     const params = { job: both(`ops.job_${p.job}`), error: p.words ?? p.error };
     return (await managers(db)).map((to) => ({ to, kind: "ops_failed_staff", params, purpose: "staff" as const, essential: true, email: true, link: "/" }));
   },
   // ...and once more when it works again.
   async "ops.cleared"({ db }, p: { job: OpsJob }) {
+    // A restore's alert that needs nobody now (Payments has nothing left) just closes: nothing "works again".
+    if (isRestoreJob(p.job)) return [];
     return (await managers(db)).map((to) => ({ to, kind: "ops_cleared_staff", params: { job: both(`ops.job_${p.job}`) }, purpose: "staff" as const, essential: true, email: true, link: "/" }));
   },
   // The club's monthly meter (usage.ts): 80% of the cap, the cap, and past what's allowed over it. Each said once

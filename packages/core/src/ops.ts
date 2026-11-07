@@ -17,6 +17,25 @@ export const OPS_JOBS: OpsJob[] = ["backup", "offsite", "restore_test", "pitr", 
  *  the payment provider was cut short (payments_after_restore.ts): said once, until someone marks it handled. "jobs": the server's 30-second jobs (apps/server/src/jobs.ts), one of which keeps failing. "weekly_courts": members'
  *  weekly courts (booking_series.ts), some of which keep failing while the job itself runs. */
 const ALL_JOBS = ["backup", "offsite", "restore_test", "pitr", "pitr_test", "texts", "answers", "texting_number", "jobs", "weekly_courts", "restore_erase", "restore_money", "restore_unchecked"] as const;
+/** What a restore left for a person to look at: nothing failed, so their alert says "after a restore", with what to do,
+ *  not "failed" and kumi doctor (messages.ts, kind ops_restore_staff). */
+export const RESTORE_JOBS: readonly OpsJob[] = ["restore_erase", "restore_money", "restore_unchecked"];
+export const isRestoreJob = (job: string) => (RESTORE_JOBS as readonly string[]).includes(job);
+/** Sentences joined while they fit (an alert's words are at most 300 characters): whole ones, never a word cut in half;
+ *  a first one too long on its own is cut at a space, with an ellipsis. */
+export function fitWords(parts: Text[], max = 300): Text {
+  const fit = (lang: "en" | "es") => {
+    let out = "";
+    for (const part of parts.map((x) => x[lang].trim()).filter(Boolean)) {
+      const next = out ? `${out} ${part}` : part;
+      if (next.length <= max) { out = next; continue; }
+      if (!out) { const cut = part.slice(0, max - 1), at = cut.lastIndexOf(" "); out = `${at > 0 ? cut.slice(0, at) : cut}…`; }
+      break;
+    }
+    return out;
+  };
+  return { en: fit("en"), es: fit("es") };
+}
 
 export async function heartbeat(db: Db, name: OpsJob) {
   const r = await db.selectFrom("ops_heartbeat").selectAll().where("name", "=", name).executeTakeFirst();
@@ -69,11 +88,12 @@ export const opsReportCleared = defineAction({
     return { title: both("action.ops.report_cleared"), summary: both("plan.ops.report_cleared", { job: both(`ops.job_${i.job}`) }), reads: [], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
+    const kind = isRestoreJob(i.job) ? "ops_restore_staff" : "ops_failed_staff";
     const open = await ctx.trx.selectFrom("event_outbox").select("event_outbox.id").where("event_outbox.topic", "=", "ops.failed")
       .where(sql<string>`event_outbox.payload->>'job'`, "=", i.job)
-      .where((eb) => eb.not(eb.exists(eb.selectFrom("staff_alert").select("staff_alert.id").whereRef("staff_alert.event_id", "=", "event_outbox.id").where("staff_alert.kind", "=", "ops_failed_staff"))))
+      .where((eb) => eb.not(eb.exists(eb.selectFrom("staff_alert").select("staff_alert.id").whereRef("staff_alert.event_id", "=", "event_outbox.id").where("staff_alert.kind", "=", kind))))
       .execute();
-    for (const e of open) await ctx.insert("staff_alert", { id: uuidv7(), event_id: e.id, kind: "ops_failed_staff", handled_by: null, handled_at: ctx.now });
+    for (const e of open) await ctx.insert("staff_alert", { id: uuidv7(), event_id: e.id, kind, handled_by: null, handled_at: ctx.now });
     await ctx.emit("ops.cleared", { job: i.job });
     return null;
   },
