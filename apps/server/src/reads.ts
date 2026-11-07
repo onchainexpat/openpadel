@@ -6,7 +6,7 @@ import { sql } from "kysely";
 import { dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
 import { inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
-import { csvCell, readMoveInCsv, readPeopleCsv } from "./csv.ts";
+import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
 import { translatorOn } from "./translate.ts";
 import { clubFileStem } from "./file_names.ts";
@@ -618,22 +618,16 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   };
   app.get("/staff/move-in", async (c) => {
     await ownerOrManager(c);
-    const st = await moveInStatus(db);
+    const { upload, ...st } = await moveInStatus(db);
     const kept = await db.selectFrom("playtomic_player").select("benefits").execute();
     const plans = await db.selectFrom("membership_plan").select(["id", "name", "translations", "price_cents", "period", "join_in_app"]).where("active", "=", true).orderBy("sort").execute();
     const l = lang(c);
-    return c.json({ ...st, has_keys: Boolean(process.env.KUMI_PLAYTOMIC_CLIENT_ID && process.env.KUMI_PLAYTOMIC_SECRET && process.env.KUMI_PLAYTOMIC_TENANT_ID),
+    // The latest upload of the club's export, as the server read it: what staff choose from (never sent back as rows).
+    const up = upload ? { id: upload.id, sha256: upload.sha256, file_name: upload.file_name, at: upload.at, rows: upload.rows, wallet_columns: upload.wallet_columns,
+      problems: upload.problems.slice(0, 50).map((p) => ({ line: p.line, text: p.text[l] })), benefits: benefitCounts(upload.players) } : null;
+    return c.json({ ...st, upload: up, has_keys: Boolean(process.env.KUMI_PLAYTOMIC_CLIENT_ID && process.env.KUMI_PLAYTOMIC_SECRET && process.env.KUMI_PLAYTOMIC_TENANT_ID),
       benefits: benefitCounts(kept.map((k) => ({ benefits: k.benefits as { name: string; until: string | null }[] }))),
       plans: plans.map((p) => ({ id: p.id, name: inLang(p.name, p.translations, "name", l), join_in_app: p.join_in_app })) });
-  });
-  // Read the club's customer export; nothing changes until credit.bring_in or membership.bring_in is confirmed.
-  app.post("/staff/move-in/file", async (c) => {
-    await ownerOrManager(c);
-    const { csv } = await c.req.json().catch(() => ({ csv: "" })) as { csv?: string };
-    const club = await db.selectFrom("club").select("format_locale").executeTakeFirstOrThrow();
-    const r = readMoveInCsv(String(csv ?? "").slice(0, 5_000_000), { dayFirst: club.format_locale !== "en-US" });
-    const l = lang(c);
-    return c.json({ rows: r.rows, benefits: benefitCounts(r.rows), problems: r.problems.map((p) => ({ line: p.line, text: p.text[l] })), ...(r.fatal ? { fatal: r.fatal[l] } : {}) });
   });
 
   app.get("/staff/mirror", async (c) => {

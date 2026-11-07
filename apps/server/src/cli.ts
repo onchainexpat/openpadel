@@ -5,8 +5,9 @@
 //   kumi setup apply [club.yaml]   make those changes; run it again after editing the file
 //   kumi import members <file.csv> [--apply]   members from a spreadsheet (a preview unless --apply)
 //   kumi move-in players           read every player from Playtomic now, with their wallets and memberships
-//   kumi move-in wallets [<export.csv>] [--apply]   Playtomic wallet balances become club credit (a preview unless
-//                                  --apply): from the players last read, or the club's customer export
+//   kumi move-in wallets [<export.csv>] [--take-back] [--apply]   Playtomic wallet balances become club credit (a
+//                                  preview unless --apply): from the players last read, or the club's customer export;
+//                                  --take-back takes back what's less in Playtomic now (never while zeroing them there)
 //   kumi move-in memberships [<export.csv>] [--map "<Playtomic name>=<plan name or id|skip>"]... [--apply]
 //                                  Playtomic memberships carried over, paid through Playtomic's date (brought_in.ts)
 //   kumi doctor                    is everything working? each check, and the next step when it isn't
@@ -182,16 +183,17 @@ async function main(): Promise<number> {
         return r.ok ? 0 : 1;
       }
       const file = rest.find((a) => !a.startsWith("--") && !args[args.indexOf(a) - 1]?.startsWith("--map"));
-      let players: unknown[] | undefined;
+      // An export is read by the server first (playtomic.upload, as for the staff app's upload), and the move-in reads
+      // only what it kept: never rows from anywhere else.
+      let upload: { upload_id: string; sha256: string } | null = null;
       if (file) {
-        const club = await db.selectFrom("club").select("format_locale").executeTakeFirstOrThrow();
-        const r = readMoveInCsv(readFileSync(resolve(process.env.KUMI_CALLER_DIR ?? ".", file), "utf8"), { dayFirst: club.format_locale !== "en-US" });
-        if (r.fatal) { console.error(say(r.fatal)); return 2; }
-        for (const p of r.problems) console.log(`! ${say(p.text)}`);
-        players = r.rows;
+        const r = await run(db, "playtomic.upload", { csv: readFileSync(resolve(process.env.KUMI_CALLER_DIR ?? ".", file), "utf8"), file_name: file.slice(-200) }, owner);
+        for (const p of ((r.plan.details as { problems?: { text: Text }[] }).problems ?? [])) console.log(`! ${say(p.text)}`);
+        upload = r.result as { upload_id: string; sha256: string };
       }
-      const src = file ? { source: "file", players } : { source: "playtomic" };
-      let input: Record<string, unknown> = src, name = "credit.bring_in";
+      const src = upload ? { source: "file", ...upload } : { source: "playtomic" };
+      // Less in Playtomic than brought in is taken back only when asked (not while the wallets are being zeroed there).
+      let input: Record<string, unknown> = { ...src, ...(args.includes("--take-back") ? { take_back: true } : {}) }, name = "credit.bring_in";
       if (sub === "memberships") {
         // --map "Gold=Gold monthly": a plan here by its name or id, or skip.
         const plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).execute();

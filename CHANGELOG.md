@@ -35,24 +35,28 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     Playtomic page; a clash, a booking not held yet, or a taken-over one moved (another time or court), cancelled or
     paid in Playtomic is told to the owners once.
 - **Moving in from Playtomic: wallets and memberships** (the staff app's Playtomic page, Moving in; or
-  `openpadel move-in` on the server). Both read Playtomic's players through its Third Party API (with their wallets and
-  memberships, at Playtomic's pace) or the club's customer export, and match each to a member here by Playtomic id or
-  email (import the members first). Nothing changes in Playtomic: each preview says what to do there.
-  - **Wallets become club credit:** each member's balance, in the club's currency, is owed to them here like any club
-    credit (in the books as money owed, from "brought in", never revenue). Run again, only what changed moves, and the
-    same money never comes in twice; what they've since spent here isn't taken back. A wallet in another currency, or
-    one that can't be read, is listed and left. The owner and managers hear once, on Today, to set the wallets to zero
-    in Playtomic in the same hour, and it stays there until the owner says it's done (a manager asks); after that no
-    more credit comes over. Paying this credit out at the desk warns that it may have been topped up by card.
-  - **Memberships carry over,** each on the plan here that staff choose for it, paid through Playtomic's date, with
+  `openpadel move-in` on the server; [the guide](docs/setup/playtomic-wallets-and-memberships.md)). The owner's, with a
+  manager asking; never support access or an assistant. Both read only what the server read itself: Playtomic's
+  players through its Third Party API (at Playtomic's pace; a read that can't reach the end fails and says so), or the
+  club's customer export as uploaded and read on the server. Each player is matched to a member here by Playtomic id
+  or email (import the members first), and someone whose account was deleted isn't read again. Nothing changes in
+  Playtomic: each preview says what to do there.
+  - **Wallets become club credit:** each member's wallets, added up in the club's currency, are owed to them here like
+    any club credit (in the books as money owed, from "brought in", never revenue). Each member has one total from
+    Playtomic, so a re-run moves only the difference whatever the wallets are called, and the same money never comes in
+    twice. Less than before is taken back only when staff choose it, never while the wallets are being zeroed in
+    Playtomic, and never more than the member still holds. The same player on two rows counts once, and rows that
+    disagree are listed. The preview lists the export's columns read as wallets, any of which can be left out, and
+    anything over $10,000 for one person, in another currency or unreadable. The owner and managers hear once, on
+    Today, to set the wallets to zero in Playtomic in the same hour; it stays there, with a link to the page, until the
+    owner says it's done, and after that no more credit comes over. Paying this credit out at the desk warns that it
+    may have been topped up by card.
+  - **Memberships carry over,** each on the plan here that staff choose for it, paid through Playtomic's last day, with
     nothing charged now. On a plan members join in the app, it renews here from that day on a card the member adds in
-    the app: they're told a week before, and without a card it ends that day, with nothing charged and no failed
-    renewal for staff. On a desk plan, the next period is paid at the desk. Someone already a member here, a membership
-    with no end date and a commitment period (kept in the note, not held to) are said in the preview, as is stopping
-    the renewals in Playtomic.
-  - Through an assistant, neither is offered (money owed and memberships in bulk, from the club's own file): the app,
-    or the server's command.
-
+    the app, on Playtomic's day of the month: they're told a week before, and without a card it ends that day, with
+    nothing charged and no failed renewal for staff. On a desk plan, the next period is paid at the desk. Someone
+    already a member here, a plan that's full, a membership with no end date and a commitment period (kept in the note,
+    not held to) are said in the preview, as is stopping the renewals in Playtomic.
 ### Fixed
 - A person's page offered front desk (and anyone below a manager) the form to give or take away a role, including
   owner, and then refused it. Only owners and managers see it now. A refusal to give a role says what the role

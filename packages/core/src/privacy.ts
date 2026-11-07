@@ -76,11 +76,12 @@ async function runningFor(db: Db | Trx, personId: string, now: Date, opts: { che
   // A membership they pay for that will charge again (or is owed, or covers anyone else) has to end first.
   // One that won't charge again (set to end, or given at the desk) and covers only them ends with the account.
   for (const m of await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .select(["membership.id", "membership.status", "membership.source", "membership.cancel_at_period_end", "membership_plan.name"]).where("membership.person_id", "=", personId)
+    .select(["membership.id", "membership.status", "membership.source", "membership.cancel_at_period_end", "membership.brought_from", "membership.saved_method", "membership_plan.name"]).where("membership.person_id", "=", personId)
     .where("membership.status", "in", ["upcoming", "active", "past_due"]).execute()) {
     const others = await db.selectFrom("membership_member").select("id").where("membership_id", "=", m.id).where("person_id", "!=", personId)
       .where((w) => w.or([w("ends_at", "is", null), w("ends_at", ">", now)])).executeTakeFirst();
-    const charges = m.status === "past_due" || (m.source === "app" && (m.status === "upcoming" || !m.cancel_at_period_end));
+    // One carried over from Playtomic with no card here yet won't charge: it ends on its day by itself (brought_in.ts).
+    const charges = m.status === "past_due" || (m.source === "app" && (m.status === "upcoming" || !m.cancel_at_period_end) && !(m.brought_from && !m.saved_method));
     if (charges || others) add("membership", { plan: m.name });
   }
   const owed = await db.selectFrom("booking").select(sql<string>`coalesce(sum(balance_cents), 0)`.as("c")).where("organiser_id", "=", personId).where("balance_cents", ">", 0).executeTakeFirstOrThrow();
@@ -131,8 +132,9 @@ async function playtomicOf(db: Db | Trx, personId: string, email: string | null)
   const ids = (await db.selectFrom("external_ref").select("external_id").where("entity", "=", "person").where("entity_id", "=", personId).where("system", "=", "playtomic").execute()).map((r) => r.external_id);
   const read = ids.length || email ? await db.selectFrom("playtomic_player").select(["player_id", "name", "email", "phone", "wallets", "benefits", "read_at"])
     .where((w) => w.or([...(ids.length ? [w("player_id", "in", ids)] : []), ...(email ? [w(sql<string>`lower(email)`, "=", email.toLowerCase())] : [])])).execute() : [];
-  const credit = await db.selectFrom("brought_credit").select(["wallet_name", "cents", "at", "updated_at"]).where("person_id", "=", personId).orderBy("at").execute();
-  return { as_read: read.map((r) => ({ ...r, read_at: r.read_at.toISOString() })), wallets_brought_in: credit.map((c) => ({ wallet: c.wallet_name, cents: c.cents, at: c.at.toISOString(), updated_at: c.updated_at.toISOString() })) };
+  const credit = await db.selectFrom("brought_credit").select(["cents", "wallets", "at", "updated_at"]).where("person_id", "=", personId).executeTakeFirst();
+  return { as_read: read.map((r) => ({ ...r, read_at: r.read_at.toISOString() })),
+    credit_brought_in: credit ? { cents: credit.cents, wallets: credit.wallets, at: credit.at.toISOString(), updated_at: credit.updated_at.toISOString() } : null };
 }
 
 async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lang) {
@@ -612,6 +614,9 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   const ptIds = (await db.selectFrom("external_ref").select("external_id").where("entity", "=", "person").where("entity_id", "=", personId).where("system", "=", "playtomic").execute()).map((r) => r.external_id);
   if (ptIds.length || x.emails.length)
     await db.deleteFrom("playtomic_player").where((w) => w.or([...(ptIds.length ? [w("player_id", "in", ptIds)] : []), ...(x.emails.length ? [w(sql<string>`lower(email)`, "in", x.emails)] : [])])).execute();
+  // And any upload of the club's export that has them in it (kept 30 days for the move-in): read again if needed.
+  if (ptIds.length || x.emails.length)
+    await db.deleteFrom("playtomic_upload").where(sql<boolean>`EXISTS (SELECT 1 FROM jsonb_array_elements(rows) r WHERE lower(r->>'email') = ANY (${x.emails}::text[]) OR r->>'playtomic_id' = ANY (${ptIds}::text[]))`).execute();
   await db.deleteFrom("external_ref").where("entity", "=", "person").where("entity_id", "=", personId).execute();
   await db.deleteFrom("kid_rule").where("person_id", "=", personId).execute();
   // Friends and family links.

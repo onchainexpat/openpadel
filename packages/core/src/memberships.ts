@@ -263,11 +263,11 @@ async function startMembership(ctx: ApplyCtx, personId: string, plan: PlanRow, c
  *  more on the count of its periods (a pause moves the dates, never the count). */
 async function extend(ctx: ApplyCtx, membershipId: string, card?: { customer: string | null; method: string | null }) {
   const m = await ctx.trx.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .select(["membership.current_period_end", "membership.started_at", "membership.period", "membership.period_no", "membership.brought_from", "membership_plan.period as plan_period"]).where("membership.id", "=", membershipId).executeTakeFirstOrThrow();
+    .select(["membership.current_period_end", "membership.started_at", "membership.period", "membership.period_no", "membership.anchor_day", "membership_plan.period as plan_period"]).where("membership.id", "=", membershipId).executeTakeFirstOrThrow();
   const tz = await clubTz(ctx.trx), from = m.current_period_end ?? ctx.now;
-  // Its day of the month: the day it was joined, or for one carried over from Playtomic, the day Playtomic's period ended
-  // (each renewal keeps it, so a 31st renewed into a shorter month drifts to that month's last day).
-  const anchor = m.brought_from && m.current_period_end ? localParts(m.current_period_end, tz).d : localParts(m.started_at, tz).d;
+  // Its day of the month: the day it was joined, or one kept apart (anchor_day: a membership carried over from Playtomic
+  // renews on Playtomic's day), so a 31st that fell on a shorter month goes back to the 31st after.
+  const anchor = m.anchor_day ?? localParts(m.started_at, tz).d;
   await ctx.update("membership", membershipId, { status: "active", failed_attempts: 0, next_attempt_at: null, period_no: m.period_no + 1,
     current_period_end: addPeriod(from, m.period ?? m.plan_period, tz, anchor), ...(card?.method ? { saved_customer: card.customer, saved_method: card.method } : {}) });
 }

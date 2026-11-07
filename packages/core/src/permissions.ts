@@ -104,7 +104,10 @@ export const SUPPORT_NEVER = ["support.*", "role.*", "club.payment_*", "club.exp
   // A member's own credit and gift cards are theirs to spend and redeem, in the app (credit.ts, gift_cards.ts).
   "payment.use_credit", "gift_card.redeem",
   // A member's passes and the codes they use are theirs too (passes.ts, promo_codes.ts).
-  "payment.use_pass", "payment.use_promo"];
+  "payment.use_pass", "payment.use_promo",
+  // Moving in from Playtomic (brought_in.ts): money owed and memberships in bulk from the club's own data, and saying
+  // its wallets are at zero, are the club's own, like a members' import.
+  "playtomic.upload", "credit.bring_in", "membership.bring_in", "credit.brought_zeroed"];
 /** Their own account, which they look after like anyone (their second sign-in step first of all). */
 const SUPPORT_OWN = ["person.factor_*", "person.passkey_*", "person.update_profile"];
 

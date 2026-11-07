@@ -135,8 +135,11 @@ function AlertList({ a, clock, preview }: { a: Alerts; clock: (s: string) => str
       {a.open.length === 0 ? <p class="meta">{t("ui.alerts_none")}</p> : (
         <ul class="plain">{a.open.map((x) => (
           <li><strong>{x.subject}</strong><p class="meta">{x.body}</p>
-            <div class="row"><span class="meta">{clock(x.at)}</span><span>{x.link && <a href={x.link}>{t("ui.open")}</a>}{" "}
-              {mayDo("alert.handle") && <button class="small" onClick={() => preview("alert.handle", { event_id: x.event_id, kind: x.kind })}>{t("ui.alert_handled_button")}</button>}</span></div>
+            <div class="row"><span class="meta">{clock(x.at)}</span>
+              {/* The Playtomic wallets alert is done only on the move-in page, by saying they're at zero (brought_in.ts). */}
+              {x.kind === "playtomic_wallets_staff" ? <span><a href={x.link ?? "/playtomic/move-in"}>{t("ui.alert_wallets_go")}</a></span>
+                : <span>{x.link && <a href={x.link}>{t("ui.open")}</a>}{" "}
+                  {mayDo("alert.handle") && <button class="small" onClick={() => preview("alert.handle", { event_id: x.event_id, kind: x.kind })}>{t("ui.alert_handled_button")}</button>}</span>}</div>
           </li>))}</ul>
       )}
       {a.handled.length > 0 && <details><summary class="meta">{t("count.alerts_handled", { count: a.handled.length })}</summary>

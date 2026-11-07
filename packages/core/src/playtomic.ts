@@ -53,7 +53,7 @@ export class PlaytomicClient {
   /** The club's players (Playtomic's customers) with their wallets and benefits, 100 a page, cursor by cursor, at the
    *  same pace as bookings (brought_in.ts keeps what it reads). The docs show the list's paging fields but not the key
    *  the players come under, so the usual ones are tried. */
-  async players(maxPages = 300): Promise<unknown[]> {
+  async players(maxPages = 2000): Promise<unknown[]> {
     const out: unknown[] = [];
     let cursor: string | null = null;
     for (let page = 0; page < maxPages; page++) {
@@ -69,11 +69,14 @@ export class PlaytomicClient {
       const items = Array.isArray(d) ? d : [d?.players, d?.items, d?.data, d?.results].find(Array.isArray);
       if (!Array.isArray(items)) throw new Error("playtomic players: not a list");
       out.push(...items);
-      const next = Array.isArray(d) ? null : (typeof d?.next_cursor_id === "string" && d.next_cursor_id ? d.next_cursor_id : null);
-      if (!next || d?.has_more === false || !items.length) break;
+      // A bare list has no cursor: a full page of one may not be all of them, and a part is never taken for the whole.
+      if (Array.isArray(d)) { if (items.length >= 100) throw new Error("playtomic players: a full page with no way to the next"); return out; }
+      const next = typeof d?.next_cursor_id === "string" && d.next_cursor_id ? d.next_cursor_id : typeof d?.next_cursor_id === "number" ? String(d.next_cursor_id) : null;
+      if (d?.has_more === false || !items.length) return out;
+      if (!next) { if (d?.has_more === true) throw new Error("playtomic players: more to read, and no cursor to it"); return out; }
       cursor = next;
     }
-    return out;
+    throw new Error(`playtomic players: more than ${maxPages} pages, read stopped`);
   }
 }
 

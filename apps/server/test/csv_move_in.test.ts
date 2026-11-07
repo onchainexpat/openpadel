@@ -8,23 +8,25 @@ import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 import { readDay, readMoveInCsv } from "../src/csv.ts";
 
-test("wallet columns become wallets by their names, a total is left out, and a membership keeps its day", () => {
+test("each wallet column is a wallet, a blank cell an empty one; a total, a pending or used column isn't one", () => {
   const csv = [
-    "Name;Email;Playtomic ID;Wallet Club;Saldo monedero Bonos;Total balance;Category;Expiry date;Permanencia",
-    "Ann Lee;ANN@example.test;pt-1;25,50 €;4,50 €;30,00 €;Oro;30/11/2026;31/03/2027",
-    "Ben;;pt-2;0;;0;;;",
-    "Cal;cal@example.test;;;;;Plata;2026-12-15;",
-    "Dee;;;10 €;;10 €;;;",
-    "Eve;eve@example.test;;;;;Bronce;31/02/2026;",
+    "Name;Email;Playtomic ID;Wallet Club;Saldo monedero Bonos;Total balance;Saldo pendiente;Credits used;Category;Expiry date;Permanencia",
+    "Ann Lee;ANN@example.test;pt-1;25,50 €;4,50 €;30,00 €;3;2;Oro;30/11/2026;31/03/2027",
+    "Ben;;pt-2;0;;0;;;;;",
+    "Cal;cal@example.test;;;;;;;Plata;2026-12-15;",
+    "Dee;;;10 €;;10 €;;;;;",
+    "Eve;eve@example.test;;;;;;;Bronce;31/02/2026;",
   ].join("\n");
   const r = readMoveInCsv(csv, { dayFirst: true });
   assert.equal(r.fatal, undefined);
-  assert.deepEqual(r.rows[0], { name: "Ann Lee", email: "ann@example.test", playtomic_id: "pt-1",
+  assert.deepEqual(r.walletColumns, [{ ref: "walletclub", name: "Wallet Club" }, { ref: "saldomonederobonos", name: "Saldo monedero Bonos" }]);
+  assert.deepEqual(r.rows[0], { line: 2, name: "Ann Lee", email: "ann@example.test", playtomic_id: "pt-1",
     wallets: [{ ref: "walletclub", name: "Wallet Club", balance: "25,50 €" }, { ref: "saldomonederobonos", name: "Saldo monedero Bonos", balance: "4,50 €" }],
     benefits: [{ name: "Oro", until: "2026-11-30", commitment: "31/03/2027" }] });
-  // Ben has nothing to bring (an empty wallet); Cal a membership only.
-  assert.deepEqual(r.rows.map((x) => x.name), ["Ann Lee", "Cal"]);
-  assert.deepEqual(r.rows[1]!.benefits, [{ name: "Plata", until: "2026-12-15" }]);
+  // Ben's wallets are there and empty: 0 each (so a wallet emptied in Playtomic reads as 0, not as missing).
+  assert.deepEqual(r.rows[1]!.wallets.map((w) => w.balance), ["0", "0"]);
+  assert.deepEqual(r.rows.map((x) => x.name), ["Ann Lee", "Ben", "Cal", "Eve"]);
+  assert.deepEqual(r.rows[2]!.benefits, [{ name: "Plata", until: "2026-12-15" }]);
   // Dee has no email or Playtomic id: nobody to match. Eve's day isn't one.
   assert.deepEqual(r.problems.map((p) => p.text.en), ["Line 5 has no email or Playtomic id, so it can't be matched to anyone here.", "Line 6: \"31/02/2026\" isn't a date, so that membership is left out."]);
 });
@@ -66,16 +68,16 @@ before(async () => {
 });
 after(async () => drop());
 
-test("the move-in page reads for the owner, and not for front desk; a file is read and nothing changes", async () => {
+test("the move-in page reads for the owner, and not for front desk; the latest upload is what staff choose from", async () => {
   const robin = await signIn("robin@example.test"), dana = await signIn("dana@example.test");
   assert.equal((await call("/staff/move-in", dana)).status, 403);
   const s = await call("/staff/move-in", robin);
   assert.equal(s.status, 200);
-  assert.deepEqual([s.json.players_read_at, s.json.credit_cents, s.json.memberships, s.json.plans.map((p: any) => p.name)], [null, 0, 0, ["Gold"]]);
-  const f = await call("/staff/move-in/file", robin, { csv: "Name,Email,Wallet,Category,Expiry\nAnn,ann@example.test,10,Gold,2026-12-01\n" });
-  assert.equal(f.status, 200);
-  assert.deepEqual(f.json.benefits, [{ name: "Gold", people: 1 }]);
-  assert.equal(f.json.rows[0].wallets[0].balance, "10");
-  assert.equal((await call("/staff/move-in/file", dana, { csv: "Name\nx" })).status, 403);
+  assert.deepEqual([s.json.players_read_at, s.json.credit_cents, s.json.memberships, s.json.upload, s.json.plans.map((p: any) => p.name)], [null, 0, 0, null, ["Gold"]]);
+  await run(db, "playtomic.upload", { csv: "Name,Email,Wallet,Category,Expiry\nAnn,ann@example.test,10,Gold,2026-12-01\n", file_name: "export.csv" }, owner);
+  const u = (await call("/staff/move-in", robin)).json.upload;
+  assert.deepEqual([u.file_name, u.rows, u.wallet_columns, u.benefits], ["export.csv", 1, [{ ref: "wallet", name: "Wallet" }], [{ name: "Gold", people: 1 }]]);
+  // The rows themselves never go back and forth: a preview names the upload.
+  assert.equal(u.players, undefined);
   assert.equal(await db.selectFrom("brought_credit").select("id").executeTakeFirst(), undefined);
 });
