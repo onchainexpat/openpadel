@@ -38,6 +38,8 @@ body:has(.dock:not(:empty)) main { padding-bottom: 45vh; }
 ul.plain { list-style: none; padding: 0; margin: 0 0 12px; } ul.plain li { padding: 6px 0; border-bottom: 1px solid var(--line); }
 li.row, div.row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; } li.row > *, div.row > * { min-width: 0; } li.row button.small, div.row button.small { margin-top: 0; flex: none; }
 label.check { display: flex; gap: 8px; align-items: center; font-weight: 400; } label.check input { width: auto; margin: 0; }
+/* A checkbox or choice keeps its size beside a long label: a flex row squeezes anything that may shrink. */
+input[type="checkbox"], input[type="radio"] { flex-shrink: 0; }
 .other-lang { border-left: 2px solid var(--line); padding-left: 10px; margin: 0 0 12px; } .other-lang label { font-weight: 400; } .other-lang button { margin-top: 4px; }
 fieldset { border: 0; padding: 0; margin: 0 0 12px; } legend { font-weight: 600; }
 .game { padding: 8px 0; border-bottom: 1px solid var(--line); } .score { display: flex; gap: 8px; align-items: center; } .score input { width: 64px; display: inline-block; margin: 0; }
@@ -142,7 +144,7 @@ body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
   a.button, a.small, a.chip, nav a, .policies a { display: inline-flex; align-items: center; }
   button:not(.tg-face), a.button, a.small, nav a, .policies a { min-width: 44px; justify-content: center; }
   button.small { padding: 8px 14px; } button.link { padding: 0 4px; }
-  label.check input, input[type="checkbox"], input[type="radio"] { width: 24px; height: 24px; }
+  label.check input, input[type="checkbox"], input[type="radio"] { width: 24px; height: 24px; min-width: 24px; min-height: 24px; }
   summary { min-height: 44px; padding-block: 12px; box-sizing: border-box; cursor: pointer; }
 }
 /* A table that stacks on a phone: each row a block, each cell its column's name then its value. */

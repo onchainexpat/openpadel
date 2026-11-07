@@ -66,6 +66,10 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   promoted before it isn't found: an owner or a manager sees and ends any connection on the person's page.
 - **The result of someone else's change could be read again by its run id (in 0.1.0 to 0.3.1).** Run ids are long and
   hard to guess, and the change itself was never made twice; now an earlier result is given only to whoever made it.
+- On a phone, a checkbox or choice beside a long label was squeezed narrower than its 24 px (10 of the 46 in the
+  staff app's Settings). Each now keeps its size.
+- The staff app's courts' day and a person's page say what a promo code took off a booking paid in full, "Paid $48.00
+  ($12.00 off with a code)", the way the members' app does, so a $60 court doesn't look $12 short.
 
 ### Known limits
 - No app store apps yet: the members' and staff apps install from the club's own address ([the phone apps](docs/setup/apps.md)).

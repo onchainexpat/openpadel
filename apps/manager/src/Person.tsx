@@ -12,7 +12,7 @@ type P = {
   id: string; display_name: string; email: string | null; locale: string; created_via: string; created_at: string;
   email_problem: { reason: "bounce" | "complaint" | "provider"; since: string; detail: string | null } | null;
   roles: Role[]; places: { id: string; status: string; program_id: string; name: string; first_start: string | null }[];
-  bookings: { id: string; code: string; kind: string; status: string; court: string; starts_at: string; price_cents: number; organiser: boolean; paid_cents: number;
+  bookings: { id: string; code: string; kind: string; status: string; court: string; starts_at: string; price_cents: number; organiser: boolean; paid_cents: number; off_cents?: number;
     refundable: { payment_id: string; left_cents: number }[] }[];
   failed_refunds: { id: string; amount_cents: number; failure: string | null; created_at: string }[];
   series: WeeklyCourt[];
@@ -204,7 +204,7 @@ function PersonBookings({ bookings, preview }: { bookings: P["bookings"]; previe
           return (
             <li class="row" key={b.id} id={`booking-${b.id}`}>
               <span>{when(b.starts_at)} · {b.court} · {b.code}</span>
-              <span class="meta">{[b.status === "cancelled" ? t("ui.status_cancelled") : null, b.paid_cents ? t("ui.paid_by_them", { amount: dollars(b.paid_cents, lang.value) }) : null].filter(Boolean).join(" · ")}</span>
+              <span class="meta">{[b.status === "cancelled" ? t("ui.status_cancelled") : null, b.paid_cents && b.off_cents ? t("ui.paid_by_them_off", { amount: dollars(b.paid_cents, lang.value), off: dollars(b.off_cents, lang.value) }) : b.paid_cents ? t("ui.paid_by_them", { amount: dollars(b.paid_cents, lang.value) }) : null].filter(Boolean).join(" · ")}</span>
               {upcoming && mayDo("booking.cancel") && <form class="inline" onSubmit={(e) => { e.preventDefault(); preview("booking.cancel", { booking_id: b.id, refund: ((e.currentTarget as HTMLFormElement).elements.namedItem("refund") as HTMLSelectElement).value }); }}>
                 <select name="refund" aria-label={t("ui.refund")}><option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option><option value="credit">{t("ui.refund_as_credit")}</option></select>
                 <button class="small">{t("ui.cancel_booking")}</button></form>}

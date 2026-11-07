@@ -404,13 +404,15 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where((w) => w.or([w("court_time.active", "=", true), w("booking.status", "=", "cancelled")]))
       .distinctOn("booking.id").orderBy("booking.id").orderBy(sql`lower(court_time.during)`).execute();
     const pays = booked.length ? await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-      .select(["payment.id", "booking_player.booking_id", "payment.amount_cents", "payment.provider", "payment.person_id"])
+      .select(["payment.id", "booking_player.booking_id", "payment.amount_cents", "payment.provider", "payment.person_id"]).select(promoOff().as("off"))
       .select(sql<string>`coalesce((select sum(r.amount_cents) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent')), 0)`.as("back"))
       .where("booking_player.booking_id", "in", booked.map((b) => b.id)).where("payment.status", "=", "succeeded").where("payment.person_id", "=", id).execute() : [];
     const bookings = booked.sort((a, b) => String(b.starts_at).localeCompare(String(a.starts_at))).slice(0, 20).map((b) => {
       const mine = pays.filter((x) => x.booking_id === b.id);
       return { id: b.id, code: b.code, kind: b.kind, status: b.status, court: b.court, starts_at: new Date(b.starts_at).toISOString(), price_cents: b.price_cents, organiser: b.organiser_id === id,
         paid_cents: mine.reduce((n, x) => n + x.amount_cents - Number(x.back), 0),
+        // What a promo code took off their part, so a share paid in full with a code doesn't read as short.
+        off_cents: mine.reduce((n, x) => n + Number(x.off), 0),
         refundable: mine.filter((x) => x.provider !== "none" && x.amount_cents - Number(x.back) > 0).map((x) => ({ payment_id: x.id, left_cents: x.amount_cents - Number(x.back) })) };
     });
     // Refunds to them that didn't go through: the staff can send each again.

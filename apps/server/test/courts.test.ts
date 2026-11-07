@@ -224,4 +224,12 @@ test("a court paid after a promo code reads as paid in full, for the member and 
   const it = JSON.stringify(g).includes(mine.id) ? (g.courts as any[]).flatMap((c: any) => c.items).find((x: any) => x.booking_id === mine.id) : null;
   assert.ok(it, "on the desk's grid");
   assert.equal(it.price_cents - it.paid_cents - it.off_cents, 0, "the desk sees nothing to take");
+  assert.ok(it.off_cents > 0 && it.paid_cents < it.price_cents, "the grid carries the code's part, for 'Paid ... (... off with a code)'");
+  // The person's page says the same of their own part, so a court paid in full with a code doesn't look short.
+  const page = (await get(`/staff/people/${dee.person_id}`)).json;
+  const theirs = (page.bookings as any[]).find((b) => b.id === mine.id);
+  assert.ok(theirs, "on Dee's page");
+  assert.equal(theirs.paid_cents, rest.rest_cents);
+  assert.equal(theirs.off_cents, it.off_cents, "what the code took off Dee's payment");
+  assert.equal(theirs.paid_cents + theirs.off_cents, it.price_cents);
 });
