@@ -11,6 +11,7 @@ import { money } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { atLocal, localParts } from "./clock.ts";
+import { promoOff } from "./promo_off.ts";
 
 /** Actions whose plan's money is what the person themselves pays, when it's for them or a junior they manage. */
 const PAYS = new Set(["gift_card.buy", "pass.buy", "booking.request", "booking.request_courts", "booking.repeat_request", "booking.join", "booking.ask", "booking.take_place", "lesson.request",
@@ -90,16 +91,16 @@ async function paymentsCost(db: Db | Trx, ids: string[]): Promise<number> {
   return cost;
 }
 
-/** A shared court the assistant booked: the whole court less what the others paid, while it's on; once it's
- *  cancelled, what the organiser was charged and kept. */
+/** A shared court the assistant booked: the whole court less what the others paid and what promo codes took off
+ *  (nobody is charged that part), while it's on; once it's cancelled, what the organiser was charged and kept. */
 async function sharedCourtCost(db: Db | Trx, bookingId: string, personId: string): Promise<number> {
   const b = await db.selectFrom("booking").select(["status", "price_cents"]).where("id", "=", bookingId).executeTakeFirst();
   if (!b) return 0;
   const rows = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-    .select(["payment.person_id", "payment.amount_cents", refunded.as("back")]).where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "succeeded").execute();
-  let mine = 0, others = 0;
-  for (const r of rows) { const kept = r.amount_cents - Number(r.back); if (r.person_id === personId) mine += kept; else others += kept; }
-  return Math.max(0, b.status === "cancelled" ? mine : b.price_cents - others);
+    .select(["payment.person_id", "payment.amount_cents", refunded.as("back"), promoOff().as("off")]).where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "succeeded").execute();
+  let mine = 0, others = 0, off = 0;
+  for (const r of rows) { const kept = r.amount_cents - Number(r.back); off += Number(r.off); if (r.person_id === personId) mine += kept; else others += kept; }
+  return Math.max(0, b.status === "cancelled" ? mine : b.price_cents - others - off);
 }
 
 /** A weekly court the assistant made: each week booked or still to be booked counts its price until it's charged;
@@ -115,9 +116,11 @@ async function seriesCost(db: Db | Trx, seriesId: string): Promise<number> {
     if (w.missed || (!w.booking_id && (s.ended_at || w.on_date > s.last_date))) continue;
     const kept = w.booking_id ? await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
       .select(sql<string>`coalesce(sum(payment.amount_cents - (select coalesce(sum(r.amount_cents), 0) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent'))), 0)`.as("c"))
+      .select(sql<string>`coalesce(sum(${promoOff()}), 0)`.as("off"))
       .where("booking_player.booking_id", "=", w.booking_id).where("payment.status", "=", "succeeded").executeTakeFirstOrThrow() : null;
     const paid = Number(kept?.c ?? 0);
-    cost += w.status === "cancelled" ? Math.max(0, paid) : Math.max(paid, w.price_cents);
+    // What a promo code took off a week is never charged, so it doesn't count either.
+    cost += w.status === "cancelled" ? Math.max(0, paid) : Math.max(paid, w.price_cents - Number(kept?.off ?? 0));
   }
   return cost;
 }

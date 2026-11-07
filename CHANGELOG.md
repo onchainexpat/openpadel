@@ -23,6 +23,13 @@ server starts.
   Amounts and dates keep the club's formats.
 
 ### Fixed
+- **A split court's organiser was charged what a promo code took off another player's share (in 0.3.0).** At the
+  deadline, Kumi charged the organiser's saved card for what it took to be unpaid, counting the money paid but not
+  what a code took off a share, the organiser's own included. Everyone had paid, yet the card was charged the
+  discount; a declined card left it owed, with an alert to collect it at the desk. The desk could also record the
+  discount as money owed on any court paid after a code. A code's part of the price now counts as paid on every
+  path that weighs a booking's payments against its price (one rule for all of them, `promo_off.ts`): the deadline's
+  charge, the desk's limit, the screens and an assistant's weekly spend.
 - What the browser check of the staff app found on 6 November and left for after 0.3.0:
   - Changes offered Undo on every change, receipts, alerts, deletions and money sent included, and then refused.
     Undo now shows only on a change that can be undone, still in time. A refusal says its reason once ("This

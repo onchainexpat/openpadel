@@ -14,6 +14,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
+import { promoOff, towardPrice } from "./promo_off.ts";
 import { courtOpening, occupied } from "./bookings.ts";
 import { currentPolicy, quote } from "./prices.ts";
 import { memberPlan } from "./memberships.ts";
@@ -588,9 +589,10 @@ export const bookingSettleShares = defineAction({
     const b = await lockBooking(ctx.trx, i.booking_id);
     if (b.settled_at || b.status !== "confirmed") return { already: true };
     if (await openMatchOf(ctx.trx, b.id) && await paidPlaces(ctx.trx, b.id) < b.players) return cancelUnfilled(ctx, b.id);
-    // What's been paid for the places still taken (a place let go was paid back, if it was paid at all).
+    // What's been paid for the places still taken (a place let go was paid back, if it was paid at all), with what a
+    // promo code took off a share: that part of the price is paid too, so the organiser's card is never charged it.
     const paid = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-      .select((eb) => eb.fn.sum<string>("payment.amount_cents").as("c")).where("booking_player.booking_id", "=", b.id).where("booking_player.removed_at", "is", null)
+      .select(sql<string>`coalesce(sum(${towardPrice()}), 0)`.as("c")).where("booking_player.booking_id", "=", b.id).where("booking_player.removed_at", "is", null)
       .where("payment.status", "=", "succeeded").executeTakeFirst();
     const unpaid = b.price_cents - Number(paid?.c ?? 0);
     // Seats taken and never paid for open again (the organiser covers the place, not a no-show's seat);
@@ -738,10 +740,10 @@ export const bookingRemind = defineAction({
 
 // ---- Paid at the desk: cash, the club's own card reader, or another way ----
 /** The desk records at most what's still owed on a booking (its price, tax included, less what's been paid and not
- *  refunded). Kumi keeps no credit or wallet, so more than that has nowhere to go: it's refused, not kept. */
+ *  refunded, and what a promo code took off). More than that has nowhere to go: it's refused, not kept. */
 async function notMoreThanOwed(db: Db | Trx, b: Record<string, any>, cents: number) {
   const paid = Number((await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-    .select(sql<string>`coalesce(sum(payment.amount_cents - ${backSql}), 0)`.as("c"))
+    .select(sql<string>`coalesce(sum(payment.amount_cents - ${backSql} + ${promoOff()}), 0)`.as("c"))
     .where("booking_player.booking_id", "=", b.id).where("payment.status", "=", "succeeded").executeTakeFirst())?.c ?? 0);
   const owed = Math.max(0, b.price_cents - paid);
   if (owed === 0) throw new KumiError("error.booking_paid_in_full");
