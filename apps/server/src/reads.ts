@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
@@ -167,7 +167,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // Everything the Settings page edits: the club, and each location with its courts (archived ones left out).
   app.get("/staff/settings", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "gift_cards", "gift_card_min_cents", "gift_card_max_cents", "tax_rate_bp", "currency", "format_locale", "country", "prices_include_tax", "tax_label", "public_page", "about", "terms_url", "privacy_policy_url", "translations", "two_factor", "question_alert_hours", "auto_answers", "broadcast_daily_cap", "broadcast_copy_managers", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["name", "legal_name", "time_zone", "languages", "default_language", "brand_colour", "sign_up_open", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "gift_cards", "gift_card_min_cents", "gift_card_max_cents", "tax_rate_bp", "currency", "format_locale", "country", "prices_include_tax", "tax_label", "public_page", "about", "terms_url", "privacy_policy_url", "translations", "two_factor", "question_alert_hours", "auto_answers", "broadcast_daily_cap", "broadcast_copy_managers", "level_import_line", "program_decide_hours", "program_heads_up_hours"]).executeTakeFirstOrThrow();
     const rules = await db.selectFrom("price_rule").selectAll().where("active", "=", true).orderBy("priority", "desc").orderBy("name").execute();
     const policy = await currentPolicy(db), plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const locations = await db.selectFrom("location").select(["id", "name", "address", "postal_code", "region", "country", "time_zone"]).where("archived_at", "is", null).orderBy("name").execute();
@@ -590,7 +590,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     if (!person) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
     const rating = await db.selectFrom("rating").select(["level", "provisional", "floor", "rated_games", "floor_reason"]).where("person_id", "=", id).where("sport", "=", "padel").executeTakeFirst();
     const events = await db.selectFrom("rating_event").select(["at", "kind", "level_before", "level_after", "explanation"]).where("person_id", "=", id).orderBy("id", "desc").limit(50).execute();
-    return c.json({ person, rating: rating ?? null, events: events.map((e) => ({ ...e, explanation: (e.explanation as Record<string, string>)[l] ?? "" })) });
+    const imports = await importOptions(db, id);
+    return c.json({ person, rating: rating ?? null, events: events.map((e) => ({ ...e, explanation: (e.explanation as Record<string, string>)[l] ?? "" })),
+      ...imports, import: imports.import ? { ...imports.import, explanation: imports.import.explanation[l] } : null });
   });
 
   // The Playtomic mirror: how the last copy went, courts still to link, and bookings that clash with Kumi.

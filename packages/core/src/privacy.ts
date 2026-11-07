@@ -186,7 +186,7 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
 
   const rating = await db.selectFrom("rating").select(["level", "rated_games", "provisional", "floor", "floor_reason", "self_adjust_used"]).where("person_id", "=", personId).executeTakeFirst();
   const history = await db.selectFrom("rating_event").select(["at", "kind", "level_before", "level_after", "explanation"]).where("person_id", "=", personId).orderBy("at").execute();
-  const reviews = await db.selectFrom("level_review").select(["created_at", "kind", "note", "status", "level_at", "answer", "answered_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
+  const reviews = await db.selectFrom("level_review").select(["created_at", "kind", "note", "claim", "status", "level_at", "answer", "answered_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
   const sides = await db.selectFrom("game_side").innerJoin("game", "game.id", "game_side.game_id").select(["game.id", "game.played_at", "game.rated", "game.status", "game_side.side"])
     .where("game_side.person_id", "=", personId).orderBy("game.played_at").execute();
   const games = [];
@@ -605,7 +605,7 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   // Their own words.
   await db.updateTable("join_request").set({ note: null }).where("person_id", "=", personId).execute();
   await db.updateTable("result_answer").set({ note: null }).where("person_id", "=", personId).execute();
-  await db.updateTable("level_review").set({ note: null }).where("person_id", "=", personId).execute();
+  await db.updateTable("level_review").set({ note: null, claim: null }).where("person_id", "=", personId).execute();
   await sql`UPDATE missing_feature SET asked = ${REMOVED} WHERE person_id = ${personId}`.execute(db);
   // Their yes and no to messages stay (the record of what they agreed to), without the numbers and addresses kept
   // as evidence (a number changed keeps the old and the new). The table takes no updates otherwise (migration 001).

@@ -1,9 +1,36 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, lang, me, t, usePreview, clubTime } from "@kumi/ui";
+import type { Key } from "@kumi/i18n";
 
+type Platform = { key: string; min: number; max: number; whole: boolean; conf: "reliability" | "matches" | "wpr" | "percent" | null; converts: boolean };
 type L = { rating: { level: string; provisional: boolean; floor: string | null; rated_games: number } | null; events: { at: string; explanation: string }[];
   self_adjust: { can: boolean; used: number; games: number; played: number; max: number; floor: number | null };
-  review: { open: { created_at: string; note: string | null } | null; next_at: string | null; every: number } };
+  review: { open: { created_at: string; note: string | null; kind: string; claim: { platform: string } | null } | null; next_at: string | null; every: number };
+  // A starting level brought from another app (level_import.ts), and what they can still do with it.
+  import: { at: string; level: number; platform: string; explanation: string } | null; can_remove: boolean; can_claim: boolean; games: number; line: number; platforms: Platform[] };
+
+/** Their level on another app, as it shows there: the app, the number, and how sure the app says it is. */
+function BringLevel({ d, send }: { d: L; send: (input: Record<string, unknown>) => void }) {
+  const [key, setKey] = useState("playtomic"), [value, setValue] = useState(""), [conf, setConf] = useState("");
+  const p = d.platforms.find((x) => x.key === key) ?? d.platforms[0]!;
+  const confInput = p.conf === "wpr" ? { wpr: conf || undefined } : p.conf && conf !== "" ? { [p.conf]: Math.round(Number(conf)) } : {};
+  return (
+    <section class="card">
+      <h2>{t("ui.bring_level_title")}</h2>
+      <p class="meta">{t("ui.bring_level_help", { games: d.games, line: d.line.toFixed(2) })}</p>
+      <label>{t("ui.level_app")}<select value={key} onChange={(e) => { setKey(e.currentTarget.value); setConf(""); }}>
+        {d.platforms.map((x) => <option value={x.key}>{t(`level_source.${x.key}` as Key)}</option>)}
+      </select></label>
+      <label>{t("ui.level_there")}<input type="number" inputMode="decimal" min={p.min} max={p.max} step={p.whole ? 1 : 0.01} value={value} onInput={(e) => setValue(e.currentTarget.value)} /></label>
+      {p.conf === "wpr" ? <label>{t("ui.level_wpr_conf")}<select value={conf} onChange={(e) => setConf(e.currentTarget.value)}>
+          <option value=""></option><option value="HC">{t("ui.wpr_hc")}</option><option value="LC">{t("ui.wpr_lc")}</option><option value="NC">{t("ui.wpr_nc")}</option></select></label>
+        : p.conf && <label>{t(p.conf === "reliability" ? "ui.level_reliability" : p.conf === "matches" ? "ui.level_matches" : "ui.level_percent")}
+          <input type="number" inputMode="numeric" min="0" max={p.conf === "matches" ? 100000 : 100} step="1" value={conf} onInput={(e) => setConf(e.currentTarget.value)} /></label>}
+      <p class="meta">{t("ui.bring_level_no_photo")}</p>
+      <button disabled={value === ""} onClick={() => send({ platform: key, value: Number(value.replace(",", ".")), ...confInput })}>{t("ui.bring_level_send")}</button>
+    </section>
+  );
+}
 
 /** The levels a new player can move to: round ones (every 0.05) up to `max` either way, never below a floor. */
 function choices(level: number, max: number, floor: number | null): string[] {
@@ -39,6 +66,13 @@ export function MyLevel() {
         </select></label>
         <button disabled={!to} onClick={() => preview("level.self_adjust", { person_id: pid, level: Number(to) })}>{t("ui.move_my_level")}</button>
       </section>}
+      {d.import && <section class="card">
+        <h2>{t("ui.level_started_from")}</h2>
+        <p>{d.import.explanation}</p>
+        {d.can_remove && <button class="small" onClick={() => preview("level.remove_import", { person_id: pid })}>{t("ui.remove_import")}</button>}
+      </section>}
+      {rv.open?.kind === "import" && rv.open.claim && <p class="card">{t("ui.level_import_waiting", { source: t(`level_source.${rv.open.claim.platform}` as Key), date: day(rv.open.created_at) })}</p>}
+      {d.can_claim && !d.import && !rv.open && <BringLevel d={d} send={(input) => preview("level.claim", { person_id: pid, ...input })} />}
       <section class="card">
         <h2>{t("ui.review_title")}</h2>
         {rv.open ? <p>{t("ui.review_waiting", { date: day(rv.open.created_at) })}</p>

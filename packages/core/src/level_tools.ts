@@ -4,7 +4,7 @@
 // Every change is a rating event with its reason, like any other.
 import { sql } from "kysely";
 import * as z from "zod/mini";
-import { both, dateTime, type Text } from "@kumi/i18n";
+import { both, dateTime, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type Read } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -14,6 +14,7 @@ import { localDate } from "./clock.ts";
 import { dayText } from "./memberships.ts";
 import { MODEL } from "./levels.ts";
 import { loadRating, ratingEvent, saveRating, type RatingState } from "./ratings.ts";
+import { startSigma, shownText, toKumi, writeImport, type Confidence, type Platform } from "./level_import.ts";
 
 /** A review can be asked for once in this many days. */
 export const REVIEW_EVERY_DAYS = 30;
@@ -25,6 +26,8 @@ export const SELF_ADJUST_MAX = 0.5;
 export const MOVE_LIMIT = 0.5;
 export const MOVE_DAYS = 30;
 
+/** What a player said when they brought a level from another app (level.claim), kept on their review. */
+interface Claim { platform: Platform; raw: number; conf: Confidence; start_level: number | null; last_played?: string | null }
 const lvl = (n: number) => n.toFixed(2);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const levelInput = z.number().check(z.minimum(0), z.maximum(7));
@@ -44,7 +47,7 @@ const staffSet = (before: RatingState & { exists: boolean }, level: number): Rat
 /** For the player's level page: whether they can still move their own level, and where a review stands. */
 export async function levelOptions(db: Db | Trx, personId: string, now: Date) {
   const r = await db.selectFrom("rating").select(["rated_games", "self_adjust_used", "floor"]).where("person_id", "=", personId).where("sport", "=", "padel").executeTakeFirst();
-  const open = await db.selectFrom("level_review").select(["created_at", "note"]).where("person_id", "=", personId).where("status", "=", "open").executeTakeFirst();
+  const open = await db.selectFrom("level_review").select(["created_at", "note", "kind", "claim"]).where("person_id", "=", personId).where("status", "=", "open").executeTakeFirst();
   const last = await lastRequest(db, personId);
   const next = last ? new Date(last.getTime() + REVIEW_EVERY_DAYS * 86400_000) : null;
   return {
@@ -132,7 +135,7 @@ export async function bigMoves(db: Db | Trx, now: Date, personIds?: string[]) {
     if (!cur) continue;
     // Where it stood: the latest staff look in the window (a set level, a floor, an answered review), or before the window.
     let from = prior.get(id) ?? (evs[0]!.level_before === null ? Number(evs[0]!.level_after) : Number(evs[0]!.level_before)), since = cutoff;
-    for (const e of evs) if (["staff_set", "floor", "import_seed"].includes(e.kind)) { from = Number(e.level_after); since = new Date(e.at); }
+    for (const e of evs) if (["staff_set", "floor", "import_seed", "import_removed"].includes(e.kind)) { from = Number(e.level_after); since = new Date(e.at); }
     const a = answered.get(id);
     if (a && a.answered_at && a.level_at !== null && new Date(a.answered_at) >= since) { from = Number(a.level_at); since = new Date(a.answered_at); }
     if (Math.abs(Number(cur.level) - from) > MOVE_LIMIT + 1e-9) out.push({ person_id: id, name: cur.display_name, level: Number(cur.level), from, since });
@@ -144,7 +147,7 @@ export async function bigMoves(db: Db | Trx, now: Date, personIds?: string[]) {
 export async function levelQueue(db: Db | Trx, now: Date) {
   const requests = await db.selectFrom("level_review").innerJoin("person", "person.id", "level_review.person_id")
     .leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "level_review.person_id").on("rating.sport", "=", "padel"))
-    .select(["level_review.id", "level_review.person_id", "person.display_name as name", "level_review.note", "level_review.created_at", "rating.level", "rating.provisional", "rating.rated_games", "rating.floor"])
+    .select(["level_review.id", "level_review.person_id", "level_review.kind", "level_review.claim", "person.display_name as name", "level_review.note", "level_review.created_at", "rating.level", "rating.provisional", "rating.rated_games", "rating.floor"])
     .where("level_review.status", "=", "open").orderBy("level_review.created_at").execute();
   const asked = new Set(requests.map((r) => r.person_id));
   return { requests, moves: (await bigMoves(db, now)).filter((m) => !asked.has(m.person_id)) };
@@ -152,7 +155,9 @@ export async function levelQueue(db: Db | Trx, now: Date) {
 
 export const levelAnswerReview = defineAction({
   name: "level.answer_review", version: 1,
-  input: z.object({ person_id: z.uuid(), outcome: z.enum(["keep", "change"]), level: z.optional(levelInput), reason: z.optional(z.string().check(z.maxLength(300))) }),
+  // "accept": a level a player brought from another app (level_import.ts), checked by staff (the player showed them the
+  // app, say): it starts there, at the confidence the evidence gives, unless staff give the start themselves.
+  input: z.object({ person_id: z.uuid(), outcome: z.enum(["keep", "change", "accept"]), level: z.optional(levelInput), reason: z.optional(z.string().check(z.maxLength(300))) }),
   async plan(ctx, i) {
     const open = await ctx.db.selectFrom("level_review").selectAll().where("person_id", "=", i.person_id).where("status", "=", "open").executeTakeFirst();
     // Something to answer: a review they asked for, or a big move (so this isn't a way round asking to change a level).
@@ -160,6 +165,15 @@ export const levelAnswerReview = defineAction({
     const s = await loadRating(ctx.db, i.person_id), person = await nameOf(ctx.db, i.person_id), reason = i.reason?.trim() ?? "";
     const told = open || i.outcome === "change" ? both("plan.level.told") : { en: "", es: "" };
     const reads: Read[] = [...(open ? [{ entity: "level_review" as const, id: open.id, version: open.version }] : []), ...await ratingRead(ctx.db, i.person_id)];
+    if (i.outcome === "accept") {
+      if (open?.kind !== "import") throw new KumiError("error.nothing_to_accept");
+      const c = open.claim as Claim, kumi = i.level ?? c.start_level ?? toKumi(c.platform, c.raw);
+      if (kumi === null) throw new KumiError("error.accept_needs_level");
+      if (s.games >= SELF_ADJUST_GAMES) throw new KumiError("error.import_late", { count: SELF_ADJUST_GAMES });
+      const level = Math.max(s.floor ?? -Infinity, round2(kumi)), sigma = startSigma(c.platform, "staff_seen", c.conf)!;
+      return { title: both("action.level.answer_review"), reads, undo: { kind: "compensating" }, details: { review_id: open.id, start_level: level, sigma },
+        summary: both("plan.level.answer_accept", { person, source: both(`level_source.${c.platform}` as Key), shown: shownText(c.platform, c.raw, c.conf), level: lvl(level), told }) };
+    }
     if (i.outcome === "keep") return { title: both("action.level.answer_review"), reads, undo: { kind: "none" }, details: { review_id: open?.id ?? null },
       summary: both("plan.level.answer_keep", { person, level: levelText(s), note: reason ? both("plan.level.answer_note", { note: reason }) : { en: "", es: "" }, told }) };
     if (i.level === undefined || reason.length < 3) throw new KumiError("error.change_needs_level");
@@ -175,6 +189,14 @@ export const levelAnswerReview = defineAction({
     if ((open?.id ?? null) !== review_id) throw new KumiError("error.changed");   // asked, or answered, meanwhile
     const before = await loadRating(ctx.trx, i.person_id);
     let after = before.exists ? before.level : null;
+    const claim = open && i.outcome !== "change" ? (await ctx.trx.selectFrom("level_review").select(["kind", "claim"]).where("id", "=", open.id).executeTakeFirstOrThrow()) : null;
+    if (i.outcome === "accept") {
+      const c = claim!.claim as Claim, d = plan.details as { start_level: number; sigma: number };
+      if (before.games >= SELF_ADJUST_GAMES) throw new KumiError("error.import_late", { count: SELF_ADJUST_GAMES });
+      const by = await nameOf(ctx.trx, ctx.actor.personId), date = dayText(localDate(ctx.now, await clubTz(ctx.trx)));
+      after = await writeImport(ctx, i.person_id, { platform: c.platform, raw: c.raw, conf: c.conf, start_level: d.start_level, sigma: d.sigma, evidence: "staff_seen", last_played: c.last_played ?? null },
+        both("level_import.how_checked", { by, date }), ctx.actor.personId);
+    }
     if (i.outcome === "change") {
       const next = staffSet(before, Math.max(before.floor ?? -Infinity, round2(i.level!)));
       await saveRating(ctx, i.person_id, next, before.exists);
@@ -184,7 +206,9 @@ export const levelAnswerReview = defineAction({
     const answer = { status: i.outcome === "keep" ? "kept" : "changed", level_at: after === null ? null : lvl(after), answer: i.reason?.trim() || null, answered_by: ctx.actor.personId, answered_at: ctx.now };
     if (open) await ctx.update("level_review", open.id, answer);
     else await ctx.insert("level_review", { id: uuidv7(), person_id: i.person_id, kind: "move", created_at: ctx.now, ...answer });
-    await ctx.emit("level.reviewed", { person_id: i.person_id, asked: Boolean(open), outcome: i.outcome, before: before.exists ? lvl(before.level) : null, after: after === null ? null : lvl(after), reason: i.reason?.trim() || null });
+    const brought = claim?.kind === "import" ? (claim.claim as Claim).platform : null;
+    await ctx.emit("level.reviewed", { person_id: i.person_id, asked: Boolean(open), outcome: i.outcome, before: before.exists ? lvl(before.level) : null, after: after === null ? null : lvl(after), reason: i.reason?.trim() || null,
+      ...(brought ? { platform: brought } : {}) });
     return { level: after };
   },
 });

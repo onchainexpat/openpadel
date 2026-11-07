@@ -1842,12 +1842,36 @@ Answer a level review. Who may: owner, manager, front desk, coach.
 | Flag | Takes | | What it is |
 |---|---|---|---|
 | `--person` | person: a name or an id | needed |  |
-| `--outcome` | keep \| change | needed |  |
+| `--outcome` | keep \| change \| accept | needed |  |
 | `--level` | number |  |  |
 | `--reason` | text |  |  |
 
 ```
 openpadel level answer-review --person "Maria Lopez" --outcome keep
+```
+
+#### openpadel level import
+
+Record a level from another app. Who may: owner, manager, front desk, coach.
+
+Its preview reads: "Start {person} at {level} (now {before}), from {source} ({shown}). It's provisional, games at the club take over, and it never sets a floor."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--person` | person: a name or an id | needed |  |
+| `--platform` | playtomic \| playbypoint \| wpr \| matchi \| lta \| padellevels \| padelmates \| other | needed |  |
+| `--value` | number | needed | The level as the other app shows it, on its own scale. |
+| `--reliability` | whole number |  | Playtomic's reliability for the level, in percent, as its app shows it. |
+| `--matches` | whole number |  | Playbypoint: how many matches its rating counts. |
+| `--wpr` | HC \| LC \| NC |  | WPR's confidence: HC high, LC low, NC none (self-assigned, not used). |
+| `--percent` | whole number |  | PadelLevels' confidence, in percent. |
+| `--evidence` | staff_seen \| public_lookup | needed | staff_seen: seen in the player's app; public_lookup: looked up on the app's public pages. |
+| `--start-level` | number |  | The starting level on the club's 0 to 7 scale: needed for an app whose levels aren't converted; otherwise the conversion is used. |
+| `--last-played` | date YYYY-MM-DD |  | When they last played there, if the app shows it. |
+| `--external-id` | text |  | The player's id on the other app, if known. |
+
+```
+openpadel level import --person "Maria Lopez" --platform playtomic --value 0 --evidence staff_seen
 ```
 
 #### openpadel level request-review

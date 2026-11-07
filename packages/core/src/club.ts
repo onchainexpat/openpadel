@@ -9,8 +9,13 @@ import { mergeTranslations, translationsInput } from "./club_text.ts";
 import { withManagers } from "./households.ts";
 import { checkAssign, roleLabel } from "./roles.ts";
 import { uuidv7 } from "./ids.ts";
-import { showPhone } from "./texts.ts";
+import { anyPhone, showPhone } from "./texts.ts";
 import { nameInput } from "./plain_text.ts";
+import { localDate } from "./clock.ts";
+import { activeImports, startSigma, writeImport } from "./level_import.ts";
+import { SELF_ADJUST_GAMES } from "./level_tools.ts";
+import { dayText } from "./memberships.ts";
+import { loadRating } from "./ratings.ts";
 
 const isTimeZone = (v: string) => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } };
 const timeZone = z.string().check(z.refine(isTimeZone, { message: "Not a time zone (use an IANA name such as America/Los_Angeles)" }));
@@ -108,6 +113,8 @@ export const clubUpdate = defineAction({
     broadcast_daily_cap: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(100000))), broadcast_copy_managers: z.optional(z.boolean()),
     program_decide_hours: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(336), z.describe("A program's minimum is decided this many hours before its first date, unless it sets its own."))),
     program_heads_up_hours: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(336), z.describe("Staff hear this many hours before that decision if a program is short (0: no heads-up)."))),
+    // A level a player brings from another app above this waits for staff (level_import.ts); at or below it, it starts.
+    level_import_line: z.optional(z.number().check(z.minimum(0), z.maximum(7), z.describe("A level a player brings from another app above this waits for staff to check."))),
     // Who signs in with two steps. It can't be switched off here ('off' is for practice and test databases).
     two_factor: z.optional(z.enum(["owner_manager", "all_staff"]).check(z.describe("Who signs in with two steps: owners, managers and the club's own roles (owner_manager), or every staff role (all_staff)."))),
   }),
@@ -201,42 +208,98 @@ export const personCreate = defineAction({
   },
 });
 
-/** Many members at once, from a spreadsheet. Anyone whose email is already here is left as they are, and
- *  nobody is emailed: telling members about the app is the club's own announcement. */
+/** Many members at once, from a spreadsheet. Anyone already here (by their Playtomic id, else their email) keeps their
+ *  name and email, and gets only what's new in the file: a Playtomic id, a phone number when they have none, a yes to
+ *  club news when they've never answered, and a Playtomic level as a provisional start while they're new here
+ *  (level_import.ts). Nobody is emailed: telling members about the app is the club's own announcement. */
+const importRow = z.object({ display_name: nameInput(80), email: z.optional(z.email()), locale: z.optional(lang),
+  phone: z.optional(z.string().check(z.maxLength(40))),
+  // Only a yes counts: a file that says no, or nothing, adds no consent.
+  club_news: z.optional(z.boolean()),
+  playtomic_id: z.optional(z.string().check(z.minLength(1), z.maxLength(64))),
+  level: z.optional(z.object({ value: z.number().check(z.minimum(0), z.maximum(7)), reliability: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100))) })) });
+type ImportRow = z.infer<typeof importRow>;
 export const personImport = defineAction({
   name: "person.import", version: 1,
-  input: z.object({ rows: z.array(z.object({ display_name: nameInput(80), email: z.optional(z.email()), locale: z.optional(lang) })).check(z.minLength(1), z.maxLength(5000)) }),
+  input: z.object({ rows: z.array(importRow).check(z.minLength(1), z.maxLength(5000)) }),
   async plan(ctx, i) {
-    const { add, skipped } = await newPeople(ctx, i.rows);
-    const people = both("count.people", { count: add.length });
-    return { title: both("action.person.import"), summary: skipped ? both("plan.person.import_skipped", { people, already: both("count.already_here", { count: skipped }) }) : both("plan.person.import", { people }),
-      reads: [], undo: { kind: "compensating" }, details: { add: add.length, skipped } };
+    const p = await importPlan(ctx.db, i.rows);
+    const people = both("count.people", { count: p.add.length });
+    const base = p.skipped ? both("plan.person.import_skipped", { people, already: both("count.already_here", { count: p.skipped }) }) : both("plan.person.import", { people });
+    const more = ([[p.updated, "count.import_updated"], [p.levels, "count.import_levels"], [p.news, "count.import_news"], [p.phoneBad, "count.import_phone_bad"], [p.phoneTaken, "count.import_phone_taken"]] as const)
+      .filter(([n]) => n > 0).map(([n, k]) => both(k, { count: n }));
+    const summary = more.length ? { en: `${base.en} ${more.map((m) => m.en).join(" ")}`, es: `${base.es} ${more.map((m) => m.es).join(" ")}` } : base;
+    return { title: both("action.person.import"), summary, reads: [], undo: { kind: "compensating" }, details: { add: p.add.length, skipped: p.skipped, updated: p.updated, levels: p.levels } };
   },
   async apply(ctx, i) {
-    const { add } = await newPeople(ctx, i.rows);   // again, in case someone joined meanwhile
+    const p = await importPlan(ctx.trx, i.rows);   // again, in case someone joined meanwhile
     const member = await ctx.trx.selectFrom("role").select("id").where("key", "=", "member").executeTakeFirstOrThrow();
-    for (const r of add) {
-      const id = uuidv7();
-      await ctx.insert("person", { id, display_name: r.display_name.trim(), email: r.email ?? null, locale: r.locale ?? "en", created_via: "import" });
-      if (r.email) await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: id, kind: "email", value: r.email, verified_at: null }).execute();
-      await ctx.insert("person_role", { id: uuidv7(), person_id: id, role_id: member.id, location_id: null });
+    const date = dayText(localDate(ctx.now, (await ctx.trx.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone));
+    for (const r of p.rows) {
+      let id = r.personId;
+      if (!id) {
+        id = uuidv7();
+        await ctx.insert("person", { id, display_name: r.row.display_name.trim(), email: r.email ?? null, phone: r.phone, locale: r.row.locale ?? "en", created_via: "import" });
+        if (r.email) await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: id, kind: "email", value: r.email, verified_at: null }).execute();
+        await ctx.insert("person_role", { id: uuidv7(), person_id: id, role_id: member.id, location_id: null });
+      } else if (r.phone) await ctx.update("person", id, { phone: r.phone });
+      if (r.link) await ctx.trx.insertInto("external_ref").values({ entity: "person", entity_id: id, system: "playtomic", external_id: r.row.playtomic_id! }).execute();
+      if (r.news) await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: id, channel: "email", purpose: "club_news", granted: true, source: "import", form_version: null,
+        evidence: JSON.stringify({ via: "import", by: ctx.actor.personId }), at: ctx.now }).execute();
+      if (r.level) {
+        const conf = r.level.reliability !== undefined ? { reliability: r.level.reliability } : {};
+        await writeImport(ctx, id, { platform: "playtomic", raw: r.level.value, conf, start_level: r.level.value, sigma: startSigma("playtomic", "club_data", conf)!, evidence: "club_data",
+          external_id: r.row.playtomic_id ?? null }, both("level_import.how_club", { date }), ctx.actor.personId);
+      }
     }
-    await ctx.emit("person.imported", { count: add.length });
-    return { added: add.length };
+    await ctx.emit("person.imported", { count: p.add.length });
+    return { added: p.add.length, ...(p.updated ? { updated: p.updated } : {}), ...(p.levels ? { levels: p.levels } : {}) };
   },
 });
-async function newPeople(ctx: PlanCtx, rows: { display_name: string; email?: string; locale?: "en" | "es" }[]) {
-  const emails = rows.map((r) => r.email?.trim().toLowerCase()).filter((e): e is string => Boolean(e));
-  const have = new Set(emails.length ? (await ctx.db.selectFrom("person").select((eb) => eb.fn<string>("lower", ["email"]).as("e")).where((eb) => eb(eb.fn("lower", ["email"]), "in", emails)).execute()).map((r) => r.e) : []);
-  const seen = new Set<string>(), add: typeof rows = [];
-  let skipped = 0;
-  for (const r of rows) {
-    const email = r.email?.trim().toLowerCase();
-    if (email && (have.has(email) || seen.has(email))) { skipped++; continue; }
-    if (email) seen.add(email);
-    add.push({ ...r, email });
+/** What each line of the file does: a new person, or one already here and what they get from it. */
+async function importPlan(db: Db | Trx, rows: ImportRow[]) {
+  const country = (await db.selectFrom("club").select("country").executeTakeFirstOrThrow()).country;
+  const emails = [...new Set(rows.map((r) => r.email?.trim().toLowerCase()).filter((e): e is string => Boolean(e)))];
+  const ids = [...new Set(rows.map((r) => r.playtomic_id?.trim()).filter((e): e is string => Boolean(e)))];
+  const byEmail = new Map(emails.length ? (await db.selectFrom("person").select(["id", sql<string>`lower(email)`.as("e")]).where(sql<string>`lower(email)`, "in", emails).execute()).map((r) => [r.e, r.id]) : []);
+  const byPt = new Map(ids.length ? (await db.selectFrom("external_ref").select(["external_id", "entity_id"]).where("system", "=", "playtomic").where("entity", "=", "person").where("external_id", "in", ids).execute()).map((r) => [r.external_id, r.entity_id]) : []);
+  const seenEmail = new Set<string>(), seenPt = new Set<string>(), seenPhone = new Set<string>();
+  const out: { row: ImportRow; personId: string | null; email?: string; phone: string | null; link: boolean; news: boolean; level: ImportRow["level"] | null }[] = [];
+  let skipped = 0, updated = 0, phoneBad = 0, phoneTaken = 0, levels = 0, news = 0;
+  for (const row of rows) {
+    const email = row.email?.trim().toLowerCase(), pt = row.playtomic_id?.trim();
+    if ((email && seenEmail.has(email)) || (pt && seenPt.has(pt))) { skipped++; continue; }   // the same person twice in the file
+    if (email) seenEmail.add(email);
+    if (pt) seenPt.add(pt);
+    const personId = (pt ? byPt.get(pt) : undefined) ?? (email ? byEmail.get(email) : undefined) ?? null;
+    const p = personId ? await db.selectFrom("person").select(["phone", "junior"]).where("id", "=", personId).executeTakeFirstOrThrow() : null;
+    // A phone number, read in the club's country; only for someone with none, and nobody else's.
+    let phone: string | null = null;
+    if (row.phone?.trim() && !p?.junior && !p?.phone) {
+      const e164 = anyPhone(row.phone, country);
+      if (!e164) phoneBad++;
+      else if (seenPhone.has(e164) || await db.selectFrom("person").select("id").where("phone", "=", e164).$if(Boolean(personId), (q) => q.where("id", "!=", personId!)).executeTakeFirst()) phoneTaken++;
+      else { phone = e164; seenPhone.add(e164); }
+    }
+    const link = Boolean(pt) && !(personId && byPt.get(pt!) === personId)
+      && !(personId && await db.selectFrom("external_ref").select("external_id").where("system", "=", "playtomic").where("entity", "=", "person").where("entity_id", "=", personId).executeTakeFirst());
+    const yes = row.club_news === true && !(personId && await db.selectFrom("channel_consent").select("id").where("person_id", "=", personId).where("purpose", "=", "club_news").executeTakeFirst());
+    // A Playtomic level: a provisional start for someone new here; again only if it changed and they haven't played yet.
+    let level: ImportRow["level"] | null = null;
+    if (row.level) {
+      if (!personId) level = row.level;
+      else {
+        const r = await loadRating(db, personId), had = (await activeImports(db, personId)).find((x) => x.factors.platform === "playtomic");
+        if (r.games < SELF_ADJUST_GAMES && (!had || (r.games === 0 && Number(had.factors.raw) !== row.level.value))) level = row.level;
+      }
+    }
+    if (level) levels++;
+    if (yes) news++;
+    if (personId && !(phone || link || yes || level)) { skipped++; continue; }
+    if (personId) updated++;
+    out.push({ row, personId, ...(email ? { email } : {}), phone, link, news: yes, level });
   }
-  return { add, skipped };
+  return { rows: out, add: out.filter((r) => !r.personId), skipped, updated, phoneBad, phoneTaken, levels, news };
 }
 
 /** Someone joins by themselves, after proving their email address or (by a texted code) their mobile number.

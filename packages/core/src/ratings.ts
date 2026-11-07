@@ -1,6 +1,6 @@
 // Ratings in the database: rate a game, change a level, set a floor, and replay everything from
 // the events. Game and recompute events are derived; staff changes, floors and seeds are anchors; a
-// player's own move while new is applied by how far they moved it.
+// player's own move while new is applied by how far they moved it; a seed taken away is left out.
 import * as z from "zod/mini";
 
 import { both, type Text } from "@kumi/i18n";
@@ -67,11 +67,15 @@ export async function rateGame(ctx: ApplyCtx, gameId: string): Promise<void> {
 
 /** Replay every rating from the events, in order. Game events are recomputed from today's scores;
  *  staff changes, floors and seeds are applied as they were. This is the invariant the tests hold. */
-export async function replay(db: Db | Trx): Promise<Map<string, RatingState>> {
+export async function replay(db: Db | Trx, o: { leaveOut?: Set<string> } = {}): Promise<Map<string, RatingState>> {
   const events = await db.selectFrom("rating_event").select(["id", "person_id", "kind", "game_id", "mu_after", "sigma_after", "level_after", "factors"]).where("kind", "!=", "recompute").orderBy("id").execute();
+  // A start brought from another app that was taken away (level_import.ts) is left out, as if it never came; so is
+  // one a caller asks to leave out (to show what taking it away would do).
+  const leaveOut = new Set([...(o.leaveOut ?? []), ...events.filter((e) => e.kind === "import_removed").map((e) => (e.factors as { event_id?: string })?.event_id ?? "")]);
   const st = new Map<string, RatingState>(), done = new Set<string>();
   const get = (id: string) => st.get(id) ?? fresh();
   for (const e of events) {
+    if (e.kind === "import_removed" || (e.kind === "import_seed" && leaveOut.has(e.id))) continue;
     if (e.kind === "game") {
       if (!e.game_id || done.has(e.game_id)) continue;
       done.add(e.game_id);

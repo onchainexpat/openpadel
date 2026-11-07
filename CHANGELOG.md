@@ -43,6 +43,21 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   code, which the person types and allows at the club's `/oauth/device` page after signing in as usual. A link never
   carries the code, the page says when and from which address it was started, and an owner or a manager gives a
   fresh second step to allow it (their authenticator's code, or a passkey sign-in in the last 10 minutes).
+- **A starting level from another app** ([docs/levels-from-other-apps.md](docs/levels-from-other-apps.md)). Nobody signs
+  in to another app through the club's app. While a player has played fewer than 5 rated games here:
+  - staff record what they saw in the player's app, or looked up (Playtomic, Playbypoint, WPR, MATCHi, the LTA rating,
+    PadelLevels, Padelmates or another), on the player's level page;
+  - the player brings it themselves in the members' app: at or below the club's line (Settings, 4.50 to start) it
+    starts at once as their own word, and above it, or from an app whose levels aren't converted, staff check it on the
+    Levels page first;
+  - the member import takes a Playtomic customer export's Playtomic id (so a re-run finds the same person), phone
+    (kept only for someone who has none), a yes to club news (only a yes, and never over a member's own answer) and
+    Playtomic level with its reliability.
+
+  Each is a provisional start, never surer than a level staff set and never a floor, and the player's level page says
+  where it came from. The player can take it away while still new, and their level is worked out again without it.
+  Assistants and the command line can't bring in or take away a player's own level. Links the player approves on WPR
+  or PadelLevels wait for those apps' API access; nothing calls another app.
 
 ### Changed
 - **Kumi is now openPadel,** free and open source padel software. The command is `openpadel`, and `kumi` still works

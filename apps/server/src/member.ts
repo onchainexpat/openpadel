@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff } from "@kumi/core";
+import { creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff } from "@kumi/core";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
 
@@ -563,8 +563,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const pid = who(c), l = lang(c);
     const rating = await db.selectFrom("rating").select(["level", "provisional", "floor", "rated_games"]).where("person_id", "=", pid).where("sport", "=", "padel").executeTakeFirst();
     const events = await db.selectFrom("rating_event").select(["at", "kind", "level_after", "explanation"]).where("person_id", "=", pid).orderBy("id", "desc").limit(30).execute();
+    const imports = await importOptions(db, pid);
     return c.json({ rating: rating ?? null, events: events.map((e) => ({ at: e.at, kind: e.kind, level_after: e.level_after, explanation: (e.explanation as Record<string, string>)[l] ?? "" })),
-      ...await levelOptions(db, pid, new Date()) });
+      ...await levelOptions(db, pid, new Date()), ...imports, import: imports.import ? { ...imports.import, explanation: imports.import.explanation[l] } : null });
   });
 
   // ---- Asking the club ----

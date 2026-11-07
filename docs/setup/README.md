@@ -89,8 +89,33 @@ openpadel import members members.csv           # what would be added, and every 
 openpadel import members members.csv --apply   # add them
 ```
 
-People already in openPadel (by email) are left as they are, and nobody is emailed: telling members
-about the app is the club's own announcement. Staff can do the same from People in the staff app.
+People already in openPadel keep their name and email, and nobody is emailed: telling members about the
+app is the club's own announcement. Staff can do the same from People in the staff app.
+
+**From Playtomic** (the customer export in Playtomic Manager), these columns come in too when the file
+has them. Column names are matched in English or Spanish, ignoring case, spaces and accents:
+
+| What | Column names read |
+|---|---|
+| Phone | Phone, Phone number, Mobile, Telephone, Teléfono, Móvil, Celular |
+| Club news (only a yes counts: Yes, Y, True, Sí, X, 1, Accepted) | Club news, Newsletter, Marketing consent, Accepts commercial communications, Consent, Noticias del club, Comunicaciones comerciales, Consentimiento |
+| Playtomic id | Playtomic ID, Playtomic user ID, Playtomic player ID, ID Playtomic |
+| Playtomic level (0 to 7) | Playtomic level, Nivel Playtomic; a plain Level or Nivel only when the file also has a Playtomic id |
+| Its reliability (80, 80% or 0.8) | Reliability, Playtomic reliability, Fiabilidad, Confiabilidad |
+
+Playtomic doesn't publish its export's exact column names, so rename a column to one of these if
+the preview doesn't pick it up. What happens to each:
+
+- **The Playtomic id** is kept with the person, so running the import again (a newer export, say)
+  finds the same person, even under another email, instead of adding them twice.
+- **A phone** is read in the club's country and kept only for someone who has none, and only when
+  nobody else here has it. It's for the club to reach them; it isn't a way to sign in.
+- **Club news:** only an explicit yes is recorded, as consent from the import. A no or a blank adds
+  nothing, and a member's own answer is never changed.
+- **A Playtomic level** becomes a provisional starting level (see Levels, below), never a floor. A
+  newer export moves it only while the player hasn't played a rated game here yet.
+
+Someone already here gets only what's new for them, and the preview says how many.
 
 ### Step 5c: courts, prices and rules
 
@@ -738,6 +763,27 @@ and anyone can ask the club for a review (free, once every 30 days). Staff answe
 Levels page, which also lists any level that moved more than 0.50 in 30 days. After a clinic, the coach
 who ran it or the front desk sets the levels of everyone who came in one go, from that date on the
 program's page.
+
+**A level from another app.** Nobody signs in to another app through openPadel: the other apps' terms
+forbid it, and it would put members' other accounts at risk. Instead, while a player has played fewer
+than 5 rated games here:
+
+- **Staff record what they saw** in the player's app (or looked up on its public pages) on the
+  player's level page: the app, the level as it shows there, and how sure the app says it is. It
+  starts their level at once.
+- **The player brings it themselves** in the members' app (Level, "Played on another app?"). At or
+  below the club's line (Settings, 4.50 to start) it starts at once, as their own word. Above it, or
+  from an app whose levels aren't converted, it waits on the staff Levels page, where staff check it
+  (by looking at the player's app, say) and start them there, give another start, or keep it out.
+  No screenshot is uploaded.
+- **The club's own Playtomic levels** come in with the member import (step 5b).
+
+Each is a provisional start: as sure as the evidence allows, never surer than a level staff set, so
+the first games here still move it fully. It never sets a floor, and a floor a coach set still holds.
+The player's level page says where it came from, and they can take it away while still new (the level
+is then worked out again without it). Assistants and the command line can't bring in or take away a
+player's own level: that's in the app. How each app's level converts, and how sure each start is, is
+in [levels-from-other-apps.md](../levels-from-other-apps.md).
 
 ### Step 8: practice
 
