@@ -84,6 +84,15 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   - Connections made before this update take what their person holds at their first use after it, and count no
     second step: where the club asks one (owners and managers, to start), they work as a member's until connected
     again.
+- **A connection held to a member's reach still used some staff powers on the person's own things.** Choosing a
+  refund other than the rule when cancelling a booking or a weekly court, taking a founding place given up, naming
+  anyone on someone's court, a coach's full refund on their lesson and the like read the person's roles directly.
+  Every such check now goes through one place that counts the member role alone for a held-back connection, and a
+  test walks the whole catalogue: a staff member held back gets exactly a member's answer to every action.
+- **Shortened contacts no longer catch other numbers.** A bare run of digits ("invoice 123456789", "order #100200300",
+  "member number 12345678901") is left alone; a phone is one written with a + or in groups (415-5550142, 07700 900123,
+  020 7946 0958), or a US or Canadian number right after a word that says it's one ("call 4155550142"). Text with no
+  @ and few digits is passed over at once, which halves what shortening costs on the biggest staff reads.
 - **Through an assistant, an email could be confirmed as someone's (in 0.1.0 to 0.3.1).** Importing a members'
   list said who of it was already here, and adding someone with a taken email said so: each a yes or no on a guess.
   The import is now done in the app (or `openpadel import members` on the server), and a taken email or phone gets a

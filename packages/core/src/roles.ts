@@ -9,7 +9,7 @@ import { actions, defineAction, readRow, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
-import { specificity, type Mode } from "./permissions.ts";
+import { specificity, type Asker, type Mode } from "./permissions.ts";
 
 /** The areas actions fall in, by the first part of their name. */
 export const AREAS: { key: string; prefixes: string[] }[] = [
@@ -45,9 +45,11 @@ export function roleAllows(grants: Grant[], action: string): Held | null {
   return g && g.mode !== "no" ? { mode: g.mode, scope: g.rows_scope } : null;
 }
 /** The most a person holds for an action across their roles (place and shift aside). */
-export async function heldBy(db: Db | Trx, personId: string, action: string): Promise<Held | null> {
+export async function heldBy(db: Db | Trx, asker: Asker, action: string): Promise<Held | null> {
+  if (!asker.personId) return null;
   const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.id")
-    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true).execute();
+    .where("person_role.person_id", "=", asker.personId).where("person_role.active", "=", true).where("role.active", "=", true)
+    .$if(Boolean(asker.memberOnly), (q) => q.where("role.key", "=", "member")).execute();
   let best: Held | null = null;
   for (const r of roles) {
     const h = roleAllows(await grantsOfRole(db, r.id), action);
@@ -85,7 +87,7 @@ async function checkGrants(ctx: PlanCtx, grants: GrantIn[]): Promise<void> {
     if (seen.has(g.action)) throw new KumiError("error.role_grant_twice", { action: g.action });
     seen.add(g.action);
     if (!allowed.has(g.action)) throw new KumiError("error.role_owner_only", { action: g.action });
-    if (ctx.actor.personId && exceeds({ mode: g.approval ? "ask" : "allow", scope: g.scope }, await heldBy(ctx.db, ctx.actor.personId, g.action)))
+    if (ctx.actor.personId && exceeds({ mode: g.approval ? "ask" : "allow", scope: g.scope }, await heldBy(ctx.db, ctx.actor, g.action)))
       throw new KumiError("error.role_more_than_you", { action: g.action });
   }
 }
@@ -186,7 +188,7 @@ export async function checkAssign(ctx: PlanCtx, roleId: string): Promise<void> {
   for (const a of actions()) {
     if (a.internal) continue;
     const want = roleAllows(grants, a.name);
-    if (want && exceeds(want, await heldBy(ctx.db, ctx.actor.personId, a.name))) throw new KumiError("error.role_more_than_you", { action: a.name });
+    if (want && exceeds(want, await heldBy(ctx.db, ctx.actor, a.name))) throw new KumiError("error.role_more_than_you", { action: a.name });
   }
 }
 

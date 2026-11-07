@@ -101,7 +101,7 @@ export const bookingTakePlace = defineAction({
   input: z.object({ code: z.string().check(z.minLength(8), z.maxLength(40)), person_id: z.uuid() }),
   async plan(ctx, i) {
     await notJunior(ctx.db, i.person_id);
-    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
+    await notOwing(ctx.db, i.person_id, ctx.actor, ctx.now);
     const { o, place, m, from } = await offerFacts(ctx.db, { code: i.code });
     if (o.status !== "offered" || place.removed_at) throw new KumiError("error.offer_closed");
     await requireWaiver(ctx, i.person_id);

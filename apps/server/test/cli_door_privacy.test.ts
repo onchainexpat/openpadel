@@ -103,7 +103,8 @@ test("a preview's words and free text come back with contacts shortened, except 
 });
 
 test("shortening inside text: emails and phones written any usual way, never ids, dates or amounts", () => {
-  assert.equal(shortenInText("Call ann.lee@example.test, +1 415 555 0142, (415) 555-0142 or 4155550142."), "Call a...@example.test, ...42, ...42 or ...42.");
+  assert.equal(shortenInText("Call ann.lee@example.test, +1 415 555 0142, (415) 555-0142 or call 4155550142."), "Call a...@example.test, ...42, ...42 or call ...42.");
+  assert.equal(shortenInText("or 4155550142 on its own"), "or 4155550142 on its own", "a bare run with no word saying it's a phone: left alone");
   const keep = "0193f2a1-7b3c-7d4e-8a1b-123456789012 12345678-1234-7123-8123-123456789012 2026-11-07T10:00:00.000Z 2026-11-07 $1,234.56 10:30 pi_3N12345678901234 20261107";
   assert.equal(shortenInText(keep), keep);
   assert.equal(shortenInText("Add zed@example.test", givenContacts({ email: "Zed@Example.test" })), "Add zed@example.test", "typed by the asker: kept");

@@ -6,7 +6,7 @@ import { both } from "@kumi/i18n";
 import { defineAction, readRow, run, runAsSystem, type Actor } from "./actions.ts";
 import type { Db } from "./db.ts";
 import { KumiError } from "./errors.ts";
-import { mayEverDo } from "./permissions.ts";
+import { everDoable } from "./permissions.ts";
 import type { ConnectedAccount, StripeProvider } from "./stripe.ts";
 
 const accountId = z.string().check(z.regex(/^acct_[A-Za-z0-9]+$/));
@@ -62,7 +62,7 @@ export function clubStripeAccount(db: Db): ConnectedAccount {
 export async function connectStripe(db: Db, stripe: StripeProvider, actor: Actor, urls: { refresh: string; return: string }, email?: string | null)
   : Promise<{ url: string } | { awaiting_approval: string }> {
   // Nothing is asked of Stripe for someone who could never set the club's account (owners do; managers ask).
-  if (!actor.personId || !(await mayEverDo(db, actor.personId, "club.payment_account_set"))) throw new KumiError("error.forbidden", {}, 403);
+  if (!actor.personId || !(await everDoable(db, actor.personId, { memberOnly: actor.memberOnly }))("club.payment_account_set")) throw new KumiError("error.forbidden", {}, 403);
   const club = await db.selectFrom("club").select(["stripe_account_id", "country"]).executeTakeFirstOrThrow();
   let account = club.stripe_account_id;
   if (!account) {

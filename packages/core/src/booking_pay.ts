@@ -13,6 +13,7 @@ import { defineAction, readRow, runAsSystem, type ApplyCtx, type PlanCtx } from 
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
+import { holdsRole, type Asker } from "./permissions.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { promoOff, towardPrice } from "./promo_off.ts";
 import { courtOpening, occupied } from "./bookings.ts";
@@ -94,7 +95,7 @@ export const bookingRequest = defineAction({
   async plan(ctx, i) {
     const club = await ctx.db.selectFrom("club").select(["court_bookings"]).executeTakeFirstOrThrow();
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
-    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
+    await notOwing(ctx.db, i.person_id, ctx.actor, ctx.now);
     if (i.open && (i.pay !== "split" || (i.players ?? 4) !== 4)) throw new KumiError("error.open_match_split");
     if (i.open && i.open.level_max < i.open.level_min) throw new KumiError("error.bad_band");
     await notJunior(ctx.db, i.person_id);
@@ -159,7 +160,7 @@ export const bookingRequestCourts = defineAction({
     const club = await ctx.db.selectFrom("club").select(["court_bookings"]).executeTakeFirstOrThrow();
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
     await notJunior(ctx.db, i.person_id);
-    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
+    await notOwing(ctx.db, i.person_id, ctx.actor, ctx.now);
     await requireWaiver(ctx, i.person_id);
     const policy = await currentPolicy(ctx.db), slots = [];
     for (const s of i.courts) slots.push({ ...s, ...(await checkSlot(ctx, policy, s, i.person_id)) });
@@ -212,7 +213,7 @@ export const bookingJoin = defineAction({
     const b = await ctx.db.selectFrom("booking").selectAll().$if(Boolean(i.invite_code), (q) => q.where("invite_code", "=", i.invite_code!))
       .$if(!i.invite_code, (q) => q.where("id", "=", i.booking_id ?? "00000000-0000-0000-0000-000000000000")).executeTakeFirst();
     if (!b || b.status !== "confirmed" || b.pay_mode !== "split") throw new KumiError("error.invite_closed");
-    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
+    await notOwing(ctx.db, i.person_id, ctx.actor, ctx.now);
     // After the deadline only a place staff opened again can be joined.
     if (b.settled_at && !(await reopenedPlace(ctx.db, b.id))) throw new KumiError("error.invite_settled");
     await notJunior(ctx.db, i.person_id);
@@ -442,10 +443,11 @@ export const bookingCancel = defineAction({
     const { row: b, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
     // Choosing what comes back instead of the rule is for the club (rule 2), not the player cancelling.
-    if (i.refund && !(await deskOrUp(ctx.db, ctx.actor.personId))) throw new KumiError("error.refund_choice_staff", {}, 403);
+    if (i.refund && !(await deskOrUp(ctx.db, ctx.actor))) throw new KumiError("error.refund_choice_staff", {}, 403);
     // A lesson the coach or the club calls off: the players get everything back. The coach can't choose less.
     // A junior's lesson is the junior's booking: their parents cancel it as its organiser would.
-    const lesson = b.kind === "lesson", byCoach = lesson && ctx.actor.personId === b.coach_id, organisers = await withManagers(ctx.db, [b.organiser_id]);
+    const lesson = b.kind === "lesson", organisers = await withManagers(ctx.db, [b.organiser_id]);
+    const byCoach = lesson && ctx.actor.personId === b.coach_id && await holdsRole(ctx.db, ctx.actor, ["coach"]);   // as the coach, not through a member's reach
     const choice = byCoach ? "full" : i.refund ?? (lesson && !organisers.includes(ctx.actor.personId ?? "") ? "full" : "rule");
     const r = await cancelRefunds(ctx.db, b.id, ctx.now, choice), total = r.refunds.reduce((n, x) => n + x.cents, 0);
     const joiners = r.refunds.filter((x) => x.joiner).reduce((n, x) => n + x.cents, 0), host = total - joiners, hours = both("count.hours", { count: r.hours });
@@ -523,8 +525,8 @@ export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: {
 }
 /** Someone who still owes on a court (the deadline charge that didn't go through, or time owed at the desk on a
  *  booking that's over) books and joins nothing more until it's paid at the desk. Staff booking for them can. */
-export async function notOwing(db: Db | Trx, personId: string, actorId: string | null | undefined, now: Date) {
-  if (actorId && actorId !== personId && await deskOrUp(db, actorId)) return;
+export async function notOwing(db: Db | Trx, personId: string, actor: Asker | null, now: Date) {
+  if (actor?.personId && actor.personId !== personId && await deskOrUp(db, actor)) return;
   const r = await db.selectFrom("booking").select(sql<string>`coalesce(sum(balance_cents), 0)`.as("c")).where("organiser_id", "=", personId).where("balance_cents", ">", 0)
     .where("status", "!=", "cancelled")
     .where((w) => w.or([w("settled_at", "is not", null), w.exists(w.selectFrom("court_time").select("court_time.id").whereRef("court_time.booking_id", "=", "booking.id")
@@ -532,11 +534,11 @@ export async function notOwing(db: Db | Trx, personId: string, actorId: string |
     .executeTakeFirstOrThrow();
   if (Number(r.c) > 0) throw new KumiError("error.balance_owed", { amount: usd(Number(r.c)) });
 }
-/** Owners, managers and front desk: who may choose a refund other than the rule. */
-export async function deskOrUp(db: Db | Trx, personId: string | null): Promise<boolean> {
-  if (!personId) return false;
-  return Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id").where("person_role.person_id", "=", personId)
-    .where("person_role.active", "=", true).where("role.key", "in", ["owner", "manager", "front_desk"]).executeTakeFirst());
+/** Owners, managers and front desk: who may choose a refund other than the rule (never through a connection held
+ *  to a member's reach). */
+export const DESK_OR_UP = ["owner", "manager", "front_desk"] as const;
+export async function deskOrUp(db: Db | Trx, asker: Asker): Promise<boolean> {
+  return holdsRole(db, asker, DESK_OR_UP);
 }
 
 // ---- The jobs ----

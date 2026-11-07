@@ -65,9 +65,16 @@ there or by `openpadel logout` (which runs `assistant.disconnect` for itself).
   and grants) and whether that sign-in gave a second step. At each use, if they now hold more (by any path: a role
   given, a removal undone, the server's `owner add`, a role the club made widened) or the club asks a second step
   they didn't give, it works as a member's until they connect it again: only the member role counts in its tool
-  list, its reads and the permission check (`memberOnly`). They hear it once, in their inbox, and `whoami` says
-  why. "More" is judged by what it reaches, not by role names, so an owner giving themselves coach reaches nothing
-  new and keeps their connection. A connection from before this takes what its person holds at its first use.
+  list, its reads and the permission check (`memberOnly`), and every role an action or its plan reads of the asker
+  (the desk's refund choice, a founding place, naming anyone) through one helper, `roleKeysOf` / `holdsRole`, which
+  counts the member role alone for it (`packages/core/test/member_reach.test.ts` walks the catalogue to keep it so).
+  They hear it once, in their inbox, and `whoami` says why. "More" is judged by what it reaches, not by role names,
+  so an owner giving themselves coach reaches nothing new and keeps their connection. A connection from before this
+  takes what its person holds at its first use.
+- **What counts as a phone in text:** a + and country code, or digits in groups with one of 3 or more (9 to 15 in
+  all), or a bare US or Canadian number right after a word saying it's one. A bare run is otherwise an invoice, order or
+  member number and is left alone. Strings with no @ and under 8 digits, and lone dates and times, are passed over
+  without a pattern run (on large-club-sized reads: the day 0.7 to 0.3 ms, a month of receipts 4.8 to 2.4 ms).
 - **No yes or no on an email:** the members' list import is the app's (its preview says who of a list is already
   here), and a taken email or phone through the door is a plain `error.door_not_here`. Shortening catches the usual
   spellings (415-5550142, 07700 900123, 020 7946 0958, josé@example.test) and never touches a field that names an id.

@@ -164,7 +164,7 @@ export const bookingRepeatRequest = defineAction({
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
     if (!club.weekly_bookings) throw new KumiError("error.weekly_off");
     if (i.weeks > club.weekly_max_weeks) throw new KumiError("error.repeat_too_many", { count: club.weekly_max_weeks });
-    await notOwing(ctx.db, i.person_id, ctx.actor.personId, ctx.now);
+    await notOwing(ctx.db, i.person_id, ctx.actor, ctx.now);
     await notJunior(ctx.db, i.person_id);
     await requireWaiver(ctx, i.person_id);
     // The first week passes every check a booking made in the app passes: its window, the lengths, the hours, free.
@@ -320,7 +320,7 @@ export const bookingRepeatEnd = defineAction({
   async plan(ctx, i) {
     const { row: s, read } = await readRow(ctx.db, "booking_series", i.series_id, "thing.weekly_booking");
     // Choosing what comes back instead of each week's rule is for the club (rule 2), not the member.
-    if (i.refund && !(await deskOrUp(ctx.db, ctx.actor.personId))) throw new KumiError("error.refund_choice_staff", {}, 403);
+    if (i.refund && !(await deskOrUp(ctx.db, ctx.actor))) throw new KumiError("error.refund_choice_staff", {}, 403);
     const court = { name: (await ctx.db.selectFrom("court").select("name").where("id", "=", s.court_id).executeTakeFirstOrThrow()).name, time_zone: await seriesTz(ctx.db, s.location_id) };
     const today = localDate(ctx.now, court.time_zone), from = i.from_date && i.from_date > today ? i.from_date : today;
     const weeks = await seriesToEnd(ctx.db, s.id, from, ctx.now), cancels = [];

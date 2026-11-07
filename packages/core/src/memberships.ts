@@ -19,6 +19,7 @@ import { householdOf, withManagers } from "./households.ts";
 import { callOff, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 import { declineReason } from "./declines.ts";
 import { isReadOnly, refuseWhenReadOnly } from "./read_only.ts";
+import { deskOrUp } from "./booking_pay.ts";
 
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 const LIVE = ["active", "past_due"] as const;
@@ -335,8 +336,7 @@ export const membershipJoin = defineAction({
     // A founding place given up before the start can't be taken again in the app: its member prices came with it
     // (perks before the start), and joining and leaving again would keep them for nothing. Staff can still add them.
     if (presale && await ctx.db.selectFrom("membership").select("id").where("person_id", "=", i.person_id).where("plan_id", "=", plan.id).where("end_reason", "=", "gave_up_place").executeTakeFirst()
-      && !(await ctx.db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.id").where("person_role.person_id", "=", ctx.actor.personId ?? "00000000-0000-0000-0000-000000000000")
-        .where("person_role.active", "=", true).where("role.key", "in", ["owner", "manager", "front_desk"]).executeTakeFirst()))
+      && !(await deskOrUp(ctx.db, ctx.actor)))
       throw new KumiError("error.presale_given_up", { name: textOf(plan.name, plan.translations, "name") });
     const p = { name: textOf(plan.name, plan.translations, "name"), price: planPrice(plan.price_cents, plan.period), period: both(plan.period === "year" ? "plan.membership.every_year" : "plan.membership.every_month"),
       date: plan.starts_on ? dayText(plan.starts_on) : "" };

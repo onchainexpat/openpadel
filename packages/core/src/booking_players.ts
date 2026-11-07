@@ -63,7 +63,7 @@ export const bookingAddPlayer = defineAction({
     await notJunior(ctx.db, i.person_id);
     // The front desk and up name anyone (they know the members, and add them at the desk). A booker only names someone
     // they know (a host can't put a stranger's name on a booking); anyone else uses the link.
-    const staff = await deskOrUp(ctx.db, ctx.actor.personId) && ctx.actor.personId !== b.organiser_id;
+    const staff = await deskOrUp(ctx.db, ctx.actor) && ctx.actor.personId !== b.organiser_id;
     if (!staff) {
       const f = await friendsOf(ctx.db, b.organiser_id!);
       if (![...f.friends, ...f.added_you, ...f.you_added, ...f.played_with].some((p) => p.id === i.person_id)) throw new KumiError("error.not_known_player");

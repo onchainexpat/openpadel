@@ -96,13 +96,29 @@ export function shortContact(kind: "email" | "phone", v: unknown): unknown {
   return `...${v.replace(/\D/g, "").slice(-2)}`;
 }
 const CONTACT: Record<string, "email" | "phone"> = { email: "email", contact_email: "email", reply_to: "email", phone: "phone", contact_phone: "phone" };
-// An email (josé@example.test too), or a phone number as people write one inside any text: an alert, a note, why an
-// address is held back. A phone is groups of 2 to 5 digits (a +country code and brackets allowed), 9 to 15 digits in all:
-// +1 415 555 0142, (415) 555-0142, 415-5550142, 4155550142, 07700 900123, 020 7946 0958. Never inside another word
-// or number, never a date (2026-11-07 has 8 digits), and never a field that names an id (shortenContacts).
+// An email (josé@example.test too), or a phone number as people write one, inside any text: an alert, a note, why an
+// address is held back. Never inside another word or number, never a date, never a field that names an id.
+// A phone is written one of these ways:
+// - with a + and its country code: +1 415 555 0142, +14155550142, +44 20 7946 0958 (8 to 15 digits);
+// - in groups, with the spaces, dashes, dots or brackets phones are written with, one group of 3 digits or more,
+//   9 to 15 digits in all: (415) 555-0142, 415-5550142, 07700 900123, 020 7946 0958, 612 345 678;
+// - bare, only as a US or Canadian number (10 digits, or 11 starting with 1, its area code and exchange 2-9) right
+//   after a word that says it's one ("call 4155550142", "móvil 4155550142"). A bare run is otherwise left alone: it's
+//   usually an invoice, an order or a member number ("invoice 123456789", "member number 12345678901").
 const EMAIL_IN = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/gu;
-const PHONE_IN = /(?<![\p{L}\p{N}_./:+-])(?:\+\d{1,3}[ .-]?)?\(?\d{2,5}\)?(?:[ .-]?\(?\d{2,5}\)?){1,5}(?![\p{L}\p{N}_/:-]|[.,]\d)/gu;
-const phoneLike = (m: string) => { const n = m.replace(/\D/g, "").length; return n >= 9 && n <= 15 && !/^\d{4}-\d{2}-\d{2}/.test(m); };
+const PHONE_IN = /(?<![\p{L}\p{N}_./:+#-])(?:\+\d{1,3}[ .-]?)?\(?\d{2,5}\)?(?:[ .-]?\(?\d{2,5}\)?){1,5}(?![\p{L}\p{N}_/:-]|[.,]\d)/gu;
+const PHONE_WORD = /(?:call|ring|phone|tel|text|mobile|cell|sms|whats ?app|number is|reach me|teléfono|telefono|móvil|movil|celular|llama|llámame|llamame|mensaje)\W{0,4}(?:\p{L}+\W{1,3}){0,2}$/iu;
+function phoneLike(m: string, before: string): boolean {
+  const t = m.trim(), digits = t.replace(/\D/g, ""), n = digits.length;
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return false;
+  if (t.startsWith("+")) return n >= 8 && n <= 15;
+  if (/[\s().-]/.test(t)) return n >= 9 && n <= 15 && /\d{3}/.test(t);
+  return /^1?[2-9]\d{2}[2-9]\d{6}$/.test(digits) && PHONE_WORD.test(before.slice(-40));
+}
+/** A date or a time on its own (2026-11-07, 2026-11-07T18:00:00.000Z), as most of a read's digits come. */
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+/** Digits in a text, up to 8 (all that's needed to know there's no phone in it). */
+const someDigits = (s: string) => { let n = 0; for (let i = 0; i < s.length && n < 8; i++) { const c = s.charCodeAt(i); if (c >= 48 && c <= 57) n++; } return n; };
 /** A field whose name says it holds an id (id, event_id, run_ids, ref): passed through whole, whatever its digits. */
 const ID_KEY = /^(id|ids|ref)$|_(id|ids|ref)$/;
 /** What the asker gave in their own input (emails, and phones as digits): those come back as they were typed. */
@@ -116,8 +132,12 @@ export function givenContacts(v: unknown, out = new Set<string>()): Set<string> 
   return out;
 }
 export function shortenInText(text: string, given: Set<string> = new Set()): string {
-  return text.replace(EMAIL_IN, (m) => given.has(m.toLowerCase()) ? m : String(shortContact("email", m)))
-    .replace(PHONE_IN, (m) => !phoneLike(m) || given.has(m.replace(/\D/g, "")) ? m : String(shortContact("phone", m)));
+  // Most of what a staff read returns (names, ids, times, amounts) has no @ and too few digits: left as it is at once.
+  const at = text.includes("@"), digits = someDigits(text) >= 8 && !ISO_TIME.test(text);
+  if (!at && !digits) return text;
+  let out = at ? text.replace(EMAIL_IN, (m) => given.has(m.toLowerCase()) ? m : String(shortContact("email", m))) : text;
+  if (digits) out = out.replace(PHONE_IN, (m: string, at: number, whole: string) => !phoneLike(m, whole.slice(0, at)) || given.has(m.replace(/\D/g, "")) ? m : String(shortContact("phone", m)));
+  return out;
 }
 /** A staff read, a preview or a result as the door returns it: emails and phones shortened, by field and in text. */
 export function shortenContacts(v: unknown, given: Set<string> = new Set()): unknown {

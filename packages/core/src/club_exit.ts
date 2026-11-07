@@ -6,6 +6,7 @@ import { both } from "@kumi/i18n";
 import { defineAction } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import { holdsRole, type Asker } from "./permissions.ts";
 
 /** The club's Kumi now runs elsewhere: this server sends members nothing more (the senders check, messages.ts,
  *  texts.ts, push.ts) and takes nothing new (read_only.ts), and both apps say where it went. Turned on before the
@@ -22,7 +23,7 @@ async function setMoved(ctx: { update: (e: "club", id: string, v: Record<string,
 export const clubMoved = defineAction({
   name: "club.moved", version: 1, strongAuth: true, input: movedInput,
   async plan(ctx, i) {
-    if (!(await isOwner(ctx.db, ctx.actor.personId))) throw new KumiError("error.export_owner_only", {}, 403);
+    if (!(await isOwner(ctx.db, ctx.actor))) throw new KumiError("error.export_owner_only", {}, 403);
     return movedPlan(i);
   },
   apply: (ctx, i) => setMoved(ctx, i),
@@ -57,10 +58,8 @@ export const clubReadOnly = defineAction({
   },
 });
 
-async function isOwner(db: Db | Trx, personId: string | null): Promise<boolean> {
-  if (!personId) return false;
-  return Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.id")
-    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.key", "=", "owner").executeTakeFirst());
+async function isOwner(db: Db | Trx, asker: Asker): Promise<boolean> {
+  return holdsRole(db, asker, ["owner"]);
 }
 
 /** The owner's download of everything: recorded here; the file is made once, right after (exportClubRun). */
@@ -69,7 +68,7 @@ export const clubExport = defineAction({
   input: z.object({}),
   async plan(ctx) {
     // The owner's alone, not something a manager can ask for: the file holds every member's details.
-    if (!(await isOwner(ctx.db, ctx.actor.personId))) throw new KumiError("error.export_owner_only", {}, 403);
+    if (!(await isOwner(ctx.db, ctx.actor))) throw new KumiError("error.export_owner_only", {}, 403);
     return { title: both("action.club.export"), summary: both("plan.club.export"), reads: [], undo: { kind: "none", note: both("reason.export_final") } };
   },
   async apply(ctx) {
@@ -83,7 +82,7 @@ export async function exportClubRun(db: Db, runId: string, actorId: string, now:
   const run = await db.selectFrom("action_run").select(["action", "status", "actor_person_id", "applied_at"]).where("id", "=", runId).executeTakeFirst();
   if (!run || run.action !== "club.export" || run.status !== "applied" || run.actor_person_id !== actorId || !run.applied_at
     || now.getTime() - run.applied_at.getTime() > CLUB_EXPORT_MINUTES * 60_000) throw new KumiError("error.club_export_gone", {}, 404);
-  if (!(await isOwner(db, actorId))) throw new KumiError("error.export_owner_only", {}, 403);
+  if (!(await isOwner(db, { personId: actorId }))) throw new KumiError("error.export_owner_only", {}, 403);
 }
 
 /** The last time someone downloaded everything (club.export, from the audit log), and who. */

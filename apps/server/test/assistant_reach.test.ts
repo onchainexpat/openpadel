@@ -10,7 +10,7 @@ import { decide, messageHandlers, processOutbox, run, runAsSystem, uuidv7, type 
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 import { clubsOwn } from "../src/cli_remote.ts";
-import { shortenInText } from "../src/mcp.ts";
+import { shortenContacts, shortenInText } from "../src/mcp.ts";
 
 const BASE = "https://club.example.test", MCP = `${BASE}/mcp`, CLIENT = "reach-client", TZ = "America/Los_Angeles";
 let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor;
@@ -73,6 +73,37 @@ test("a removal undone gives the role back, but not to an assistant connected me
   const again = await tokenFor(people["Bob Marsh"]!);
   assert.equal((await call(again.access, "whoami")).limited, undefined);
   assert.ok(Array.isArray(await call(again.access, "people")));
+});
+
+test("held to a member's reach, a connection doesn't get the desk's refund choice on the person's own booking", async () => {
+  const loc = ((await run(db, "location.create", { name: "Main", time_zone: TZ }, owner)).result as any).location_id;
+  const court = ((await run(db, "court.create", { location_id: loc, name: "Court 1" }, owner)).result as any).court_id;
+  await run(db, "hours.set", { location_id: loc, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "07:00", closes: "23:00" })) }, owner);
+  await run(db, "price.rule_set", { location_id: loc, name: "Standard", cents_per_hour: 4000 }, owner);
+  await run(db, "club.update", { court_bookings: true }, owner);
+  const kim = ((await run(db, "person.create", { display_name: "Kim Ito", email: "kim@example.test" }, owner)).result as any).person_id;
+  const dayOut = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date(Date.now() + 2 * 864e5));
+  const b = await run(db, "booking.request", { court_id: court, starts_at: `${dayOut}T18:00:00Z`, minutes: 90, pay: "whole", person_id: kim }, { personId: kim, via: "web", lang: "en" });
+  const k = await tokenFor(kim);
+  assert.equal((await call(k.access, "whoami")).limited, undefined, "connected as a member");
+  await run(db, "role.assign", { person_id: kim, role: "front_desk" }, owner);
+  assert.equal((await call(k.access, "whoami")).limited?.why, "widened");
+  assert.equal((await call(k.access, "booking_cancel_preview", { booking_id: (b.result as any).booking_id, refund: "full" })).error, "error.refund_choice_staff");
+  assert.ok((await call(k.access, "booking_cancel_preview", { booking_id: (b.result as any).booking_id })).run_id, "cancelling it under the rule, as a member does");
+});
+
+test("changed_since answers only about the asker's own changes, and a connection whose powers didn't grow carries on", async () => {
+  const robin = await tokenFor(people.Robin!);
+  const theirs = await db.selectFrom("action_run").select("id").where("actor_person_id", "=", people.Robin!).where("status", "=", "applied").executeTakeFirstOrThrow();
+  const ann = await tokenFor(people["Ann Lee"]!);
+  assert.equal((await call(ann.access, "changed_since", { run_id: theirs.id })).error, "error.not_found", "someone else's change: as if there were none");
+  assert.equal((await call(ann.access, "changed_since", { run_id: uuidv7() })).error, "error.not_found");
+  assert.equal((await call(robin.access, "changed_since", { run_id: theirs.id })).changed !== undefined, true, "the owner's own: answered");
+  const dan = ((await run(db, "person.create", { display_name: "Dan Ford", email: "dan@example.test" }, owner)).result as any).person_id;
+  await run(db, "role.assign", { person_id: dan, role: "front_desk" }, owner);   // staff before connecting
+  const d = await tokenFor(dan);
+  for (let n = 0; n < 3; n++) assert.equal((await call(d.access, "whoami")).limited, undefined, "front desk, connected as front desk: full reach, every time");
+  assert.ok(Array.isArray(await call(d.access, "people")));
 });
 
 test("the server's `owner add` doesn't reach through an assistant connected as a member", async () => {
@@ -149,6 +180,12 @@ test("free text: phones and emails as people write them come back shortened", ()
     assert.equal(shortenInText(given), want);
   const kept = "from 2026-11-07 to 2026-11-08, 12:30-14:00, Courts 1 2 3 4 5 6 7 8 9, 10 11 12, booking 1234567, 1.234.567,89, $1,234.56";
   assert.equal(shortenInText(kept), kept);
+  // A bare run of digits is an invoice, an order or a member number, not a phone, unless a word says it's one.
+  for (const n of ["invoice 123456789 paid", "order #100200300 shipped", "their member number 12345678901", "ref 123456789", "Courts 10 11 12 13 14"]) assert.equal(shortenInText(n), n);
+  assert.equal(shortenInText("call 14155550142"), "call ...42");
+  assert.equal(shortenInText("mi móvil es 4155550142"), "mi móvil es ...42");
+  assert.deepEqual(shortenContacts({ note: "ref 123456789", invoice_no: "100200300", times: "123456789", event_id: "4155550142" }),
+    { note: "ref 123456789", invoice_no: "100200300", times: "123456789", event_id: "4155550142" });
 });
 
 test("the command line signs in only at the club's own host or its staff app beside it, never a neighbour", () => {

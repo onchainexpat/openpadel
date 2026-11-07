@@ -28,6 +28,22 @@ export function specificity(pattern: string, action: string): number {
 
 export interface GrantRow { role_id: string; role_key: string; location_id: string | null; pattern: string; mode: Mode; rows_scope: "any" | "own"; time_scope: "any_time" | "on_shift" }
 
+/** Who is asking, as far as their roles go: an action's actor (or a person id with how they're asking). */
+export interface Asker { personId: string | null; memberOnly?: boolean }
+/** The role keys that count for an asker: their active roles, or the member role alone when they ask through a
+ *  connection held to a member's reach (assistant_reach.ts). Every check an action, its plan or a read the door runs
+ *  makes of the asker's own roles goes through here (or holdsRole), so a held-back connection is a member everywhere. */
+export async function roleKeysOf(db: Db | Trx, asker: Asker): Promise<string[]> {
+  if (!asker.personId) return [];
+  const rows = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
+    .where("person_role.person_id", "=", asker.personId).where("person_role.active", "=", true).where("role.active", "=", true).execute();
+  const keys = [...new Set(rows.map((r) => r.key))];
+  return asker.memberOnly ? keys.filter((k) => k === "member") : keys;
+}
+export async function holdsRole(db: Db | Trx, asker: Asker, keys: readonly string[]): Promise<boolean> {
+  return (await roleKeysOf(db, asker)).some((k) => keys.includes(k));
+}
+
 /** Every grant the person holds through their roles; `memberOnly`, the member role's alone. */
 export async function grantsFor(db: Db | Trx, personId: string, memberOnly = false): Promise<GrantRow[]> {
   const rows = await db.selectFrom("person_role").innerJoin("role_grant", "role_grant.role_id", "person_role.role_id").innerJoin("role", "role.id", "person_role.role_id")
