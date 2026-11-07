@@ -7,7 +7,7 @@ Docker and Docker Compose and 2 GB of memory will do. The DNS records are the sa
 [the server guide](../../docs/setup/accounts/server.md).
 
 ```bash
-git clone https://github.com/<your-org>/kumi && cd kumi && git checkout v0.2.1   # the release, not main
+git clone https://github.com/<your-org>/kumi && cd kumi && git checkout v0.3.0   # the release, not main
 cp deploy/docker/env.example .env       # fill in KUMI_HOST and KUMI_DB_PASSWORD (openssl rand -hex 24)
 chmod 600 .env                          # it will hold every key the club has: only you read it
 mkdir -p config backups
@@ -126,7 +126,7 @@ passphrase when asked.
 ## Updating
 Read the release's notes in [`CHANGELOG.md`](../../CHANGELOG.md) first, then:
 ```bash
-deploy/docker/update.sh v0.2.1          # a release tag, or a branch
+deploy/docker/update.sh v0.3.0          # a release tag, or a branch
 ```
 It builds the new release's images beside the running ones (tagged by commit), takes a snapshot of the
 database (`./backups/update-<old>-to-<new>-<time>.dump`), switches, and checks the server answers as the new

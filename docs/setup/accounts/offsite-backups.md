@@ -187,7 +187,7 @@ once); the club's last owner keeps the owner role until another owner is added, 
 If the database being replaced can't be read (the old server is gone, or it's another club's), the restore can't
 know what was taken away after the copy: it says so, and deletes again the accounts listed in the newest backup on
 this server (every nightly backup's manifest lists the accounts deleted by then). Anything taken away after that
-backup is back, and has to be done again by hand. A rollback to a release from before 0.2.2 can't queue deleted
+backup is back, and has to be done again by hand. A rollback to a release from before 0.3.0 can't queue deleted
 accounts: it lists them, by id and name, in `deleted-again-by-hand-<time>.txt` in the backups folder (readable by
 root only), to delete again in the staff app.
 

@@ -5,7 +5,12 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
-## Unreleased
+## 0.3.0 (2026-11-XX)
+
+Tournaments and leagues with draws and fixtures, and Mexicano and King of the Court nights; the same court every
+week; chats for the players in a game; club credit, gift cards, passes and promo codes; a club's own currency,
+formats, tax-included prices and country, for clubs outside the US; and restores that no longer bring back what was
+taken away since the copy, or lose track of card money from after it. Every club should update.
 
 ### Added
 - **A club's own currency.** Settings has the club's currency (its three-letter code: USD, EUR, GBP, MXN...),
@@ -183,7 +188,6 @@ server starts.
   codes. Check your state's rules on gift cards (expiry, fees, cash back for small balances, unclaimed property)
   with a lawyer: Kumi's cards never expire, and the owner or a manager can pay credit out at the desk.
 
-### Changed
 - **Passes**: products the club makes in Settings ("Passes the club sells"), for example 10 clinic places, 5 courts
   up to an hour, or a single drop-in. Each covers program places (some kinds of program, or any) or court bookings
   (up to a length the club sets), with a number of uses and a price, and no date to use it by unless the club sets
@@ -227,6 +231,8 @@ server starts.
   - Wrong codes count per person, ten an hour, and a code that isn't for this (or that you've used up) gets the same
     answer as one that doesn't exist, so a private code can't be found by guessing. Support access never applies a
     code or spends a member's pass.
+
+### Changed
 - **Install the app.** The members' profile has "Install the app" when Chrome offers it, and on an iPhone it says
   where Add to Home Screen is (Share). Neither shows once the app runs from the home screen.
 - **The phone's back button closes what's open** (a preview to confirm, the card form, a booking picked on the
@@ -241,6 +247,8 @@ server starts.
   and the profile's "Your receipts" link is as easy to tap as a button.
 
 ### Fixed
+Those marked "in 0.2.1" are in the release a club runs now; the rest were found in this release's own new parts
+before it went out.
 - What a browser check of the staff app showed on 6 November:
   - Cancelling a court with nothing back said "it's less than 24 hours before" when that wasn't why: when the staff
     chose nothing, or when everything paid on it had gone back already. It now says which.
@@ -275,7 +283,7 @@ server starts.
     junior's payment, a renewal and a gift card read "Paid, thank you: confirming" until it's recorded, even after
     leaving the page, and the page asks again every few seconds. A Pay tapped again for a payment that has gone
     through records it instead of opening a second card form, so it can't be paid twice.
-  - **Signing out stops that device's notifications.** A result reached a shared phone six minutes after its owner
+  - **Signing out stops that device's notifications (in 0.2.1).** A result reached a shared phone six minutes after its owner
     signed out. Signing out of either app now turns off notifications on that device, for the server and the
     browser, so the next person to sign in there turns them on for themselves.
   - A match's score preview ends in a sentence of its own ("It counts for levels."), and in Spanish says who won
@@ -311,23 +319,23 @@ server starts.
     for Sam", "Pass: 5 clinic places") instead of "Payment".
   - The move request's Send button on a tournament says what it sends, and a test now refuses any button with no
     words or label in either app.
-- **A form's refused details are said in plain words.** Staff saw the checker's own text when something was missing
+- **A form's refused details are said in plain words (in 0.2.1).** Staff saw the checker's own text when something was missing
   (a program's "Add a date" without a court said "✖ Too small: expected array to have >=1 items → at court_ids").
   Every form now says what to do, in English and Spanish ("Pick at least one court.", "Choose a date and time.",
   "Enter an amount.", "Fill in the name."), and "Add a date" asks for a court before its preview.
 - **A weekly court's card form says what the card is for.** Paying the first week from the Book page said only
   "Pay $60.00 for Court booking"; it now says, as My places does, how many later weeks go on the same card, what
   they come to, and when each is charged.
-- **One job that fails no longer stops the others.** The server's regular jobs (reminders, charges at their
+- **One job that fails no longer stops the others (in 0.2.1).** The server's regular jobs (reminders, charges at their
   deadlines, renewals, reconciliation with the card provider, receipts and the rest) ran one after another inside
   one guard, so one that kept throwing stopped every job after it, every 30 seconds (a weekly court on an archived
   court did, until that was fixed too). Each runs on its own now; one failing three runs in a row tells the owner
   and managers once (as a failing backup does, and `kumi doctor` shows it), and once more when every job works again.
-- **Times staff type are the club's.** A date and time typed in the staff app (a program's date, moving one date,
+- **Times staff type are the club's (in 0.2.1).** A date and time typed in the staff app (a program's date, moving one date,
   a tournament or league match, a club news email sent later) was read on the device's clock, so a staff phone set
   to another zone put a 5 PM class at the wrong hour. They're read on the club's clock now, whatever the device says,
   as the times the apps show already were.
-- **A restore no longer brings back what was taken away on request.** Going back to a minute, restoring a backup, an
+- **A restore no longer brings back what was taken away on request (in 0.2.1 and before).** Going back to a minute, restoring a backup, an
   update's snapshot going back, or an export put back on the same server used to bring back an account deleted since,
   words taken back in a chat, a sign-in or assistant ended, and a no to club news. Now each is done again: the account
   is deleted again (at once, or as the server starts), and the rest stays as the club's database had it.
@@ -341,11 +349,11 @@ server starts.
   refunded when the person ended them, before the restore; the payment provider paid the second refund. Now they're
   freed with no money moving, and the owner and managers get one list of what was paid on each, to check against
   the payment provider.
-- **An email address taken off an account no longer signs anyone in after a restore.** An attacker's address that
+- **An email address taken off an account no longer signs anyone in after a restore (in 0.2.1 and before).** An attacker's address that
   the member undid came back in the copy and signed in as the member. Now an emailed code signs in only through one
   of the account's own sign-in addresses, the account's email, phone and own login come through as the database
   before it had them, and a kid's login removed by a parent stays removed.
-- **Card money the payment provider has from after a backup is found.** As the server next starts after any restore,
+- **Card money the payment provider has from after a backup is found (in 0.2.1 and before).** As the server next starts after any restore,
   it asks the provider for payments and refunds made since the copy's newest payment: a refund is recorded against its
   payment (so it can't be paid again), and a payment nothing here records is listed for the owner and managers under
   Reports, "Paid with nothing here", to refund in full or record as paid elsewhere (never refunded by itself; they hear
@@ -357,7 +365,7 @@ server starts.
   this copy doesn't know"). Nothing Kumi records by then can be refunded from the list: "Refund it" is refused, and a
   refund already asked for is checked again before it goes. The staff hear once while anything is left (later ones
   join the same list), and the provider is read back to the copy's time, or the alert says it was cut short.
-- **A refund made after a backup could be added to by the club's rule.** A refund the provider made after the backup
+- **A refund made after a backup could be added to by the club's rule (in 0.2.1 and before).** A refund the provider made after the backup
   now counts against the place as well as the payment, and a booking or place it went with that's still booked here
   is listed under Reports ("Refunded after the backup, still booked here") for the staff to cancel without a refund or
   keep. Cancelling such a booking by the club's rule gives nothing more back for it (a $60 court under a 50% late rule,
@@ -380,25 +388,40 @@ server starts.
   says so. `kumi restore` lists each account it deletes again and who had deleted it; one the club had deleted can be
   kept with `--keep=<id>` (or `--keep-staff-deleted`); one its owner deleted is always deleted again. When the
   database it replaces can't be read, the restore says so plainly and uses the list of deleted accounts in the newest
-  backup on the server (each backup now keeps one). A pre-0.2.2 snapshot going back lists who came back, by name and
+  backup on the server (each backup now keeps one). A snapshot from before 0.3.0 going back lists who came back, by name and
   id, in a file in the backups folder, to be deleted again by hand.
 - **A chat push before a restore could stop a new message's push after it.** Chat pushes keep no words, so they all
   looked alike to the check that stops a message going twice after a restore; it now tells them apart by message.
 - An update said "the point-in-time archive isn't ready" when Postgres happened to be sending a piece of its log at
-  that moment. Making the archive now waits that out and tries again, and only says so if it really isn't ready
+  that moment (in 0.2.0 and 0.2.1). Making the archive now waits that out and tries again, and only says so if it really isn't ready
   (one-server installs, `server-setup.sh` and the Docker `pitr` service alike).
 
+### When updating
+- The database changes (077 to 094) apply by themselves as the server starts, in one go; `kumi update` snapshots
+  the database first, and `sudo kumi rollback --yes` goes back to 0.2.1 with it. A rollback to a release from before
+  0.3.0 can't queue accounts deleted since the copy: it lists them in the backups folder to delete again by hand.
+- Nothing else to do on a one-server install: Caddy's paths are the same as 0.2.1's. On Docker,
+  `deploy/docker/update.sh v0.3.0`.
+- A US club reads as before (US dollars, US formats, tax on top), except that its weeks start on Sunday.
+- **What starts on, and what starts off.** Chats in games start on ("Players can message in their games", Settings,
+  The club); juniors don't see them. Gift cards, passes, promo codes and members' weekly courts start off: nothing
+  changes for members until the club turns each on or makes one. Public tournament pages show "Pair 1", "Pair 2"
+  until the club shows names for that program, and never name a junior.
+- **A club outside the US** sets its currency, formats, country and "Prices include tax" in Settings before its first
+  payment (the currency can't change after one, nor the country once the club's own Stripe account exists). See the
+  setup guide's "Running Kumi outside the US".
+- **Before turning gift cards on**, check your state's rules on gift cards (expiry, fees, cash back for small
+  balances, unclaimed property) with a lawyer. Kumi's never expire and carry no fees.
+
 ### Known limits
-- "No recurring bookings" is gone from the list: weekly courts are above. A weekly court is weekly only (no every
-  other week or several days a week); changing its court or time for all the weeks after one is done by ending
-  it from that week and booking a new one (one week alone moves like any booking); a series the desk makes is paid
-  at the desk week by week (the saved-card way is for one a member makes in the app).
-- "No chat between players" is gone from the list too: chats in games are above. Juniors don't see chats yet,
-  including those 13 to 17 with a login of their own; no photos or files; a changed message keeps no earlier version. A coach reads their
-  own dates' chats in the members' app (the staff app's Chats is front desk and up). Staff hear about reports once
-  an hour per chat, so someone reporting in many chats can still raise one alert for each of them in an hour.
-- Tournaments and leagues are for doubles pairs. No consolation draw yet, no self-scheduling (players ask, staff
-  move), and a league's pairs are fixed for the season (no subs for one match).
+- Self-hosted only; a hosted service is planned.
+- English and US Spanish. Outside the US, a club's currency, formats, tax-included prices, country and phone numbers
+  are its own, but only courts and lessons are taxed, texts reach US and Canadian numbers only, and texting
+  registration is for a US or Canadian number. Which countries first, more languages, data protection (GDPR in the
+  EU and UK), VAT registration and invoice rules (a club's tax ID on receipts), texting elsewhere, ways to pay other
+  than cards and local holidays are still to decide (the setup guide lists them).
+- Cards (Apple Pay and Google Pay included), what the desk takes (cash, the club's own card reader, another way),
+  club credit, gift cards, passes and promo codes. No bank debits or local ways to pay.
 - Club credit can't pay for a membership yet (it renews from a card), nor a payment that saves a card for a later
   charge (a court's "pay my part", a weekly court's first week), courts paid together, or a junior's (the family
   card pays those); a court is paid from credit only when the credit covers all of it. Automatic charges (renewals,
@@ -408,13 +431,28 @@ server starts.
   by the one who booked it, not a share; a pass covers the price, so a booking shortened later gives nothing back,
   and a use the club's rules refund only in part is spent. A pass past its date keeps its unused value in the books
   until a manager refunds it.
-- Outside the US: a club's currency, formats, tax-included prices, country and phone numbers are its own (above),
-  but only courts and lessons are taxed, texts reach US and Canadian numbers only, and texting registration is for a
-  US or Canadian number. Which countries first, more languages, data protection (GDPR in the EU and UK), VAT
-  registration and invoice rules, texting elsewhere, ways to pay other than cards and local holidays are still to
-  decide (the setup guide lists them).
-- Otherwise as in 0.2.1 below, without "tournaments and leagues run as programs, without draws or fixtures", and
-  with credit, gift cards and passes as above in place of "no credit, gift cards, vouchers or drop-in passes".
+- A program place partly paid at the desk is kept, never let go for being unpaid, and the rest of it is never
+  reminded: it shows as owed on the roster and in the member's app.
+- A card that goes through after its payment was called off always goes back in full, even when the place it
+  was for stays booked at a new price (a date cancelled from a course): the member then pays the new price.
+- The desk's day counts the whole club, not each location's drawer.
+- A weekly court is weekly only (no every other week or several days a week); changing its court or time for all
+  the weeks after one is done by ending it from that week and booking a new one (one week alone moves like any
+  booking); a series the desk makes is paid at the desk week by week (the saved-card way is for one a member makes
+  in the app).
+- Chats are only between the people in a game. Juniors don't see chats yet, including those 13 to 17 with a login of
+  their own; no photos or files; a changed message keeps no earlier version. A coach reads their own dates' chats in
+  the members' app (the staff app's Chats is front desk and up). Staff hear about reports once an hour per chat, so
+  someone reporting in many chats can still raise one alert for each of them in an hour.
+- Tournaments and leagues are for doubles pairs. No consolation draw yet, no self-scheduling (players ask, staff
+  move), and a league's pairs are fixed for the season (no subs for one match).
+- Members who joined before the club linked its terms and privacy policy, or before it changed them, aren't
+  asked to agree again. Kumi keeps the links, not the pages' words: keep a dated copy of a page you change at
+  the same address.
+- No app store apps (the members' app installs from the browser).
+- Playtomic is read only, and needs one of its top two plans for the API keys.
+- Texting registration is automatic for a toll-free number (`kumi texting`); a local number (10DLC) is
+  registered by hand in Twilio.
 
 ## 0.2.1 (2026-11-04)
 

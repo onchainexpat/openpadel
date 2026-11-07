@@ -6,8 +6,8 @@ works on a phone. Members can ask the club questions in the app, and members and
 their own AI assistant (Claude, ChatGPT). A club runs it on its own server; a hosted service is
 planned.
 
-**Status:** 0.2.1. Self-hosted; English and US Spanish; texts to US and Canadian
-numbers only. What it does is in [`CHANGELOG.md`](CHANGELOG.md) (0.1.0, and what each release added since),
+**Status:** 0.3.0. Self-hosted; English and US Spanish; a club's own currency, formats and tax; texts
+to US and Canadian numbers only. What it does is in [`CHANGELOG.md`](CHANGELOG.md) (0.1.0, and what each release added since),
 and its known limits are under the newest release there.
 
 ## Setting up your club
