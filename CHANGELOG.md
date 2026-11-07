@@ -14,19 +14,26 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   four stages (shadow, side by side, openPadel first, Playtomic off), what openPadel does and what staff do at each,
   and the traps at the switch.
   - **The archive.** Every Playtomic booking the mirror reads is kept as Playtomic gave it, players by name and email
-    included, from the first read and three months back (Playtomic keeps no more), matched to members by email or
-    Playtomic id. Staff see a person's on their page, read only; it comes with the member's data download; and their
-    name and email go from it with their account, without coming back at a later read.
+    included, from the first read, three months back (Playtomic keeps no more) and as far ahead as Playtomic has them
+    (up to a year, read once a day for the archive only), matched to members by email or Playtomic id. Staff see a
+    person's on their page, read only (a coach without who they played with, as in Kumi's own list); it comes with the
+    member's data download; and their name and email go from it with their account. Deleting an account marks the
+    person, by their Playtomic id and a salted one-way hash of each address (never the address), so no later read of
+    Playtomic, bookings or players, brings them back.
   - **Taking over upcoming bookings** (staff app, Playtomic; owners and managers). Chosen Playtomic bookings become
-    bookings here on their linked court, with their players. What was paid in Playtomic stays paid there: nothing is
-    owed, nothing enters the books, and no receipt is made. A refund of it is made in Playtomic: cancelling one, the
-    preview says how much, and the managers are told (on Today until handled). Recurring ones every week become a
-    weekly court. What can't be taken over (a class, a player not a member here yet, partly paid, a clash) stays in
-    Playtomic, held here, and the preview says why by name. The mirror doesn't hold a taken-over booking twice, and
-    holds it again if it's cancelled here.
+    bookings here on their linked court, with their players, and read "Paid in Playtomic" at the desk and in My places.
+    What was paid in Playtomic stays paid there: nothing is owed, nothing enters the books, and no receipt is made. A
+    refund of it is made in Playtomic, whatever gives it back (the booking cancelled, its weekly court ended, a court
+    blocked over it, made shorter, moved or repriced): the preview says how much, by the club's rule or as staff chose,
+    or that Playtomic already refunded it; the managers are told (on Today until handled); and it's kept as given back
+    there, so a later change counts only what's left. Recurring ones every week become a weekly court. What can't be
+    taken over (a class, a player not a member here yet, partly paid, a clash) stays in Playtomic, held here, and the
+    preview says why by name. The mirror knows a taken-over booking by Playtomic's id: it never holds it twice, even
+    when Playtomic moves it to another court, and holds it again if it's cancelled here. One taken over unpaid and paid
+    in Playtomic since: the desk marks it paid there (booking.paid_in_playtomic).
   - **A daily comparison for the owner**: each linked court and day, Playtomic and openPadel side by side, on the
-    Playtomic page; a clash, a booking not held yet, or a taken-over one moved or cancelled in Playtomic is told to the
-    owners once.
+    Playtomic page; a clash, a booking not held yet, or a taken-over one moved (another time or court), cancelled or
+    paid in Playtomic is told to the owners once.
 - **Moving in from Playtomic: wallets and memberships** (the staff app's Playtomic page, Moving in; or
   `openpadel move-in` on the server). Both read Playtomic's players through its Third Party API (with their wallets and
   memberships, at Playtomic's pace) or the club's customer export, and match each to a member here by Playtomic id or
@@ -47,10 +54,6 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     or the server's command.
 
 ### Fixed
-- **A member's account deleted before Kumi read their Playtomic bookings (in the Playtomic archive, not released).**
-  Bookings read later, from the three months back say, came in with their name and email. Erasing an account now marks
-  them for every later read of Playtomic (bookings and players): by their Playtomic id and a salted one-way hash of
-  each address, never the address itself.
 - A person's page offered front desk (and anyone below a manager) the form to give or take away a role, including
   owner, and then refused it. Only owners and managers see it now. A refusal to give a role says what the role
   would let them do in words ("Undo a change"), not the action's internal name.

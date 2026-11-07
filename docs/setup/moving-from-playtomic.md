@@ -26,15 +26,19 @@ There are four stages. Keep the second one short: weeks, not months.
 - **Holds every Playtomic booking on a linked court**, so it never puts anything there itself
   ([accounts/playtomic.md](accounts/playtomic.md#what-a-copied-booking-does)).
 - **Keeps an archive of every Playtomic booking it reads**, from the first read. Playtomic itself keeps bookings
-  only three months back, so the archive reads those three months too, and then everything new as it comes. Each
+  only three months back, so the archive reads those three months too, and then everything new as it comes, as far
+  ahead as Playtomic has bookings on the linked courts (a weekly series, a tournament; up to a year, read once a day),
+  not only as far as members can book here. Each
   booking is kept as Playtomic gave it: court, time, type, where it was made (app, web, Manager), price, payment
   status, coaches, course or activity, and its players by name and email. Players are matched to members here by
   email, or by their Playtomic id once the members are imported.
-  - Staff see a person's Playtomic bookings on their page (In Playtomic), read only.
+  - Staff see a person's Playtomic bookings on their page (In Playtomic), read only. A coach sees them without who
+    else played, as in the person's own bookings list.
   - A member's Playtomic bookings come with their data download (Profile, Your data).
-  - When a member's account is deleted here, their name and email go from the archive too. Playtomic's own id for
-    them stays on those rows, without either, so a later read of a booking still in Playtomic doesn't copy their
-    name back. Their account in Playtomic is Playtomic's: delete it there too if they asked the club to.
+  - When a member's account is deleted here, their name and email go from the archive too, and the person is marked
+    by their Playtomic id and a one-way hash of each address (salted with the club's own random value; never the
+    address), so no later read of Playtomic, their bookings from before or after, or its players list, copies them
+    back. Their account in Playtomic is Playtomic's: delete it there too if they asked the club to.
   - Mention the archive in the club's privacy policy ([the template](../templates/member-privacy-policy.md) has the
     line).
 - **Compares the two every day** (staff app, Playtomic, "Playtomic and openPadel, day by day"): for each linked
@@ -42,7 +46,7 @@ There are four stages. Keep the second one short: weeks, not months.
   over, and openPadel's own. Anything that differs is listed:
   - a Playtomic booking that clashes with something in openPadel;
   - a Playtomic booking openPadel doesn't hold yet;
-  - a booking taken over (stage 3) that was then moved or cancelled in Playtomic.
+  - a booking taken over (stage 3) that was then moved (another time or court), cancelled, or paid in Playtomic.
 
   The owners hear of each difference once, by email and in the app (that daily check looks two weeks ahead), never
   again for the same one.
@@ -93,13 +97,20 @@ lesson (not one player's court); a player who isn't a member here yet (import th
 paid or refunded in Playtomic (settle it there first); a price in another currency; a court not linked; or a
 clash with something here.
 
-From then on openPadel's own booking holds the court, and the mirror doesn't hold it twice. Leave the booking in
-Playtomic as it is: if it's cancelled here, openPadel holds the court for it again, since it's still booked there.
+From then on openPadel's own booking holds the court, and the mirror doesn't hold it twice: it knows the booking by
+Playtomic's own id, so even if it's moved to another court in Playtomic, nothing new is held for it (the daily
+comparison says it moved). Leave the booking in Playtomic as it is: if it's cancelled here, openPadel holds the court
+for it again, since it's still booked there.
 
-**Refunds of what was paid in Playtomic are made in Playtomic, never as money here.** Cancelling a taken-over booking
-here, the preview says how much goes back by the club's rule. The managers are told by email and in the app (it
-stays on Today until someone marks it handled), and refund it in Playtomic. Making one shorter or cheaper, the
-preview says the same: what goes back is given back in Playtomic.
+Taken over unpaid, and paid in Playtomic since: the daily comparison says so, and the desk marks it paid there from
+the Playtomic page (Mark paid in Playtomic), so it isn't owed here.
+
+**Refunds of what was paid in Playtomic are made in Playtomic, never as money here,** whatever gives it back: the
+booking cancelled, its weekly court ended (by the member or the desk), a court blocked over it, or the booking made
+shorter, moved or repriced. The preview says how much goes back, by the club's rule or as staff chose. The managers are
+told by email and in the app (it stays on Today until someone marks it handled), and refund it in Playtomic; openPadel
+keeps it as given back there, so a later change counts only what's left. If Playtomic already refunded it (the player
+cancelled in Playtomic's app), the preview says so and nobody is told to refund it again.
 
 ### Wallets and credit
 

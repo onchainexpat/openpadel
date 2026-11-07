@@ -157,7 +157,7 @@ export async function archiveOf(db: Db | Trx, personId: string, o: { limit?: num
     .leftJoin("booking", "booking.id", "playtomic_booking.taken_over_booking_id")
     .select(["playtomic_booking.booking_id", "playtomic_booking.starts_at", "playtomic_booking.ends_at", "playtomic_booking.resource_name", "playtomic_booking.booking_type",
       "playtomic_booking.price", "playtomic_booking.payment_status", "playtomic_booking.canceled", "playtomic_booking.origin", "playtomic_booking_player.is_owner", "playtomic_booking_player.id as row_id",
-      "booking.code as kumi_code"])
+      "booking.code as kumi_code", "booking.status as kumi_status"])
     .where(theirs(k, personId)).where("playtomic_booking_player.erased_at", "is", null)
     .orderBy("playtomic_booking.starts_at", "desc").$if(Boolean(o.limit), (q) => q.limit(o.limit!)).execute();
   if (!mine.length) return [];
@@ -166,7 +166,9 @@ export async function archiveOf(db: Db | Trx, personId: string, o: { limit?: num
   const seen = new Set<string>();
   return mine.filter((m) => !seen.has(m.booking_id) && seen.add(m.booking_id)).map((m) => ({
     booking_id: m.booking_id, starts_at: m.starts_at, ends_at: m.ends_at, court: m.resource_name, type: m.booking_type, price: m.price, payment_status: m.payment_status,
-    cancelled: m.canceled, origin: m.origin, owner: m.is_owner, taken_over_as: m.kumi_code,
+    cancelled: m.canceled, origin: m.origin, owner: m.is_owner,
+    // Taken over as a booking here: that booking while it stands; once cancelled here, said as such.
+    taken_over_as: m.kumi_code && m.kumi_status !== "cancelled" ? m.kumi_code : null, cancelled_here_as: m.kumi_code && m.kumi_status === "cancelled" ? m.kumi_code : null,
     others: others.filter((x) => x.booking_id === m.booking_id && x.id !== m.row_id && x.name).map((x) => x.name!),
   }));
 }
@@ -359,7 +361,7 @@ export async function takeOverCandidates(db: Db | Trx, now: Date, o: { limit?: n
 
 // ---- The owner's daily comparison of Playtomic and Kumi (stages 1 to 3) ----
 
-type Diff = { key: string; kind: "clash" | "missing" | "moved" | "cancelled"; court: string; starts_at: Date; type: string; code?: string | null };
+type Diff = { key: string; kind: "clash" | "missing" | "moved" | "cancelled" | "paid"; court: string; starts_at: Date; type: string; code?: string | null; booking_id?: string | null };
 
 /** Per linked court and club day, from yesterday on: Playtomic's bookings, how Kumi has each one, and Kumi's own. */
 export async function comparison(db: Db | Trx, now: Date, days = 14) {
@@ -372,7 +374,8 @@ export async function comparison(db: Db | Trx, now: Date, days = 14) {
   const pt = await db.selectFrom("playtomic_booking").leftJoin("mirror_booking", (j) => j.on(sql<boolean>`mirror_booking.ref = playtomic_booking.booking_id || ':' || playtomic_booking.resource_id`))
     .leftJoin("booking", "booking.id", "playtomic_booking.taken_over_booking_id")
     .select(["playtomic_booking.booking_id", "playtomic_booking.court_id", "playtomic_booking.starts_at", "playtomic_booking.ends_at", "playtomic_booking.booking_type", "mirror_booking.status",
-      "booking.code", "booking.status as kumi_status",
+      "booking.code", "booking.id as kumi_id", "booking.status as kumi_status", "booking.price_cents", "playtomic_booking.payment_status",
+      sql<string>`(SELECT coalesce(sum(p.amount_cents), 0) FROM payment p JOIN booking_player bp ON bp.id = p.booking_player_id WHERE bp.booking_id = booking.id AND p.status = 'succeeded')`.as("kumi_paid"),
       sql<Date | null>`(SELECT lower(ct.during) FROM court_time ct WHERE ct.booking_id = booking.id AND ct.active ORDER BY ct.id DESC LIMIT 1)`.as("kumi_start"),
       sql<string | null>`(SELECT ct.court_id::text FROM court_time ct WHERE ct.booking_id = booking.id AND ct.active ORDER BY ct.id DESC LIMIT 1)`.as("kumi_court")])
     .where("playtomic_booking.canceled", "=", false).where("playtomic_booking.court_id", "in", ids)
@@ -390,13 +393,17 @@ export async function comparison(db: Db | Trx, now: Date, days = 14) {
     const c = get(r.court_id!, new Date(r.starts_at));
     c.playtomic++;
     const base = { court: courts.get(r.court_id!) ?? "", starts_at: new Date(r.starts_at), type: r.booking_type };
-    if (r.status === "held" || r.status === "covered") c.held++;
-    else if (r.status === "taken" && r.kumi_status !== "cancelled") {
+    // Taken over (known by Playtomic's booking id, wherever Playtomic says it is now) and still booked here.
+    if (r.code && r.kumi_status !== "cancelled") {
       c.taken++;
-      // Taken over, then changed in Playtomic: the two no longer say the same court and time.
+      // Then changed in Playtomic: the two no longer say the same court and time.
       if (r.kumi_start && (new Date(r.kumi_start).getTime() !== new Date(r.starts_at).getTime() || r.kumi_court !== r.court_id))
-        diffs.push({ key: `moved:${r.booking_id}:${new Date(r.starts_at).toISOString()}`, kind: "moved", ...base, code: r.code });
-    } else if (r.status === "conflict") diffs.push({ key: `clash:${r.booking_id}`, kind: "clash", ...base });
+        diffs.push({ key: `moved:${r.booking_id}:${new Date(r.starts_at).toISOString()}:${r.court_id}`, kind: "moved", ...base, code: r.code });
+      // Owed here when it was taken over, and paid in Playtomic since: staff mark it paid there (booking.paid_in_playtomic).
+      if (r.payment_status === "PAID" && Number(r.kumi_paid) < (r.price_cents ?? 0))
+        diffs.push({ key: `paid:${r.booking_id}`, kind: "paid", ...base, code: r.code, booking_id: r.kumi_id });
+    } else if (r.status === "held" || r.status === "covered") c.held++;
+    else if (r.status === "conflict") diffs.push({ key: `clash:${r.booking_id}`, kind: "clash", ...base });
     else if (new Date(r.ends_at) > now) diffs.push({ key: `missing:${r.booking_id}`, kind: "missing", ...base });
   }
   // Taken over, then cancelled in Playtomic: still booked here.
@@ -423,7 +430,7 @@ export async function comparePlaytomic(db: Db, o: { now?: Date; days?: number } 
   return { ran: true, differences: c.diffs.length, told: fresh.length };
 }
 
-const line = z.object({ kind: z.enum(["clash", "missing", "moved", "cancelled"]), court: z.string(), starts_at: z.iso.datetime(), type: z.string(), code: z.nullable(z.string()) });
+const line = z.object({ kind: z.enum(["clash", "missing", "moved", "cancelled", "paid"]), court: z.string(), starts_at: z.iso.datetime(), type: z.string(), code: z.nullable(z.string()) });
 export const mirrorCompareTold = defineAction({
   name: "mirror.compare_told", version: 1, system: true, internal: true,
   input: z.object({ keys: z.array(z.string()), lines: z.array(line), more: z.number().check(z.int(), z.minimum(0)) }),
@@ -437,7 +444,39 @@ export const mirrorCompareTold = defineAction({
   },
 });
 
+/** A booking taken over unpaid, then paid in Playtomic (the daily comparison says so): the desk marks it paid there, so
+ *  it isn't owed here. No money moves through Kumi and nothing enters its books, as at the take-over. */
+export const bookingPaidInPlaytomic = defineAction({
+  name: "booking.paid_in_playtomic", version: 1,
+  input: z.object({ booking_id: z.uuid() }),
+  async plan(ctx, i) {
+    const b = await owedFromPlaytomic(ctx.db, i.booking_id);
+    return { title: both("action.booking.paid_in_playtomic"), summary: both("plan.booking.paid_in_playtomic", { code: b.code, amount: usd(b.owed) }), reads: [],
+      locationId: b.location_id, ownerIds: b.organiser_id ? [b.organiser_id] : [], moneyCents: 0, undo: { kind: "none", note: both("reason.no_way_back") } };
+  },
+  async apply(ctx, i) {
+    await ctx.trx.selectFrom("booking").select("id").where("id", "=", i.booking_id).forUpdate().executeTakeFirstOrThrow();
+    const b = await owedFromPlaytomic(ctx.trx, i.booking_id);   // again under the lock
+    await ctx.insert("payment", { id: uuidv7(), person_id: b.organiser_id!, amount_cents: b.owed, method: "playtomic", provider: "none", status: "succeeded", booking_player_id: b.bp });
+    return { cents: b.owed };
+  },
+});
+async function owedFromPlaytomic(db: Db | Trx, bookingId: string) {
+  const b = await db.selectFrom("booking").select(["id", "code", "status", "price_cents", "organiser_id", "location_id"]).where("id", "=", bookingId).executeTakeFirst();
+  if (!b) throw new KumiError("error.not_found", { thing: both("thing.booking") }, 404);
+  const twin = await playtomicTwin(db, bookingId);
+  if (!twin) throw new KumiError("error.not_from_playtomic");
+  if (twin.payment_status !== "PAID") throw new KumiError("error.not_paid_in_playtomic");
+  if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
+  const bp = await db.selectFrom("booking_player").select("id").where("booking_id", "=", bookingId).where("person_id", "=", b.organiser_id).where("removed_at", "is", null).executeTakeFirst();
+  const paid = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(sql<string>`coalesce(sum(payment.amount_cents), 0)`.as("c"))
+    .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "succeeded").executeTakeFirstOrThrow();
+  const owed = b.price_cents - Number(paid.c);
+  if (owed <= 0 || !bp || !b.organiser_id) throw new KumiError("error.booking_paid_in_full");
+  return { ...b, owed, bp: bp.id };
+}
+
 /** For booking.cancel: a booking that took over a Playtomic one, still booked there. */
 export async function playtomicTwin(db: Db | Trx, bookingId: string) {
-  return db.selectFrom("playtomic_booking").select(["booking_id", "canceled"]).where("taken_over_booking_id", "=", bookingId).executeTakeFirst();
+  return db.selectFrom("playtomic_booking").select(["booking_id", "canceled", "payment_status"]).where("taken_over_booking_id", "=", bookingId).executeTakeFirst();
 }

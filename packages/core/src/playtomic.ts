@@ -141,6 +141,16 @@ async function slotsFor(db: Db | Trx, courtIds: string[], from: Date, to: Date):
 const linkedCourts = async (db: Db | Trx) => new Map((await db.selectFrom("external_ref").select(["external_id", "entity_id"])
   .where("system", "=", PLAYTOMIC).where("entity", "=", "court").execute()).map((r) => [r.external_id, r.entity_id]));
 
+/** Playtomic's booking id in a mirror ref ('<booking_id>:<resource_id>'). */
+export const playtomicIdOf = (ref: string) => { const k = ref.lastIndexOf(":"); return k > 0 ? ref.slice(0, k) : ref; };
+/** Of these Playtomic bookings, the ones a Kumi booking took over and still stands for. */
+export async function standingTakeOvers(db: Db | Trx, ids: string[]): Promise<Set<string>> {
+  const want = [...new Set(ids)];
+  if (!want.length) return new Set();
+  return new Set((await db.selectFrom("playtomic_booking").innerJoin("booking", "booking.id", "playtomic_booking.taken_over_booking_id")
+    .select("playtomic_booking.booking_id").where("booking.status", "!=", "cancelled").where("playtomic_booking.booking_id", "in", want).execute()).map((r) => r.booking_id));
+}
+
 export interface MirrorChange { ref: string; courtId: string; courtName: string; start: string; end: string; type: string; gone: boolean }
 export interface MirrorDiff { changes: MirrorChange[]; unmapped: { courtRef: string; courtName: string; bookings: number }[] }
 
@@ -153,19 +163,17 @@ export async function diffMirror(db: Db | Trx, fetched: Booking[], from: Date, t
   const stored = new Map((await db.selectFrom("mirror_booking").select(["ref", "court_id", "status", "booking_type", "court_time_id", "clash_id", sql<Date>`lower(during)`.as("s"), sql<Date>`upper(during)`.as("e")])
     .where("system", "=", PLAYTOMIC).where(sql<boolean>`lower(during) >= ${from} AND lower(during) < ${to}`).execute()).map((r) => [r.ref, r]));
   // Taken over by a Kumi booking (playtomic_archive.ts): that booking holds the court, so the mirror leaves it alone
-  // while the booking stands. Its Kumi booking cancelled, it's judged again like any other (it may still be booked
-  // in Playtomic). A change to it in Playtomic is for the owner's daily comparison to say.
-  const takenRefs = [...stored.values()].filter((r) => r.status === "taken").map((r) => r.ref);
-  const standing = new Set(takenRefs.length ? (await db.selectFrom("playtomic_booking").innerJoin("booking", "booking.id", "playtomic_booking.taken_over_booking_id")
-    .select(sql<string>`playtomic_booking.booking_id || ':' || playtomic_booking.resource_id`.as("ref")).where("booking.status", "!=", "cancelled")
-    .where(sql<string>`playtomic_booking.booking_id || ':' || playtomic_booking.resource_id`, "in", takenRefs).execute()).map((r) => r.ref) : []);
+  // while the booking stands, wherever Playtomic says it is now (known by Playtomic's booking id, not id and court: one
+  // moved to another court there is the same booking). Its Kumi booking cancelled, it's judged again like any other
+  // (it may still be booked in Playtomic). A change to it in Playtomic is for the owner's daily comparison to say.
+  const standing = await standingTakeOvers(db, [...fetched.map((b) => b.ref), ...stored.keys()].map(playtomicIdOf));
   const slots = await slotsFor(db, [...new Set(courts.values())], from, new Date(to.getTime() + 864e5));
   const unmapped = new Map<string, { courtName: string; bookings: number }>(), seen = new Set<string>(), changes: MirrorChange[] = [];
   for (const b of fetched) {
     const courtId = courts.get(b.courtRef);
     if (!courtId) { const u = unmapped.get(b.courtRef) ?? { courtName: b.courtName, bookings: 0 }; u.bookings++; unmapped.set(b.courtRef, u); continue; }
     seen.add(b.ref);
-    if (standing.has(b.ref)) continue;
+    if (standing.has(playtomicIdOf(b.ref))) continue;
     const cur = stored.get(b.ref), change = { ref: b.ref, courtId, courtName: b.courtName, start: b.start.toISOString(), end: b.end.toISOString(), type: b.type };
     if (b.cancelled) { if (cur && cur.status !== "gone") changes.push({ ...change, gone: true }); continue; }
     const v = classify({ courtId, s: b.start.getTime(), e: b.end.getTime(), type: b.type }, slots.filter((x) => x.id !== cur?.court_time_id));
@@ -173,7 +181,7 @@ export async function diffMirror(db: Db | Trx, fetched: Booking[], from: Date, t
       && new Date(cur.s).getTime() === b.start.getTime() && new Date(cur.e).getTime() === b.end.getTime();
     if (!same) changes.push({ ...change, gone: false });
   }
-  for (const [ref, r] of stored) if (!seen.has(ref) && r.status !== "gone" && !standing.has(ref))
+  for (const [ref, r] of stored) if (!seen.has(ref) && r.status !== "gone" && !standing.has(playtomicIdOf(ref)))
     changes.push({ ref, courtId: r.court_id, courtName: "", start: new Date(r.s).toISOString(), end: new Date(r.e).toISOString(), type: r.booking_type, gone: true });
   return { changes, unmapped: [...unmapped].map(([courtRef, u]) => ({ courtRef, ...u })) };
 }
@@ -209,14 +217,17 @@ export const mirrorApply = defineAction({
     // Lock every court involved first, in id order (spikes/booking_race.md); then judge each booking against what's there now.
     const courtIds = [...new Set([...i.changes.map((c) => c.courtId), ...[...stored.values()].map((r) => r.court_id)])].sort();
     for (const id of courtIds) await ctx.trx.selectFrom("court").select("id").where("id", "=", id).forUpdate().execute();
-    const times = i.changes.flatMap((c) => [Date.parse(c.start), Date.parse(c.end)]);
+    // A booking taken over since this change was worked out (the take-over holds the same courts' locks): left alone.
+    const standing = await standingTakeOvers(ctx.trx, refs.map(playtomicIdOf));
+    const changes = i.changes.filter((c) => !standing.has(playtomicIdOf(c.ref)));
+    const times = changes.flatMap((c) => [Date.parse(c.start), Date.parse(c.end)]);
     let slots = await slotsFor(ctx.trx, courtIds, new Date(Math.min(...times, Date.now()) - 864e5), new Date(Math.max(...times, Date.now()) + 864e5));
-    for (const c of i.changes) {   // let go of the old hold first, so a booking that moved can't clash with itself
+    for (const c of changes) {   // let go of the old hold first, so a booking that moved can't clash with itself
       const id = stored.get(c.ref)?.court_time_id;
       if (id) { await ctx.update("court_time", id, { active: false }); slots = slots.filter((x) => x.id !== id); }
     }
     const counts = { held: 0, covered: 0, conflict: 0, gone: 0 };
-    for (const c of [...i.changes].sort((a, b) => a.start.localeCompare(b.start))) {
+    for (const c of [...changes].sort((a, b) => a.start.localeCompare(b.start))) {
       const cur = stored.get(c.ref);
       const during = sql`tstzrange(${new Date(c.start)}, ${new Date(c.end)})`;
       if (c.gone) {
@@ -317,6 +328,18 @@ export function farSlice(o: { nearEnd: Date; horizon: Date; now: Date; everyMs: 
   }
 }
 
+/** Past the mirror's horizon, up to a year ahead: read for the archive only, a 30-day slice at a time, each once in
+ *  `everyMs` (a day, by default). Its slices are numbered from 1000 in the caller's memory. */
+export function archiveAheadSlice(o: { from: Date; now: Date; everyMs: number; lastRead: ReadonlyMap<number, number> }) {
+  const end = o.now.getTime() + FAR_MAX_DAYS * 864e5;
+  for (let k = 0; ; k++) {
+    const from = o.from.getTime() + k * FAR_SLICE_DAYS * 864e5;
+    if (from >= end) return null;
+    const last = o.lastRead.get(1000 + k);
+    if (last === undefined || o.now.getTime() - last >= o.everyMs) return { k: 1000 + k, from: new Date(from), to: new Date(Math.min(from + FAR_SLICE_DAYS * 864e5, end)) };
+  }
+}
+
 /** Playtomic keeps bookings three months back: the archive reads them too, in 30-day slices back from the near
  *  window's start, so nothing Playtomic forgets is lost. Only the archive: a past booking holds nothing. */
 export const PAST_SLICES = 3;
@@ -337,9 +360,13 @@ export function pastSlice(o: { now: Date; everyMs: number; lastRead: ReadonlyMap
  */
 export async function syncMirrorFar(db: Db, client: PlaytomicClient, o: { now?: Date; daysAhead?: number; everyMs: number; lastRead: Map<number, number> }) {
   const now = o.now ?? new Date(), nearEnd = new Date(now.getTime() + (o.daysAhead ?? 30) * 864e5);
-  // Ahead first (what keeps a court from being sold twice), then the archive's past.
-  const ahead = farSlice({ nearEnd, horizon: await mirrorHorizon(db, now), now, everyMs: o.everyMs, lastRead: o.lastRead });
-  const slice = ahead ?? pastSlice({ now, everyMs: o.everyMs, lastRead: o.lastRead });
+  // Ahead first (what keeps a court from being sold twice), then the archive's past, then, for the archive only, the
+  // rest of the year Playtomic can hold bookings for (a weekly series, a tournament): as far as Playtomic has them,
+  // not only as far as members can book here.
+  const horizon = await mirrorHorizon(db, now);
+  const ahead = farSlice({ nearEnd, horizon, now, everyMs: o.everyMs, lastRead: o.lastRead });
+  const slice = ahead ?? pastSlice({ now, everyMs: o.everyMs, lastRead: o.lastRead })
+    ?? archiveAheadSlice({ from: horizon > nearEnd ? horizon : nearEnd, now, everyMs: o.everyMs * 4, lastRead: o.lastRead });
   if (!slice) return null;
   try {
     const { raw, courts: _courts, ...r } = await readWindow(db, client, slice.from, slice.to, now, { archiveOnly: !ahead });

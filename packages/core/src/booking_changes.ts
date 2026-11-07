@@ -14,7 +14,8 @@ import { uuidv7 } from "./ids.ts";
 import { localDate } from "./clock.ts";
 import { MAX_MINUTES, STEP_MINUTES, courtOpening, occupied } from "./bookings.ts";
 import { quote } from "./prices.ts";
-import { policyOf, refundPayment, REMINDER_HOURS } from "./booking_pay.ts";
+import { givenBackInPlaytomic, policyOf, refundPayment, REMINDER_HOURS } from "./booking_pay.ts";
+import { playtomicTwin } from "./playtomic_archive.ts";
 import { coachBusy, coachNotFree } from "./lessons.ts";
 import { withManagers } from "./households.ts";
 
@@ -55,7 +56,7 @@ async function cardPays(db: Db | Trx, bookingId: string) {
     left: r.amount_cents - Number(r.back ?? 0), off: r.method === "promo" ? 0 : r.discount_cents }));
   const left = all.filter((p) => p.left > 0 && !p.other);
   return { net: all.reduce((n, p) => n + p.left + p.off, 0), card: left.filter((p) => p.card), credit: left.filter((p) => p.credit), desk: left.filter((p) => !p.card && !p.credit),
-    other: all.some((p) => p.other && p.left > 0), playtomic: all.some((p) => p.pt && p.left > 0) };
+    other: all.some((p) => p.other && p.left > 0), playtomic: all.some((p) => p.pt && p.left > 0), pt: all.filter((p) => p.pt && p.left > 0).map((p) => ({ id: p.id, left: p.left })) };
 }
 
 /** What comes back when a booking costs less than was paid: `over` is what was paid beyond the new price. */
@@ -67,7 +68,12 @@ async function moneyBack(db: Db | Trx, b: Facts, over: number, choice: "rule" | 
   const due = Math.round(over * percent / 100), cards = Math.min(due, cardLeft), credit = Math.min(due - cards, creditLeft), desk = Math.min(due - cards - credit, deskLeft);
   const why = choice === "rule" ? both("change.why_rule", { percent }) : both(choice === "full" ? "change.why_full" : "change.why_none");
   // Paid with a pass or a promo code: what's beyond the new price has nowhere to go (the use is spent; free gave nothing).
-  return { percent, due, cards, credit, desk, why, kept: pays.other && due > cards + credit + desk, inPlaytomic: pays.playtomic && due > cards + credit + desk };
+  // Paid in Playtomic (a booking taken over): the rest of what's due goes back there, unless Playtomic refunded it already.
+  const ptDone = (await playtomicTwin(db, b.id))?.payment_status === "REFUNDED";
+  const ptLeft = pays.pt.reduce((n, p) => n + p.left, 0), playtomic = ptDone ? 0 : Math.min(Math.max(0, due - cards - credit - desk), ptLeft);
+  const ptBack: { payment_id: string; playtomic: number }[] = [];
+  for (let rest = playtomic, k = 0; rest > 0 && k < pays.pt.length; k++) { const c = Math.min(rest, pays.pt[k]!.left); ptBack.push({ payment_id: pays.pt[k]!.id, playtomic: c }); rest -= c; }
+  return { percent, due, cards, credit, desk, why, kept: pays.other && due > cards + credit + desk + playtomic, inPlaytomic: pays.playtomic && due > cards + credit + desk, playtomic, ptBack, ptDone };
 }
 
 /** Send `cents` back across the card payments, in proportion to what's left of each; who got how much. */
@@ -105,7 +111,9 @@ function moneyText(o: { owed: number; price?: number; back?: Awaited<ReturnType<
     if (o.back.cards > 0) parts.push(both("change.back_card", { amount: usd(o.back.cards), why: o.back.why }));
     if (o.back.credit > 0) parts.push(both("change.back_credit", { amount: usd(o.back.credit), why: o.back.why }));
     if (o.back.desk > 0) parts.push(both("change.back_desk", { amount: usd(o.back.desk), why: o.back.why }));
-    if (o.back.inPlaytomic) parts.push(both("change.back_playtomic"));
+    if (o.back.playtomic > 0) parts.push(both("change.back_playtomic_amount", { amount: usd(o.back.playtomic), why: o.back.why }));
+    else if (o.back.ptDone) parts.push(both("plan.booking.refund_playtomic_done"));
+    else if (o.back.inPlaytomic) parts.push(both("change.back_playtomic"));
     else if (o.back.kept) parts.push(both("change.back_pass_promo"));
     if (!parts.length) parts.push(both("change.back_none", { why: o.back.why }));
     const lead = o.price !== undefined ? both("change.repriced", { price: usd(o.price) }) : null;
@@ -175,16 +183,18 @@ export const bookingMove = defineAction({
     const summary = joinText(both(b.kind === "lesson" ? "plan.booking.move_lesson" : "plan.booking.move", { code: b.code, who: b.who, coach: b.coach ?? "",
       from: at(b.court, b.start, b.time_zone), to: at(court.name, start, b.time_zone) }), moneyText({ owed, price: reprice ? price : undefined, back, over }), both("change.players_told"));
     return { title: both("action.booking.move"), summary, reads: [], locationId: b.location_id, ownerIds: await withManagers(ctx.db, [b.organiser_id]), moneyCents: back?.due ?? owed,
-      undo: { kind: "compensating" }, details: { price: price + kept, tax, owed, back: back ? { cards: back.cards, credit: back.credit, desk: back.desk } : null, from: at(b.court, b.start, b.time_zone), to: at(court.name, start, b.time_zone) } };
+      undo: { kind: "compensating" }, details: { price: price + kept, tax, owed, back: back ? { cards: back.cards, credit: back.credit, desk: back.desk, playtomic: back.ptBack } : null, from: at(b.court, b.start, b.time_zone), to: at(court.name, start, b.time_zone) } };
   },
   async apply(ctx, i, plan) {
-    const d = plan.details as { price: number; tax: number; owed: number; back: { cards: number; credit?: number; desk?: number } | null; from: Text; to: Text };
+    const d = plan.details as { price: number; tax: number; owed: number; back: { cards: number; credit?: number; desk?: number; playtomic?: { payment_id: string; playtomic: number }[] } | null; from: Text; to: Text };
     const b = await facts(ctx.trx, i.booking_id), start = new Date(i.starts_at), end = new Date(start.getTime() + b.minutes * 60_000);
     await swapTime(ctx, b, i.court_id, start, end);
     if (d.price !== b.price_cents || d.tax !== b.tax_cents || d.owed)
       await ctx.update("booking", b.id, { price_cents: d.price, tax_cents: d.tax, balance_cents: (b.balance_cents ?? 0) + d.owed });
     const refunds = d.back ? await giveBack(ctx, b.id, d.back.cards) : {}, credit = d.back ? await giveBackAtDesk(ctx, b.id, d.back.credit ?? 0, "credit") : {},
       desk = d.back ? await giveBackAtDesk(ctx, b.id, d.back.desk ?? 0) : {};
+    // Paid in Playtomic: that part goes back there (the managers are told), and counts as given back.
+    if (d.back?.playtomic?.length) await givenBackInPlaytomic(ctx, b.id, d.back.playtomic);
     // A reminder already sent was for the old time: the new one gets its own.
     if (b.reminded_at && start.getTime() - ctx.now.getTime() > REMINDER_HOURS * 3600_000) await ctx.update("booking", b.id, { reminded_at: null });
     await ctx.emit("booking.moved", { booking_id: b.id, from: d.from, to: d.to, owed: d.owed, refunds, desk, credit });
@@ -227,16 +237,18 @@ export const bookingExtend = defineAction({
     const kept = back ? over - back.due : 0;
     return { title: both("action.booking.extend"), summary, reads: [], locationId: b.location_id, ownerIds: await withManagers(ctx.db, [b.organiser_id]), moneyCents: back?.due ?? owed,
       undo: { kind: "compensating" }, details: { price: price + kept, tax: longer ? b.tax_cents + extraTax : Math.round(b.tax_cents * (price + kept) / Math.max(b.price_cents, 1)), owed,
-        back: back ? { cards: back.cards, credit: back.credit, desk: back.desk } : null, until: clockOf(end, b.time_zone) } };
+        back: back ? { cards: back.cards, credit: back.credit, desk: back.desk, playtomic: back.ptBack } : null, until: clockOf(end, b.time_zone) } };
   },
   async apply(ctx, i, plan) {
-    const d = plan.details as { price: number; tax: number; owed: number; back: { cards: number; credit?: number; desk?: number } | null; until: Text };
+    const d = plan.details as { price: number; tax: number; owed: number; back: { cards: number; credit?: number; desk?: number; playtomic?: { payment_id: string; playtomic: number }[] } | null; until: Text };
     const b = await facts(ctx.trx, i.booking_id), end = new Date(b.start.getTime() + i.minutes * 60_000);
     await swapTime(ctx, b, b.court_id, b.start, end);
     const balance = i.minutes > b.minutes ? (b.balance_cents ?? 0) + d.owed : Math.max(0, (b.balance_cents ?? 0) - (b.price_cents - d.price));
     await ctx.update("booking", b.id, { price_cents: d.price, tax_cents: d.tax, balance_cents: balance });
     const refunds = d.back ? await giveBack(ctx, b.id, d.back.cards) : {}, credit = d.back ? await giveBackAtDesk(ctx, b.id, d.back.credit ?? 0, "credit") : {},
       desk = d.back ? await giveBackAtDesk(ctx, b.id, d.back.desk ?? 0) : {};
+    // Paid in Playtomic: that part goes back there (the managers are told), and counts as given back.
+    if (d.back?.playtomic?.length) await givenBackInPlaytomic(ctx, b.id, d.back.playtomic);
     await ctx.emit("booking.resized", { booking_id: b.id, old: b.minutes, until: d.until, owed: d.owed, refunds, desk, credit });
     return { booking_id: b.id };
   },

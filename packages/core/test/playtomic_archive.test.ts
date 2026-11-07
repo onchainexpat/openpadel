@@ -3,7 +3,8 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { archiveBookings, archiveOf, comparePlaytomic, exportData, issueReceipts, plan, processOutbox, messageHandlers, run, runAsSystem, syncMirror, syncMirrorFar, uuidv7, KumiError,
+import { sql } from "kysely";
+import { archiveBookings, archiveOf, comparePlaytomic, comparison, diffMirror, normalize, exportData, issueReceipts, plan, processOutbox, messageHandlers, run, runAsSystem, syncMirror, syncMirrorFar, uuidv7, KumiError,
   PlaytomicClient, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, court1: string, court2: string, locationId: string;
@@ -184,10 +185,11 @@ test("a taken-over booking cancelled here: what was paid in Playtomic goes back 
   const pay = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id").where("booking_player.booking_id", "=", id).executeTakeFirstOrThrow();
   await rejects(plan(db, "booking.refund", { booking_id: id, payment_id: pay.id, cents: 1000 }, owner, { now: new Date(base) }), "error.refund_in_playtomic");
   const p = await plan(db, "booking.cancel", { booking_id: id, refund: "full" }, owner, { now: new Date(base) });
-  assert.match(p.plan.summary.en, /\$40\.00 paid in Playtomic goes back by the club's rule: refund it in Playtomic/);
+  assert.match(p.plan.summary.en, /\$40\.00 paid in Playtomic goes back, as chosen: refund it in Playtomic/);
   assert.match(p.plan.summary.en, /still booked in Playtomic: cancel it there too/);
   await run(db, "booking.cancel", { booking_id: id, refund: "full" }, owner, { now: new Date(base) });
-  assert.equal((await db.selectFrom("refund").select("id").where("payment_id", "=", pay.id).execute()).length, 0, "no money back through Kumi");
+  // No money back through Kumi: only a note that it's given back in Playtomic, sent nowhere.
+  assert.deepEqual((await db.selectFrom("refund").select(["destination", "status", "amount_cents"]).where("payment_id", "=", pay.id).execute()), [{ destination: "playtomic", status: "sent", amount_cents: 4000 }]);
   const ev = await db.selectFrom("event_outbox").select("payload").where("topic", "=", "booking.refund_in_playtomic").execute();
   assert.equal(ev.length, 1);
   assert.equal((ev[0]!.payload as any).cents, 4000);
@@ -301,4 +303,128 @@ test("an account deleted before any of its Playtomic bookings were read: they co
     assert.ok(p.erased_at);
   }
   assert.equal((await players("old-eve")).find((x) => x.participant_id === "u-ann")!.name, "Ann Lee", "the others stay");
+});
+
+// ---- Found by the review of f4ce124 and phone run 10 ----
+const kumiOf = async (ptId: string) => (await db.selectFrom("playtomic_booking").select("taken_over_booking_id").where("booking_id", "=", ptId).executeTakeFirstOrThrow()).taken_over_booking_id!;
+const alerts = async (bookingId: string) => (await db.selectFrom("event_outbox").select("payload").where("topic", "=", "booking.refund_in_playtomic").execute())
+  .filter((e) => (e.payload as any).booking_id === bookingId).map((e) => (e.payload as any).cents as number);
+const ptRefunds = async (bookingId: string) => (await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+  .select(["refund.amount_cents", "refund.destination", "refund.status"]).where("booking_player.booking_id", "=", bookingId).execute());
+
+test("a member ending a taken-over weekly court: what was paid in Playtomic is said, kept as given back there, and each week told to the managers", async () => {
+  const rec = (id: string, h: number) => booking(id, h, { type: "RECURRING_BOOKING", court: "pt-2", owner: "u-ann", players: [{ participant_id: "u-ann", name: "Ann Lee", email: "ann@example.test" }] });
+  pt.bookings.push(rec("w1", 24 * 4 + 7), rec("w2", 24 * 11 + 7), rec("w3", 24 * 18 + 7));
+  await sync();
+  await run(db, "mirror.take_over", { booking_ids: ["w1", "w2", "w3"] }, owner, { now: new Date(base) });
+  const series = await db.selectFrom("booking_series").innerJoin("booking", "booking.series_id", "booking_series.id").select("booking_series.id")
+    .where("booking.id", "=", await kumiOf("w1")).executeTakeFirstOrThrow();
+  const p = await plan(db, "booking.repeat_end", { series_id: series.id }, as(people.Ann!), { now: new Date(base) });
+  assert.match(p.plan.summary.en, /\$120\.00 paid in Playtomic goes back by the club's rule: refund it in Playtomic/);
+  assert.doesNotMatch(p.plan.summary.en, /Nothing comes back/i);
+  await run(db, "booking.repeat_end", { series_id: series.id }, as(people.Ann!), { now: new Date(base) });
+  for (const id of ["w1", "w2", "w3"]) {
+    const k = await kumiOf(id);
+    assert.deepEqual(await alerts(k), [4000], id);
+    assert.deepEqual((await ptRefunds(k)).map((r) => [r.amount_cents, r.destination, r.status]), [[4000, "playtomic", "sent"]], id);
+  }
+});
+
+test("a taken-over booking made shorter: the part paid in Playtomic goes back there, and a later cancel counts only what's left", async () => {
+  pt.bookings.push(booking("sh1", 24 * 5 + 9, { court: "pt-2" }));
+  await sync();
+  await run(db, "mirror.take_over", { booking_ids: ["sh1"] }, owner, { now: new Date(base) });
+  const k = await kumiOf("sh1");
+  const p = await plan(db, "booking.extend", { booking_id: k, minutes: 60 }, owner, { now: new Date(base) });
+  assert.match(p.plan.summary.en, /paid in Playtomic goes back there .*refund it in Playtomic/);
+  await run(db, "booking.extend", { booking_id: k, minutes: 60 }, owner, { now: new Date(base) });
+  const first = await alerts(k);
+  assert.equal(first.length, 1);
+  assert.ok(first[0]! > 0 && first[0]! < 4000, String(first));
+  const c = await plan(db, "booking.cancel", { booking_id: k, refund: "full" }, owner, { now: new Date(base) });
+  assert.match(c.plan.summary.en, /goes back, as chosen: refund it in Playtomic/, "the staff's own choice, not the rule");
+  await run(db, "booking.cancel", { booking_id: k, refund: "full" }, owner, { now: new Date(base) });
+  const all = await alerts(k);
+  assert.equal(all.length, 2);
+  assert.equal(all[0]! + all[1]!, 4000, "never more than was paid there");
+});
+
+test("Playtomic moving a taken-over booking to another court: one court time, the move is a difference, and nothing goes 'gone'", async () => {
+  pt.bookings.push(booking("mv1", 24 * 6 + 3, { court: "pt-1" }));
+  await sync();
+  await run(db, "mirror.take_over", { booking_ids: ["mv1"] }, owner, { now: new Date(base) });
+  const k = await kumiOf("mv1");
+  pt.bookings = pt.bookings.map((b) => b.booking_id === "mv1" ? booking("mv1", 24 * 6 + 3, { court: "pt-2" }) : b);
+  await sync();
+  // One court time for it: the taken-over booking's own, and no mirror hold on either court.
+  const times = await db.selectFrom("court_time").select(["kind", "booking_id"]).where("active", "=", true)
+    .where(sql<boolean>`during && tstzrange(${at(24 * 6 + 3)}, ${at(24 * 6 + 4.5)})`).execute();
+  assert.deepEqual(times.map((t) => [t.kind, t.booking_id === k]), [["booking", true]], JSON.stringify(times));
+  assert.equal((await db.selectFrom("mirror_booking").select("ref").where("ref", "=", "mv1:pt-2").executeTakeFirst()), undefined, "no fresh hold for it");
+  assert.equal((await mb("mv1:pt-1"))?.status, "taken", "not gone");
+  const c = await comparison(db, new Date(base), 14);
+  assert.ok(c.diffs.some((d) => d.kind === "moved" && d.key.startsWith("moved:mv1")), JSON.stringify(c.diffs.filter((d) => d.key.includes("mv1"))));
+});
+
+test("a mirror change worked out before a take-over and applied after it leaves the take-over alone", async () => {
+  pt.bookings.push(booking("race1", 24 * 7 + 5, { court: "pt-2" }));
+  await sync();
+  pt.bookings = pt.bookings.map((b) => b.booking_id === "race1" ? booking("race1", 24 * 7 + 5.5, { court: "pt-2" }) : b);
+  const fetched = pt.bookings.map(normalize).filter((b): b is NonNullable<ReturnType<typeof normalize>> => b !== null);
+  const diff = await diffMirror(db, fetched, new Date(base - 864e5), new Date(base + 30 * 864e5));
+  assert.ok(diff.changes.some((c) => c.ref === "race1:pt-2"));
+  await run(db, "mirror.take_over", { booking_ids: ["race1"] }, owner, { now: new Date(base) });
+  await runAsSystem(db, "mirror.apply", { changes: diff.changes }, "mirror:playtomic", { now: new Date(base) });
+  const m = await mb("race1:pt-2");
+  assert.equal(m?.status, "taken");
+  assert.equal(m?.court_time_id, null);
+});
+
+test("cancelled and refunded in Playtomic, then cancelled here: the preview says Playtomic refunded it, and nobody is told to refund it", async () => {
+  pt.bookings.push(booking("rf1", 24 * 8 + 5, { court: "pt-1" }));
+  await sync();
+  await run(db, "mirror.take_over", { booking_ids: ["rf1"] }, owner, { now: new Date(base) });
+  const k = await kumiOf("rf1");
+  pt.bookings = pt.bookings.map((b) => b.booking_id === "rf1" ? booking("rf1", 24 * 8 + 5, { court: "pt-1", cancelled: true, paid: "REFUNDED" }) : b);
+  await sync();
+  const p = await plan(db, "booking.cancel", { booking_id: k }, owner, { now: new Date(base) });
+  assert.match(p.plan.summary.en, /already refunded there/);
+  await run(db, "booking.cancel", { booking_id: k }, owner, { now: new Date(base) });
+  assert.deepEqual(await alerts(k), []);
+  // The history says it was cancelled here, not "now booking".
+  const h = (await archiveOf(db, people.Ann!)).find((x) => x.booking_id === "rf1")!;
+  assert.equal(h.taken_over_as, null);
+  assert.ok(h.cancelled_here_as);
+});
+
+test("taken over unpaid, then paid in Playtomic: the comparison says so, and the desk marks it paid there", async () => {
+  pt.bookings.push(booking("up1", 24 * 9 + 13, { court: "pt-1", paid: "PENDING" }));
+  await sync();
+  await run(db, "mirror.take_over", { booking_ids: ["up1"] }, owner, { now: new Date(base) });
+  const k = await kumiOf("up1");
+  await rejects(plan(db, "booking.paid_in_playtomic", { booking_id: k }, owner, { now: new Date(base) }), "error.not_paid_in_playtomic");
+  pt.bookings = pt.bookings.map((b) => b.booking_id === "up1" ? booking("up1", 24 * 9 + 13, { court: "pt-1", paid: "PAID" }) : b);
+  await sync();
+  const c = await comparison(db, new Date(base), 14);
+  const d = c.diffs.find((x) => x.key === "paid:up1");
+  assert.ok(d && d.booking_id === k, JSON.stringify(c.diffs.filter((x) => x.key.includes("up1"))));
+  const desk = ((await run(db, "person.create", { display_name: "Dee Desk", email: "dee@example.test" }, owner)).result as { person_id: string }).person_id;
+  await run(db, "role.assign", { person_id: desk, role: "front_desk" }, owner);
+  const p = await plan(db, "booking.paid_in_playtomic", { booking_id: k }, as(desk), { now: new Date(base) });
+  assert.match(p.plan.summary.en, /Mark booking .* paid in Playtomic: \$40\.00/);
+  await run(db, "booking.paid_in_playtomic", { booking_id: k }, as(desk), { now: new Date(base) });
+  const pays = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.method", "payment.amount_cents"])
+    .where("booking_player.booking_id", "=", k).execute();
+  assert.deepEqual(pays, [{ method: "playtomic", amount_cents: 4000 }]);
+  assert.equal((await comparison(db, new Date(base), 14)).diffs.some((x) => x.key === "paid:up1"), false);
+  await rejects(plan(db, "booking.paid_in_playtomic", { booking_id: k }, as(desk), { now: new Date(base) }), "error.booking_paid_in_full");
+});
+
+test("bookings further ahead than members can book are archived too, up to a year: for the archive only", async () => {
+  // The club's book-ahead is a couple of weeks; Playtomic has a weekly series out to four months.
+  pt.bookings.push(booking("far1", 24 * 120 + 5, { court: "pt-1", type: "RECURRING_BOOKING" }));
+  const lastRead = new Map<number, number>();
+  for (let n = 0; n < 20; n++) await syncMirrorFar(db, client(), { now: new Date(base), everyMs: 6 * H, lastRead });
+  assert.ok(await db.selectFrom("playtomic_booking").select("booking_id").where("booking_id", "=", "far1").executeTakeFirst(), "archived");
+  assert.equal(await mb("far1:pt-1"), undefined, "held by nothing: past what Kumi sells");
 });

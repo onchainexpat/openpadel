@@ -647,6 +647,20 @@ Find someone to take my place. Who may: owner, manager, front desk, member (thei
 openpadel booking offer-place --booking-id <id> --person "Maria Lopez"
 ```
 
+#### openpadel booking paid-in-playtomic
+
+Mark a booking paid in Playtomic. Who may: owner, manager, front desk.
+
+Its preview reads: "Mark booking {code} paid in Playtomic: {amount}. Nothing is owed here any more, and it isn't counted in the books here."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--booking-id` | id | needed |  |
+
+```
+openpadel booking paid-in-playtomic --booking-id <id>
+```
+
 #### openpadel booking refund
 
 Refund a booking payment. Who may: owner, manager, front desk.

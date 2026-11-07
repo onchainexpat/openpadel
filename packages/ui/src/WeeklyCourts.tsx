@@ -6,7 +6,7 @@ import type { Key } from "@kumi/i18n";
 import { clubTime, lang, t } from "./state.ts";
 import { dollars } from "./Preview.tsx";
 
-export type WeeklyCourt = { id: string; court: string; starts: string; minutes: number; pay: "card" | "desk"; time_zone: string;
+export type WeeklyCourt = { id: string; court: string; starts: string; minutes: number; pay: "card" | "desk"; from_playtomic?: boolean; time_zone: string;
   weeks: { date: string; starts_at: string; price_cents: number; state: "booked" | "owed" | "cancelled" | "missed" | "waiting"; missed: string | null; code: string | null; charged: boolean }[] };
 
 export function WeeklyCourts({ series, preview, staff }: { series: WeeklyCourt[]; preview: (action: string, input: unknown) => Promise<void> | void; staff?: boolean }) {
@@ -21,7 +21,7 @@ export function WeeklyCourts({ series, preview, staff }: { series: WeeklyCourt[]
         return (
           <div key={s.id}>
             <p><strong>{t("ui.weekly_pattern", { court: s.court, weekday: at(first.starts_at, { weekday: "long" }), time: at(first.starts_at, { hour: "numeric", minute: "2-digit" }), minutes: s.minutes })}</strong></p>
-            <p class="meta">{t(s.pay === "card" ? "ui.weekly_on_card" : "ui.weekly_at_desk")}</p>
+            <p class="meta">{t(s.from_playtomic ? "ui.weekly_from_playtomic" : s.pay === "card" ? "ui.weekly_on_card" : "ui.weekly_at_desk")}</p>
             <ul class="plain">{s.weeks.map((w) => (
               <li class="row" key={w.date}>
                 <span>{at(w.starts_at, { weekday: "short", month: "short", day: "numeric" })} · {dollars(w.price_cents, lang.value)} · {w.state === "missed"

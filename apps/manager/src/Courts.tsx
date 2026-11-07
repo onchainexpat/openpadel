@@ -15,7 +15,7 @@ const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
 type Seat = { id: string; name: string; booker: boolean };
-type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; off_cents?: number; balance_cents?: number; booking_kind?: string;
+type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; off_cents?: number; pt_cents?: number; balance_cents?: number; booking_kind?: string;
   coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; invite_code?: string | null; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string; program_id?: string; label?: string; empty_places?: Empty[] };
 // `open`: that court's own hours that day (they can differ from the location's); null when it's closed all day.
 type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
@@ -297,7 +297,8 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
       <div class="row"><h2>{clock(it.start)} - {clock(it.end)} · {court.name}</h2><button class="small" onClick={onClose}>{t("ui.close")}</button></div>
       <p>{labelOf(it)}{it.code ? ` · ${it.code}` : ""}</p>
       {(it.players?.length ?? 0) > 0 && <p class="meta">{t("ui.today_players", { names: it.players!.join(", ") })}</p>}
-      {isBooking(it) && <p class="meta">{unpaid(it) > 0 ? t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) }) : (it.off_cents ?? 0) > 0 ? t("ui.paid_off", { amount: dollars(it.paid_cents ?? 0, lang.value), off: dollars(it.off_cents ?? 0, lang.value) }) : t("ui.today_paid", { amount: dollars(it.paid_cents ?? 0, lang.value) })}</p>}
+      {isBooking(it) && <p class="meta">{unpaid(it) > 0 ? t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) }) : (it.off_cents ?? 0) > 0 ? t("ui.paid_off", { amount: dollars(it.paid_cents ?? 0, lang.value), off: dollars(it.off_cents ?? 0, lang.value) })
+        : (it.pt_cents ?? 0) > 0 && (it.pt_cents ?? 0) >= (it.paid_cents ?? 0) ? t("ui.paid_in_playtomic", { amount: dollars(it.paid_cents ?? 0, lang.value) }) : t("ui.today_paid", { amount: dollars(it.paid_cents ?? 0, lang.value) })}</p>}
       {it.late?.map((l) => <p class="note">{t("ui.late_note", { name: l.name, minutes: l.minutes })} · {clock(l.at)}</p>)}
       <div class="chips">
         {isBooking(it) && unpaid(it) > 0 && mayDo("booking.record_payment") && <button class="small" onClick={() => setPaying(!paying)}>{t("ui.record_payment")}</button>}

@@ -12,7 +12,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, onDate, weekdayOf } from "./clock.ts";
 import { courtsAt, insertTime, locationTz, lockCourts, occupied, range } from "./bookings.ts";
-import { cancelBooking, cancelRefunds } from "./booking_pay.ts";
+import { cancelBooking, cancelRefunds, keepRefund, playtomicText, type PlannedRefund } from "./booking_pay.ts";
 
 /** How far ahead a series' dates are made: a year. One with no end gets its new dates as the year moves on. */
 export const SERIES_AHEAD_DAYS = 365;
@@ -56,7 +56,7 @@ const madeUntil = (today: string, until: string | null) => { const h = addDays(t
 
 /** One date to make: when, and on which courts (a court with something staying in the way is left out that day). */
 interface ToMake { date: string; start: string; end: string; courtIds: string[] }
-interface Cancel { booking_id: string; refunds: { payment_id: string; cents: number }[] }
+interface Cancel { booking_id: string; refunds: PlannedRefund[] }
 interface Layout { make: ToMake[]; cancels: Cancel[]; texts: Text[]; refundCents: number; organisers: string[] }
 
 /** What making these dates would do: the courts and times each takes, what's in the way, and what happens to it.
@@ -71,7 +71,8 @@ async function layout(ctx: PlanCtx, o: { courtIds: string[]; dates: string[]; st
   const make = slots.map((s) => ({ date: s.date, start: s.start.toISOString(), end: s.end.toISOString(), courtIds: o.courtIds.filter((c) => !stays.some((w) => w.date === s.date && w.courtId === c)) }))
     .filter((m) => m.courtIds.length);
   const cancels: Cancel[] = [];
-  for (const id of cancelling) { const r = await cancelRefunds(ctx.db, id, ctx.now, o.refund); cancels.push({ booking_id: id, refunds: r.refunds.map(({ payment_id, cents }) => ({ payment_id, cents })) }); }
+  let ptDone = false;
+  for (const id of cancelling) { const r = await cancelRefunds(ctx.db, id, ctx.now, o.refund); ptDone ||= r.ptDone; cancels.push({ booking_id: id, refunds: r.refunds.map(keepRefund) }); }
   const refundCents = cancels.reduce((n, c) => n + c.refunds.reduce((m, r) => m + r.cents, 0), 0);
   const texts: Text[] = [];
   const courtName = new Map((await courtsAt(ctx.db, o.courtIds)).map((c) => [c.id, c.name as string]));
@@ -79,6 +80,9 @@ async function layout(ctx: PlanCtx, o: { courtIds: string[]; dates: string[]; st
     const rows = await ctx.db.selectFrom("booking").select(["id", "code", "organiser_id"]).where("id", "in", bookingIds).execute();
     const list = some(bookingIds.map((id) => { const w = way.find((x) => x.bookingId === id)!; return join([{ en: rows.find((r) => r.id === id)?.code ?? "", es: rows.find((r) => r.id === id)?.code ?? "" }, day(w.date)], " "); }));
     texts.push(o.inTheWay === "cancel" ? both("plan.block_repeat.way_cancel", { count: bookingIds.length, list, refund: usd(refundCents) }) : both("plan.block_repeat.way_keep", { count: bookingIds.length, list }));
+    // A booking taken over from Playtomic and paid there: what goes back is given back in Playtomic (the managers are told).
+    const pt = o.inTheWay === "cancel" ? playtomicText(cancels.flatMap((c) => c.refunds), ptDone) : null;
+    if (pt) texts.push(pt);
   }
   const other = stays.filter((w) => w.kind !== "booking");
   if (other.length) texts.push(both("plan.block_repeat.way_other", { count: other.length, list: some(other.map((w) => join([{ en: courtName.get(w.courtId) ?? "", es: courtName.get(w.courtId) ?? "" }, day(w.date)], " "))) }));

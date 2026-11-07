@@ -1033,8 +1033,9 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const params = { amount: amount(p.cents), code: b.code, person: b.display_name ?? "" };
     return (await managers(db)).map((to) => ({ to, kind: "playtomic_refund_staff", params, purpose: "staff" as const, essential: false, email: true, link: b.organiser_id ? `/people/${b.organiser_id}` : "/playtomic" }));
   },
-  async "mirror.compared"({ db, tz }, p: { lines: { kind: "clash" | "missing" | "moved" | "cancelled"; court: string; starts_at: string; type: string; code: string | null }[]; more: number }) {
-    const kinds: Record<string, Key> = { clash: "msg.playtomic_compare.clash", missing: "msg.playtomic_compare.missing", moved: "msg.playtomic_compare.moved", cancelled: "msg.playtomic_compare.cancelled" };
+  async "mirror.compared"({ db, tz }, p: { lines: { kind: "clash" | "missing" | "moved" | "cancelled" | "paid"; court: string; starts_at: string; type: string; code: string | null }[]; more: number }) {
+    const kinds: Record<string, Key> = { clash: "msg.playtomic_compare.clash", missing: "msg.playtomic_compare.missing", moved: "msg.playtomic_compare.moved", cancelled: "msg.playtomic_compare.cancelled",
+      paid: "msg.playtomic_compare.paid" };
     const lines = p.lines.map((l) => both(kinds[l.kind]!, { court: l.court, when: when(new Date(l.starts_at), tz), type: both(typeKey(l.type)), code: l.code ?? "" }));
     const list: Text = { en: lines.map((x) => `- ${x.en}`).join("\n"), es: lines.map((x) => `- ${x.es}`).join("\n") };
     const params = { count: p.lines.length + p.more, list, more: p.more ? both("msg.playtomic_compare.more", { count: p.more }) : { en: "", es: "" } };

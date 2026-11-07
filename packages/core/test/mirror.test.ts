@@ -299,7 +299,14 @@ test("further ahead is read a 30-day slice a sync, as far as Kumi has anything o
     const p = await syncMirrorFar(db, c, { now, everyMs: every, lastRead });
     assert.ok(p?.ok && p.from < now && p.held === 0 && p.changes === 0, JSON.stringify(p));
   }
-  assert.equal(await syncMirrorFar(db, c, { now, everyMs: every, lastRead }), null);   // all read lately
+  // Then past what Kumi sells, to a year ahead, for the archive only too (a series Playtomic holds further out).
+  let ahead = 0;
+  for (let p = await syncMirrorFar(db, c, { now, everyMs: every, lastRead }); p; p = await syncMirrorFar(db, c, { now, everyMs: every, lastRead })) {
+    assert.ok(p.ok && p.from.getTime() >= base + (100 * D + 2) * H && p.held === 0 && p.changes === 0, JSON.stringify(p));
+    ahead++;
+  }
+  assert.ok(ahead >= 8 && ahead <= 10, String(ahead));
+  assert.ok(await db.selectFrom("playtomic_booking").select("booking_id").where("booking_id", "=", "f200").executeTakeFirst(), "archived, not held");
   assert.equal((await db.selectFrom("mirror_booking").select("ref").where("ref", "=", "f200:pt-1").executeTakeFirst()), undefined);   // past anything Kumi has
   for (let i = 1; i < pt.pageTimes.length; i++) assert.ok(pt.pageTimes[i]! - pt.pageTimes[i - 1]! >= pace - 2);
 

@@ -292,7 +292,7 @@ export async function issueReceipts(db: Db, o: { card?: CardLookup; now?: Date; 
     try { if (!((await runAsSystem(db, "receipt.issue", { payment_id: p.id, card }, "job:receipts", { now })).result as { already?: boolean })?.already) out.issued++; }
     catch (e) { console.error(`receipt for payment ${p.id}:`, (e as Error).message); }
   }
-  const refunds = await db.selectFrom("refund").select("id").where("status", "=", "sent").where("created_at", ">=", from).where("destination", "!=", "pass")
+  const refunds = await db.selectFrom("refund").select("id").where("status", "=", "sent").where("created_at", ">=", from).where("destination", "not in", ["pass", "playtomic"])
     .where((eb) => eb.not(eb.exists(eb.selectFrom("receipt").select("receipt.id").whereRef("receipt.refund_id", "=", "refund.id")))).orderBy("created_at").limit(o.limit ?? 50).execute();
   for (const r of refunds) {
     try { if (!((await runAsSystem(db, "receipt.issue", { refund_id: r.id }, "job:receipts", { now })).result as { already?: boolean })?.already) out.issued++; }

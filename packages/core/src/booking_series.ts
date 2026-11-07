@@ -17,7 +17,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, localParts, onDate } from "./clock.ts";
 import { courtOpening, insertTime, lockCourts, MAX_MINUTES, occupied, range, STEP_MINUTES } from "./bookings.ts";
-import { cancelBooking, cancelRefunds, checkSlot, courtAndPlace, daysAhead, deskOrUp, HOLD_MINUTES, lockBooking, newCode, notOwing, upcomingCount } from "./booking_pay.ts";
+import { cancelBooking, cancelRefunds, checkSlot, courtAndPlace, daysAhead, deskOrUp, HOLD_MINUTES, keepRefund, lockBooking, newCode, notOwing, playtomicText, upcomingCount, type PlannedRefund } from "./booking_pay.ts";
 import { currentPolicy, quote, type Quote } from "./prices.ts";
 import { notJunior, requireWaiver, withManagers } from "./households.ts";
 import { paymentProvider } from "./money.ts";
@@ -327,16 +327,20 @@ export const bookingRepeatEnd = defineAction({
     // Over, with nothing booked still to come: there's nothing to end.
     const waiting = await ctx.db.selectFrom("booking_series_week").select("id").where("series_id", "=", s.id).where("booking_id", "is", null).where("missed", "is", null).where("on_date", ">=", from).executeTakeFirst();
     if (!weeks.length && (s.ended_at || !waiting)) throw new KumiError("error.weekly_over");
-    for (const w of weeks) { const r = await cancelRefunds(ctx.db, w.id, ctx.now, i.refund ?? "rule"); cancels.push({ booking_id: w.id, refunds: r.refunds.map(({ payment_id, cents }) => ({ payment_id, cents })) }); }
+    let ptDone = false;
+    for (const w of weeks) { const r = await cancelRefunds(ctx.db, w.id, ctx.now, i.refund ?? "rule"); ptDone ||= r.ptDone; cancels.push({ booking_id: w.id, refunds: r.refunds.map(keepRefund) }); }
     const back = cancels.reduce((n, c) => n + c.refunds.reduce((m, r) => m + r.cents, 0), 0);
     const start = onDate(s.first_date, s.starts.slice(0, 5), court.time_zone);
+    // Weeks taken over from Playtomic and paid there: what goes back is given back in Playtomic (the managers are told).
+    const pt = playtomicText(cancels.flatMap((c) => c.refunds), ptDone);
+    const here = cancels.some((c) => c.refunds.some((r) => r.playtomic === undefined));
     const summary = join([both("plan.booking.repeat_end", { pattern: patternText(court.name, start, court.time_zone, s.minutes), from: dayOf(from), count: weeks.length }),
-      back ? both("plan.booking.repeat_end_back", { amount: usd(back) }) : cancels.some((c) => c.refunds.length) ? both("plan.booking.repeat_end_nothing") : { en: "", es: "" }]);
+      back ? both("plan.booking.repeat_end_back", { amount: usd(back) }) : here ? both("plan.booking.repeat_end_nothing") : { en: "", es: "" }, pt ?? { en: "", es: "" }]);
     return { title: both("action.booking.repeat_end"), summary, reads: [read], locationId: s.location_id, ownerIds: await withManagers(ctx.db, [s.organiser_id]), moneyCents: back,
       undo: { kind: back ? "compensating" : "none" }, details: { from, cancels } };
   },
   async apply(ctx, i, plan) {
-    const d = plan.details as { from: string; cancels: { booking_id: string; refunds: { payment_id: string; cents: number }[] }[] };
+    const d = plan.details as { from: string; cancels: WeekCancel[] };
     const s = await ctx.trx.selectFrom("booking_series").selectAll().where("id", "=", i.series_id).forUpdate().executeTakeFirstOrThrow();
     await lockCourts(ctx, [s.court_id]);
     await cancelWeeksFrom(ctx, s, d.from, d.cancels);
@@ -351,7 +355,7 @@ export const bookingRepeatEnd = defineAction({
   },
 });
 
-type WeekCancel = { booking_id: string; refunds: { payment_id: string; cents: number }[] };
+type WeekCancel = { booking_id: string; refunds: PlannedRefund[] };
 /** A series' booked weeks from a date on, cancelled with what the preview said comes back. The weeks as they are now:
  *  one booked since the preview goes too, and anyone who paid after the preview never agreed to its rule, so all of
  *  theirs comes back (as booking.cancel does). The series and its court are locked by the caller. */
@@ -378,22 +382,24 @@ export const weeklyEndAll = defineAction({
     const rows = await ctx.db.selectFrom("booking_series").select("id").where("source", "=", "app").where("ended_at", "is", null).orderBy("id").execute();
     if (!rows.length) throw new KumiError("error.weekly_none_running");
     const series = [], reads = [], members = new Set<string>();
-    let weeksGoing = 0, back = 0, anyPaid = false;
+    let weeksGoing = 0, back = 0, anyPaid = false, ptDone = false;
     for (const { id } of rows) {
       const { row: s, read } = await readRow(ctx.db, "booking_series", id, "thing.weekly_booking");
       reads.push(read); members.add(s.organiser_id);
       const from = localDate(ctx.now, await seriesTz(ctx.db, s.location_id)), cancels: WeekCancel[] = [];
       if (i.booked === "cancel") for (const w of await seriesToEnd(ctx.db, s.id, from, ctx.now)) {
         const r = await cancelRefunds(ctx.db, w.id, ctx.now, i.refund ?? "rule");
-        cancels.push({ booking_id: w.id, refunds: r.refunds.map(({ payment_id, cents }) => ({ payment_id, cents }) ) });
-        anyPaid ||= r.refunds.length > 0; back += r.refunds.reduce((n, x) => n + x.cents, 0);
+        cancels.push({ booking_id: w.id, refunds: r.refunds.map(keepRefund) });
+        ptDone ||= r.ptDone;
+        anyPaid ||= r.refunds.some((x) => !("playtomic" in x)); back += r.refunds.reduce((n, x) => n + x.cents, 0);
       }
       weeksGoing += cancels.length;
       series.push({ id: s.id, court_id: s.court_id, organiser_id: s.organiser_id, from, cancels });
     }
     const summary = join([both("plan.weekly.end_all", { count: rows.length, members: members.size }),
       i.booked === "keep" ? both("plan.weekly.end_all_keep") : both("plan.weekly.end_all_cancel", { count: weeksGoing }),
-      back ? both("plan.booking.repeat_end_back", { amount: usd(back) }) : anyPaid ? both("plan.booking.repeat_end_nothing") : { en: "", es: "" }]);
+      back ? both("plan.booking.repeat_end_back", { amount: usd(back) }) : anyPaid ? both("plan.booking.repeat_end_nothing") : { en: "", es: "" },
+      playtomicText(series.flatMap((x) => x.cancels.flatMap((c) => c.refunds)), ptDone) ?? { en: "", es: "" }]);
     return { title: both("action.weekly.end_all"), summary, reads, ownerIds: await withManagers(ctx.db, []), moneyCents: back,
       undo: { kind: back ? "compensating" : "none" }, details: { series } };
   },
@@ -451,11 +457,13 @@ export async function seriesOf(db: Db | Trx, personId: string, now: Date) {
   for (const s of rows) {
     const today = localDate(now, s.time_zone);
     const weeks = await db.selectFrom("booking_series_week").leftJoin("booking", "booking.id", "booking_series_week.booking_id")
-      .select(["booking_series_week.on_date", "booking_series_week.missed", "booking_series_week.price_cents", "booking.id as booking_id", "booking.code", "booking.status", "booking.settled_at", "booking.balance_cents"])
+      .select(["booking_series_week.on_date", "booking_series_week.missed", "booking_series_week.price_cents", "booking.id as booking_id", "booking.code", "booking.status", "booking.settled_at", "booking.balance_cents", "booking.source"])
       .where("booking_series_week.series_id", "=", s.id).where("booking_series_week.on_date", ">=", today).where("booking_series_week.on_date", "<=", s.last_date).orderBy("booking_series_week.on_date").execute();
     // A series ended or done shows only while it has a week still booked (or still to be booked) to come.
     if (!weeks.some((w) => (w.booking_id && w.status !== "cancelled") || (!w.booking_id && !w.missed))) continue;
     out.push({ id: s.id, court: s.court, starts: s.starts.slice(0, 5), minutes: s.minutes, pay: s.pay, source: s.source, time_zone: s.time_zone, last_date: s.last_date,
+      // Taken over from Playtomic (playtomic_archive.ts): its weeks were paid there, or are owed at the desk.
+      from_playtomic: weeks.some((w) => w.source === "import"),
       weeks: weeks.map((w) => ({ date: w.on_date, starts_at: onDate(w.on_date, s.starts.slice(0, 5), s.time_zone).toISOString(), price_cents: w.price_cents,
         state: w.booking_id ? (w.status === "cancelled" ? "cancelled" : (w.balance_cents ?? 0) > 0 ? "owed" : "booked") : w.missed ? "missed" : "waiting", missed: w.missed, booking_id: w.booking_id, code: w.code,
         charged: Boolean(w.settled_at) && !w.balance_cents })) });

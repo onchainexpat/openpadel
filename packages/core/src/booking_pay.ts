@@ -24,7 +24,7 @@ import { band, joinRule, levelOf, openMatchOf } from "./match_rules.ts";
 import { managersOf, notJunior, requireWaiver, withManagers } from "./households.ts";
 import { kidOf, overRules, paymentsWhat } from "./kids.ts";
 import { isReadOnly } from "./read_only.ts";
-import { backSql, bookingRevenue, callOff, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
+import { backSql, bookingRevenue, callOff, deskPaid, leftOf, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 import { seriesCard } from "./booking_series.ts";
 
 /** How long a court is held while the organiser pays. */
@@ -422,6 +422,9 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
   const early = start?.s ? new Date(start.s).getTime() - now.getTime() >= policy.free_cancel_hours * 3600_000 : true;
   const percent = choice === "full" || choice === "credit" ? 100 : choice === "none" ? 0 : early ? 100 : policy.late_refund_percent;
   const open = choice === "rule" && Boolean(await openMatchOf(db, bookingId));
+  // Taken over from Playtomic and refunded there since (the player cancelled in Playtomic's app): nothing of what was
+  // paid there is to give back.
+  const ptDone = (await playtomicTwin(db, bookingId))?.payment_status === "REFUNDED";
   const refunds = paid.map((p) => {
     const joiner = open && p.person_id !== b.organiser_id;
     // Everything back as club credit (credit.ts): staff only, the whole of what's left, to each player's credit. Paid
@@ -429,7 +432,7 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
     const free = p.method === "promo", pass = p.method === "pass";
     // Paid in Playtomic (a booking taken over, playtomic_archive.ts): what the rule gives back is given back in
     // Playtomic, never as money here. The staff are told how much.
-    if (p.method === "playtomic") return { payment_id: p.id, cents: 0, joiner, desk: false, credit: false, playtomic: Math.round(Math.max(0, p.amount_cents - Number(p.back)) * (joiner ? 100 : percent) / 100) };
+    if (p.method === "playtomic") return { payment_id: p.id, cents: 0, joiner, desk: false, credit: false, playtomic: ptDone ? 0 : Math.round(Math.max(0, p.amount_cents - Number(p.back)) * (joiner ? 100 : percent) / 100) };
     // A refund the provider made after the backup a restore brought back (payments_after_restore.ts): it may be this
     // cancellation's own, which this copy doesn't have. By the rule nothing more goes back; the staff can choose more.
     if (p.seen && choice === "rule") return { payment_id: p.id, cents: 0, joiner, desk: false, credit: false, seen: true };
@@ -439,7 +442,22 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
   });
   // Nothing left of any of it to give back (refunded already, by the desk or after the backup): said as such, not as late.
   const left = paid.reduce((n, p) => n + Math.max(0, p.amount_cents - Number(p.back)), 0);
-  return { percent, early, hours: policy.free_cancel_hours, refunds, left };
+  return { percent, early, hours: policy.free_cancel_hours, refunds, left, ptDone };
+}
+/** A cancellation's refunds as a preview keeps them: the payment, what goes back here, and what goes back in
+ *  Playtomic (a booking taken over), so cancelBooking tells the managers of that part. */
+export type PlannedRefund = { payment_id: string; cents: number; credit?: boolean; playtomic?: number };
+export const keepRefund = (r: { payment_id: string; cents: number; credit?: boolean; playtomic?: number }): PlannedRefund =>
+  ({ payment_id: r.payment_id, cents: r.cents, ...(r.credit ? { credit: true } : {}), ...(r.playtomic !== undefined ? { playtomic: r.playtomic } : {}) });
+/** What a preview says of the part paid in Playtomic, over one booking or many: how much goes back there, that
+ *  nothing does, or that Playtomic already gave it back. Null when nothing was paid in Playtomic. */
+export function playtomicText(refunds: { playtomic?: number }[], done: boolean, choice: "rule" | "full" | "none" | "credit" = "rule"): Text | null {
+  const pt = refunds.filter((r) => r.playtomic !== undefined);
+  if (!pt.length) return done ? both("plan.booking.refund_playtomic_done") : null;
+  if (done) return both("plan.booking.refund_playtomic_done");
+  const back = pt.reduce((n, r) => n + (r.playtomic ?? 0), 0), rule = choice === "rule";
+  return back ? both(rule ? "plan.booking.refund_playtomic" : "plan.booking.refund_playtomic_chosen", { amount: usd(back) })
+    : both(rule ? "plan.booking.refund_playtomic_none" : "plan.booking.refund_playtomic_none_chosen");
 }
 export const bookingCancel = defineAction({
   name: "booking.cancel", version: 1,
@@ -456,7 +474,7 @@ export const bookingCancel = defineAction({
     const choice = byCoach ? "full" : i.refund ?? (lesson && !organisers.includes(ctx.actor.personId ?? "") ? "full" : "rule");
     const all = await cancelRefunds(ctx.db, b.id, ctx.now, choice);
     // What was paid in Playtomic is said apart: it goes back there, if anything does.
-    const inPt = all.refunds.filter((x) => "playtomic" in x) as { playtomic: number }[], ptBack = inPt.reduce((n, x) => n + x.playtomic, 0);
+    const inPt = all.refunds.filter((x) => "playtomic" in x) as { playtomic: number }[];
     const r = { ...all, refunds: all.refunds.filter((x) => !("playtomic" in x)) }, total = r.refunds.reduce((n, x) => n + x.cents, 0);
     const joiners = r.refunds.filter((x) => x.joiner).reduce((n, x) => n + x.cents, 0), host = total - joiners, hours = both("count.hours", { count: r.hours });
     // Paid at the desk goes back at the desk, not to a card.
@@ -472,17 +490,16 @@ export const bookingCancel = defineAction({
       // Why nothing comes back: the staff chose nothing, everything paid has gone back already, or it's late by the rule.
       : !total ? (choice === "none" ? both("plan.booking.no_refund_chosen") : r.left === 0 ? both("plan.booking.no_refund_left") : both("plan.booking.no_refund", { hours }))
       : desk ? both(card ? "plan.booking.refund_card_desk" : "plan.booking.refund_desk", { amount: usd(desk), card: usd(card) }) : both("plan.booking.refund", { amount: usd(total) });
-    const ptMoney = inPt.length ? both(ptBack ? "plan.booking.refund_playtomic" : "plan.booking.refund_playtomic_none", { amount: usd(ptBack) }) : null;
+    const ptMoney = playtomicText(inPt, all.ptDone, choice);
     // A booking that took over a Playtomic one still booked there: Kumi holds the court for it again once it's cancelled here.
     const twin = await playtomicTwin(ctx.db, b.id);
     const money = joinText([inPt.length && !r.refunds.length ? null : kumiMoney, ptMoney, twin && !twin.canceled ? both("plan.booking.cancel_playtomic_twin") : null]);
     return { title: both("action.booking.cancel"), summary: both(lesson ? "plan.lesson.cancel_refund" : "plan.booking.cancel_refund", { code: b.code, refund: money }), reads: [read], locationId: b.location_id,
       ownerIds: [...organisers, lesson ? b.coach_id : null].filter((x): x is string => Boolean(x)), moneyCents: total, undo: { kind: r.refunds.length ? "compensating" : "reversible" },
-      details: { refunds: [...r.refunds, ...all.refunds.filter((x) => "playtomic" in x)], playtomic_back: ptBack } };
+      details: { refunds: [...r.refunds, ...all.refunds.filter((x) => "playtomic" in x)].map(keepRefund) } };
   },
   async apply(ctx, i, plan) {
-    const planned = (plan.details as { refunds: { payment_id: string; cents: number; credit?: boolean }[] }).refunds;
-    const ptBack = (plan.details as { playtomic_back?: number }).playtomic_back ?? 0;
+    const planned = (plan.details as { refunds: PlannedRefund[] }).refunds;
     const b = await lockBooking(ctx.trx, i.booking_id);
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
     // Someone who paid after the preview was made never agreed to its rule: all of theirs back.
@@ -490,8 +507,6 @@ export const bookingCancel = defineAction({
       .where("booking_player.booking_id", "=", i.booking_id).where("booking_player.removed_at", "is", null).where("payment.status", "=", "succeeded")
       .$if(planned.length > 0, (q) => q.where("payment.id", "not in", planned.map((r) => r.payment_id))).execute();
     await cancelBooking(ctx, i.booking_id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents - Number(p.back) }))], i.reason ?? null);
-    // Paid in Playtomic: the staff are told to give it back there (said once, until someone marks it handled).
-    if (ptBack > 0) await ctx.emit("booking.refund_in_playtomic", { booking_id: i.booking_id, cents: ptBack });
     return null;
   },
 });
@@ -531,7 +546,7 @@ async function refundable(db: Db | Trx, bookingId: string, paymentId: string) {
 }
 /** Call a booking off: its court time is free, the refunds chosen in the plan go back, shares not paid yet can't
  *  be paid any more, and its players are told. Also for a repeating block that cancels bookings in its way. */
-export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: { payment_id: string; cents: number; credit?: boolean }[], reason: string | null) {
+export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: PlannedRefund[], reason: string | null) {
   await ctx.update("booking", bookingId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: reason });
   for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", bookingId).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
   for (const r of refunds) await refundTo(ctx, r.payment_id, r.cents, { credit: r.credit });
@@ -539,6 +554,21 @@ export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: {
   for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
     .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await callOff(ctx, p.id);
   await ctx.emit("booking.cancelled", { booking_id: bookingId, by: ctx.actor.personId });
+  // Paid in Playtomic (a booking taken over, playtomic_archive.ts): whatever cancelled it (the booking itself, its
+  // weekly court ended, a court blocked), the managers are told to give that part back there, once, until handled.
+  await givenBackInPlaytomic(ctx, bookingId, refunds);
+}
+/** The part of a booking taken over from Playtomic that goes back there: kept as a refund 'sent' (nothing moves through
+ *  Kumi), so a later change counts what's left of it; and the managers are told to give it back in Playtomic. */
+export async function givenBackInPlaytomic(ctx: ApplyCtx, bookingId: string, refunds: { payment_id: string; playtomic?: number }[]) {
+  let total = 0;
+  for (const r of refunds) if ((r.playtomic ?? 0) > 0) {
+    const cents = Math.min(r.playtomic!, await leftOf(ctx.trx, r.payment_id));
+    if (cents <= 0) continue;
+    await ctx.insert("refund", { id: uuidv7(), payment_id: r.payment_id, enrolment_id: null, amount_cents: cents, destination: "playtomic", status: "sent" });
+    total += cents;
+  }
+  if (total > 0) await ctx.emit("booking.refund_in_playtomic", { booking_id: bookingId, cents: total });
 }
 /** Someone who still owes on a court (the deadline charge that didn't go through, or time owed at the desk on a
  *  booking that's over) books and joins nothing more until it's paid at the desk. Staff booking for them can. */

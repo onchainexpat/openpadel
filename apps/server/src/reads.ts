@@ -299,6 +299,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       // What promo codes took off: covered, not owed, so the desk isn't shown a discount to take as money.
       .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(sql<string>`coalesce(sum(${promoOff()}), 0)`.as("c"))
         .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("off_cents"))
+      // What was paid in Playtomic (a booking taken over): said as such, so the desk doesn't look for that money here.
+      .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(sql<string>`coalesce(sum(payment.amount_cents), 0)`.as("c"))
+        .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").where("payment.method", "=", "playtomic").as("pt_cents"))
       // What has gone back, so "paid" on the Today view is what the club still holds.
       .select((eb) => eb.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
         .select((x) => x.fn.sum<string>("refund.amount_cents").as("c")).whereRef("booking_player.booking_id", "=", "booking.id").where("refund.status", "!=", "failed").as("back_cents"))
@@ -327,7 +330,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       const base = { start: x.start, end: x.end, kind: x.kind };
       if (x.booking_id && coachView && bookings.find((y) => y.id === x.booking_id)?.coach_id !== viewer) return { ...base, label: t(l, "grid.booked") };
       if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", price_cents: b?.price_cents ?? 0,
-        paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0), off_cents: Number(b?.off_cents ?? 0), balance_cents: b?.balance_cents ?? 0, booking_kind: b?.kind ?? "court", coach: b?.coach ?? null, status: b?.status,
+        paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0), off_cents: Number(b?.off_cents ?? 0), pt_cents: Number(b?.pt_cents ?? 0), balance_cents: b?.balance_cents ?? 0, booking_kind: b?.kind ?? "court", coach: b?.coach ?? null, status: b?.status,
         players: players.filter((p) => p.booking_id === x.booking_id).map((p) => p.display_name ?? p.guest_name ?? ""), late: lateFor(x.booking_id),
         // A member's court paid in full: the desk can name its players (booking_players.ts), and take them off.
         whole: b?.kind === "court" && b.pay_mode === "whole" && Boolean(b.organiser_id) && b.status === "confirmed",
@@ -405,7 +408,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where((w) => w.or([w("court_time.active", "=", true), w("booking.status", "=", "cancelled")]))
       .distinctOn("booking.id").orderBy("booking.id").orderBy(sql`lower(court_time.during)`).execute();
     const pays = booked.length ? await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-      .select(["payment.id", "booking_player.booking_id", "payment.amount_cents", "payment.provider", "payment.person_id"]).select(promoOff().as("off"))
+      .select(["payment.id", "booking_player.booking_id", "payment.amount_cents", "payment.provider", "payment.person_id", "payment.method"]).select(promoOff().as("off"))
       .select(sql<string>`coalesce((select sum(r.amount_cents) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent')), 0)`.as("back"))
       .where("booking_player.booking_id", "in", booked.map((b) => b.id)).where("payment.status", "=", "succeeded").where("payment.person_id", "=", id).execute() : [];
     const bookings = booked.sort((a, b) => String(b.starts_at).localeCompare(String(a.starts_at))).slice(0, 20).map((b) => {
@@ -414,6 +417,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         paid_cents: mine.reduce((n, x) => n + x.amount_cents - Number(x.back), 0),
         // What a promo code took off their part, so a share paid in full with a code doesn't read as short.
         off_cents: mine.reduce((n, x) => n + Number(x.off), 0),
+        // Paid in Playtomic (a booking taken over), said as such.
+        pt_cents: mine.filter((x) => x.method === "playtomic").reduce((n, x) => n + x.amount_cents - Number(x.back), 0),
         refundable: mine.filter((x) => x.provider !== "none" && x.amount_cents - Number(x.back) > 0).map((x) => ({ payment_id: x.id, left_cents: x.amount_cents - Number(x.back) })) };
     });
     // Refunds to them that didn't go through: the staff can send each again.
@@ -457,7 +462,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     return c.json({ ...p, email_problem: emailProblem, kid, roles, sign_in: signIn, places, bookings, series, credit_cents: credit, failed_refunds: money ? failedRefunds : [], to_give_back: giveBack.map(({ id, amount_cents, method, created_at }) => ({ id, amount_cents, method, created_at })), consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
       membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null, due } : null,
       // Their bookings in the club's copy of Playtomic, newest first, read only (playtomic_archive.ts).
-      playtomic: (await archiveOf(db, id, { limit: 30 })).map((b) => ({ ...b, kind: t(lang(c), typeKey(b.type)) })) });
+      // A coach sees who a student played with in Playtomic no more than in Kumi's own list above: front desk and up do.
+      playtomic: await (async () => { const desk = deskUp(await rolesOf(me(c)!.id));
+        return (await archiveOf(db, id, { limit: 30 })).map((b) => ({ ...b, others: desk ? b.others : [], kind: t(lang(c), typeKey(b.type)) })); })() });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.
   app.post("/staff/people/import-preview", async (c) => {
