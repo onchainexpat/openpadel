@@ -74,7 +74,7 @@ test("the club's receipts by dates, with a file: refunds negative, and a name a 
   const file = await app.request(`/staff/club-receipts.csv?from=${today}&to=${today}`, { headers: { cookie: cookies.Ada! } });
   assert.match(file.headers.get("content-disposition")!, new RegExp(`kumi-receipts-${today}-to-${today}\\.csv`));
   const lines = (await file.text()).trim().split("\r\n");
-  assert.equal(lines[0], "receipt,kind,date,paid by,for,what,what (es),subtotal,tax,total,method,card");
+  assert.equal(lines[0], "receipt,kind,date,paid by,for,what (en),what (es),subtotal,tax,total,method,card");
   assert.equal(lines.length, 5);
   const refund = lines.find((l) => l.includes(",refund,"))!;
   assert.match(refund, /^R-\d{6},refund,\d{4}-\d{2}-\d{2} \d{2}:\d{2},"'=HYPERLINK\(""x""\)",,.*,-5\.00,0\.00,-5\.00,cash,$/);

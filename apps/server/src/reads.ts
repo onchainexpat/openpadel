@@ -114,7 +114,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   }
   app.get("/staff/coach-earnings", async (c) => c.json(await earnings(c)));
   app.get("/staff/coach-earnings.csv", async (c) => {
-    const r = await earnings(c), l = lang(c);
+    // Column names (and the kind and status words) are English for every reader, as in every download, so a
+    // spreadsheet or an accounting tool reads the same file from any member of staff; amounts and times keep the club's.
+    const r = await earnings(c), l = "en" as const;
     const at = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: r.time_zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(d)).replace(",", "");
     const head = ["coach", "kind", "when", "minutes", "what", "status", "paid", "refunded", "net"].map((k) => t(l, `csv.${k}` as Key));
     const lines = [
@@ -235,7 +237,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       const cents = (type: string) => Number(money.find((r) => r.day === day && r.revenue_type === type)?.cents ?? 0) - taxOf(type);
       rows.push({ date: day, open_hours: openMin / 60, courts: courts.length, court_hours: capacity / 60, booked_hours: (all.booking ?? 0) / 60, program_hours: (all.session ?? 0) / 60,
         playtomic_hours: (all.mirror ?? 0) / 60, blocked_hours: blocked / 60, occupancy_percent: capacity - blocked > 0 ? Math.round(used / (capacity - blocked) * 1000) / 10 : 0,
-        court_revenue_cents: cents("courts"), lesson_revenue_cents: cents("lessons"), program_revenue_cents: cents("programs"), membership_revenue_cents: cents("memberships"), tax_cents: taxOf("courts") + taxOf("lessons") });
+        court_revenue_cents: cents("courts"), lesson_revenue_cents: cents("lessons"), program_revenue_cents: cents("programs"), membership_revenue_cents: cents("memberships"), tax_cents: taxOf("courts") + taxOf("lessons"),
+        // Card payments found after a restore that the staff kept as paid elsewhere (payments_after_restore.ts): other
+        // income, apart, on the day each was paid, less refunds the provider has made of them since.
+        found_revenue_cents: cents("after_restore") });
     }
     return { location: loc.name, from, to, rows };
   }
@@ -243,9 +248,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/reports.csv", async (c) => {
     const r = await report(c.req.query("location_id") ?? "", c.req.query("from") ?? "", c.req.query("to") ?? "");
     // Revenue before tax, as on the page, and the tax collected on courts and lessons beside it (refunds giving theirs back).
-    const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "lesson revenue", "program revenue", "membership revenue", "tax collected"];
+    const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "lesson revenue", "program revenue", "membership revenue", "tax collected", "card payments recorded after a restore"];
     const lines = r.rows.map((x) => [x.date, x.open_hours, x.courts, x.court_hours, x.booked_hours, x.program_hours, x.playtomic_hours, x.blocked_hours, x.occupancy_percent,
-      plainAmount(x.court_revenue_cents), plainAmount(x.lesson_revenue_cents), plainAmount(x.program_revenue_cents), plainAmount(x.membership_revenue_cents), plainAmount(x.tax_cents)].map(csvCell).join(","));
+      plainAmount(x.court_revenue_cents), plainAmount(x.lesson_revenue_cents), plainAmount(x.program_revenue_cents), plainAmount(x.membership_revenue_cents), plainAmount(x.tax_cents), plainAmount(x.found_revenue_cents)].map(csvCell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-${r.from}-to-${r.to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });

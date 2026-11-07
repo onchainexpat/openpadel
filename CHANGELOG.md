@@ -7,6 +7,21 @@ server starts.
 
 ## Unreleased
 
+### Changed
+- A card payment found after a restore that the staff record as paid elsewhere now counts in the books, as other
+  income on the day it was paid, so Kumi's revenue matches the payment provider's. Reports shows it on a line of
+  its own, "Card payments recorded after a restore", and the Reports download has a column for it. It counts once,
+  even recorded twice at the same moment; a refund the provider made of it takes its part back out, each refund
+  once (and one seen before it was recorded leaves only what's left to count); and if Kumi later records a payment
+  for it (a charge of its own made again), it comes out of other income, so it never counts twice. One paid in
+  another currency than the club's stays out of the books, and the preview says so. After a restore it's like any
+  other card payment: a copy from before it was recorded has it to decide again, with nothing counted by itself.
+- Every spreadsheet download names its columns in English, whatever the reader's language, so the same file reads
+  the same in a spreadsheet or an accounting tool from anyone on staff. The coach earnings download followed the
+  reader (and its kinds and statuses: "lesson", "session", "scheduled", "cancelled" now); the club receipts download
+  has "what (en)" and "what (es)" always in that order, where its first was "what" in the reader's own language.
+  Amounts and dates keep the club's formats.
+
 ### Fixed
 - What the browser check of the staff app found on 6 November and left for after 0.3.0:
   - Changes offered Undo on every change, receipts, alerts, deletions and money sent included, and then refused.

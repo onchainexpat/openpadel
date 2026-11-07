@@ -59,12 +59,13 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
   });
   app.get("/staff/club-receipts.csv", async (c) => {
     await staffWithMoney(c);
-    const { from, to } = range(c), l = lang(c), rows = await clubReceipts(db, from, to);
+    const { from, to } = range(c), rows = await clubReceipts(db, from, to);
     const money = (cents: number, kind: string) => plainAmount(kind === "refund" ? -cents : cents);
-    // What was bought in the reader's language, and in the other one: a club's own names can differ between them.
-    const other = l === "es" ? "en" : "es", more = (r: { more: number }) => (r.more ? ` (+${r.more})` : "");
-    const head = ["receipt", "kind", "date", "paid by", "for", "what", `what (${other})`, "subtotal", "tax", "total", "method", "card"];
-    const lines = rows.slice().reverse().map((r) => [r.number, r.kind, r.local, r.paid_by, r.for ?? "", r.what[l] + more(r), r.what[other] + more(r),
+    // What was bought in English and in Spanish (a club's own names can differ between them), always in that order:
+    // the columns are the same for every reader, as in every download.
+    const more = (r: { more: number }) => (r.more ? ` (+${r.more})` : "");
+    const head = ["receipt", "kind", "date", "paid by", "for", "what (en)", "what (es)", "subtotal", "tax", "total", "method", "card"];
+    const lines = rows.slice().reverse().map((r) => [r.number, r.kind, r.local, r.paid_by, r.for ?? "", r.what.en + more(r), r.what.es + more(r),
       money(r.subtotal_cents, r.kind), money(r.tax_cents, r.kind), money(r.total_cents, r.kind), r.method, r.card ?? ""].map(csvCell).join(","));
     c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-receipts-${from}-to-${to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");

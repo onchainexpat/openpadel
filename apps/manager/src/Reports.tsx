@@ -4,7 +4,7 @@ import type { Key } from "@kumi/i18n";
 import { api, club, clubTime, dollars, lang, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, serverNow } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 
-type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number; membership_revenue_cents: number; tax_cents?: number };
+type Row = { date: string; court_hours: number; booked_hours: number; program_hours: number; playtomic_hours: number; blocked_hours: number; occupancy_percent: number; court_revenue_cents: number; lesson_revenue_cents: number; program_revenue_cents: number; membership_revenue_cents: number; found_revenue_cents?: number; tax_cents?: number };
 type Receipt = { id: string; number: string; kind: "payment" | "refund"; when: string; paid_by: string; for: string | null; what: string; more: number; total_cents: number };
 type ByMethod = { cash: number; terminal: number; other: number };
 type DeskDay = { date: string; in: ByMethod; back: ByMethod; drawer: number };
@@ -67,6 +67,7 @@ export function Reports() {
           <label>{t("ui.to")}<input type="date" value={to} onInput={(e) => setTo(e.currentTarget.value)} /></label></div>
         {rows && <p><strong>{t("ui.occupancy_total", { percent: usable > 0 ? Math.round(used / usable * 100) : 0 })}</strong> · {t("ui.revenue_total", { courts: dollars(sum("court_revenue_cents"), lang.value), lessons: dollars(sum("lesson_revenue_cents"), lang.value), programs: dollars(sum("program_revenue_cents"), lang.value), memberships: dollars(sum("membership_revenue_cents"), lang.value) })}</p>}
         {rows && sum("tax_cents") > 0 && <p class="meta">{t("ui.revenue_before_tax", { tax: dollars(sum("tax_cents"), lang.value) })}</p>}
+        {rows && sum("found_revenue_cents") !== 0 && <p class="meta">{t("ui.revenue_after_restore", { amount: dollars(sum("found_revenue_cents"), lang.value) })}</p>}
         {rows && <p><a href={`/staff/reports.csv?location_id=${loc}&from=${from}&to=${to}`} download>{t("ui.download_csv")}</a></p>}
       </section>
       {rows && <section class="card"><div class="table-scroll"><table class="stack">

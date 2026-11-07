@@ -95,7 +95,7 @@ test("occupancy and revenue for a day, and the same as a spreadsheet", async () 
   assert.ok(row.booked_hours >= 1.5); assert.equal(row.blocked_hours, 1);
   assert.ok(row.occupancy_percent > 0);
   const csv = await (await app.request(`/staff/reports.csv?location_id=${loc}&from=${d}&to=${d}`, { headers: { cookie } })).text();
-  assert.match(csv, /^date,open hours,courts,court hours,booked hours,program hours,playtomic hours,blocked hours,occupancy %,court revenue,lesson revenue,program revenue,membership revenue,tax collected\r\n/);
+  assert.match(csv, /^date,open hours,courts,court hours,booked hours,program hours,playtomic hours,blocked hours,occupancy %,court revenue,lesson revenue,program revenue,membership revenue,tax collected,card payments recorded after a restore\r\n/);
   assert.equal(csv.trim().split("\r\n").length, 2);
 });
 
@@ -195,7 +195,7 @@ test("the revenue report has memberships as their own lines, net of refunds", as
   const row = (await get(`/staff/reports?location_id=${loc}&from=${d}&to=${d}`)).json.rows[0];
   assert.equal(row.membership_revenue_cents, 8000);
   const csv = await (await app.request(`/staff/reports.csv?location_id=${loc}&from=${d}&to=${d}`, { headers: { cookie } })).text();
-  assert.match(csv.trim().split("\r\n")[1]!, /,80\.00,0\.00$/, "membership revenue, then no tax on it");
+  assert.match(csv.trim().split("\r\n")[1]!, /,80\.00,0\.00,0\.00$/, "membership revenue, then no tax on it, and no card payments found after a restore");
 });
 
 test("a court paid after a promo code reads as paid in full, for the member and on the desk's grid", async () => {

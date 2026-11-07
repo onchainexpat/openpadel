@@ -100,7 +100,7 @@ test("the Reports download has the tax collected as its own column, matching the
   // A row of cells: quoted ones may hold the decimal comma (12,35).
   const cells = (line: string) => [...line.matchAll(/("(?:[^"]|"")*"|[^,]*)(,|$)/g)].slice(0, -1).map((m) => m[1]!.replace(/^"|"$/g, "").replace(/""/g, "\""));
   const [head, ...rows] = csv.trim().split("\r\n").map(cells);
-  assert.equal(head!.at(-1), "tax collected");
+  assert.deepEqual(head!.slice(-2), ["tax collected", "card payments recorded after a restore"]);
   const col = (name: string) => head!.indexOf(name);
   assert.equal(rows.length, page.length, "a line a day, as on the page");
   for (const [i, r] of rows.entries()) {

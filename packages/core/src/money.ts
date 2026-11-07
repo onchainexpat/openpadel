@@ -38,7 +38,9 @@ export interface PaymentProvider {
 }
 
 /** A stand-in for Stripe: records what was asked, and can be told to fail. */
-export interface FoundIntent { ref: string; status: IntentStatus; amountCents: number; created: Date; kumiPaymentId: string | null; kumiChargeId?: string | null; email: string | null; description: string | null }
+export interface FoundIntent { ref: string; status: IntentStatus; amountCents: number; created: Date; kumiPaymentId: string | null; kumiChargeId?: string | null; email: string | null; description: string | null;
+  /** The payment's own currency (ISO 4217), when the provider says it. */
+  currency?: string | null }
 export interface FoundRefund { ref: string; paymentRef: string; amountCents: number; ok: boolean; created: Date; kumiRefundId: string | null }
 export class TestProvider implements PaymentProvider {
   readonly name = "test" as const;
@@ -128,7 +130,7 @@ export class TestProvider implements PaymentProvider {
   /** As Stripe lists them: payments and refunds made since a time, with Kumi's own ids for them. */
   async listSince(since: Date) {
     const intents: FoundIntent[] = [...this.intents.entries()].filter(([, it]) => (it.created ?? new Date(0)) >= since)
-      .map(([ref, it]) => ({ ref, status: it.status, amountCents: it.amountCents, created: it.created ?? new Date(0), kumiPaymentId: it.metadata?.kumi_payment_id ?? null, kumiChargeId: it.metadata?.kumi_charge_id ?? null, email: null, description: it.description }));
+      .map(([ref, it]) => ({ ref, status: it.status, amountCents: it.amountCents, created: it.created ?? new Date(0), kumiPaymentId: it.metadata?.kumi_payment_id ?? null, kumiChargeId: it.metadata?.kumi_charge_id ?? null, email: null, description: it.description, currency: it.currency ?? null }));
     const refunds: FoundRefund[] = [...this.refunds.entries()].filter(([, r]) => (r.created ?? new Date(0)) >= since)
       .map(([key, r]) => ({ ref: r.ref, paymentRef: r.paymentRef, amountCents: r.amountCents, ok: true, created: r.created ?? new Date(0), kumiRefundId: key }));
     return { intents, refunds };
@@ -156,10 +158,11 @@ export async function account(trx: Trx, kind: AccountKind, opts: { personId?: st
     .where("revenue_type", opts.revenueType ? "=" : "is", opts.revenueType ?? null).executeTakeFirstOrThrow()).id;
 }
 
-/** One balanced ledger transaction. The database rejects it at commit if it doesn't sum to zero. */
-export async function post(trx: Trx, runId: string, kind: string, memo: string, entries: { account: string; cents: number }[]): Promise<string> {
+/** One balanced ledger transaction. The database rejects it at commit if it doesn't sum to zero. `at` dates it when
+ *  the money moved earlier than now (a card payment found after a restore counts on the day it was paid). */
+export async function post(trx: Trx, runId: string, kind: string, memo: string, entries: { account: string; cents: number }[], o: { at?: Date } = {}): Promise<string> {
   const id = uuidv7();
-  await trx.insertInto("ledger_txn").values({ id, kind, action_run_id: runId, memo }).execute();
+  await trx.insertInto("ledger_txn").values({ id, kind, action_run_id: runId, memo, ...(o.at ? { at: o.at } : {}) }).execute();
   await trx.insertInto("ledger_entry").values(entries.filter((e) => e.cents !== 0).map((e) => ({ txn_id: id, account_id: e.account, amount_cents: String(e.cents) }))).execute();
   return id;
 }

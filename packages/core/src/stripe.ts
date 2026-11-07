@@ -181,7 +181,8 @@ export class StripeProvider implements PaymentProvider {
     };
     const status = (x: string): IntentStatus => x === "succeeded" ? "succeeded" : x === "canceled" ? "failed" : "pending";
     const intents = (await page("/v1/payment_intents")).map((d) => ({ ref: String(d.id), status: status(String(d.status)), amountCents: Number(d.amount_received ?? d.amount ?? 0),
-      created: new Date(Number(d.created) * 1000), kumiPaymentId: d.metadata?.kumi_payment_id ?? null, kumiChargeId: d.metadata?.kumi_charge_id ?? null, email: d.receipt_email ?? null, description: d.description ?? null }));
+      created: new Date(Number(d.created) * 1000), kumiPaymentId: d.metadata?.kumi_payment_id ?? null, kumiChargeId: d.metadata?.kumi_charge_id ?? null, email: d.receipt_email ?? null, description: d.description ?? null,
+      currency: typeof d.currency === "string" ? d.currency.toUpperCase() : null }));
     const refunds = (await page("/v1/refunds")).map((d) => ({ ref: String(d.id), paymentRef: String(d.payment_intent ?? ""), amountCents: Number(d.amount ?? 0),
       ok: ["succeeded", "pending", "requires_action"].includes(String(d.status)), created: new Date(Number(d.created) * 1000), kumiRefundId: d.metadata?.kumi_refund_id ?? null }));
     return { intents, refunds, cut };
