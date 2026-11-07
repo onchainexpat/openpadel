@@ -44,7 +44,7 @@ export const clubSetup = defineAction({
   input: z.object({ name: z.string().check(z.minLength(1)), time_zone: timeZone, owner_email: z.email(), owner_name: nameInput(), default_language: z.optional(lang) }),
   async plan(ctx, i) {
     if (await ctx.db.selectFrom("club").select("name").executeTakeFirst()) throw new KumiError("error.forbidden_reason", { reason: both("reason.owner_only") }, 403);
-    return { title: { en: `Set up ${i.name}`, es: `Configurar ${i.name}` }, summary: { en: `Create ${i.name} with ${i.owner_name} as owner.`, es: `Crear ${i.name} con ${i.owner_name} como propietario.` }, reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: { en: `Set up ${i.name}`, es: `Configurar ${i.name}` }, summary: { en: `Create ${i.name} with ${i.owner_name} as owner.`, es: `Crear ${i.name} con ${i.owner_name} como propietario.` }, reads: [], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     await ctx.insert("club", { name: i.name, time_zone: i.time_zone, default_language: i.default_language ?? "en" });

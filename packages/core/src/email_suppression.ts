@@ -77,7 +77,7 @@ export const emailReport = defineAction({
   name: "email.report", version: 1, system: true, internal: true,
   input: z.object({ reason: z.enum(["bounce", "complaint", "provider"]), address: z.string().check(z.maxLength(320)), email_id: z.nullable(z.string().check(z.maxLength(200))),
     detail: z.nullable(z.string().check(z.maxLength(300))), at: z.iso.datetime() }),
-  async plan(_ctx, i) { return { title: both("action.email.report"), summary: both("plan.email.report", { address: i.address, reason: both(`email.reason_${i.reason}` as Key) }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } }; },
+  async plan(_ctx, i) { return { title: both("action.email.report"), summary: both("plan.email.report", { address: i.address, reason: both(`email.reason_${i.reason}` as Key) }), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } }; },
   async apply(ctx, i) {
     const address = lower(i.address), at = new Date(i.at);
     await sql`INSERT INTO email_suppression AS s (address, reason, detail, first_at, last_at) VALUES (${address}, ${i.reason}, ${i.detail}, ${at}, ${at})
@@ -112,7 +112,7 @@ export const emailUnsuppress = defineAction({
     const { read: held } = await readRow(ctx.db, "email_suppression", s.address, "thing.change");
     // The email service's own list (a host's shared account): clearing it here lets Kumi try, the service may still refuse.
     const summary = both(s.reason === "provider" ? "plan.person.email_unsuppress_provider" : "plan.person.email_unsuppress", { name: p.display_name, email: p.email, reason: both(`email.reason_${s.reason}` as Key) });
-    return { title: both("action.person.email_unsuppress"), summary, reads: [read, held], ownerIds: [i.person_id], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.person.email_unsuppress"), summary, reads: [read, held], ownerIds: [i.person_id], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     const p = await ctx.trx.selectFrom("person").select("email").where("id", "=", i.person_id).executeTakeFirstOrThrow();

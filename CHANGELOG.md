@@ -5,6 +5,22 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
+## Unreleased
+
+### Fixed
+- What the browser check of the staff app found on 6 November and left for after 0.3.0:
+  - Changes offered Undo on every change, receipts, alerts, deletions and money sent included, and then refused.
+    Undo now shows only on a change that can be undone, still in time. A refusal says its reason once ("This
+    can't be undone: the refund has gone out.", not "This can't be undone: Can't be undone: ..."), and a change
+    that was never an undo no longer says "an undo is final".
+  - Reports, "Paid with nothing here": the table has its column names on a wide screen and each date on one line.
+  - Reports, "Refunded after the backup, still booked here": each booking opens on the person's page, at that
+    booking, where it can be cancelled; each place opens on its program.
+  - On a phone, a row of a list (a booking with its refund form, for one) wraps instead of pushing the page
+    sideways, as it did in Spanish.
+  - On a touch screen, a section that opens and closes is 44 px tall, and every checkbox and choice is the larger
+    size, not only those beside their label.
+
 ## 0.3.0 (2026-11-06)
 
 Tournaments and leagues with draws and fixtures, and Mexicano and King of the Court nights; the same court every

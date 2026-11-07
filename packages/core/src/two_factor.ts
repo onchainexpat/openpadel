@@ -158,7 +158,7 @@ export const undoSignIn = defineAction({
   input: z.object({ person_id: z.uuid(), since: z.iso.datetime() }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
-    return { title: both("action.person.sign_in_undo"), reads: [read], ownerIds: [i.person_id], undo: { kind: "none", note: both("reason.undo_final") },
+    return { title: both("action.person.sign_in_undo"), reads: [read], ownerIds: [i.person_id], undo: { kind: "none", note: both("reason.no_way_back") },
       summary: both("plan.person.sign_in_undo", { person: row.display_name }), details: { name: row.display_name } };
   },
   async apply(ctx, i) {
@@ -190,7 +190,7 @@ export const resetSignIn = defineAction({
     const passkeys = (await ctx.db.selectFrom("passkey").select("credential_id").where("person_id", "=", i.person_id).where("revoked_at", "is", null).execute()).length;
     const codes = await recoveryLeft(ctx.db, i.person_id);
     if (!f && !passkeys && !codes) throw new KumiError("error.nothing_to_reset");
-    return { title: both("action.person.reset_sign_in"), reads: [read], ownerIds: [i.person_id], undo: { kind: "none", note: both("reason.undo_final") },
+    return { title: both("action.person.reset_sign_in"), reads: [read], ownerIds: [i.person_id], undo: { kind: "none", note: both("reason.no_way_back") },
       summary: both("plan.person.reset_sign_in", { person: row.display_name, authenticator: both(f ? "reset.authenticator_yes" : "reset.authenticator_no"), passkeys: both("count.passkeys", { count: passkeys }), codes: both("count.recovery_codes", { count: codes }) }),
       details: { name: row.display_name } };
   },

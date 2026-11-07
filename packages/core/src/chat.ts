@@ -486,7 +486,7 @@ export const chatReport = defineAction({
     if (await ctx.db.selectFrom("chat_report").select("id").where("message_id", "=", m.id).where("person_id", "=", pid).executeTakeFirst()) throw new KumiError("error.chat_reported");
     // The message's words aren't copied into the plan (the change log keeps plans).
     return { title: both("action.chat.report"), summary: both("plan.chat.report", { name: shown(m.display_name), game: gameText(a.game, await zone(ctx.db)) }), reads: [], ownerIds: [pid],
-      locationId: a.game?.location_id ?? null, undo: { kind: "none", note: both("reason.undo_final") }, details: { thread_id: m.thread_id } };
+      locationId: a.game?.location_id ?? null, undo: { kind: "none", note: both("reason.no_way_back") }, details: { thread_id: m.thread_id } };
   },
   async apply(ctx, i) {
     const m = await messageForAction(ctx.trx, i.message_id);

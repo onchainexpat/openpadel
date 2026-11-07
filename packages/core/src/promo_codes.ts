@@ -112,7 +112,7 @@ export const paymentUsePromo = defineAction({
     await countTry(ctx.db, ctx.actor.personId ?? pay.person_id, i.code, ctx.now);
     const { code, off } = await discountFor(ctx.db, pay, i.code, ctx.now);
     const left = pay.amount_cents - off;
-    return { title: both("action.payment.use_promo"), reads: [read], ownerIds: [pay.person_id], undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.payment.use_promo"), reads: [read], ownerIds: [pay.person_id], undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both(left > 0 ? "plan.payment.use_promo" : "plan.payment.use_promo_free", { code: code.code, off: usd(off), left: usd(left), what: await paymentWhat(ctx.db, pay) }),
       details: { code_id: code.id, off } };
   },

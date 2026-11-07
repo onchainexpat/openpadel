@@ -135,6 +135,7 @@ test("after a restore: Kumi's own charges wait and close as recorded, a refund s
     // Dan cancelled after the backup and was refunded $30 of $60 (50% late): here the booking is back, still booked.
     const still = await refundedStillBooked(db);
     assert.deepEqual(still.bookings.map((b) => b.amount_cents), [3000], "listed for the staff");
+    assert.deepEqual(still.bookings.map((b) => [b.person_id, b.booking_id]), [[P.Dan, X.dan.booking_id]], "each opens on the person's page, at that booking (staff sweep, 6 Nov)");
     const again = await plan(db, "booking.cancel", { booking_id: X.dan.booking_id }, as("Dan"));
     assert.match(again.plan.summary.en, /Nothing more comes back by the club's rule/);
     await run(db, "booking.cancel", { booking_id: X.dan.booking_id }, as("Dan"));

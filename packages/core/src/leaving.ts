@@ -84,7 +84,7 @@ export const clubLeavingRemind = defineAction({
   name: "club.leaving_remind", version: 1, system: true, internal: true,
   input: z.object({ on: date, kind: z.enum(["week", "day"]) }),
   async plan(_ctx, i) {
-    return { title: both("action.club.leaving_remind"), summary: both(`plan.club.leaving_remind_${i.kind}`, { date: dayText(i.on) }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.club.leaving_remind"), summary: both(`plan.club.leaving_remind_${i.kind}`, { date: dayText(i.on) }), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     const c = await ctx.trx.selectFrom("club").select(["leaving_on", "leaving_kept_days"]).forUpdate().executeTakeFirstOrThrow();

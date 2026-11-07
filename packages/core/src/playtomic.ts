@@ -131,7 +131,7 @@ export const mapCourt = defineAction({
     const taken = await ctx.db.selectFrom("external_ref").select("entity_id").where("system", "=", PLAYTOMIC).where("entity", "=", "court")
       .where((eb) => eb.or([eb("external_id", "=", i.resource_id), eb("entity_id", "=", i.court_id)])).executeTakeFirst();
     if (taken) throw new KumiError("error.already_mapped");
-    return { title: both("action.connector.map_court"), summary: both("plan.connector.map_court", { resource: i.resource_name ?? i.resource_id, court: row.name }), reads: [read], locationId: row.location_id, undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.connector.map_court"), summary: both("plan.connector.map_court", { resource: i.resource_name ?? i.resource_id, court: row.name }), reads: [read], locationId: row.location_id, undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     await ctx.trx.insertInto("external_ref").values({ entity: "court", entity_id: i.court_id, system: PLAYTOMIC, external_id: i.resource_id }).execute();
@@ -146,7 +146,7 @@ export const mirrorApply = defineAction({
   input: z.object({ changes: z.array(changeIn) }),
   async plan(_ctx, i) {
     const gone = i.changes.filter((c) => c.gone).length;
-    return { title: both("action.mirror.apply"), summary: both("plan.mirror.apply", { changed: i.changes.length - gone, removed: gone }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.mirror.apply"), summary: both("plan.mirror.apply", { changed: i.changes.length - gone, removed: gone }), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     const refs = i.changes.map((c) => c.ref);

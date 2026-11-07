@@ -173,7 +173,7 @@ export const refundGiveBack = defineAction({
       .select(["payment.person_id", "payment.method", "payment.booking_player_id", "payment.enrolment_id", "payment.membership_id", "payment.membership_plan_id", "person.display_name"])
       .where("payment.id", "=", r.payment_id).executeTakeFirstOrThrow();
     return { title: both("action.refund.give_back"), summary: both("plan.refund.give_back", { amount: usd(r.amount_cents), name: pay.display_name, how: paidHow(pay.method), what: await paymentWhat(ctx.db, pay) }),
-      reads: [read], locationId: await paymentLocation(ctx.db, pay), ownerIds: [pay.person_id], moneyCents: r.amount_cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } };
+      reads: [read], locationId: await paymentLocation(ctx.db, pay), ownerIds: [pay.person_id], moneyCents: r.amount_cents, undo: { kind: "none", note: both("reason.refund_sent") } };
   },
   async apply(ctx, i) {
     const r = await ctx.trx.selectFrom("refund").selectAll().where("id", "=", i.refund_id).forUpdate().executeTakeFirstOrThrow();

@@ -71,7 +71,7 @@ export const giftCardBuy = defineAction({
   async plan(ctx, i) {
     const { read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     await amountAllowed(ctx.db, i.cents);
-    return { title: both("action.gift_card.buy"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.gift_card.buy"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both(i.for_name ? "plan.gift_card.buy_for" : "plan.gift_card.buy", { amount: usd(i.cents), name: i.for_name ?? "" }) };
   },
   async apply(ctx, i) {
@@ -100,7 +100,7 @@ export const giftCardDrop = defineAction({
     const { row: c, read } = await readRow(ctx.db, "gift_card", i.gift_card_id, "thing.gift_card");
     const waiting = await ctx.db.selectFrom("payment").select("id").where("gift_card_id", "=", i.gift_card_id).where("status", "=", "pending").executeTakeFirst();
     if (c.status !== "pending" || c.sold_via !== "app" || !waiting) throw new KumiError("error.gift_card_not_waiting");
-    return { title: both("action.gift_card.drop"), reads: [read], ownerIds: [c.buyer_id], undo: { kind: "none", note: both("undo.none", { reason: both("reason.buy_again") }) },
+    return { title: both("action.gift_card.drop"), reads: [read], ownerIds: [c.buyer_id], undo: { kind: "none", note: both("reason.buy_again") },
       summary: both(c.for_name ? "plan.gift_card.drop_for" : "plan.gift_card.drop", { amount: usd(c.amount_cents), name: c.for_name ?? "" }) };
   },
   async apply(ctx, i) {
@@ -120,7 +120,7 @@ export const giftCardSell = defineAction({
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     await amountAllowed(ctx.db, i.cents);
-    return { title: both("action.gift_card.sell"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.gift_card.sell"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both(i.for_name?.trim() ? "plan.gift_card.sell_for" : "plan.gift_card.sell", { amount: usd(i.cents), name: p.display_name, how: paidHow(i.method), for: i.for_name?.trim() ?? "" }) };
   },
   async apply(ctx, i) {
@@ -168,7 +168,7 @@ export const giftCardRedeem = defineAction({
     if (found === "unknown") throw new KumiError("error.gift_card_unknown");
     const card = found;
     if (card.status === "redeemed") throw new KumiError("error.gift_card_redeemed");
-    return { title: both("action.gift_card.redeem"), reads: [read], ownerIds: [i.person_id], moneyCents: card.amount_cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.gift_card.redeem"), reads: [read], ownerIds: [i.person_id], moneyCents: card.amount_cents, undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both("plan.gift_card.redeem", { amount: usd(card.amount_cents) }), details: { gift_card_id: card.id } };
   },
   async apply(ctx, i, plan) {
@@ -194,7 +194,7 @@ export const giftCardVoid = defineAction({
     const { row: c, read } = await readRow(ctx.db, "gift_card", i.gift_card_id, "thing.gift_card");
     if (c.status !== "active") throw new KumiError(c.status === "redeemed" ? "error.gift_card_redeemed" : "error.gift_card_not_active");
     const buyer = (await ctx.db.selectFrom("person").select("display_name").where("id", "=", c.buyer_id).executeTakeFirstOrThrow()).display_name;
-    return { title: both("action.gift_card.void"), reads: [read], ownerIds: [c.buyer_id], moneyCents: c.amount_cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.gift_card.void"), reads: [read], ownerIds: [c.buyer_id], moneyCents: c.amount_cents, undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both("plan.gift_card.void", { amount: usd(c.amount_cents), last4: c.last4, name: buyer }) };
   },
   async apply(ctx, i) {
@@ -214,7 +214,7 @@ export const giftCardResend = defineAction({
   async plan(ctx, i) {
     const { row: c, read } = await readRow(ctx.db, "gift_card", i.gift_card_id, "thing.gift_card");
     if (c.status !== "active") throw new KumiError("error.gift_card_not_active");
-    return { title: both("action.gift_card.resend"), reads: [read], ownerIds: [c.buyer_id], undo: { kind: "none", note: both("undo.none", { reason: both("reason.message_sent") }) },
+    return { title: both("action.gift_card.resend"), reads: [read], ownerIds: [c.buyer_id], undo: { kind: "none", note: both("reason.message_sent") },
       summary: both("plan.gift_card.resend", { last4: c.last4 }) };
   },
   async apply(ctx, i) { await ctx.emit("gift_card.ready", { gift_card_id: i.gift_card_id }); return null; },

@@ -450,7 +450,7 @@ export function makeApp(deps: AppDeps) {
     const rows = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
       .leftJoin("person as approver", "approver.id", "action_run.approved_by")
       .select(["action_run.id", "action_run.action", "action_run.status", "action_run.plan", "action_run.input", "action_run.location_id", "action_run.actor_person_id", "action_run.error", "action_run.via",
-        "action_run.created_at", "action_run.applied_at", "person.display_name", "support_grant.name as support_name", "approver.display_name as approver_name"])
+        "action_run.created_at", "action_run.applied_at", "action_run.undo_kind", "action_run.undo_until", "person.display_name", "support_grant.name as support_name", "approver.display_name as approver_name"])
       .orderBy("action_run.id", "desc").limit(Number(c.req.query("limit") ?? 50)).execute();
     // A change made under support access says so, with the name the owner gave.
     const by = (r: (typeof rows)[number]) => (r.support_name ? t(lang, "ui.support_by", { name: r.support_name }) : r.display_name ?? "Kumi");
@@ -465,6 +465,9 @@ export function makeApp(deps: AppDeps) {
       const waiting = r.status === "awaiting_approval";
       out.push({ id: r.id, action: r.action, status: declinedBy.has(r.id) ? "declined" : r.status, by: by(r), support: Boolean(r.support_name), via: r.via,
         summary: (r.plan as any)?.summary?.[lang] ?? null, at: r.applied_at ?? r.created_at,
+        // Undo is offered only where it can work: a change that kept a way back, still in time. Receipts, alerts,
+        // deletions and money sent can't be put back, so the screen doesn't offer to (it used to, then refused).
+        can_undo: r.status === "applied" && r.undo_kind !== "none" && r.action !== "action.undo" && r.action !== "club.setup" && (!r.undo_until || r.undo_until.getTime() > now().getTime()),
         can_answer: waiting && await mayAnswer(db, r, a.personId, now()), approved_by: r.approver_name ?? null, declined_by: declinedBy.get(r.id) ?? null,
         reason: declinedBy.has(r.id) ? (r.error as { params?: { reason?: string | null } }).params?.reason ?? null : null });
     }

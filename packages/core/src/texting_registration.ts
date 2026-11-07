@@ -35,7 +35,7 @@ export const textingRecord = defineAction({
   }),
   async plan(_ctx, i) {
     return { title: both("action.texting.registration_record"), summary: both("plan.texting.registration_record", { status: i.status ?? "" }), reads: [],
-      undo: { kind: "none", note: both("reason.undo_final") } };
+      undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     const row = await ctx.trx.selectFrom("texting_registration").selectAll().forUpdate().executeTakeFirst();

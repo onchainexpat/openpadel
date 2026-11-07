@@ -46,7 +46,7 @@ export const alertHandle = defineAction({
       .orderBy(sql`person_id = ${ctx.actor.personId ?? "00000000-0000-0000-0000-000000000000"}`, "desc").limit(1).executeTakeFirst();
     if (!m) throw new KumiError("error.not_found", { thing: both("thing.alert") }, 404);
     if (await ctx.db.selectFrom("staff_alert").select("id").where("event_id", "=", i.event_id).where("kind", "=", i.kind).executeTakeFirst()) throw new KumiError("error.alert_handled");
-    return { title: both("action.alert.handle"), summary: both("plan.alert.handle", { subject: m.subject }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.alert.handle"), summary: both("plan.alert.handle", { subject: m.subject }), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     try { await ctx.insert("staff_alert", { id: uuidv7(), event_id: i.event_id, kind: i.kind, handled_by: ctx.actor.personId, handled_at: ctx.now }); }

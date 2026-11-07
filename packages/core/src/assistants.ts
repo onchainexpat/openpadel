@@ -55,7 +55,7 @@ export const assistantDisconnect = defineAction({
       ? (await ctx.db.selectFrom("person").select("display_name").where("id", "=", g.row.person_id).executeTakeFirst())?.display_name ?? "" : null;
     return { title: both("action.assistant.disconnect"),
       summary: someoneElse === null ? both("plan.assistant.disconnect", { client: g.name }) : both("plan.assistant.disconnect_for", { client: g.name, name: someoneElse }), reads: [g.read], ownerIds: [g.row.person_id],
-      undo: { kind: "none", note: both("undo.none", { reason: both("reason.assistant_reconnects") }) } };
+      undo: { kind: "none", note: both("reason.assistant_reconnects") } };
   },
   async apply(ctx, i) {
     await ctx.update("oauth_grant", i.grant_id, { revoked_at: ctx.now });

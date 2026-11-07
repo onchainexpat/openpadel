@@ -45,6 +45,9 @@ export function Person({ id }: { id: string }) {
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); api<{ id: string; name: string }[]>("/staff/locations").then(setLocations); api<{ id: string; name: string }[]>("/staff/tags").then(setTags).catch(() => setTags(null));
     api<{ key: string; name: string; system: boolean }[]>("/staff/roles").then((r) => setCustom(r.filter((x) => !x.system))).catch(() => setCustom([])); }, [id]);
+  // Opened at one booking (Reports links to /people/:id#booking-...): once it's on the page, bring it into view.
+  const loaded = Boolean(p);
+  useEffect(() => { if (loaded && location.hash.startsWith("#booking-")) document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: "center" }); }, [loaded, id]);
   if (!p) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
   const date = (iso: string) => clubTime(iso, { dateStyle: "medium" });
@@ -199,7 +202,7 @@ function PersonBookings({ bookings, preview }: { bookings: P["bookings"]; previe
         <ul class="plain">{bookings.map((b) => {
           const upcoming = b.status !== "cancelled" && new Date(b.starts_at).getTime() > serverNow();
           return (
-            <li class="row" key={b.id}>
+            <li class="row" key={b.id} id={`booking-${b.id}`}>
               <span>{when(b.starts_at)} · {b.court} · {b.code}</span>
               <span class="meta">{[b.status === "cancelled" ? t("ui.status_cancelled") : null, b.paid_cents ? t("ui.paid_by_them", { amount: dollars(b.paid_cents, lang.value) }) : null].filter(Boolean).join(" · ")}</span>
               {upcoming && mayDo("booking.cancel") && <form class="inline" onSubmit={(e) => { e.preventDefault(); preview("booking.cancel", { booking_id: b.id, refund: ((e.currentTarget as HTMLFormElement).elements.namedItem("refund") as HTMLSelectElement).value }); }}>

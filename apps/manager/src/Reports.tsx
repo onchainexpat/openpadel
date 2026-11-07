@@ -41,7 +41,8 @@ export function Reports() {
   useEffect(() => { void loadGifts(); }, []);
   // Card payments the payment provider took that nothing here records (payments_after_restore.ts): refund or record.
   type Found = { id: string; amount_cents: number; paid_at: string; email: string | null; description: string | null; status: string; kind: string };
-  type StillBooked = { bookings: { id: string; amount_cents: number; code: string; display_name: string }[]; places: { id: string; amount_cents: number; program: string; display_name: string }[] };
+  type StillBooked = { bookings: { id: string; amount_cents: number; code: string; booking_id: string; person_id: string; display_name: string }[];
+    places: { id: string; amount_cents: number; program: string; program_id: string; person_id: string; display_name: string }[] };
   const [found, setFound] = useState<Found[]>([]);
   const [still, setStill] = useState<StillBooked>({ bookings: [], places: [] });
   const loadFound = () => api<{ found: Found[]; still_booked: StillBooked }>("/staff/payments-found").then((r) => { setFound(r.found); setStill(r.still_booked); }).catch(() => setFound([]));
@@ -124,19 +125,23 @@ export function Reports() {
       {found.length > 0 && <section class="card">
         <h2>{t("ui.found_title")}</h2>
         <p>{t("ui.found_lead")}</p>
-        <div class="scroll"><table class="stack"><tbody>{found.map((f) => <tr>
+        {/* A table like the others on Reports: column names on a wide screen, one line per date, rows stacked on a phone. */}
+        <div class="table-scroll"><table class="stack">
+          <thead><tr><th>{t("ui.col_date")}</th><th>{t("ui.col_total")}</th><th>{t("ui.found_who")}</th><th>{t("ui.found_col_next")}</th></tr></thead>
+          <tbody>{found.map((f) => <tr>
           <td data-label={t("ui.col_date")}>{clubTime(f.paid_at, { dateStyle: "medium", timeStyle: "short" })}</td>
           <td data-label={t("ui.col_total")}>{dollars(f.amount_cents, lang.value)}</td>
-          <td data-label={t("ui.found_who")}>{[f.kind === "kumi_charge" ? t("ui.found_kumi_charge") : null, f.email, f.description].filter(Boolean).join(" · ")}</td>
-          <td>{f.status === "open" ? <span>{mayDo("payment_found.refund") && <button class="small" onClick={() => preview("payment_found.refund", { id: f.id })}>{t("ui.found_refund")}</button>}{" "}
+          <td class="wrap" data-label={t("ui.found_who")}>{[f.kind === "kumi_charge" ? t("ui.found_kumi_charge") : null, f.email, f.description].filter(Boolean).join(" · ")}</td>
+          <td data-label={t("ui.found_col_next")}>{f.status === "open" ? <span>{mayDo("payment_found.refund") && <button class="small" onClick={() => preview("payment_found.refund", { id: f.id })}>{t("ui.found_refund")}</button>}{" "}
             {mayDo("payment_found.paid_elsewhere") && <button class="small secondary" onClick={() => preview("payment_found.paid_elsewhere", { id: f.id })}>{t("ui.found_elsewhere")}</button>}</span> : t(({ refund_asked: "ui.found_status_refund_asked", refunded: "ui.found_status_refunded", handled: "ui.found_status_handled", refund_failed: "ui.found_status_refund_failed", recorded: "ui.found_status_recorded" } as const)[f.status as "refunded"] ?? "ui.found_status_handled")}</td>
         </tr>)}</tbody></table></div>
       </section>}
       {(still.bookings.length > 0 || still.places.length > 0) && <section class="card">
         <h2>{t("ui.still_booked_title")}</h2>
         <p>{t("ui.still_booked_lead")}</p>
-        <ul>{still.bookings.map((b) => <li>{t("ui.still_booked_booking", { code: b.code, person: b.display_name, amount: usd(b.amount_cents) })}</li>)}
-          {still.places.map((p) => <li>{t("ui.still_booked_place", { program: p.program, person: p.display_name, amount: usd(p.amount_cents) })}</li>)}</ul>
+        {/* Each opens where it's settled: a booking on the person's page, at that booking (cancel it there); a place on its program. */}
+        <ul>{still.bookings.map((b) => <li key={b.id}><a href={`/people/${b.person_id}#booking-${b.booking_id}`}>{t("ui.still_booked_booking", { code: b.code, person: b.display_name, amount: usd(b.amount_cents) })}</a></li>)}
+          {still.places.map((p) => <li key={p.id}><a href={`/programs/${p.program_id}`}>{t("ui.still_booked_place", { program: p.program, person: p.display_name, amount: usd(p.amount_cents) })}</a></li>)}</ul>
       </section>}
       {giftSheet}
     </main>

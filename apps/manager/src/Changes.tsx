@@ -3,7 +3,7 @@ import type { Key } from "@kumi/i18n";
 import { api, ApiError, lang, loadMe, t, clubTime, useBackCloses } from "@kumi/ui";
 
 type Change = { id: string; action: string; status: string; by: string; via: string; summary: string | null; at: string;
-  can_answer: boolean; approved_by: string | null; declined_by: string | null; reason: string | null };
+  can_answer: boolean; can_undo: boolean; approved_by: string | null; declined_by: string | null; reason: string | null };
 /** A sheet open on one change: undo it, or say yes or no to what someone asked for. */
 type Open = { kind: "undo"; runId: string; summary: string } | { kind: "approve" | "decline"; row: Change };
 
@@ -44,7 +44,7 @@ export function Changes() {
         {r.approved_by && <> · {t("ui.approved_by", { name: r.approved_by })}</>}
         {r.declined_by && <> · {t("ui.declined_by", { name: r.declined_by })}{r.reason ? `: ${r.reason}` : ""}</>}</div>
       {r.can_answer && <p><button class="primary small" onClick={() => answer("approve", r)}>{t("ui.approve")}</button> <button class="small" onClick={() => answer("decline", r)}>{t("ui.decline")}</button></p>}
-      {r.status === "applied" && r.action !== "action.undo" && r.action !== "club.setup" && <button class="small" onClick={() => previewUndo(r.id)}>{t("ui.undo")}</button>}
+      {r.can_undo && <button class="small" onClick={() => previewUndo(r.id)}>{t("ui.undo")}</button>}
     </li>
   );
   return (

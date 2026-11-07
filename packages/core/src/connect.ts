@@ -35,7 +35,7 @@ export const paymentAccountStatus = defineAction({
   name: "club.payment_account_status", version: 1, system: true, internal: true,
   input: z.object({ stripe_account_id: accountId, charges_enabled: z.boolean(), details_submitted: z.boolean() }),
   async plan(_ctx, i) {
-    return { title: both("action.club.payment_account_status"), summary: both(i.charges_enabled ? "plan.club.payments_on" : "plan.club.payments_off", { account: tail(i.stripe_account_id) }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.club.payment_account_status"), summary: both(i.charges_enabled ? "plan.club.payments_on" : "plan.club.payments_off", { account: tail(i.stripe_account_id) }), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     const club = await ctx.trx.selectFrom("club").select(["stripe_account_id", "stripe_charges_enabled"]).forUpdate().executeTakeFirstOrThrow();

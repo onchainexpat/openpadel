@@ -279,7 +279,7 @@ async function cancelPlan(ctx: PlanCtx, p: Record<string, any>, sessionIds: stri
   const booked = c.people.filter((g) => g.status === "booked").length, waiting = c.people.filter((g) => g.status === "waitlisted").length;
   summary = join2(summary, booked || waiting ? both("plan.series.told", { count: booked + waiting }) : both("plan.series.nobody"));
   const reads: Read[] = [{ entity: "program", id: p.id, version: p.version }];
-  return { c, summary, reads, undo: c.entire || c.total > 0 ? { kind: "none" as const, note: both("undo.none", { reason: both(c.total > 0 ? "reason.refund_sent" : "reason.program_cancelled") }) } : { kind: "compensating" as const } };
+  return { c, summary, reads, undo: c.entire || c.total > 0 ? { kind: "none" as const, note: both(c.total > 0 ? "reason.refund_sent" : "reason.program_cancelled") } : { kind: "compensating" as const } };
 }
 
 const refundChoice = z.optional(z.enum(["rule", "full", "none"]).check(z.describe("rule: what was paid for these dates (all of it when nothing is left); full: everything paid; none: nothing. Other than the rule needs a note.")));
@@ -360,7 +360,7 @@ export const programDecide = defineAction({
   input: z.object({ program_id: z.uuid(), session_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
-    return { title: both("action.program.decide"), summary: both("plan.program.decide", { name: textOf(row.name, row.translations, "name") }), reads: [read], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.program.decide"), summary: both("plan.program.decide", { name: textOf(row.name, row.translations, "name") }), reads: [read], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();
@@ -398,7 +398,7 @@ export const programMinHeadsUp = defineAction({
   input: z.object({ program_id: z.uuid(), session_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
-    return { title: both("action.program.min_heads_up"), summary: both("plan.program.min_heads_up", { name: textOf(row.name, row.translations, "name") }), reads: [read], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.program.min_heads_up"), summary: both("plan.program.min_heads_up", { name: textOf(row.name, row.translations, "name") }), reads: [read], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();

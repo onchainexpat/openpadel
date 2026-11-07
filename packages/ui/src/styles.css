@@ -36,7 +36,7 @@ body:has(.dock:not(:empty)) main { padding-bottom: 45vh; }
 .dock .note, .dock .error { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin: 12px 0 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, .12); cursor: pointer; }
 .status.failed, .status.expired { color: var(--error); }
 ul.plain { list-style: none; padding: 0; margin: 0 0 12px; } ul.plain li { padding: 6px 0; border-bottom: 1px solid var(--line); }
-li.row, div.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; } li.row button.small, div.row button.small { margin-top: 0; flex: none; }
+li.row, div.row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; } li.row > *, div.row > * { min-width: 0; } li.row button.small, div.row button.small { margin-top: 0; flex: none; }
 label.check { display: flex; gap: 8px; align-items: center; font-weight: 400; } label.check input { width: auto; margin: 0; }
 .other-lang { border-left: 2px solid var(--line); padding-left: 10px; margin: 0 0 12px; } .other-lang label { font-weight: 400; } .other-lang button { margin-top: 4px; }
 fieldset { border: 0; padding: 0; margin: 0 0 12px; } legend { font-weight: 600; }
@@ -70,6 +70,7 @@ label.inline-number input { flex: none; width: 5.5em; margin: 0; }
 .table-scroll { overflow-x: auto; }
 .table-scroll table { border-collapse: collapse; width: 100%; font-size: 14px; }
 .table-scroll th, .table-scroll td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.table-scroll td.wrap { white-space: normal; min-width: 14em; }
 
 /* A coach's face (or initials) beside their name. */
 .coach-card { display: flex; gap: 12px; align-items: flex-start; }
@@ -141,7 +142,8 @@ body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
   a.button, a.small, a.chip, nav a, .policies a { display: inline-flex; align-items: center; }
   button:not(.tg-face), a.button, a.small, nav a, .policies a { min-width: 44px; justify-content: center; }
   button.small { padding: 8px 14px; } button.link { padding: 0 4px; }
-  label.check input { width: 24px; height: 24px; }
+  label.check input, input[type="checkbox"], input[type="radio"] { width: 24px; height: 24px; }
+  summary { min-height: 44px; padding-block: 12px; box-sizing: border-box; cursor: pointer; }
 }
 /* A table that stacks on a phone: each row a block, each cell its column's name then its value. */
 @media (max-width: 560px) {

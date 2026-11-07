@@ -155,7 +155,7 @@ export const passBuy = defineAction({
     const { read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const p = await onSale(ctx.db, i.product_id);
     if (await kidOf(ctx.db, i.person_id)) throw new KumiError("error.pass_kid");
-    return { title: both("action.pass.buy"), reads: [read], ownerIds: [i.person_id], moneyCents: p.price_cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.pass.buy"), reads: [read], ownerIds: [i.person_id], moneyCents: p.price_cents, undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both("plan.pass.buy", { name: p.name, uses: String(p.uses), price: usd(p.price_cents) }) };
   },
   async apply(ctx, i) {
@@ -181,7 +181,7 @@ export const passSell = defineAction({
     const p = await onSale(ctx.db, i.product_id);
     if (i.cents !== p.price_cents) throw new KumiError("error.pass_price", { price: usd(p.price_cents) });
     if (await kidOf(ctx.db, i.person_id)) throw new KumiError("error.pass_kid");
-    return { title: both("action.pass.sell"), reads: [read], ownerIds: [i.person_id], moneyCents: p.price_cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.pass.sell"), reads: [read], ownerIds: [i.person_id], moneyCents: p.price_cents, undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both("plan.pass.sell", { pass: p.name, name: person.display_name, price: usd(p.price_cents), how: paidHow(i.method) }) };
   },
   async apply(ctx, i) {
@@ -216,7 +216,7 @@ export const paymentUsePass = defineAction({
     if (!pass || pass.person_id !== pay.person_id) throw new KumiError("error.pass_not_theirs");
     if (!usable(pass, ctx.now)) throw new KumiError(pass.status === "active" && pass.uses_left > 0 ? "error.pass_expired" : "error.pass_used_up");
     if (!passCovers(pass, w)) throw new KumiError("error.pass_not_for_this");
-    return { title: both("action.payment.use_pass"), reads: [read], ownerIds: [pay.person_id], undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.payment.use_pass"), reads: [read], ownerIds: [pay.person_id], undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both("plan.payment.use_pass", { name: pass.name, what: await paymentWhat(ctx.db, pay), left: String(pass.uses_left - 1) }) };
   },
   async apply(ctx, i) {
@@ -284,7 +284,7 @@ export const passRefund = defineAction({
     const { row: pass, read } = await readRow(ctx.db, "pass", i.pass_id, "thing.pass");
     if (pass.status !== "active" || pass.uses_left <= 0) throw new KumiError("error.pass_nothing_to_refund");
     const cents = await valueLeft(ctx.db, pass as { id: string; price_cents: number }), name = (await ctx.db.selectFrom("person").select("display_name").where("id", "=", pass.person_id).executeTakeFirstOrThrow()).display_name;
-    return { title: both("action.pass.refund"), reads: [read], ownerIds: [pass.person_id], moneyCents: cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.pass.refund"), reads: [read], ownerIds: [pass.person_id], moneyCents: cents, undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both("plan.pass.refund", { pass: pass.name, name, uses: String(pass.uses_left), amount: usd(cents) }), details: { cents } };
   },
   async apply(ctx, i, plan) {

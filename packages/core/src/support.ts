@@ -90,7 +90,7 @@ export const supportEnd = defineAction({
 export const supportSeen = defineAction({
   name: "support.seen", version: 1, system: true, internal: true,
   input: z.object({ grant_id: z.uuid() }),
-  async plan(_ctx) { return { title: both("action.support.seen"), summary: both("plan.support.seen"), reads: [], undo: { kind: "none", note: both("reason.undo_final") } }; },
+  async plan(_ctx) { return { title: both("action.support.seen"), summary: both("plan.support.seen"), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } }; },
   async apply(ctx, i) {
     const g = await ctx.trx.selectFrom("support_grant").select("first_seen_at").where("id", "=", i.grant_id).forUpdate().executeTakeFirstOrThrow();
     if (g.first_seen_at) return { already: true };
@@ -104,7 +104,7 @@ export const supportSeen = defineAction({
 export const supportExpire = defineAction({
   name: "support.expire", version: 1, system: true, internal: true,
   input: z.object({ grant_id: z.uuid() }),
-  async plan(_ctx) { return { title: both("action.support.expire"), summary: both("plan.support.expire"), reads: [], undo: { kind: "none", note: both("reason.undo_final") } }; },
+  async plan(_ctx) { return { title: both("action.support.expire"), summary: both("plan.support.expire"), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } }; },
   async apply(ctx, i) {
     const g = await ctx.trx.selectFrom("support_grant").select(["ended_at", "ends_at", "end_told_at"]).where("id", "=", i.grant_id).forUpdate().executeTakeFirstOrThrow();
     if (g.ended_at || g.end_told_at || new Date(g.ends_at) > ctx.now) return { already: true };
@@ -119,7 +119,7 @@ export const supportExpire = defineAction({
 export const supportEndAll = defineAction({
   name: "support.end_all", version: 1, system: true, internal: true,
   input: z.object({ why: z.enum(["moved", "restored"]) }),
-  async plan(_ctx) { return { title: both("action.support.end_all"), summary: both("plan.support.end_all"), reads: [], undo: { kind: "none", note: both("reason.undo_final") } }; },
+  async plan(_ctx) { return { title: both("action.support.end_all"), summary: both("plan.support.end_all"), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } }; },
   async apply(ctx, i) {
     const open = await ctx.trx.selectFrom("support_grant").select("id").where("ended_at", "is", null).where("ends_at", ">", ctx.now).forUpdate().execute();
     for (const g of open) {

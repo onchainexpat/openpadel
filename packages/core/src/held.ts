@@ -51,7 +51,7 @@ export const heldRelease = defineAction({
   async plan(ctx, i) {
     const h = await heldSummary(ctx.db);
     return { title: both("action.club.held_release"), summary: both(i.send ? "plan.club.held_send" : "plan.club.held_drop", { count: h.messages + h.events }), reads: [],
-      undo: { kind: "none", note: both("reason.undo_final") } };
+      undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     if (i.send) {

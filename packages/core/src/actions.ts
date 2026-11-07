@@ -3,7 +3,7 @@
 // in the way its plan said.
 import * as z from "zod/mini";
 import { sql } from "kysely";
-import { both, money, type Key, type Lang, type Params, type Text, formatLocale } from "@kumi/i18n";
+import { both, en, es, money, type Key, type Lang, type Params, type Text, formatLocale } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { plainIssues } from "./plain_issues.ts";
@@ -533,6 +533,16 @@ export async function run(db: Db, name: string, raw: unknown, actor: Actor, opts
 }
 
 // ---- Undo: a new action run that reads the original's change log and puts it back. ----
+/** Why a change can't be undone, from its undo note. A note is a reason ("the refund has gone out"). A change made
+ *  before 7 Nov 2026 may keep the whole sentence ("Can't be undone: the refund has gone out."), which would read
+ *  twice inside the refusal, so that sentence is cut back to its reason. */
+export function undoReason(note: Text): Text {
+  const bare = (s: string, tpl: string) => {
+    const [pre = "", post = ""] = tpl.split("{reason}");
+    return s.startsWith(pre) && s.endsWith(post) && s.length > pre.length + post.length ? s.slice(pre.length, s.length - post.length) : s;
+  };
+  return { en: bare(note.en, en["undo.none"] as string), es: bare(note.es, es["undo.none"] as string) };
+}
 const UNDO_FIELDS_SKIP = new Set(["version"]);
 
 export const undoAction = defineAction({
@@ -544,7 +554,7 @@ export const undoAction = defineAction({
     if (!original) throw new KumiError("error.not_found", { thing: both("thing.change") }, 404);
     if (original.status !== "applied") throw new KumiError("error.not_planned", { status: original.status });
     const op = original.plan as Plan;
-    if (original.undo_kind === "none") throw new KumiError("error.cannot_undo", { reason: op.undo.note ?? both("reason.undo_final") });
+    if (original.undo_kind === "none") throw new KumiError("error.cannot_undo", { reason: op.undo.note ? undoReason(op.undo.note) : both(original.action === "action.undo" ? "reason.undo_final" : "reason.no_way_back") });
     if (original.undo_until && original.undo_until.getTime() < ctx.now.getTime()) throw new KumiError("error.undo_expired");
     // Undo needs the same permission as the original action, for the same rows: where that's an "ask", the undo
     // waits for someone allowed it outright (approve), as the change itself would have.

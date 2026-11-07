@@ -74,7 +74,7 @@ export const paymentUseCredit = defineAction({
     const cents = Math.min(have, pay.amount_cents), full = cents === pay.amount_cents;
     if (!full && !pay.enrolment_id) throw new KumiError("error.credit_part_court", { credit: usd(have), amount: usd(pay.amount_cents) });
     const what = await paymentWhat(ctx.db, pay);
-    return { title: both("action.payment.use_credit"), reads: [read], ownerIds: [pay.person_id], moneyCents: cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.payment.use_credit"), reads: [read], ownerIds: [pay.person_id], moneyCents: cents, undo: { kind: "none", note: both("reason.refund_sent") },
       summary: full ? both("plan.payment.use_credit", { amount: usd(cents), what }) : both("plan.payment.use_credit_part", { amount: usd(cents), what, rest: usd(pay.amount_cents - cents) }),
       details: { cents, full } };
   },
@@ -133,7 +133,7 @@ export const creditPayOut = defineAction({
     const notes = [fromCards > 0 ? both("plan.credit.pay_out_gift", { amount: usd(fromCards) }) : null, byCard > 0 ? both("plan.credit.pay_out_card_warn", { amount: usd(byCard) }) : null,
       refundByCard > 0 ? both("plan.credit.pay_out_refund_warn", { amount: usd(refundByCard) }) : null].filter((x): x is Text => Boolean(x));
     const summary = { en: [base.en, ...notes.map((x) => x.en)].join(" "), es: [base.es, ...notes.map((x) => x.es)].join(" ") };
-    return { title: both("action.credit.pay_out"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) },
+    return { title: both("action.credit.pay_out"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("reason.refund_sent") },
       summary, details: { from_gift_cards: fromCards, gift_cards_by_card: byCard, card_refunds: refundByCard } };
   },
   async apply(ctx, i) {

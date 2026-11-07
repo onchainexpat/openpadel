@@ -298,7 +298,7 @@ export const bookingRunningLate = defineAction({
     const start = new Date(m.start).getTime();
     if (ctx.now.getTime() < start - 3 * 3600_000 || ctx.now.getTime() > start + 30 * 60_000) throw new KumiError("error.not_now_late");
     return { title: both("action.booking.running_late"), summary: both("plan.booking.running_late", { court: m.court, when: m.when, minutes: i.minutes }),
-      reads: [], locationId: m.location_id, ownerIds: [i.person_id], undo: { kind: "none", note: both("reason.undo_final") } };
+      reads: [], locationId: m.location_id, ownerIds: [i.person_id], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) { await ctx.emit("booking.running_late", { booking_id: i.booking_id, person_id: i.person_id, minutes: i.minutes }); return null; },
 });

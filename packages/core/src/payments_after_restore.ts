@@ -81,11 +81,11 @@ export async function reviewFound(db: Db, now = new Date()): Promise<{ recorded:
 export async function refundedStillBooked(db: Db, now = new Date()) {
   const bookings = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
     .innerJoin("booking", "booking.id", "booking_player.booking_id").innerJoin("person", "person.id", "payment.person_id")
-    .select(["refund.id", "refund.amount_cents", "booking.code", "booking.id as booking_id", "person.display_name"]).where("refund.seen_after_restore", "=", true)
+    .select(["refund.id", "refund.amount_cents", "booking.code", "booking.id as booking_id", "person.id as person_id", "person.display_name"]).where("refund.seen_after_restore", "=", true)
     .where("booking.status", "!=", "cancelled").where(sql<boolean>`EXISTS (SELECT 1 FROM court_time ct WHERE ct.booking_id = booking.id AND upper(ct.during) > ${now})`).execute();
   const places = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("enrolment", "enrolment.id", "payment.enrolment_id")
     .innerJoin("program", "program.id", "enrolment.program_id").innerJoin("person", "person.id", "enrolment.person_id")
-    .select(["refund.id", "refund.amount_cents", "program.name as program", "enrolment.id as enrolment_id", "person.display_name"]).where("refund.seen_after_restore", "=", true)
+    .select(["refund.id", "refund.amount_cents", "program.name as program", "program.id as program_id", "enrolment.id as enrolment_id", "person.id as person_id", "person.display_name"]).where("refund.seen_after_restore", "=", true)
     .where("enrolment.status", "=", "booked").execute();
   return { bookings, places };
 }
@@ -165,7 +165,7 @@ export const paymentFoundRefund = defineAction({
   async plan(ctx, i) {
     const { row, read } = await foundPlan(ctx, i.id);
     return { title: both("action.payment_found.refund"), summary: both("plan.payment_found.refund", { amount: { en: money(row.amount_cents, "en"), es: money(row.amount_cents, "es") } }),
-      reads: [read], moneyCents: row.amount_cents, undo: { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } };
+      reads: [read], moneyCents: row.amount_cents, undo: { kind: "none", note: both("reason.refund_sent") } };
   },
   async apply(ctx, i) {
     if (!(await stillUnknown(ctx as any, i.id))) return { recorded: true };

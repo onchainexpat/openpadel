@@ -583,7 +583,7 @@ export const enrolmentLeave = defineAction({
   async plan(ctx, i) {
     const g = await goingPlan(ctx, i.enrolment_id, "late_cancel");
     return { title: both("action.enrolment.leave"), summary: join2(both("plan.enrolment.leave", { person: g.person, name: g.p.name, refund: g.refund.text }), g.offer), reads: [g.read],
-      locationId: g.p.location_id, ownerIds: await withManagers(ctx.db, [g.e.person_id]), moneyCents: g.refund.cents, undo: g.refund.cents > 0 ? { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } : { kind: "compensating" }, details: { refund: g.refund, back: g.back } };
+      locationId: g.p.location_id, ownerIds: await withManagers(ctx.db, [g.e.person_id]), moneyCents: g.refund.cents, undo: g.refund.cents > 0 ? { kind: "none", note: both("reason.refund_sent") } : { kind: "compensating" }, details: { refund: g.refund, back: g.back } };
   },
   async apply(ctx, i, plan) {
     const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).executeTakeFirstOrThrow();
@@ -623,7 +623,7 @@ export const enrolmentRemove = defineAction({
   async plan(ctx, i) {
     const g = await goingPlan(ctx, i.enrolment_id, i.reason, i.refund);
     return { title: both("action.enrolment.remove"), summary: join2(both("plan.enrolment.remove", { person: g.person, name: g.p.name, reason: both(`reason.${i.reason}` as Key), refund: g.refund.text }), g.offer),
-      reads: [g.read], locationId: g.p.location_id, moneyCents: g.refund.cents, secondPerson: g.refund.changed && g.refund.cents > TWO_PERSON_CENTS, undo: g.refund.cents > 0 ? { kind: "none", note: both("undo.none", { reason: both("reason.refund_sent") }) } : { kind: "compensating" }, details: { refund: g.refund, back: g.back } };
+      reads: [g.read], locationId: g.p.location_id, moneyCents: g.refund.cents, secondPerson: g.refund.changed && g.refund.cents > TWO_PERSON_CENTS, undo: g.refund.cents > 0 ? { kind: "none", note: both("reason.refund_sent") } : { kind: "compensating" }, details: { refund: g.refund, back: g.back } };
   },
   async apply(ctx, i, plan) {
     const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).executeTakeFirstOrThrow();
@@ -747,7 +747,7 @@ export const waitlistExpireOffers = defineAction({
   input: z.object({}),
   async plan(ctx) {
     const n = Number((await dueOffers(ctx.db, ctx.now).select((eb) => eb.fn.countAll<string>().as("n")).executeTakeFirstOrThrow()).n);
-    return { title: both("action.waitlist.expire_offers"), summary: both("plan.waitlist.expire_offers", { count: n }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.waitlist.expire_offers"), summary: both("plan.waitlist.expire_offers", { count: n }), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx) {
     // Claimed under lock, so an offer taken meanwhile, or a second worker, can't be expired twice.
@@ -912,7 +912,7 @@ export const paymentOpen = defineAction({
     amount_cents: z.optional(z.number().check(z.int())) }),   // what the provider was asked for: it has to be what these payments ask
   async plan(ctx, i) {
     const { row: pay } = await readRow(ctx.db, "payment", i.payment_id, "thing.payment");
-    return { title: both("action.payment.open"), summary: both("plan.payment.open", { person: await personName(ctx.db, pay.person_id), amount: usd(pay.amount_cents) }), reads: [], undo: { kind: "none", note: both("reason.undo_final") } };
+    return { title: both("action.payment.open"), summary: both("plan.payment.open", { person: await personName(ctx.db, pay.person_id), amount: usd(pay.amount_cents) }), reads: [], undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     // Several paid together: all their rows locked first, in id order, as payment.settle does.
