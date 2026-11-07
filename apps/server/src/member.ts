@@ -4,6 +4,7 @@ import type { Lang } from "@kumi/i18n";
 import { creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff } from "@kumi/core";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
+import { clubFileStem } from "./file_names.ts";
 
 type Me = { id: string } | null;
 export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { production: boolean; now?: () => Date }) {
@@ -477,9 +478,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const data = await exportData(db, target, at, lang(c));
     c.header("content-type", "application/json; charset=utf-8");
     // Named for the club ("kestrel-padel-data-2026-11-07.json"): a member never reads a product's name.
-    const clubName = (await db.selectFrom("club").select("name").executeTakeFirst())?.name ?? "";
-    const stem = clubName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
-    c.header("content-disposition", `attachment; filename="${stem ? `${stem}-` : ""}data-${at.toISOString().slice(0, 10)}.json"`);
+    c.header("content-disposition", `attachment; filename="${await clubFileStem(db)}-data-${at.toISOString().slice(0, 10)}.json"`);
     c.header("cache-control", "no-store");
     return c.body(JSON.stringify(data, null, 2));
   });

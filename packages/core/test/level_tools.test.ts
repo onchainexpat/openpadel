@@ -118,12 +118,12 @@ test("after a clinic, its levels set in one go; each player whose level changes 
   const other = await staff("Otto Coach", "coach");   // a coach sets levels only after the dates they run
   await rejects(plan(db, "level.set_session", input, other, { now: at(3) }), "error.forbidden_reason");
   const r = await run(db, "level.set_session", input, coach, { now: at(3) });
-  assert.equal(r.plan.summary.en, "Set levels after Clinic L, Tue, Dec 1, 12:00 PM: Ben from 3.10 to 3.50; Cy from no level yet to 2.75. Reason: Assessed in the clinic drills. 1 other player stays as they are. Each player whose level changes is told.");
+  assert.equal(r.plan.summary.en, "Set levels after Clinic L, Tue, Dec 1, 12:00 PM: Ben from 3.10 to 3.50; Cy starts at 2.75. Reason: Assessed in the clinic drills. 1 other player stays as they are. Each player whose level changes is told.");
   assert.deepEqual([(await rating("Ben")).level, (await rating("Cy")).level, (await rating("Ann")).level], ["3.50", "2.75", "3.45"]);
   const ev = await db.selectFrom("rating_event").select("explanation").where("person_id", "=", people.Cy!).orderBy("id", "desc").executeTakeFirstOrThrow();
   assert.equal((ev.explanation as any).en, "Set by Cole Coach after Clinic L (December 1, 2026): Assessed in the clinic drills.");
   await processOutbox(db, messageHandlers);
-  assert.equal((await inbox("Cy", "level_set_session"))[0]!.body, "After Clinic L, Tue, Dec 1, 12:00 PM, Cole Coach set your level from no level yet to 2.75: Assessed in the clinic drills.");
+  assert.equal((await inbox("Cy", "level_set_session_first"))[0]!.body, "After Clinic L, Tue, Dec 1, 12:00 PM, Cole Coach gave you a level of 2.75: Assessed in the clinic drills.");
   assert.equal((await inbox("Ann", "level_set_session")).length, 0);
   await rejects(plan(db, "level.set_session", { ...input, levels: [{ person_id: people.Ben, level: 3.5 }] }, desk, { now: at(4) }), "error.levels_unchanged");
   assert.equal((await plan(db, "level.set_session", { ...input, levels: [{ person_id: people.Ben, level: 3.6 }] }, desk, { now: at(4) })).status, "planned");   // front desk too

@@ -225,7 +225,9 @@ export const personImport = defineAction({
   async plan(ctx, i) {
     const p = await importPlan(ctx.db, i.rows);
     const people = both("count.people", { count: p.add.length });
-    const base = p.skipped ? both("plan.person.import_skipped", { people, already: both("count.already_here", { count: p.skipped }) }) : both("plan.person.import", { people });
+    const already = both("count.already_here", { count: p.skipped });
+    const base = !p.skipped ? both("plan.person.import", { people })
+      : p.add.length ? both("plan.person.import_skipped", { people, already }) : both("plan.person.import_none", { already });
     const more = ([[p.updated, "count.import_updated"], [p.levels, "count.import_levels"], [p.news, "count.import_news"], [p.phoneBad, "count.import_phone_bad"], [p.phoneTaken, "count.import_phone_taken"]] as const)
       .filter(([n]) => n > 0).map(([n, k]) => both(k, { count: n }));
     const summary = more.length ? { en: `${base.en} ${more.map((m) => m.en).join(" ")}`, es: `${base.es} ${more.map((m) => m.es).join(" ")}` } : base;

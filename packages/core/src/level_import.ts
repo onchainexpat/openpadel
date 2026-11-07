@@ -77,7 +77,9 @@ export function startSigma(p: Platform, evidence: Evidence, c: Confidence): numb
   const d: PlatformDef = PLATFORMS[p];
   let s: number;
   if (evidence === "self" || d.self) s = 1.0;
-  else if (p === "playtomic") s = evidence === "club_data" || (c.reliability ?? 0) >= 50 ? 0.6 : 0.85;
+  // Playtomic: its reliability decides when it's given, from the club's own file too (a 40% level is a guess);
+  // the club's file without one is the club's own data (0.6); seen in the app without one is unknown (0.85).
+  else if (p === "playtomic") s = c.reliability !== undefined ? (c.reliability >= 50 ? 0.6 : 0.85) : evidence === "club_data" ? 0.6 : 0.85;
   else if (p === "playbypoint") s = (c.matches ?? 0) >= 20 ? 0.7 : 0.85;
   else if (p === "wpr") s = c.wpr === "HC" ? 0.7 : 0.85;
   else if (p === "padellevels") s = (c.percent ?? 0) >= 70 ? 0.7 : 0.85;
@@ -171,7 +173,7 @@ export const levelImport = defineAction({
     const sigma = startSigma(i.platform, i.evidence, conf)!;
     const level = Math.max(s.floor ?? -Infinity, kumi);
     return { title: both("action.level.import"), reads: await ratingRead(ctx.db, i.person_id), undo: { kind: "compensating" }, details: { start_level: kumi, sigma },
-      summary: both("plan.level.import", { person: await nameOf(ctx.db, i.person_id), source: source(i.platform), shown: shownText(i.platform, i.value, conf), level: lvl(level),
+      summary: both(s.exists ? "plan.level.import" : "plan.level.import_none", { person: await nameOf(ctx.db, i.person_id), source: source(i.platform), shown: shownText(i.platform, i.value, conf), level: lvl(level),
         before: s.exists ? lvl(s.level) : both("plan.level.no_level") }) };
   },
   async apply(ctx, i, plan) {
@@ -229,7 +231,7 @@ export const levelRemoveImport = defineAction({
     if (s.games >= SELF_ADJUST_GAMES) throw new KumiError("error.import_remove_late", { count: SELF_ADJUST_GAMES });
     const after = (await replay(ctx.db, { leaveOut: new Set([imp.id]) })).get(i.person_id);
     return { title: both("action.level.remove_import"), reads: await ratingRead(ctx.db, i.person_id), ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "none" }, details: { event_id: imp.id },
-      summary: both("plan.level.remove_import", { source: source(imp.factors.platform), level: lvl(imp.level), after: after ? lvl(after.level) : both("plan.level.no_level") }) };
+      summary: both(after ? "plan.level.remove_import" : "plan.level.remove_import_none", { source: source(imp.factors.platform), level: lvl(imp.level), after: after ? lvl(after.level) : both("plan.level.no_level") }) };
   },
   async apply(ctx, i, plan) {
     const { event_id } = plan.details as { event_id: string };

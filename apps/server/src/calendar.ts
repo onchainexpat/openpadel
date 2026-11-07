@@ -2,6 +2,7 @@
 // in the address is the key), and the staff app's way to see it or make a new one, which ends the old.
 import { Hono, type Context } from "hono";
 import { calendarToken, coachCalendar, KumiError, newCalendarToken, type Db } from "@kumi/core";
+import { clubFileStem } from "./file_names.ts";
 
 type Me = { id: string } | null;
 export function calendarRoutes(db: Db, me: (c: Context<any>) => Me) {
@@ -29,7 +30,7 @@ export function calendarRoutes(db: Db, me: (c: Context<any>) => Me) {
     const body = await coachCalendar(db, c.req.param("file").replace(/\.ics$/, ""));
     if (body === null) return c.text("Not found", 404);
     c.header("content-type", "text/calendar; charset=utf-8");
-    c.header("content-disposition", 'inline; filename="kumi.ics"');
+    c.header("content-disposition", `inline; filename="${await clubFileStem(db)}.ics"`);
     c.header("cache-control", "private, max-age=300");
     c.header("x-robots-tag", "noindex");
     return c.body(body);

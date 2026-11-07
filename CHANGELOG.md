@@ -74,6 +74,18 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   every assistant call answers sooner (about 15 ms instead of 180 for an owner).
 
 ### Fixed
+- Found on a real phone (run 8), on what this release adds:
+  - A Playtomic level from the club's own file starts less sure below 50% reliability, as one seen in the app does: a
+    40% level was taken as surely as a 70% one.
+  - A level brought from another app has its own place on the staff Levels page, "Levels brought from other apps", not
+    under "Asked for a review", and the player's page no longer says they asked for a review while it waits.
+  - A player with no level yet reads "Give Ann a starting level of 4.80" and "Leave Ann without a level for now", not
+    "from no level yet to 4.80"; a level set after a session says "gave you a level of 2.75". In Spanish, rated games are
+    "partidos puntuables" throughout.
+  - An import with nobody new says "Nobody new to add", not "Add 0 people as members".
+  - "Runs on Kumi" is a link of its own size: 24 px, 44 on a touch screen.
+  - Staff downloads (reports, coaches' earnings, receipts, the desk) and the calendar feed are named for the club
+    ("kestrel-padel-receipts-...csv"), like the members' data download, not "kumi-...".
 - **Members read "Kumi" in the browser (found on a real phone).** Both apps' tabs were titled "Kumi" whatever the
   club, even on a club running openPadel itself, and a member's data download was `kumi-data-<date>.json`. The tab, its
   history and the share sheet now name the club (the staff app's, "<club> Staff", as its installed name is), and the

@@ -72,7 +72,7 @@ test("the club's receipts by dates, with a file: refunds negative, and a name a 
   assert.equal((await get(`/staff/club-receipts?from=${today}&to=${today}`, "Ann")).status, 403);
   assert.equal((await get(`/staff/club-receipts?from=2025-01-01&to=${today}`, "Ada")).status, 400, "at most a year");
   const file = await app.request(`/staff/club-receipts.csv?from=${today}&to=${today}`, { headers: { cookie: cookies.Ada! } });
-  assert.match(file.headers.get("content-disposition")!, new RegExp(`kumi-receipts-${today}-to-${today}\\.csv`));
+  assert.match(file.headers.get("content-disposition")!, new RegExp(`filename="(?!kumi-)[a-z0-9-]+-receipts-${today}-to-${today}\\.csv"`));
   const lines = (await file.text()).trim().split("\r\n");
   assert.equal(lines[0], "receipt,kind,date,paid by,for,what (en),what (es),subtotal,tax,total,method,card");
   assert.equal(lines.length, 5);
@@ -119,7 +119,7 @@ test("the desk's day for the club's money people: a line a day, each day's payme
   assert.equal((await get(`/staff/desk-days/${today}`, "Ann")).status, 403);
   assert.equal((await get(`/staff/desk-days/yesterday`, "Robin")).status, 400);
   const file = await app.request(`/staff/desk.csv?from=${today}&to=${today}`, { headers: { cookie: cookies.Robin! } });
-  assert.match(file.headers.get("content-disposition")!, new RegExp(`kumi-desk-${today}-to-${today}\\.csv`));
+  assert.match(file.headers.get("content-disposition")!, new RegExp(`filename="(?!kumi-)[a-z0-9-]+-desk-${today}-to-${today}\\.csv"`));
   const rows = (await file.text()).trim().split("\r\n");
   assert.equal(rows[0], "date,time,kind,method,amount,person,what,recorded by");
   assert.equal(rows.length, 5);

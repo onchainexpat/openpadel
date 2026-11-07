@@ -80,6 +80,9 @@ The agent never sees a password or a code from an email. The person types those 
 
 `openpadel login` signs in only at the club's own addresses: the sign-in server the club names must be the club's own host
 or its staff app beside it (`staff.<host>`), over https (http only on this computer), with every endpoint on it.
+Working on openPadel itself, where the two apps run on `localhost` ports of their own (5173 and 5174) and not as
+`staff.<host>`, sign in with the staff app's address; the members' address names a sign-in server on another port and is
+refused. A club's real addresses don't have this.
 
 **Where the sign-in is kept:**
 

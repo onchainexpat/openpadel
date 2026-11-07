@@ -39,16 +39,23 @@ export function Levels() {
   useEffect(() => { load(); }, [lang.value]);
   if (!q) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const day = (iso: string) => clubTime(iso, { dateStyle: "medium" });
+  const claims = q.requests.filter((r) => r.kind === "import" && r.claim), asks = q.requests.filter((r) => !(r.kind === "import" && r.claim));
   return (
     <main>
       <h1>{t("ui.levels_queue")}</h1>
       {sheet}
+      {claims.length > 0 && <section class="card">
+        <h2>{t("ui.level_claims")}</h2>
+        <ul class="plain">{claims.map((r) =>
+          <Answer key={r.id} personId={r.person_id} name={r.name} level={r.level} preview={preview} claim={r.claim}>
+            {r.claim!.start_level === null ? t("ui.level_import_claim_staff", { shown: shown(r.claim!), source: t(`level_source.${r.claim!.platform}` as Key) })
+              : t("ui.level_import_claim", { shown: shown(r.claim!), source: t(`level_source.${r.claim!.platform}` as Key), level: r.claim!.start_level.toFixed(2) })}
+            <br /><span class="meta">{t("ui.claimed_on", { date: day(r.created_at) })}</span></Answer>)}</ul>
+      </section>}
       <section class="card">
         <h2>{t("ui.review_requests")}</h2>
-        {!q.requests.length ? <p class="meta">{t("ui.queue_empty")}</p> : <ul class="plain">{q.requests.map((r) =>
-          <Answer key={r.id} personId={r.person_id} name={r.name} level={r.level} preview={preview} claim={r.kind === "import" ? r.claim : null}>{t("ui.asked_on", { date: day(r.created_at) })}{r.note ? `: "${r.note}"` : ""}
-            {r.kind === "import" && r.claim && <><br />{r.claim.start_level === null ? t("ui.level_import_claim_staff", { shown: shown(r.claim), source: t(`level_source.${r.claim.platform}` as Key) })
-              : t("ui.level_import_claim", { shown: shown(r.claim), source: t(`level_source.${r.claim.platform}` as Key), level: r.claim.start_level.toFixed(2) })}</>}</Answer>)}</ul>}
+        {!asks.length ? <p class="meta">{t("ui.queue_empty")}</p> : <ul class="plain">{asks.map((r) =>
+          <Answer key={r.id} personId={r.person_id} name={r.name} level={r.level} preview={preview} claim={null}>{t("ui.asked_on", { date: day(r.created_at) })}{r.note ? `: "${r.note}"` : ""}</Answer>)}</ul>}
       </section>
       <section class="card">
         <h2>{t("ui.big_moves", { limit: q.limit.toFixed(2), days: q.days })}</h2>

@@ -35,6 +35,10 @@ after(async () => drop());
 
 test("how unsure a start is comes from the evidence, never surer than a level staff set", () => {
   assert.equal(startSigma("playtomic", "club_data", {}), 0.6);
+  // The club's own file still carries Playtomic's reliability: a 40% level is a guess, a 70% one isn't.
+  assert.equal(startSigma("playtomic", "club_data", { reliability: 70 }), 0.6);
+  assert.equal(startSigma("playtomic", "club_data", { reliability: 40 }), 0.85);
+  assert.equal(startSigma("playtomic", "club_data", { reliability: 50 }), 0.6);
   assert.equal(startSigma("playtomic", "staff_seen", { reliability: 80 }), 0.6);
   assert.equal(startSigma("playtomic", "staff_seen", { reliability: 30 }), 0.85);
   assert.equal(startSigma("playtomic", "staff_seen", {}), 0.85);
@@ -56,7 +60,7 @@ test("how unsure a start is comes from the evidence, never surer than a level st
 
 test("staff record a level they saw in the player's app: a provisional start, where it came from kept, never a floor", async () => {
   const r = await run(db, "level.import", { person_id: people.Ann, platform: "playtomic", value: 4.25, reliability: 80, evidence: "staff_seen", last_played: "2026-11-20" }, desk, opts);
-  assert.equal(r.plan.summary.en, "Start Ann at 4.25 (now no level yet), from Playtomic (4.25, reliability 80%). It's provisional, games at the club take over, and it never sets a floor.");
+  assert.equal(r.plan.summary.en, "Start Ann at 4.25, from Playtomic (4.25, reliability 80%). It's provisional, games at the club take over, and it never sets a floor.");
   const a = (await rating("Ann"))!;
   assert.deepEqual([a.level, a.sigma, a.floor, a.provisional, a.rated_games], ["4.25", 0.6, null, true, 0]);
   const ev = await lastEvent("Ann");
@@ -129,7 +133,7 @@ test("a player's claim: at or below the club's line it starts as their own word;
 test("a player takes an import away while new: the level is worked out again without it", async () => {
   // Ben's start was the only thing behind his level: he's back to none, and can bring one again.
   const r = await run(db, "level.remove_import", { person_id: people.Ben }, as("Ben"), opts);
-  assert.equal(r.plan.summary.en, "Take away your starting level from Playtomic (3.80). Your level is worked out again without it: no level yet.");
+  assert.equal(r.plan.summary.en, "Take away your starting level from Playtomic (3.80). With nothing else behind it, you'll have no level until you play here.");
   assert.equal(await rating("Ben"), undefined);
   assert.equal((await replay(db)).get(people.Ben!), undefined);
   assert.equal((await lastEvent("Ben")).kind, "import_removed");
@@ -182,12 +186,28 @@ test("a club moving in: its Playtomic file brings ids, phones, a yes to club new
   assert.equal(((await lastEvent("Gil")).factors as any).external_id, "pt-111");
   // The same file again: nobody twice, and nothing new. With Gil's level changed in Playtomic (and no games here yet), it moves;
   // found by the Playtomic id even under another email.
-  assert.equal((await plan(db, "person.import", { rows }, owner, opts)).plan.summary.en, "Add 0 people as members; 3 are already here and stay as they are. Nobody is emailed. 1 phone number couldn't be read and is left out.");
+  assert.equal((await plan(db, "person.import", { rows }, owner, opts)).plan.summary.en, "Nobody new to add; 3 are already here and stay as they are. Nobody is emailed. 1 phone number couldn't be read and is left out.");
   const again = [{ display_name: "Gil Moss", email: "gil.moss@example.test", playtomic_id: "pt-111", level: { value: 4.3 } }];
   await run(db, "person.import", { rows: again }, owner, opts);
   assert.equal(Number((await db.selectFrom("person").select((eb) => eb.fn.countAll<string>().as("n")).where("display_name", "=", "Gil Moss").executeTakeFirstOrThrow()).n), 1);
   assert.deepEqual([(await rating("Gil"))!.level, (await db.selectFrom("person").select("email").where("id", "=", gil.id).executeTakeFirstOrThrow()).email], ["4.30", "gil@example.test"]);
   // Once they've played here, the club's own games count: a later file doesn't move them.
   await db.updateTable("rating").set({ rated_games: 1 }).where("person_id", "=", gil.id).execute();
-  assert.equal((await plan(db, "person.import", { rows: [{ ...again[0]!, level: { value: 5 } }] }, owner, opts)).plan.summary.en, "Add 0 people as members; 1 is already here and stays as it is. Nobody is emailed.");
+  assert.equal((await plan(db, "person.import", { rows: [{ ...again[0]!, level: { value: 5 } }] }, owner, opts)).plan.summary.en, "Nobody new to add; 1 is already here and stays as it is. Nobody is emailed.");
+});
+
+test("the club's own Playtomic file: a level below 50% reliability starts less sure than one at 50% or more", async () => {
+  const rows = [
+    { display_name: "Joy Park", email: "joy@example.test", playtomic_id: "pt-444", level: { value: 3.2, reliability: 40 } },
+    { display_name: "Kit Lane", email: "kit@example.test", playtomic_id: "pt-555", level: { value: 3.8, reliability: 85 } },
+    { display_name: "Lou Bay", email: "lou@example.test", playtomic_id: "pt-666", level: { value: 2.9 } },
+  ];
+  await run(db, "person.import", { rows }, owner, opts);
+  const sigmaOf = async (email: string) => {
+    const id = (await db.selectFrom("person").select("id").where("email", "=", email).executeTakeFirstOrThrow()).id;
+    return Number((await db.selectFrom("rating").select("sigma").where("person_id", "=", id).executeTakeFirstOrThrow()).sigma);
+  };
+  assert.equal(await sigmaOf("joy@example.test"), 0.85);
+  assert.equal(await sigmaOf("kit@example.test"), 0.6);
+  assert.equal(await sigmaOf("lou@example.test"), 0.6);   // no reliability in the file: the club's own data
 });

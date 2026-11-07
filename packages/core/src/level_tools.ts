@@ -175,13 +175,13 @@ export const levelAnswerReview = defineAction({
         summary: both("plan.level.answer_accept", { person, source: both(`level_source.${c.platform}` as Key), shown: shownText(c.platform, c.raw, c.conf), level: lvl(level), told }) };
     }
     if (i.outcome === "keep") return { title: both("action.level.answer_review"), reads, undo: { kind: "none" }, details: { review_id: open?.id ?? null },
-      summary: both("plan.level.answer_keep", { person, level: levelText(s), note: reason ? both("plan.level.answer_note", { note: reason }) : { en: "", es: "" }, told }) };
+      summary: both(s.exists ? "plan.level.answer_keep" : "plan.level.answer_keep_none", { person, level: levelText(s), note: reason ? both("plan.level.answer_note", { note: reason }) : { en: "", es: "" }, told }) };
     if (i.level === undefined || reason.length < 3) throw new KumiError("error.change_needs_level");
     const target = round2(i.level);
     if (s.floor !== null && target < s.floor) throw new KumiError("error.below_floor", { level: lvl(target), floor: lvl(s.floor) });
     if (s.exists && target === s.level) throw new KumiError("error.level_unchanged", { level: lvl(target) });
     return { title: both("action.level.answer_review"), reads, undo: { kind: "compensating" }, details: { review_id: open?.id ?? null },
-      summary: both("plan.level.answer_change", { person, before: levelText(s), after: lvl(target), reason, told }) };
+      summary: both(s.exists ? "plan.level.answer_change" : "plan.level.answer_change_none", { person, before: levelText(s), after: lvl(target), reason, told }) };
   },
   async apply(ctx, i, plan) {
     const { review_id } = plan.details as { review_id: string | null };
@@ -251,7 +251,8 @@ export const levelSetSession = defineAction({
     }
     if (!changes.length) throw new KumiError("error.levels_unchanged");
     const tz = await clubTz(ctx.db), when: Text = { en: dateTime(new Date(s.starts_at), "en", tz), es: dateTime(new Date(s.starts_at), "es", tz) };
-    const items = changes.map((c) => both("plan.level.change_item", { name: c.name, before: c.before ?? both("plan.level.no_level"), after: c.after }));
+    const items = changes.map((c) => c.before === null ? both("plan.level.change_item_none", { name: c.name, after: c.after })
+      : both("plan.level.change_item", { name: c.name, before: c.before, after: c.after }));
     const left = players.length - changes.length;
     // A coach sets levels after the sessions they run (their grant is for their own); front desk and up, any.
     return { title: both("action.level.set_session"), reads, locationId: s.location_id, ownerIds: s.coach_id ? [s.coach_id] : [], undo: { kind: "compensating" }, details: { changes },

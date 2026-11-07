@@ -9,6 +9,7 @@ import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
 import { translatorOn } from "./translate.ts";
+import { clubFileStem } from "./file_names.ts";
 
 type Me = { id: string; locale: string } | null;
 /** Which area a staff page's data belongs to (roles.ts AREAS), for roles the club made. Lists every area uses
@@ -127,7 +128,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         plainAmount(x.paid_cents), plainAmount(x.refunded_cents), plainAmount(x.net_cents)]),
       ...r.sessions.map((x) => [x.coach, t(l, "csv.session"), at(x.start), x.minutes, x.name, t(l, "csv.status_held"), "", "", ""]),
     ].sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[2]).localeCompare(String(b[2]))).map((row) => row.map(csvCell).join(","));
-    c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-coaches-${r.from}-to-${r.to}.csv"`);
+    c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="${await clubFileStem(db)}-coaches-${r.from}-to-${r.to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });
 
@@ -267,7 +268,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const head = ["date", "open hours", "courts", "court hours", "booked hours", "program hours", "playtomic hours", "blocked hours", "occupancy %", "court revenue", "lesson revenue", "program revenue", "membership revenue", "tax collected", "card payments recorded after a restore"];
     const lines = r.rows.map((x) => [x.date, x.open_hours, x.courts, x.court_hours, x.booked_hours, x.program_hours, x.playtomic_hours, x.blocked_hours, x.occupancy_percent,
       plainAmount(x.court_revenue_cents), plainAmount(x.lesson_revenue_cents), plainAmount(x.program_revenue_cents), plainAmount(x.membership_revenue_cents), plainAmount(x.tax_cents), plainAmount(x.found_revenue_cents)].map(csvCell).join(","));
-    c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="kumi-${r.from}-to-${r.to}.csv"`);
+    c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="${await clubFileStem(db)}-report-${r.from}-to-${r.to}.csv"`);
     return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });
 

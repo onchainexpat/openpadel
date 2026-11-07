@@ -19,7 +19,7 @@ main{max-width:720px;margin:0 auto;padding:16px}header{padding:24px 0 8px}h1{mar
 section{background:#fff;border:1px solid #e3e3dc;border-radius:12px;padding:16px;margin:12px 0}.meta{color:#5d6662;font-size:14px}a{color:var(--brand)}
 .coach{display:flex;gap:12px;align-items:flex-start;margin:0 0 12px}.coach img{width:72px;height:72px;border-radius:50%;object-fit:cover;flex:none}
 .button{display:inline-block;background:var(--brand);color:#fff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600}
-table{border-collapse:collapse;width:100%}td{padding:4px 0;vertical-align:top}td+td{text-align:right}ul{padding-left:20px;margin:4px 0}footer{padding:16px 0;font-size:13px;color:#5d6662}`;
+table{border-collapse:collapse;width:100%}td{padding:4px 0;vertical-align:top}td+td{text-align:right}ul{padding-left:20px;margin:4px 0}footer{padding:16px 0;font-size:13px;color:#5d6662}footer a.runs-on{display:inline-flex;align-items:center;min-height:24px}@media (pointer:coarse){footer a.runs-on{min-height:44px}}`;
 
 function page(o: { lang: Lang; title: string; description: string; canonical: string; brand: string; body: string; jsonLd: unknown[]; other: string }) {
   return `<!doctype html><html lang="${o.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -41,7 +41,7 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl:
   const policies = (l: Lang, cl: Links) => [cl.terms_url && `<a href="${h(cl.terms_url)}">${h(t(l, "ui.club_terms"))}</a>`,
     cl.privacy_policy_url && `<a href="${h(cl.privacy_policy_url)}">${h(t(l, "ui.club_privacy"))}</a>`].filter(Boolean).join(" · ");
   // "Runs on Kumi" only on Kumi's hosted service; a club running openPadel itself names no product to the public.
-  const footer = (l: Lang, cl: Links) => `<footer>${policies(l, cl) ? `<p>${policies(l, cl)}</p>` : ""}${isHosted() ? `<p><a href="${HOSTED_URL}">${h(t(l, "pub.footer"))}</a></p>` : ""}</footer>`;
+  const footer = (l: Lang, cl: Links) => `<footer>${policies(l, cl) ? `<p>${policies(l, cl)}</p>` : ""}${isHosted() ? `<p><a class="runs-on" href="${HOSTED_URL}">${h(t(l, "pub.footer"))}</a></p>` : ""}</footer>`;
   const off = (c: Context<any>) => c.text("Not found", 404);
   const html = (c: Context<any>, body: string) => { c.header("content-type", "text/html; charset=utf-8"); c.header("cache-control", "public, max-age=300"); return c.body(body); };
 

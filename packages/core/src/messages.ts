@@ -725,7 +725,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return p.people.map((to) => ({ to, kind: "attendance_no_show", params: { what: p.what, when: p.when, by: p.by }, purpose: "account" as const, essential: false, email: true, link: "/places" }));
   },
   async "level.session_set"({ tz }, p: { program: string; starts_at: string; by: string; reason: string; changes: { person_id: string; before: string | null; after: string }[] }) {
-    return p.changes.map((c) => ({ to: c.person_id, kind: "level_set_session", purpose: "account" as const, essential: false, email: true, link: "/level",
+    return p.changes.map((c) => ({ to: c.person_id, kind: c.before === null ? "level_set_session_first" : "level_set_session", purpose: "account" as const, essential: false, email: true, link: "/level",
       params: { program: p.program, when: when(new Date(p.starts_at), tz), by: p.by, reason: p.reason, before: c.before ?? both("plan.level.no_level"), after: c.after } }));
   },
   async "result.resolved"({ db, tz }, p: { game_id: string; outcome: "keep" | "correct" | "set_aside" }) {

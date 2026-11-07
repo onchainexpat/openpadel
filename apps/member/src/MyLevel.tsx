@@ -75,7 +75,8 @@ export function MyLevel() {
       {d.can_claim && !d.import && !rv.open && <BringLevel d={d} send={(input) => preview("level.claim", { person_id: pid, ...input })} />}
       <section class="card">
         <h2>{t("ui.review_title")}</h2>
-        {rv.open ? <p>{t("ui.review_waiting", { date: day(rv.open.created_at) })}</p>
+        {rv.open?.kind === "import" && rv.open.claim ? <p class="meta">{t("ui.review_after_claim", { source: t(`level_source.${rv.open.claim.platform}` as Key) })}</p>
+          : rv.open ? <p>{t("ui.review_waiting", { date: day(rv.open.created_at) })}</p>
           : rv.next_at ? <p class="meta">{t("ui.review_next", { date: day(rv.next_at) })}</p>
           : <>
             <p class="meta">{t("ui.review_help", { count: rv.every })}</p>

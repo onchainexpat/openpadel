@@ -92,7 +92,7 @@ test("the product's name: none on a club's own install; \"Runs on Kumi\" on Kumi
   try {
     setHosted(true);
     const p = await page("/public");
-    assert.match(p.text, /<a href="https:\/\/kumi\.club">Runs on Kumi<\/a>/);
+    assert.match(p.text, /<a class="runs-on" href="https:\/\/kumi\.club">Runs on Kumi<\/a>/);
     assert.match((await page("/public", "es")).text, /Funciona con Kumi/);
     assert.equal((await (await app.request("/club")).json()).hosted, true);
     assert.match(t("en", "ui.payments_point_money"), /Kumi takes no commission/);
