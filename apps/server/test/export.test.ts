@@ -139,7 +139,7 @@ test("the staff app: the owner confirms, gets the passphrase once and the file; 
   assert.equal((await post("/actions/club.export/plan", "robin@example.test")).json.error, "error.need_passkey");
   await src.db.deleteFrom("passkey").execute();
   const p = await post("/actions/club.export/plan", "robin@example.test");
-  assert.equal(p.json.summary, "A file with all of the club's data (members, bookings, payments, programs, settings and documents) to keep, or to run the club's Kumi somewhere else. It's sealed with a passphrase that's shown once, next.");
+  assert.equal(p.json.summary, "A file with all of the club's data (members, bookings, payments, programs, settings and documents) to keep, or to run the club's openPadel somewhere else. It's sealed with a passphrase that's shown once, next.");
   await post(`/runs/${p.json.run_id}/apply`, "robin@example.test");
   assert.equal((await post(`/staff/export/${p.json.run_id}`, "ann@example.test")).status, 403);   // not Ann's: staff pages aren't hers
   const made = await post(`/staff/export/${p.json.run_id}`, "robin@example.test");

@@ -67,7 +67,7 @@ test("after a real restore, the jobs make three notices again; none goes twice, 
   const first = await mail(hours(T1, 1));
   const expected = ["ann@example.test: Courts resurfaced", "robin@example.test: Support access ended: Ada", "robin@example.test: Copy: Courts resurfaced"];
   for (const e of expected) assert.ok(first.includes(e), `went before the restore: ${e} (went: ${first.join(" | ")})`);
-  assert.ok(first.some((m) => m.startsWith("robin@example.test: ") && /Kumi ends on/.test(m)), `the week's reminder went (went: ${first.join(" | ")})`);
+  assert.ok(first.some((m) => m.startsWith("robin@example.test: ") && /openPadel ends on/.test(m)), `the week's reminder went (went: ${first.join(" | ")})`);
   const sentBefore = await db.selectFrom("outbound_message").select(["kind", "person_id", "sent_at"]).where("channel", "=", "email").where("status", "=", "sent")
     .where("sent_at", ">", hours(T0, 1)).execute();
 
@@ -98,5 +98,5 @@ test("after a real restore, the jobs make three notices again; none goes twice, 
   assert.equal(await remindLeaving(db, at10(10)), "day");
   const later = await mail(hours(at10(10), 1));
   assert.ok(later.includes("ann@example.test: Lights fixed"), later.join(" | "));
-  assert.ok(later.some((m) => m.startsWith("robin@example.test: ") && /Kumi ends/.test(m)), later.join(" | "));
+  assert.ok(later.some((m) => m.startsWith("robin@example.test: ") && /openPadel ends/.test(m)), later.join(" | "));
 });

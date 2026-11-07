@@ -40,7 +40,7 @@ test("payments found after a restore: \"After a restore\", what to do in Reports
   assert.equal(m?.kind, "ops_restore_staff");
   assert.equal(m!.subject, "After a restore: card payments to look at");
   assert.equal(m!.body, "2 card payments the payment provider took have no record here: refund each, or record it as paid elsewhere, in Reports under \"Paid with nothing here\". Confirmations sent after the backup may refer to things this copy doesn't have.");
-  assert.doesNotMatch(`${m!.subject} ${m!.body}`, /failed|kumi doctor|\(s\)/);
+  assert.doesNotMatch(`${m!.subject} ${m!.body}`, /failed|openpadel doctor|kumi doctor|\(s\)/);
   assert.equal(m!.link, "/reports", "it opens where they're handled");
   const open = await staffAlerts(db, owner.personId!, NOW);
   assert.equal(open.open.filter((o) => o.kind === "ops_restore_staff").length, 1, "on Today");
