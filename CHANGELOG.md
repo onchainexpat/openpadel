@@ -7,7 +7,11 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.4.0 (2026-11-07)
+
+The club's commands for agents and people (`openpadel`, from any computer), the new name openPadel with members
+reading only their club's name, a starting level brought from another app, and assistants that never reach further
+than their person allowed. Every club should update.
 
 ### Added
 - **The phone apps, written down** ([docs/setup/apps.md](docs/setup/apps.md)): the members' and staff apps install
@@ -15,15 +19,15 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   Google Play and the App Store need the club's own developer accounts in its company's name (a D-U-N-S number, 99 USD
   a year at Apple, 25 USD once at Google), their forms and reviews. openPadel doesn't build store apps yet. Linked
   from the README, the setup guide (step 5l), AGENTS.md and the setup skill (now `openpadel-setup`).
-- **The club's commands from any computer, for agents and people** (`kumi`, [docs/cli](docs/cli/README.md)).
-  - `kumi login <the club's address>` signs in in the browser, or with `--device` by a code typed and allowed on the
+- **The club's commands from any computer, for agents and people** (`openpadel`, [docs/cli](docs/cli/README.md)).
+  - `openpadel login <the club's address>` signs in in the browser, or with `--device` by a code typed and allowed on the
     club's page from a phone, for a server or an agent's machine with no browser of its own. It signs in only at the
     club's own addresses, over https.
   - It's an ordinary assistant connection: in Profile, Assistants, with its weekly spending limit, and ended there or
-    by `kumi logout`.
-  - Then every read and change the club's assistant connector offers is a command: `kumi day`, `kumi people maria`,
-    `kumi program create`, `kumi enrolment join`. Each change previews first and changes nothing until
-    `kumi confirm <run_id>` or `--yes`, and the same command asked twice is done once (asked again after a
+    by `openpadel logout`.
+  - Then every read and change the club's assistant connector offers is a command: `openpadel day`, `openpadel people maria`,
+    `openpadel program create`, `openpadel enrolment join`. Each change previews first and changes nothing until
+    `openpadel confirm <run_id>` or `--yes`, and the same command asked twice is done once (asked again after a
     different change to the same thing, it's a new change). A `--key` names one change: used again for another, it's
     refused. The previews it keeps are the signed-in person's.
   - Staff can give names where ids go (`--person "Maria Lopez"`), and a time without a zone is on the club's clock.
@@ -128,6 +132,18 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   staff app's Settings). Each now keeps its size.
 - The staff app's courts' day and a person's page say what a promo code took off a booking paid in full, "Paid $48.00
   ($12.00 off with a code)", the way the members' app does, so a $60 court doesn't look $12 short.
+
+### When updating
+- The database changes (098 and 099) apply by themselves as the server starts. The update snapshots the database
+  first, and `sudo kumi rollback --yes` goes back to 0.3.1 with it. On Docker, `deploy/docker/update.sh v0.4.0`.
+- **The command is `openpadel` now.** `kumi` still works, and a server gets `openpadel` beside it at this update. The
+  settings keep their `KUMI_` names, and nothing in `/etc/kumi/kumi.env` changes.
+- **Assistants and the command line:** where the club asks a second step at sign-in (owners and managers, by default),
+  a staff member's connection made before this update works as a member's until they connect it again (Profile,
+  Assistants). They're told once. Someone made staff after connecting an assistant as a member, before this update,
+  keeps that connection's reach: end it from their page if that isn't wanted.
+- **A host running clubs for others** sets `KUMI_HOSTED=1` (kumi-hosted does), so staff read "Kumi" and members see
+  "Runs on Kumi". A club running openPadel itself sets nothing.
 
 ### Known limits
 - No app store apps yet: the members' and staff apps install from the club's own address ([the phone apps](docs/setup/apps.md)).
