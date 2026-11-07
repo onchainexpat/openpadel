@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { hostname as osHostname } from "node:os";
 import { join } from "node:path";
-import { both, pickLang, t, type Key, type Lang, type Params } from "@kumi/i18n";
+import { both, COMMAND, pickLang, t, type Key, type Lang, type Params } from "@kumi/i18n";
 import { appOnly } from "@kumi/core";
 import { Store, clubKey, type ClubEntry, type RunEntry, type Tokens } from "./cli_store.ts";
 import { actionNamed, catalogueAction, clubTime, commands, example, findCommand, FINDERS, flagOf, match, parseInput, typeWords, UsageError, type Command, type Entity, type Parsed } from "./cli_commands.ts";
@@ -211,7 +211,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     if (found) {
       const c = found.cmd;
       if (g.json) { emit({ status: "ok", data: describe(c) }); return EXIT.done; }
-      d.out(`kumi ${c.words.join(" ")}: ${c.title[lang]}`);
+      d.out(`${COMMAND} ${c.words.join(" ")}: ${c.title[lang]}`);
       if (c.kind === "read") d.out(c.description);
       if (c.props.length) {
         d.out("");
@@ -221,7 +221,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
       if (c.kind === "action") d.out(`\n${say("cli.help_preview_first")}`);
       return EXIT.done;
     }
-    if (g.json) { emit({ status: "ok", data: { commands: commands().map((c) => ({ command: `kumi ${c.words.join(" ")}`, kind: c.kind, title: c.title[lang], staff: c.staff ?? undefined })) } }); return EXIT.done; }
+    if (g.json) { emit({ status: "ok", data: { commands: commands().map((c) => ({ command: `${COMMAND} ${c.words.join(" ")}`, kind: c.kind, title: c.title[lang], staff: c.staff ?? undefined })) } }); return EXIT.done; }
     d.out(say("cli.club_usage"));
     const reads = commands().filter((c) => c.kind === "read");
     d.out(`\n${say("cli.help_reads")}`);
@@ -233,7 +233,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     return EXIT.done;
   }
   function describe(c: Command) {
-    return { command: `kumi ${c.words.join(" ")}`, kind: c.kind, tool: c.tool, action: c.action, title: c.title[lang], description: c.description, staff: c.staff ?? false,
+    return { command: `${COMMAND} ${c.words.join(" ")}`, kind: c.kind, tool: c.tool, action: c.action, title: c.title[lang], description: c.description, staff: c.staff ?? false,
       flags: c.props.map((p) => ({ flag: `--${flagOf(p)}`, input: p.key, takes: typeWords(p), needed: p.required, description: p.description ?? null, choices: p.enum ?? null })),
       example: example(c), input_schema: c.schema };
   }
@@ -261,7 +261,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     if (notSafe) throw stop(EXIT.refused, "cli.not_safe_club", { url, where: notSafe });
     const register = async (redirect: string) => {
       const r = await d.fetch(as.registration_endpoint, { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ client_name: `kumi (${d.hostname})`.slice(0, 80), redirect_uris: [redirect], token_endpoint_auth_method: "none", software_id: "kumi-cli" }) })
+        body: JSON.stringify({ client_name: `${COMMAND} (${d.hostname})`.slice(0, 80), redirect_uris: [redirect], token_endpoint_auth_method: "none", software_id: "kumi-cli" }) })
         .catch((e) => { throw stop(EXIT.unreachable, "cli.unreachable", { club: clubName, why: (e as Error).message }); });
       if (r.status === 429) throw stop(EXIT.unreachable, "cli.unreachable", { club: clubName, why: "too many sign-ins from here; wait a while" });
       if (!r.ok) throw stop(EXIT.unreachable, "cli.unreachable", { club: clubName, why: `HTTP ${r.status}` });
@@ -285,7 +285,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
         store.setPending(url, p);
       }
       if (g.json && (noWait || started)) emit({ status: "waiting_sign_in", club: url, link: p.link, code: p.user_code, expires_at: new Date(p.expires_at).toISOString(),
-        next: noWait ? `kumi login ${url} --device` : null });
+        next: noWait ? `${COMMAND} login ${url} --device` : null });
       else if (!g.json && started) { d.out(say("cli.login_open", { club: clubName, url: p.link })); d.out(say("cli.login_code", { code: p.user_code })); }
       if (noWait && started) return EXIT.sign_in_waiting;
       let interval = p.interval;
@@ -295,7 +295,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
         const why = r.body.error;
         if (why === "authorization_pending" || why === "slow_down") {
           if (why === "slow_down") interval += 5;
-          if (noWait) { if (!g.json) d.out(say("cli.login_still_waiting", { url })); else emit({ status: "waiting_sign_in", club: url, link: p.link, code: p.user_code, next: `kumi login ${url} --device` }); return EXIT.sign_in_waiting; }
+          if (noWait) { if (!g.json) d.out(say("cli.login_still_waiting", { url })); else emit({ status: "waiting_sign_in", club: url, link: p.link, code: p.user_code, next: `${COMMAND} login ${url} --device` }); return EXIT.sign_in_waiting; }
           if (d.now() > p.expires_at) { store.setPending(url, null); throw stop(EXIT.signed_out, "cli.login_expired"); }
           await d.sleep(interval * 1000);
           continue;
@@ -394,7 +394,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
 
   // ---- Running a command ----
   function failed(a: Answer & { ok: false }, cmd?: Command): number {
-    if (a.missing) return fail(stop(EXIT.refused, "cli.not_offered", { command: cmd ? `kumi ${cmd.words.join(" ")}` : "kumi" }));
+    if (a.missing) return fail(stop(EXIT.refused, "cli.not_offered", { command: cmd ? `${COMMAND} ${cmd.words.join(" ")}` : COMMAND }));
     return fail(new Stop(exitOf(a.key, a.status), a.key ?? "cli.club_said", { en: a.text, es: a.text }));
   }
   /** --input: the whole input as JSON (written there, in a file, or - for what's piped in), which flags then change. */
@@ -467,7 +467,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     }
     if (!g.yes) {
       const until = new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { timeZone: club.e.time_zone, hour: "numeric", minute: "2-digit" }).format(new Date(v.expires_at));
-      if (g.json) emit({ status: "preview", run_id: v.run_id, summary: v.summary, undo: v.undo, expires_at: v.expires_at, confirm: `kumi confirm ${v.run_id}` });
+      if (g.json) emit({ status: "preview", run_id: v.run_id, summary: v.summary, undo: v.undo, expires_at: v.expires_at, confirm: `${COMMAND} confirm ${v.run_id}` });
       else { d.out(say("cli.preview_heading")); d.out(`  ${v.summary}`); d.out(say("cli.preview_next", { run: v.run_id, until })); }
       return EXIT.preview;
     }

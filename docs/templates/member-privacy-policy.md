@@ -9,7 +9,7 @@ Effective [EFFECTIVE DATE].
 This policy is from [CLUB LEGAL NAME] ("the club", "we", "us"), of [CLUB ADDRESS]. It says what we do with your
 information when you use the club's app at [MEMBERS' APP ADDRESS], book with us, or are a member of the club.
 
-Our app runs on Kumi, open-source club software. [IF THE CLUB'S KUMI IS HOSTED: Kumi's hosted service runs it for
+Our app runs on openPadel, open-source club software. [IF THE CLUB IS ON KUMI, THE HOSTED SERVICE: Kumi (kumi.club) runs it for
 us, and handles your information only for us, as we tell it to.] [IF THE CLUB RUNS ITS OWN SERVER: it runs on a
 server the club controls, at [HOSTING PROVIDER].]
 
@@ -82,7 +82,7 @@ We don't sell your information, and we don't share it for advertising.
 ## Who sees your information
 
 **At the club:** the staff who need it. Front desk and coaches see what they need to run bookings and classes;
-the owner and managers see more. Everything a staff member changes is recorded. [IF HOSTED: Kumi's people come into
+the owner and managers see more. Everything a staff member changes is recorded. [IF HOSTED: openPadel's people come into
 the club's app only when the club's owner lets them in for a set time, and everything they do is recorded for the
 owner.]
 
@@ -126,7 +126,7 @@ week, and you can disconnect it in the app at any time.
   about a chat keeps none of its words after it's shown. When you delete your account, your words in chats go too; the other players
   see "message removed".
 - Backups keep a copy for a while after: [BACKUP DAYS ON THE SERVER] days on the server, and up to
-  [OFFSITE DAILY DAYS] days (monthly copies [OFFSITE MONTHLY MONTHS] months) offsite. *Note: with Kumi's defaults
+  [OFFSITE DAILY DAYS] days (monthly copies [OFFSITE MONTHLY MONTHS] months) offsite. *Note: with openPadel's defaults
   that's 14 days, 30 days and 12 months.* If we ever put a backup back, anything you deleted or took back since it
   was made (your account, a chat message, a sign-in, a no to messages) is deleted or taken back again, as long as
   the app can still read what it replaces. If it can't (the server it replaces was lost), we use the most recent

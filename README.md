@@ -1,12 +1,15 @@
-# Kumi
+# openPadel
 
-Free, open-source software (AGPL-3.0) that runs a padel club: bookings, payments, memberships,
-open matches, clinics and fair levels, with the club's own app in its colour and a staff app that
+Free and open source padel software (AGPL-3.0) that runs a club: bookings, payments, memberships,
+open matches, clinics and fair levels, with the club's own app in its name and colour and a staff app that
 works on a phone. Members can ask the club questions in the app, and members and staff can connect
-their own AI assistant (Claude, ChatGPT). A club runs it on its own server; a hosted service is
-planned.
+their own AI assistant (Claude, ChatGPT), or work from a terminal with the `openpadel` command. A club runs it
+on its own server, or [Kumi](https://kumi.club), the hosted service, runs it for them.
 
-**Status:** 0.3.0. Self-hosted; English and US Spanish; a club's own currency, formats and tax; texts
+openPadel was called Kumi until 7 November 2026. The `kumi` command still works, and the settings, paths and
+packages keep their `kumi` names.
+
+**Status:** 0.3.1. Self-hosted, or hosted by Kumi; English and US Spanish; a club's own currency, formats and tax; texts
 to US and Canadian numbers only. What it does is in [`CHANGELOG.md`](CHANGELOG.md) (0.1.0, and what each release added since),
 and its known limits are under the newest release there.
 
@@ -15,16 +18,23 @@ and its known limits are under the newest release there.
 Start at [`docs/setup/README.md`](docs/setup/README.md): the order, who does what, and a guide for
 each outside account (server, email, Stripe, Playtomic). It's written so an AI agent such as Claude
 Code can do most of it with the owner, under the rules at the top of [`AGENTS.md`](AGENTS.md). On the
-server, `kumi setup plan` and `kumi setup apply` turn a `club.yaml` (see
-[`club.example.yaml`](club.example.yaml)) into the club, and `kumi doctor` says what still needs
+server, `openpadel setup plan` and `openpadel setup apply` turn a `club.yaml` (see
+[`club.example.yaml`](club.example.yaml)) into the club, and `openpadel doctor` says what still needs
 doing.
 
 ## Working the club from a terminal
 
-`kumi login https://staff.yourclub.com` signs an agent (or a person) in, and then the club's day runs from the command
-line: `kumi day`, `kumi people maria`, `kumi program create ...`. Each change previews first, and it never does more
+`openpadel login https://staff.yourclub.com` signs an agent (or a person) in, and then the club's day runs from the command
+line: `openpadel day`, `openpadel people maria`, `openpadel program create ...`. Each change previews first, and it never does more
 than the person could in the app. See [`docs/cli`](docs/cli/README.md); every command is in
 [`docs/cli/reference.md`](docs/cli/reference.md).
+
+## The phone apps
+
+The members' app and the staff app install from the club's own address, with the club's name, icon and colour:
+on Android from Chrome, on an iPhone with Share, Add to Home Screen. That's free, fast to ship and updated the moment
+the club updates, with no store review. Store apps for Google Play and the App Store take more: the club's own
+developer accounts in its company's name, their fees and reviews. See [the phone apps](docs/setup/apps.md).
 
 ## Layout
 
@@ -48,7 +58,7 @@ reasons and measurements are added to `docs/` as design notes, part by part.
 
 ## Development
 
-The rest of this page is for working on Kumi's code on your own machine. On a club's server the same
+The rest of this page is for working on openPadel's code on your own machine. On a club's server the same
 settings go in `/etc/kumi/kumi.env`; see [`docs/settings.md`](docs/settings.md) and the setup guide.
 Needs Node 24 and Docker.
 
@@ -57,7 +67,7 @@ npm install
 docker run -d --rm --name kumi-dev-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:17.9-alpine
 docker exec kumi-dev-pg createdb -U postgres kumi
 node apps/server/src/seed.ts                                   # a demo club, owner owner@kestrel.test
-# or instead of seed.ts: npm run kumi -- setup apply club.example.yaml
+# or instead of seed.ts: npm run openpadel -- setup apply club.example.yaml
 KUMI_PUBLIC_URL=http://localhost:5173 node apps/server/src/main.ts   # API on 8790; emailed codes go to its log
 npm run dev -w @kumi/manager                                    # the staff app on http://localhost:5173
 npm run dev -w @kumi/member                                     # the members' app on http://localhost:5174
@@ -68,7 +78,7 @@ Open the staff app at `localhost` (not `127.0.0.1`), so passkeys and the session
 
 ### Messages and email
 
-Kumi tells people what happened: a place offered from the waitlist, a removal and what happens to the
+openPadel tells people what happened: a place offered from the waitlist, a removal and what happens to the
 money, a payment, a sub taking a place, and, for staff, a refund that failed or a clash with Playtomic.
 Each lands in the in-app inbox at once; the email copy goes from a job every 30 seconds. Confirmations,
 removals and money go straight away; the rest wait out quiet hours (9 pm to 8 am, club time) and are
@@ -88,7 +98,7 @@ KUMI_RESEND_API_KEY=re_… KUMI_MAIL_FROM="Kestrel Padel <hello@kestrelpadel.exa
 
 Without Stripe keys the server uses a stand-in, and the members' app shows a "Pay (test)" button.
 With a Stripe **test** key it takes real test-mode card payments through Stripe's own card form
-(card details go from the browser to Stripe and never reach Kumi), and refunds go back to the card:
+(card details go from the browser to Stripe and never reach openPadel), and refunds go back to the card:
 
 ```bash
 KUMI_STRIPE_SECRET_KEY=sk_test_… KUMI_STRIPE_PUBLISHABLE_KEY=pk_test_… node apps/server/src/main.ts
@@ -104,11 +114,11 @@ any future date, any CVC. For webhooks locally: `stripe listen --forward-to 127.
 Payments are cards only. Apple Pay and Google Pay are cards underneath, so every payment refunds the
 same way, straight back to the card.
 
-**Stripe Connect, for the planned hosted service** (`KUMI_STRIPE_CONNECT=1`; a club running Kumi
-itself leaves it off and uses its own keys): the key is Kumi's platform key, and each
+**Stripe Connect, for Kumi, the hosted service** (`KUMI_STRIPE_CONNECT=1`; a club running openPadel
+itself leaves it off and uses its own keys): the key is openPadel's platform key, and each
 club connects its own Stripe account from the manager's Payments page ("Connect with Stripe", then
 Stripe's own setup pages). Every payment is made on the club's account, so the money, the payouts,
-Stripe's fees and any dispute are the club's; Kumi takes no commission and never holds the club's key.
+Stripe's fees and any dispute are the club's; openPadel takes no commission and never holds the club's key.
 No payment is taken until Stripe says the club's account is ready, and none ever lands in the
 platform's own account. Only the owner sets the account (a manager can ask), with a passkey sign-in if
 they have one. Each payment remembers its account, so a refund goes back through it even after the
@@ -118,7 +128,7 @@ from connected accounts.
 ### Going back to a minute
 
 Besides the nightly backup (kept 14 days on the server, and 30 days and 12 months offsite, sealed), Postgres's
-log goes to pgBackRest at least once a minute, so `sudo kumi restore --to="2026-11-03 14:05" --yes` can put the
+log goes to pgBackRest at least once a minute, so `sudo openpadel restore --to="2026-11-03 14:05" --yes` can put the
 database back as it was at any minute of the last two weeks (a month, offsite). Nothing the club had already sent
 goes out again after a restore, no card is charged or refunded twice, and nothing taken away on request since that
 minute comes back (a deleted account, words taken back, a sign-in ended, a no to messages). The target: lose at most about a minute,
@@ -126,18 +136,18 @@ back within an hour. See [offsite backups](docs/setup/accounts/offsite-backups.m
 
 ### A club can always leave
 
-The owner's "Download everything" (Settings) and `kumi export` make one file with all of the club's data
-and settings, sealed with a passphrase; `kumi restore <file>` puts it into another install of the same
-Kumi or a newer one. A host can make a club read-only (`kumi read-only on`) when its account isn't paid:
+The owner's "Download everything" (Settings) and `openpadel export` make one file with all of the club's data
+and settings, sealed with a passphrase; `openpadel restore <file>` puts it into another install of the same
+openPadel or a newer one. A host can make a club read-only (`openpadel read-only on`) when its account isn't paid:
 everyone still signs in, cancels and downloads their data, and nothing new is booked or charged. Before a
-club's Kumi ends, `kumi leaving on --date=...` tells the owners at once, and again a week and a day before, to
+club's openPadel ends, `openpadel leaving on --date=...` tells the owners at once, and again a week and a day before, to
 download everything. On the new server, what was still waiting to go out on the old one is held, so
-nobody hears it twice, until `kumi held send` or `kumi held drop`. See
+nobody hears it twice, until `openpadel held send` or `openpadel held drop`. See
 [docs/setup](docs/setup/README.md#moving-the-club-and-read-only).
 
 ### Running beside Playtomic
 
-A club on Playtomic can keep it for court bookings while Kumi runs its events. Kumi copies the
+A club on Playtomic can keep it for court bookings while openPadel runs its events. openPadel copies the
 club's Playtomic bookings in, read-only, so it never puts an event on a court Playtomic has sold.
 It never writes to Playtomic. The club creates Third Party API keys in Playtomic (its top two
 plans include them) and the server reads them from its environment:
@@ -147,27 +157,27 @@ KUMI_PLAYTOMIC_CLIENT_ID=… KUMI_PLAYTOMIC_SECRET=… KUMI_PLAYTOMIC_TENANT_ID=
 # optional: KUMI_MIRROR_EVERY_MINUTES (10), KUMI_MIRROR_DAYS_AHEAD (30), KUMI_MIRROR_FAR_EVERY_HOURS (6), KUMI_MIRROR_PAGE_SECONDS (60)
 ```
 
-Then staff link each Playtomic court to a Kumi court on the manager's Playtomic page. What a
+Then staff link each Playtomic court to an openPadel court on the manager's Playtomic page. What a
 copied booking does:
 
-- **On a free court:** it holds the court in Kumi, whatever kind of booking it is.
-- **The club's own Playtomic tournament or open play over a Kumi event:** taken as the club
-  holding the court for it. A Kumi event can also be added inside one that came first. (Court
+- **On a free court:** it holds the court in openPadel, whatever kind of booking it is.
+- **The club's own Playtomic tournament or open play over an openPadel event:** taken as the club
+  holding the court for it. An openPadel event can also be added inside one that came first. (Court
   blocks made in Playtomic don't come through its API at all, so they never clash.)
-- **Anything else over a Kumi event:** a clash, listed for staff and said once. That's a player's
+- **Anything else over an openPadel event:** a clash, listed for staff and said once. That's a player's
   booking (one-off, or a recurring one the club made for them), an open or league match, a lesson,
-  a class or a course, and any kind of booking Kumi doesn't know (one Playtomic adds later).
-- **Cancelled or gone in Playtomic:** the court is free again in Kumi.
+  a class or a course, and any kind of booking openPadel doesn't know (one Playtomic adds later).
+- **Cancelled or gone in Playtomic:** the court is free again in openPadel.
 
-It reads the next 30 days every 10 minutes. Further ahead, as far as members can book or Kumi has
+It reads the next 30 days every 10 minutes. Further ahead, as far as members can book or openPadel has
 anything on a linked court (a year at most), it reads 30 days at a time after each of those reads,
 each 30 days again every 6 hours. Pages of bookings stay a minute apart, whichever read they're for.
 
 ### What outside services cost: one monthly cap
 
 AI (the decisions "ask the club" makes, and drafts of the club's words in its other language), texts and
-email each cost the club something, so Kumi counts them in the club's month, in dollars, on one meter: the
-staff app's Usage page, `kumi usage` on the server (`--json` for a host's bill), and `kumi doctor`. The owner
+email each cost the club something, so openPadel counts them in the club's month, in dollars, on one meter: the
+staff app's Usage page, `openpadel usage` on the server (`--json` for a host's bill), and `openpadel doctor`. The owner
 sets one monthly cap ($50 to start) and can allow an amount over it for a busy month; a manager can ask.
 At 80% of the cap and at the cap the owner and managers hear once each. Past the cap and what's allowed over
 it, what can wait waits until the 1st: no drafts, club news emails go when the month starts, and texts that

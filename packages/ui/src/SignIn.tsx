@@ -45,7 +45,7 @@ export function SignIn() {
   });
   const switchTo = (to: "email" | "phone") => { setBy(to); setSent(false); setCode(""); setError(null); };
 
-  const clubName = club.value?.name ?? "Kumi";
+  const clubName = club.value?.name ?? "";
   // Keyed, so Preact builds the join form fresh: reusing the code box would carry its digits-only pattern into the name.
   if (ticket) return (
     <main class="card" key="join">

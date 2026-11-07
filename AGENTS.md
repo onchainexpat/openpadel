@@ -1,45 +1,50 @@
-# Kumi, for agents and people
+# openPadel, for agents and people
 
-Kumi is free, open-source software that runs a padel club (see `README.md`). This file is read by
+openPadel is free and open source padel software that runs a club (see `README.md`). It was called Kumi until
+7 November 2026: the `kumi` command still works, and settings, paths and packages keep their `kumi` names. This file is read by
 coding agents such as Claude Code and Codex. There are two jobs, with their own rules:
 
-- **Setting up Kumi for a club** (an owner, or the owner's agent): start at
+- **Setting up openPadel for a club** (an owner, or the owner's agent): start at
   [`docs/setup/README.md`](docs/setup/README.md) and follow the rules just below.
 - **Working a club day to day** (an owner's, a desk's or a coach's agent): use the command line first,
-  [`docs/cli/README.md`](docs/cli/README.md). `kumi login <the staff app's address> --device --no-wait --json`
-  gives a link and a code for the person to allow, then `kumi help`. Every change previews first: show the
+  [`docs/cli/README.md`](docs/cli/README.md). `openpadel login <the staff app's address> --device --no-wait --json`
+  gives a link and a code for the person to allow, then `openpadel help`. Every change previews first: show the
   person the preview's words and confirm only on their say-so. Chat assistants (Claude, ChatGPT) use the club's
   connector at `/mcp` instead: the same tools, the same rules.
-- **Changing Kumi's code:** the rules further down.
+- **Changing openPadel's code:** the rules further down.
 
 ## Setting up a club: the rules
-1. **Run `kumi doctor --json` first and after every step,** and fix the first `fail`. `off` means an
+1. **Run `openpadel doctor --json` first and after every step,** and fix the first `fail`. `off` means an
    optional piece the club hasn't chosen (texts, Playtomic, ask the club); the `warn`s that say
    practice mode stay until go-live. Follow the order of [`docs/setup/README.md`](docs/setup/README.md),
    not the order of the checks: Stripe comes before texts. Each check names the guide that fixes it.
 2. **Never ask the owner to paste a secret into the chat** (API keys, passwords, codes). Tell them
    which setting it is and where it goes (`/etc/kumi/kumi.env` on the server), and let them type it
-   there themselves. Never print the settings file or a key. `kumi export` and restoring an export ask
+   there themselves. Never print the settings file or a key. `openpadel export` and restoring an export ask
    for the file's passphrase: the owner runs those in their own terminal and types it.
 3. **Never ask for a Social Security number, ID, bank account or card details.** Stripe collects
    those on its own pages, from the owner directly.
 4. **The owner creates every outside account** (domain, server, Stripe, Resend, Playtomic API keys)
    and does every step that asks for identity, payment or a legal promise. You tell them exactly
    what to click and what to choose.
-5. **Preview before changing:** `kumi setup plan` before `kumi setup apply`, and show the owner the
-   plan. Change the club only through `kumi` and the apps, never in the database directly.
+5. **Preview before changing:** `openpadel setup plan` before `openpadel setup apply`, and show the owner the
+   plan. Change the club only through `openpadel` and the apps, never in the database directly.
 6. **Nothing reaches real members or real money during setup.** Keep practice mode on, use test
    Stripe keys, and only turn either off when the owner says so in their own words.
 7. **Offsite backups before go-live** ([docs/setup/accounts/offsite-backups.md](docs/setup/accounts/offsite-backups.md)):
-   the owner creates the storage and its key; you run `kumi backup`, `kumi offsite` and
-   `kumi restore-test` until `kumi doctor` shows `offsite` and `restore_test` as `ok`. Ask the owner to
+   the owner creates the storage and its key; you run `openpadel backup`, `openpadel offsite` and
+   `openpadel restore-test` until `openpadel doctor` shows `offsite` and `restore_test` as `ok`. Ask the owner to
    keep `KUMI_BACKUP_KEY` and `KUMI_SECRET_KEY` in a password manager, looking at them in their own
    terminal; you never read them.
 8. **Updates go through `deploy/ship.sh`** (or `deploy/docker/update.sh`), which snapshot the database and
-   put everything back by themselves if the new release doesn't come up. `sudo kumi rollback --yes` loses
+   put everything back by themselves if the new release doesn't come up. `sudo openpadel rollback --yes` loses
    what happened since the update: only with the owner's say-so, in their own words.
+9. **The phone apps install from the club's own address** ([docs/setup/apps.md](docs/setup/apps.md)): tell the
+   owner so. Store apps (Google Play, the App Store) need the club's own developer accounts, in its company's name,
+   with their fees: the owner enrols and pays for those; you never enrol one for them. openPadel doesn't build store
+   apps yet.
 
-## Changing Kumi's code
+## Changing openPadel's code
 
 ### Read first
 Design notes are added to `docs/` as each part needs them. Until a part has one, the code, its tests

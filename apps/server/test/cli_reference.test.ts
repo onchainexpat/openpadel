@@ -24,7 +24,7 @@ test("docs/cli/reference.md is current: node tools/gen_cli_reference.ts makes it
 
 test("every command is in the reference, and none has a flag spelled twice or a name that's another's start", () => {
   const md = readFileSync(new URL("../../../docs/cli/reference.md", import.meta.url), "utf8");
-  for (const c of commands()) assert.ok(md.includes(`kumi ${c.words.join(" ")}\n`), c.words.join(" "));
+  for (const c of commands()) assert.ok(md.includes(`openpadel ${c.words.join(" ")}\n`), c.words.join(" "));
   const words = commands().map((c) => c.words.join(" "));
   assert.equal(new Set(words).size, words.length);
   for (const w of words) assert.ok(!words.some((x) => x.startsWith(`${w} `)), `${w} is the start of another command`);
@@ -33,15 +33,15 @@ test("every command is in the reference, and none has a flag spelled twice or a 
 
 /** A line of shell as its words: "double quotes" and 'single' keep spaces. */
 const words = (line: string) => [...line.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]!);
-test("every kumi command in the guide (docs/cli/README.md) is a real command with flags it takes", () => {
+test("every openpadel command in the guide (docs/cli/README.md) is a real command with flags it takes", () => {
   const md = readFileSync(new URL("../../../docs/cli/README.md", import.meta.url), "utf8");
   const own = new Set(["login", "logout", "whoami", "clubs", "use", "confirm", "help", "schema"]);
   let checked = 0;
   for (const raw of md.split("\n")) {
     const line = raw.replace(/^\$ /, "").replace(/\s+#.*$/, "").trim();
-    if (!line.startsWith("kumi ") || line.includes("<")) continue;
+    if (!line.startsWith("openpadel ") || line.includes("<")) continue;
     const { rest } = globalsOf(words(line).slice(1));
-    if (own.has(rest[0]!) || line === "kumi waiver accept") continue;   // the guide's example of what's only done in the app
+    if (own.has(rest[0]!) || line === "openpadel waiver accept") continue;   // the guide's example of what's only done in the app
     const found = findCommand(rest);
     assert.ok(found, line);
     assert.doesNotThrow(() => parseInput(found!.cmd, found!.rest), line);

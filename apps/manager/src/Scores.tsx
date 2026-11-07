@@ -3,7 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { api, lang, t, usePreview } from "@kumi/ui";
-import { formatLocale } from "@kumi/i18n/format";
+import { formatLocale, productName } from "@kumi/i18n/format";
 
 type Score = { id: string; status: string; rated: boolean; played_at: string; court: string; time_zone: string; sets: { a: number; b: number }[]; a: string[]; b: string[];
   answers: { answer: string; note: string | null; at: string; display_name: string | null }[] };
@@ -24,7 +24,7 @@ export function Scores() {
         <section class="card">
           <p><strong>{s.a.join(" & ")} {s.sets.map((x) => `${x.a}-${x.b}`).join(" ")} {s.b.join(" & ")}</strong>{s.status === "disputed" && <> <span class="badge warn">{t("ui.disputed")}</span></>}</p>
           <p class="meta">{s.court} · {when(s)} · {t(s.rated ? "ui.match_rated" : "ui.match_friendly")} · {t(`ui.score_status_${s.status}` as Key)}</p>
-          <ul class="plain">{s.answers.map((a) => <li class="meta">{a.display_name ?? "Kumi"}: {t(`ui.answer_${a.answer}` as Key)}{a.note ? ` ("${a.note}")` : ""}</li>)}</ul>
+          <ul class="plain">{s.answers.map((a) => <li class="meta">{a.display_name ?? productName()}: {t(`ui.answer_${a.answer}` as Key)}{a.note ? ` ("${a.note}")` : ""}</li>)}</ul>
           {s.status === "disputed" && <Decide s={s} send={preview} />}
         </section>
       ))}

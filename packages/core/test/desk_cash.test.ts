@@ -58,7 +58,7 @@ test("a membership sold at the desk: one period, in the books as cash, and it do
   const p = await plan(db, "membership.sell", { person_id: people.Ann, plan_id: monthly, cents: 8000, method: "cash" }, desk, opts);
   assert.equal(p.plan.summary.en, "Ann becomes a Monthly member until December 3, 2026: $80.00 paid in cash. It doesn't renew by itself.");
   await rejects(plan(db, "membership.sell", { person_id: people.Ann, plan_id: monthly, cents: 9000, method: "cash" }, desk, opts), "error.more_than_owed_membership",
-    "Only $80.00 is owed on this membership, so $90.00 can't be recorded. Record $80.00 or less; Kumi keeps no credit for later.");
+    "Only $80.00 is owed on this membership, so $90.00 can't be recorded. Record $80.00 or less; openPadel keeps no credit for later.");
   const r = (await run(db, "membership.sell", { person_id: people.Ann, plan_id: monthly, cents: 8000, method: "cash" }, desk, opts)).result as { membership_id: string; payment_id: string };
   const m = await membership("Ann");
   assert.deepEqual([m.status, m.source, m.price_cents, m.period, m.balance_cents], ["active", "desk", 8000, "month", 0]);

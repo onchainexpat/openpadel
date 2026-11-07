@@ -11,6 +11,7 @@ export { ProgramCard, placesLeft, type ProgramCardData } from "./ProgramCard.tsx
 export { protectedPost, botProof } from "./pow.ts";
 export { ReceiptSheet, type ReceiptView } from "./Receipt.tsx";
 export { OtherLang, otherLang, savedIn, translationsOf } from "./OtherLang.tsx";
+export { RunsOn } from "./RunsOn.tsx";
 export { Notices, NewOnly } from "./Notices.tsx";
 // Kept from the first screen: Chrome makes its install offer once, early (install.ts).
 export { installOffer } from "./install.ts";

@@ -31,7 +31,7 @@ test("a job that starts failing tells the owner and managers once, not every nig
   assert.equal(mail.length, 4);   // owner and manager, twice
   const en = mail.find((m) => m.lang === "en")!, es = mail.find((m) => m.lang === "es")!;
   assert.equal(en.subject, "Needs a look: the offsite copy of the backup failed");
-  assert.equal(en.body, "On the club's server, the offsite copy of the backup failed: upload kumi/daily/kumi-2026-11-30.dump.enc: HTTP 403 AccessDenied: Access Denied. You're told once, not every time it fails again. Run kumi doctor on the server for the next step.");
+  assert.equal(en.body, "On the club's server, the offsite copy of the backup failed: upload kumi/daily/kumi-2026-11-30.dump.enc: HTTP 403 AccessDenied: Access Denied. You're told once, not every time it fails again. Run openpadel doctor on the server for the next step.");
   assert.equal(es.subject, "Hay que revisarlo: falló la copia externa de la copia de seguridad");
 });
 

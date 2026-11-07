@@ -57,7 +57,7 @@ test("Changes offers Undo only on a change that can be undone", async () => {
 
   // A change that was never an undo doesn't borrow that reason.
   assert.equal((await call("/actions/action.undo/plan", { body: { run_id: setup.id }, cookie })).json.message,
-    "This can't be undone: Kumi has no way to put this one back by itself; make the opposite change instead.");
+    "This can't be undone: openPadel has no way to put this one back by itself; make the opposite change instead.");
 });
 
 test("a refusal says its reason once, for changes kept before the fix too", async () => {

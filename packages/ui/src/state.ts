@@ -3,7 +3,7 @@ import { signal, computed, effect } from "@preact/signals";
 import { h, type ComponentType } from "preact";
 import { lazy } from "preact-iso";
 import { useState } from "preact/hooks";
-import { format, LANGS, pickLang, setClubFormat, type Catalog, type Key, type Lang, type Params, formatLocale } from "@kumi/i18n/format";
+import { format, LANGS, pickLang, setClubFormat, setHosted, type Catalog, type Key, type Lang, type Params, formatLocale } from "@kumi/i18n/format";
 import { brandColours } from "./brand.ts";
 import { wallToMoment } from "./club_clock.ts";
 export { brandColours, contrastOf } from "./brand.ts";
@@ -47,7 +47,9 @@ export type Club = { name: string; brand_colour: string; languages: string[]; de
   /** The club's country (ISO 3166-1): the billing country the card form starts on. */
   country?: string;
   /** Prices that include the tax, and what the club calls it (VAT, IVA...). */
-  prices_include_tax?: boolean; tax_label?: string | null };
+  prices_include_tax?: boolean; tax_label?: string | null;
+  /** Kumi's hosted service runs this install: "Runs on Kumi" shows, and staff read Kumi for the product. */
+  hosted?: boolean };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
 /** Whether to offer a button for a change: a role the club made may not allow it (the server decides either way). */
@@ -56,6 +58,8 @@ export const mayDo = (action: string) => !me.value?.can || me.value.can.includes
 export const farewell = signal(false);
 export const club = signal<Club | null>(null);
 // The club's currency and formats reach every amount the app shows or reads (format.ts) as soon as /club loads.
+// Hosted by Kumi: staff read "Kumi" for the product name ({product}), and both apps show "Runs on Kumi".
+effect(() => { const c = club.value; if (c) setHosted(Boolean(c.hosted)); });
 effect(() => { const c = club.value; if (c) setClubFormat({ ...(c.currency ? { currency: c.currency } : {}), ...(c.format_locale ? { locale: c.format_locale } : {}) }); });
 export const lang = signal<Lang>(pickLang(navigator.language));
 

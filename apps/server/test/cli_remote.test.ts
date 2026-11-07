@@ -119,7 +119,7 @@ test("sign in in the browser: the connection is an assistant's, named for this c
   assert.equal(statSync(join(c.dir, "secrets.json")).mode & 0o777, 0o600, "the tokens' file is the user's alone");
   const g = await db.selectFrom("oauth_grant").innerJoin("oauth_client", "oauth_client.client_id", "oauth_grant.client_id").select(["oauth_client.name", "oauth_grant.weekly_cap_cents"])
     .where("oauth_grant.person_id", "=", owner.personId!).execute();
-  assert.deepEqual(g, [{ name: "kumi (test-laptop)", weekly_cap_cents: 0 }], "Profile, Assistants lists it, with the limit chosen at the consent");
+  assert.deepEqual(g, [{ name: "openpadel (test-laptop)", weekly_cap_cents: 0 }], "Profile, Assistants lists it, with the limit chosen at the consent");
   const w = await c.kumi("whoami", "--json");
   assert.equal(w.code, EXIT.done);
   assert.equal(w.json().data.person, "Robin Hale");
@@ -161,7 +161,7 @@ test("a change previews first, exactly as the door's preview says, and changes n
   assert.equal(v.status, "preview");
   assert.equal(v.summary, "Add the location Westside (America/Los_Angeles).");
   assert.equal(v.summary, (await doorPreview(c.store, "location_create", { name: "Westside", time_zone: TZ })).summary, "the same words as the assistant door");
-  assert.equal(v.confirm, `kumi confirm ${v.run_id}`);
+  assert.equal(v.confirm, `openpadel confirm ${v.run_id}`);
   assert.equal((await db.selectFrom("location").select("id").where("name", "=", "Westside").execute()).length, 0);
   const done = await c.kumi("confirm", v.run_id, "--json");
   assert.equal(done.code, EXIT.done, done.text);
@@ -248,7 +248,7 @@ test("the weekly spending limit counts what the command line books, as it does a
   const r = await c.kumi("booking", "request", "--court", court, "--starts-at", `${day} 10:00`, "--minutes", "90", "--pay", "whole", "--person", "me", "--json");
   assert.equal(r.code, EXIT.refused, r.text);
   assert.equal(r.json().code, "error.assistant_over_cap");
-  assert.match(r.json().message, /This costs \$60\.00, and kumi \(test-laptop\) has \$0\.00 left/);
+  assert.match(r.json().message, /This costs \$60\.00, and openpadel \(test-laptop\) has \$0\.00 left/);
   const rich = await signedIn(MEMBER, "10000");
   const ok = await rich.kumi("booking", "request", "--court", court, "--starts-at", `${day} 10:00`, "--minutes", "90", "--pay", "whole", "--person", "me", "--json");
   assert.equal(ok.code, EXIT.preview, ok.text);

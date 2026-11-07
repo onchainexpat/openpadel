@@ -2,7 +2,7 @@
 // in the person's in-app inbox at once, and its email copy waits for the sender job, outside quiet
 // hours unless it's essential. Every row keeps the exact words sent and the event behind it.
 import { sql } from "kysely";
-import { both, dateTime, money, t, pickLang, type Key, type Lang, type Params, type Text, formatLocale } from "@kumi/i18n";
+import { both, dateTime, money, t, pickLang, productName, type Key, type Lang, type Params, type Text, formatLocale } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
 import type { Handler, OutboxEvent } from "./outbox.ts";
 import { uuidv7 } from "./ids.ts";
@@ -1090,7 +1090,7 @@ async function askedRun(db: Db, runId: string) {
     .select(["action_run.id", "action_run.action", "action_run.input", "action_run.plan", "action_run.location_id", "action_run.actor_person_id", "action_run.status", "support_grant.name as support_name"])
     .where("action_run.id", "=", runId).executeTakeFirst();
   if (!run) return null;
-  const by: Params[string] = run.support_name ? both("ui.support_by", { name: run.support_name }) : run.actor_person_id ? await nameOf(db, run.actor_person_id) : "Kumi";
+  const by: Params[string] = run.support_name ? both("ui.support_by", { name: run.support_name }) : run.actor_person_id ? await nameOf(db, run.actor_person_id) : productName();
   return { run, by, what: (run.plan as { summary: Text }).summary };
 }
 

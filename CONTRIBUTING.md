@@ -1,6 +1,6 @@
-# Contributing to Kumi
+# Contributing to openPadel
 
-Thank you for helping. Kumi runs real clubs, with real members and real money, so changes are
+Thank you for helping. openPadel runs real clubs, with real members and real money, so changes are
 careful, small and tested.
 
 ## Before you start
@@ -18,7 +18,7 @@ careful, small and tested.
 npm install
 docker run -d --rm --name kumi-dev-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:17.9-alpine
 docker exec kumi-dev-pg createdb -U postgres kumi
-node apps/server/src/seed.ts            # a demo club; or: npm run kumi -- setup apply club.example.yaml
+node apps/server/src/seed.ts            # a demo club; or: npm run openpadel -- setup apply club.example.yaml
 KUMI_PUBLIC_URL=http://localhost:5173 node apps/server/src/main.ts
 npm run dev -w @kumi/manager            # the staff app, http://localhost:5173
 npm run dev -w @kumi/member             # the members' app, http://localhost:5174
@@ -48,4 +48,4 @@ sent is the result that matters; a missed one is better than a wrong one.
   would notice the change.
 
 ## The licence
-Kumi is AGPL-3.0. By contributing, you agree your contribution is under the same licence.
+openPadel is AGPL-3.0. By contributing, you agree your contribution is under the same licence.

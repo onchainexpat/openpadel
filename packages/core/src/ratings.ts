@@ -106,7 +106,8 @@ export async function recompute(ctx: ApplyCtx): Promise<void> {
   }
 }
 
-async function nameOf(db: Db | Trx, id: string | null) { return id ? (await readRow(db, "person", id, "thing.person")).row.display_name as string : "Kumi"; }
+// A change nobody made by hand (setup, an import) is the club's own: members read this, so it's the club's name.
+async function nameOf(db: Db | Trx, id: string | null) { return id ? (await readRow(db, "person", id, "thing.person")).row.display_name as string : ((await db.selectFrom("club").select("name").executeTakeFirst())?.name ?? ""); }
 
 export const levelSet = defineAction({
   name: "level.set", version: 1,

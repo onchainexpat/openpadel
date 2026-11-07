@@ -1,12 +1,12 @@
 // The club's commands for the command line, made from the same catalogue the assistant door (mcp.ts) and the apps
-// use, never written by hand: each action an assistant may ever be offered is `kumi <thing> <verb>` (program.create
-// is `kumi program create`), and each read is `kumi <read>` (free_courts is `kumi free-courts`). Their flags come
+// use, never written by hand: each action an assistant may ever be offered is `openpadel <thing> <verb>` (program.create
+// is `openpadel program create`), and each read is `openpadel <read>` (free_courts is `openpadel free-courts`). Their flags come
 // from the action's input schema. docs/cli/reference.md is made from here too (tools/gen_cli_reference.ts), and a
 // test fails when it's out of date.
 import * as z from "zod/mini";
 import { toJSONSchema } from "zod/v4/core";
 import { actions, specificity, type ActionDef } from "@kumi/core";
-import { both, en, type Key, type Params, type Text } from "@kumi/i18n";
+import { both, COMMAND, en, type Key, type Params, type Text } from "@kumi/i18n";
 import { doorAction, READS, slim, toolBase } from "./mcp.ts";
 
 export type Entity = "person" | "coach" | "court" | "location" | "program" | "plan";
@@ -68,7 +68,7 @@ export function commands(): Command[] {
     out.push({ kind: "read", words: [kebab(r.name)], tool: r.name, title: r.title, description: r.description, schema, props: propsOf(schema), staff: r.staff });
   }
   // The door's descriptions name its tools (booking_request_preview, free_courts): here, the commands they are.
-  const byTool = new Map(out.map((c) => [c.tool, `kumi ${c.words.join(" ")}`]));
+  const byTool = new Map(out.map((c) => [c.tool, `${COMMAND} ${c.words.join(" ")}`]));
   const forCli = (text: string) => text.replace(/\b([a-z]+(?:_[a-z]+)+?)(_preview|_confirm)?\b/g, (all, base: string, end?: string) =>
     byTool.get(base) && (end || out.some((c) => c.kind === "read" && c.tool === base)) ? byTool.get(base)! : all);
   for (const c of out) { c.description = forCli(c.description); for (const p of c.props) if (p.description) p.description = forCli(p.description); }
@@ -276,7 +276,7 @@ function exampleValue(p: Prop): string {
 }
 export function example(cmd: Command): string {
   const flags = cmd.props.filter((p) => p.required).map((p) => (p.type === "boolean" ? `--${flagOf(p)}` : `--${flagOf(p)} ${exampleValue(p)}`));
-  return `kumi ${cmd.words.join(" ")}${flags.length ? " " + flags.join(" ") : ""}`;
+  return `${COMMAND} ${cmd.words.join(" ")}${flags.length ? " " + flags.join(" ") : ""}`;
 }
 export function typeWords(p: Prop): string {
   if (p.entity) return p.type === "array" ? `${p.entity}s: names or ids, with commas` : `${p.entity}: a name or an id`;
@@ -300,7 +300,7 @@ function planWords(k: Key): string {
 export function referenceMarkdown(grants: GrantRow[]): string {
   const cmds = commands();
   const lines: string[] = [
-    "# kumi: every club command",
+    "# openpadel: every club command",
     "",
     "Made by `node tools/gen_cli_reference.ts` from the actions and reads the assistant door offers; don't edit it by hand",
     "(`apps/server/test/cli_reference.test.ts` fails when it's out of date). How to sign in, the flags every command",
@@ -314,17 +314,17 @@ export function referenceMarkdown(grants: GrantRow[]): string {
     "",
   ];
   for (const c of cmds.filter((x) => x.kind === "read")) {
-    lines.push(`### kumi ${c.words.join(" ")}`, "", `${c.title.en}. ${c.description}`, "", `Who may: ${c.staff ? "staff (each sees what their staff screens show)" : "anyone signed in, about themselves"}.`, "");
+    lines.push(`### ${COMMAND} ${c.words.join(" ")}`, "", `${c.title.en}. ${c.description}`, "", `Who may: ${c.staff ? "staff (each sees what their staff screens show)" : "anyone signed in, about themselves"}.`, "");
     if (c.props.length) lines.push(...flagTable(c), "");
     lines.push("```", example(c), "```", "");
   }
-  lines.push("## Changes", "", "Each one previews first (exit code 10) and changes nothing until `kumi confirm <run_id>`, or the same command with `--yes`.", "");
+  lines.push("## Changes", "", "Each one previews first (exit code 10) and changes nothing until `openpadel confirm <run_id>`, or the same command with `--yes`.", "");
   const groups = new Map<string, Command[]>();
   for (const c of cmds.filter((x) => x.kind === "action")) groups.set(c.words[0]!, [...(groups.get(c.words[0]!) ?? []), c]);
   for (const [g, list] of [...groups].sort((a, b) => a[0].localeCompare(b[0]))) {
     lines.push(`### ${g}`, "");
     for (const c of list.sort((a, b) => a.words.join(" ").localeCompare(b.words.join(" ")))) {
-      lines.push(`#### kumi ${c.words.join(" ")}`, "", `${c.title.en}. Who may: ${whoMay(c.action!, grants)}.`, "");
+      lines.push(`#### ${COMMAND} ${c.words.join(" ")}`, "", `${c.title.en}. Who may: ${whoMay(c.action!, grants)}.`, "");
       if (c.planKey) lines.push(`Its preview reads: "${cell(planWords(c.planKey))}"`, "");
       if (c.props.length) lines.push(...flagTable(c), "");
       lines.push("```", example(c), "```", "");

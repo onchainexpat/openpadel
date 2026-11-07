@@ -8,7 +8,7 @@ until then by email to `security@<your-domain>`. Say what you found, how to repr
 could let someone do. You'll get an answer within a few days, and credit in the release that fixes it if
 you'd like it.
 
-## What Kumi does
+## What openPadel does
 
 - **No passwords.** People sign in with a code sent to their email or, when the club texts, their phone
   (hashed, valid 10 minutes, 5 tries), or a passkey. Staff who have a passkey must use it (or two steps) for sensitive changes, such as roles
@@ -21,7 +21,7 @@ you'd like it.
 - **Secrets sealed with the server's own key.** Authenticator secrets, the push signing key and
   everything in the owner's vault are sealed with AES-256-GCM under `KUMI_SECRET_KEY` (32 random bytes made
   at install, never printed), a fresh nonce each time and the key's id in front, so the key can be changed
-  (`kumi rotate-key`). Production won't start without it. Two kinds of link key stay as they are because
+  (`openpadel rotate-key`). Production won't start without it. Two kinds of link key stay as they are because
   they're looked up by value: a club news email's unsubscribe key and a coach's calendar link (both do one
   thing, can be replaced, and are kept out of the change log).
 - **The vault** (the owner's keys and documents) is the owner's alone: managers are told no, no role the
@@ -48,15 +48,15 @@ you'd like it.
   be, an undo. Staff permissions are by role and location.
 - **Headers:** the apps allow scripts only from the club and Stripe and can't be framed by another
   site; the API sends its own strict headers.
-- **Payments:** card details go from the member's browser to Stripe and never reach Kumi. A live
+- **Payments:** card details go from the member's browser to Stripe and never reach openPadel. A live
   Stripe key is refused outside production.
 - **Agents** connect through OAuth with tokens scoped to one person and one club; refresh tokens rotate,
   and reusing an old one revokes the whole family.
 - **Dependencies** are pinned exactly, to releases at least two weeks old.
 
-## What a club running Kumi itself should do
+## What a club running openPadel itself should do
 
-- Keep the server updated: the setup installs Ubuntu's automatic security updates; ship Kumi's
+- Keep the server updated: the setup installs Ubuntu's automatic security updates; ship openPadel's
   updates with `deploy/ship.sh` when they come out.
 - Keep keys only in `/etc/kumi/kumi.env` on the server. Never commit them, paste them into a chat or
   send them by email.
@@ -64,5 +64,5 @@ you'd like it.
   `KUMI_SECRET_KEY` in a password manager away from the server: without the backup key the offsite copies
   can't be opened.
 - Staff, especially owners, should add a passkey (Profile in the staff app), and keep their recovery
-  codes somewhere safe. An owner locked out is reset on the server: `kumi reset-sign-in <email>`.
-- Run `kumi doctor` after any change to the server.
+  codes somewhere safe. An owner locked out is reset on the server: `openpadel reset-sign-in <email>`.
+- Run `openpadel doctor` after any change to the server.

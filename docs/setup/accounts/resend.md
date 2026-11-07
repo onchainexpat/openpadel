@@ -1,14 +1,14 @@
 # Email: Resend
 
-**What it's for:** sign-in codes, and the messages Kumi sends: a place offered from the waitlist,
+**What it's for:** sign-in codes, and the messages openPadel sends: a place offered from the waitlist,
 confirmations, removals and refunds, and staff alerts. Without it, all of that only reaches the
 server's log.
 **Who does what:** the owner creates the Resend account and adds the DNS records. The agent adds
-the domain in Resend (or tells the owner what to click), checks the records and sets Kumi up.
+the domain in Resend (or tells the owner what to click), checks the records and sets openPadel up.
 **Time and cost:** 30 minutes. Resend's free plan (October 2026) sends 3,000 emails a month and 100 a
 day, across up to 3 domains. A busy club will pass 100 a day once members use it; Pro is $20 a
 month for 50,000 with no daily limit.
-**`kumi doctor` checks:** `email`, `email_domain` and `email_reports`.
+**`openpadel doctor` checks:** `email`, `email_domain` and `email_reports`.
 
 ## Steps
 
@@ -34,7 +34,7 @@ month for 50,000 with no daily limit.
    KUMI_MAIL_REPLY_TO=desk@yourclub.com          # optional: where replies go
    KUMI_MAIL_TEST_TO=owner@example.com,staff@example.com   # practice mode only
    ```
-6. **Owner: send Resend's reports to Kumi** (Webhooks, then Add webhook): the endpoint is the members'
+6. **Owner: send Resend's reports to openPadel** (Webhooks, then Add webhook): the endpoint is the members'
    address with `/webhooks/resend` (for example `https://app.yourclub.com/webhooks/resend`), for the
    events `email.bounced`, `email.complained` and `email.suppressed`. Copy its signing secret
    (`whsec_...`) into the settings file the same way, never through the chat:
@@ -44,7 +44,7 @@ month for 50,000 with no daily limit.
    From then on, an address that bounces for good or marks the club's email as spam gets no more of
    it: the member's app asks them to change it, and the desk can send to it again from the person's
    page once it's fixed. Sign-in codes still go.
-7. **Agent:** `systemctl restart kumi`, then `kumi doctor`. While `KUMI_PRACTICE=1` is set, only the
+7. **Agent:** `systemctl restart kumi`, then `openpadel doctor`. While `KUMI_PRACTICE=1` is set, only the
    `KUMI_MAIL_TEST_TO` addresses get real email; everyone else's is held and logged.
 8. **Test:** sign in to the staff app as an address on the test list; the code should arrive
    within a minute. Check the spam folder the first time.

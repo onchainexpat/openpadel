@@ -38,14 +38,14 @@ test("a day in the past, or one that doesn't exist, is refused", async () => {
 
 test("every owner is told at once, in their language, to download everything; managers see it in the app, not by email", async () => {
   const r = await leave("2026-12-01", { kept_days: 30 });
-  assert.equal(r.plan.summary.en, "The club's Kumi ends on December 1, 2026. The owner is told now, and again a week and a day before, to download everything before then.");
+  assert.equal(r.plan.summary.en, "The club's openPadel ends on December 1, 2026. The owner is told now, and again a week and a day before, to download everything before then.");
   const [en] = await told(owner.personId!), [es] = await told(ana);
-  assert.equal(en!.subject, "Kestrel Padel's Kumi ends on December 1, 2026: download everything before then");
-  assert.equal(en!.body, "Kumi for Kestrel Padel ends on December 1, 2026. Before then, download everything: in the staff app, go to Settings, Download everything. "
-    + "You get one file with all of the club's data and settings, which another Kumi can run. It opens with a passphrase that's shown once, only to you, and Kumi "
+  assert.equal(en!.subject, "Kestrel Padel's openPadel ends on December 1, 2026: download everything before then");
+  assert.equal(en!.body, "openPadel for Kestrel Padel ends on December 1, 2026. Before then, download everything: in the staff app, go to Settings, Download everything. "
+    + "You get one file with all of the club's data and settings, which another openPadel can run. It opens with a passphrase that's shown once, only to you, and openPadel "
     + "doesn't keep it, so save it in a password manager straight away. After December 1, 2026, a copy of the club's data is kept for 30 days, then deleted.");
   assert.equal(en!.link, "/settings#download-everything");
-  assert.deepEqual([es!.lang, es!.subject], ["es", "El Kumi de Kestrel Padel termina el 1 de diciembre de 2026: descarga todo antes"]);
+  assert.deepEqual([es!.lang, es!.subject], ["es", "El openPadel de Kestrel Padel termina el 1 de diciembre de 2026: descarga todo antes"]);
   assert.match(es!.body, /se guarda una copia de los datos del club durante 30 días y luego se borra\.$/);
   assert.deepEqual(await kinds(mia), []);
   assert.deepEqual(await notices(), [["set", "said"], ["week", "due"], ["day", "due"]]);
@@ -61,8 +61,8 @@ test("a week before and a day before, in the club's daytime, each once; still sa
   assert.equal(await remindLeaving(db, at("2026-11-24", "10:00")), "week");
   assert.equal(await remindLeaving(db, at("2026-11-24", "10:01")), null, "said once");
   const week = (await told(owner.personId!)).at(-1)!;
-  assert.deepEqual([week.kind, week.subject], ["club_leaving_week_staff", "A week to go: Kestrel Padel's Kumi ends on December 1, 2026"]);
-  assert.match(week.body, /^A reminder: Kumi for Kestrel Padel ends on December 1, 2026\. Nobody has downloaded everything yet\. /);
+  assert.deepEqual([week.kind, week.subject], ["club_leaving_week_staff", "A week to go: Kestrel Padel's openPadel ends on December 1, 2026"]);
+  assert.match(week.body, /^A reminder: openPadel for Kestrel Padel ends on December 1, 2026\. Nobody has downloaded everything yet\. /);
   // The owner downloads everything; then the club goes read-only and over its cap.
   await run(db, "club.export", {}, owner, { now: at("2026-11-25", "09:15") });
   await run(db, "club.usage_cap_set", { cap_cents: 100, over_cents: 0 }, owner, { now: NOW });
@@ -70,7 +70,7 @@ test("a week before and a day before, in the club's daytime, each once; still sa
   await runAsSystem(db, "club.read_only", { on: true }, "test");
   assert.equal(await remindLeaving(db, at("2026-11-30", "09:00")), "day");
   const day = (await told(owner.personId!)).at(-1)!;
-  assert.deepEqual([day.kind, day.subject], ["club_leaving_day_staff", "Last reminder: Kestrel Padel's Kumi ends on December 1, 2026"]);
+  assert.deepEqual([day.kind, day.subject], ["club_leaving_day_staff", "Last reminder: Kestrel Padel's openPadel ends on December 1, 2026"]);
   assert.match(day.body, /Everything was last downloaded on Wed, Nov 25, 9:15\sAM, by Robin Hale\./);
   assert.equal(await remindLeaving(db, at("2026-12-01", "12:00")), null, "the last one went already");
   assert.equal(await remindLeaving(db, at("2026-12-02", "12:00")), null, "the day has passed");
@@ -85,7 +85,7 @@ test("set less than a week ahead: the first email says the week's reminder; the 
   // Moved to a new day: told again, and what's kept stays as it was said.
   await leave("2026-12-05", {}, at("2026-11-30", "12:00"));
   const moved = (await told(owner.personId!)).at(-1)!;
-  assert.match(moved.body, /^Kumi for Kestrel Padel ends on December 5, 2026\. .* After December 5, 2026, a copy of the club's data is kept for 30 days, then deleted\.$/);
+  assert.match(moved.body, /^openPadel for Kestrel Padel ends on December 5, 2026\. .* After December 5, 2026, a copy of the club's data is kept for 30 days, then deleted\.$/);
   assert.deepEqual(await notices(), [["set", "said"], ["week", "covered"], ["day", "due"]]);
   assert.equal(await remindLeaving(db, at("2026-12-01", "12:00")), null);
   assert.equal(await remindLeaving(db, at("2026-12-04", "12:00")), "day");
@@ -93,7 +93,7 @@ test("set less than a week ahead: the first email says the week's reminder; the 
 
 test("a server that was off on the week's day sends only the last one; kept days not said, or none", async () => {
   await leave("2026-12-20", { kept_days: null }, at("2026-12-02", "12:00"));
-  assert.match((await told(owner.personId!)).at(-1)!.body, /After December 20, 2026, the club's Kumi stops, so download everything you want to keep before then\.$/);
+  assert.match((await told(owner.personId!)).at(-1)!.body, /After December 20, 2026, the club's openPadel stops, so download everything you want to keep before then\.$/);
   assert.equal(await remindLeaving(db, at("2026-12-19", "12:00")), "day");
   assert.deepEqual(await notices(), [["set", "said"], ["week", "covered"], ["day", "said"]]);
   await leave("2026-12-21", { kept_days: 0 }, at("2026-12-02", "12:00"));
@@ -103,7 +103,7 @@ test("a server that was off on the week's day sends only the last one; kept days
 test("taken away: the owners hear once, no more reminders; taken away quietly, nobody hears", async () => {
   await leave(null, {}, at("2026-12-03", "12:00"));
   const off = (await told(owner.personId!)).at(-1)!;
-  assert.deepEqual([off.kind, off.body], ["club_leaving_off_staff", "Kumi for Kestrel Padel was set to end on December 21, 2026. That's off now: the club's Kumi carries on as before."]);
+  assert.deepEqual([off.kind, off.body], ["club_leaving_off_staff", "openPadel for Kestrel Padel was set to end on December 21, 2026. That's off now: the club's openPadel carries on as before."]);
   assert.equal(((await leave(null, {}, at("2026-12-03", "12:00"))).result as { changed: boolean }).changed, false);
   assert.equal(await remindLeaving(db, at("2026-12-20", "12:00")), null);
   const before = (await told(owner.personId!)).length;

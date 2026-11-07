@@ -4,21 +4,21 @@
 facts answers it completely ("When are you open?", "Where do I park?"). A decision model picks the fact, word
 for word, or hands the question to the staff. It never writes anything itself. Optional: without it, every
 question goes to the staff, as it does now.
-**Who does what:** the owner creates the account (or both) and the key. The agent sets Kumi up and checks it.
-**Time and cost:** 15 minutes. A question costs a fraction of a cent. On Kumi's own test set (22 questions,
+**Who does what:** the owner creates the account (or both) and the key. The agent sets openPadel up and checks it.
+**Time and cost:** 15 minutes. A question costs a fraction of a cent. On openPadel's own test set (22 questions,
 eight facts), Jev cost about $0.00004 a question and answered in about 50 ms; Claude Haiku cost about $0.0001
 a question and answered in under a second, two at most. List prices, November 2026: Jev $0.042 per million
 input tokens, output free; Claude Haiku 5.5 $0.10 per million input tokens and $0.50 per million output.
-**`kumi doctor` checks:** `answers`.
+**`openpadel doctor` checks:** `answers`.
 
 ## Which model
 
-- **Jev (TypeSafe)**, the one Kumi asks first: a decision model that says how sure it is that each fact
-  answers the question. Kumi sends a fact only when it's at least 85% sure it answers it completely, and
+- **Jev (TypeSafe)**, the one openPadel asks first: a decision model that says how sure it is that each fact
+  answers the question. openPadel sends a fact only when it's at least 85% sure it answers it completely, and
   the question doesn't need a person. Fast and cheap. Its main language is English; Spanish works, less well.
 - **Claude Haiku (Anthropic)**: makes the same decision from a fixed list (a fact, or none), when Jev fails or
   is slow (1.5 seconds), or on its own without a TypeSafe key. It doesn't say how sure it is, so the club's staff see
-  "sent by Kumi" without a percentage.
+  "sent by openPadel" without a percentage.
 
 Both keys is the most dependable. Either one alone works.
 
@@ -46,14 +46,14 @@ before a club relies on them.
    KUMI_TYPESAFE_API_KEY=...
    KUMI_ANTHROPIC_API_KEY=sk-ant-...
    ```
-   and restart Kumi (`sudo systemctl restart kumi`, or `docker compose up -d` for Docker).
-4. **Agent: check it.** `kumi doctor` shows `answers` as ok, naming the models. It only asks each company
+   and restart openPadel (`sudo systemctl restart kumi`, or `docker compose up -d` for Docker).
+4. **Agent: check it.** `openpadel doctor` shows `answers` as ok, naming the models. It only asks each company
    whether it takes the key, which costs nothing.
 5. **Staff: write the facts** (step 5h) if the club hasn't yet. The model can only pick from those that are
    switched on.
 6. **Agent: try it** as a member in practice: ask something one fact answers, and something it doesn't. The
    first gets the fact at once; the second waits for the staff. On the Questions page, staff see which fact
-   Kumi sent and how sure it was.
+   openPadel sent and how sure it was.
 
 To stop it, untick "Answer new questions from the club's facts by itself" in Settings. Removing the keys
 stops it too.
@@ -63,5 +63,5 @@ stops it too.
 - **A member taps "That didn't answer it" or "Ask a person":** the question goes to the staff at once, and
   the decision keeps the label, so the club can see where it went wrong.
 - **A staff answer always wins:** if the staff answer while the model is still deciding, the fact isn't sent.
-- **A model down or slow:** the question goes to the staff, as without a model. `kumi doctor` and
+- **A model down or slow:** the question goes to the staff, as without a model. `openpadel doctor` and
   `/health/deep` say so when more than a fifth of the last day's questions got no decision.

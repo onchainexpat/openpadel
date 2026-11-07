@@ -7,7 +7,7 @@ collected here.
 | Item | Used for | Who provides it |
 |---|---|---|
 | The club's name, as members know it | Both apps, emails, Stripe's statements | Website |
-| Time zone | Every date and time Kumi shows or acts on | The club's address |
+| Time zone | Every date and time openPadel shows or acts on | The club's address |
 | Language members mostly use (English or Spanish) | The default for new members; each can change it | Owner |
 | Owner's name and email address | The first sign-in; they manage everything else | Owner |
 | Each location: name and street address | `club.yaml` | Website |
@@ -25,7 +25,7 @@ collected here.
 | Membership plans: name, price a month or a year, what members get (member court prices, booking further ahead, a discount on clinics and other programs, sessions included each month or year); for a family plan, how many people it covers and the price of each one more; for a new club, a founding offer (how many, and the opening date) | Memberships (step 5d) | Owner |
 | Starting levels for members who already have one (a Playtomic level, say), and which staff answer level reviews | Each member's level page, and the Levels page | Owner, or the old system |
 | Each coach who gives private lessons: a photo, a few lines about them, the levels and languages they teach, a rate for each lesson length (court included), and the hours they give lessons each week | Coaches (step 5f); each coach can keep their own | The coach, owner approves |
-| The club's waiver text, if players must accept one (a lawyer's wording, not Kumi's) | Settings, Waiver (step 5g) | Owner |
+| The club's waiver text, if players must accept one (a lawyer's wording, not openPadel's) | Settings, Waiver (step 5g) | Owner |
 | A few lines about the club, for its public page | Settings (step 5e) | Website, owner approves |
 | The questions members ask most, with the club's answers (parking, door code, what juniors bring, cancelling), and which may go on the public page | Questions, Club facts (step 5h) | Front desk, owner approves |
 | How many emails for messages to members may go out a day (80 to start; more on a paid email plan), and whether owners and managers get a copy of each | Settings (step 5i) | Owner |

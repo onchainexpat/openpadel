@@ -5,9 +5,16 @@ Each release says what changed for a club, and anything to do when updating. Ver
 updating, and says so under "When updating". Database changes always apply by themselves when the
 server starts.
 
+openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
+
 ## Unreleased
 
 ### Added
+- **The phone apps, written down** ([docs/setup/apps.md](docs/setup/apps.md)): the members' and staff apps install
+  from the club's own address with its name, icon and colour, for free and with every update at once; store apps for
+  Google Play and the App Store need the club's own developer accounts in its company's name (a D-U-N-S number, 99 USD
+  a year at Apple, 25 USD once at Google), their forms and reviews. openPadel doesn't build store apps yet. Linked
+  from the README, the setup guide (step 5l), AGENTS.md and the setup skill (now `openpadel-setup`).
 - **The club's commands from any computer, for agents and people** (`kumi`, [docs/cli](docs/cli/README.md)).
   - `kumi login <the club's address>` signs in in the browser, or with `--device` by a code typed and allowed on the
     club's page from a phone, for a server or an agent's machine with no browser of its own. It signs in only at the
@@ -38,6 +45,16 @@ server starts.
   fresh second step to allow it (their authenticator's code, or a passkey sign-in in the last 10 minutes).
 
 ### Changed
+- **Kumi is now openPadel,** free and open source padel software. The command is `openpadel`, and `kumi` still works
+  (a server gets `openpadel` beside `kumi` at its next update; Docker images have both). The settings keep their
+  `KUMI_` names, and so do the paths, the service, the database and the packages: nothing to change on a server.
+  - Members never read a product name: the apps, emails, texts and the public page name the club, or "the app".
+  - Staff read the product's name in the staff app, staff emails and the server's commands: "openPadel", or "Kumi"
+    where Kumi's hosted service runs the club (`KUMI_HOSTED=1`, docs/settings.md). There the members' profile, the foot
+    of the public page and the staff app's Settings say "Runs on Kumi", linking to kumi.club. A club running openPadel
+    itself shows neither; its public page no longer ends with "Run on Kumi, free and open-source club software".
+  - Something done by the club's own rules rather than by a person (a level set at setup, say) is shown with the
+    club's name, where members read it.
 - An assistant's list of what it can do is made from one read of the person's roles instead of one per action, so
   every assistant call answers sooner (about 15 ms instead of 180 for an owner).
 
@@ -49,6 +66,9 @@ server starts.
   promoted before it isn't found: an owner or a manager sees and ends any connection on the person's page.
 - **The result of someone else's change could be read again by its run id (in 0.1.0 to 0.3.1).** Run ids are long and
   hard to guess, and the change itself was never made twice; now an earlier result is given only to whoever made it.
+
+### Known limits
+- No app store apps yet: the members' and staff apps install from the club's own address ([the phone apps](docs/setup/apps.md)).
 
 ## 0.3.1 (2026-11-07)
 

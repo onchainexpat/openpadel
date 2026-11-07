@@ -1,7 +1,7 @@
 # The command line for agents: design
 
 Agents work better with a command line than with a chat connector: they can read `--help`, pipe JSON, branch on exit
-codes and retry. `kumi` already ran on the club's server (setup, doctor, backups). These are the club's own commands
+codes and retry. `openpadel` already ran on the club's server (setup, doctor, backups). These are the club's own commands
 added to it, run from any computer.
 
 ## One door, not two
@@ -14,7 +14,7 @@ The command line is a client of the club's assistant door, `/mcp` (apps/server/s
   limits (support access never, desk money never) are the door's own code, the same path a Claude or ChatGPT
   connection takes. Nothing about them is copied.
 - The commands are made from the same catalogue the door lists (`actions()` filtered by `doorAction`, plus `READS`):
-  `program.create` is `kumi program create`, `free_courts` is `kumi free-courts`, and the flags come from each
+  `program.create` is `openpadel program create`, `free_courts` is `openpadel free-courts`, and the flags come from each
   action's Zod schema. 157 changes and 29 reads today.
 
 ## Signing in
@@ -41,8 +41,8 @@ The door's OAuth (oauth.ts), unchanged in what it grants:
 - **Tokens:** an hour's access token and a rotating refresh token, as for any assistant. Two refreshes of one token
   end the chain (oauth.ts), so the command line refreshes under a file lock, one process at a time.
 
-It's an ordinary assistant connection: listed in Profile, Assistants as `kumi (<host>)`, with its own limit, ended
-there or by `kumi logout` (which runs `assistant.disconnect` for itself).
+It's an ordinary assistant connection: listed in Profile, Assistants as `openpadel (<host>)`, with its own limit, ended
+there or by `openpadel logout` (which runs `assistant.disconnect` for itself).
 
 ## What changed in the door
 
@@ -97,7 +97,7 @@ there or by `kumi logout` (which runs `assistant.disconnect` for itself).
 ## Left out, and why
 
 - **Windows' credential store:** the tokens go in the 0600 file there. Its own API needs more than a child process.
-- **A package to install:** it runs from a Kumi checkout (`node apps/server/src/cli.ts`), the same release as the
+- **A package to install:** it runs from an openPadel checkout (`node apps/server/src/cli.ts`), the same release as the
   club or newer. Publishing to npm is a step to take with going public.
 - **Spanish flag descriptions:** they come from the schemas' `describe()`, which are English, as the door's tool
   descriptions are. The command line's own words, and the club's previews and errors, are in both languages.

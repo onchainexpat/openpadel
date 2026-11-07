@@ -4,6 +4,7 @@ import { money, type Key, type Lang } from "@kumi/i18n";
 import { api, ApiError, club, farewell, lang, lazyPage, loadMe, me, t } from "./state.ts";
 import { AccountData } from "./AccountData.tsx";
 import { PolicyLinks } from "./Policies.tsx";
+import { RunsOn } from "./RunsOn.tsx";
 import { canSavePasskey, passkeyWords } from "./passkeys.ts";
 import { install, installed, installOffer, onIos } from "./install.ts";
 import { protectedPost } from "./pow.ts";
@@ -239,6 +240,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
       <AccountData personId={m.person.id} self kid={Boolean(m.kid)} onDeleted={() => { farewell.value = true; me.value = null; }} />
       {note && <p class="note" role="status">{note}</p>}
       {error && <p class="error" role="alert">{error}</p>}
+      {app === "member" && <RunsOn />}
     </main>
   );
 }

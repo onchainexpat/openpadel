@@ -1,13 +1,14 @@
 # Settings
 
-Every setting Kumi reads. On a server set up with `deploy/server-setup.sh` they live in
+Every setting openPadel reads. The settings keep their `KUMI_` names (openPadel was called Kumi until November
+2026), and so do the paths, the `kumi` service and the database. On a server set up with `deploy/server-setup.sh` they live in
 `/etc/kumi/kumi.env` (then `systemctl restart kumi`); with Docker, in `.env` next to `compose.yaml`
 (then `docker compose up -d`). Keys and secrets go only there: never in `club.yaml`, a commit or a chat.
-`kumi doctor` checks the ones that matter.
+`openpadel doctor` checks the ones that matter.
 
 What the club decides for itself isn't here: its name, languages, sign-up, public page, and the links to its own
 terms and privacy policy for members (`docs/templates`) are in the staff app's Settings, or `club:` in club.yaml for
-`kumi setup` (`club.example.yaml`).
+`openpadel setup` (`club.example.yaml`).
 
 ## The server
 
@@ -15,6 +16,7 @@ terms and privacy policy for members (`docs/templates`) are in the staff app's S
 |---|---|---|
 | `DATABASE_URL` | The Postgres database. | `postgres://postgres@127.0.0.1:55432/kumi` (development) |
 | `PORT` | The port the API listens on (Caddy sends traffic to it). | `8790` |
+| `KUMI_HOSTED` | `1` when Kumi's hosted service runs the install (kumi-hosted sets it on every club): staff read "Kumi" for the product's name instead of "openPadel", and the members' profile, the public page and the staff app's Settings show "Runs on Kumi". Members never read a product name otherwise. A club running openPadel itself leaves it off. | off |
 | `KUMI_LISTEN_ADDRESS` | The address it listens on. Only this machine can reach the default; Docker sets `0.0.0.0`, since Caddy is another container. | `127.0.0.1` |
 | `KUMI_SOCKET` | A unix socket to listen on instead of a port, such as `/run/kumi-kestrel/http.sock`, for a server several clubs share: no other club's process can reach a socket in a folder only this club and Caddy can open, and a request on it is believed to come through Caddy. The socket is made mode `0660`, so give its folder Caddy's group (and the setgid bit, so the socket gets that group too). Updates and Caddy's config follow it. | not set |
 | `NODE_ENV` | `production` on a real server: secure cookies, live Stripe keys allowed, no development routes. | not set |
@@ -32,7 +34,7 @@ terms and privacy policy for members (`docs/templates`) are in the staff app's S
 |---|---|---|
 | `KUMI_RESEND_API_KEY` | Sends email through Resend. Without it, email and sign-in codes only go to the server's log. | not set |
 | `KUMI_MAIL_FROM` | The sender, on the club's verified domain: `"Your Club <hello@mail.yourclub.com>"`. Needed with the key. | not set |
-| `KUMI_MAIL_REPLY_TO` | Where replies to Kumi's emails go. | not set |
+| `KUMI_MAIL_REPLY_TO` | Where replies to openPadel's emails go. | not set |
 | `KUMI_MAIL_TEST_TO` | Comma-separated addresses that get real email in practice mode. | none |
 | `KUMI_RESEND_WEBHOOK_SECRET` | The signing secret of the club's Resend webhook (`whsec_...`): Resend's reports of bounces and spam complaints reach `/webhooks/resend`, and those addresses get no more email. Without it, the webhook isn't there. | not set |
 
@@ -41,7 +43,7 @@ terms and privacy policy for members (`docs/templates`) are in the staff app's S
 | Setting | What it does | Default |
 |---|---|---|
 | `KUMI_TWILIO_ACCOUNT_SID`, `KUMI_TWILIO_AUTH_TOKEN` | The club's own Twilio account (`docs/setup/accounts/twilio.md`). With them, members can choose texts in the app. The token also checks what Twilio posts to `/webhooks/twilio/sms` and `/webhooks/twilio/status`. | not set |
-| `KUMI_TWILIO_MESSAGING_SERVICE_SID` | Who texts are from: the Messaging Service with the club's registered number (`MG...`). Not needed after `kumi texting` registers one: texts go from it once Twilio approves. | the one `kumi texting` registered, once approved |
+| `KUMI_TWILIO_MESSAGING_SERVICE_SID` | Who texts are from: the Messaging Service with the club's registered number (`MG...`). Not needed after `openpadel texting` registers one: texts go from it once Twilio approves. | the one `openpadel texting` registered, once approved |
 | `KUMI_TWILIO_FROM` | Or one number instead (`+15035550123`). | not set |
 | `KUMI_SMS_TEST_TO` | Comma-separated numbers that get real texts in practice mode (`+15035550123`). | none |
 
@@ -66,7 +68,7 @@ the club's setting, not the server's. What each thing costs is the server's:
 |---|---|---|
 | `KUMI_PRICES` | Prices in cents, comma-separated, for any that differ from list prices: `text_segment` (a text segment with the carrier fee), `email` (one email), and per million tokens `jev_input`, `jev_output`, `haiku_input`, `haiku_output`. Like `text_segment=0.83,email=0`. A hosted service sets its own; a club on its own keys can set what its providers charge it. | `text_segment=1.26,email=0.09,jev_input=4.2,jev_output=0,haiku_input=10,haiku_output=50` |
 
-A price counts from when it's set: what's already counted keeps the price it had. `kumi usage --json` gives a
+A price counts from when it's set: what's already counted keeps the price it had. `openpadel usage --json` gives a
 month's lines by kind (calls, tokens, segments, emails and cents to four places).
 
 ## Card payments (Stripe)
@@ -82,44 +84,44 @@ month's lines by kind (calls, tokens, segments, emails and cents to four places)
 
 | Setting | What it does | Default |
 |---|---|---|
-| `KUMI_PLAYTOMIC_CLIENT_ID`, `KUMI_PLAYTOMIC_SECRET`, `KUMI_PLAYTOMIC_TENANT_ID` | Third Party API credentials; with all three, Kumi copies the club's bookings in, read-only. | not set |
+| `KUMI_PLAYTOMIC_CLIENT_ID`, `KUMI_PLAYTOMIC_SECRET`, `KUMI_PLAYTOMIC_TENANT_ID` | Third Party API credentials; with all three, openPadel copies the club's bookings in, read-only. | not set |
 | `KUMI_MIRROR_EVERY_MINUTES` | How often it reads. | `10` |
 | `KUMI_MIRROR_DAYS_AHEAD` | How far ahead it reads every time (the near window). | `30` |
-| `KUMI_MIRROR_FAR_EVERY_HOURS` | How often each 30 days further ahead is read again, out to as far as members can book or Kumi has anything on a linked court (a year at most). One 30-day part is read after each near read. `0` reads only the near window. | `6` |
+| `KUMI_MIRROR_FAR_EVERY_HOURS` | How often each 30 days further ahead is read again, out to as far as members can book or openPadel has anything on a linked court (a year at most). One 30-day part is read after each near read. `0` reads only the near window. | `6` |
 | `KUMI_MIRROR_PAGE_SECONDS` | The wait between two pages of bookings, for every read. Playtomic's docs and its help pages give different limits, so it's careful. | `60` |
 
 ## Keys the server keeps
 
 | Setting | What it does | Default |
 |---|---|---|
-| `KUMI_SECRET_KEY` | 32 random bytes (`head -c 32 /dev/urandom \| base64`) that seal the secrets Kumi keeps in the database: authenticator secrets, the push signing key, the vault. Made by `server-setup.sh` (and by the first update on an older server), never printed. Production won't start without it. | not set: secrets kept unsealed, development only |
-| `KUMI_SECRET_KEY_PREVIOUS` | The key before, while changing it: values sealed under it still open, and `kumi rotate-key` (or the next start) moves them to the new one. Remove it after. | not set |
+| `KUMI_SECRET_KEY` | 32 random bytes (`head -c 32 /dev/urandom \| base64`) that seal the secrets openPadel keeps in the database: authenticator secrets, the push signing key, the vault. Made by `server-setup.sh` (and by the first update on an older server), never printed. Production won't start without it. | not set: secrets kept unsealed, development only |
+| `KUMI_SECRET_KEY_PREVIOUS` | The key before, while changing it: values sealed under it still open, and `openpadel rotate-key` (or the next start) moves them to the new one. Remove it after. | not set |
 | `KUMI_BACKUP_KEY` | 32 random bytes that seal the offsite copies. A key of its own, not the server's, so the backups still open after losing the server: keep a copy away from it (a password manager). | not set; `server-setup.sh` makes one |
 
 ## Backups
 
 | Setting | What it does | Default |
 |---|---|---|
-| `KUMI_BACKUP_DIR` | Where the nightly dumps and their manifests go (kept 14 days), and where `kumi doctor` looks. | `/var/backups/kumi` |
+| `KUMI_BACKUP_DIR` | Where the nightly dumps and their manifests go (kept 14 days), and where `openpadel doctor` looks. | `/var/backups/kumi` |
 | `KUMI_OFFSITE_ENDPOINT` | The S3-compatible storage's address: `https://<account>.r2.cloudflarestorage.com` (R2), `https://s3.<region>.backblazeb2.com` (B2), `https://<region>.digitaloceanspaces.com`, or AWS's. With the next three, every night's backup also goes offsite, sealed. See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md). | not set: no offsite copy |
 | `KUMI_OFFSITE_BUCKET` | The bucket. | |
 | `KUMI_OFFSITE_ACCESS_KEY_ID`, `KUMI_OFFSITE_SECRET_ACCESS_KEY` | A key for that bucket only, allowed to read, write and list, and to delete unless `KUMI_OFFSITE_PRUNE=0`. | |
-| `KUMI_OFFSITE_PRUNE` | `0`: Kumi never deletes offsite copies; the storage's own lifecycle rules expire them, and its key needs no right to delete (so a stolen server can't wipe them). See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md). | Kumi keeps 30 days and 12 months itself |
+| `KUMI_OFFSITE_PRUNE` | `0`: openPadel never deletes offsite copies; the storage's own lifecycle rules expire them, and its key needs no right to delete (so a stolen server can't wipe them). See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md). | openPadel keeps 30 days and 12 months itself |
 | `KUMI_PITR` | `0`: no point-in-time backups on this server (`server-setup.sh` and updates leave Postgres and pgBackRest alone; in Docker the pitr service takes pgBackRest's settings away, so Postgres lets its log go). See [accounts/offsite-backups.md](setup/accounts/offsite-backups.md#going-back-to-a-minute-point-in-time-backups). | on |
-| `KUMI_PITR_HOST` | `1` on a server that many clubs share, where the host runs the point-in-time archive for all of them: `kumi doctor` says so instead of checking it. | |
+| `KUMI_PITR_HOST` | `1` on a server that many clubs share, where the host runs the point-in-time archive for all of them: `openpadel doctor` says so instead of checking it. | |
 | `KUMI_OFFSITE_REGION` | The region the storage signs for: `auto` for R2, the bucket's region elsewhere (`us-west-004`, `us-east-1`). | `auto` |
 | `KUMI_OFFSITE_PREFIX` | The folder in the bucket. | `kumi/` |
 | `KUMI_OFFSITE_PATH_STYLE` | `0` for addresses like `bucket.endpoint` instead of `endpoint/bucket`. | path style |
 | `KUMI_RESTORE_TEST_DATABASE_URL` | The scratch database the monthly restore test fills and empties. | the live server's `kumi_restore_test` |
 | `KUMI_PG_BIN` | Where Postgres 17's programs are: `pg_dump` and `pg_restore`, and for point-in-time backups `pg_ctl` and `psql`. | `/usr/lib/postgresql/17/bin`, else the `PATH` |
 
-## The kumi command
+## The openpadel command
 
 | Setting | What it does | Default |
 |---|---|---|
-| `KUMI_CLUB_FILE` | The `club.yaml` that `kumi setup` reads when no file is named. | `club.yaml`; `/etc/kumi/club.yaml` on a server |
+| `KUMI_CLUB_FILE` | The `club.yaml` that `openpadel setup` reads when no file is named. | `club.yaml`; `/etc/kumi/club.yaml` on a server |
 | `KUMI_LANG` | The command's language (`en` or `es`); `--lang=` overrides it. | from `LANG` |
-| `KUMI_CALLER_DIR` | Set by the server's `kumi` wrapper so relative paths work; not set by hand. | |
+| `KUMI_CALLER_DIR` | Set by the server's `openpadel` wrapper so relative paths work; not set by hand. | |
 
 ## Docker only (`.env`)
 

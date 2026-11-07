@@ -981,7 +981,7 @@ export async function openPayment(db: Db, paymentId: string, personId: string): 
     const person = await db.selectFrom("person").select(["email", "display_name"]).where("id", "=", personId).executeTakeFirstOrThrow();
     customer = (await pv.ensureCustomer({ key: personId, email: person.email, name: person.display_name })).id;
   }
-  const it = await pv.createIntent({ amountCents: pay.amount_cents, currency, description: pay.what ?? (pay.code ? `Court booking ${pay.code}` : pay.plan ? `${pay.plan} membership` : "Kumi"), idempotencyKey: pay.id,
+  const it = await pv.createIntent({ amountCents: pay.amount_cents, currency, description: pay.what ?? (pay.code ? `Court booking ${pay.code}` : pay.plan ? `${pay.plan} membership` : "Club payment"), idempotencyKey: pay.id,
     metadata: { kumi_payment_id: pay.id }, customer, saveCard: pay.save_card });
   await opened(db, pay.id, it, pay.amount_cents, personId);
   return { clientSecret: it.clientSecret, provider: pv.name, account: it.account };

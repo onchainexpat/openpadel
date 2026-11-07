@@ -1,11 +1,11 @@
 # Domain, server and HTTPS
 
-**What it's for:** the address members and staff use, and the machine Kumi runs on.
+**What it's for:** the address members and staff use, and the machine openPadel runs on.
 **Who does what:** the owner buys the domain and the server (both need a payment card) and adds
 the DNS records. The agent does everything on the server over SSH.
 **Time and cost:** about an hour. A domain is about $10 to $30 a year; a server with 2 GB of memory
 is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
-**`kumi doctor` checks:** `database`, `migrations`, `address`, `backups`.
+**`openpadel doctor` checks:** `database`, `migrations`, `address`, `backups`.
 
 ## Have ready
 - A domain the club controls, or a subdomain of the club's existing one.
@@ -35,15 +35,15 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
    deploy/ship.sh root@SERVER
    ```
    `server-setup.sh` installs a firewall, Postgres 17, Node 24, Caddy (which gets HTTPS
-   certificates and renews them itself), Kumi as a service, the `kumi` command and a nightly
+   certificates and renews them itself), openPadel as a service, the `openpadel` command and a nightly
    backup. It's safe to run again. `ship.sh` sends the committed code, builds both apps and
-   restarts Kumi; run it again to update.
-4. **Agent: `ssh root@SERVER kumi doctor`.** It shows `database` ok and `club` missing; that's
+   restarts openPadel; run it again to update.
+4. **Agent: `ssh root@SERVER openpadel doctor`.** It shows `database` ok and `club` missing; that's
    expected. Carry on with `club.yaml` ([README](../README.md), step 4); `address` is checked once the
    club exists.
 
 ## The settings file
-`/etc/kumi/kumi.env` holds the server's settings and keys, readable only by root and Kumi. The
+`/etc/kumi/kumi.env` holds the server's settings and keys, readable only by root and openPadel. The
 owner adds keys by typing them in (`sudoedit /etc/kumi/kumi.env`); after any change,
 `systemctl restart kumi`. Never commit this file or print it.
 
@@ -56,8 +56,8 @@ they hold every member's details unencrypted.
 
 **Restoring** (everything since that backup is lost):
 ```bash
-sudo kumi restore /var/backups/kumi/<file>.dump --yes   # or: sudo kumi restore offsite:latest --yes
-kumi doctor
+sudo openpadel restore /var/backups/kumi/<file>.dump --yes   # or: sudo openpadel restore offsite:latest --yes
+openpadel doctor
 ```
 
 ## Updating
@@ -65,19 +65,19 @@ Read the release's notes in [`CHANGELOG.md`](../../../CHANGELOG.md) first, then 
 and check:
 ```bash
 git fetch && git checkout v0.x.y && deploy/ship.sh root@SERVER
-ssh root@SERVER kumi doctor
+ssh root@SERVER openpadel doctor
 ```
 `ship.sh` takes a snapshot of the database first and puts everything back by itself if the new release
 doesn't come up. Database changes apply when the server starts. To go back later:
-`sudo kumi rollback --yes` on the server (everything since the update is lost; see
+`sudo openpadel rollback --yes` on the server (everything since the update is lost; see
 [`deploy/README.md`](../../../deploy/README.md)).
 
 ## Logs
-`journalctl -u kumi -f` shows what Kumi is doing. Until email is set up, sign-in codes appear there.
+`journalctl -u kumi -f` shows what openPadel is doing. Until email is set up, sign-in codes appear there.
 
 ## Common problems
 - **`address` fails with a certificate or connection error:** the DNS records don't point at the
   server yet, or ports 80 and 443 are closed by the provider's own firewall. Caddy retries by itself
   once DNS is right; `journalctl -u caddy` says why it's waiting.
 - **The apps show "403":** run `server-setup.sh` again; it lets Caddy read the built apps.
-- **`migrations` warns:** restart Kumi (`systemctl restart kumi`); it applies them when it starts.
+- **`migrations` warns:** restart openPadel (`systemctl restart kumi`); it applies them when it starts.

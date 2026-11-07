@@ -64,7 +64,7 @@ after(async () => drop());
 
 test("a member downloads their data: everything about them, other people only by name", async () => {
   const r = await run(db, "privacy.export", { person_id: people.Ann }, as("Ann"), { now: LATER });
-  assert.equal(r.plan.summary.en, "Download a copy of your data: one file with your profile, bookings, payments, memberships, levels and games, messages, consents, friends and family. Kumi doesn't keep the file; once it's on your device, it's yours.");
+  assert.equal(r.plan.summary.en, "Download a copy of your data: one file with your profile, bookings, payments, memberships, levels and games, messages, consents, friends and family. The club's app doesn't keep the file; once it's on your device, it's yours.");
   assert.equal((r.result as any).download, `/my/privacy/export/${r.runId}`);
   assert.equal(await exportRun(db, r.runId, people.Ann!, new Date(LATER.getTime() + 60_000)), people.Ann);
   await rejects(exportRun(db, r.runId, people.Ben!, LATER), "error.privacy_export_gone");                                        // not Ben's to fetch

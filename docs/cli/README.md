@@ -1,6 +1,6 @@
-# kumi: the club's commands, for agents and people
+# openpadel: the club's commands, for agents and people
 
-`kumi` does from a terminal what the staff and members' apps do: read the day, find a member, book a court, put on a
+`openpadel` does from a terminal what the staff and members' apps do: read the day, find a member, book a court, put on a
 clinic, sign people up. It's made for agents (Claude Code, Codex and the like), which work better with a command line
 than with a chat connector, and it works the same for a person typing.
 
@@ -16,25 +16,28 @@ connector (`/mcp`), and every command is one of that connector's own tools. So:
 - support access never reaches it.
 
 Every command, with its flags and who may use it, is in [reference.md](reference.md), made from the catalogue itself.
-On the club's own server, `kumi doctor`, `kumi setup`, `kumi backup` and the other server commands are the same tool
-(`kumi` with nothing after it lists them; see the [setup guide](../setup/README.md)).
+On the club's own server, `openpadel doctor`, `openpadel setup`, `openpadel backup` and the other server commands are the same tool
+(`openpadel` with nothing after it lists them; see the [setup guide](../setup/README.md)).
 
 ## Install
 
 On any computer with Node 24:
 
 ```bash
-git clone <Kumi's repository> kumi && cd kumi && npm ci
-alias kumi="node $PWD/apps/server/src/cli.ts"    # or: npm run kumi -- <command>
+git clone <openPadel's repository> openpadel && cd openpadel && npm ci
+alias openpadel="node $PWD/apps/server/src/cli.ts"    # or: npm run openpadel -- <command>
 ```
 
-Use the release the club runs, or a newer one. `kumi login` says when they differ, since a command new in one may be
+openPadel was called Kumi until November 2026: `kumi` is the same command (`npm run kumi`, and `/usr/local/bin/kumi`
+on a club's server), so scripts that use it keep working. Its sign-ins stay in `~/.config/kumi`.
+
+Use the release the club runs, or a newer one. `openpadel login` says when they differ, since a command new in one may be
 missing from the other.
 
 ## Signing in
 
 ```bash
-kumi login https://staff.yourclub.com
+openpadel login https://staff.yourclub.com
 ```
 
 Use the staff app's address or the members' app's: both work. A browser opens on the club's own sign-in page. There
@@ -45,13 +48,13 @@ the person:
 3. chooses how much the connection may spend for them each week: nothing to start, which is right for staff work,
    since money a member pays for isn't counted against the staff member's limit.
 
-They can disconnect it any time in the app, under Profile, Assistants. It's listed there as `kumi (<this computer's
+They can disconnect it any time in the app, under Profile, Assistants. It's listed there as `openpadel (<this computer's
 name>)`.
 
 **With no browser** (a server, a remote shell, an agent's sandbox), sign in by a code instead:
 
 ```bash
-kumi login https://staff.yourclub.com --device
+openpadel login https://staff.yourclub.com --device
 ```
 
 It prints the club's page and a code such as `TKBW-VMFJ`. The person opens the page on their phone, signs in, types
@@ -64,16 +67,16 @@ to 10 minutes and finishes by itself.
 **For an agent**, which shouldn't sit on one command for minutes, there's a two-step version:
 
 ```bash
-kumi login https://staff.yourclub.com --device --no-wait --json
+openpadel login https://staff.yourclub.com --device --no-wait --json
 # {"status":"waiting_sign_in","link":"https://staff.yourclub.com/oauth/device","code":"TKBW-VMFJ",...}   exit 12
 #   ...the agent shows the person the page and the code; they type the code there and allow it...
-kumi login https://staff.yourclub.com --device --json
+openpadel login https://staff.yourclub.com --device --json
 # {"status":"done","club_name":"Kestrel Padel","person":"Robin Hale",...}   exit 0
 ```
 
 The agent never sees a password or a code from an email. The person types those on the club's page.
 
-`kumi login` signs in only at the club's own addresses: the sign-in server the club names must be on the same domain
+`openpadel login` signs in only at the club's own addresses: the sign-in server the club names must be on the same domain
 (the staff app's address beside the members'), over https (http only on this computer), with every endpoint on it.
 
 **Where the sign-in is kept:**
@@ -87,27 +90,27 @@ each other.
 
 **Several clubs and sign-ins:**
 
-- `kumi clubs` lists the clubs signed in to here.
-- `kumi use <address>` picks the one commands go to.
+- `openpadel clubs` lists the clubs signed in to here.
+- `openpadel use <address>` picks the one commands go to.
 - `--club <address>` (or `KUMI_CLUB`) picks one for a single command.
-- `kumi logout` signs out here and ends the connection at the club.
-- `kumi whoami` says who you are there, your roles, and what the spending limit leaves this week.
+- `openpadel logout` signs out here and ends the connection at the club.
+- `openpadel whoami` says who you are there, your roles, and what the spending limit leaves this week.
 
 ## How commands work
 
 **Reads** print what the apps show, as JSON:
 
-- the members' reads, for anyone, about themselves: `kumi my-places`, `kumi open-programs`, `kumi free-courts`;
-- the staff reads, for staff: `kumi day`, `kumi people`, `kumi alerts`, `kumi reports`. A coach sees only their own
+- the members' reads, for anyone, about themselves: `openpadel my-places`, `openpadel open-programs`, `openpadel free-courts`;
+- the staff reads, for staff: `openpadel day`, `openpadel people`, `openpadel alerts`, `openpadel reports`. A coach sees only their own
   work, as in the staff app. Emails and phone numbers come shortened (`m...@example.com`): enough to tell two people
   apart, never a way to reach members from outside the club's apps. That's everywhere in what comes back: inside
-  notes, alerts and previews too, except what you typed yourself. `kumi people` searches names only, so a shortened
+  notes, alerts and previews too, except what you typed yourself. `openpadel people` searches names only, so a shortened
   address can't be pieced back together from its answers; look someone up by email in the staff app.
 
-**Changes** are `kumi <thing> <change>`. Each one first prints its preview, worded exactly as the apps and the
+**Changes** are `openpadel <thing> <change>`. Each one first prints its preview, worded exactly as the apps and the
 connector word it, and stops with exit code 10. Nothing has changed yet. Then either:
 
-- `kumi confirm <run_id>` does what was previewed;
+- `openpadel confirm <run_id>` does what was previewed;
 - or the same command again with `--yes` confirms that same preview. `--yes` on its own previews and does it at
   once.
 
@@ -124,7 +127,7 @@ connection doesn't book twice.
   different input is refused (exit 7, `cli.key_reused`), and nothing is made: use a new key.
 - After a conflict (exit 7), the preview is forgotten here: the same command again previews afresh, and with
   `--yes` does it.
-- `kumi confirm` on a run already done just says so.
+- `openpadel confirm` on a run already done just says so.
 - The previews kept on a computer are the signed-in person's: when someone else signs in to the club there, the
   earlier person's go.
 
@@ -134,7 +137,7 @@ connection doesn't book twice.
 - A name that fits more than one lists them with their ids (exit code 5).
 - A name that fits nothing says so (exit code 4).
 - `--person me` is whoever signed in, for anyone.
-- A member gives ids, which their own reads list, such as a court's from `kumi free-courts`.
+- A member gives ids, which their own reads list, such as a court's from `openpadel free-courts`.
 
 **Times** without a zone are on the club's clock: `--starts-at "2026-11-20 18:00"` is 6 PM at the club, wherever the
 command runs. A time with its zone (`2026-11-21T02:00:00Z`) is used as it is.
@@ -155,7 +158,7 @@ as JSON, and any flags change it. That's for lists of days, translations, score 
 | `waiting_sign_in` | with `link`, `code` | 12 |
 | `error` | with `code` (the club's error key, such as `error.court_taken`, or `cli.*`), `exit` and `message` (in the person's words), and `choices` for a name that fits several | as below |
 
-`kumi login` without `--no-wait` prints a `waiting_sign_in` line first, then its `done` line.
+`openpadel login` without `--no-wait` prints a `waiting_sign_in` line first, then its `done` line.
 
 **Exit codes:**
 
@@ -169,7 +172,7 @@ as JSON, and any flags change it. That's for lists of days, translations, score 
 | 5 | a name fits more than one: the error lists them |
 | 6 | only in the club's app |
 | 7 | conflict: something changed since the preview, the time is taken, or the preview ran out |
-| 8 | not signed in, or the sign-in ended: `kumi login` |
+| 8 | not signed in, or the sign-in ended: `openpadel login` |
 | 9 | couldn't reach the club, or it's busy: try again shortly |
 | 10 | preview only: nothing changed yet |
 | 11 | waiting for a staff member's approval |
@@ -177,9 +180,9 @@ as JSON, and any flags change it. That's for lists of days, translations, score 
 
 **Help:**
 
-- `kumi help` lists every command.
-- `kumi help <command>` gives its flags and an example.
-- `kumi schema <command>` gives its JSON schema and flags as JSON.
+- `openpadel help` lists every command.
+- `openpadel help <command>` gives its flags and an example.
+- `openpadel schema <command>` gives its JSON schema and flags as JSON.
 - `--lang=es` gives the command line's own words in Spanish. The club's words (previews, errors) come in the language
   the person chose at the club.
 
@@ -193,15 +196,15 @@ these.
 **Who am I there?**
 
 ```
-$ kumi whoami
+$ openpadel whoami
 Robin Hale at Kestrel Padel (owner). Spending limit $0.00 a week, $0.00 left this week.
 ```
 
 **What's on today, or another day?**
 
 ```bash
-kumi day --location Main --json
-kumi day --location Main --date 2026-11-20 --json
+openpadel day --location Main --json
+openpadel day --location Main --date 2026-11-20 --json
 ```
 
 Each court's bookings, blocks and program dates, who's playing and what's owed, as the desk's Courts page shows them.
@@ -209,7 +212,7 @@ Each court's bookings, blocks and program dates, who's playing and what's owed, 
 **What needs someone?**
 
 ```bash
-kumi alerts --json
+openpadel alerts --json
 ```
 
 Places left empty at the last minute, questions waiting, money owed, programs short of their minimum.
@@ -217,7 +220,7 @@ Places left empty at the last minute, questions waiting, money owed, programs sh
 **Find a member:**
 
 ```
-$ kumi people maria
+$ openpadel people maria
 [
   {
     "id": "01a1b732-387e-744f-8611-c9e258794d79",
@@ -232,28 +235,28 @@ $ kumi people maria
 **Which courts are free?**
 
 ```bash
-kumi free-courts --location Main --date 2026-11-20 --minutes 90 --json
+openpadel free-courts --location Main --date 2026-11-20 --minutes 90 --json
 ```
 
 **Book a court for a member:**
 
 ```
-$ kumi booking request --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90 --pay whole --person "Maria Lopez"
+$ openpadel booking request --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90 --pay whole --person "Maria Lopez"
 Preview (nothing has changed yet):
   Book Court 1, Fri, Nov 20, 6:00 PM, for 90 minutes: $60.00, paid now.
-To do it: kumi confirm 01a1b732-3980-78fe-858c-10941bb1d1a0, or the same command again with --yes. The preview lasts until 10:23 AM.
+To do it: openpadel confirm 01a1b732-3980-78fe-858c-10941bb1d1a0, or the same command again with --yes. The preview lasts until 10:23 AM.
 ```
 
 **Put on a clinic, give it a date, and open it for sign-up:**
 
 ```
-$ kumi program create --location Main --kind clinic --name "Tuesday drills" --capacity 8 --price-cents 3000 --yes
+$ openpadel program create --location Main --kind clinic --name "Tuesday drills" --capacity 8 --price-cents 3000 --yes
 Create Tuesday drills (clinic), 8 places at $30.00. Its results don't change levels.
 Done.
-$ kumi session add --program "Tuesday drills" --starts-at "2026-11-20 18:00" --ends-at "2026-11-20 19:30" --courts "Court 2" --yes
+$ openpadel session add --program "Tuesday drills" --starts-at "2026-11-20 18:00" --ends-at "2026-11-20 19:30" --courts "Court 2" --yes
 Add Tuesday drills on Fri, Nov 20, 6:00 PM, on Court 2.
 Done.
-$ kumi program publish --program "Tuesday drills" --yes
+$ openpadel program publish --program "Tuesday drills" --yes
 Publish Tuesday drills so players can sign up. Members will see it as a clinic at $30.00, with 8 places. It has 1 date: Fri, Nov 20, 6:00 PM, on Court 2.
 Done.
 ```
@@ -261,28 +264,28 @@ Done.
 **Sign people up:**
 
 ```
-$ kumi enrolment join --program "Tuesday drills" --person "Maria Lopez"
+$ openpadel enrolment join --program "Tuesday drills" --person "Maria Lopez"
 Preview (nothing has changed yet):
   Sign Maria Lopez up for Tuesday drills for $30.00.
-To do it: kumi confirm 01a1b732-3a45-790c-ba66-7a0a6bf410ee, or the same command again with --yes. The preview lasts until 10:23 AM.
+To do it: openpadel confirm 01a1b732-3a45-790c-ba66-7a0a6bf410ee, or the same command again with --yes. The preview lasts until 10:23 AM.
 ```
 
 **Close a court for a while:**
 
 ```bash
-kumi court block --courts "Court 3" --starts-at "2026-11-20 07:00" --ends-at "2026-11-20 09:00" --reason resurfacing
+openpadel court block --courts "Court 3" --starts-at "2026-11-20 07:00" --ends-at "2026-11-20 09:00" --reason resurfacing
 ```
 
 **Set a new member's level:**
 
 ```bash
-kumi level set --person "Maria Lopez" --level 4 --reason "Played 4.0 at her last club"
+openpadel level set --person "Maria Lopez" --level 4 --reason "Played 4.0 at her last club"
 ```
 
 **And what it won't do:**
 
 ```
-$ kumi waiver accept
+$ openpadel waiver accept
 That one (Accept the waiver) is only ever done in the club's app, never from the command line or an assistant.
 ```
 

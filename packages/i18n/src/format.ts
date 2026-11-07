@@ -43,12 +43,24 @@ export function format(catalog: Catalog, lang: Lang, key: Key, params: Params = 
   // reason or a note someone typed never shows "..". A Spanish time ("9:00 a.m.") at a sentence's end is the same.
   return sayFormer(raw.replace(/\{(\w+)\}(\.(?!\.))?/g, (_, k: string, stop: string | undefined) => {
     // The club's currency sign and how it writes an amount fill {currency} and {amount_example} when not given.
-    const v = params[k] ?? (k === "currency" ? currencySign() : k === "amount_example" ? amountExample() : undefined);
+    const v = params[k] ?? (k === "currency" ? currencySign() : k === "amount_example" ? amountExample() : k === "product" ? productName() : undefined);
     if (v === undefined) return `{${k}}${stop ?? ""}`;
     const s = typeof v === "object" ? v[lang] : String(v);
     return stop && /[.!?…]$/.test(s.trimEnd()) ? s.trimEnd() : s + (stop ?? "");
   }).replace(/([ap]\.\s?m\.)\./g, "$1"), lang);
 }
+
+/** The software is openPadel, and its command is `openpadel` (`kumi` still works). Staff read the product's name, filling
+ *  {product}: "openPadel", or "Kumi" when the install is Kumi's hosted service (KUMI_HOSTED=1 on the server; `hosted`
+ *  in /club for the apps). Members never read a product name: they read their club's. */
+export const SOFTWARE = "openPadel";
+export const COMMAND = "openpadel";
+export const HOSTED_NAME = "Kumi";
+export const HOSTED_URL = "https://kumi.club";
+let hostedInstall = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.KUMI_HOSTED === "1";
+export function setHosted(on: boolean): void { hostedInstall = on; }
+export const isHosted = (): boolean => hostedInstall;
+export const productName = (): string => (hostedInstall ? HOSTED_NAME : SOFTWARE);
 
 /** The club's currency and formats. A Kumi server runs one club, and so does each app, so this is set once: the
  *  server from the club's settings as it starts and whenever they change (setClubFormat), each app from /club.

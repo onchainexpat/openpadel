@@ -2,16 +2,16 @@
 
 **What it's for:** members pay for clinics, socials, Americanos, courts and memberships by card
 (Apple Pay and Google Pay work too, as cards), and refunds go straight back to the card. The money goes into the club's own
-Stripe account and Stripe pays it out to the club's bank. Kumi takes no commission and never sees
+Stripe account and Stripe pays it out to the club's bank. openPadel takes no commission and never sees
 card numbers: they go from the member's browser to Stripe.
 **Who does what:** the owner creates the Stripe account and gives Stripe the business, identity
-and bank details on Stripe's own pages. Never through the agent or the chat. The agent sets Kumi up
+and bank details on Stripe's own pages. Never through the agent or the chat. The agent sets openPadel up
 and runs the tests.
 **Time and cost:** 20 minutes to sign up, then Stripe checks the business, which can take a few days.
 Stripe charges its usual card fee per payment and keeps it when a payment is refunded. Memberships
-renew from the card the member joined with, charged by Kumi when each period ends, so there's no
+renew from the card the member joined with, charged by openPadel when each period ends, so there's no
 Stripe Billing subscription and no Billing fee on top.
-**`kumi doctor` checks:** `payments`, `wallets`.
+**`openpadel doctor` checks:** `payments`, `wallets`.
 
 ## Steps
 
@@ -32,10 +32,10 @@ Stripe Billing subscription and no Billing fee on top.
    Payments are also checked every 30 seconds, so a missed webhook never loses one; the webhook
    just makes it instant.
 4. **Owner: turn off Stripe's own receipt emails** (Settings, then Customer emails, then "Successful
-   payments" and "Refunds" off). Kumi sends a receipt for every payment and refund itself, in the
-   member's language and in the app; with Stripe's on too, members get two. Kumi never asks Stripe to
+   payments" and "Refunds" off). openPadel sends a receipt for every payment and refund itself, in the
+   member's language and in the app; with Stripe's on too, members get two. openPadel never asks Stripe to
    email one.
-5. **Agent:** `systemctl restart kumi`, then `kumi doctor`: `payments` should say test mode, and
+5. **Agent:** `systemctl restart kumi`, then `openpadel doctor`: `payments` should say test mode, and
    `wallets` that Apple Pay and Google Pay are on for the members' address. Stripe shows them on the
    card form only on a web address registered with it; the server registers the members' address
    itself when it starts (Settings, then Payment method domains, in Stripe's dashboard lists it), and
@@ -49,7 +49,7 @@ Stripe Billing subscription and no Billing fee on top.
 ## Going live (only when the owner says so)
 Stripe has finished checking the business, and the club has practised with test payments. In the
 settings file, replace both keys with the live ones (`sk_live_...`, `pk_live_...`), add a live-mode
-webhook with the same URL and events and use its secret, and restart. Kumi refuses a live key
+webhook with the same URL and events and use its secret, and restart. openPadel refuses a live key
 unless `NODE_ENV=production` (the server setup sets it).
 
 ## Common problems
@@ -58,7 +58,7 @@ unless `NODE_ENV=production` (the server setup sets it).
 - **"Pay" does nothing for members:** the publishable key is missing or from a different Stripe
   account than the secret key.
 - **Stripe asks for more information:** only the owner can answer, in Stripe's dashboard.
-- **No Apple Pay or Google Pay on the card form:** `kumi doctor`'s `wallets` line says why. They need
+- **No Apple Pay or Google Pay on the card form:** `openpadel doctor`'s `wallets` line says why. They need
   the members' app on a public HTTPS address, a browser and device that has them set up (Safari with a
   card in Apple Wallet; Chrome with a card saved in Google Pay), and the domain registered (restart the
   server to register it again). A domain switched off in Stripe's dashboard is switched back on.

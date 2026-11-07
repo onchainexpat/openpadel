@@ -3,7 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { amountInput, amountPattern, capFor, fromMajor, money, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
-import { api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, savedIn, t, translationsOf, usePreview, type Club, applyBrand } from "@kumi/ui";
+import { api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, RunsOn, savedIn, t, translationsOf, usePreview, type Club, applyBrand } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
 type Hours = { weekday: number; opens: string | null; closes: string | null };
@@ -60,6 +60,7 @@ export function Settings() {
       <NewLocation tz={s.club.time_zone} send={send} />
       {note && <p class="note" role="status">{note}</p>}
       {sheet}
+      <RunsOn />
     </main>
   );
 }

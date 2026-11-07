@@ -325,7 +325,7 @@ test("doctor: keys with nothing to text from point to kumi texting; a registrati
   const env = { KUMI_BACKUP_DIR: "/nonexistent", KUMI_TWILIO_ACCOUNT_SID: AC, KUMI_TWILIO_AUTH_TOKEN: TOKEN };
   const texts = async (fetch?: any) => (await doctor(db, env, { fetch })).find((c) => c.id === "texts")!;
   let c = await texts();
-  assert.equal(c.state, "warn"); assert.match(c.text.en, /kumi texting plan/);
+  assert.equal(c.state, "warn"); assert.match(c.text.en, /openpadel texting plan/);
   const tw = new FakeTwilio();
   await applyTexting(deps(tw), { yes: true });
   c = await texts();
@@ -333,5 +333,5 @@ test("doctor: keys with nothing to text from point to kumi texting; a registrati
   tw.decide("TWILIO_APPROVED");
   await refreshTexting(db, new TwilioApi(AC, TOKEN, tw.fetch));
   c = await texts(async () => json(200, { sid: AC, status: "active" }));
-  assert.notEqual(c.state, "fail"); assert.doesNotMatch(c.text.en, /kumi texting/);
+  assert.notEqual(c.state, "fail"); assert.doesNotMatch(c.text.en, /openpadel texting/);
 });

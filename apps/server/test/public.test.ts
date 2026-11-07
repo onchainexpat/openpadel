@@ -4,6 +4,7 @@ import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { run, runAsSystem, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
+import { setHosted, t } from "@kumi/i18n";
 
 let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor, clinic: string;
 const TZ = "America/Los_Angeles";
@@ -80,4 +81,23 @@ test("reached on the staff address too, the pages name the members' address as t
   const staffSide = makeApp({ db, mailer: new MemoryMailer(), secureCookies: false, publicUrl: "https://staff.play.kestrel.test" });
   const map = await (await staffSide.request("/public/sitemap.xml")).text();
   assert.ok(map.includes(`<loc>https://play.kestrel.test/public/events/${clinic}</loc>`) && !map.includes("staff."), map);
+});
+
+test("the product's name: none on a club's own install; \"Runs on Kumi\" on Kumi's hosted service, and staff read Kumi", async () => {
+  // A club running openPadel itself: the public page and /club name no product, and staff read openPadel.
+  setHosted(false);
+  assert.doesNotMatch((await page("/public")).text, /Kumi|openPadel/);
+  assert.equal((await (await app.request("/club")).json()).hosted, false);
+  assert.match(t("en", "ui.payments_point_money"), /openPadel takes no commission/);
+  try {
+    setHosted(true);
+    const p = await page("/public");
+    assert.match(p.text, /<a href="https:\/\/kumi\.club">Runs on Kumi<\/a>/);
+    assert.match((await page("/public", "es")).text, /Funciona con Kumi/);
+    assert.equal((await (await app.request("/club")).json()).hosted, true);
+    assert.match(t("en", "ui.payments_point_money"), /Kumi takes no commission/);
+    assert.match(t("es", "ui.leaving_banner_owner", { date: "1" }), /Kumi/);
+    // What members read never names the product, hosted or not.
+    assert.doesNotMatch(t("en", "plan.person.locale_to", { language: "Spanish" }), /Kumi|openPadel/);
+  } finally { setHosted(false); }
 });

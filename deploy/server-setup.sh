@@ -221,6 +221,8 @@ cd /opt/kumi/app || exit 1
 exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
 SH
 chmod 755 /usr/local/bin/kumi.new && mv -f /usr/local/bin/kumi.new /usr/local/bin/kumi
+# openpadel: the same command under the software's name; kumi keeps working for whatever already uses it.
+ln -sfn /usr/local/bin/kumi /usr/local/bin/openpadel
 # Nightly backup at 3:17 on the club's clock (off the hour): the dump and its manifest, kept 14 days, and the
 # offsite copy if set up. The backup and the restore test run the club's code as the kumi user, so they get the
 # server's sandbox: they write only in the backups folder, with a /tmp of their own. The timer ticks hourly and `--scheduled` runs it only when it's due, so the time follows

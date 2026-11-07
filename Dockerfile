@@ -32,7 +32,7 @@ RUN apt-get update -q && apt-get install -yq --no-install-recommends ca-certific
 ENV NODE_ENV=production PORT=8790 KUMI_LISTEN_ADDRESS=0.0.0.0 KUMI_CLUB_FILE=/etc/kumi/club.yaml KUMI_PG_BIN=/usr/lib/postgresql/17/bin KUMI_INSTALL=docker
 WORKDIR /app
 COPY --from=runtime-deps --chown=node:node /app /app
-RUN printf '#!/bin/sh\nexec node /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/kumi && chmod 755 /usr/local/bin/kumi
+RUN printf '#!/bin/sh\nexec node /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/kumi && chmod 755 /usr/local/bin/kumi && ln -sf /usr/local/bin/kumi /usr/local/bin/openpadel
 USER node
 EXPOSE 8790
 CMD ["node", "apps/server/src/main.ts"]
@@ -60,7 +60,7 @@ RUN apk add --no-cache libstdc++ libgcc \
  && install -d -m 700 -o postgres -g postgres /var/lib/kumi-pitr /var/lib/kumi-pitr/scratch
 COPY --from=node:24.22.0-alpine3.23 /usr/local/bin/node /usr/local/bin/node
 COPY --from=runtime-deps /app /app
-RUN printf '#!/bin/sh\nexec node /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/kumi && chmod 755 /usr/local/bin/kumi
+RUN printf '#!/bin/sh\nexec node /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/kumi && chmod 755 /usr/local/bin/kumi && ln -sf /usr/local/bin/kumi /usr/local/bin/openpadel
 COPY deploy/docker/pitr.sh /usr/local/bin/kumi-pitr-service
 # KUMI_PITR_INLINE: `kumi restore --to` takes the copy from the archive itself, as this user (pitr_cli.ts).
 ENV NODE_ENV=production KUMI_INSTALL=docker KUMI_PITR_INLINE=1 KUMI_PG_BIN=/usr/local/bin \

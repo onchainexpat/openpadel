@@ -1,6 +1,6 @@
-# Running Kumi on one server
+# Running openPadel on one server
 
-For a club running Kumi itself, and for Kumi's own trial server. One small Ubuntu 24.04 server (2 GB of
+For a club running openPadel itself, and for Kumi's trial server. One small Ubuntu 24.04 server (2 GB of
 memory is plenty for a club) runs Postgres 17, the API, both apps and HTTPS.
 
 ```bash
@@ -22,7 +22,7 @@ deploy/ship.sh root@your.server.ip
 
 `server-setup.sh` makes two keys in `/etc/kumi/kumi.env` and never prints them:
 
-- `KUMI_SECRET_KEY` seals the secrets Kumi keeps in its database (staff authenticators, the push signing
+- `KUMI_SECRET_KEY` seals the secrets openPadel keeps in its database (staff authenticators, the push signing
   key, the owner's vault) with AES-256-GCM. The server won't start in production without it. A server set up
   before it existed gets one on its next update, and its secrets are sealed as it starts.
 - `KUMI_BACKUP_KEY` seals the offsite copies of the backups. It's separate on purpose: the owner keeps a copy
@@ -30,7 +30,7 @@ deploy/ship.sh root@your.server.ip
   after losing the server.
 
 To change `KUMI_SECRET_KEY`: put the old one in `KUMI_SECRET_KEY_PREVIOUS`, a new one in `KUMI_SECRET_KEY`,
-restart, run `kumi rotate-key` (it says how many it moved), then remove the old one.
+restart, run `openpadel rotate-key` (it says how many it moved), then remove the old one.
 
 ## Updating, and going back
 
@@ -47,10 +47,10 @@ If any of that fails, it puts the old release back and restores the snapshot, an
 releases and the last 3 update snapshots are kept.
 
 ```bash
-sudo kumi releases          # which release runs, which is kept, and the snapshot
-sudo kumi rollback          # explains what going back loses
-sudo kumi rollback --yes    # the previous release, and the database as it was just before the last update
-sudo kumi update kumi-v0.3.0.tar   # from a release file instead of ship.sh (git archive --format=tar v0.3.0 > kumi-v0.3.0.tar)
+sudo openpadel releases          # which release runs, which is kept, and the snapshot
+sudo openpadel rollback          # explains what going back loses
+sudo openpadel rollback --yes    # the previous release, and the database as it was just before the last update
+sudo openpadel update kumi-v0.3.0.tar   # from a release file instead of ship.sh (git archive --format=tar v0.3.0 > kumi-v0.3.0.tar)
 ```
 
 Going back loses everything since the update (bookings, payments, sign-ups), which is why it asks for
@@ -59,16 +59,16 @@ Going back loses everything since the update (bookings, payments, sign-ups), whi
 
 Everything in `/opt/kumi` belongs to root: the kumi user builds each release, then it becomes root's before it
 runs, so nothing running as kumi (the server, or a package's install step) can change what `sudo kumi ...` runs
-later. `sudo kumi rollback` and `sudo kumi releases` use root's own copy of `release.sh`
+later. `sudo openpadel rollback` and `sudo openpadel releases` use root's own copy of `release.sh`
 (`/usr/local/lib/kumi/release.sh`), refreshed by each update from the release file. The kumi user's own folder is
 `/var/lib/kumi`. Caddy reads the apps like anyone else and isn't in the kumi group, so it can't read
 `/etc/kumi/kumi.env`. A server set up before 0.1.0 is moved over by its next update.
 
 ## Backups
 
-- **Every night at 3:17 on the club's clock** (`kumi-backup.timer` checks every hour, and `kumi backup --scheduled`
+- **Every night at 3:17 on the club's clock** (`kumi-backup.timer` checks every hour, and `openpadel backup --scheduled`
   runs only when it's due, so the club's time zone counts, not the server's; a server that was off then catches up
-  at its next check): `kumi backup` dumps the database with a manifest of every
+  at its next check): `openpadel backup` dumps the database with a manifest of every
   table's rows, both from one snapshot, to `/var/backups/kumi/kumi-<date>T<time>.dump` and `.json` (the club's date
   and time, such as `kumi-2026-11-30T0317.dump`), kept 14 days. Every backup keeps its own file: one run by hand
   never replaces the night's.
@@ -76,31 +76,31 @@ later. `sudo kumi rollback` and `sudo kumi releases` use root's own copy of `rel
   the same night's dump goes to the club's own S3-compatible storage (Cloudflare R2, Backblaze B2, AWS S3,
   DigitalOcean Spaces), sealed with `KUMI_BACKUP_KEY`. 30 daily and 12 monthly copies are kept. One upload
   is at most 512 MB, far above a club's database (a few MB).
-- **Once a month** (`kumi-restore-test.timer`, the 1st at 4:17 on the club's clock): `kumi restore-test` restores the newest
+- **Once a month** (`kumi-restore-test.timer`, the 1st at 4:17 on the club's clock): `openpadel restore-test` restores the newest
   backup (offsite if set up) into the `kumi_restore_test` database, checks every table and row against
   its manifest, and empties it again.
 - If the backup, its offsite copy or the restore test starts failing, the owner and managers are told
   once, by email and in the staff app's alerts; again only after it has worked in between.
 
 ```bash
-kumi backup                                 # tonight's backup now
-kumi offsite                                # what's kept offsite
-kumi restore-test                           # the monthly check, now
-sudo kumi restore /var/backups/kumi/kumi-2026-11-30T0317.dump --yes   # replace the database with a backup
-sudo kumi restore offsite:latest --yes      # or the newest offsite copy
+openpadel backup                                 # tonight's backup now
+openpadel offsite                                # what's kept offsite
+openpadel restore-test                           # the monthly check, now
+sudo openpadel restore /var/backups/kumi/kumi-2026-11-30T0317.dump --yes   # replace the database with a backup
+sudo openpadel restore offsite:latest --yes      # or the newest offsite copy
 ```
 
-`kumi restore` stops the server, checks the file is a backup it can read, keeps a copy of the database as it
+`openpadel restore` stops the server, checks the file is a backup it can read, keeps a copy of the database as it
 is (`kumi-<time>-before-restore.dump` beside the backups), restores, and starts the server again. It asks for
 `--yes` because everything since that backup is lost. If the restore fails, the copy goes back in and nothing is
 lost. In the rare case that fails too, the server stays stopped (it would start with an empty club) and the
 message names the copy to restore by hand.
 
-A club's export (`kumi export`, or the owner's "Download everything") restores the same way, onto this
-server's Kumi or a newer one: put it where the kumi user can read it, and type its passphrase when asked.
+A club's export (`openpadel export`, or the owner's "Download everything") restores the same way, onto this
+server's openPadel or a newer one: put it where the kumi user can read it, and type its passphrase when asked.
 ```bash
 sudo install -o kumi -m 600 kumi-export-20261130T1900Z.kumi /var/backups/kumi/
-sudo kumi restore /var/backups/kumi/kumi-export-20261130T1900Z.kumi --yes
+sudo openpadel restore /var/backups/kumi/kumi-export-20261130T1900Z.kumi --yes
 ```
 
 ## Health
@@ -109,4 +109,4 @@ sudo kumi restore /var/backups/kumi/kumi-export-20261130T1900Z.kumi --yes
 - `/health/deep` answers only on the server itself (`curl -s 127.0.0.1:8790/health/deep`) or for a
   signed-in owner or manager: the database, how far behind the outbox is, the last backup, its offsite copy
   and restore test, and disk space. It answers 503 when something needs a look, and names it in `problems`.
-- `kumi doctor` checks all of that too, with the next step for anything that isn't fine.
+- `openpadel doctor` checks all of that too, with the next step for anything that isn't fine.

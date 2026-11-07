@@ -2,15 +2,15 @@
 
 **What it's for:** a copy of every night's backup somewhere other than the club's server. The server
 keeps 14 days of backups on its own disk, which don't survive losing the server. With this set up, each
-night's backup also goes to storage the club owns, sealed with the club's backup key, and Kumi keeps 30
-daily copies and 12 monthly ones there. Once a month Kumi restores the newest one into a scratch database
+night's backup also goes to storage the club owns, sealed with the club's backup key, and openPadel keeps 30
+daily copies and 12 monthly ones there. Once a month openPadel restores the newest one into a scratch database
 and checks every table, so the club knows the backups really work.
 **Who does what:** the owner creates the storage account, the bucket and its key, and types the key
 into the server. The agent sets up the rest and checks it. The agent never sees the keys.
 **Time and cost:** 20 minutes. A club's nightly backup is a few MB, so 30 daily and 12 monthly copies fit
 easily in the free allowance both offer (about 10 GB in 2026; check their pricing pages). R2 charges
 nothing to download; B2 charges a little past a free daily allowance. Either is fine.
-**`kumi doctor` checks:** `offsite`, `restore_test`, `backups`.
+**`openpadel doctor` checks:** `offsite`, `restore_test`, `backups`.
 
 ## Before either: the backup key
 
@@ -64,7 +64,7 @@ secret only once). Without them you'd make a new key for the bucket before you c
 
 1. **Owner: create a B2 account** at backblaze.com (B2 Cloud Storage).
 2. **Owner: create a bucket**, for example `yourclub-kumi-backups`: **private**, Object Lock **off**
-   (Kumi deletes copies past 30 days and 12 months; a lock would stop it). Note the bucket's endpoint,
+   (openPadel deletes copies past 30 days and 12 months; a lock would stop it). Note the bucket's endpoint,
    such as `s3.us-west-004.backblazeb2.com`.
 3. **Owner: set the bucket's lifecycle to "Keep only the last version of the file".** B2 otherwise keeps
    every deleted copy as a hidden old version, still stored and billed.
@@ -85,31 +85,31 @@ secret only once). Without them you'd make a new key for the bucket before you c
 
 ```bash
 sudo systemctl restart kumi        # not needed for the backup itself, but keeps everything on the same settings
-kumi backup                        # tonight's backup now, and its offsite copy
-kumi offsite                       # what's there: daily/kumi-<date>T<time>.dump.enc and .json.enc, monthly/kumi-<month>...
-kumi restore-test                  # restore the newest offsite copy into a scratch database and check it
-kumi doctor                        # offsite and restore_test should be ok
+openpadel backup                        # tonight's backup now, and its offsite copy
+openpadel offsite                       # what's there: daily/kumi-<date>T<time>.dump.enc and .json.enc, monthly/kumi-<month>...
+openpadel restore-test                  # restore the newest offsite copy into a scratch database and check it
+openpadel doctor                        # offsite and restore_test should be ok
 ```
 
 With Docker: `docker compose up -d` after editing `.env`, then the same commands as
 `docker compose exec backup kumi ...`.
 
-If `kumi backup` says `HTTP 403 SignatureDoesNotMatch` or `AccessDenied`, the key or its bucket is
+If `openpadel backup` says `HTTP 403 SignatureDoesNotMatch` or `AccessDenied`, the key or its bucket is
 wrong; `NoSuchBucket`, the bucket name or the endpoint. The error is said once to the owner and managers
 by email too, and again only after it has worked in between.
 
 ## Optional: so a stolen server can't delete the offsite copies
 
-By default Kumi deletes copies past 30 days (and monthly ones past 12 months) itself, so the key on the
+By default openPadel deletes copies past 30 days (and monthly ones past 12 months) itself, so the key on the
 server can delete. Someone who takes over the server could then delete the offsite copies too. To stop
-that, let the storage expire old copies on its own schedule, protect them from deletion, and tell Kumi
+that, let the storage expire old copies on its own schedule, protect them from deletion, and tell openPadel
 not to delete anything:
 
 ```
 KUMI_OFFSITE_PRUNE=0
 ```
 
-Kumi never overwrites an offsite copy (every night's has its own name, and a month's copy is written once),
+openPadel never overwrites an offsite copy (every night's has its own name, and a month's copy is written once),
 so none of this gets in its way.
 
 **Cloudflare R2.** In the bucket's **Settings**:
@@ -117,7 +117,7 @@ so none of this gets in its way.
    rule: prefix `kumi/monthly/`, delete after **366 days**.
 2. **Bucket lock rules**, Add rule: prefix `kumi/daily/`, retain for **30 days**; a second: prefix
    `kumi/monthly/`, retain for **365 days**. Until then nothing can delete or overwrite a copy, a stolen key
-   included. R2's key types don't include one that can write but not delete (Kumi needs **Object Read &
+   included. R2's key types don't include one that can write but not delete (openPadel needs **Object Read &
    Write**), so on R2 the bucket lock is what protects the copies.
 
 **Backblaze B2.**
@@ -132,14 +132,14 @@ so none of this gets in its way.
    and puts that key in `/etc/kumi/kumi.env` in place of the old one.
 3. For more protection, turn on the bucket's Object Lock with a default retention of 30 days.
 
-`kumi doctor` says which way the server works.
+`openpadel doctor` says which way the server works.
 
 ## Going back to a minute (point-in-time backups)
 
 The nightly backup can only take the club back to 3:17 last night. Point-in-time backups can take it back to
 **any minute**: a mistake at 14:06 is undone by going back to 14:05. The target: **lose at most about a minute**
 of the club's changes, and **be back within an hour** (the monthly test measures how long a restore takes, and
-`kumi doctor` shows it; a small club's takes seconds).
+`openpadel doctor` shows it; a small club's takes seconds).
 
 How it works: Postgres writes every change to its log first, and pgBackRest (the PostgreSQL community's backup
 tool, from the same repository as Postgres) copies each finished piece of that log away at least once a minute
@@ -148,25 +148,25 @@ while the club is busy, and takes a base backup every night at 3:37 club time (a
 - **offsite**, in the same bucket as the nightly copies (`kumi/pitr/<the cluster's id>/`), any minute of the
   last 30 days, sealed with a key made from `KUMI_BACKUP_KEY`, so the key in the password manager opens it too.
   pgBackRest deletes its own old pieces, so with `KUMI_OFFSITE_PRUNE=0` (a key that can't delete) the offsite
-  copy stays off and only the server's runs; `kumi doctor` says so.
+  copy stays off and only the server's runs; `openpadel doctor` says so.
 
 `server-setup.sh` turns it on (it starts Postgres again once, to archive); the next update (or the first ship)
 sets pgBackRest up and takes the first base backup. On a server set up before this, run `server-setup.sh` again
 once. `KUMI_PITR=0`, in the environment of `server-setup.sh` and in `/etc/kumi/kumi.env`, leaves it off.
 
 **With Docker**, the `pitr` service does all of this beside Postgres, with the same two copies, the same test and the
-same checks; going back is `docker compose exec pitr kumi restore --to=... --yes` with `kumi` stopped
+same checks; going back is `docker compose exec pitr openpadel restore --to=... --yes` with `kumi` stopped
 ([deploy/docker/README.md](../../../deploy/docker/README.md#going-back-to-a-minute)).
 
 To go back:
 ```bash
-kumi pitr status                                   # how far back it reaches, and whether it's keeping up
-sudo kumi restore --to="2026-11-03 14:05" --yes    # the club's clock; everything since is lost
+openpadel pitr status                                   # how far back it reaches, and whether it's keeping up
+sudo openpadel restore --to="2026-11-03 14:05" --yes    # the club's clock; everything since is lost
 ```
 It recovers the archive into a scratch copy of its own (the live database isn't touched), stops at that minute,
 takes the club's database from it, and restores that the usual way: a copy of the database as it is now is made
 first. Messages the club had already sent since that minute aren't sent again (notices it had handled are held:
-`kumi held` lists them, and `kumi held send --yes` or `kumi held drop --yes` decides), and card charges and
+`openpadel held` lists them, and `openpadel held send --yes` or `openpadel held drop --yes` decides), and card charges and
 refunds ask Stripe first, so none is made twice. A reminder or notice the jobs make again, because the record that
 it was said is newer than that minute, doesn't go twice either: for a week, an email, text or push with exactly
 the words, link and person of one sent before the restore is marked as sent then, instead of going again.
@@ -178,7 +178,7 @@ sign-in address, phone number, family card or phone's notifications taken away s
 spent stays gone (nobody's credit is more than was really left), and a gift card redeemed or voided stays so. The same goes for an
 update's snapshot going back, and for an export put back on the server the club ran on before.
 
-`kumi restore` lists each account it deletes again, with who had deleted it. Someone who deleted their own account
+`openpadel restore` lists each account it deletes again, with who had deleted it. Someone who deleted their own account
 is always deleted again. One the club had deleted can be kept: run the restore with `--keep=<id>` (several, comma
 separated) or `--keep-staff-deleted` for all of them. An account deleted again has its bookings, places and weekly
 court cancelled by the club's rules first (cards refunded, money paid at the desk left there for the staff, who hear
@@ -192,15 +192,15 @@ accounts: it lists them, by id and name, in `deleted-again-by-hand-<time>.txt` i
 root only), to delete again in the staff app.
 
 Once a month (the 1st, 5:17 club time) a random minute of the last week is restored into scratch and checked: the
-change made a minute before it is there, nothing from a minute after it is. `kumi doctor` shows the result, and
-`sudo kumi pitr test` runs it now.
+change made a minute before it is there, nothing from a minute after it is. `openpadel doctor` shows the result, and
+`sudo openpadel pitr test` runs it now.
 
 These jobs run as the postgres user, whose archive it is, but they never open the club's database as Postgres's
 superuser: they sign in as the `kumi` role (which owns it), and in the scratch copy as whoever owns it there (never
 a superuser), with only Postgres's own catalog on the search path. A superuser session in a database the `kumi`
 role owns would run whatever that role had left in it (a trigger, a function) with the superuser's rights.
 `server-setup.sh` and every update let the postgres user sign in as `kumi`, to the `kumi` database only, through
-Kumi's own `pg_hba` and `pg_ident` files (`kumi_hba.conf`, `kumi_ident.conf` beside Postgres's, which include
+openPadel's own `pg_hba` and `pg_ident` files (`kumi_hba.conf`, `kumi_ident.conf` beside Postgres's, which include
 them; Postgres 16 or later). The dump taken from the scratch copy is made under umask 077, in a folder only the
 postgres user can open.
 
@@ -210,9 +210,9 @@ postgres user can open.
 2. **Owner:** replace the new server's `KUMI_BACKUP_KEY` line with the one from the password manager,
    and add the five `KUMI_OFFSITE_*` settings, in `/etc/kumi/kumi.env`. If you kept the old `KUMI_SECRET_KEY`, add it as
    `KUMI_SECRET_KEY_PREVIOUS` (the new server made its own `KUMI_SECRET_KEY`).
-3. `sudo kumi restore offsite:latest --yes` (it stops the server, restores, and starts it again), then
-   `kumi rotate-key` and `kumi doctor`.
+3. `sudo openpadel restore offsite:latest --yes` (it stops the server, restores, and starts it again), then
+   `openpadel rotate-key` and `openpadel doctor`.
 4. To go to a later minute than last night's backup: the old server's point-in-time archive is offsite, in its
    own folder `kumi/pitr/<id>/` (look in the bucket for the id). Once the new server is set up and running,
-   `sudo kumi restore --to="2026-11-03 14:05" --archive=<id> --yes`. Everything that was waiting to go out is held
-   then, since this server can't know what the old one sent: `kumi held` lists it.
+   `sudo openpadel restore --to="2026-11-03 14:05" --archive=<id> --yes`. Everything that was waiting to go out is held
+   then, since this server can't know what the old one sent: `openpadel held` lists it.

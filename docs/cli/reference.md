@@ -1,4 +1,4 @@
-# kumi: every club command
+# openpadel: every club command
 
 Made by `node tools/gen_cli_reference.ts` from the actions and reads the assistant door offers; don't edit it by hand
 (`apps/server/test/cli_reference.test.ts` fails when it's out of date). How to sign in, the flags every command
@@ -10,19 +10,19 @@ only ever made in the app (accepting a waiver, the family card, money handed ove
 
 ## Reads
 
-### kumi booking-options
+### openpadel booking-options
 
 Where and how to book. The club's locations (with their ids), the lengths a court can be booked for, how many days ahead you may book, and the deadlines for sharing the cost and cancelling.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi booking-options
+openpadel booking-options
 ```
 
-### kumi free-courts
+### openpadel free-courts
 
-Free courts. Each court at a location that is free on a date for a length, with every start time it's free (UTC). Use a court id and start from here in kumi booking request.
+Free courts. Each court at a location that is free on a date for a length, with every start time it's free (UTC). Use a court id and start from here in openpadel booking request.
 
 Who may: anyone signed in, about themselves.
 
@@ -30,13 +30,13 @@ Who may: anyone signed in, about themselves.
 |---|---|---|---|
 | `--location` | location: a name or an id | needed |  |
 | `--date` | date YYYY-MM-DD | needed | A club date, YYYY-MM-DD |
-| `--minutes` | whole number | needed | 60, 90 or 120, as kumi booking-options lists |
+| `--minutes` | whole number | needed | 60, 90 or 120, as openpadel booking-options lists |
 
 ```
-kumi free-courts --location Main --date 2026-11-20 --minutes 90
+openpadel free-courts --location Main --date 2026-11-20 --minutes 90
 ```
 
-### kumi court-price
+### openpadel court-price
 
 What a court costs. The price of a court at a time and length for this person (their member price, if they have one), with tax.
 
@@ -45,46 +45,46 @@ Who may: anyone signed in, about themselves.
 | Flag | Takes | | What it is |
 |---|---|---|---|
 | `--court` | court: a name or an id | needed |  |
-| `--starts-at` | time: "YYYY-MM-DD HH:MM" on the club's clock, or ISO | needed | ISO time, as kumi free-courts gives it |
+| `--starts-at` | time: "YYYY-MM-DD HH:MM" on the club's clock, or ISO | needed | ISO time, as openpadel free-courts gives it |
 | `--minutes` | whole number | needed |  |
 
 ```
-kumi court-price --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90
+openpadel court-price --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90
 ```
 
-### kumi open-programs
+### openpadel open-programs
 
 Clinics, courses and socials. Clinics, courses and socials open for sign-up: dates, places left, level band and this person's price. Programs signed up date by date list each date's places.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi open-programs
+openpadel open-programs
 ```
 
-### kumi open-matches
+### openpadel open-matches
 
 Open matches. Open matches this person can join or ask to join: court, time, level band, places left and the price of a place.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi open-matches
+openpadel open-matches
 ```
 
-### kumi my-chats
+### openpadel my-chats
 
 Chats in my games. The chats in the games the person plays in (court bookings with named players, open matches, program dates), with how many messages are unread. Reading only: an assistant never posts in a chat.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi my-chats
+openpadel my-chats
 ```
 
-### kumi game-chat
+### openpadel game-chat
 
-A game's chat. One game's chat, as the person reads it (kind and id from kumi my-chats). Reading only: it doesn't mark anything read, and an assistant never posts.
+A game's chat. One game's chat, as the person reads it (kind and id from openpadel my-chats). Reading only: it doesn't mark anything read, and an assistant never posts.
 
 Who may: anyone signed in, about themselves.
 
@@ -94,82 +94,82 @@ Who may: anyone signed in, about themselves.
 | `--id` | text | needed |  |
 
 ```
-kumi game-chat --kind booking --id ...
+openpadel game-chat --kind booking --id ...
 ```
 
-### kumi my-places
+### openpadel my-places
 
 My bookings and places. This person's court bookings, matches, lessons and program places to come, with what they owe.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi my-places
+openpadel my-places
 ```
 
-### kumi my-competitions
+### openpadel my-competitions
 
-My tournaments and leagues. This person's tournament and league entries: invitations to answer, their partner, their next matches (court and time), results, scores to confirm, and the group or league table. Scores go through kumi fixture enter, kumi result confirm or kumi result dispute.
+My tournaments and leagues. This person's tournament and league entries: invitations to answer, their partner, their next matches (court and time), results, scores to confirm, and the group or league table. Scores go through openpadel fixture enter, openpadel result confirm or openpadel result dispute.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi my-competitions
+openpadel my-competitions
 ```
 
-### kumi my-credit
+### openpadel my-credit
 
 My club credit. This person's club credit: what they hold and what came and went. Read only: credit is spent in the members' app, never through an assistant.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi my-credit
+openpadel my-credit
 ```
 
-### kumi my-gift-cards
+### openpadel my-gift-cards
 
 My gift cards. Gift cards this person bought or redeemed, with whether each is ready to give, used or voided (never their codes: those are in the members' app, where redeeming is too).
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi my-gift-cards
+openpadel my-gift-cards
 ```
 
-### kumi my-passes
+### openpadel my-passes
 
 My passes. This person's passes (uses left, what each covers, any date to use it by) and the passes the club sells. Read only: a pass is spent in the members' app, never through an assistant; buying one is pass.buy.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi my-passes
+openpadel my-passes
 ```
 
-### kumi my-level
+### openpadel my-level
 
 My level. This person's level, how it moved and why, and their games.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi my-level
+openpadel my-level
 ```
 
-### kumi my-membership
+### openpadel my-membership
 
 My membership. This person's membership: the plan, its perks and the next payment.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi my-membership
+openpadel my-membership
 ```
 
-### kumi club-answers
+### openpadel club-answers
 
-The club's answers. The club's own answers to common questions (hours, parking, prices, rules), word for word. Quote them; for anything else, kumi question ask asks the staff.
+The club's answers. The club's own answers to common questions (hours, parking, prices, rules), word for word. Quote them; for anything else, openpadel question ask asks the staff.
 
 Who may: anyone signed in, about themselves.
 
@@ -178,22 +178,22 @@ Who may: anyone signed in, about themselves.
 | `--q` | text |  | Words to search for; empty lists them all |
 
 ```
-kumi club-answers
+openpadel club-answers
 ```
 
-### kumi lesson-coaches
+### openpadel lesson-coaches
 
 Coaches for lessons. The coaches who give private lessons, with their ids and rates by length.
 
 Who may: anyone signed in, about themselves.
 
 ```
-kumi lesson-coaches
+openpadel lesson-coaches
 ```
 
-### kumi lesson-times
+### openpadel lesson-times
 
-A coach's lesson times. When a coach gives a lesson of a length on a date, with a court free. Use a time from here in kumi lesson request.
+A coach's lesson times. When a coach gives a lesson of a length on a date, with a court free. Use a time from here in openpadel lesson request.
 
 Who may: anyone signed in, about themselves.
 
@@ -204,10 +204,10 @@ Who may: anyone signed in, about themselves.
 | `--minutes` | whole number | needed |  |
 
 ```
-kumi lesson-times --coach "Ana Ruiz" --date 2026-11-20 --minutes 90
+openpadel lesson-times --coach "Ana Ruiz" --date 2026-11-20 --minutes 90
 ```
 
-### kumi people
+### openpadel people
 
 People. The club's people whose name matches, with their ids, roles and tags (emails shortened). Use an id from here wherever a change asks for a person.
 
@@ -220,10 +220,10 @@ Who may: staff (each sees what their staff screens show).
 | `--limit` | whole number |  |  |
 
 ```
-kumi people
+openpadel people
 ```
 
-### kumi person-page
+### openpadel person-page
 
 A person's page. One person's page, as the staff app shows it: bookings, places, membership, family, what they owe and what's owed back (contact details shortened).
 
@@ -234,20 +234,20 @@ Who may: staff (each sees what their staff screens show).
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi person-page --person "Maria Lopez"
+openpadel person-page --person "Maria Lopez"
 ```
 
-### kumi locations
+### openpadel locations
 
 Locations. The club's locations, with their ids and time zones.
 
 Who may: staff (each sees what their staff screens show).
 
 ```
-kumi locations
+openpadel locations
 ```
 
-### kumi courts
+### openpadel courts
 
 Courts. The club's courts (or one location's), with their ids, location and kind.
 
@@ -258,30 +258,30 @@ Who may: staff (each sees what their staff screens show).
 | `--location` | location: a name or an id |  |  |
 
 ```
-kumi courts
+openpadel courts
 ```
 
-### kumi coaches
+### openpadel coaches
 
 Coaches. The coaches, with their ids, profiles, lesson hours and time off (a coach sees only their own).
 
 Who may: staff (each sees what their staff screens show).
 
 ```
-kumi coaches
+openpadel coaches
 ```
 
-### kumi programs
+### openpadel programs
 
 Programs. The club's clinics, courses, socials, leagues and tournaments (the latest 100), with their ids, places booked and waitlisted, and first date.
 
 Who may: staff (each sees what their staff screens show).
 
 ```
-kumi programs
+openpadel programs
 ```
 
-### kumi program-page
+### openpadel program-page
 
 A program. One program: its dates (with their ids, courts and coach), roster and waitlist.
 
@@ -292,10 +292,10 @@ Who may: staff (each sees what their staff screens show).
 | `--program` | program: a name or an id | needed |  |
 
 ```
-kumi program-page --program "Tuesday drills"
+openpadel program-page --program "Tuesday drills"
 ```
 
-### kumi day
+### openpadel day
 
 The day at a location. A location's courts for a day (today unless a date is given): each booking, block and program date, who's playing and what's owed, as the desk's Courts page shows it.
 
@@ -307,20 +307,20 @@ Who may: staff (each sees what their staff screens show).
 | `--date` | date YYYY-MM-DD |  | A club date, YYYY-MM-DD |
 
 ```
-kumi day --location Main
+openpadel day --location Main
 ```
 
-### kumi alerts
+### openpadel alerts
 
 Alerts. What needs someone at the club now: places left empty at the last minute, questions waiting, money owed, programs short of their minimum, refunds that failed.
 
 Who may: staff (each sees what their staff screens show).
 
 ```
-kumi alerts
+openpadel alerts
 ```
 
-### kumi reports
+### openpadel reports
 
 Reports. A location's money and use, day by day, between two dates (both included), as the Reports page shows it.
 
@@ -333,20 +333,20 @@ Who may: staff (each sees what their staff screens show).
 | `--to` | date YYYY-MM-DD | needed | A club date, YYYY-MM-DD |
 
 ```
-kumi reports --location Main --from 2026-11-20 --to 2026-11-20
+openpadel reports --location Main --from 2026-11-20 --to 2026-11-20
 ```
 
-### kumi memberships
+### openpadel memberships
 
 Memberships. The membership plans, how many hold each, and the members on them (emails shortened).
 
 Who may: staff (each sees what their staff screens show).
 
 ```
-kumi memberships
+openpadel memberships
 ```
 
-### kumi questions
+### openpadel questions
 
 Members' questions. Members' questions to the club: waiting for an answer (the default), answered or closed.
 
@@ -357,16 +357,16 @@ Who may: staff (each sees what their staff screens show).
 | `--view` | waiting \| answered \| closed |  |  |
 
 ```
-kumi questions
+openpadel questions
 ```
 
 ## Changes
 
-Each one previews first (exit code 10) and changes nothing until `kumi confirm <run_id>`, or the same command with `--yes`.
+Each one previews first (exit code 10) and changes nothing until `openpadel confirm <run_id>`, or the same command with `--yes`.
 
 ### action
 
-#### kumi action undo
+#### openpadel action undo
 
 Undo a change. Who may: owner, manager.
 
@@ -375,12 +375,12 @@ Undo a change. Who may: owner, manager.
 | `--run-id` | id | needed |  |
 
 ```
-kumi action undo --run-id <id>
+openpadel action undo --run-id <id>
 ```
 
 ### alert
 
-#### kumi alert handle
+#### openpadel alert handle
 
 Mark a staff alert handled. Who may: owner, manager, front desk.
 
@@ -392,12 +392,12 @@ Its preview reads: "Mark this as handled for everyone: {subject}"
 | `--kind` | match_late_cancel_staff \| question_unanswered_staff \| booking_balance_due_staff \| program_min_short \| program_min_cancelled_staff \| refund_failed \| ops_failed_staff \| ops_restore_staff \| membership_payment_failed_staff \| membership_ended_unpaid_staff \| usage_reached_staff \| usage_paused_staff \| chat_reported_staff | needed |  |
 
 ```
-kumi alert handle --event-id ... --kind match_late_cancel_staff
+openpadel alert handle --event-id ... --kind match_late_cancel_staff
 ```
 
 ### assistant
 
-#### kumi assistant disconnect
+#### openpadel assistant disconnect
 
 Disconnect an assistant. Who may: owner, manager, member (their own).
 
@@ -408,12 +408,12 @@ Its preview reads: "Disconnect {client}. It can't see or change anything for you
 | `--grant-id` | id | needed |  |
 
 ```
-kumi assistant disconnect --grant-id <id>
+openpadel assistant disconnect --grant-id <id>
 ```
 
 ### attendance
 
-#### kumi attendance mark
+#### openpadel attendance mark
 
 Mark attendance. Who may: owner, manager, front desk, coach (their own).
 
@@ -426,12 +426,12 @@ Its preview reads: "Attendance at {what}, {when}: {marks}.{told}"
 | `--marks` | JSON list | needed |  |
 
 ```
-kumi attendance mark --marks '[...]'
+openpadel attendance mark --marks '[...]'
 ```
 
 ### booking
 
-#### kumi booking add-player
+#### openpadel booking add-player
 
 Add a player. Who may: owner, manager, front desk, member (their own).
 
@@ -443,10 +443,10 @@ Its preview reads: "Add {person} as a player on your booking on {court}, {when}.
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi booking add-player --booking-id <id> --person "Maria Lopez"
+openpadel booking add-player --booking-id <id> --person "Maria Lopez"
 ```
 
-#### kumi booking answer-ask
+#### openpadel booking answer-ask
 
 Answer a request to join. Who may: owner, manager, front desk, member (their own).
 
@@ -456,10 +456,10 @@ Answer a request to join. Who may: owner, manager, front desk, member (their own
 | `--approve` | yes/no (the flag alone is yes) | needed |  |
 
 ```
-kumi booking answer-ask --request-id <id> --approve
+openpadel booking answer-ask --request-id <id> --approve
 ```
 
-#### kumi booking ask
+#### openpadel booking ask
 
 Ask to join a match. Who may: owner, manager, front desk, member (their own).
 
@@ -472,10 +472,10 @@ Its preview reads: "Ask {host} to let you into their match on {court}, {when}. I
 | `--note` | text |  |  |
 
 ```
-kumi booking ask --booking-id <id> --person "Maria Lopez"
+openpadel booking ask --booking-id <id> --person "Maria Lopez"
 ```
 
-#### kumi booking cancel
+#### openpadel booking cancel
 
 Cancel a booking. Who may: owner, manager, front desk, coach (their own), member (their own).
 
@@ -488,10 +488,10 @@ Its preview reads: "Cancel booking {code}; the court is free again."
 | `--refund` | rule \| full \| none \| credit |  |  |
 
 ```
-kumi booking cancel --booking-id <id>
+openpadel booking cancel --booking-id <id>
 ```
 
-#### kumi booking create
+#### openpadel booking create
 
 Book a court. Who may: owner, manager, front desk.
 
@@ -508,10 +508,10 @@ Its preview reads: "Book {court}, {when}, for {minutes} minutes, for {who}."
 | `--note` | text |  |  |
 
 ```
-kumi booking create --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90
+openpadel booking create --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90
 ```
 
-#### kumi booking drop-saved-place
+#### openpadel booking drop-saved-place
 
 Stop saving a place. Who may: owner, manager, front desk, member (their own).
 
@@ -522,10 +522,10 @@ Its preview reads: "Stop saving a place for {friend}. It opens for anyone in the
 | `--booking-player-id` | id | needed |  |
 
 ```
-kumi booking drop-saved-place --booking-player-id <id>
+openpadel booking drop-saved-place --booking-player-id <id>
 ```
 
-#### kumi booking extend
+#### openpadel booking extend
 
 Change how long a booking runs. Who may: owner, manager, front desk.
 
@@ -538,10 +538,10 @@ Its preview reads: "Make booking {code} ({who}) on {court}, {when}, run {minutes
 | `--refund` | rule \| full \| none |  | What goes back when less is owed: the club's cancellation rule (the default), all of it, or nothing. |
 
 ```
-kumi booking extend --booking-id <id> --minutes 90
+openpadel booking extend --booking-id <id> --minutes 90
 ```
 
-#### kumi booking give-place
+#### openpadel booking give-place
 
 Give an empty place free. Who may: owner, manager, front desk.
 
@@ -554,10 +554,10 @@ Its preview reads: "Give {person}'s place in the match on {court}, {when} to {to
 | `--refund` | rule \| full \| none |  |  |
 
 ```
-kumi booking give-place --booking-player-id <id> --person "Maria Lopez"
+openpadel booking give-place --booking-player-id <id> --person "Maria Lopez"
 ```
 
-#### kumi booking join
+#### openpadel booking join
 
 Join a booking. Who may: owner, manager, front desk, member (their own).
 
@@ -570,10 +570,10 @@ Its preview reads: "Join {organiser}'s booking: {court}, {when}. Your part is {s
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi booking join --person "Maria Lopez"
+openpadel booking join --person "Maria Lopez"
 ```
 
-#### kumi booking join-players
+#### openpadel booking join-players
 
 Join a booking as a player. Who may: owner, manager, front desk, member (their own).
 
@@ -585,10 +585,10 @@ Its preview reads: "Join {booker}'s booking on {court}, {when} as a player. The 
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi booking join-players --invite-code ... --person "Maria Lopez"
+openpadel booking join-players --invite-code ... --person "Maria Lopez"
 ```
 
-#### kumi booking leave
+#### openpadel booking leave
 
 Can't make a match. Who may: owner, manager, front desk, member (their own).
 
@@ -598,10 +598,10 @@ Can't make a match. Who may: owner, manager, front desk, member (their own).
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi booking leave --booking-id <id> --person "Maria Lopez"
+openpadel booking leave --booking-id <id> --person "Maria Lopez"
 ```
 
-#### kumi booking mark-no-show
+#### openpadel booking mark-no-show
 
 Mark a player who didn't come. Who may: owner, manager, front desk, member (their own).
 
@@ -612,10 +612,10 @@ Its preview reads: "Mark {person} as not having come to the match on {court}, {w
 | `--booking-player-id` | id | needed |  |
 
 ```
-kumi booking mark-no-show --booking-player-id <id>
+openpadel booking mark-no-show --booking-player-id <id>
 ```
 
-#### kumi booking move
+#### openpadel booking move
 
 Move a booking. Who may: owner, manager, front desk.
 
@@ -630,10 +630,10 @@ Its preview reads: "Move booking {code} ({who}) from {from} to {to}."
 | `--refund` | rule \| full \| none |  | What goes back when less is owed: the club's cancellation rule (the default), all of it, or nothing. |
 
 ```
-kumi booking move --booking-id <id> --court "Court 1" --starts-at "2026-11-20 18:00"
+openpadel booking move --booking-id <id> --court "Court 1" --starts-at "2026-11-20 18:00"
 ```
 
-#### kumi booking offer-place
+#### openpadel booking offer-place
 
 Find someone to take my place. Who may: owner, manager, front desk, member (their own).
 
@@ -644,10 +644,10 @@ Find someone to take my place. Who may: owner, manager, front desk, member (thei
 | `--to-person` | person: a name or an id |  |  |
 
 ```
-kumi booking offer-place --booking-id <id> --person "Maria Lopez"
+openpadel booking offer-place --booking-id <id> --person "Maria Lopez"
 ```
 
-#### kumi booking refund
+#### openpadel booking refund
 
 Refund a booking payment. Who may: owner, manager, front desk.
 
@@ -661,10 +661,10 @@ Its preview reads: "{amount} goes back to the card."
 | `--reason` | text |  |  |
 
 ```
-kumi booking refund --booking-id <id> --payment-id <id> --cents 1
+openpadel booking refund --booking-id <id> --payment-id <id> --cents 1
 ```
 
-#### kumi booking remove-player
+#### openpadel booking remove-player
 
 Take a player off. Who may: owner, manager, front desk, member (their own).
 
@@ -675,10 +675,10 @@ Its preview reads: "Take {person} off your booking on {court}, {when}. Nothing i
 | `--booking-player-id` | id | needed |  |
 
 ```
-kumi booking remove-player --booking-player-id <id>
+openpadel booking remove-player --booking-player-id <id>
 ```
 
-#### kumi booking reopen-place
+#### openpadel booking reopen-place
 
 Open an empty place in the app. Who may: owner, manager, front desk.
 
@@ -690,10 +690,10 @@ Its preview reads: "Open {person}'s place in the match on {court}, {when} in the
 | `--refund` | rule \| full \| none |  |  |
 
 ```
-kumi booking reopen-place --booking-player-id <id>
+openpadel booking reopen-place --booking-player-id <id>
 ```
 
-#### kumi booking repeat
+#### openpadel booking repeat
 
 Book a court every week. Who may: owner, manager, front desk.
 
@@ -710,10 +710,10 @@ Its preview reads: "Book {pattern}, for {who}: {count} weeks, {first} to {last} 
 | `--price-cents` | whole number (cents) |  |  |
 
 ```
-kumi booking repeat --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90 --person "Maria Lopez"
+openpadel booking repeat --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90 --person "Maria Lopez"
 ```
 
-#### kumi booking repeat-end
+#### openpadel booking repeat-end
 
 Cancel a weekly court from a date on. Who may: owner, manager, front desk, member (their own).
 
@@ -726,10 +726,10 @@ Its preview reads: "Cancel {pattern} from {from} on: {count} booked weeks are ca
 | `--refund` | rule \| full \| none |  |  |
 
 ```
-kumi booking repeat-end --series-id <id>
+openpadel booking repeat-end --series-id <id>
 ```
 
-#### kumi booking repeat-request
+#### openpadel booking repeat-request
 
 Book a court every week. Who may: owner, manager, front desk, member (their own).
 
@@ -744,10 +744,10 @@ Its preview reads: "Book {pattern}: {count} weeks, {first} to {last} ({price}). 
 | `--weeks` | whole number | needed |  |
 
 ```
-kumi booking repeat-request --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90 --person "Maria Lopez" --weeks 8
+openpadel booking repeat-request --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90 --person "Maria Lopez" --weeks 8
 ```
 
-#### kumi booking request
+#### openpadel booking request
 
 Book a court. Who may: owner, manager, front desk, member (their own).
 
@@ -762,10 +762,10 @@ Book a court. Who may: owner, manager, front desk, member (their own).
 | `--open` | JSON |  |  |
 
 ```
-kumi booking request --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90 --pay whole --person "Maria Lopez"
+openpadel booking request --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90 --pay whole --person "Maria Lopez"
 ```
 
-#### kumi booking request-courts
+#### openpadel booking request-courts
 
 Book several courts. Who may: owner, manager, front desk, member (their own).
 
@@ -777,10 +777,10 @@ Its preview reads: "Book {count} courts: {list}. {total} in all, paid now in one
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi booking request-courts --courts '[...]' --person "Maria Lopez"
+openpadel booking request-courts --courts '[...]' --person "Maria Lopez"
 ```
 
-#### kumi booking running-late
+#### openpadel booking running-late
 
 Say you're running late. Who may: owner, manager, front desk, member (their own).
 
@@ -793,10 +793,10 @@ Its preview reads: "Tell the others in the match on {court}, {when} that you're 
 | `--minutes` | whole number | needed |  |
 
 ```
-kumi booking running-late --booking-id <id> --person "Maria Lopez" --minutes 90
+openpadel booking running-late --booking-id <id> --person "Maria Lopez" --minutes 90
 ```
 
-#### kumi booking save-place
+#### openpadel booking save-place
 
 Save a place for a friend. Who may: owner, manager, front desk, member (their own).
 
@@ -808,10 +808,10 @@ Its preview reads: "Save a place in your match for {friend}. They pay their own 
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi booking save-place --booking-id <id> --person "Maria Lopez"
+openpadel booking save-place --booking-id <id> --person "Maria Lopez"
 ```
 
-#### kumi booking set-rated
+#### openpadel booking set-rated
 
 Count a game for levels. Who may: owner, manager, front desk, member (their own).
 
@@ -821,10 +821,10 @@ Count a game for levels. Who may: owner, manager, front desk, member (their own)
 | `--rated` | yes/no (the flag alone is yes) | needed |  |
 
 ```
-kumi booking set-rated --booking-id <id> --rated
+openpadel booking set-rated --booking-id <id> --rated
 ```
 
-#### kumi booking take-place
+#### openpadel booking take-place
 
 Take someone's place in a match. Who may: owner, manager, front desk, member (their own).
 
@@ -836,10 +836,10 @@ Its preview reads: "Take {name}'s place in the match on {court}, {when}: {share}
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi booking take-place --code ... --person "Maria Lopez"
+openpadel booking take-place --code ... --person "Maria Lopez"
 ```
 
-#### kumi booking withdraw-ask
+#### openpadel booking withdraw-ask
 
 Take back a request to join. Who may: owner, manager, front desk, member (their own).
 
@@ -850,10 +850,10 @@ Its preview reads: "Take back your request to join the match on {court}, {when}.
 | `--request-id` | id | needed |  |
 
 ```
-kumi booking withdraw-ask --request-id <id>
+openpadel booking withdraw-ask --request-id <id>
 ```
 
-#### kumi booking withdraw-offer
+#### openpadel booking withdraw-offer
 
 Take back a place offer. Who may: owner, manager, front desk, member (their own).
 
@@ -864,12 +864,12 @@ Its preview reads: "Take back the offer of your place in the match on {court}, {
 | `--offer-id` | id | needed |  |
 
 ```
-kumi booking withdraw-offer --offer-id <id>
+openpadel booking withdraw-offer --offer-id <id>
 ```
 
 ### broadcast
 
-#### kumi broadcast cancel
+#### openpadel broadcast cancel
 
 Call off a message. Who may: owner, manager, front desk.
 
@@ -880,10 +880,10 @@ Its preview reads: "Call off "{subject}", set for {when}. Nothing has gone yet."
 | `--broadcast-id` | id | needed |  |
 
 ```
-kumi broadcast cancel --broadcast-id <id>
+openpadel broadcast cancel --broadcast-id <id>
 ```
 
-#### kumi broadcast send
+#### openpadel broadcast send
 
 Send a message to a group. Who may: owner, manager, front desk.
 
@@ -899,12 +899,12 @@ Send a message to a group. Who may: owner, manager, front desk.
 | `--send-at` | time: "YYYY-MM-DD HH:MM" on the club's clock, or ISO |  |  |
 
 ```
-kumi broadcast send --purpose club_news
+openpadel broadcast send --purpose club_news
 ```
 
 ### coach
 
-#### kumi coach set-hours
+#### openpadel coach set-hours
 
 Set a coach's lesson hours. Who may: owner, manager, front desk, coach (their own).
 
@@ -915,10 +915,10 @@ Set a coach's lesson hours. Who may: owner, manager, front desk, coach (their ow
 | `--stretches` | JSON list | needed |  |
 
 ```
-kumi coach set-hours --person "Maria Lopez" --location Main --stretches '[...]'
+openpadel coach set-hours --person "Maria Lopez" --location Main --stretches '[...]'
 ```
 
-#### kumi coach set-photo
+#### openpadel coach set-photo
 
 Change a coach's photo. Who may: owner, manager, front desk, coach (their own).
 
@@ -928,10 +928,10 @@ Change a coach's photo. Who may: owner, manager, front desk, coach (their own).
 | `--photo` | text | needed |  |
 
 ```
-kumi coach set-photo --person "Maria Lopez" --photo ...
+openpadel coach set-photo --person "Maria Lopez" --photo ...
 ```
 
-#### kumi coach set-profile
+#### openpadel coach set-profile
 
 Save a coach profile. Who may: owner, manager, front desk, coach (their own).
 
@@ -948,10 +948,10 @@ Save a coach profile. Who may: owner, manager, front desk, coach (their own).
 | `--translations` | JSON |  |  |
 
 ```
-kumi coach set-profile --person "Maria Lopez" --bio ... --level-min 3.5 --level-max 8 --languages en --rates '[...]' --lessons --max-players 8
+openpadel coach set-profile --person "Maria Lopez" --bio ... --level-min 3.5 --level-max 8 --languages en --rates '[...]' --lessons --max-players 8
 ```
 
-#### kumi coach time-off-add
+#### openpadel coach time-off-add
 
 Add a coach's time off. Who may: owner, manager, front desk, coach (their own).
 
@@ -963,10 +963,10 @@ Add a coach's time off. Who may: owner, manager, front desk, coach (their own).
 | `--note` | text |  |  |
 
 ```
-kumi coach time-off-add --person "Maria Lopez" --from 2026-11-20 --to 2026-11-20
+openpadel coach time-off-add --person "Maria Lopez" --from 2026-11-20 --to 2026-11-20
 ```
 
-#### kumi coach time-off-remove
+#### openpadel coach time-off-remove
 
 Remove a coach's time off. Who may: owner, manager, front desk, coach (their own).
 
@@ -977,12 +977,12 @@ Its preview reads: "Remove this time off for {name}. Lessons can be booked then 
 | `--time-off-id` | id | needed |  |
 
 ```
-kumi coach time-off-remove --time-off-id <id>
+openpadel coach time-off-remove --time-off-id <id>
 ```
 
 ### competition
 
-#### kumi competition draw
+#### openpadel competition draw
 
 Make the draw. Who may: owner, manager, front desk.
 
@@ -998,10 +998,10 @@ Its preview reads: "The draw for {program}: {pairs} pairs, {how}. Matches are {m
 | `--match-minutes` | whole number |  |  |
 
 ```
-kumi competition draw --program "Tuesday drills" --format groups_knockout
+openpadel competition draw --program "Tuesday drills" --format groups_knockout
 ```
 
-#### kumi competition public-names
+#### openpadel competition public-names
 
 Players' names on the public page. Who may: owner, manager, front desk.
 
@@ -1011,10 +1011,10 @@ Players' names on the public page. Who may: owner, manager, front desk.
 | `--on` | yes/no (the flag alone is yes) | needed |  |
 
 ```
-kumi competition public-names --program "Tuesday drills" --on
+openpadel competition public-names --program "Tuesday drills" --on
 ```
 
-#### kumi competition schedule
+#### openpadel competition schedule
 
 Suggest times for the matches. Who may: owner, manager, front desk.
 
@@ -1025,16 +1025,16 @@ Its preview reads: "Put {count} matches on {courts}, from {first} to {last}. Pla
 | `--program` | program: a name or an id | needed |  |
 
 ```
-kumi competition schedule --program "Tuesday drills"
+openpadel competition schedule --program "Tuesday drills"
 ```
 
 ### connector
 
-#### kumi connector map-court
+#### openpadel connector map-court
 
 Link a Playtomic court. Who may: owner, manager.
 
-Its preview reads: "Playtomic's {resource} is Kumi's {court}."
+Its preview reads: "Playtomic's {resource} is {product}'s {court}."
 
 | Flag | Takes | | What it is |
 |---|---|---|---|
@@ -1043,12 +1043,12 @@ Its preview reads: "Playtomic's {resource} is Kumi's {court}."
 | `--court` | court: a name or an id | needed |  |
 
 ```
-kumi connector map-court --resource-id ... --court "Court 1"
+openpadel connector map-court --resource-id ... --court "Court 1"
 ```
 
 ### consent
 
-#### kumi consent club-news
+#### openpadel consent club-news
 
 Club news by email. Who may: owner, manager, member (their own).
 
@@ -1058,10 +1058,10 @@ Club news by email. Who may: owner, manager, member (their own).
 | `--granted` | yes/no (the flag alone is yes) | needed |  |
 
 ```
-kumi consent club-news --person "Maria Lopez" --granted
+openpadel consent club-news --person "Maria Lopez" --granted
 ```
 
-#### kumi consent texts
+#### openpadel consent texts
 
 Texts. Who may: owner, manager, member (their own).
 
@@ -1074,12 +1074,12 @@ Texts. Who may: owner, manager, member (their own).
 | `--device` | text |  |  |
 
 ```
-kumi consent texts --person "Maria Lopez" --granted
+openpadel consent texts --person "Maria Lopez" --granted
 ```
 
 ### court
 
-#### kumi court archive
+#### openpadel court archive
 
 Archive a court. Who may: owner, manager.
 
@@ -1090,10 +1090,10 @@ Its preview reads: "Archive {name}. It won't be offered for new dates; past ones
 | `--court` | court: a name or an id | needed |  |
 
 ```
-kumi court archive --court "Court 1"
+openpadel court archive --court "Court 1"
 ```
 
-#### kumi court block
+#### openpadel court block
 
 Block courts. Who may: owner, manager, front desk.
 
@@ -1108,10 +1108,10 @@ Its preview reads: "Block {courts} from {from} to {to} ({reason})."
 | `--note` | text |  |  |
 
 ```
-kumi court block --courts "Court 1,Court 2" --starts-at "2026-11-20 18:00" --ends-at "2026-11-20 18:00" --reason maintenance
+openpadel court block --courts "Court 1,Court 2" --starts-at "2026-11-20 18:00" --ends-at "2026-11-20 18:00" --reason maintenance
 ```
 
-#### kumi court block-repeat
+#### openpadel court block-repeat
 
 Block courts every week. Who may: owner, manager, front desk.
 
@@ -1131,10 +1131,10 @@ Its preview reads: "Block {pattern}, {span}: {count} dates."
 | `--refund` | rule \| full \| none |  |  |
 
 ```
-kumi court block-repeat --courts "Court 1,Court 2" --weekdays 1,3 --starts ... --ends ... --from-date 2026-11-20 --reason maintenance
+openpadel court block-repeat --courts "Court 1,Court 2" --weekdays 1,3 --starts ... --ends ... --from-date 2026-11-20 --reason maintenance
 ```
 
-#### kumi court block-repeat-edit
+#### openpadel court block-repeat-edit
 
 Change a repeating block. Who may: owner, manager, front desk.
 
@@ -1155,10 +1155,10 @@ Its preview reads: "Change the repeating block {which}: {pattern}, {count} dates
 | `--refund` | rule \| full \| none |  |  |
 
 ```
-kumi court block-repeat-edit --block-id <id> --scope this
+openpadel court block-repeat-edit --block-id <id> --scope this
 ```
 
-#### kumi court block-repeat-end
+#### openpadel court block-repeat-end
 
 End a repeating block. Who may: owner, manager, front desk.
 
@@ -1168,10 +1168,10 @@ End a repeating block. Who may: owner, manager, front desk.
 | `--scope` | this \| following \| all | needed |  |
 
 ```
-kumi court block-repeat-end --block-id <id> --scope this
+openpadel court block-repeat-end --block-id <id> --scope this
 ```
 
-#### kumi court create
+#### openpadel court create
 
 Add a court. Who may: owner, manager.
 
@@ -1184,10 +1184,10 @@ Its preview reads: "Add {name} at {location}."
 | `--kind` | indoor \| covered_outdoor \| outdoor |  |  |
 
 ```
-kumi court create --location Main --name "Tuesday drills"
+openpadel court create --location Main --name "Tuesday drills"
 ```
 
-#### kumi court hours-set
+#### openpadel court hours-set
 
 Set a court's own hours. Who may: owner, manager.
 
@@ -1197,10 +1197,10 @@ Set a court's own hours. Who may: owner, manager.
 | `--days` | JSON list | needed |  |
 
 ```
-kumi court hours-set --court "Court 1" --days '[...]'
+openpadel court hours-set --court "Court 1" --days '[...]'
 ```
 
-#### kumi court unblock
+#### openpadel court unblock
 
 Open courts again. Who may: owner, manager, front desk.
 
@@ -1211,10 +1211,10 @@ Its preview reads: "Open {courts} again."
 | `--block-id` | id | needed |  |
 
 ```
-kumi court unblock --block-id <id>
+openpadel court unblock --block-id <id>
 ```
 
-#### kumi court update
+#### openpadel court update
 
 Change a court. Who may: owner, manager.
 
@@ -1229,12 +1229,12 @@ Its preview reads: "Save the changes to {name}."
 | `--sort` | whole number |  |  |
 
 ```
-kumi court update --court "Court 1"
+openpadel court update --court "Court 1"
 ```
 
 ### draw
 
-#### kumi draw generate
+#### openpadel draw generate
 
 Make the rounds. Who may: owner, manager, front desk.
 
@@ -1248,10 +1248,10 @@ Its preview reads: "{rounds} rounds for {players} players on {courts}. Teams are
 | `--round-minutes` | whole number |  |  |
 
 ```
-kumi draw generate --session-id <id> --rounds 1
+openpadel draw generate --session-id <id> --rounds 1
 ```
 
-#### kumi draw next-round
+#### openpadel draw next-round
 
 Make the next round. Who may: owner, manager, front desk.
 
@@ -1262,10 +1262,10 @@ Its preview reads: "Round {round} of {of}: {pairs}.{sitout}"
 | `--session-id` | id | needed |  |
 
 ```
-kumi draw next-round --session-id <id>
+openpadel draw next-round --session-id <id>
 ```
 
-#### kumi draw repair
+#### openpadel draw repair
 
 Re-pair the rounds left. Who may: owner, manager, front desk.
 
@@ -1276,12 +1276,12 @@ Its preview reads: "Re-pair rounds {from} to {to} for the {players} players now 
 | `--session-id` | id | needed |  |
 
 ```
-kumi draw repair --session-id <id>
+openpadel draw repair --session-id <id>
 ```
 
 ### enrolment
 
-#### kumi enrolment accept-offer
+#### openpadel enrolment accept-offer
 
 Take an offered place. Who may: owner, manager, front desk, member (their own).
 
@@ -1292,10 +1292,10 @@ Its preview reads: "{person} takes the offered place in {name}{price}."
 | `--enrolment-id` | id | needed |  |
 
 ```
-kumi enrolment accept-offer --enrolment-id <id>
+openpadel enrolment accept-offer --enrolment-id <id>
 ```
 
-#### kumi enrolment comp
+#### openpadel enrolment comp
 
 Give a free place. Who may: owner, manager, front desk (with approval).
 
@@ -1309,10 +1309,10 @@ Its preview reads: "Give {person} a free place in {name}."
 | `--session-id` | id |  | The date, for a program signed up per date. |
 
 ```
-kumi enrolment comp --program "Tuesday drills" --person "Maria Lopez" --note "Rain on the outdoor courts"
+openpadel enrolment comp --program "Tuesday drills" --person "Maria Lopez" --note "Rain on the outdoor courts"
 ```
 
-#### kumi enrolment join
+#### openpadel enrolment join
 
 Sign up. Who may: owner, manager, front desk, member (their own).
 
@@ -1325,10 +1325,10 @@ Its preview reads: "Sign {person} up for {name}{price}."
 | `--session-id` | id |  | The date, for a program signed up per date. Several dates at once: enrolment.join_dates. |
 
 ```
-kumi enrolment join --program "Tuesday drills" --person "Maria Lopez"
+openpadel enrolment join --program "Tuesday drills" --person "Maria Lopez"
 ```
 
-#### kumi enrolment join-dates
+#### openpadel enrolment join-dates
 
 Sign up for dates. Who may: owner, manager, front desk, member (their own).
 
@@ -1341,10 +1341,10 @@ Its preview reads: "Sign {person} up for {count} dates of {name}:"
 | `--session-ids` | ids, with commas | needed | The dates (session ids) to sign up for. |
 
 ```
-kumi enrolment join-dates --program "Tuesday drills" --person "Maria Lopez" --session-ids <id>,<id>
+openpadel enrolment join-dates --program "Tuesday drills" --person "Maria Lopez" --session-ids <id>,<id>
 ```
 
-#### kumi enrolment leave
+#### openpadel enrolment leave
 
 Leave. Who may: owner, manager, front desk, member (their own).
 
@@ -1355,10 +1355,10 @@ Its preview reads: "{person} leaves {name}. {refund}"
 | `--enrolment-id` | id | needed |  |
 
 ```
-kumi enrolment leave --enrolment-id <id>
+openpadel enrolment leave --enrolment-id <id>
 ```
 
-#### kumi enrolment remove
+#### openpadel enrolment remove
 
 Remove from roster. Who may: owner, manager, front desk.
 
@@ -1371,10 +1371,10 @@ Its preview reads: "Take {person} off {name} ({reason}). {refund}"
 | `--refund` | JSON |  |  |
 
 ```
-kumi enrolment remove --enrolment-id <id> --reason late_cancel
+openpadel enrolment remove --enrolment-id <id> --reason late_cancel
 ```
 
-#### kumi enrolment transfer
+#### openpadel enrolment transfer
 
 Pass a place on. Who may: owner, manager, front desk, member (their own).
 
@@ -1387,12 +1387,12 @@ Its preview reads: "{person}'s place in {name} goes to {sub}. {money}"
 | `--pay` | sub_pays \| gift | needed |  |
 
 ```
-kumi enrolment transfer --enrolment-id <id> --to-person "Maria Lopez" --pay sub_pays
+openpadel enrolment transfer --enrolment-id <id> --to-person "Maria Lopez" --pay sub_pays
 ```
 
 ### entry
 
-#### kumi entry accept
+#### openpadel entry accept
 
 Accept the invitation. Who may: owner, manager, front desk, member (their own).
 
@@ -1404,10 +1404,10 @@ Its preview reads: "Play {program} with {partner}."
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi entry accept --entry-id <id> --person "Maria Lopez"
+openpadel entry accept --entry-id <id> --person "Maria Lopez"
 ```
 
-#### kumi entry decline
+#### openpadel entry decline
 
 Decline the invitation. Who may: owner, manager, front desk, member (their own).
 
@@ -1419,10 +1419,10 @@ Its preview reads: "Say no to playing {program} with {partner}. {partner} is tol
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi entry decline --entry-id <id> --person "Maria Lopez"
+openpadel entry decline --entry-id <id> --person "Maria Lopez"
 ```
 
-#### kumi entry invite
+#### openpadel entry invite
 
 Enter with a partner. Who may: owner, manager, front desk, member (their own).
 
@@ -1435,10 +1435,10 @@ Its preview reads: "Enter {program} with {partner}. {partner} accepts from their
 | `--partner` | person: a name or an id | needed |  |
 
 ```
-kumi entry invite --program "Tuesday drills" --person "Maria Lopez" --partner "Maria Lopez"
+openpadel entry invite --program "Tuesday drills" --person "Maria Lopez" --partner "Maria Lopez"
 ```
 
-#### kumi entry pair
+#### openpadel entry pair
 
 Pair two players. Who may: owner, manager, front desk.
 
@@ -1451,10 +1451,10 @@ Its preview reads: "Pair {a} and {b} for {program}. They're both told."
 | `--person-b` | person: a name or an id | needed |  |
 
 ```
-kumi entry pair --program "Tuesday drills" --person-a "Maria Lopez" --person-b "Maria Lopez"
+openpadel entry pair --program "Tuesday drills" --person-a "Maria Lopez" --person-b "Maria Lopez"
 ```
 
-#### kumi entry withdraw
+#### openpadel entry withdraw
 
 Withdraw the pair. Who may: owner, manager, front desk, member (their own).
 
@@ -1466,12 +1466,12 @@ Its preview reads: "Withdraw {pair} from {program}. Its {count} matches still to
 | `--person` | person: a name or an id |  |  |
 
 ```
-kumi entry withdraw --entry-id <id>
+openpadel entry withdraw --entry-id <id>
 ```
 
 ### fact
 
-#### kumi fact create
+#### openpadel fact create
 
 Add a club fact. Who may: owner, manager, front desk.
 
@@ -1488,10 +1488,10 @@ Its preview reads: "Add a club fact under {topic}: "{question}". Members see it 
 | `--from-message-id` | id |  |  |
 
 ```
-kumi fact create --topic general
+openpadel fact create --topic general
 ```
 
-#### kumi fact update
+#### openpadel fact update
 
 Change a club fact. Who may: owner, manager, front desk.
 
@@ -1509,12 +1509,12 @@ Its preview reads: "Change the club fact "{question}": {fields}."
 | `--active` | yes/no (the flag alone is yes) |  |  |
 
 ```
-kumi fact update --fact-id <id>
+openpadel fact update --fact-id <id>
 ```
 
 ### fixture
 
-#### kumi fixture ask-move
+#### openpadel fixture ask-move
 
 Ask to move a match. Who may: owner, manager, front desk, member (their own).
 
@@ -1527,10 +1527,10 @@ Its preview reads: "Ask the club to move your {program} match. The staff move it
 | `--note` | text | needed |  |
 
 ```
-kumi fixture ask-move --fixture-id <id> --person "Maria Lopez" --note "Rain on the outdoor courts"
+openpadel fixture ask-move --fixture-id <id> --person "Maria Lopez" --note "Rain on the outdoor courts"
 ```
 
-#### kumi fixture enter
+#### openpadel fixture enter
 
 Enter your match's score. Who may: owner, manager, front desk, member (their own).
 
@@ -1543,10 +1543,10 @@ Its preview reads: "Your match against {opponents}: you {result} {score}. They h
 | `--sets` | JSON list | needed |  |
 
 ```
-kumi fixture enter --fixture-id <id> --person "Maria Lopez" --sets '[...]'
+openpadel fixture enter --fixture-id <id> --person "Maria Lopez" --sets '[...]'
 ```
 
-#### kumi fixture place
+#### openpadel fixture place
 
 Put a match on a court. Who may: owner, manager, front desk.
 
@@ -1559,10 +1559,10 @@ Its preview reads: "{a} against {b} on {court}, {when}. The players are told."
 | `--starts-at` | time: "YYYY-MM-DD HH:MM" on the club's clock, or ISO | needed |  |
 
 ```
-kumi fixture place --fixture-id <id> --court "Court 1" --starts-at "2026-11-20 18:00"
+openpadel fixture place --fixture-id <id> --court "Court 1" --starts-at "2026-11-20 18:00"
 ```
 
-#### kumi fixture score
+#### openpadel fixture score
 
 Enter a match's score. Who may: owner, manager, front desk.
 
@@ -1575,10 +1575,10 @@ Its preview reads: "{a} {score} {b}. It counts now.{window} {counts}"
 | `--final` | yes/no (the flag alone is yes) |  | The club's word is final: the players can't dispute it. Otherwise they can for 24 hours, as for any score. |
 
 ```
-kumi fixture score --fixture-id <id> --sets '[...]'
+openpadel fixture score --fixture-id <id> --sets '[...]'
 ```
 
-#### kumi fixture walkover
+#### openpadel fixture walkover
 
 Record a walkover. Who may: owner, manager, front desk.
 
@@ -1590,12 +1590,12 @@ Its preview reads: "{gave} gives the match: {winner} goes through."
 | `--given-by` | person: a name or an id | needed |  |
 
 ```
-kumi fixture walkover --fixture-id <id> --given-by "Maria Lopez"
+openpadel fixture walkover --fixture-id <id> --given-by "Maria Lopez"
 ```
 
 ### friend
 
-#### kumi friend add
+#### openpadel friend add
 
 Add a friend. Who may: owner, manager, member (their own).
 
@@ -1607,10 +1607,10 @@ Its preview reads: "Add {name} as a friend. Once they add you back, you can save
 | `--friend-id` | id | needed |  |
 
 ```
-kumi friend add --person "Maria Lopez" --friend-id <id>
+openpadel friend add --person "Maria Lopez" --friend-id <id>
 ```
 
-#### kumi friend add-by-code
+#### openpadel friend add-by-code
 
 Add a friend from their link. Who may: owner, manager, member (their own).
 
@@ -1620,10 +1620,10 @@ Add a friend from their link. Who may: owner, manager, member (their own).
 | `--code` | text | needed |  |
 
 ```
-kumi friend add-by-code --person "Maria Lopez" --code ...
+openpadel friend add-by-code --person "Maria Lopez" --code ...
 ```
 
-#### kumi friend remove
+#### openpadel friend remove
 
 Remove a friend. Who may: owner, manager, member (their own).
 
@@ -1635,12 +1635,12 @@ Its preview reads: "Remove {name} from your friends. You can't save match places
 | `--friend-id` | id | needed |  |
 
 ```
-kumi friend remove --person "Maria Lopez" --friend-id <id>
+openpadel friend remove --person "Maria Lopez" --friend-id <id>
 ```
 
 ### game
 
-#### kumi game score
+#### openpadel game score
 
 Enter a score. Who may: owner, manager, front desk.
 
@@ -1653,12 +1653,12 @@ Its preview reads: "Round {round} on {court}: {a} to {b}."
 | `--b` | whole number | needed |  |
 
 ```
-kumi game score --game-id <id> --a 0 --b 0
+openpadel game score --game-id <id> --a 0 --b 0
 ```
 
 ### gift-card
 
-#### kumi gift-card buy
+#### openpadel gift-card buy
 
 Buy a gift card. Who may: owner, manager, member (their own).
 
@@ -1672,10 +1672,10 @@ Its preview reads: "Buy a {amount} gift card. Once it's paid, its code is in the
 | `--message` | text |  |  |
 
 ```
-kumi gift-card buy --person "Maria Lopez" --cents 1
+openpadel gift-card buy --person "Maria Lopez" --cents 1
 ```
 
-#### kumi gift-card drop
+#### openpadel gift-card drop
 
 Remove a gift card waiting for payment. Who may: owner, manager, member (their own).
 
@@ -1686,10 +1686,10 @@ Its preview reads: "Remove the {amount} gift card that's waiting for payment. It
 | `--gift-card-id` | id | needed |  |
 
 ```
-kumi gift-card drop --gift-card-id <id>
+openpadel gift-card drop --gift-card-id <id>
 ```
 
-#### kumi gift-card resend
+#### openpadel gift-card resend
 
 Remind the buyer of a gift card. Who may: owner, manager, front desk.
 
@@ -1700,12 +1700,12 @@ Its preview reads: "Remind the buyer that the gift card ending {last4} is waitin
 | `--gift-card-id` | id | needed |  |
 
 ```
-kumi gift-card resend --gift-card-id <id>
+openpadel gift-card resend --gift-card-id <id>
 ```
 
 ### hours
 
-#### kumi hours exception-remove
+#### openpadel hours exception-remove
 
 Remove a special day. Who may: owner, manager.
 
@@ -1716,10 +1716,10 @@ Its preview reads: "{location} keeps its usual hours on {date}."
 | `--exception-id` | id | needed |  |
 
 ```
-kumi hours exception-remove --exception-id <id>
+openpadel hours exception-remove --exception-id <id>
 ```
 
-#### kumi hours exception-set
+#### openpadel hours exception-set
 
 Set a special day. Who may: owner, manager.
 
@@ -1733,10 +1733,10 @@ Set a special day. Who may: owner, manager.
 | `--court` | court: a name or an id |  |  |
 
 ```
-kumi hours exception-set --location Main --date 2026-11-20
+openpadel hours exception-set --location Main --date 2026-11-20
 ```
 
-#### kumi hours set
+#### openpadel hours set
 
 Set opening hours. Who may: owner, manager.
 
@@ -1748,12 +1748,12 @@ Its preview reads: "Set the opening hours at {location}: {hours}."
 | `--days` | JSON list | needed |  |
 
 ```
-kumi hours set --location Main --days '[...]'
+openpadel hours set --location Main --days '[...]'
 ```
 
 ### household
 
-#### kumi household add-junior
+#### openpadel household add-junior
 
 Add a junior. Who may: owner, manager, front desk, member (their own).
 
@@ -1766,10 +1766,10 @@ Its preview reads: "Add {name} (born {year}) to your family. {name} has no login
 | `--birth-year` | whole number | needed |  |
 
 ```
-kumi household add-junior --person "Maria Lopez" --display-name ... --birth-year 1
+openpadel household add-junior --person "Maria Lopez" --display-name ... --birth-year 1
 ```
 
-#### kumi household withdraw-invite
+#### openpadel household withdraw-invite
 
 Take back an invite. Who may: owner, manager, front desk, member (their own).
 
@@ -1780,12 +1780,12 @@ Its preview reads: "Take back the invite link. Nobody can use it after this."
 | `--invite-id` | id | needed |  |
 
 ```
-kumi household withdraw-invite --invite-id <id>
+openpadel household withdraw-invite --invite-id <id>
 ```
 
 ### kid
 
-#### kumi kid decline-request
+#### openpadel kid decline-request
 
 Say no to a request. Who may: owner, manager, front desk (their own), coach (their own), accountant (their own), member (their own).
 
@@ -1796,10 +1796,10 @@ Its preview reads: "Say no to {name}: {what}"
 | `--request-id` | id | needed |  |
 
 ```
-kumi kid decline-request --request-id <id>
+openpadel kid decline-request --request-id <id>
 ```
 
-#### kumi kid withdraw-request
+#### openpadel kid withdraw-request
 
 Take back a request. Who may: owner, manager, front desk (their own), coach (their own), accountant (their own), member (their own).
 
@@ -1810,12 +1810,12 @@ Its preview reads: "Take back your request: {what}"
 | `--request-id` | id | needed |  |
 
 ```
-kumi kid withdraw-request --request-id <id>
+openpadel kid withdraw-request --request-id <id>
 ```
 
 ### lesson
 
-#### kumi lesson request
+#### openpadel lesson request
 
 Book a private lesson. Who may: owner, manager, front desk, member (their own).
 
@@ -1830,12 +1830,12 @@ Book a private lesson. Who may: owner, manager, front desk, member (their own).
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi lesson request --coach "Ana Ruiz" --starts-at "2026-11-20 18:00" --minutes 90 --pay whole --person "Maria Lopez"
+openpadel lesson request --coach "Ana Ruiz" --starts-at "2026-11-20 18:00" --minutes 90 --pay whole --person "Maria Lopez"
 ```
 
 ### level
 
-#### kumi level answer-review
+#### openpadel level answer-review
 
 Answer a level review. Who may: owner, manager, front desk, coach.
 
@@ -1847,10 +1847,10 @@ Answer a level review. Who may: owner, manager, front desk, coach.
 | `--reason` | text |  |  |
 
 ```
-kumi level answer-review --person "Maria Lopez" --outcome keep
+openpadel level answer-review --person "Maria Lopez" --outcome keep
 ```
 
-#### kumi level request-review
+#### openpadel level request-review
 
 Ask for a level review. Who may: owner, manager, front desk (with approval), coach, member (their own).
 
@@ -1862,10 +1862,10 @@ Its preview reads: "Ask the club to review your level ({level}). It's free: staf
 | `--note` | text |  |  |
 
 ```
-kumi level request-review --person "Maria Lopez"
+openpadel level request-review --person "Maria Lopez"
 ```
 
-#### kumi level set
+#### openpadel level set
 
 Change a level. Who may: owner, manager, front desk (with approval), coach.
 
@@ -1878,10 +1878,10 @@ Its preview reads: "Change {person}'s level from {before} to {after}: {reason}."
 | `--reason` | text | needed |  |
 
 ```
-kumi level set --person "Maria Lopez" --level 3.5 --reason "Rain on the outdoor courts"
+openpadel level set --person "Maria Lopez" --level 3.5 --reason "Rain on the outdoor courts"
 ```
 
-#### kumi level set-floor
+#### openpadel level set-floor
 
 Set a level floor. Who may: owner, manager, front desk (with approval), coach.
 
@@ -1894,10 +1894,10 @@ Its preview reads: "Set {person}'s floor at {floor}: {reason}. Results can't tak
 | `--reason` | text | needed |  |
 
 ```
-kumi level set-floor --person "Maria Lopez" --floor 0 --reason "Rain on the outdoor courts"
+openpadel level set-floor --person "Maria Lopez" --floor 0 --reason "Rain on the outdoor courts"
 ```
 
-#### kumi level set-session
+#### openpadel level set-session
 
 Set levels after a session. Who may: owner, manager, front desk, coach (their own).
 
@@ -1910,12 +1910,12 @@ Its preview reads: "Set levels after {program}, {when}: {changes}. Reason: {reas
 | `--levels` | JSON list | needed |  |
 
 ```
-kumi level set-session --session-id <id> --reason "Rain on the outdoor courts" --levels '[...]'
+openpadel level set-session --session-id <id> --reason "Rain on the outdoor courts" --levels '[...]'
 ```
 
 ### location
 
-#### kumi location create
+#### openpadel location create
 
 Add a location. Who may: owner, manager (with approval).
 
@@ -1931,10 +1931,10 @@ Its preview reads: "Add the location {name} ({tz})."
 | `--country` | text |  |  |
 
 ```
-kumi location create --name "Tuesday drills" --time-zone America/Los_Angeles
+openpadel location create --name "Tuesday drills" --time-zone America/Los_Angeles
 ```
 
-#### kumi location update
+#### openpadel location update
 
 Change a location. Who may: owner, manager (with approval).
 
@@ -1951,12 +1951,12 @@ Its preview reads: "Change {fields} for {name}."
 | `--country` | text |  |  |
 
 ```
-kumi location update --location Main
+openpadel location update --location Main
 ```
 
 ### membership
 
-#### kumi membership add-person
+#### openpadel membership add-person
 
 Add someone to a family membership. Who may: owner, manager, front desk, member (their own).
 
@@ -1968,10 +1968,10 @@ Its preview reads: "Add {name} to the {plan} membership, with its member benefit
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi membership add-person --membership-id <id> --person "Maria Lopez"
+openpadel membership add-person --membership-id <id> --person "Maria Lopez"
 ```
 
-#### kumi membership cancel
+#### openpadel membership cancel
 
 Cancel a membership. Who may: owner, manager, front desk, member (their own).
 
@@ -1982,10 +1982,10 @@ Its preview reads: "Cancel {person}'s {name} membership. It won't be charged aga
 | `--membership-id` | id | needed |  |
 
 ```
-kumi membership cancel --membership-id <id>
+openpadel membership cancel --membership-id <id>
 ```
 
-#### kumi membership end
+#### openpadel membership end
 
 End a membership. Who may: owner, manager, front desk.
 
@@ -1997,10 +1997,10 @@ Its preview reads: "End {person}'s {name} membership now. Member prices and the 
 | `--note` | text |  |  |
 
 ```
-kumi membership end --membership-id <id>
+openpadel membership end --membership-id <id>
 ```
 
-#### kumi membership grant
+#### openpadel membership grant
 
 Give a membership. Who may: owner, manager, front desk.
 
@@ -2014,10 +2014,10 @@ Its preview reads: "Give {person} the {name} membership, with no end date."
 | `--note` | text |  |  |
 
 ```
-kumi membership grant --person "Maria Lopez" --plan Monthly
+openpadel membership grant --person "Maria Lopez" --plan Monthly
 ```
 
-#### kumi membership join
+#### openpadel membership join
 
 Join a membership. Who may: owner, manager, member (their own).
 
@@ -2029,10 +2029,10 @@ Its preview reads: "Join the {name} membership: {price}, paid now and then {peri
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi membership join --plan Monthly --person "Maria Lopez"
+openpadel membership join --plan Monthly --person "Maria Lopez"
 ```
 
-#### kumi membership pause
+#### openpadel membership pause
 
 Pause a membership. Who may: owner, manager, front desk.
 
@@ -2045,10 +2045,10 @@ Its preview reads: "Pause {person}'s {name} membership until {date}. Its benefit
 | `--note` | text |  |  |
 
 ```
-kumi membership pause --membership-id <id> --until 2026-11-20
+openpadel membership pause --membership-id <id> --until 2026-11-20
 ```
 
-#### kumi membership pay-next
+#### openpadel membership pay-next
 
 Pay the next period. Who may: owner, manager, member (their own).
 
@@ -2057,10 +2057,10 @@ Pay the next period. Who may: owner, manager, member (their own).
 | `--membership-id` | id | needed |  |
 
 ```
-kumi membership pay-next --membership-id <id>
+openpadel membership pay-next --membership-id <id>
 ```
 
-#### kumi membership plan-remove
+#### openpadel membership plan-remove
 
 Stop offering a membership plan. Who may: owner, manager.
 
@@ -2071,10 +2071,10 @@ Its preview reads: "Stop offering the {name} membership. People who have it keep
 | `--plan` | plan: a name or an id | needed |  |
 
 ```
-kumi membership plan-remove --plan Monthly
+openpadel membership plan-remove --plan Monthly
 ```
 
-#### kumi membership plan-set
+#### openpadel membership plan-set
 
 Set up a membership plan. Who may: owner, manager.
 
@@ -2102,10 +2102,10 @@ Its preview reads: "Offer the {name} membership: {price}{window}."
 | `--translations` | JSON |  |  |
 
 ```
-kumi membership plan-set --name "Tuesday drills" --price-cents 3000 --period month
+openpadel membership plan-set --name "Tuesday drills" --price-cents 3000 --period month
 ```
 
-#### kumi membership remove-person
+#### openpadel membership remove-person
 
 Take someone off a family membership. Who may: owner, manager, front desk, member (their own).
 
@@ -2117,10 +2117,10 @@ Its preview reads: "Take {name} off the {plan} membership. They keep its benefit
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi membership remove-person --membership-id <id> --person "Maria Lopez"
+openpadel membership remove-person --membership-id <id> --person "Maria Lopez"
 ```
 
-#### kumi membership resume
+#### openpadel membership resume
 
 Keep a membership. Who may: owner, manager, front desk, member (their own).
 
@@ -2131,10 +2131,10 @@ Its preview reads: "Keep {person}'s {name} membership. It renews on {date} for {
 | `--membership-id` | id | needed |  |
 
 ```
-kumi membership resume --membership-id <id>
+openpadel membership resume --membership-id <id>
 ```
 
-#### kumi membership unpause
+#### openpadel membership unpause
 
 End a pause early. Who may: owner, manager, front desk.
 
@@ -2145,12 +2145,12 @@ Its preview reads: "End the pause on {person}'s {name} membership now. Its benef
 | `--membership-id` | id | needed |  |
 
 ```
-kumi membership unpause --membership-id <id>
+openpadel membership unpause --membership-id <id>
 ```
 
 ### pass
 
-#### kumi pass buy
+#### openpadel pass buy
 
 Buy a pass. Who may: owner, manager, member (their own).
 
@@ -2162,12 +2162,12 @@ Its preview reads: "Buy {name}: {uses} uses for {price}. It's yours once it's pa
 | `--product-id` | id | needed |  |
 
 ```
-kumi pass buy --person "Maria Lopez" --product-id <id>
+openpadel pass buy --person "Maria Lopez" --product-id <id>
 ```
 
 ### payment
 
-#### kumi payment use-promo
+#### openpadel payment use-promo
 
 Use a promo code. Who may: owner, manager, front desk, member (their own).
 
@@ -2179,12 +2179,12 @@ Its preview reads: "Use the code {code} on {what}: {off} off, {left} left to pay
 | `--code` | text | needed |  |
 
 ```
-kumi payment use-promo --payment-id <id> --code ...
+openpadel payment use-promo --payment-id <id> --code ...
 ```
 
 ### person
 
-#### kumi person create
+#### openpadel person create
 
 Add a person. Who may: owner, manager, front desk.
 
@@ -2197,10 +2197,10 @@ Its preview reads: "Add {name} ({email}) as a member."
 | `--locale` | en \| es |  |  |
 
 ```
-kumi person create --display-name ...
+openpadel person create --display-name ...
 ```
 
-#### kumi person email-unsuppress
+#### openpadel person email-unsuppress
 
 Send email to an address again. Who may: owner, manager, front desk.
 
@@ -2211,10 +2211,10 @@ Its preview reads: "Send the club's email to {name} at {email} again (it was hel
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi person email-unsuppress --person "Maria Lopez"
+openpadel person email-unsuppress --person "Maria Lopez"
 ```
 
-#### kumi person import
+#### openpadel person import
 
 Import members. Who may: owner, manager.
 
@@ -2225,10 +2225,10 @@ Its preview reads: "Add {people} as members. Nobody is emailed."
 | `--rows` | JSON list | needed |  |
 
 ```
-kumi person import --rows '[...]'
+openpadel person import --rows '[...]'
 ```
 
-#### kumi person tag
+#### openpadel person tag
 
 Tag someone. Who may: owner, manager, front desk.
 
@@ -2241,10 +2241,10 @@ Its preview reads: "Tag {person} "{tag}"."
 | `--name` | text |  |  |
 
 ```
-kumi person tag --person "Maria Lopez"
+openpadel person tag --person "Maria Lopez"
 ```
 
-#### kumi person untag
+#### openpadel person untag
 
 Take a tag off. Who may: owner, manager, front desk.
 
@@ -2256,10 +2256,10 @@ Its preview reads: "Take the tag "{tag}" off {person}."
 | `--tag-id` | id | needed |  |
 
 ```
-kumi person untag --person "Maria Lopez" --tag-id <id>
+openpadel person untag --person "Maria Lopez" --tag-id <id>
 ```
 
-#### kumi person update-profile
+#### openpadel person update-profile
 
 Change your profile. Who may: owner, manager, front desk (their own), coach (their own), accountant (their own), member (their own).
 
@@ -2272,12 +2272,12 @@ Its preview reads: "Change {fields} on your profile."
 | `--locale` | en \| es |  |  |
 
 ```
-kumi person update-profile --person "Maria Lopez"
+openpadel person update-profile --person "Maria Lopez"
 ```
 
 ### policy
 
-#### kumi policy set
+#### openpadel policy set
 
 Change the booking rules. Who may: owner, manager.
 
@@ -2297,12 +2297,12 @@ Its preview reads: "New booking rules (version {version}): book up to {days} day
 | `--lengths` | integers, with commas |  |  |
 
 ```
-kumi policy set
+openpadel policy set
 ```
 
 ### price
 
-#### kumi price rule-remove
+#### openpadel price rule-remove
 
 Stop using a price. Who may: owner, manager.
 
@@ -2313,10 +2313,10 @@ Its preview reads: "Stop using the price {name}. Bookings already made keep thei
 | `--rule-id` | id | needed |  |
 
 ```
-kumi price rule-remove --rule-id <id>
+openpadel price rule-remove --rule-id <id>
 ```
 
-#### kumi price rule-set
+#### openpadel price rule-set
 
 Set a court price. Who may: owner, manager.
 
@@ -2339,12 +2339,12 @@ Its preview reads: "Price {name} at {location}: {amount} an hour, {when}."
 | `--translations` | JSON |  |  |
 
 ```
-kumi price rule-set --location Main --name "Tuesday drills" --cents-per-hour 0
+openpadel price rule-set --location Main --name "Tuesday drills" --cents-per-hour 0
 ```
 
 ### program
 
-#### kumi program cancel
+#### openpadel program cancel
 
 Cancel a program. Who may: owner, manager.
 
@@ -2355,10 +2355,10 @@ Cancel a program. Who may: owner, manager.
 | `--note` | text |  |  |
 
 ```
-kumi program cancel --program "Tuesday drills"
+openpadel program cancel --program "Tuesday drills"
 ```
 
-#### kumi program create
+#### openpadel program create
 
 Create a program. Who may: owner, manager.
 
@@ -2384,10 +2384,10 @@ Its preview reads: "Create {name} ({kind}), {capacity} places at {price}."
 | `--sign-up` | whole_program \| per_session |  | whole_program (default): one place covers every date. per_session: each date has its own places, roster, waitlist and minimum, and people sign up for the dates they want (clinics and socials). |
 
 ```
-kumi program create --location Main --kind clinic --name "Tuesday drills" --capacity 8 --price-cents 3000
+openpadel program create --location Main --kind clinic --name "Tuesday drills" --capacity 8 --price-cents 3000
 ```
 
-#### kumi program publish
+#### openpadel program publish
 
 Publish a program. Who may: owner, manager.
 
@@ -2398,10 +2398,10 @@ Its preview reads: "Publish {name} so players can sign up."
 | `--program` | program: a name or an id | needed |  |
 
 ```
-kumi program publish --program "Tuesday drills"
+openpadel program publish --program "Tuesday drills"
 ```
 
-#### kumi program set-minimum
+#### openpadel program set-minimum
 
 Set a minimum to run. Who may: owner, manager.
 
@@ -2412,10 +2412,10 @@ Set a minimum to run. Who may: owner, manager.
 | `--decide-hours` | whole number |  | Hours before the first date it's decided. Null: the club's default. |
 
 ```
-kumi program set-minimum --program "Tuesday drills" --min-players 1
+openpadel program set-minimum --program "Tuesday drills" --min-players 1
 ```
 
-#### kumi program set-name
+#### openpadel program set-name
 
 Rename a program. Who may: owner, manager.
 
@@ -2428,10 +2428,10 @@ Its preview reads: "Call {name} "{to}" from now on. Its places, dates and people
 | `--translations` | JSON |  |  |
 
 ```
-kumi program set-name --program "Tuesday drills" --name "Tuesday drills"
+openpadel program set-name --program "Tuesday drills" --name "Tuesday drills"
 ```
 
-#### kumi program set-prices
+#### openpadel program set-prices
 
 Change a program's prices. Who may: owner, manager.
 
@@ -2444,10 +2444,10 @@ Its preview reads: "Set the price of {name} to {price}."
 | `--member-price-cents` | whole number (cents) | needed | What members pay instead (any plan). Null: the plan's own discount on programs, if any. |
 
 ```
-kumi program set-prices --program "Tuesday drills" --price-cents 3000 --member-price-cents 3000
+openpadel program set-prices --program "Tuesday drills" --price-cents 3000 --member-price-cents 3000
 ```
 
-#### kumi program set-sign-up
+#### openpadel program set-sign-up
 
 Change how people sign up. Who may: owner, manager.
 
@@ -2457,10 +2457,10 @@ Change how people sign up. Who may: owner, manager.
 | `--sign-up` | whole_program \| per_session | needed |  |
 
 ```
-kumi program set-sign-up --program "Tuesday drills" --sign-up whole_program
+openpadel program set-sign-up --program "Tuesday drills" --sign-up whole_program
 ```
 
-#### kumi program unwatch
+#### openpadel program unwatch
 
 Stop hearing when a place opens. Who may: owner, manager, member (their own).
 
@@ -2471,10 +2471,10 @@ Its preview reads: "Stop telling {person} when a place opens in {name}."
 | `--watch-id` | id | needed |  |
 
 ```
-kumi program unwatch --watch-id <id>
+openpadel program unwatch --watch-id <id>
 ```
 
-#### kumi program watch
+#### openpadel program watch
 
 Ask to hear when a place opens. Who may: owner, manager, member (their own).
 
@@ -2487,12 +2487,12 @@ Its preview reads: "Tell {person} once when a place opens in {name}. The waitlis
 | `--session-id` | id |  | The date, for a program signed up per date. |
 
 ```
-kumi program watch --program "Tuesday drills" --person "Maria Lopez"
+openpadel program watch --program "Tuesday drills" --person "Maria Lopez"
 ```
 
 ### question
 
-#### kumi question answer
+#### openpadel question answer
 
 Answer a member's question. Who may: owner, manager, front desk.
 
@@ -2505,10 +2505,10 @@ Its preview reads: "Answer {person}: "{body}". They hear straight away.{close}"
 | `--close` | yes/no (the flag alone is yes) |  |  |
 
 ```
-kumi question answer --question-id <id> --body "Rain on the outdoor courts"
+openpadel question answer --question-id <id> --body "Rain on the outdoor courts"
 ```
 
-#### kumi question ask
+#### openpadel question ask
 
 Ask the club. Who may: owner, manager, member (their own).
 
@@ -2520,10 +2520,10 @@ Its preview reads: "Ask the club{about}: "{body}". The staff answer in the app, 
 | `--body` | text | needed |  |
 
 ```
-kumi question ask --person "Maria Lopez" --body "Rain on the outdoor courts"
+openpadel question ask --person "Maria Lopez" --body "Rain on the outdoor courts"
 ```
 
-#### kumi question ask-person
+#### openpadel question ask-person
 
 Ask a person. Who may: owner, manager, member (their own).
 
@@ -2534,10 +2534,10 @@ Its preview reads: "Ask a person at the club. Your question goes to the staff, w
 | `--question-id` | id | needed |  |
 
 ```
-kumi question ask-person --question-id <id>
+openpadel question ask-person --question-id <id>
 ```
 
-#### kumi question assign
+#### openpadel question assign
 
 Give a question to someone. Who may: owner, manager, front desk.
 
@@ -2549,10 +2549,10 @@ Its preview reads: "Give {person}'s question to {to}."
 | `--to` | id | needed |  |
 
 ```
-kumi question assign --question-id <id> --to <id>
+openpadel question assign --question-id <id> --to <id>
 ```
 
-#### kumi question close
+#### openpadel question close
 
 Close a question. Who may: owner, manager, front desk, member (their own).
 
@@ -2563,10 +2563,10 @@ Its preview reads: "Close the question "{question}". A reply opens it again."
 | `--question-id` | id | needed |  |
 
 ```
-kumi question close --question-id <id>
+openpadel question close --question-id <id>
 ```
 
-#### kumi question not-answered
+#### openpadel question not-answered
 
 Say the answer didn't help. Who may: owner, manager, member (their own).
 
@@ -2577,10 +2577,10 @@ Its preview reads: "Tell the club that answer didn't help. Your question goes to
 | `--question-id` | id | needed |  |
 
 ```
-kumi question not-answered --question-id <id>
+openpadel question not-answered --question-id <id>
 ```
 
-#### kumi question reply
+#### openpadel question reply
 
 Reply to the club. Who may: owner, manager, member (their own).
 
@@ -2592,12 +2592,12 @@ Its preview reads: "Send to the club: "{body}"."
 | `--body` | text | needed |  |
 
 ```
-kumi question reply --question-id <id> --body "Rain on the outdoor courts"
+openpadel question reply --question-id <id> --body "Rain on the outdoor courts"
 ```
 
 ### receipt
 
-#### kumi receipt resend
+#### openpadel receipt resend
 
 Send a receipt again. Who may: owner, manager, front desk, accountant.
 
@@ -2608,12 +2608,12 @@ Its preview reads: "Email receipt {number} to {name} at {email} again."
 | `--receipt-id` | id | needed |  |
 
 ```
-kumi receipt resend --receipt-id <id>
+openpadel receipt resend --receipt-id <id>
 ```
 
 ### refund
 
-#### kumi refund resend
+#### openpadel refund resend
 
 Send a refund again. Who may: owner, manager.
 
@@ -2624,12 +2624,12 @@ Its preview reads: "Send {person} the {amount} refund for {what} again. It goes 
 | `--refund-id` | id | needed |  |
 
 ```
-kumi refund resend --refund-id <id>
+openpadel refund resend --refund-id <id>
 ```
 
 ### result
 
-#### kumi result confirm
+#### openpadel result confirm
 
 Confirm a score. Who may: owner, manager, member (their own).
 
@@ -2641,10 +2641,10 @@ Its preview reads: "Confirm the score: {teamA} {score} {teamB}. Once confirmed, 
 | `--person` | person: a name or an id | needed |  |
 
 ```
-kumi result confirm --game-id <id> --person "Maria Lopez"
+openpadel result confirm --game-id <id> --person "Maria Lopez"
 ```
 
-#### kumi result dispute
+#### openpadel result dispute
 
 Dispute a score. Who may: owner, manager, member (their own).
 
@@ -2657,10 +2657,10 @@ Its preview reads: "Dispute the score {teamA} {score} {teamB}. It won't count un
 | `--note` | text | needed |  |
 
 ```
-kumi result dispute --game-id <id> --person "Maria Lopez" --note "Rain on the outdoor courts"
+openpadel result dispute --game-id <id> --person "Maria Lopez" --note "Rain on the outdoor courts"
 ```
 
-#### kumi result enter
+#### openpadel result enter
 
 Enter a score. Who may: owner, manager, member (their own).
 
@@ -2674,10 +2674,10 @@ Its preview reads: "Enter the score for your match on {court}, {when}: you and {
 | `--sets` | JSON list | needed |  |
 
 ```
-kumi result enter --booking-id <id> --person "Maria Lopez" --partner "Maria Lopez" --sets '[...]'
+openpadel result enter --booking-id <id> --person "Maria Lopez" --partner "Maria Lopez" --sets '[...]'
 ```
 
-#### kumi result resolve
+#### openpadel result resolve
 
 Decide a disputed score. Who may: owner, manager, front desk.
 
@@ -2689,12 +2689,12 @@ Decide a disputed score. Who may: owner, manager, front desk.
 | `--note` | text |  |  |
 
 ```
-kumi result resolve --game-id <id> --outcome keep
+openpadel result resolve --game-id <id> --outcome keep
 ```
 
 ### segment
 
-#### kumi segment save
+#### openpadel segment save
 
 Save a group. Who may: owner, manager, front desk.
 
@@ -2706,10 +2706,10 @@ Its preview reads: "Save the group "{name}": {what}. It means whoever matches wh
 | `--filters` | JSON | needed |  |
 
 ```
-kumi segment save --name "Tuesday drills" --filters '{...}'
+openpadel segment save --name "Tuesday drills" --filters '{...}'
 ```
 
-#### kumi segment update
+#### openpadel segment update
 
 Change a group. Who may: owner, manager, front desk.
 
@@ -2723,12 +2723,12 @@ Its preview reads: "Change the group "{name}" to {what} ({people} now)."
 | `--active` | yes/no (the flag alone is yes) |  |  |
 
 ```
-kumi segment update --segment-id <id>
+openpadel segment update --segment-id <id>
 ```
 
 ### series
 
-#### kumi series cancel
+#### openpadel series cancel
 
 Cancel dates. Who may: owner, manager.
 
@@ -2740,10 +2740,10 @@ Cancel dates. Who may: owner, manager.
 | `--note` | text |  |  |
 
 ```
-kumi series cancel --session-id <id> --scope this
+openpadel series cancel --session-id <id> --scope this
 ```
 
-#### kumi series edit
+#### openpadel series edit
 
 Change dates. Who may: owner, manager.
 
@@ -2759,12 +2759,12 @@ Change dates. Who may: owner, manager.
 | `--capacity` | whole number |  | Places in the program, for all its dates. Signed up per date: the places on each date chosen (this, following, all). |
 
 ```
-kumi series edit --session-id <id> --scope this
+openpadel series edit --session-id <id> --scope this
 ```
 
 ### session
 
-#### kumi session add
+#### openpadel session add
 
 Add a date. Who may: owner, manager.
 
@@ -2780,10 +2780,10 @@ Its preview reads: "Add {name} on {when}, on {courts}."
 | `--weeks` | whole number |  | How many dates, one a week at the same club time (1: just this one). |
 
 ```
-kumi session add --program "Tuesday drills" --starts-at "2026-11-20 18:00" --ends-at "2026-11-20 18:00" --courts "Court 1,Court 2"
+openpadel session add --program "Tuesday drills" --starts-at "2026-11-20 18:00" --ends-at "2026-11-20 18:00" --courts "Court 1,Court 2"
 ```
 
-#### kumi session set-coach
+#### openpadel session set-coach
 
 Choose who runs a date. Who may: owner, manager, front desk.
 
@@ -2793,12 +2793,12 @@ Choose who runs a date. Who may: owner, manager, front desk.
 | `--coach` | coach: a name or an id | needed |  |
 
 ```
-kumi session set-coach --session-id <id> --coach "Ana Ruiz"
+openpadel session set-coach --session-id <id> --coach "Ana Ruiz"
 ```
 
 ### support
 
-#### kumi support end
+#### openpadel support end
 
 End support access. Who may: owner, manager.
 
@@ -2809,12 +2809,12 @@ Its preview reads: "End {name}'s support access now. From this moment they can't
 | `--grant-id` | id | needed |  |
 
 ```
-kumi support end --grant-id <id>
+openpadel support end --grant-id <id>
 ```
 
 ### tag
 
-#### kumi tag create
+#### openpadel tag create
 
 Make a tag. Who may: owner, manager, front desk.
 
@@ -2825,10 +2825,10 @@ Its preview reads: "Make the tag "{name}" for tagging members."
 | `--name` | text | needed |  |
 
 ```
-kumi tag create --name "Tuesday drills"
+openpadel tag create --name "Tuesday drills"
 ```
 
-#### kumi tag update
+#### openpadel tag update
 
 Change a tag. Who may: owner, manager, front desk.
 
@@ -2839,12 +2839,12 @@ Change a tag. Who may: owner, manager, front desk.
 | `--active` | yes/no (the flag alone is yes) |  |  |
 
 ```
-kumi tag update --tag-id <id>
+openpadel tag update --tag-id <id>
 ```
 
 ### template
 
-#### kumi template save
+#### openpadel template save
 
 Save a template. Who may: owner, manager, front desk.
 
@@ -2859,10 +2859,10 @@ Its preview reads: "Save the template "{name}"."
 | `--body-es` | text |  |  |
 
 ```
-kumi template save --name "Tuesday drills"
+openpadel template save --name "Tuesday drills"
 ```
 
-#### kumi template update
+#### openpadel template update
 
 Change a template. Who may: owner, manager, front desk.
 
@@ -2879,22 +2879,22 @@ Its preview reads: "Change the template "{name}"."
 | `--active` | yes/no (the flag alone is yes) |  |  |
 
 ```
-kumi template update --template-id <id>
+openpadel template update --template-id <id>
 ```
 
 ### waiver
 
-#### kumi waiver clear
+#### openpadel waiver clear
 
 Stop asking for the waiver. Who may: owner, manager.
 
 Its preview reads: "Stop asking for the club's waiver. The acceptances so far are kept."
 
 ```
-kumi waiver clear
+openpadel waiver clear
 ```
 
-#### kumi waiver set
+#### openpadel waiver set
 
 Set the waiver. Who may: owner, manager.
 
@@ -2906,12 +2906,12 @@ Its preview reads: "Set the club's waiver (version {version}). Everyone is asked
 | `--translations` | JSON |  |  |
 
 ```
-kumi waiver set --body "Rain on the outdoor courts"
+openpadel waiver set --body "Rain on the outdoor courts"
 ```
 
 ### weekly
 
-#### kumi weekly end-all
+#### openpadel weekly end-all
 
 Stop every weekly court members booked in the app. Who may: owner, manager.
 
@@ -2923,5 +2923,5 @@ Its preview reads: "Stop {count} weekly courts members booked in the app ({membe
 | `--refund` | rule \| full \| none |  |  |
 
 ```
-kumi weekly end-all --booked keep
+openpadel weekly end-all --booked keep
 ```

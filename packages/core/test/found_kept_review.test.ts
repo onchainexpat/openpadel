@@ -69,7 +69,7 @@ test("G1: put right at the desk, then kept as already in the books: one $40 card
   await run(db, "booking.record_payment", { booking_id: b, cents: 4000, method: "other", note: "paid by card before the restore" }, desk);
   // Two ways to keep it, each said plainly.
   const income = await plan(db, "payment_found.paid_elsewhere", { id, books: "income" }, owner);
-  assert.match(income.plan.summary.en, /counted as income: it's added to the books as other income on the day it was paid.*Choose this only if nothing else in Kumi counts it, such as a payment recorded at the desk for it/);
+  assert.match(income.plan.summary.en, /counted as income: it's added to the books as other income on the day it was paid.*Choose this only if nothing else in openPadel counts it, such as a payment recorded at the desk for it/);
   const already = await plan(db, "payment_found.paid_elsewhere", { id, books: "already" }, owner);
   assert.equal(already.plan.summary.en, "Record $40.00 as paid for something put right by hand, and keep it, as already in the books (a payment recorded at the desk for it, say): nothing is added to them, so it isn't counted twice. Nothing is refunded.");
   assert.match(already.plan.summary.es, /como ya contado en la contabilidad .*no se anota nada, así que no cuenta dos veces/);

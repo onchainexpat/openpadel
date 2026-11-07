@@ -28,7 +28,8 @@ export const MOVE_DAYS = 30;
 const lvl = (n: number) => n.toFixed(2);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const levelInput = z.number().check(z.minimum(0), z.maximum(7));
-async function nameOf(db: Db | Trx, id: string | null) { return id ? (await readRow(db, "person", id, "thing.person")).row.display_name as string : "Kumi"; }
+// A change nobody made by hand (setup, an import) is the club's own: members read this, so it's the club's name.
+async function nameOf(db: Db | Trx, id: string | null) { return id ? (await readRow(db, "person", id, "thing.person")).row.display_name as string : ((await db.selectFrom("club").select("name").executeTakeFirst())?.name ?? ""); }
 async function clubTz(db: Db | Trx) { return (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone; }
 async function ratingRead(db: Db | Trx, personId: string): Promise<Read[]> {
   const r = await db.selectFrom("rating").select("version").where("person_id", "=", personId).where("sport", "=", "padel").executeTakeFirst();

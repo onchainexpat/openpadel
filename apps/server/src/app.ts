@@ -13,7 +13,7 @@ import { manifestRoutes } from "./manifest.ts";
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
-import { pickLang, isLang, formerMember, t, FORMER_MEMBER, type Lang } from "@kumi/i18n";
+import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, productName, type Lang } from "@kumi/i18n";
 import { anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
@@ -239,9 +239,10 @@ export function makeApp(deps: AppDeps) {
     // Read-only (read_only.ts): both apps say so at the top.
     // Moved to another server (club_exit.ts): both apps say where, instead of read-only.
     // The club's own terms and privacy policy: linked where people join, beside the yes to texts and on the profile.
+    // Hosted by Kumi (KUMI_HOSTED=1): staff read "Kumi" for the product, and the apps show "Runs on Kumi".
     const { read_only_since, moved_at, moved_to, ...shown } = club;
     return c.json({ ...shown, read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), competitions: Boolean(competing), passes: Boolean(passes), promos, phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
-      member_url: deps.memberUrl ?? memberUrl(publicUrl, {}) });
+      member_url: deps.memberUrl ?? memberUrl(publicUrl, {}), hosted: isHosted() });
   });
 
   // ---- The MCP door: OAuth, then tools generated from the registry ----
@@ -465,7 +466,7 @@ export function makeApp(deps: AppDeps) {
       .$if(!chats, (q) => q.where("action_run.action", "not like", "chat.%"))
       .orderBy("action_run.id", "desc").limit(Number(c.req.query("limit") ?? 50)).execute();
     // A change made under support access says so, with the name the owner gave.
-    const by = (r: (typeof rows)[number]) => (r.support_name ? t(lang, "ui.support_by", { name: r.support_name }) : r.display_name ?? "Kumi");
+    const by = (r: (typeof rows)[number]) => (r.support_name ? t(lang, "ui.support_by", { name: r.support_name }) : r.display_name ?? productName());
     // An ask someone said no to: who it was, and why if they said.
     const declinedBy = new Map<string, string>();
     for (const r of rows) {

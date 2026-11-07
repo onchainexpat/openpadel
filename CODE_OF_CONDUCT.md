@@ -1,6 +1,6 @@
 # Code of conduct
 
-Kumi is built by and for people who run and play at padel clubs, in English and Spanish. Everyone
+openPadel is built by and for people who run and play at padel clubs, in English and Spanish. Everyone
 taking part (in issues, pull requests, discussions and any other space for the project) is
 expected to:
 

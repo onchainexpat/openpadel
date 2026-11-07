@@ -1,16 +1,16 @@
-# Setting up Kumi for your club
+# Setting up openPadel for your club
 
 This guide is written for a club owner and for the owner's AI agent (Claude Code, Codex or another)
 working together. The agent can do most of it. The owner does the parts that need their identity,
 their payment details or their decision; each step says which is which.
 
 **Agents:** read the rules at the top of [`AGENTS.md`](../../AGENTS.md) first. Then follow the steps
-below in order, running `kumi doctor --json` (once the server exists) after each one and fixing any
+below in order, running `openpadel doctor --json` (once the server exists) after each one and fixing any
 `fail`. `off` is an optional piece the club hasn't chosen, and the practice-mode `warn`s stay until
 go-live.
 
-Kumi runs on the club's own server ("self-hosted"). A hosted service, where Kumi runs it for you,
-is planned but not offered yet.
+openPadel runs on the club's own server ("self-hosted"). [Kumi](https://kumi.club), the hosted service, runs it for
+a club that would rather not run a server (in its pilot now); the club's apps and data are the same either way.
 
 ## What you end up with
 
@@ -45,6 +45,7 @@ take a few days.
 | 5i | Messages to members: tags, groups and the daily email cap | Owner decides, front desk | 15 min | below |
 | 5j | Offsite backups, and the keys to keep | Owner creates the storage key, agent sets up | 20 min | [accounts/offsite-backups.md](accounts/offsite-backups.md) |
 | 5k | Texts (optional): the club's own Twilio number, registered with US carriers | Owner signs up and registers, agent sets up | 1 hour, then days to weeks of review | [accounts/twilio.md](accounts/twilio.md) |
+| 5l | The phone apps: installed from the club's address; store apps only if the club wants them | Owner decides, and creates any store accounts | 10 min (store apps: days to weeks) | [apps.md](apps.md) |
 | 6 | Card payments, in test mode first | Owner copies keys, agent sets up | 30 min | [accounts/stripe.md](accounts/stripe.md) |
 | 7 | Playtomic, only if the club also uses it | Owner creates keys, agent sets up | 20 min | [accounts/playtomic.md](accounts/playtomic.md) |
 | 8 | Practice with the club's own staff | Everyone | a few days | below |
@@ -57,9 +58,9 @@ it in: the club's name and time zone, the owner, each location with its courts, 
 their roles. No secrets go in this file.
 
 ```bash
-kumi setup plan       # what would change; changes nothing
-kumi setup apply      # makes those changes
-kumi doctor           # what's next
+openpadel setup plan       # what would change; changes nothing
+openpadel setup apply      # makes those changes
+openpadel doctor           # what's next
 ```
 
 Show the owner the plan before applying. Running it again only adds what's new; renaming or
@@ -72,7 +73,7 @@ Owners and managers sign in with two steps. The first time, the staff app asks t
 second step: a passkey on their phone or computer (both steps at once), or an authenticator app (Google
 Authenticator, Microsoft Authenticator, 1Password and the like) with ten recovery codes to keep
 somewhere safe. If the owner ever loses all of them, an agent on the server runs
-`kumi reset-sign-in owner@yourclub.com`, and the owner sets it up again at the next sign-in.
+`openpadel reset-sign-in owner@yourclub.com`, and the owner sets it up again at the next sign-in.
 
 ### Step 5b: members
 
@@ -84,11 +85,11 @@ To bring in an existing list, export it as CSV from a spreadsheet, Playtomic or 
 needs a Name column (or First name and Last name), and Email and Language if there are any:
 
 ```bash
-kumi import members members.csv           # what would be added, and every line that can't be used
-kumi import members members.csv --apply   # add them
+openpadel import members members.csv           # what would be added, and every line that can't be used
+openpadel import members members.csv --apply   # add them
 ```
 
-People already in Kumi (by email) are left as they are, and nobody is emailed: telling members
+People already in openPadel (by email) are left as they are, and nobody is emailed: telling members
 about the app is the club's own announcement. Staff can do the same from People in the staff app.
 
 ### Step 5c: courts, prices and rules
@@ -178,7 +179,7 @@ yet, nor a payment that saves a card for later, nor a junior's.
 Gift cards, paid by card; the desk sells one from a member's page. The code is in the buyer's app, to give or print;
 whoever redeems it gets its value as club credit. Until a card is used it's money the club owes, shown on Reports
 with each card, where a manager can void one nobody has used (the buyer gets the money back the way they paid) or
-remind the buyer. Kumi's cards never expire and have no fees; check your state's rules on gift cards with a lawyer
+remind the buyer. openPadel's cards never expire and have no fees; check your state's rules on gift cards with a lawyer
 (some states require cash back for small balances: pay it out from the member's credit at the desk).
 
 **Passes** (Settings, "Passes the club sells"): make one with what it covers (program places, some kinds or any; court
@@ -215,9 +216,9 @@ kinds ticked; courses never count). A program can have its own member price inst
 created or with Change prices on its page; it wins over the plan's discount. People already signed
 up keep the price they agreed to, so a member price is fairest set before the first sign-up.
 
-Members join in the app (Membership) and pay by card. Kumi renews each membership from that card when
+Members join in the app (Membership) and pay by card. openPadel renews each membership from that card when
 its month or year is up, at the price the member joined at. If the card is declined, the membership
-carries on while Kumi tries again two days later and three days after that, and the member can pay
+carries on while openPadel tries again two days later and three days after that, and the member can pay
 with another card meanwhile; after the third try it ends. The owner and managers hear of the first
 declined try (by email and in the staff app, once, not at every try), with the bank's
 reason when it gives one and a link to the member, and it stays on the Courts page's alerts until
@@ -237,7 +238,7 @@ keep the benefits to the end of the period. Pausing or ending the membership doe
 
 For a founding offer (a new club selling memberships before it opens), give a plan a limit, a start
 date, or both. Members who join before the start date save their card, without being charged, and
-keep their place; Kumi makes the first charge on the start date and renews monthly or yearly from
+keep their place; openPadel makes the first charge on the start date and renews monthly or yearly from
 there. A place whose card isn't saved within two hours is let go, so the limit only counts real
 members. Members can give up their place before the start, and nothing is charged. Once their card is
 saved, founding members get the plan's member prices, program discounts and booking window straight
@@ -339,7 +340,7 @@ answers it completely, or hands it to the staff, in a second or two. It never wr
 anything about the member's own bookings, money, membership or level, a complaint or an injury goes to a
 person. Only the question's words and the facts go to the model: no names or details. Under the fact the
 member can tap "That didn't answer it" or "Ask a person", and the question goes to the staff at once. Staff
-see on the Questions page which fact Kumi sent and how sure it was, and a staff answer always wins. Every
+see on the Questions page which fact openPadel sent and how sure it was, and a staff answer always wins. Every
 decision is kept. Settings has a switch to stop it; without a model, every question goes to the staff.
 
 The same Anthropic key offers drafts in the club's other language. Under each text the club writes itself (a
@@ -363,7 +364,7 @@ There are two kinds of message, and the difference is the law as much as manners
   joined or later in Profile. The preview says how many in the group are left out. Every club news email
   has a one-click unsubscribe that works without signing in.
 - **A service notice** (a court closed, a clinic moved) needs no yes, because it's about the person's own
-  booking or place, so Kumi only lets it go to people with a booking or place on a date, or in a program.
+  booking or place, so openPadel only lets it go to people with a booking or place on a date, or in a program.
   Never use it for news or offers. One about something within a day goes straight away, even at night.
 
 Juniors are reached through their parents. Write each message in every club language; `{first_name}`
@@ -380,7 +381,7 @@ The server backs itself up every night, but those copies are on its own disk. Fo
 [accounts/offsite-backups.md](accounts/offsite-backups.md) to send each night's backup, sealed, to storage
 the club owns (Cloudflare R2 or Backblaze B2; both have a free allowance far above a club's needs). Then:
 
-- **Agent:** run `kumi backup`, `kumi offsite` and `kumi restore-test`; `kumi doctor` should show
+- **Agent:** run `openpadel backup`, `openpadel offsite` and `openpadel restore-test`; `openpadel doctor` should show
   `offsite` and `restore_test` as `ok`. The restore test runs by itself once a month from then on.
 - **Owner:** keep `KUMI_BACKUP_KEY` and `KUMI_SECRET_KEY` in a password manager. The agent never reads
   them: the owner looks at them on the server in their own terminal
@@ -399,16 +400,16 @@ the club's own Twilio account, only to US and Canadian numbers, and only to memb
 number with a code and ticked the yes themselves (Profile, then Texts). STOP to the club's number turns every
 message to that member off at once.
 
-**US carriers must approve the club's texting first**: until then, real texts don't reach anyone. Kumi does
+**US carriers must approve the club's texting first**: until then, real texts don't reach anyone. openPadel does
 the registration through the club's own Twilio account, toll-free (reviewed in about three business days, no
 brand or campaign fees): add the business's details to club.yaml's `texting:` section, then
-`kumi texting plan` says what it would do and what's missing, and `kumi texting apply --yes` buys a toll-free
+`openpadel texting plan` says what it would do and what's missing, and `openpadel texting apply --yes` buys a toll-free
 number (about $2.15 a month), makes the Messaging Service and sends the verification. The server asks Twilio
 how the review is going every hour; the owner and managers hear once it's decided, and texts start by
 themselves when it's approved. After that it checks the number hourly: if Twilio withdraws the approval, the
 number leaves the account, or Twilio refuses texts because of the number, the owner and managers hear once (and
-once more when it's fixed). A rejection is explained with its fix in `kumi texting status` and Settings;
-correct club.yaml and run `kumi texting apply` again. [accounts/twilio.md](accounts/twilio.md) has the steps,
+once more when it's fixed). A rejection is explained with its fix in `openpadel texting status` and Settings;
+correct club.yaml and run `openpadel texting apply` again. [accounts/twilio.md](accounts/twilio.md) has the steps,
 and the local-number (A2P 10DLC) path for clubs that text a lot more.
 
 Once texts are set up, members can also sign in, or join, with a code texted to their mobile number instead
@@ -514,14 +515,14 @@ and stays up until the competition is finished. Pairs show as "Pair 1", "Pair 2"
 score previews, their level history) a junior is named only to their partner and their family. Once drawn, the
 page takes no more sign-ups.
 
-### Running Kumi outside the US: what works, what doesn't yet
+### Running openPadel outside the US: what works, what doesn't yet
 
-Kumi was built for US clubs. These parts work for a club anywhere:
+openPadel was built for US clubs. These parts work for a club anywhere:
 
 - **Currency.** Settings, The club: the club's currency, as its three-letter code (EUR, GBP, MXN, AUD...). Set it
   before the first payment: it can't change after one. Every amount is then in it, on screens, receipts, reports,
   spreadsheets, emails and notifications, and staff type amounts the club's way. The Stripe account should pay out in
-  the same currency (`kumi doctor` warns if it doesn't, since Stripe would convert every payment, for a fee).
+  the same currency (`openpadel doctor` warns if it doesn't, since Stripe would convert every payment, for a fee).
   Zero-decimal currencies (JPY, KRW) work in whole units; three-decimal ones (KWD, BHD, JOD, OMR, TND), ISK and UGX
   aren't taken. The usage cap (outside costs: AI, texts, email) stays in US dollars, as those services bill.
 - **Formats.** Settings, The club: the club's locale (en-GB, es-ES, fr-FR, de-DE...). It sets how dates, times and
@@ -529,7 +530,7 @@ Kumi was built for US clubs. These parts work for a club anywhere:
   (English or Spanish), written the club's way.
 - **Prices that include tax.** Settings, The club: tick "Prices include tax" where prices are written with VAT, IVA or
   GST in them, and give the tax its name. A €40 court then costs €40, and its receipt shows "Of which VAT (21%):
-  €6.94" under the total. Kumi taxes court bookings and lessons only (as in the US); places, memberships, passes and
+  €6.94" under the total. openPadel taxes court bookings and lessons only (as in the US); places, memberships, passes and
   gift cards carry no tax. Whether that fits the club's country is for the club's accountant.
 - **Country and phone numbers.** Settings, The club: the club's country, set before connecting Stripe (Stripe opens the
   club's account there, and it can't change after). Numbers typed without a + are read in it first; only US and
@@ -542,7 +543,7 @@ Not done yet, and each needs a decision before a club outside the US goes live:
 - Which countries first, and in what order.
 - Languages beyond English and US Spanish.
 - Data protection where the club is (in the EU and UK, the GDPR: a data processing agreement with the club, where the
-  data is kept, a cookie notice, and the timelines for a copy or a deletion; Kumi already gives members a copy of their
+  data is kept, a cookie notice, and the timelines for a copy or a deletion; openPadel already gives members a copy of their
   data and deletes an account on request).
 - VAT registration and what an invoice must say in each country.
 - Texts outside the US and Canada (carrier rules and consent laws differ by country).
@@ -585,7 +586,7 @@ Not done yet, and each needs a decision before a club outside the US goes live:
   is still previewed first, and an assistant never does more than the person could.
 - **Staff's assistants, and the command line.** Staff connect theirs the same way. A staff member's assistant also
   reads what their staff screens show (the day, people, programs, alerts, reports), with emails and phone numbers
-  shortened. Agents that prefer a terminal use `kumi login <the staff app's address>`, then the club's commands
+  shortened. Agents that prefer a terminal use `openpadel login <the staff app's address>`, then the club's commands
   ([docs/cli](../cli/README.md)): the same connection, the same previews and limits.
 - **What an assistant never does.** Its own limit, how the person signs in, deleting the account,
   accepting a waiver, moving their own level, downloading their data, the family card and saved cards, a
@@ -598,7 +599,7 @@ Not done yet, and each needs a decision before a club outside the US goes live:
 ### Members' data: a copy, and deleting an account
 
 Nothing to set up. Each member has a "Your data" box in Profile: one button downloads a JSON file of
-everything the club's Kumi holds about them and the juniors they manage, receipts included (other people appear only by
+everything the club's openPadel holds about them and the juniors they manage, receipts included (other people appear only by
 the names they already see in the app), and the other deletes their account. The owner can do the same
 from a member's page in the staff app when the member asks by email or at the desk; a manager's request
 waits for the owner. The member is told when the club downloads their data, and the club hears of
@@ -618,7 +619,7 @@ each. Then:
   (other players' levels are built on them), waiver acceptances and consent answers (the club's record
   of what was agreed), and the rows themselves, under "Former member". A membership that wouldn't
   charge again ends then, with nothing back for the rest of it.
-- **Elsewhere:** Kumi can't reach copies outside it. Stripe keeps its own payment records, emails
+- **Elsewhere:** openPadel can't reach copies outside it. Stripe keeps its own payment records, emails
   already delivered stay in inboxes, and backups keep the old data until they age out (14 days on the
   server; offsite, 30 daily copies and 12 monthly ones). Say so if a member asks.
 
@@ -628,50 +629,50 @@ The same address can join again later as a new member, with nothing of the old a
 
 A club can always take everything with it. The owner's **Download everything** (Settings in the staff
 app, a passkey sign-in if the owner has a passkey) makes one file with all of the club's data: members,
-bookings, payments, programs, levels, messages, settings, photos and documents, and the secrets Kumi keeps
-sealed (staff authenticators, the push key, the vault). The file is sealed with a passphrase that Kumi
+bookings, payments, programs, levels, messages, settings, photos and documents, and the secrets openPadel keeps
+sealed (staff authenticators, the push key, the vault). The file is sealed with a passphrase that openPadel
 shows once, beside the download, and doesn't keep: put it in a password manager. On the server,
-`kumi export` makes the same file, with a passphrase the owner types.
+`openpadel export` makes the same file, with a passphrase the owner types.
 
 To run the club somewhere else, first tell this server the club is moving: the owner's **We're moving**
-under Download everything, or `kumi moved on --to=https://new.address` on the server. From then on it sends
+under Download everything, or `openpadel moved on --to=https://new.address` on the server. From then on it sends
 members nothing (emails, texts, notifications) and takes nothing new, as when read-only, and both apps point
-to the new address, so only one server ever talks to members. Then download everything, install Kumi on the
+to the new address, so only one server ever talks to members. Then download everything, install openPadel on the
 new server (the same version or a newer one), put the file there and restore it instead of setting the club
 up:
 
 ```bash
 sudo install -o kumi -m 600 kumi-export-20261130T1900Z.kumi /var/backups/kumi/
-sudo kumi restore /var/backups/kumi/kumi-export-20261130T1900Z.kumi --yes   # asks for the passphrase
+sudo openpadel restore /var/backups/kumi/kumi-export-20261130T1900Z.kumi --yes   # asks for the passphrase
 ```
 
 It works like restoring a backup (the database as it was is kept first), then brings the club up to this
-Kumi, seals the secrets with the new server's key, and says what's left to set up there: the keys for
+openPadel, seals the secrets with the new server's key, and says what's left to set up there: the keys for
 email, texts and payments are the old server's or its host's, so the new server gets its own. If the
 club's web address changed, passkeys stop working (a passkey belongs to its address): people sign in
 with a code and add one again. A club that took card payments on its own Stripe account through a hosted
-Kumi puts that account's keys in `KUMI_STRIPE_SECRET_KEY` and `KUMI_STRIPE_PUBLISHABLE_KEY`, so refunds
+openPadel puts that account's keys in `KUMI_STRIPE_SECRET_KEY` and `KUMI_STRIPE_PUBLISHABLE_KEY`, so refunds
 of earlier payments still work.
 
 The file also carries what was still waiting to go out on the old server: emails, texts and notices not
 yet sent. If the old server had been told the club moved, it never sends them, and the new one does, once.
-If it hadn't, it may still send them itself, so the new one holds them instead of sending them a second time; the restore says how many, and so does `kumi doctor` until you decide. Once
-the old server is off, `kumi held` lists them, `kumi held drop --yes` drops them if the old server sent
-them, and `kumi held send --yes` sends them if it never got to them (each goes as it would have: quiet
+If it hadn't, it may still send them itself, so the new one holds them instead of sending them a second time; the restore says how many, and so does `openpadel doctor` until you decide. Once
+the old server is off, `openpadel held` lists them, `openpadel held drop --yes` drops them if the old server sent
+them, and `openpadel held send --yes` sends them if it never got to them (each goes as it would have: quiet
 hours apply, and an offer that ran out meanwhile is dropped). A receipt that's dropped is still in the
-member's app, and the staff can send it again. Refunds are never held: Kumi asks Stripe for each refund
+member's app, and the staff can send it again. Refunds are never held: openPadel asks Stripe for each refund
 before sending it, so one the old server already sent is recorded, not sent twice. Support access given on
 the old server ends on the way in, and the owners are told.
 
-A restore, of an export or a backup, takes only what Kumi's own migrations make: a file whose database
+A restore, of an export or a backup, takes only what openPadel's own migrations make: a file whose database
 brings a function, trigger, rule, view, row policy, schema or setting of anyone else's (or a changed one of
-Kumi's) is refused, the database as it was goes back, and the refusal names what wasn't Kumi's.
+openPadel's) is refused, the database as it was goes back, and the refusal names what wasn't openPadel's.
 
-**Read-only** is a host's switch for an account that isn't paid: `kumi read-only on` (and `off`, and
+**Read-only** is a host's switch for an account that isn't paid: `openpadel read-only on` (and `off`, and
 `status`). Nothing is held back: everyone still signs in, sees everything, looks after their account
 and downloads their data, and the owner can download everything. People can still cancel and leave,
 with the club's usual refunds. Nothing new is booked, joined, sold or charged, and the club's settings
-don't change. Both apps say so at the top, and `kumi doctor` shows it. While it's on:
+don't change. Both apps say so at the top, and `openpadel doctor` shows it. While it's on:
 
 - renewals wait (no card is charged, and no membership ends for it); they go through when it's off;
 - at a shared court's deadline nothing is charged: what's unpaid is owed at the desk, and the organiser
@@ -681,8 +682,8 @@ don't change. Both apps say so at the top, and `kumi doctor` shows it. While it'
 - payments already under way at Stripe, refunds, receipts, reminders, sign-in codes and club news
   already scheduled still go out; assistants follow the same rules as the apps.
 
-**The day the club's Kumi ends.** Whoever runs the club's server, moving the club off a host or shutting
-the server down, says so first with `kumi leaving on --date=2026-12-15`:
+**The day the club's openPadel ends.** Whoever runs the club's server, moving the club off a host or shutting
+the server down, says so first with `openpadel leaving on --date=2026-12-15`:
 
 - every owner is emailed at once, in their own language, to download everything before then, and told
   that the file's passphrase is shown only to them, so to save it;
@@ -694,8 +695,8 @@ the server down, says so first with `kumi leaving on --date=2026-12-15`:
 
 `--kept-days=30` adds what happens after ("a copy of the club's data is kept for 30 days, then deleted");
 `--kept-days=0` says it's deleted; without it, the email only says to download before then.
-`kumi leaving status` shows the date, which emails went and the last download of everything (`--json`
-for a host); `kumi leaving off` takes the date away, and the owners are told. Moving the date tells them
+`openpadel leaving status` shows the date, which emails went and the last download of everything (`--json`
+for a host); `openpadel leaving off` takes the date away, and the owners are told. Moving the date tells them
 again. An export restored on another server doesn't bring the date with it.
 
 ### Chats in games
@@ -751,34 +752,34 @@ Only when the owner says so:
 
 1. Stripe: switch to live keys ([accounts/stripe.md](accounts/stripe.md), "Going live").
 2. Email: remove `KUMI_PRACTICE=1` from `/etc/kumi/kumi.env`.
-3. `systemctl restart kumi`, then `kumi doctor`: nothing should say FAIL, and `offsite` and
+3. `systemctl restart kumi`, then `openpadel doctor`: nothing should say FAIL, and `offsite` and
    `restore_test` should be `ok`. Optional pieces the club skipped say `off`.
 4. Turn on "Members book courts in the app" (Settings, The club) if it isn't on yet.
-5. Tell members where the app is. Kumi doesn't send that announcement for you.
+5. Tell members where the app is. openPadel doesn't send that announcement for you.
 
 Selling a founding offer before opening (step 5d)? Go live when the sales start, since members' cards
 and emails must be real; keep "Members book courts in the app" off until the doors open.
 
 ## Commands, and where they run
 
-`kumi` runs on the server: `ssh root@your-server kumi doctor`. Every command takes `--json` (for
-agents) and `--lang=es` (for Spanish), and none of them prints a secret. Only `kumi export` and restoring
+`openpadel` runs on the server: `ssh root@your-server openpadel doctor`. Every command takes `--json` (for
+agents) and `--lang=es` (for Spanish), and none of them prints a secret. Only `openpadel export` and restoring
 an export ask for something: the file's passphrase, typed by the owner (it isn't shown), or piped in.
 
 | Command | What it does |
 |---|---|
-| `kumi setup plan [file]` | What setting the club up from the file would change. Changes nothing. |
-| `kumi setup apply [file]` | Makes those changes, through the same checked and audited actions the apps use. |
-| `kumi import members <file.csv> [--apply]` | Adds members from a spreadsheet; a preview unless `--apply`. Emails nobody. |
-| `kumi doctor` | Checks the database, the club, the address, email, texts, ask the club, payments, Apple Pay and Google Pay, Playtomic, backups, the offsite copy, the restore test and the server's key. |
-| `kumi reset-sign-in <email>` | Starts someone's second sign-in step over: a lost phone, or an owner locked out. |
-| `kumi texting plan \| apply \| status` | Registers the club's texting with US carriers through its own Twilio account ([accounts/twilio.md](accounts/twilio.md)). `apply --yes` to buy a number. |
-| `kumi backup` | Tonight's backup now: the dump and its manifest, and the offsite copy if it's set up. |
-| `kumi offsite` | What's kept offsite. |
-| `kumi restore-test` | Restores the newest backup into a scratch database and checks every table. |
-| `kumi rotate-key` | Seals every secret with `KUMI_SECRET_KEY` (the old key in `KUMI_SECRET_KEY_PREVIOUS`). |
-| `kumi export [--out=<folder>]` | Everything the club needs to run somewhere else, in one file sealed with a passphrase the owner types. |
-| `kumi read-only on \| off \| status` | The host's switch for an account that isn't paid: nothing new is booked or charged; everyone keeps their data. |
-| `kumi leaving on --date=YYYY-MM-DD [--kept-days=N] \| off \| status` | The day the club's Kumi ends: the owners are told at once, and a week and a day before, to download everything. |
-| `sudo kumi restore <file \| offsite:latest> --yes` | Replaces the database with a backup, or with a club's export: stops the server, restores, starts it. Everything since is lost. |
-| `sudo kumi releases`, `sudo kumi rollback --yes` | Which release runs; going back to the previous one and its database (see `deploy/README.md`). |
+| `openpadel setup plan [file]` | What setting the club up from the file would change. Changes nothing. |
+| `openpadel setup apply [file]` | Makes those changes, through the same checked and audited actions the apps use. |
+| `openpadel import members <file.csv> [--apply]` | Adds members from a spreadsheet; a preview unless `--apply`. Emails nobody. |
+| `openpadel doctor` | Checks the database, the club, the address, email, texts, ask the club, payments, Apple Pay and Google Pay, Playtomic, backups, the offsite copy, the restore test and the server's key. |
+| `openpadel reset-sign-in <email>` | Starts someone's second sign-in step over: a lost phone, or an owner locked out. |
+| `openpadel texting plan \| apply \| status` | Registers the club's texting with US carriers through its own Twilio account ([accounts/twilio.md](accounts/twilio.md)). `apply --yes` to buy a number. |
+| `openpadel backup` | Tonight's backup now: the dump and its manifest, and the offsite copy if it's set up. |
+| `openpadel offsite` | What's kept offsite. |
+| `openpadel restore-test` | Restores the newest backup into a scratch database and checks every table. |
+| `openpadel rotate-key` | Seals every secret with `KUMI_SECRET_KEY` (the old key in `KUMI_SECRET_KEY_PREVIOUS`). |
+| `openpadel export [--out=<folder>]` | Everything the club needs to run somewhere else, in one file sealed with a passphrase the owner types. |
+| `openpadel read-only on \| off \| status` | The host's switch for an account that isn't paid: nothing new is booked or charged; everyone keeps their data. |
+| `openpadel leaving on --date=YYYY-MM-DD [--kept-days=N] \| off \| status` | The day the club's openPadel ends: the owners are told at once, and a week and a day before, to download everything. |
+| `sudo openpadel restore <file \| offsite:latest> --yes` | Replaces the database with a backup, or with a club's export: stops the server, restores, starts it. Everything since is lost. |
+| `sudo openpadel releases`, `sudo openpadel rollback --yes` | Which release runs; going back to the previous one and its database (see `deploy/README.md`). |
