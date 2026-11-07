@@ -34,6 +34,13 @@ server starts.
   Amounts and dates keep the club's formats.
 
 ### Fixed
+- **Under Stripe Connect, a club kept other clubs' card payments as its own (in 0.3.0, under Connect).** One webhook
+  endpoint hears every connected account's events, and a paid one with no record here was kept as a payment found
+  after a restore: the staff saw the other club's payer's email and what was bought, and an owner or manager could
+  refund it, on the other club's account. An event on any account but the club's is now left alone (with direct
+  keys, any event that names an account), and found payments are listed, kept and refunded only on the club's own
+  account (or one its payments were made on before it moved). As the server starts, any kept from another club's
+  account that nobody acted on are removed, and the rest lose the payer's email and description.
 - **A split court's organiser was charged what a promo code took off another player's share (in 0.3.0).** At the
   deadline, Kumi charged the organiser's saved card for what it took to be unpaid, counting the money paid but not
   what a code took off a share, the organiser's own included. Everyone had paid, yet the card was charged the

@@ -30,9 +30,44 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A payment row for this provider reference: Kumi records it (so nothing here may refund it as unknown). */
 const recordedRef = (db: Db, ref: string) => db.selectFrom("payment").select("id").where("provider_ref", "=", ref).executeTakeFirst();
 
+/** Is a payment provider account this club's? A Connect webhook endpoint hears every connected account's events
+ *  (Stripe can't send a club only its own), so a payment on any other account is another club's: never kept, listed
+ *  or refunded here. Under Connect: the club's connected account, or one the club's own payments were made on (a club
+ *  that moved to a new account). Without Connect (direct keys, or the test provider): no account at all, since
+ *  direct charges carry none. */
+export async function clubsAccount(db: Db | Trx, account: string | null | undefined): Promise<boolean> {
+  if (!(paymentProvider() as { connect?: boolean }).connect) return !account;
+  if (!account) return false;
+  if ((await db.selectFrom("club").select("stripe_account_id").executeTakeFirst())?.stripe_account_id === account) return true;
+  return Boolean(await db.selectFrom("payment").select("id").where("provider_account", "=", account).limit(1).executeTakeFirst());
+}
+
+/** Rows on another club's account, kept before Kumi checked whose a webhook's event was (clubsAccount). What no staff
+ *  acted on goes: it was never this club's, and it names another club's payer. What they did act on stays, as the
+ *  record of it, without the payer's email or what was bought. As the server starts; nothing to do is the usual. */
+export async function dropForeignFound(db: Db): Promise<{ removed: number; scrubbed: number }> {
+  let removed = 0, scrubbed = 0;
+  for (const f of await db.selectFrom("payment_found").select(["id", "account", "status", "email", "description"]).execute()) {
+    if (await clubsAccount(db, f.account)) continue;
+    if (["waiting", "open", "refund_asked"].includes(f.status)) { await forgetFound(db, f.id); removed++; } else if (f.email !== null || f.description !== null) {
+      await db.updateTable("payment_found").set({ email: null, description: null, version: sql`version + 1` }).where("id", "=", f.id).execute();
+      scrubbed++;
+    }
+  }
+  return { removed, scrubbed };
+}
+
+async function forgetFound(db: Db, id: string) {
+  await db.transaction().execute(async (trx) => {
+    await trx.deleteFrom("payment_found_refund").where("payment_found_id", "=", id).execute();
+    await trx.deleteFrom("payment_found").where("id", "=", id).execute();
+  });
+}
+
 /** One the provider took that nothing here records: kept once. Kumi's own charges (kumiChargeId) wait for the jobs;
- *  the rest are open for the staff, who hear once. True when it's new. */
+ *  the rest are open for the staff, who hear once. True when it's new. One on another club's account is never kept. */
 export async function noteFound(db: Db, it: Omit<FoundIntent, "status" | "kumiPaymentId">, account: string | null, now = new Date(), o: { tell?: boolean } = {}): Promise<boolean> {
+  if (!(await clubsAccount(db, account))) return false;
   const kumi = Boolean(it.kumiChargeId);
   const r = await db.insertInto("payment_found").values({ id: uuidv7(now.getTime()), provider: paymentProvider().name, provider_ref: it.ref, account, amount_cents: it.amountCents,
     paid_at: it.created, email: it.email, description: it.description?.slice(0, 300) ?? null, note: null, done_at: null, kind: kumi ? "kumi_charge" : "payment", status: kumi ? "waiting" : "open",
@@ -167,6 +202,8 @@ export const paymentRefundSeen = defineAction({
 
 const foundPlan = async (ctx: { db: Db }, id: string) => {
   const { row, read } = await readRow(ctx.db, "payment_found", id, "thing.payment");
+  // Another club's (kept before whose it was was checked): not this club's to refund or keep, nor to know of.
+  if (!(await clubsAccount(ctx.db, row.account))) throw new KumiError("error.not_found", { thing: both("thing.payment") }, 404);
   if (row.status !== "open") throw new KumiError("error.changed");
   if (await recordedRef(ctx.db, row.provider_ref)) throw new KumiError("error.payment_found_recorded");
   return { row, read };
@@ -339,6 +376,8 @@ export async function checkKeptFound(db: Db, now = new Date(), o: { limit?: numb
 export async function sendFoundRefund(db: Db, payload: { id: string }) {
   const f = await db.selectFrom("payment_found").selectAll().where("id", "=", payload.id).executeTakeFirst();
   if (!f || f.status !== "refund_asked") return;
+  // Never on another club's account, whatever was asked: the row goes (it was never this club's).
+  if (!(await clubsAccount(db, f.account))) { await forgetFound(db, f.id); return; }
   // Kumi records it by now (a charge made again by its key, or a webhook that came in): not refunded here.
   if (await recordedRef(db, f.provider_ref)) {
     await db.updateTable("payment_found").set({ status: "recorded", done_at: new Date(), version: sql`version + 1` }).where("id", "=", f.id).execute();

@@ -3,7 +3,7 @@
 // whoever takes or sees the club's money.
 import { Hono, type Context } from "hono";
 import { plainAmount, type Lang } from "@kumi/i18n";
-import { clubGiftCards, outstandingCredit, outstandingGiftCards, outstandingPasses, passesOf, passProducts, clubPromoCodes, clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db, refundedStillBooked } from "@kumi/core";
+import { clubsAccount, clubGiftCards, outstandingCredit, outstandingGiftCards, outstandingPasses, passesOf, passProducts, clubPromoCodes, clubReceipts, customAreas, deskDays, deskLines, KumiError, supportRoleKeys, receiptsOf, receiptView, type Db, refundedStillBooked } from "@kumi/core";
 import { csvCell } from "./csv.ts";
 
 type Me = { id: string } | null;
@@ -83,7 +83,11 @@ export function receiptRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Con
     await staffWithMoney(c);
     // Kumi's own charges still waiting for the jobs aren't the staff's (yet); refunds seen after a restore whose booking
     // or place is still active here are, to cancel without a refund or keep.
-    const found = await db.selectFrom("payment_found").select(["id", "amount_cents", "paid_at", "email", "description", "status", "kind", "kept_as", "disputed_at"]).where("status", "!=", "waiting").orderBy("found_at", "desc").limit(200).execute();
+    // Only the club's own account's: one kept from another club's (before whose it was was checked) isn't listed.
+    const rows = await db.selectFrom("payment_found").select(["id", "amount_cents", "paid_at", "email", "description", "status", "kind", "kept_as", "disputed_at", "account"]).where("status", "!=", "waiting").orderBy("found_at", "desc").limit(200).execute();
+    const ours = new Map<string | null, boolean>();
+    for (const r of rows) if (!ours.has(r.account)) ours.set(r.account, await clubsAccount(db, r.account));
+    const found = rows.filter((r) => ours.get(r.account)).map(({ account: _, ...r }) => r);
     return c.json({ found, still_booked: await refundedStillBooked(db) });
   });
   app.get("/staff/gift-cards", async (c) => {

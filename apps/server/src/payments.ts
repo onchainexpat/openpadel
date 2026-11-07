@@ -4,7 +4,7 @@
 import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { RateLimiter } from "./limits.ts";
-import { includedTaxOf, noteFound, checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, supportRoleKeys, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
+import { clubsAccount, includedTaxOf, noteFound, checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, supportRoleKeys, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
 
 type Me = { id: string } | null;
 export interface StripeConfig { publishableKey?: string; webhookSecret?: string }
@@ -82,6 +82,13 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
     const raw = await c.req.text();
     if (!verifyStripeSignature(raw, c.req.header("stripe-signature"), stripe.webhookSecret)) return c.json({ error: "bad_signature" }, 400);
     const ev = JSON.parse(raw) as { type?: string; account?: string; data?: { object?: { id?: string; object?: string } } };
+    // A Connect endpoint hears every connected account's events, other clubs' too (Stripe can't send a club only its
+    // own), so an event on any account but the club's is read no further; in direct mode, events carry no account.
+    // Answered as received, so Stripe doesn't send it again. Logged without anything about the payment or its payer.
+    if (!(await clubsAccount(db, ev.account ?? null))) {
+      console.warn(`webhook: a ${String(ev.type ?? "Stripe").replace(/[^a-z_.]/g, "")} event on ${ev.account ? `another Stripe account (ending ${String(ev.account).slice(-4).replace(/[^A-Za-z0-9]/g, "")})` : "no Stripe account"} was left alone: not this club's`);
+      return c.json({ received: true });
+    }
     const cp = connect();
     if (cp && ev.type === "account.updated") { await refreshStripeAccount(db, cp); return c.json({ received: true }); }
     const intent = ev.data?.object?.object === "payment_intent" ? ev.data.object.id : null;
