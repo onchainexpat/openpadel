@@ -40,6 +40,11 @@ test("only a payment that went through is paid; a declined card can still be ret
   const s = fakeStripe(() => ({ json: { id: "pi_1", client_secret: "cs", status: "succeeded" } }));
   assert.deepEqual(await new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch }).getIntent("pi_1"), { status: "succeeded", clientSecret: "cs", paymentMethod: null, customer: null });
   assert.equal(s.calls[0]!.method, "GET"); assert.equal(s.calls[0]!.path, "/v1/payment_intents/pi_1");
+  // A card confirmed and still being finished is pending, and says so: buying again doesn't call it off.
+  for (const status of ["processing", "requires_capture"]) {
+    const p = fakeStripe(() => ({ json: { id: "pi_2", client_secret: "cs", status } }));
+    assert.deepEqual(await new StripeProvider({ secretKey: "sk_test_abc", fetch: p.fetch }).getIntent("pi_2"), { status: "pending", clientSecret: "cs", paymentMethod: null, customer: null, processing: true });
+  }
 });
 
 test("refunds: sent, pending, refused by Stripe, or Stripe unreachable (tried again later)", async () => {

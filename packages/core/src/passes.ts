@@ -17,7 +17,7 @@ import type { DB, Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
-import { callOff, deskPaid, paidHow, recordAtDesk, refundTo, revenueType } from "./desk_pay.ts";
+import { callOff, deskPaid, paidHow, recordAtDesk, refundTo, revenueType, stillUnpaid } from "./desk_pay.ts";
 import { kidOf, paymentWhat } from "./kids.ts";
 import { paidNow } from "./programs.ts";
 
@@ -148,23 +148,32 @@ async function makePass(ctx: ApplyCtx, product: Selectable<DB["pass_product"]>, 
 
 /** A member buys a pass in the app: it waits for its card payment, and is theirs once that goes through (paidNow ->
  *  passPaid). One person's: not bought for a kid in this version. Club credit can't pay for one. */
+/** The payments of passes this person bought in the app that are still waiting for their card. */
+const waitingPasses = (db: Db | Trx, personId: string) => db.selectFrom("payment").innerJoin("pass", "pass.id", "payment.pass_id")
+  .select(["payment.id", "payment.provider_ref", "payment.provider_account"])
+  .where("pass.person_id", "=", personId).where("pass.sold_via", "=", "app").where("pass.status", "=", "pending").where("payment.status", "=", "pending").execute();
+
 export const passBuy = defineAction({
   name: "pass.buy", version: 1,
+  // Only the member themselves (or their own assistant): the desk sells one with pass.sell.
+  selfOnly: async (_db, i: { person_id: string }) => i.person_id,
   input: z.object({ person_id: z.uuid(), product_id: z.uuid() }),
   async plan(ctx, i) {
     const { read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const p = await onSale(ctx.db, i.product_id);
     if (await kidOf(ctx.db, i.person_id)) throw new KumiError("error.pass_kid");
+    // One bought before and never paid is called off, as gift_card.buy does: unless its card went through or is
+    // still being processed, asked of the provider now.
+    const callOffIds = await stillUnpaid(await waitingPasses(ctx.db, i.person_id));
     return { title: both("action.pass.buy"), reads: [read], ownerIds: [i.person_id], moneyCents: p.price_cents, undo: { kind: "none", note: both("reason.refund_sent") },
-      summary: both("plan.pass.buy", { name: p.name, uses: String(p.uses), price: usd(p.price_cents) }) };
+      summary: both("plan.pass.buy", { name: p.name, uses: String(p.uses), price: usd(p.price_cents) }), details: { call_off: callOffIds } };
   },
-  async apply(ctx, i) {
+  async apply(ctx, i, plan) {
     const p = await onSale(ctx.trx, i.product_id);
     if (await kidOf(ctx.trx, i.person_id)) throw new KumiError("error.pass_kid");
-    // One bought before and never paid is called off (as gift_card.buy does): gone through after all, it's
-    // recorded and given back in full.
-    for (const x of await ctx.trx.selectFrom("payment").innerJoin("pass", "pass.id", "payment.pass_id").select("payment.id")
-      .where("pass.person_id", "=", i.person_id).where("pass.sold_via", "=", "app").where("pass.status", "=", "pending").where("payment.status", "=", "pending").execute()) await callOff(ctx, x.id);
+    // Gone through after all, one called off is recorded and given back in full.
+    const off = new Set((plan.details as { call_off?: string[] } | undefined)?.call_off ?? []);
+    for (const x of await waitingPasses(ctx.trx, i.person_id)) if (!x.provider_ref || off.has(x.id)) await callOff(ctx, x.id);
     const pass = await makePass(ctx, p, i.person_id, "app", "pending");
     const payment = uuidv7();
     await ctx.insert("payment", { id: payment, person_id: i.person_id, amount_cents: p.price_cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", pass_id: pass });

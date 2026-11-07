@@ -14,7 +14,8 @@ import { uuidv7 } from "./ids.ts";
 
 export const ALERT_KINDS = ["match_late_cancel_staff", "question_unanswered_staff", "booking_balance_due_staff", "program_min_short", "program_min_cancelled_staff", "refund_failed", "ops_failed_staff", "ops_restore_staff",
   "membership_payment_failed_staff", "membership_ended_unpaid_staff", "usage_reached_staff", "usage_paused_staff", "chat_reported_staff"] as const;
-/** How far back the list looks: older alerts have been dealt with one way or another. */
+/** How far back the list looks: older alerts have been dealt with one way or another. Not what a restore left for
+ *  staff (ops_restore_staff): that stays until someone handles it, however long ago the restore was. */
 export const ALERT_DAYS = 14;
 
 /** The alerts this person was told about and nobody has handled yet, newest first, and the ones handled in the
@@ -26,7 +27,8 @@ export async function staffAlerts(db: Db | Trx, personId: string, now: Date) {
     .select(["outbound_message.event_id", "outbound_message.kind", "outbound_message.subject", "outbound_message.body", "outbound_message.link", "outbound_message.created_at",
       "staff_alert.handled_at", "by.display_name as handled_by"])
     .where("outbound_message.person_id", "=", personId).where("outbound_message.channel", "=", "inbox").where("outbound_message.purpose", "=", "staff")
-    .where("outbound_message.kind", "in", [...ALERT_KINDS]).where("outbound_message.event_id", "is not", null).where("outbound_message.created_at", ">=", since)
+    .where("outbound_message.kind", "in", [...ALERT_KINDS]).where("outbound_message.event_id", "is not", null)
+    .where((eb) => eb.or([eb("outbound_message.created_at", ">=", since), eb.and([eb("outbound_message.kind", "=", "ops_restore_staff"), eb("staff_alert.handled_at", "is", null)])]))
     .where((eb) => eb.or([eb("staff_alert.id", "is not", null), eb("outbound_message.stale_at", "is", null), eb("outbound_message.stale_at", ">", now)]))
     .orderBy("outbound_message.created_at", "desc").limit(100).execute();
   const day = now.getTime() - 86400_000;

@@ -110,25 +110,29 @@ export const creditPayOut = defineAction({
     const have = await creditBalance(ctx.db, i.person_id);
     if (i.cents > have) throw new KumiError("error.credit_more_than_held", { name: p.display_name, amount: usd(have) });
     // Where their credit came from: gift cards redeemed (and of those, any bought by card) or refunds (and of those,
-    // any of a card payment, given back as credit). Paying out credit that card money became, in cash or another
-    // way, is how a stolen card is cashed out: the preview says so for both, and the owner or manager decides.
+    // any of card money given back as credit: a card payment, or a use of a pass bought by card). Paying out credit
+    // that card money became, in cash or another way, is how a stolen card is cashed out: the preview says so for
+    // both, and the owner or manager decides.
     const g = await ctx.db.selectFrom("gift_card").leftJoin("payment", (j) => j.onRef("payment.gift_card_id", "=", "gift_card.id").on("payment.status", "=", "succeeded"))
       .select([sql<string>`coalesce(sum(gift_card.amount_cents), 0)`.as("all"),
         sql<string>`coalesce(sum(gift_card.amount_cents) FILTER (WHERE payment.provider <> 'none' OR payment.method = 'terminal'), 0)`.as("card")])
       .where("gift_card.redeemed_by", "=", i.person_id).where("gift_card.status", "=", "redeemed").executeTakeFirstOrThrow();
-    // Only what of it is still unspent: credit spent on things (less what came back of them) is taken from it first.
-    const sp = await ctx.db.selectFrom("payment").select(sql<string>`coalesce(sum(amount_cents - coalesce((SELECT sum(r.amount_cents) FROM refund r WHERE r.payment_id = payment.id AND r.status = 'sent' AND r.destination = 'credit'), 0)), 0)`.as("c"))
-      .where("person_id", "=", i.person_id).where("method", "=", "credit").where("status", "=", "succeeded").executeTakeFirstOrThrow();
-    const fromCards = Math.min(have, Math.max(0, Number(g.all) - Number(sp.c))), byCard = Math.min(fromCards, Number(g.card));
-    // Card payments the club gave back as this person's credit (a junior's goes to the parent who paid: creditee).
-    // Spending is taken from gift card credit first, then from these, so what's left of them is what's unspent.
+    // Card money the club gave back as this person's credit (a junior's goes to the parent who paid: creditee).
     const refunds = await ctx.db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
       .select(["refund.amount_cents", "payment.person_id", "payment.family_card_id", "payment.paid_by"])
-      .where("refund.destination", "=", "credit").where("refund.status", "=", "sent").where((w) => w.or([w("payment.provider", "<>", "none"), w("payment.method", "=", "terminal")]))
+      .where("refund.destination", "=", "credit").where("refund.status", "=", "sent")
+      .where((w) => w.or([w("payment.provider", "<>", "none"), w("payment.method", "=", "terminal"),
+        // A use of a pass that comes back as credit (the pass refunded since, passes.ts) is the pass's own money.
+        w.and([w("payment.method", "=", "pass"), w.exists(w.selectFrom("pass_use").innerJoin("payment as bought", "bought.pass_id", "pass_use.pass_id").select("pass_use.id")
+          .whereRef("pass_use.payment_id", "=", "payment.id").where("bought.status", "=", "succeeded").where((x) => x.or([x("bought.provider", "<>", "none"), x("bought.method", "=", "terminal")])))])]))
       .where((w) => w.or([w("payment.person_id", "=", i.person_id), w("payment.paid_by", "=", i.person_id), w.exists(w.selectFrom("person as pj").select("pj.id").whereRef("pj.id", "=", "payment.person_id").where("pj.junior", "=", true))])).execute();
     let cardRefunds = 0;
     for (const r of refunds) if (await creditee(ctx.db, r) === i.person_id) cardRefunds += r.amount_cents;
-    const refundByCard = Math.min(have - byCard, Math.max(0, cardRefunds - Math.max(0, Number(sp.c) - Number(g.all))));
+    // What they spent or had paid out is taken from what wasn't card money first, so what's left is card money as far
+    // as it can be: the warning is never spent away. Gift cards bought by card are said first, then card refunds.
+    const cardLeft = Math.min(have, Number(g.card) + cardRefunds);
+    const byCard = Math.min(cardLeft, Number(g.card)), refundByCard = Math.min(cardLeft - byCard, cardRefunds);
+    const fromCards = Math.max(byCard, Math.min(have, Number(g.all)));
     const base = both("plan.credit.pay_out", { name: p.display_name, amount: usd(i.cents), how: both(`paid_by.${i.method}`), left: usd(have - i.cents) });
     const notes = [fromCards > 0 ? both("plan.credit.pay_out_gift", { amount: usd(fromCards) }) : null, byCard > 0 ? both("plan.credit.pay_out_card_warn", { amount: usd(byCard) }) : null,
       refundByCard > 0 ? both("plan.credit.pay_out_refund_warn", { amount: usd(refundByCard) }) : null].filter((x): x is Text => Boolean(x));

@@ -12,8 +12,9 @@ export interface PaymentProvider {
    *  The same key always gives back the same intent, so a retry never asks twice. */
   createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; metadata?: Record<string, string>; customer?: string; saveCard?: boolean }): Promise<{ ref: string; clientSecret: string; account: string | null }>;
   /** Where an intent stands now, asked of the provider: how a missed webhook is caught. A declined
-   *  card isn't a failure (the person can try another); only a cancelled intent is. */
-  getIntent(ref: string, account?: string | null): Promise<{ status: IntentStatus; clientSecret: string; paymentMethod?: string | null; customer?: string | null }>;
+   *  card isn't a failure (the person can try another); only a cancelled intent is. `processing`: still pending, but
+   *  the card was confirmed and the provider is finishing it (it can't be called off any more). */
+  getIntent(ref: string, account?: string | null): Promise<{ status: IntentStatus; clientSecret: string; paymentMethod?: string | null; customer?: string | null; processing?: boolean }>;
   /** Call off a payment nobody finished, so it can't go through later. If it already went through, says
    *  so: then it's paid, not cancelled. */
   cancelIntent(ref: string, account?: string | null): Promise<{ status: IntentStatus }>;
@@ -49,7 +50,7 @@ export interface FoundRefund { ref: string; paymentRef: string; amountCents: num
   status?: "succeeded" | "pending" | "failed" }
 export class TestProvider implements PaymentProvider {
   readonly name = "test" as const;
-  intents = new Map<string, { amountCents: number; currency?: string; description: string; status: IntentStatus; clientSecret: string; customer?: string; saveCard?: boolean; paymentMethod?: string; created?: Date; metadata?: Record<string, string> }>();
+  intents = new Map<string, { amountCents: number; currency?: string; description: string; status: IntentStatus; clientSecret: string; customer?: string; saveCard?: boolean; paymentMethod?: string; created?: Date; metadata?: Record<string, string>; processing?: boolean }>();
   customers = new Map<string, string>();
   charges: { customer: string; paymentMethod: string; amountCents: number; ref: string }[] = [];
   failNextCharge: string | null = null;
@@ -70,7 +71,7 @@ export class TestProvider implements PaymentProvider {
   async getIntent(ref: string) {
     const it = this.intents.get(ref);
     if (!it) throw new Error(`no such intent: ${ref}`);
-    return { status: it.status, clientSecret: it.clientSecret, paymentMethod: it.paymentMethod ?? null, customer: it.customer ?? null };
+    return { status: it.status, clientSecret: it.clientSecret, paymentMethod: it.paymentMethod ?? null, customer: it.customer ?? null, ...(it.processing && it.status === "pending" ? { processing: true } : {}) };
   }
   async cancelIntent(ref: string) {
     const it = this.intents.get(ref);
@@ -82,6 +83,11 @@ export class TestProvider implements PaymentProvider {
   settle(ref: string, status: IntentStatus) {
     const it = this.intents.get(ref);
     if (it) { it.status = status; if (status === "succeeded") it.paymentMethod = `pm_test_${randomBytes(4).toString("hex")}`; }
+  }
+  /** The card was confirmed and the provider is still finishing it (Stripe's "processing"). */
+  processing(ref: string) {
+    const it = this.intents.get(ref);
+    if (it) it.processing = true;
   }
   async createSetup(i: { customer: string; idempotencyKey: string }) {
     const known = this.byKey.get(`setup:${i.idempotencyKey}`);

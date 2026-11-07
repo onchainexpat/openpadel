@@ -17,7 +17,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { keyedHash, openText, sealText } from "./sealed.ts";
-import { callOff, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
+import { callOff, deskPaid, paidHow, recordAtDesk, refundTo, stillUnpaid } from "./desk_pay.ts";
 import { lockCredit } from "./credit.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
@@ -63,24 +63,34 @@ async function makeCard(ctx: ApplyCtx, o: { buyer: string; cents: number; forNam
 }
 const forWhom = { for_name: z.optional(z.string().check(z.maxLength(80))), message: z.optional(z.string().check(z.maxLength(300))) };
 
+/** The payments of gift cards this person bought in the app that are still waiting for their card. */
+export const waitingCards = (db: Db | Trx, personId: string) => db.selectFrom("payment").innerJoin("gift_card", "gift_card.id", "payment.gift_card_id")
+  .select(["payment.id", "payment.provider_ref", "payment.provider_account"])
+  .where("gift_card.buyer_id", "=", personId).where("gift_card.sold_via", "=", "app").where("gift_card.status", "=", "pending").where("payment.status", "=", "pending").execute();
+
 /** A member buys a gift card in the app: the card waits for its payment, and is theirs to give once the card goes
- *  through (payment.settle -> giftCardPaid). Club credit can't pay for one. */
+ *  through (payment.settle -> giftCardPaid). Club credit can't pay for one. Only the member themselves (or their own
+ *  assistant): the desk sells one with gift_card.sell. */
 export const giftCardBuy = defineAction({
   name: "gift_card.buy", version: 1,
+  selfOnly: async (_db, i: { person_id: string }) => i.person_id,
   input: z.object({ person_id: z.uuid(), cents: z.number().check(z.int(), z.minimum(1)), ...forWhom }),
   async plan(ctx, i) {
     const { read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     await amountAllowed(ctx.db, i.cents);
-    return { title: both("action.gift_card.buy"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("reason.refund_sent") },
-      summary: both(i.for_name ? "plan.gift_card.buy_for" : "plan.gift_card.buy", { amount: usd(i.cents), name: i.for_name ?? "" }) };
-  },
-  async apply(ctx, i) {
-    await amountAllowed(ctx.trx, i.cents);
     // One bought before and never paid (the card form closed, a card declined, a page that couldn't open its form)
-    // is called off, so the list doesn't fill with cards waiting for a payment that isn't coming. If its card went
-    // through after all, payment.settle records it and gives it all back (callOff).
-    for (const p of await ctx.trx.selectFrom("payment").innerJoin("gift_card", "gift_card.id", "payment.gift_card_id").select("payment.id")
-      .where("gift_card.buyer_id", "=", i.person_id).where("gift_card.sold_via", "=", "app").where("gift_card.status", "=", "pending").where("payment.status", "=", "pending").execute()) await callOff(ctx, p.id);
+    // is called off, so the list doesn't fill with cards waiting for a payment that isn't coming: unless its card went
+    // through or is still being processed (the app says "Paid, thank you: confirming"), asked of the provider now.
+    const callOffIds = await stillUnpaid(await waitingCards(ctx.db, i.person_id));
+    return { title: both("action.gift_card.buy"), reads: [read], ownerIds: [i.person_id], moneyCents: i.cents, undo: { kind: "none", note: both("reason.refund_sent") },
+      summary: both(i.for_name ? "plan.gift_card.buy_for" : "plan.gift_card.buy", { amount: usd(i.cents), name: i.for_name ?? "" }), details: { call_off: callOffIds } };
+  },
+  async apply(ctx, i, plan) {
+    await amountAllowed(ctx.trx, i.cents);
+    // Those the plan found unpaid, and any with no card form at all; one whose form opened since is left. If a card
+    // called off went through after all, payment.settle records it and gives it all back (callOff).
+    const off = new Set((plan.details as { call_off?: string[] } | undefined)?.call_off ?? []);
+    for (const p of await waitingCards(ctx.trx, i.person_id)) if (!p.provider_ref || off.has(p.id)) await callOff(ctx, p.id);
     const card = await makeCard(ctx, { buyer: i.person_id, cents: i.cents, forName: i.for_name, message: i.message, via: "app", status: "pending" });
     const payment = uuidv7();
     await ctx.insert("payment", { id: payment, person_id: i.person_id, amount_cents: i.cents, method: "card", provider: paymentProvider().name, provider_ref: null, status: "pending", gift_card_id: card });

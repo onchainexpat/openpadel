@@ -84,7 +84,8 @@ export class StripeProvider implements PaymentProvider {
   async getIntent(ref: string, account?: string | null) {
     const d = await this.call("GET", `/v1/payment_intents/${encodeURIComponent(ref)}`, undefined, undefined, account);
     const id = (v: unknown) => (typeof v === "string" ? v : (v as { id?: string } | null)?.id ?? null);
-    return { status: intentStatus(d.status), clientSecret: String(d.client_secret), paymentMethod: id(d.payment_method), customer: id(d.customer) };
+    return { status: intentStatus(d.status), clientSecret: String(d.client_secret), paymentMethod: id(d.payment_method), customer: id(d.customer),
+      ...(d.status === "processing" || d.status === "requires_capture" ? { processing: true } : {}) };
   }
 
   async createSetup(i: { customer: string; idempotencyKey: string; metadata?: Record<string, string> }) {

@@ -10,7 +10,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, localParts, onDate } from "./clock.ts";
-import { account, post } from "./money.ts";
+import { account, paymentProvider, post } from "./money.ts";
 import { paymentWhat } from "./kids.ts";
 import { DESK_MONEY } from "./permissions.ts";
 
@@ -106,6 +106,22 @@ export async function refundTo(ctx: ApplyCtx, paymentId: string, cents: number, 
   await ctx.insert("refund", { id, payment_id: paymentId, enrolment_id: o.enrolmentId ?? null, amount_cents: cents, destination: credit ? "credit" : desk ? "desk" : "card", status });
   if (!desk && !credit && status === "pending") await ctx.emit("refund.requested", { refund_id: id });
   return { id, desk, credit, cents };
+}
+/** Of a person's earlier purchases still waiting for their card (a gift card or a pass bought in the app and never
+ *  paid), the ones to call off when they buy again: no card form opened, or a card the provider says hasn't gone
+ *  through and isn't being processed (declined, or the form closed). One that went through, or is on its way, is left
+ *  alone: payment.settle records it, and it's theirs. Asked when the change is planned, before any lock (no call to
+ *  the provider holds one); a provider that can't be reached leaves the opened ones alone. */
+export async function stillUnpaid(payments: { id: string; provider_ref: string | null; provider_account: string | null }[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const p of payments) {
+    if (!p.provider_ref) { out.push(p.id); continue; }
+    try {
+      const it = await paymentProvider().getIntent(p.provider_ref, p.provider_account);
+      if (it.status === "pending" && !it.processing) out.push(p.id);
+    } catch { /* not reachable now: left alone */ }
+  }
+  return out;
 }
 /** A payment not wanted any more (its booking cancelled, its date gone, asked again for another amount): failed
  *  here, and a card form already opened for it is called off at the provider once this change is saved (the

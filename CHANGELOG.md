@@ -41,6 +41,22 @@ server starts.
   discount as money owed on any court paid after a code. A code's part of the price now counts as paid on every
   path that weighs a booking's payments against its price (one rule for all of them, `promo_off.ts`): the deadline's
   charge, the desk's limit, the screens and an assistant's weekly spend.
+- **Credit from a use of a pass bought by card was paid out in cash with no warning (in 0.3.0).** A use that comes
+  back as club credit after its pass was refunded is card money, and paying out club credit now warns of it, as it
+  does for gift cards bought by card and card payments refunded as credit.
+- **The pay-out warning could be spent away (in 0.3.0).** What a member spent of their credit was taken from its
+  card money first, so after spending, card money paid out in cash had no warning. Spending is now taken from what
+  wasn't card money first: the warning lasts as long as it can.
+- **Buying a gift card or a pass again could undo one just paid (in 0.3.0).** Buying again calls off one bought
+  before and never paid; it also called off one whose card had gone through but wasn't recorded yet (the app said
+  "Paid, thank you: confirming"), so it was refunded, never issued, and left the list. Kumi now asks the payment
+  provider first and leaves one that went through or is still being processed: it's recorded, and the card or the
+  pass is the member's.
+- **Staff could buy a gift card or a pass in a member's name (in 0.3.0).** The owner, a manager or support access
+  could, and that also called off the member's own waiting purchase. Only the member (or their own assistant) buys
+  one in the app now; the desk sells them as before, paid there.
+- **What a restore left for staff left Today after 14 days (in 0.3.0),** handled or not, like every other alert.
+  It now stays until someone marks it handled.
 - What the browser check of the staff app found on 6 November and left for after 0.3.0:
   - Changes offered Undo on every change, receipts, alerts, deletions and money sent included, and then refused.
     Undo now shows only on a change that can be undone, still in time. A refusal says its reason once ("This
