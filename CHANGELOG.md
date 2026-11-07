@@ -47,6 +47,10 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     or the server's command.
 
 ### Fixed
+- **A member's account deleted before Kumi read their Playtomic bookings (in the Playtomic archive, not released).**
+  Bookings read later, from the three months back say, came in with their name and email. Erasing an account now marks
+  them for every later read of Playtomic (bookings and players): by their Playtomic id and a salted one-way hash of
+  each address, never the address itself.
 - A person's page offered front desk (and anyone below a manager) the form to give or take away a role, including
   owner, and then refused it. Only owners and managers see it now. A refusal to give a role says what the role
   would let them do in words ("Undo a change"), not the action's internal name.

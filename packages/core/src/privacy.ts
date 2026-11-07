@@ -25,6 +25,7 @@ import { leaveForErase } from "./programs.ts";
 import { endSeriesForErase } from "./booking_series.ts";
 import { chatsOf, eraseChats } from "./chat.ts";
 import { archiveOf, eraseArchiveOf } from "./playtomic_archive.ts";
+import { markErased } from "./playtomic_erased.ts";
 import { creditBalance } from "./money.ts";
 import { creditHistory } from "./credit.ts";
 
@@ -603,7 +604,9 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
     await db.updateTable("oauth_grant").set({ revoked_at: ctx.now }).where("person_id", "=", personId).where("revoked_at", "is", null).execute();
     await db.updateTable("oauth_token").set({ revoked_at: ctx.now }).where("grant_id", "in", grants.map((g) => g.id)).where("revoked_at", "is", null).execute();
   }
-  // Playtomic's archive (playtomic_archive.ts): their name and email go from it, read while their Playtomic ids are known.
+  // Playtomic: marked first (playtomic_erased.ts), by every Playtomic id and address known for them, so no later read
+  // of Playtomic brings them back; then their name and email go from the archive (playtomic_archive.ts).
+  await markErased(db, personId, x.emails, ctx.now);
   await eraseArchiveOf(db, personId, x.emails, ctx.now);
   // Playtomic's record of them as last read for the move-in (brought_in.ts): by their Playtomic id or any address.
   const ptIds = (await db.selectFrom("external_ref").select("external_id").where("entity", "=", "person").where("entity_id", "=", personId).where("system", "=", "playtomic").execute()).map((r) => r.external_id);

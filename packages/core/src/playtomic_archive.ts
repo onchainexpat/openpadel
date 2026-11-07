@@ -25,6 +25,7 @@ import { insertTime, lockCourts, range } from "./bookings.ts";
 import { courtAndPlace, newCode } from "./booking_pay.ts";
 import { currentPolicy, quote } from "./prices.ts";
 import { normalize, PLAYTOMIC, typeKey } from "./playtomic.ts";
+import { erasedMatcher } from "./playtomic_erased.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const join = (xs: Text[], sep = " "): Text => ({ en: xs.map((x) => x.en).filter(Boolean).join(sep), es: xs.map((x) => x.es).filter(Boolean).join(sep) });
@@ -110,8 +111,8 @@ export async function archiveBookings(db: Db, raws: unknown[], now = new Date())
       if (!changed.length) return;
       const players = changed.flatMap((r) => r.participants);
       const who = await whoIs(trx, [...new Set(players.map((p) => p.participant_id))], [...new Set(players.map((p) => p.email).filter((e): e is string => Boolean(e)))]);
-      const erased = new Set(players.length ? (await trx.selectFrom("playtomic_booking_player").select("participant_id").distinct()
-        .where("participant_id", "in", [...new Set(players.map((p) => p.participant_id))]).where("erased_at", "is not", null).execute()).map((r) => r.participant_id) : []);
+      // Anyone whose account here was deleted, before or after this booking was first read (playtomic_erased.ts).
+      const erased = await erasedMatcher(trx, { ids: players.map((p) => p.participant_id), emails: players.map((p) => p.email) });
       for (const r of changed) {
         const { participants, ...row } = r;
         const values = { ...row, court_id: courts.get(r.resource_id) ?? null, raw: JSON.stringify(r.raw), last_seen_at: now };
@@ -123,7 +124,7 @@ export async function archiveBookings(db: Db, raws: unknown[], now = new Date())
           .map((p) => `${p.participant_id}|${p.family_member_id ?? ""}`));
         for (const p of participants) {
           if (kept.has(`${p.participant_id}|${p.family_member_id ?? ""}`)) continue;
-          const gone = erased.has(p.participant_id) && !p.family_member_id;
+          const gone = erased({ id: p.family_member_id ? null : p.participant_id, email: p.email });
           await trx.insertInto("playtomic_booking_player").values({ id: uuidv7(), booking_id: r.booking_id, participant_id: p.participant_id, family_member_id: p.family_member_id,
             name: gone ? null : p.name, email: gone ? null : p.email, accepts_commercial: gone ? null : p.accepts_commercial, participant_type: p.participant_type, is_owner: p.is_owner,
             person_id: gone ? null : who(p), erased_at: gone ? now : null }).execute();

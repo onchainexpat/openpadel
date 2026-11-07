@@ -280,3 +280,25 @@ test("archiveBookings reads a row with no players, an unreadable row, and the sa
   assert.equal((await players("z1")).length, 0);
   assert.equal((await players("z2")).length, 1);
 });
+
+test("an account deleted before any of its Playtomic bookings were read: they come in later without a name or email", async () => {
+  // Eve deletes her account before the archive's slices of the past three months have been read. She came in from an
+  // import that kept her Playtomic id; her address is known too, so a booking under another Playtomic id but her
+  // address is kept out as well.
+  const eve = ((await run(db, "person.create", { display_name: "Eve Member", email: "eve@example.test" }, owner)).result as { person_id: string }).person_id;
+  await db.insertInto("external_ref").values({ entity: "person", entity_id: eve, system: "playtomic", external_id: "u-eve" }).execute();
+  await run(db, "privacy.erase", { person_id: eve }, as(eve), { now: new Date(base) });
+  const marks = await db.selectFrom("playtomic_erased").select(["playtomic_id", "email_hash"]).execute();
+  assert.ok(marks.some((m) => m.playtomic_id === "u-eve"));
+  assert.ok(marks.every((m) => !m.email_hash || !m.email_hash.includes("@")), "no address kept");
+  await archiveBookings(db, [
+    booking("old-eve", -24 * 50, { owner: "u-eve", players: [{ participant_id: "u-eve", name: "Eve Hart", email: "eve@example.test" }, { participant_id: "u-ann", name: "Ann Lee", email: "ann@example.test" }] }),
+    booking("old-eve2", -24 * 52, { owner: "u-eve2", players: [{ participant_id: "u-eve2", name: "Eve H.", email: "EVE@example.test" }] }),
+  ], new Date(base));
+  for (const [id, pid] of [["old-eve", "u-eve"], ["old-eve2", "u-eve2"]] as const) {
+    const p = (await players(id)).find((x) => x.participant_id === pid)!;
+    assert.deepEqual([p.name, p.email, p.person_id], [null, null, null], `${id}: ${JSON.stringify(p)}`);
+    assert.ok(p.erased_at);
+  }
+  assert.equal((await players("old-eve")).find((x) => x.participant_id === "u-ann")!.name, "Ann Lee", "the others stay");
+});
