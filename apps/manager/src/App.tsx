@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand } from "@kumi/ui";
+import { api, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts } from "./Courts.tsx";
 import { formatLocale } from "@kumi/i18n/format";
@@ -108,7 +108,7 @@ function leavingNotice(on: string, owner: boolean) {
 
 export function App() {
   useEffect(() => {
-    api<Club>("/club").then((c) => { club.value = c; applyBrand(c.brand_colour); }).catch(() => {});
+    api<Club>("/club").then((c) => { club.value = c; applyBrand(c.brand_colour); applyTitle(c.name, "staff"); }).catch(() => {});
     loadMe();
   }, []);
   useEffect(() => { document.documentElement.lang = lang.value; }, [lang.value]);

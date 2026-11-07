@@ -74,6 +74,10 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   every assistant call answers sooner (about 15 ms instead of 180 for an owner).
 
 ### Fixed
+- **Members read "Kumi" in the browser (found on a real phone).** Both apps' tabs were titled "Kumi" whatever the
+  club, even on a club running openPadel itself, and a member's data download was `kumi-data-<date>.json`. The tab, its
+  history and the share sheet now name the club (the staff app's, "<club> Staff", as its installed name is), and the
+  download is named for the club too (`kestrel-padel-data-<date>.json`). Its `format` stays `kumi-export-1`.
 - **An assistant reached what its person was given after they connected it (in 0.1.0 to 0.3.1).** Connected as a
   member, it went on with a staff role given later (or a removal undone, the server's `owner add`, a role the club made
   widened), without their allowing it again or giving the second step the role needs. Now each connection keeps what

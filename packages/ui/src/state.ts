@@ -1,5 +1,6 @@
 // Who is signed in, the club, and the language: the three things every screen reads.
 import { signal, computed, effect } from "@preact/signals";
+import { pageTitle, type AppKind } from "./title.ts";
 import { h, type ComponentType } from "preact";
 import { lazy } from "preact-iso";
 import { useState } from "preact/hooks";
@@ -147,6 +148,9 @@ export function passkeyFailure(e: unknown): string | null {
 /** The club's colour as the apps paint it (styles.css): as it is for fills, with white or near-black text on them,
  *  whichever reads; and a tint of it for links, outlines and notes that reads at 4.5:1 on the light theme's
  *  background and cards and on the dark theme's (a club's dark green, as it is, is unreadable on the dark theme). */
+/** The tab's title, from the club's name (title.ts): set when the club is known, and again when it's renamed. */
+export function applyTitle(name: string | null | undefined, app: AppKind) { if (name?.trim()) document.title = pageTitle(name, app); }
+
 export function applyBrand(colour: string) {
   const st = document.documentElement.style, b = brandColours(colour);
   st.setProperty("--brand", colour);

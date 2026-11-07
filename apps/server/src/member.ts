@@ -476,7 +476,10 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const target = await exportRun(db, c.req.param("run"), pid, at);
     const data = await exportData(db, target, at, lang(c));
     c.header("content-type", "application/json; charset=utf-8");
-    c.header("content-disposition", `attachment; filename="kumi-data-${at.toISOString().slice(0, 10)}.json"`);
+    // Named for the club ("kestrel-padel-data-2026-11-07.json"): a member never reads a product's name.
+    const clubName = (await db.selectFrom("club").select("name").executeTakeFirst())?.name ?? "";
+    const stem = clubName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    c.header("content-disposition", `attachment; filename="${stem ? `${stem}-` : ""}data-${at.toISOString().slice(0, 10)}.json"`);
     c.header("cache-control", "no-store");
     return c.body(JSON.stringify(data, null, 2));
   });

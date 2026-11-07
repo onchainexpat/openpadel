@@ -44,7 +44,7 @@ test("a member downloads their own file, once they've confirmed it; nobody else 
   assert.equal(r.status, 200);
   const file = await get(r.json.result.download, "ann@example.test");
   assert.equal(file.status, 200);
-  assert.match(file.headers.get("content-disposition")!, /^attachment; filename="kumi-data-\d{4}-\d{2}-\d{2}\.json"$/);
+  assert.match(file.headers.get("content-disposition")!, /^attachment; filename="kestrel-padel-data-\d{4}-\d{2}-\d{2}\.json"$/);
   assert.equal(file.headers.get("cache-control"), "no-store");
   const data = JSON.parse(file.text);
   assert.equal(data.format, "kumi-export-1");
