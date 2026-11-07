@@ -145,7 +145,7 @@ export async function setupClub(db: Db, file: ClubFile, opts: { apply: boolean; 
       .where("person_role.person_id", "=", pid).where("role.key", "=", s.role).where("person_role.active", "=", true)
       .$if(Boolean(at), (q) => q.where("person_role.location_id", "=", at!)).$if(!at, (q) => q.where("person_role.location_id", "is", null)).executeTakeFirst() : undefined;
     if (hasRole) continue;
-    await step("role.assign", both("plan.role.assign", { person: s.name, role: both(`role.${s.role}` as Key), where: s.location ? both("where.at", { location: s.location }) : both("where.everywhere"), assistants: "" }),
+    await step("role.assign", both("plan.role.assign", { person: s.name, role: both(`role.${s.role}` as Key), where: s.location ? both("where.at", { location: s.location }) : both("where.everywhere") }),
       async () => ok(await run(db, "role.assign", { person_id: pid!, role: s.role, location_id: at ?? undefined }, owner)));
   }
   return { steps, notes, applied: opts.apply };

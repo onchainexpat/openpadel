@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 import { clearSession, readSession, setSession, type CookieMode } from "./session_cookie.ts";
 import { secureHeaders } from "hono/secure-headers";
 import { bodyLimit } from "hono/body-limit";
-import { clientIp, RateLimiter } from "./limits.ts";
+import { clientIp, networkOf, RateLimiter } from "./limits.ts";
 import { REVISION, VERSION } from "./version.ts";
 import { deepHealth, mayReadDeepHealth } from "./health.ts";
 import { vaultRoutes } from "./vault.ts";
@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, productName, type Lang } from "@kumi/i18n";
-import { anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -119,7 +119,7 @@ export function makeApp(deps: AppDeps) {
   const getLimits = new Map<string, RateLimiter>([["/oauth/authorize", new RateLimiter(30, 15 * 60_000)], ["/oauth/device", new RateLimiter(60, 15 * 60_000)]]);
   app.use("*", async (c, next) => {
     const l = c.req.method === "POST" ? limits.get(c.req.path) : c.req.method === "GET" ? getLimits.get(c.req.path) : undefined, ip = l ? ipOf(c) : null;
-    if (l && ip && !l.take(ip)) throw new KumiError("error.too_many_requests", {}, 429);
+    if (l && ip && !l.take(networkOf(ip))) throw new KumiError("error.too_many_requests", {}, 429);   // an IPv6 /64 counts as one
     await next();
   });
 
@@ -289,7 +289,10 @@ export function makeApp(deps: AppDeps) {
     const staffReads = readRoutes(db, () => ({ id: who.id, locale: lang }), () => lang, { assistant: true });
     staffReads.onError((e) => { throw e; });
     const readStaff = async (path: string) => (await staffReads.request(`http://kumi${path}`)).json();
-    return handleMcp(c.req.raw, await mcpServerFor(db, who, now, read, readStaff));
+    // Never further than the person allowed when they connected it: a role given since, or a second step the club
+    // now asks for, and it works as a member's until they connect it again (assistant_reach.ts).
+    const limited = await connectionReach(db, who.grant_id, who.id, now());
+    return handleMcp(c.req.raw, await mcpServerFor(db, who, now, read, readStaff, limited));
   });
 
   // ---- Sign in by an emailed code ----

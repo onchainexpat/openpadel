@@ -88,7 +88,9 @@ export interface PolicyAcceptanceTable { id: string; person_id: string; terms_ur
 export interface ChannelConsentTable { id: string; person_id: string; channel: string; purpose: string; granted: boolean; source: string; form_version: string | null; evidence: Json | null; at: Generated<Date> }
 
 export interface OAuthClientTable { client_id: string; kind: "registered" | "published"; name: string | null; redirect_uris: string[]; auth_method: Generated<string>; secret_hash: string | null; metadata: Json | null; created_at: Generated<Date> }
-export interface OAuthGrantTable { id: string; person_id: string; client_id: string; scopes: string[]; weekly_cap_cents: Generated<number>; created_at: Generated<Date>; revoked_at: Date | null; version: Generated<number> }
+export interface OAuthGrantTable { id: string; person_id: string; client_id: string; scopes: string[]; weekly_cap_cents: Generated<number>; created_at: Generated<Date>; revoked_at: Date | null; version: Generated<number>;
+  /** What the person held when they allowed it, and whether they had given a second step (assistant_reach.ts). */
+  powers: Generated<Json | null>; second_step: Generated<boolean>; limited_told_at: Generated<Date | null> }
 export interface OAuthCodeTable { code_hash: string; grant_id: string; redirect_uri: string; code_challenge: string; resource: string; expires_at: Date; consumed_at: Date | null }
 export interface OAuthTokenTable { token_hash: string; kind: "access" | "refresh"; grant_id: string; family: string; resource: string; expires_at: Date; used_at: Date | null; revoked_at: Date | null; created_at: Generated<Date> }
 

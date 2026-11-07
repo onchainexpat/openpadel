@@ -36,8 +36,12 @@ The door's OAuth (oauth.ts), unchanged in what it grants:
     own choice. Anyone who signs in with two steps (owners and managers by default) gives a fresh second step at
     Allow: their authenticator's code, or with only a passkey, a passkey sign-in in the last 10 minutes (the page has
     no script, so it can't ask for the passkey itself).
-  - **Filling it up:** at most 5 codes wait from one address; past 2,000 in all, the oldest nobody has opened gives
-    way, so codes from many addresses can't stop the club signing in a device.
+  - **Filling it up:** a code waits 10 minutes and is never pushed out early. At most 5 wait from one network (an
+    IPv4 address, or an IPv6 /64, which one home or server holds whole; the rate limits count a /64 once too). Past
+    20,000 in all, only a network holding none may start one, up to 25,000. Filling the first takes 4,000 networks
+    holding 5 each, renewed every 10 minutes; the last 5,000 places go one a network, so someone at the club (whose
+    network holds no code) is refused only after 9,000 networks are in use at once, and the networks doing it are
+    refused before them. That's about 10 MB of codes at the most.
 - **Tokens:** an hour's access token and a rotating refresh token, as for any assistant. Two refreshes of one token
   end the chain (oauth.ts), so the command line refreshes under a file lock, one process at a time.
 
@@ -57,9 +61,18 @@ there or by `openpadel logout` (which runs `assistant.disconnect` for itself).
     typed in their own input.
   - The people search takes names only here: matching an email or phone is a yes or no on the whole of one, which
     would let the shortening be undone a letter at a time.
-- **An assistant connected before a staff role:** `role.assign` disconnects the person's assistants (its preview says
-  so, and their message says why), so a connection allowed as a member never reaches a staff door without their
-  allowing it again, with the second step their new role needs.
+- **A connection's reach** (assistant_reach.ts): each keeps what its person held when they allowed it (their roles
+  and grants) and whether that sign-in gave a second step. At each use, if they now hold more (by any path: a role
+  given, a removal undone, the server's `owner add`, a role the club made widened) or the club asks a second step
+  they didn't give, it works as a member's until they connect it again: only the member role counts in its tool
+  list, its reads and the permission check (`memberOnly`). They hear it once, in their inbox, and `whoami` says
+  why. "More" is judged by what it reaches, not by role names, so an owner giving themselves coach reaches nothing
+  new and keeps their connection. A connection from before this takes what its person holds at its first use.
+- **No yes or no on an email:** the members' list import is the app's (its preview says who of a list is already
+  here), and a taken email or phone through the door is a plain `error.door_not_here`. Shortening catches the usual
+  spellings (415-5550142, 07700 900123, 020 7946 0958, josé@example.test) and never touches a field that names an id.
+- **changed_since:** whether anything one of the person's own changes made has been changed again since, by anyone
+  (the change log, `entity_change`); the command line asks it before saying "already done".
 - **An earlier result** (`apply` by idempotency key) is given again only to whoever made the change.
 - **whoami** also gives the person's id (for `--person me`) and the connection's id (for logout).
 - **A failure carries its key and status** in the result's `_meta` (`kumi/error`, `kumi/status`), so the command line
@@ -75,14 +88,17 @@ there or by `openpadel logout` (which runs `assistant.disconnect` for itself).
 - **Done once, however often it's asked:** a local record of recent previews (`runs.json`), each with a hash of its
   input, the ids it names, and whose it is (person and connection).
   - The same input, or the same `--key`, confirms the preview already made rather than making another.
-  - A change already done isn't done again within 10 minutes (a day for `--key`) unless `--again`. A different
-    change to the same thing since (one naming the same ids, or both naming none) makes it a new change instead.
+  - A change already done isn't done again within 10 minutes (a day for `--key`) unless `--again`. Without a
+    `--key`, anything it made changed since by anyone (the club's `changed_since`; on a club too old to say, a
+    different command here naming the same ids) makes it a new change instead. A `--key` is the same change for its
+    day, kept however many other previews come after (200 of those are kept).
   - A `--key` used again with a different input is refused: a key names one change.
-  - A confirm refused as out of date forgets its preview, so the same command again starts afresh.
+  - A confirm refused (out of date, no longer theirs to do, or no longer offered) forgets its preview, so the same
+    command again starts afresh.
   - When someone else signs in to the club on that computer, the previews kept go.
   - On the server, the door's confirm is itself idempotent per run (`mcp:<run_id>`).
-- **Only the club's own sign-in:** the sign-in server named in the club's metadata must be on the club's domain, over
-  https (http only on this computer), with every endpoint on it; requests to it time out at 30 s, under the minute
+- **Only the club's own sign-in:** the sign-in server named in the club's metadata must be the club's own host or its
+  staff app beside it (`staff.<host>`), exactly, over https (http only on this computer), with every endpoint on it; requests to it time out at 30 s, under the minute
   after which another command takes the refresh lock over. The browser opens without a shell (on Windows
   `rundll32 url.dll,FileProtocolHandler`, not `cmd /c start`, which cuts a link at `&` and runs what follows).
 - **Exit codes and one JSON object a line** (README.md), from the door's error keys and statuses.

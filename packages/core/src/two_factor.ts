@@ -24,11 +24,12 @@ export async function activeFactor(db: Db | Trx, personId: string) {
   return (await db.selectFrom("staff_factor").selectAll().where("person_id", "=", personId).where("removed_at", "is", null).executeTakeFirst()) ?? null;
 }
 
-/** Whether this person has to give a second step at sign-in. */
-export async function needsTwoFactor(db: Db | Trx, personId: string): Promise<boolean> {
+/** Whether this person has to give a second step at sign-in. `support: false`: leaving out support access's own
+ *  need (for an assistant, which support access never reaches). */
+export async function needsTwoFactor(db: Db | Trx, personId: string, opts: { support?: boolean } = {}): Promise<boolean> {
   if (await activeFactor(db, personId)) return true;   // they chose it: an authenticator always counts
   // Support access (support.ts) always needs two steps, whatever the club's rule for its own staff.
-  if (await db.selectFrom("support_grant").select("id").where("person_id", "=", personId).where("ended_at", "is", null).where("ends_at", ">", new Date()).executeTakeFirst()) return true;
+  if (opts.support !== false && await db.selectFrom("support_grant").select("id").where("person_id", "=", personId).where("ended_at", "is", null).where("ends_at", ">", new Date()).executeTakeFirst()) return true;
   const club = await db.selectFrom("club").select("two_factor").executeTakeFirst();
   const rule = (club?.two_factor ?? "owner_manager") as TwoFactorRule;
   if (rule === "off") return false;

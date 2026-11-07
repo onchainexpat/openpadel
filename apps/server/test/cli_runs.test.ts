@@ -14,7 +14,7 @@ import { browserCommand, clubsOwn, remoteMain, EXIT, type RemoteDeps } from "../
 import { Store } from "../src/cli_store.ts";
 
 const BASE = "https://club.example.test", TZ = "America/Los_Angeles", OWNER = "robin@example.test", DESK = "dana@example.test";
-let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor, court = "", danaId = "";
+let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor, court = "", danaId = "", ann = "", tag = "";
 const mailer = new MemoryMailer(), dirs: string[] = [], sessions = new Map<string, string>();
 const req = (path: string, init: RequestInit = {}) => app.request(path.startsWith("http") ? path : `${BASE}${path}`, init);
 const form = (o: Record<string, string>, cookie?: string) => ({ method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...(cookie ? { cookie } : {}) }, body: new URLSearchParams(o).toString() });
@@ -63,6 +63,8 @@ before(async () => {
   court = ((await run(db, "court.create", { location_id: loc, name: "Court 1" }, owner)).result as any).court_id;
   danaId = ((await run(db, "person.create", { display_name: "Dana Desk", email: DESK }, owner)).result as any).person_id;
   await run(db, "role.assign", { person_id: danaId, role: "front_desk" }, owner);
+  ann = ((await run(db, "person.create", { display_name: "Ann Lee", email: "ann@example.test" }, owner)).result as any).person_id;
+  tag = ((await run(db, "tag.create", { name: "Juniors coach" }, owner)).result as any).tag_id;
   app = makeApp({ db, mailer, publicUrl: BASE, secureCookies: false });
 });
 after(async () => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); await drop(); });
@@ -81,6 +83,52 @@ test("a retry straight after comes back done once; the same change asked again a
   assert.notEqual(again.json().already, true);
   assert.equal(await courtName(), "Centre");
   await run(db, "court.update", { court_id: court, name: "Court 1" }, owner);
+});
+
+test("the change in between made in the staff app, not here: the same command again is made, not 'already done'", async () => {
+  const c = computer(); await c.as(OWNER);
+  assert.equal((await c.kumi("court", "update", "--court", court, "--name", "Centre", "--yes", "--json")).code, EXIT.done);
+  await run(db, "court.update", { court_id: court, name: "Court 1" }, owner);   // the desk renames it back, in the app
+  const again = await c.kumi("court", "update", "--court", court, "--name", "Centre", "--yes", "--json");
+  assert.equal(again.code, EXIT.done, again.text);
+  assert.notEqual(again.json().already, true);
+  assert.equal(await courtName(), "Centre");
+  await run(db, "court.update", { court_id: court, name: "Court 1" }, owner);
+});
+
+test("the change in between is another command (untag): tagging again is made", async () => {
+  const tagged = async () => Boolean(await db.selectFrom("person_tag").select("id").where("person_id", "=", ann).where("tag_id", "=", tag).where("removed_at", "is", null).executeTakeFirst());
+  const c = computer(); await c.as(OWNER);
+  assert.equal((await c.kumi("person", "tag", "--person", ann, "--tag-id", tag, "--yes", "--json")).code, EXIT.done);
+  assert.equal((await c.kumi("person", "untag", "--person", ann, "--tag-id", tag, "--yes", "--json")).code, EXIT.done);
+  assert.equal(await tagged(), false);
+  const again = await c.kumi("person", "tag", "--person", ann, "--tag-id", tag, "--yes", "--json");
+  assert.equal(again.code, EXIT.done, again.text);
+  assert.equal(await tagged(), true);
+});
+
+test("a --key is kept for its day, however many other previews come after", async () => {
+  const c = computer(); await c.as(OWNER);
+  const first = await c.kumi("court", "update", "--court", court, "--name", "West", "--key", "nightly-rename", "--yes", "--json");
+  assert.equal(first.code, EXIT.done, first.text);
+  for (let n = 0; n < 205; n++) await c.kumi("location", "create", "--name", `L${n}`, "--time-zone", TZ, "--json");   // previews only
+  await run(db, "court.update", { court_id: court, name: "Court 1" }, owner);
+  const retry = await c.kumi("court", "update", "--court", court, "--name", "West", "--key", "nightly-rename", "--yes", "--json");
+  assert.equal(retry.code, EXIT.done, retry.text);
+  assert.equal(retry.json().already, true, "the same --key the same day: the same change, not a second one");
+  assert.equal(c.store.runs().filter((r) => !r.key.startsWith("key:")).length, 200, "200 kept of the others");
+});
+
+test("a confirm refused (the person may no longer do it) forgets its preview, as a conflict does", async () => {
+  const c = computer(); await c.as(DESK);
+  const p = await c.kumi("person", "create", "--display-name", "Yan Walk-in", "--email", "yan@example.test", "--json");
+  assert.equal(p.code, EXIT.preview, p.text);
+  await run(db, "role.remove", { person_id: danaId, role: "front_desk" }, owner);
+  try {
+    const y = await c.kumi("person", "create", "--display-name", "Yan Walk-in", "--email", "yan@example.test", "--yes", "--json");
+    assert.equal(y.code, EXIT.refused, y.text);
+    assert.equal(c.store.runs().some((r) => r.run_id === p.json().run_id), false, "the refused preview isn't kept to confirm again");
+  } finally { await run(db, "role.assign", { person_id: danaId, role: "front_desk" }, owner); }
 });
 
 test("a --key used again for a different change is refused, and nothing is made", async () => {

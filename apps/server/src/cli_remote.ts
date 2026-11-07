@@ -453,6 +453,12 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     // Without a --key: a different change since, to the same thing (one of the same ids, or both naming none), and
     // this isn't a retry of the earlier one.
     if (prior && !g.key && mine.slice(0, at).some((r) => r.tool === cmd.tool && r.key !== key && overlap(r.targets ?? [], targets))) prior = undefined;
+    // And on the club: anything that change made, changed since by anyone (in the app, another command, someone
+    // else), and it's a new change, previewed and made. A club too old to say leaves the check above.
+    if (prior?.done_at && !g.key) {
+      const since = await club.call("changed_since", { run_id: prior.run_id });
+      if (since.ok ? (since.data as { changed?: boolean }).changed : !since.missing) prior = undefined;
+    }
     if (prior?.done_at) return alreadyDone(prior);
     if (prior && g.yes) return await apply(club, cmd.tool, prior);
     const p = await club.call(`${cmd.tool}_preview`, input);
@@ -476,8 +482,9 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
   async function apply(club: Club, tool: string, r: RunEntry): Promise<number> {
     const a = await club.call(`${tool}_confirm`, { run_id: r.run_id });
     if (!a.ok) {
-      // A preview that's out of date or gone is forgotten here, so the same command again previews afresh.
-      if (exitOf(a.key, a.status) === EXIT.conflict) store.dropRun(r.run_id);
+      // A preview that's out of date or gone is forgotten here, so the same command again previews afresh. Refused
+      // too (they may no longer do it, so the club no longer even offers its confirm), the same.
+      if (a.missing || exitOf(a.key, a.status) === EXIT.conflict || a.key === "error.forbidden_reason" || a.key === "error.plan_not_yours") store.dropRun(r.run_id);
       return failed(a);
     }
     const result = (a.data as { result?: unknown }).result ?? null;
@@ -520,9 +527,11 @@ export function sameOrigin(raw: string, base: string): true | string {
 export function clubsOwn(club: string, issuer: string, resource: string, as: Record<string, unknown>): string | null {
   let c: URL, i: URL;
   try { c = new URL(club); i = new URL(issuer); } catch { return issuer || "?"; }
-  const domain = (h: string) => h.split(".").slice(-2).join(".");
+  // The club's own host, or its staff app's beside it (staff.<the members' app>): exactly those, never a neighbour
+  // under the same suffix (co.uk, com.es) or another club on the same host (kumi.club).
+  const own = (h: string) => h === c.hostname || h === `staff.${c.hostname}` || c.hostname === `staff.${h}`;
   const local = LOCAL.includes(c.hostname) && LOCAL.includes(i.hostname);
-  if (!local && (i.protocol !== "https:" || domain(i.hostname) !== domain(c.hostname))) return issuer;
+  if (!local && (i.protocol !== "https:" || !own(i.hostname))) return issuer;
   if (local && i.protocol !== "http:" && i.protocol !== "https:") return issuer;
   for (const k of ["authorization_endpoint", "token_endpoint", "registration_endpoint", "device_authorization_endpoint"]) {
     if (as[k] === undefined && k === "device_authorization_endpoint") continue;

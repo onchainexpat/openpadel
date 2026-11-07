@@ -74,11 +74,29 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   every assistant call answers sooner (about 15 ms instead of 180 for an owner).
 
 ### Fixed
-- **An assistant connected as a member kept working after they were given a staff role (in 0.1.0 to 0.3.1).** It
-  reached the staff's changes (and now their reads) without the person allowing it again or giving the second step
-  their role needs. Now giving someone a staff role disconnects their assistants: the preview says so, and their
-  message says why and that they connect them again in Profile, Assistants. One connected before this update and
-  promoted before it isn't found: an owner or a manager sees and ends any connection on the person's page.
+- **An assistant reached what its person was given after they connected it (in 0.1.0 to 0.3.1).** Connected as a
+  member, it went on with a staff role given later (or a removal undone, the server's `owner add`, a role the club made
+  widened), without their allowing it again or giving the second step the role needs. Now each connection keeps what
+  its person held when they allowed it, and whether they gave a second step. When they hold more, or the club now asks
+  a second step they didn't give, it works as a member's (its reads and changes, and the permission check behind
+  them) until they connect it again, and they hear it once, in their inbox. Holding less is checked as always, and an
+  owner giving themselves another role reaches nothing new, so their connection carries on.
+  - Connections made before this update take what their person holds at their first use after it, and count no
+    second step: where the club asks one (owners and managers, to start), they work as a member's until connected
+    again.
+- **Through an assistant, an email could be confirmed as someone's (in 0.1.0 to 0.3.1).** Importing a members'
+  list said who of it was already here, and adding someone with a taken email said so: each a yes or no on a guess.
+  The import is now done in the app (or `openpadel import members` on the server), and a taken email or phone gets a
+  plain refusal there. Shortened contacts now also catch "415-5550142", "07700 900123", "020 7946 0958" and
+  "josé@example.test" inside text, and never touch a field that holds an id (an alert's long event id still works).
+- **The command line said "already done" after a change made since, elsewhere.** Asked again, it now asks the club
+  whether anything its earlier change made has been changed since, by anyone (in the app, another command, someone
+  else): then it's a new change, previewed and made. A `--key` is kept for its day however many other previews come
+  after. A confirm the club refuses, or no longer offers, forgets its preview, as a conflict does. It signs in only at
+  the club's own host or its staff app beside it (not a neighbour under co.uk, com.es or kumi.club).
+- **Device sign-in codes:** an IPv6 /64 counts as one network (5 codes waiting at most), no code waiting is ever
+  pushed out to make room, and when the codes are near full a network holding none can still start one, so the
+  club's own staff are refused only after thousands of networks are in use at once.
 - **The result of someone else's change could be read again by its run id (in 0.1.0 to 0.3.1).** Run ids are long and
   hard to guess, and the change itself was never made twice; now an earlier result is given only to whoever made it.
 - On a phone, a checkbox or choice beside a long label was squeezed narrower than its 24 px (10 of the 46 in the

@@ -15,7 +15,8 @@ import { readOnlyGate } from "./read_only.ts";
 /** How the person proved who they are: the strong-sign-in rule reads it. */
 /** "two_factor": an emailed code and then an authenticator or recovery code. */
 export type AuthMethod = "email_code" | "phone_code" | "passkey" | "two_factor" | "oauth" | "system";
-export interface Actor { personId: string | null; agentId?: string | null; via: string; lang: Lang; auth?: AuthMethod; /** The assistant connection acting (the MCP door), whose weekly cap applies. */ grantId?: string | null }
+export interface Actor { personId: string | null; agentId?: string | null; via: string; lang: Lang; auth?: AuthMethod; /** The assistant connection acting (the MCP door), whose weekly cap applies. */ grantId?: string | null;
+  /** That connection is held to a member's reach until it's allowed again (assistant_reach.ts). */ memberOnly?: boolean }
 export type UndoKind = "reversible" | "compensating" | "none";
 export interface Read { entity: Entity; id: string; version: number }
 export interface Plan {
@@ -245,7 +246,10 @@ export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.
   "family_card.saved", "membership.card_open", "membership.card_saved", "kid.give_login", "kid.remove_login", "kid.set_rules", "kid.approve_request",
   "household.invite", "household.accept_invite", "household.give_login", "household.leave", "household.remove_junior", ...DESK_MONEY, ...CHAT_ACTIONS, ...CREDIT_MONEY, "payment.use_credit", "gift_card.redeem", "payment.use_pass", "pass_product.set", "promo_code.set",
   // Taking a tournament or league result back undoes later matches too: staff in the app only.
-  "fixture.reopen"]);
+  "fixture.reopen",
+  // A members' list: its preview says who of them is already here, which through an assistant would tell whose an
+  // email is (shortened everywhere else) one guess at a time. The app, or `openpadel import members` on the server.
+  "person.import"]);
 export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news"]);
 /** Whether an action is the app's alone, never an assistant's: with `input`, for this input. */
 export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
@@ -254,7 +258,7 @@ export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
 
 /** What the permission check needs to know about how it was asked: through an assistant, and for an action that
  *  needs a strong sign-in (support access reaches neither). */
-const how = (def: ActionDef<any>, actor: Actor) => ({ assistant: actor.auth === "oauth" || Boolean(actor.grantId), strongAuth: Boolean(def.strongAuth), clubWide: Boolean(def.clubWide) });
+const how = (def: ActionDef<any>, actor: Actor) => ({ assistant: actor.auth === "oauth" || Boolean(actor.grantId), strongAuth: Boolean(def.strongAuth), clubWide: Boolean(def.clubWide), memberOnly: Boolean(actor.memberOnly) });
 
 /** Sensitive changes: a person with a passkey makes them signed in with it, or with two steps. */
 async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor, input: unknown): Promise<void> {

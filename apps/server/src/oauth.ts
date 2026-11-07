@@ -10,17 +10,23 @@ import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setSession } from "./session_cookie.ts";
 import { money, t, type Lang } from "@kumi/i18n";
-import { activeFactor, KumiError, needsTwoFactor, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
+import { activeFactor, KumiError, needsTwoFactor, powersOf, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
-import { RateLimiter } from "./limits.ts";
+import { networkOf, RateLimiter } from "./limits.ts";
 
 export const ACCESS_SECONDS = 3600, REFRESH_DAYS = 30, CODE_SECONDS = 300, SCOPE = "kumi", REGISTER_BYTES = 16_384, UNUSED_CLIENT_DAYS = 7;
 /** A sign-in from a device with no browser of its own (RFC 8628): how long its code waits, and how often it may ask. */
 export const DEVICE_SECONDS = 600, DEVICE_INTERVAL = 5, DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
-/** Codes waiting at once: from one address, and in all (past that, the oldest nobody has opened gives way, so codes
- *  started from many addresses can't stop a person signing in a device). */
-export const DEVICE_PER_ADDRESS = 5, DEVICE_WAITING = 2000;
+/** Codes waiting at once, each for 10 minutes; none is ever pushed out early, expiry clears them.
+ *  - From one network (an IPv4 address, an IPv6 /64): 5.
+ *  - In all: past DEVICE_WAITING, only a network with none waiting may start one, up to DEVICE_WAITING_MAX.
+ *  Filling the first takes 4,000 networks holding 5 each, renewed every 10 minutes; then the last 5,000 places go one
+ *  a network, so someone at the club (whose network holds no code) is refused only after 9,000 networks are in use
+ *  at once, and the networks doing it are refused first. At the most, about 10 MB of codes in memory. */
+export const DEVICE_PER_ADDRESS = 5, DEVICE_WAITING = 20_000, DEVICE_WAITING_MAX = 25_000;
+/** Whether a network holding `held` codes may start one while `waiting` codes wait in all. */
+export const deviceStartAllowed = (waiting: number, held: number) => held < DEVICE_PER_ADDRESS && waiting < DEVICE_WAITING_MAX && (waiting < DEVICE_WAITING || held === 0);
 /** How recent a passkey sign-in must be for an owner or a manager to allow a device without an authenticator code. */
 export const DEVICE_FRESH_SECONDS = 600;
 const USER_CODE_LETTERS = "BCDFGHJKLMNPQRSTVWXZ";   // no vowels, so a code never spells a word; no look-alike digits
@@ -152,6 +158,9 @@ function page(lang: Lang, title: string, body: unknown) {
 <style>body{font:16px/1.5 system-ui;max-width:440px;margin:40px auto;padding:0 16px;background:#f6f6f2;color:#1d2a26}button{font:inherit;padding:10px 18px;border-radius:8px;border:1px solid #0B5A55}button.primary{background:#0B5A55;color:#fff}input{font:inherit;padding:8px;width:100%;box-sizing:border-box;margin:6px 0 12px}</style>
 <body><h1 style="font-size:22px">${title}</h1>${body}</body></html>`;
 }
+
+/** Whether the browser's sign-in gave a second step: a passkey, or an emailed code and then the authenticator. */
+const gaveSecondStep = (me: { method?: string }) => me.method === "passkey" || me.method === "two_factor";
 
 export function oauthRoutes(deps: OAuthDeps) {
   const app = new Hono();
@@ -302,8 +311,10 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     const grantId = uuidv7(), code = b64url(randomBytes(24));
     const cap = Number(f.cap ?? 0);
     if (p.published) await saveClient(deps.db, p.published);
+    // What they hold as they allow it, and whether this sign-in gave a second step: it never reaches further later
+    // without their allowing it again (assistant_reach.ts).
     await deps.db.insertInto("oauth_grant").values({ id: grantId, person_id: me.id, client_id: p.params.client_id, scopes: [p.params.scope], revoked_at: null,
-      weekly_cap_cents: CAP_CHOICES.includes(cap) ? cap : 0 }).execute();
+      weekly_cap_cents: CAP_CHOICES.includes(cap) ? cap : 0, powers: JSON.stringify(await powersOf(deps.db, me.id)), second_step: gaveSecondStep(me) }).execute();
     await deps.db.insertInto("oauth_code").values({ code_hash: sha(code), grant_id: grantId, redirect_uri: p.params.redirect_uri, code_challenge: p.params.code_challenge, resource: p.params.resource, expires_at: new Date(deps.now().getTime() + CODE_SECONDS * 1000), consumed_at: null }).execute();
     u.searchParams.set("code", code);
     return c.redirect(u.toString(), 302);
@@ -314,13 +325,20 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
   // in as on the consent page, checks the code matches and allows it, with the same weekly limit; the device, asking
   // every few seconds, then gets its tokens. Kept in memory, ten minutes each, as the consent screens are.
   type Device = { at: number; clientId: string; clientName: string; userCode: string; resource: string; status: "waiting" | "allowed" | "denied"; grantId?: string; polled: number; interval: number;
-    /** Where it was started from, shown on the consent screen beside the name the device gave itself. */
-    ip: string | null;
+    /** Where it was started from, shown on the consent screen beside the name the device gave itself; and its network
+     *  (networkOf), for the count of codes one network holds. */
+    ip: string | null; net: string | null;
     /** The consent screen shown, and to whom: its answer must carry this, as the assistant's consent does (req). */
     consent?: { id: string; personId: string } };
-  const devices = new Map<string, Device>(), byUserCode = new Map<string, string>();
+  const devices = new Map<string, Device>(), byUserCode = new Map<string, string>(), waitingBy = new Map<string, number>();
+  const forget = (key: string) => {
+    const d = devices.get(key);
+    if (!d) return;
+    devices.delete(key); byUserCode.delete(d.userCode);
+    if (d.net) { const n = (waitingBy.get(d.net) ?? 1) - 1; if (n > 0) waitingBy.set(d.net, n); else waitingBy.delete(d.net); }
+  };
   const tidyDevices = () => {
-    for (const [k, d] of devices) if (Date.now() - d.at > DEVICE_SECONDS * 1000) { devices.delete(k); byUserCode.delete(d.userCode); }
+    for (const [k, d] of devices) if (Date.now() - d.at > DEVICE_SECONDS * 1000) forget(k);
   };
   const deviceOf = (raw: string | undefined) => {
     tidyDevices();
@@ -328,7 +346,6 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     return k ? { key: k, d: devices.get(k)! } : null;
   };
   const shownCode = (u: string) => `${u.slice(0, 4)}-${u.slice(4)}`;
-  const forget = (key: string) => { const d = devices.get(key); if (d) { devices.delete(key); byUserCode.delete(d.userCode); } };
   /** Owners and managers (anyone who signs in with two steps) give a fresh second step to allow a device: their
    *  authenticator's code at Allow, or, with only a passkey, a passkey sign-in in the last 10 minutes. A link someone
    *  else sent can't then be allowed by one click in a browser that's been signed in all day. */
@@ -346,18 +363,14 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     const resource = f.resource ? String(f.resource) : resources[0]!;
     if (!resources.includes(resource)) return c.json({ error: "invalid_target" }, 400);
     tidyDevices();
-    const ip = deps.ip?.(c) ?? null;
-    if (ip && [...devices.values()].filter((d) => d.ip === ip && d.status === "waiting").length >= DEVICE_PER_ADDRESS) return c.json({ error: "slow_down" }, 429);
-    // Full: the oldest code nobody has opened gives way (a code someone is looking at is kept).
-    while (devices.size >= DEVICE_WAITING) {
-      const idle = [...devices].find(([, d]) => !d.consent && d.status === "waiting");
-      if (!idle) return c.json({ error: "slow_down" }, 429);
-      forget(idle[0]);
-    }
+    const ip = deps.ip?.(c) ?? null, net = ip ? networkOf(ip) : null;
+    const held = net ? (waitingBy.get(net) ?? 0) : 0;
+    if (!deviceStartAllowed(devices.size, held)) return c.json({ error: "slow_down" }, 429);
     const deviceCode = b64url(randomBytes(32));
     let userCode = "";
     do userCode = Array.from(randomBytes(8), (b) => USER_CODE_LETTERS[b % USER_CODE_LETTERS.length]).join(""); while (byUserCode.has(userCode));
-    devices.set(sha(deviceCode), { at: Date.now(), clientId: client.client_id, clientName: client.name ?? "An app", userCode, resource, status: "waiting", polled: 0, interval: DEVICE_INTERVAL, ip });
+    devices.set(sha(deviceCode), { at: Date.now(), clientId: client.client_id, clientName: client.name ?? "An app", userCode, resource, status: "waiting", polled: 0, interval: DEVICE_INTERVAL, ip, net });
+    if (net) waitingBy.set(net, held + 1);
     byUserCode.set(userCode, sha(deviceCode));
     // No link with the code filled in (RFC 8628's verification_uri_complete): the person types the code their device
     // shows, so a link someone else started and sent them can't be allowed by following it.
@@ -416,7 +429,7 @@ ${step === "code" ? html`<label>${t(lang, "consent.device_factor_label")}<input 
     }
     const grantId = uuidv7(), cap = Number(f.cap ?? 0);
     await deps.db.insertInto("oauth_grant").values({ id: grantId, person_id: me.id, client_id: found.d.clientId, scopes: [SCOPE], revoked_at: null,
-      weekly_cap_cents: CAP_CHOICES.includes(cap) ? cap : 0 }).execute();
+      weekly_cap_cents: CAP_CHOICES.includes(cap) ? cap : 0, powers: JSON.stringify(await powersOf(deps.db, me.id)), second_step: step === "code" || step === "fresh" || gaveSecondStep(me) }).execute();
     found.d.status = "allowed"; found.d.grantId = grantId;
     return c.html(page(lang, t(lang, "consent.device_done_title"), html`<p>${t(lang, "consent.device_done", { client: found.d.clientName })}</p>`));
   });
@@ -474,14 +487,14 @@ ${step === "code" ? html`<label>${t(lang, "consent.device_factor_label")}<input 
       const key = sha(String(f.device_code ?? "")), d = devices.get(key);
       if (!d || Date.now() - d.at > DEVICE_SECONDS * 1000) { forget(key); return err("expired_token"); }
       if (d.clientId !== client.client_id) return err("invalid_grant");
-      if (d.status === "denied") { devices.delete(key); byUserCode.delete(d.userCode); return err("access_denied"); }
+      if (d.status === "denied") { forget(key); return err("access_denied"); }
       if (d.status === "waiting") {
         const early = Date.now() - d.polled < d.interval * 1000;
         d.polled = Date.now();
         if (early) { d.interval += 5; return err("slow_down"); }
         return err("authorization_pending");
       }
-      devices.delete(key); byUserCode.delete(d.userCode);
+      forget(key);
       return issue(d.grantId!, uuidv7(), d.resource);
     }
     return c.json({ error: "unsupported_grant_type" }, 400);

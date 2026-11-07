@@ -1036,12 +1036,20 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   // Someone given a staff role hears it once, with where to sign in; and once when it's taken away. Not the person
   // who did it to themselves, and not the member role every account has.
-  async "role.assigned"({ db }, p: { person_id: string; role: string; location_id?: string | null; by?: string | null; assistants_ended?: number }) {
+  async "role.assigned"({ db }, p: { person_id: string; role: string; location_id?: string | null; by?: string | null }) {
     if (p.role === "member" || p.by === p.person_id) return [];
     const params = { ...await roleParams(db, p), url: staffAddress ?? both("msg.staff_app"),
-      two_step: await needsTwoFactor(db, p.person_id) ? both("msg.staff_role_two_step") : NOTHING,
-      assistants: p.assistants_ended ? both("msg.staff_role_assistants", { count: p.assistants_ended }) : NOTHING };
+      two_step: await needsTwoFactor(db, p.person_id) ? both("msg.staff_role_two_step") : NOTHING };
     return [{ to: p.person_id, kind: "staff_role_given", params, purpose: "staff" as const, essential: true, email: true, push: false, link: "/" }];
+  },
+  // An assistant connection held to a member's reach (assistant_reach.ts): its person hears it once, and why.
+  async "assistant.limited"({ db }, p: { grant_id: string; why: "widened" | "second_step" }) {
+    const g = await db.selectFrom("oauth_grant").innerJoin("oauth_client", "oauth_client.client_id", "oauth_grant.client_id").select(["oauth_grant.person_id", "oauth_client.name"])
+      .where("oauth_grant.id", "=", p.grant_id).executeTakeFirst();
+    if (!g) return [];
+    const club = (await db.selectFrom("club").select("name").executeTakeFirstOrThrow()).name;
+    const params = { club, client: g.name ?? both("msg.an_assistant"), why: both(p.why === "widened" ? "msg.assistant_limited_widened" : "msg.assistant_limited_second_step") };
+    return [{ to: g.person_id, kind: "assistant_limited", params, purpose: "account" as const, essential: true, email: true, push: false, link: "/profile" }];
   },
   async "role.removed"({ db }, p: { person_id: string; role: string; location_id?: string | null; by?: string | null }) {
     if (p.role === "member" || p.by === p.person_id) return [];

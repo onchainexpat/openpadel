@@ -2238,20 +2238,6 @@ Its preview reads: "Send the club's email to {name} at {email} again (it was hel
 openpadel person email-unsuppress --person "Maria Lopez"
 ```
 
-#### openpadel person import
-
-Import members. Who may: owner, manager.
-
-Its preview reads: "Add {people} as members. Nobody is emailed."
-
-| Flag | Takes | | What it is |
-|---|---|---|---|
-| `--rows` | JSON list | needed |  |
-
-```
-openpadel person import --rows '[...]'
-```
-
 #### openpadel person tag
 
 Tag someone. Who may: owner, manager, front desk.

@@ -2,11 +2,12 @@
 // Each action is a pair: *_preview returns the plan and a run id, *_confirm applies that run id.
 // So an assistant can never apply something different from what it showed the person.
 import * as z from "zod/mini";
+import { sql } from "kysely";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { both, en, isLang, type Key, type Lang, type Text } from "@kumi/i18n";
 import { money } from "@kumi/i18n";
-import { actions, apply, appOnly, everDoable, plan, weekSpent, APP_ONLY_YES, KumiError, type ActionDef, type Actor, type Db } from "@kumi/core";
+import { actions, apply, appOnly, everDoable, plan, weekSpent, APP_ONLY_YES, KumiError, type ActionDef, type Actor, type Db, type Limited } from "@kumi/core";
 import { VERSION } from "./version.ts";
 
 export const toolBase = (action: string) => action.replace(/\./g, "_");
@@ -95,10 +96,15 @@ export function shortContact(kind: "email" | "phone", v: unknown): unknown {
   return `...${v.replace(/\D/g, "").slice(-2)}`;
 }
 const CONTACT: Record<string, "email" | "phone"> = { email: "email", contact_email: "email", reply_to: "email", phone: "phone", contact_phone: "phone" };
-// An email, or a phone number written as one (+1 415 555 0142, (415) 555-0142, 4155550142), inside any text: an alert, a note, why
-// an address is held back. Never inside an id or a date (not after a letter, digit or hyphen, nor before one).
-const EMAIL_IN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
-const PHONE_IN = /(?<![\w-])(?:\+\d[\d\s().-]{6,}\d|\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\d{10,15})(?![\w-])/g;
+// An email (josé@example.test too), or a phone number as people write one inside any text: an alert, a note, why an
+// address is held back. A phone is groups of 2 to 5 digits (a +country code and brackets allowed), 9 to 15 digits in all:
+// +1 415 555 0142, (415) 555-0142, 415-5550142, 4155550142, 07700 900123, 020 7946 0958. Never inside another word
+// or number, never a date (2026-11-07 has 8 digits), and never a field that names an id (shortenContacts).
+const EMAIL_IN = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/gu;
+const PHONE_IN = /(?<![\p{L}\p{N}_./:+-])(?:\+\d{1,3}[ .-]?)?\(?\d{2,5}\)?(?:[ .-]?\(?\d{2,5}\)?){1,5}(?![\p{L}\p{N}_/:-]|[.,]\d)/gu;
+const phoneLike = (m: string) => { const n = m.replace(/\D/g, "").length; return n >= 9 && n <= 15 && !/^\d{4}-\d{2}-\d{2}/.test(m); };
+/** A field whose name says it holds an id (id, event_id, run_ids, ref): passed through whole, whatever its digits. */
+const ID_KEY = /^(id|ids|ref)$|_(id|ids|ref)$/;
 /** What the asker gave in their own input (emails, and phones as digits): those come back as they were typed. */
 export function givenContacts(v: unknown, out = new Set<string>()): Set<string> {
   if (typeof v === "string") {
@@ -111,14 +117,15 @@ export function givenContacts(v: unknown, out = new Set<string>()): Set<string> 
 }
 export function shortenInText(text: string, given: Set<string> = new Set()): string {
   return text.replace(EMAIL_IN, (m) => given.has(m.toLowerCase()) ? m : String(shortContact("email", m)))
-    .replace(PHONE_IN, (m) => given.has(m.replace(/\D/g, "")) ? m : String(shortContact("phone", m)));
+    .replace(PHONE_IN, (m) => !phoneLike(m) || given.has(m.replace(/\D/g, "")) ? m : String(shortContact("phone", m)));
 }
 /** A staff read, a preview or a result as the door returns it: emails and phones shortened, by field and in text. */
 export function shortenContacts(v: unknown, given: Set<string> = new Set()): unknown {
   if (typeof v === "string") return shortenInText(v, given);
   if (Array.isArray(v)) return v.map((x) => shortenContacts(x, given));
   if (!v || typeof v !== "object" || v instanceof Date) return v;
-  return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, CONTACT[k] && !(typeof x === "string" && given.has(CONTACT[k] === "email" ? x.toLowerCase() : x.replace(/\D/g, ""))) ? shortContact(CONTACT[k]!, x) : shortenContacts(x, given)]));
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, ID_KEY.test(k) ? x
+    : CONTACT[k] && !(typeof x === "string" && given.has(CONTACT[k] === "email" ? x.toLowerCase() : x.replace(/\D/g, ""))) ? shortContact(CONTACT[k]!, x) : shortenContacts(x, given)]));
 }
 const titleOf = (action: string): Text => (`action.${action}` in en ? both(`action.${action}` as Key) : { en: action, es: action });
 
@@ -148,14 +155,19 @@ function slimToolList(server: McpServer): void {
   });
 }
 
+/** Errors that would say whether an email or phone is someone's at the club: through the door, a plain refusal. */
+const SAYS_WHO = new Set(["error.duplicate_email", "error.duplicate_phone", "error.phone_taken", "error.email_taken"]);
+
+/** `limited`: the connection works as a member's until it's allowed again (assistant_reach.ts), and why. */
 export async function mcpServerFor(db: Db, who: { id: string; display_name: string; locale: string; client_name: string | null; grant_id: string }, now: () => Date,
-  read?: (path: string) => Promise<unknown>, readStaff?: (path: string) => Promise<unknown>): Promise<McpServer> {
+  read?: (path: string) => Promise<unknown>, readStaff?: (path: string) => Promise<unknown>, limited: Limited | null = null): Promise<McpServer> {
   const lang: Lang = isLang(who.locale) ? who.locale : "en";
-  const actor: Actor = { personId: who.id, via: `mcp:${who.client_name ?? "client"}`, lang, auth: "oauth", grantId: who.grant_id };
+  const actor: Actor = { personId: who.id, via: `mcp:${who.client_name ?? "client"}`, lang, auth: "oauth", grantId: who.grant_id, memberOnly: Boolean(limited) };
   const server = new McpServer({ name: "kumi", version: VERSION }, { instructions: `You act for ${who.display_name} at their padel club. Every change is two steps: call a *_preview tool, show the person the summary in their words, and only after they agree call the matching *_confirm tool with the run_id. Anything that costs them money must fit the weekly limit they set for you (whoami says what's left); over it, the preview fails and they do it in the club's app. Some things are only ever done in the app: their limit for you, how they sign in, accepting a waiver, moving their own level, downloading their data, the family card and saying yes to texts or club news. Reply in ${lang === "es" ? "Spanish" : "English"}.` });
   const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v) }] });
   // The words for the person, and for a program reading the answer (the command line) the failure's key and status.
   const fail = (e: unknown) => {
+    if (e instanceof KumiError && SAYS_WHO.has(e.code)) e = new KumiError("error.door_not_here", {}, 409);
     if (e instanceof KumiError) return { isError: true, content: [{ type: "text" as const, text: e.text[lang] }], _meta: { "kumi/error": e.code, "kumi/status": e.status } };
     throw e;
   };
@@ -166,10 +178,24 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
     const g = await db.selectFrom("oauth_grant").select("weekly_cap_cents").where("id", "=", who.grant_id).executeTakeFirstOrThrow();
     const spent = await weekSpent(db, who.grant_id, now());
     return text({ person: who.display_name, person_id: who.id, language: lang, roles, club, connection: { id: who.grant_id, name: who.client_name },
+      ...(limited ? { limited: { why: limited, note: both(limited === "widened" ? "consent.door_limited_widened" : "consent.door_limited_second_step")[lang] } } : {}),
       spending: { weekly_limit: money(g.weekly_cap_cents, lang), spent_this_week: money(spent, lang), left: money(Math.max(0, g.weekly_cap_cents - spent), lang) } });
   });
 
-  const staff = readStaff ? Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key").where("person_role.person_id", "=", who.id)
+  // Whether anything one of the person's own changes made has been changed again since, by anyone: the command line
+  // asks before it says a change asked for again is already done.
+  server.registerTool("changed_since", { title: lang === "es" ? "Cambiado desde entonces" : "Changed since", description: "Whether anything one of your own changes (its run_id) made has been changed again since, by anyone, in the app or here.",
+    inputSchema: { run_id: z.uuid() }, annotations: { readOnlyHint: true } }, async (args: { run_id: string }) => {
+    const run = await db.selectFrom("action_run").select(["actor_person_id", "status"]).where("id", "=", args.run_id).executeTakeFirst();
+    if (!run || run.actor_person_id !== who.id) return fail(new KumiError("error.not_found", { thing: both("thing.change") }, 404));
+    const last = await db.selectFrom("entity_change").select((eb) => eb.fn.max("id").as("m")).where("action_run_id", "=", args.run_id).executeTakeFirst();
+    if (!last?.m) return text({ changed: false, status: run.status });
+    const later = await db.selectFrom("entity_change as ec").select("ec.id").where("ec.action_run_id", "!=", args.run_id).where(sql<boolean>`ec.id > ${last.m}::bigint`)
+      .where(sql<boolean>`(ec.entity, ec.entity_id) IN (SELECT entity, entity_id FROM entity_change WHERE action_run_id = ${args.run_id})`).limit(1).executeTakeFirst();
+    return text({ changed: Boolean(later), status: run.status });
+  });
+
+  const staff = !limited && readStaff ? Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key").where("person_role.person_id", "=", who.id)
     .where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst()) : false;
   for (const r of READS) {
     const from = r.staff ? (staff ? readStaff : undefined) : read;
@@ -179,7 +205,7 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
     });
   }
 
-  const may = await everDoable(db, who.id);
+  const may = await everDoable(db, who.id, { memberOnly: Boolean(limited) });
   for (const a of actions()) {
     // A tool you may never use doesn't exist for you. Undo is checked against the original change.
     const listed = a.name === "action.undo" || may(a.name);

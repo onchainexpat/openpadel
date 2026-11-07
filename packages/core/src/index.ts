@@ -71,6 +71,7 @@ export * from "./ops.ts";
 export * from "./receipts.ts";
 export * from "./assistant_spend.ts";
 export * from "./assistants.ts";
+export * from "./assistant_reach.ts";
 export * from "./texting_registration.ts";
 export * from "./text_usage.ts";
 export * from "./usage.ts";

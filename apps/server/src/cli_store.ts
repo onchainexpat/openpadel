@@ -124,10 +124,20 @@ export class Store {
   }
 
   runs(): RunEntry[] { return this.read<RunEntry[]>("runs.json", []); }
-  /** The previews kept: a day's worth at most, newest first, 200 at most. */
+  /** The previews kept: a day's worth, newest first. 200 at most of those made without a --key; one with a --key is
+   *  kept for its day however many others come after (the newest for each key), since a retry with the key must find it. */
   saveRun(r: RunEntry) {
     const day = Date.now() - 864e5;
-    const kept = [r, ...this.runs().filter((x) => x.run_id !== r.run_id && new Date(x.done_at ?? x.expires_at).getTime() > day)].slice(0, 200);
+    const recent = [r, ...this.runs().filter((x) => x.run_id !== r.run_id && new Date(x.done_at ?? x.expires_at).getTime() > day)];
+    const keyed = new Set<string>(), kept: RunEntry[] = [];
+    let plain = 0;
+    for (const x of recent) {
+      if (x.key.startsWith("key:")) {
+        const k = `${x.club}|${x.person ?? ""}|${x.key}`;
+        if (keyed.has(k)) continue;
+        keyed.add(k); kept.push(x);
+      } else if (plain++ < 200) kept.push(x);
+    }
     this.write("runs.json", kept);
   }
   dropRun(runId: string) { this.write("runs.json", this.runs().filter((r) => r.run_id !== runId)); }

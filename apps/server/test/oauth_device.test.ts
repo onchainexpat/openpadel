@@ -1,19 +1,18 @@
 // The device sign-in (oauth.ts, RFC 8628), against a code someone else started and sent: the code is typed, never
 // carried by a link; the consent screen says when and from where it was started; an owner or a manager gives a fresh
-// second step to allow it; and codes from many addresses can't fill it up. Also: an assistant connected before a
-// person was given a staff role is disconnected (from the independent review of 012eb4e, its finding 3, its three
-// checks that came out fine, and two of its suspicions).
+// second step to allow it; and codes from many addresses can't fill it up (from the independent reviews of 012eb4e
+// and c1a9ff8: finding 3, its three checks that came out fine, and the codes' caps).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { base32Decode, run, runAsSystem, totp, uuidv7, type Actor, type Db } from "@kumi/core";
+import { base32Decode, run, runAsSystem, totp, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
-import { DEVICE_GRANT, DEVICE_PER_ADDRESS } from "../src/oauth.ts";
+import { deviceStartAllowed, DEVICE_GRANT, DEVICE_PER_ADDRESS, DEVICE_WAITING, DEVICE_WAITING_MAX } from "../src/oauth.ts";
 
 const BASE = "https://club.example.test", MCP = `${BASE}/mcp`, TZ = "America/Los_Angeles";
-let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor, kimId = "";
+let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor;
 let clock = new Date(), from = "203.0.113.7";
 const mailer = new MemoryMailer();
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
@@ -49,7 +48,6 @@ before(async () => {
   const s = await runAsSystem(db, "club.setup", { name: "Kestrel Padel", time_zone: TZ, owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
   owner = { personId: (s.result as any).owner_person_id, via: "test", lang: "en" };
   for (const [n, e] of [["Ann Lee", "ann.lee@example.test"], ["Ben Ruiz", "ben@example.test"]]) await run(db, "person.create", { display_name: n, email: e }, owner);
-  kimId = ((await run(db, "person.create", { display_name: "Kim Park", email: "kim@example.test" }, owner)).result as any).person_id;
   app = makeApp({ db, mailer, publicUrl: BASE, secureCookies: false, now: () => clock, clientIp: () => from });
 });
 after(async () => drop());
@@ -129,18 +127,25 @@ test("codes from one address are capped, so a few addresses can't keep a club fr
   from = "203.0.113.7";
 });
 
-test("an assistant connected as a member is disconnected when they're given a staff role, and they're told why", async () => {
-  const grant = uuidv7(), access = randomBytes(24).toString("hex");
-  await db.insertInto("oauth_client").values({ client_id: "kim-claude", kind: "registered", name: "Claude", redirect_uris: ["https://a.example.test/cb"], auth_method: "none", secret_hash: null, metadata: null }).execute();
-  await db.insertInto("oauth_grant").values({ id: grant, person_id: kimId, client_id: "kim-claude", scopes: ["kumi"], revoked_at: null, weekly_cap_cents: 0 }).execute();
-  await db.insertInto("oauth_token").values({ token_hash: sha(access), kind: "access", grant_id: grant, family: grant, resource: MCP, expires_at: new Date(Date.now() + 3600_000), used_at: null, revoked_at: null }).execute();
-  assert.equal((await mcp(access, "whoami")).status, 200, "connected as a member");
-  const r = await run(db, "role.assign", { person_id: kimId, role: "manager" }, owner);
-  assert.match((r as any).plan.summary.en, /Their connected assistant is disconnected/);
-  assert.equal((await mcp(access, "whoami")).status, 401, "the old connection gets no manager's door");
-  assert.ok((await db.selectFrom("oauth_grant").select("revoked_at").where("id", "=", grant).executeTakeFirstOrThrow()).revoked_at);
-  const ev = await db.selectFrom("event_outbox").select("payload").where("topic", "=", "role.assigned").orderBy("id", "desc").executeTakeFirstOrThrow();
-  assert.equal((ev.payload as any).assistants_ended, 1, "the message they get says their assistant was disconnected, and why");
+test("an IPv6 /64 is one network: its many addresses hold 5 codes in all, and a code someone is about to type stays", async () => {
+  from = "203.0.113.7";
+  const mine = await startDevice("kumi (desk)");
+  assert.equal(mine.status, 200);
+  let made = 0;
+  for (let a = 0; a < 400; a++) { from = `2001:db8::${a.toString(16)}`; if ((await startDevice(`kumi (x${a})`)).status === 200) made++; }
+  assert.equal(made, DEVICE_PER_ADDRESS, "the whole /64 counts once");
+  from = "203.0.113.7";
+  const c = await consent(mine.user_code, await session(owner.personId!));
+  assert.ok(c.id, "the code started first is still waiting: none is ever pushed out");
+});
+
+test("when the codes are near full, a network holding none still starts one; nothing is pushed out to make room", () => {
+  assert.equal(deviceStartAllowed(0, DEVICE_PER_ADDRESS - 1), true);
+  assert.equal(deviceStartAllowed(0, DEVICE_PER_ADDRESS), false, "5 a network");
+  assert.equal(deviceStartAllowed(DEVICE_WAITING, 0), true, "past the first cap, someone whose network holds none");
+  assert.equal(deviceStartAllowed(DEVICE_WAITING, 1), false, "but not a network already holding one");
+  assert.equal(deviceStartAllowed(DEVICE_WAITING_MAX, 0), false, "and nobody past the last");
+  assert.ok(DEVICE_WAITING / DEVICE_PER_ADDRESS + (DEVICE_WAITING_MAX - DEVICE_WAITING) >= 9_000, "9,000 networks at once before the club's own is refused");
 });
 
 // ---- Checked by the review, and still fine ----

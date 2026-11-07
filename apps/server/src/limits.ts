@@ -24,6 +24,18 @@ export class RateLimiter {
  *  reachable only from the compose network. From anywhere else the header isn't trusted. On a server shared by
  *  several clubs, each listens on its own unix socket (KUMI_SOCKET) and has no port at all: only its proxy (and
  *  root) can open the socket, so the header is believed, and without one there's no address to count. */
+/** The network an address speaks for, for counting: an IPv4 address itself, an IPv6 address's /64 (one home or
+ *  one server holds a whole /64, so counting its addresses one by one would count nothing). */
+export function networkOf(ip: string): string {
+  if (!ip.includes(":")) return ip;
+  const v4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (v4) return v4[1]!;
+  const [head = "", tail = ""] = ip.toLowerCase().split("::");
+  const h = head ? head.split(":") : [], t = tail ? tail.split(":") : [];
+  const full = ip.includes("::") ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t] : h;
+  return `${full.slice(0, 4).map((x) => x.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
 export function clientIp(c: Context<any>, env: Record<string, string | undefined> = process.env): string | null {
   const socket = c.env?.incoming?.socket;
   if (!socket) return null;   // in-process requests (tests) have no connection

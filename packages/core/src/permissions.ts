@@ -11,7 +11,9 @@ export interface Decision { mode: Mode; reason?: Key; support?: string }
  *  needs a strong sign-in (actions.ts), which support access never stretches to. `clubWide`: the action's things
  *  belong to no location when they have none of their own (a membership), so a role kept to one location does
  *  them too; one with a location (a booking's refund) is still that location's. */
-export interface Subject { personId: string | null; agentId?: string | null; locationId?: string | null; ownerIds?: string[]; at: Date; assistant?: boolean; strongAuth?: boolean; clubWide?: boolean }
+export interface Subject { personId: string | null; agentId?: string | null; locationId?: string | null; ownerIds?: string[]; at: Date; assistant?: boolean; strongAuth?: boolean; clubWide?: boolean;
+  /** Only the member role counts: an assistant connection held to a member's reach (assistant_reach.ts). */
+  memberOnly?: boolean }
 
 const rank: Record<Mode, number> = { no: 0, ask: 1, allow: 2 };
 
@@ -24,13 +26,15 @@ export function specificity(pattern: string, action: string): number {
   return -1;
 }
 
-interface GrantRow { role_id: string; location_id: string | null; pattern: string; mode: Mode; rows_scope: "any" | "own"; time_scope: "any_time" | "on_shift" }
+export interface GrantRow { role_id: string; role_key: string; location_id: string | null; pattern: string; mode: Mode; rows_scope: "any" | "own"; time_scope: "any_time" | "on_shift" }
 
-async function grantsFor(db: Db | Trx, personId: string): Promise<GrantRow[]> {
-  return db.selectFrom("person_role").innerJoin("role_grant", "role_grant.role_id", "person_role.role_id")
-    .select(["person_role.role_id", "person_role.location_id", "role_grant.pattern", "role_grant.mode", "role_grant.rows_scope", "role_grant.time_scope"])
-    .innerJoin("role", "role.id", "person_role.role_id").where("role.active", "=", true).where("role_grant.active", "=", true)
-    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).execute() as Promise<GrantRow[]>;
+/** Every grant the person holds through their roles; `memberOnly`, the member role's alone. */
+export async function grantsFor(db: Db | Trx, personId: string, memberOnly = false): Promise<GrantRow[]> {
+  const rows = await db.selectFrom("person_role").innerJoin("role_grant", "role_grant.role_id", "person_role.role_id").innerJoin("role", "role.id", "person_role.role_id")
+    .select(["person_role.role_id", "role.key as role_key", "person_role.location_id", "role_grant.pattern", "role_grant.mode", "role_grant.rows_scope", "role_grant.time_scope"])
+    .where("role.active", "=", true).where("role_grant.active", "=", true)
+    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).execute() as GrantRow[];
+  return memberOnly ? rows.filter((r) => r.role_key === "member") : rows;
 }
 
 async function onShift(db: Db | Trx, personId: string, locationId: string | null | undefined, at: Date): Promise<boolean> {
@@ -43,7 +47,7 @@ async function onShift(db: Db | Trx, personId: string, locationId: string | null
 
 /** The answer for one person, ignoring agents: the most generous of their roles. */
 async function decidePerson(db: Db | Trx, action: string, s: Subject & { personId: string }): Promise<Decision> {
-  const rows = await grantsFor(db, s.personId);
+  const rows = await grantsFor(db, s.personId, Boolean(s.memberOnly));
   if (!rows.length) return { mode: "no", reason: "reason.no_role" };
   const byRole = new Map<string, GrantRow[]>();
   for (const r of rows) byRole.set(`${r.role_id}:${r.location_id ?? "*"}`, [...(byRole.get(`${r.role_id}:${r.location_id ?? "*"}`) ?? []), r]);
@@ -137,8 +141,8 @@ export async function mayEverDo(db: Db | Trx, personId: string, action: string):
   return (await everDoable(db, personId))(action);
 }
 /** mayEverDo for many actions from one read of the person's grants (the assistant door lists every action). */
-export async function everDoable(db: Db | Trx, personId: string): Promise<(action: string) => boolean> {
-  const rows = await grantsFor(db, personId);
+export async function everDoable(db: Db | Trx, personId: string, opts: { memberOnly?: boolean } = {}): Promise<(action: string) => boolean> {
+  const rows = await grantsFor(db, personId, Boolean(opts.memberOnly));
   const byRole = new Map<string, GrantRow[]>();
   for (const r of rows) byRole.set(r.role_id, [...(byRole.get(r.role_id) ?? []), r]);
   return (action) => {

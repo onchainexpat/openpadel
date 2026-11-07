@@ -48,7 +48,9 @@ the person:
 3. chooses how much the connection may spend for them each week: nothing to start, which is right for staff work,
    since money a member pays for isn't counted against the staff member's limit.
 
-They can disconnect it any time in the app, under Profile, Assistants. It's listed there as `openpadel (<this computer's
+They can disconnect it any time in the app, under Profile, Assistants. A connection never reaches further than they
+held when they allowed it: given a role later, or asked by the club for a second step they didn't give then, it works
+as a member's until they connect it again (they're told once, and `openpadel whoami --json` says `limited`). It's listed there as `openpadel (<this computer's
 name>)`.
 
 **With no browser** (a server, a remote shell, an agent's sandbox), sign in by a code instead:
@@ -76,8 +78,8 @@ openpadel login https://staff.yourclub.com --device --json
 
 The agent never sees a password or a code from an email. The person types those on the club's page.
 
-`openpadel login` signs in only at the club's own addresses: the sign-in server the club names must be on the same domain
-(the staff app's address beside the members'), over https (http only on this computer), with every endpoint on it.
+`openpadel login` signs in only at the club's own addresses: the sign-in server the club names must be the club's own host
+or its staff app beside it (`staff.<host>`), over https (http only on this computer), with every endpoint on it.
 
 **Where the sign-in is kept:**
 
@@ -120,13 +122,15 @@ A preview lasts 15 minutes. A change that needs a staff member's approval waits 
 again: it says it was done (`already: true`, exit 0) and gives the run. So an agent that retries after a dropped
 connection doesn't book twice.
 
-- A different change to the same thing in between makes it a new change: rename a court A, then B, then A again, and
-  the third is previewed and made like any other (not "already done").
+- Anything that change made, changed since by anyone (in the app, another command, someone else), makes it a new
+  change: rename a court A, have the desk rename it back, then ask for A again, and it's previewed and made like any
+  other (not "already done"). The command asks the club before it says "already done".
 - `--again` does it a second time.
-- `--key <yours>` names one change, so a retry with the same key is the same change for a day. The same key with a
-  different input is refused (exit 7, `cli.key_reused`), and nothing is made: use a new key.
-- After a conflict (exit 7), the preview is forgotten here: the same command again previews afresh, and with
-  `--yes` does it.
+- `--key <yours>` names one change, so a retry with the same key is the same change for a day, however many other
+  commands run in between. The same key with a different input is refused (exit 7, `cli.key_reused`), and nothing
+  is made: use a new key.
+- After a conflict (exit 7), or a confirm refused because you may no longer do it (exit 3), the preview is forgotten
+  here: the same command again previews afresh, and with `--yes` does it.
 - `openpadel confirm` on a run already done just says so.
 - The previews kept on a computer are the signed-in person's: when someone else signs in to the club there, the
   earlier person's go.
