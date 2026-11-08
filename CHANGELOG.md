@@ -7,6 +7,15 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## Unreleased
+
+### Fixed
+- **Setting a player's level below their floor previewed the level asked for (0.1.0 to 0.5.0).** "Change Ann Lee's
+  level from 3.50 to 3.00", and the change set the floor's 3.25 instead. It's refused now, as answering a review
+  refuses it: "3.00 is below the floor set for Ann Lee (3.25)." Lower the floor first. And setting the level they
+  already have, which read "from 3.50 to 3.50", says "Their level is already 3.50." and changes nothing (the Levels
+  page's "Keep level" is how to say a big move was looked at).
+
 ## 0.5.0 (2026-11-08)
 
 Moving a club in from Playtomic: its bookings kept and taken over, its wallets made club credit and its memberships

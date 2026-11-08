@@ -1,5 +1,5 @@
 // Phone run 14's two previews: a level set for someone with no level yet doesn't move "from 3.50 to 3.50" (the default
-// start isn't theirs), and an answer quoted in its preview ends inside its quotes, with no second full stop.
+// start isn't theirs) and a level already theirs is refused, and an answer quoted in its preview ends inside its quotes, with no second full stop.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
@@ -20,6 +20,18 @@ test("a level for someone with none yet starts them there; one they have changes
   await run(db, "level.set", { person_id: ann, level: 3.5, reason: "Played with her tonight." }, owner);
   const next = (await plan(db, "level.set", { person_id: ann, level: 3.75, reason: "A second look." }, owner)).plan.summary.en;
   assert.equal(next, "Change Ann Lee's level from 3.50 to 3.75: A second look.");
+});
+
+test("a level already theirs is no change, and one below their floor waits for the floor to come down", async () => {
+  // It read "Change Ann Lee's level from 3.50 to 3.50"; and below a floor it previewed the level asked for while the
+  // change set the floor's. Both are refused now, as answering a review refuses them.
+  await assert.rejects(plan(db, "level.set", { person_id: ann, level: 3.5, reason: "Still the same" }, owner), (e: any) => e.code === "error.level_unchanged" && e.params.level === "3.50");
+  await assert.rejects(plan(db, "level.set", { person_id: ann, level: 3.504, reason: "Still the same" }, owner), (e: any) => e.code === "error.level_unchanged");
+  await run(db, "level.set_floor", { person_id: ann, floor: 3.25, reason: "Coach's call" }, owner);
+  await assert.rejects(plan(db, "level.set", { person_id: ann, level: 3, reason: "A bad night" }, owner),
+    (e: any) => e.code === "error.below_floor_person" && e.params.person === "Ann Lee" && e.params.floor === "3.25" && e.params.level === "3.00");
+  const ok = (await plan(db, "level.set", { person_id: ann, level: 3.25, reason: "Down to the floor" }, owner)).plan.summary.en;
+  assert.equal(ok, "Change Ann Lee's level from 3.50 to 3.25: Down to the floor.");
 });
 
 test("an answer's preview ends its quote once", async () => {

@@ -6,6 +6,7 @@ import * as z from "zod/mini";
 import { both, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
+import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { namesFor } from "./junior_names.ts";
 import { MODEL, MODEL_VERSION, shownLevel, shownOdds, update, type Skill } from "./levels.ts";
@@ -14,6 +15,7 @@ export interface RatingState { mu: number; sigma: number; level: number; floor: 
 const fresh = (): RatingState => ({ mu: MODEL.defaultLevel, sigma: MODEL.sigmaNew, level: MODEL.defaultLevel, floor: null, games: 0 });
 const pct = (p: number) => `${Math.round(p * 100)}/${100 - Math.round(p * 100)}`;
 const lvl = (n: number) => n.toFixed(2);
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export async function loadRating(db: Db | Trx, personId: string): Promise<RatingState & { exists: boolean }> {
   const r = await db.selectFrom("rating").selectAll().where("person_id", "=", personId).where("sport", "=", "padel").executeTakeFirst();
@@ -117,17 +119,21 @@ export const levelSet = defineAction({
   name: "level.set", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid(), level: z.number().check(z.minimum(0), z.maximum(7)), reason: z.string().check(z.minLength(3)) }),
   async plan(ctx, i) {
-    const s = await loadRating(ctx.db, i.person_id);
+    const s = await loadRating(ctx.db, i.person_id), target = round2(i.level);
+    // As answering a review does: a floor is lowered first, and a level already theirs is no change (it read
+    // "from 3.50 to 3.50"; a session's levels leave such a player as they are).
+    if (s.floor !== null && target < s.floor) throw new KumiError("error.below_floor_person", { person: await nameOf(ctx.db, i.person_id), level: lvl(target), floor: lvl(s.floor) });
+    if (s.exists && target === s.level) throw new KumiError("error.level_unchanged", { level: lvl(target) });
     const reads = s.exists ? [{ entity: "rating" as const, id: i.person_id, version: (await readRow(ctx.db, "rating", i.person_id)).row.version }] : [];
     // Someone with no level yet has nothing to change from: the default start isn't theirs.
-    const say = s.exists ? both("plan.level.set", { person: await nameOf(ctx.db, i.person_id), before: lvl(s.level), after: lvl(i.level), reason: i.reason })
-      : both("plan.level.set_none", { person: await nameOf(ctx.db, i.person_id), after: lvl(i.level), reason: i.reason });
+    const say = s.exists ? both("plan.level.set", { person: await nameOf(ctx.db, i.person_id), before: lvl(s.level), after: lvl(target), reason: i.reason })
+      : both("plan.level.set_none", { person: await nameOf(ctx.db, i.person_id), after: lvl(target), reason: i.reason });
     return { title: both("action.level.set"), summary: say, reads,
       undo: { kind: "compensating" }, details: { before: s.level } };
   },
   async apply(ctx, i) {
     const before = await loadRating(ctx.trx, i.person_id);
-    const level = Math.max(before.floor ?? -Infinity, i.level);
+    const level = Math.max(before.floor ?? -Infinity, round2(i.level));
     const after: RatingState = { mu: level, sigma: before.exists ? before.sigma : MODEL.sigmaSeeded, level, floor: before.floor, games: before.games };
     await saveRating(ctx, i.person_id, after, before.exists);
     await ratingEvent(ctx, i.person_id, "staff_set", before.exists ? before : null, after, both("level.staff", { by: await nameOf(ctx.trx, ctx.actor.personId), reason: i.reason }));
