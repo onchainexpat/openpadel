@@ -99,8 +99,8 @@ export const paymentUseCredit = defineAction({
   },
 });
 
-/** Where what a member holds came from, as far as it was card money (credit.pay_out warns of these, and a Playtomic
- *  take-back reaches only what came from Playtomic, brought_in.ts): gift cards redeemed (and of those, any bought by card),
+/** Where what a member holds came from, as far as it was card money (credit.pay_out warns of these; a Playtomic
+ *  take-back counts the other way, playtomicLeft): gift cards redeemed (and of those, any bought by card),
  *  card money given back as credit, and Playtomic's wallets. What they spent or had paid out is taken from what wasn't
  *  card money first, so what's left is card money as far as it can be: gift cards bought by card are said first, then card
  *  refunds, then what came from Playtomic. */
@@ -136,6 +136,29 @@ export async function creditSources(db: Db | Trx, personId: string, have?: numbe
     const fromPlaytomic = Math.min(cardLeft - byCard - refundByCard, broughtIn);
     const fromCards = Math.max(byCard, Math.min(have, Number(g.all)));
   return { have, fromCards, byCard, refundByCard, fromPlaytomic };
+}
+
+/** What a Playtomic take-back can reach (brought_in.ts): the credit from Playtomic they still hold, with everything
+ *  they spent, had paid out or had taken back counted against Playtomic's first. Anything else they were given here (a
+ *  refund as credit, a gift card, a pass use back, money paid from credit coming back) is their own, and a take-back
+ *  never reaches it. Their credit is walked in the order the books took it, so their own money spent before
+ *  Playtomic's came over stays spent and Playtomic's stays reachable.
+ *  creditSources counts the other way round, card money spent last, because the pay-out warning asks another
+ *  question: how much of what's paid out may be card money (a stolen card cashed out), where the worse case is the one
+ *  to say. */
+export async function playtomicLeft(db: Db | Trx, personId: string): Promise<number> {
+  const rows = await db.selectFrom("ledger_entry").innerJoin("ledger_account", "ledger_account.id", "ledger_entry.account_id").innerJoin("ledger_txn", "ledger_txn.id", "ledger_entry.txn_id")
+    .select(["ledger_txn.kind", "ledger_entry.amount_cents"]).where("ledger_account.kind", "=", "member_credit").where("ledger_account.person_id", "=", personId)
+    .orderBy("ledger_entry.id").execute();
+  let left = 0, have = 0;
+  for (const r of rows) {
+    // A liability: credit given is a negative entry, credit used (or taken back) a positive one.
+    const given = -Number(r.amount_cents);
+    have += given;
+    if (given > 0 && r.kind === "brought_in") left += given;
+    else if (given < 0) left = Math.max(0, left + given);
+  }
+  return Math.max(0, Math.min(left, have));
 }
 
 /** The owner or a manager pays a member's club credit out at the desk (in cash, or another way): it leaves their

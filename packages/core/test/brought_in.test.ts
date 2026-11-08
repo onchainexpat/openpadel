@@ -37,7 +37,7 @@ before(async () => {
   setPaymentProvider(stripe);
   const s = await runAsSystem(db, "club.setup", { name: "Kestrel Padel", time_zone: TZ, owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
   owner = { personId: (s.result as any).owner_person_id, via: "test", lang: "en" };
-  for (const name of ["Mia", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kai", "Lou", "Kim", "Cy", "Max", "Ada", "Bo", "Sil"])
+  for (const name of ["Mia", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kai", "Lou", "Kim", "Cy", "Max", "Ada", "Bo", "Sil", "Una", "Vik"])
     people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner, opts)).result as { person_id: string }).person_id;
   await run(db, "role.assign", { person_id: people.Mia, role: "manager" }, owner, opts);
   manager = as("Mia");
@@ -219,6 +219,36 @@ test("a take-back reaches only what came from Playtomic: a card refund given as 
   const s = (await plan(db, "credit.bring_in", { ...(await upload("Name,Email,Wallet\nBo,bo@example.test,0")), take_back: true }, owner, opts)).plan.summary.en;
   assert.match(s, /Left as they are, because they've spent their credit here since: Bo/, s);
   assert.equal(await credit("Bo"), 4000);
+});
+
+test("a take-back counts Playtomic's credit as spent first: a cash refund given as credit, or a gift card bought in cash, stays whole", async () => {
+  const loc = ((await run(db, "location.create", { name: "Northside", time_zone: TZ }, owner, opts)).result as any).location_id;
+  const court = ((await run(db, "court.create", { location_id: loc, name: "Court 1" }, owner, opts)).result as any).court_id;
+  await run(db, "hours.set", { location_id: loc, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "07:00", closes: "23:00" })) }, owner, opts);
+  await run(db, "price.rule_set", { location_id: loc, name: "Standard", cents_per_hour: 4000 }, owner, opts);
+  await run(db, "club.update", { court_bookings: true }, owner, opts);
+  await run(db, "club.update", { gift_cards: true }, { ...owner, auth: "passkey" } as Actor, opts);
+  // Una: $50 from Playtomic, and a $40 court paid in cash at the desk, cancelled as club credit. She spends $30 here.
+  await bring(await upload("Name,Email,Wallet\nUna,una@example.test,50"));
+  const b = ((await run(db, "booking.create", { court_id: court, starts_at: "2026-11-21T10:00:00-08:00", minutes: 60, person_id: people.Una }, owner, opts)).result as any).booking_id;
+  await run(db, "booking.record_payment", { booking_id: b, cents: 4000, method: "cash" }, owner, opts);
+  await run(db, "booking.cancel", { booking_id: b, refund: "credit" }, owner, opts);
+  assert.equal(await credit("Una"), 9000);
+  await run(db, "credit.pay_out", { person_id: people.Una!, cents: 3000, method: "cash" }, owner, opts);
+  // Vik: $50 from Playtomic, and a $25 gift card he bought in cash at the desk and redeemed. He spends $40 here.
+  await bring(await upload("Name,Email,Wallet\nVik,vik@example.test,50"));
+  const g = (await run(db, "gift_card.sell", { person_id: people.Vik!, cents: 2500, method: "cash" }, owner, opts)).result as { gift_card_id: string };
+  const code = (await core.giftCardsOf(db, people.Vik!)).find((c) => c.id === g.gift_card_id)!.code!;
+  await run(db, "gift_card.redeem", { person_id: people.Vik!, code }, as("Vik"), opts);
+  assert.equal(await credit("Vik"), 7500);
+  await run(db, "credit.pay_out", { person_id: people.Vik!, cents: 4000, method: "cash" }, owner, opts);
+  // Playtomic now shows both wallets empty: what they spent came out of Playtomic's credit first, so only what's left
+  // of that comes back out ($20 and $10), and the refund and the gift card are theirs, whole.
+  const s = await bring(await upload("Name,Email,Wallet\nUna,una@example.test,0\nVik,vik@example.test,0"), { take_back: true });
+  assert.match(s, /Taken back from credit, \$30\.00 in all.*Una \(\$20\.00\).*Vik \(\$10\.00\)/, s);
+  assert.match(s, /Spent here meanwhile, so not taken back: Una \(\$30\.00\), Vik \(\$40\.00\)/, s);
+  assert.deepEqual([await credit("Una"), await credit("Vik")], [4000, 2500]);
+  assert.deepEqual([await core.playtomicLeft(db, people.Una!), await core.playtomicLeft(db, people.Vik!)], [0, 0]);
 });
 
 test("one person's credit has a ceiling: over it is listed, the rest still comes in, and nothing fails on the database", async () => {

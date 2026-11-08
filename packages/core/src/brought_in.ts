@@ -19,7 +19,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, localParts, onDate } from "./clock.ts";
 import { account, creditBalance, post } from "./money.ts";
-import { creditSources, lockCredit } from "./credit.ts";
+import { lockCredit, playtomicLeft } from "./credit.ts";
 import { dayText, holds, planPrice } from "./memberships.ts";
 import { textOf } from "./club_text.ts";
 import { PLAYTOMIC, type PlaytomicClient } from "./playtomic.ts";
@@ -324,11 +324,11 @@ async function creditPlan(db: Db | Trx, i: { source: "playtomic" | "file"; uploa
     if (!delta) continue;
     if (delta < 0) {
       // Less in Playtomic now: spent there since, or the wallets being zeroed for the switch. Taken back only when staff
-      // choose it, and only from what came from Playtomic and they still hold (credits.ts, creditSources): what they
-      // spent here meanwhile stays spent, and a refund or gift card given here is never touched.
+      // choose it, and only from what came from Playtomic and they still hold (credit.ts, playtomicLeft): what they
+      // spent here meanwhile counts against Playtomic's first and stays spent, and a refund or gift card given here is
+      // never touched.
       if (!i.take_back) { out.less.push({ name: e.name, cents: -delta }); continue; }
-      const { fromPlaytomic } = await creditSources(db, personId);
-      const left = Math.min(fromPlaytomic, ownBefore);
+      const left = Math.min(await playtomicLeft(db, personId), ownBefore);
       if (!left) { out.not_taken_back.push({ name: e.name, cents: -delta }); continue; }
       if (-delta > left) { short = -delta - left; delta = -left; }
     }
@@ -408,7 +408,7 @@ export const creditBringIn = defineAction({
       if ((row?.cents ?? 0) !== p.own_before) throw new KumiError("error.changed");
       const now = p.keys.length ? await ctx.trx.selectFrom("brought_identity").select(["key_hash", "cents"]).where("key_hash", "in", p.keys.map((k) => k.hash)).forUpdate().execute() : [];
       for (const k of p.keys) if ((now.find((r) => r.key_hash === k.hash)?.cents ?? null) !== k.cents) throw new KumiError("error.changed");
-      if (p.delta < 0 && -p.delta > (await creditSources(ctx.trx, p.person_id)).fromPlaytomic) throw new KumiError("error.changed");
+      if (p.delta < 0 && -p.delta > await playtomicLeft(ctx.trx, p.person_id)) throw new KumiError("error.changed");
       const wallets = JSON.stringify(p.wallets), own = p.own_before + p.delta;
       if (row) await ctx.update("brought_credit", row.id, { cents: own, wallets, updated_at: ctx.now });
       else await ctx.insert("brought_credit", { id: uuidv7(), person_id: p.person_id, system: "playtomic", cents: own, wallets, action_run_id: ctx.runId, at: ctx.now, updated_at: ctx.now });

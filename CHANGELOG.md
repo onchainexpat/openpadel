@@ -94,6 +94,11 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 - **A club setting's preview said only which setting changed** ("Change the legal name."). It says what to now: "the
   legal name to Kestrel Padel LLC", "whether members book courts in the app (yes)".
 - **The Moving in page lost who uploaded the export** ("by -") and how many deleted members it left out.
+- **A Playtomic take-back could reach a member's own refund or gift card.** What they had spent here was counted
+  against credit that wasn't card money first, so a cash refund given as credit, or a gift card bought in cash, could
+  count as spent and leave Playtomic's credit whole to take back. Now what they spend counts against Playtomic's
+  credit first, walked in the order it happened, and a take-back never touches anything they were given here. The
+  pay-out warning still counts card money last: it asks how much may be a stolen card's.
 - **A member's own weekly court was refunded again when their account was deleted again after a restore (in 0.3.0
   to 0.4.0).** Putting a copy back from before a member ended their weekly court (refunded then by the club's rule)
   and deleted their account, openPadel deletes the account again, and ends the weekly court it finds with no money moving:
