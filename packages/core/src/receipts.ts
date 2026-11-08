@@ -32,12 +32,28 @@ type Paid = { id: string; person_id: string; amount_cents: number; method: strin
   membership_id: string | null; membership_member_id: string | null; family_card_id: string | null; discount_cents?: number; gift_card_id?: string | null; pass_id?: string | null };
 
 /** A date and time with the year, in the club's time: a receipt is kept. */
-export function receiptDate(d: Date, lang: Lang, timeZone: string): string {
-  return new Intl.DateTimeFormat(formatLocale(lang), { timeZone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d);
+// One formatter per language, zone and shape, kept (as clock.ts keeps its own): making one costs about 60 µs, and a
+// month of a big club's receipts made three for every receipt.
+const SHAPES = {
+  receipt: { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
+  when: { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
+  stamp: { hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" },
+} satisfies Record<string, Intl.DateTimeFormatOptions>;
+const formats = new Map<string, Intl.DateTimeFormat>();
+function formatOf(locale: string, timeZone: string, shape: keyof typeof SHAPES): Intl.DateTimeFormat {
+  const key = `${locale}|${timeZone}|${shape}`;
+  let f = formats.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { timeZone, ...SHAPES[shape] });
+    if (formats.size >= 64) formats.clear();
+    formats.set(key, f);
+  }
+  return f;
 }
-const whenText = (d: Date, tz: string): Text => ({
-  en: new Intl.DateTimeFormat(formatLocale("en"), { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d),
-  es: new Intl.DateTimeFormat(formatLocale("es"), { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d) });
+export function receiptDate(d: Date, lang: Lang, timeZone: string): string {
+  return formatOf(formatLocale(lang), timeZone, "receipt").format(d);
+}
+const whenText = (d: Date, tz: string): Text => ({ en: formatOf(formatLocale("en"), tz, "when").format(d), es: formatOf(formatLocale("es"), tz, "when").format(d) });
 /** "R-001042": the number as printed. */
 export const receiptNo = (n: string | number) => `R-${String(n).padStart(6, "0")}`;
 
@@ -335,6 +351,6 @@ export async function clubReceipts(db: Db | Trx, from: string, to: string, o: { 
 }
 /** "2026-11-02 14:05" on the club's clock, for a spreadsheet. */
 function localStamp(d: Date, tz: string): string {
-  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(d).map((x) => [x.type, x.value]));
+  const p = Object.fromEntries(formatOf("en-CA", tz, "stamp").formatToParts(d).map((x) => [x.type, x.value]));
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
 }

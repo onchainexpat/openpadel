@@ -23,6 +23,10 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   refuses it: "3.00 is below the floor set for Ann Lee (3.25)." Lower the floor first. And setting the level they
   already have, which read "from 3.50 to 3.50", says "Their level is already 3.50." and changes nothing (the Levels
   page's "Keep level" is how to say a big move was looked at).
+- On a big club (two years of one), a person's page in the staff app read every receipt to find the ones a parent paid
+  for a kid (about 80 ms), and the hourly tidy read every change the club ever made (about 470 ms). Each now reads
+  only its own, with two indexes (database change 111). And every amount and date the server wrote made its own
+  formatter: a month of 1,500 receipts spent about 300 ms on their dates, now about 12. Nothing changes but the speed.
 
 ## 0.5.0 (2026-11-08)
 

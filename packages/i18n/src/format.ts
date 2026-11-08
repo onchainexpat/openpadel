@@ -199,13 +199,27 @@ export function parseAmount(s: string, f: ClubFormat = clubFmt): number | null {
 /** The club's amount parser under its old name (it read US dollars only). */
 export const parseDollars = (s: string): number | null => parseAmount(s);
 
+// The formatters money and dateTime use, kept by locale, currency or zone: making one costs about 60 µs, and a
+// report, a list or a month of receipts formats every row. A club has a locale, a currency and a zone or two.
+const kept = new Map<string, Intl.NumberFormat | Intl.DateTimeFormat>();
+function keep<T extends Intl.NumberFormat | Intl.DateTimeFormat>(key: string, make: () => T): T {
+  let f = kept.get(key) as T | undefined;
+  if (!f) {
+    f = make();   // a currency or zone Intl refuses throws here, as before, and nothing is kept
+    if (kept.size >= 256) kept.clear();
+    kept.set(key, f);
+  }
+  return f;
+}
+
 /** An amount as the club writes it ("$40.50", "40,50 €", "¥1,500"), whatever the reader's language: the same
  *  separators staff type, so what's shown can be typed back. (A sentence around it is in the reader's language.) */
 export function money(minor: number, _lang: Lang, currency: string = clubFmt.currency): string {
-  const d = minorUnits(currency);
-  return new Intl.NumberFormat(clubFmt.locale, { style: "currency", currency, minimumFractionDigits: d, maximumFractionDigits: d }).format(toMajor(minor, currency));
+  const d = minorUnits(currency), locale = clubFmt.locale;
+  return keep(`money|${locale}|${currency}`, () => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: d, maximumFractionDigits: d })).format(toMajor(minor, currency));
 }
 
 export function dateTime(d: Date, lang: Lang, timeZone: string): string {
-  return new Intl.DateTimeFormat(formatLocale(lang), { timeZone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(d);
+  const locale = formatLocale(lang);
+  return keep(`dateTime|${locale}|${timeZone}`, () => new Intl.DateTimeFormat(locale, { timeZone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })).format(d);
 }

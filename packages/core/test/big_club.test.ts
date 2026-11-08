@@ -7,7 +7,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { sql } from "kysely";
 import { freshDb } from "./helpers.ts";
-import { courtOpenings, courtOpeningsOn, DESK_MONEY, gameHeads, gameOf, localParts, onDate, postChat, processOutbox, run, runAsSystem, type Actor, type Db } from "../src/index.ts";
+import { actions, courtOpenings, courtOpeningsOn, DESK_MONEY, gameHeads, gameOf, localParts, onDate, postChat, processOutbox, run, runAsSystem, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, loc: string, c1: string, c2: string, ann: string;
 const TZ = "America/Los_Angeles";
@@ -46,6 +46,23 @@ test("097's indexes are there under their own names, and the desk's matches DESK
   assert.match(desk, /ON public\.action_run USING btree \(applied_at\) WHERE/);
   assert.deepEqual([...desk.matchAll(/'([a-z_.]+)'::text/g)].map((m) => m[1]).sort(), [...DESK_MONEY].sort(), "a change that takes money at the desk is in the index the desk's day reads");
   assert.equal(defs.has("action_run_desk"), false, "076's five-action index is gone");
+});
+
+test("111's indexes: a kid's receipts, and the tidy reads only the actions that forget something", async () => {
+  const defs = new Map((await sql<{ indexname: string; indexdef: string }>`SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public'`.execute(db)).rows.map((r) => [r.indexname, r.indexdef]));
+  assert.match(defs.get("receipt_for_person") ?? "(missing)", /ON public\.receipt USING btree \(for_person_id, created_at DESC\) WHERE \(for_person_id IS NOT NULL\)$/);
+  const forget = defs.get("action_run_forget") ?? "";
+  assert.match(forget, /ON public\.action_run USING btree \(action\) WHERE/);
+  assert.deepEqual([...forget.matchAll(/'([a-z_.]+)'::text/g)].map((m) => m[1]).sort(), actions().filter((a) => a.forget?.length).map((a) => a.name).sort(),
+    "an action that forgets part of what was asked is in the index the hourly tidy reads");
+  // Each read can take its index (the planner told to avoid a whole-table read; a test club is too small to choose it).
+  const plan = (q: string) => db.transaction().execute(async (trx) => {
+    await sql`SET LOCAL enable_seqscan = off`.execute(trx);
+    return (await sql<{ "QUERY PLAN": string }>`${sql.raw(`EXPLAIN ${q}`)}`.execute(trx)).rows.map((r) => r["QUERY PLAN"]).join("\n");
+  });
+  const someone = "00000000-0000-7000-8000-00000000abcd";
+  assert.match(await plan(`SELECT id FROM receipt WHERE person_id = '${someone}' OR for_person_id = '${someone}' ORDER BY created_at DESC LIMIT 200`), /receipt_for_person/);
+  assert.match(await plan(`UPDATE action_run SET input = input - 'reason' WHERE action = 'chat.report' AND input ? 'reason' AND status <> 'applied'`), /action_run_forget/);
 });
 
 test("a court's hours read for many days are each day's own: special days, a court's own week, closed days, the clock change", async () => {
