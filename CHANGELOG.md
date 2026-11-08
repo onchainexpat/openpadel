@@ -7,7 +7,13 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.5.0 (2026-11-08)
+
+Moving a club in from Playtomic: its bookings kept and taken over, its wallets made club credit and its memberships
+carried over, with a person who deleted their account kept out of every later read. Also fixes to money and times
+from earlier releases: a booking moved later and then cancelled was refunded by its old time and its cancellation
+named the old time (since 0.1.0), and an account deleted again after a restore refunded a weekly court a second time
+(since 0.3.0). Every club should update.
 
 ### Added
 - **Moving a club from Playtomic** ([docs/setup/moving-from-playtomic.md](docs/setup/moving-from-playtomic.md)): the
@@ -95,7 +101,8 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   and what came back of what you paid, and where to.
 - A booking cancelled in the same moment it was made (at the speed of an assistant or a script) could still send its
   "Booked" email after it. News of it being booked not gone out yet by email, push or text doesn't go now, as for a
-  move; the in-app copy stays.
+  move; the in-app copy stays. Booked together with other courts, the email names only the courts still booked, and
+  what they came to.
 - **A booking moved, then cancelled, was said to be at its old time, and a moved booking showed twice in My places
   (0.1.0 to 0.4.0).** A move (or a new length) retires the booking's court time and takes a new one; once it's
   cancelled none is current, and what read "the current one" took any. So the players' cancellation said the old time
@@ -150,6 +157,22 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 - Allow clicked twice at once on a device sign-in (two taps, or two tabs) could make two connections for one code.
   The code is taken at the first click now, and a check that fails after it (a wrong authenticator code) leaves it
   waiting to be answered again.
+
+### When updating
+- The database changes (100 to 110) apply by themselves as the server starts. The update snapshots the database
+  first, and `sudo openpadel rollback --yes` goes back to 0.4.0 with it. On Docker, `deploy/docker/update.sh v0.5.0`.
+- **Go back only with that snapshot.** 0.4.0 run on a database 0.5.0 has used doesn't know a booking paid in
+  Playtomic, and would offer to refund it at the desk.
+- **Staff app:** a change that needs someone's yes is now shown first, and asked for only with "Ask for a yes".
+- **A staff role kept to one location** now also handles what belongs to no location (see Changed). Check what each
+  location-kept role should do before staff meet it.
+- Nothing in `/etc/kumi/kumi.env` changes.
+
+### Known limits
+- No app store apps yet: the members' and staff apps install from the club's own address ([the phone apps](docs/setup/apps.md)).
+- Moving in from Playtomic changes nothing in Playtomic: each preview says what staff do there (refunds, setting the
+  wallets to zero, stopping memberships' renewals).
+- Emails, pushes and texts go out in one language, the one the person had when it was sent.
 
 ## 0.4.0 (2026-11-07)
 
