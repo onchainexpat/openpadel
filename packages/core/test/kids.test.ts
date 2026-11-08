@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { apply, approveKidRequest, checkFamilyCard, checkPayment, combine, moneyHandlers, friendsOf, kidOf, messageHandlers, monthSpent, openFamilyCardSetup, openPayment, payKidRun, payWithFamilyCard, plan, processOutbox, run,
+import { apply, approveKidRequest, checkFamilyCard, upcomingCount, checkPayment, combine, moneyHandlers, friendsOf, kidOf, messageHandlers, monthSpent, openFamilyCardSetup, openPayment, payKidRun, payWithFamilyCard, plan, processOutbox, run,
   runAsSystem, setPaymentProvider, setTexting, textable, KumiError, TestProvider, TEXTS_FORM, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, court: string, court2: string, clinic: string, mia: string, leo: string;
@@ -287,8 +287,15 @@ test("at 18, a kid who already signs in keeps their address and becomes an adult
 });
 
 test("whose it is at the yes is who it was at the preview and still is: a parent who was the desk, and a parent who left the family, are refused", async () => {
-  // Mia signs in again, and Pat is the front desk for a while: as the desk, Pat may book a court for anyone.
+  // Mia signs in again: she books her own courts now, so her parents hear what anyone else would (it said what her
+  // limit and her other bookings were). Mia hears it.
   await run(db, "kid.give_login", { person_id: mia, email: "mia@example.test" }, as("Pat"), opts);
+  await run(db, "booking.request", court90(court2, "2026-12-08", "20:00", mia), owner, opts);
+  await run(db, "policy.set", { max_active: await upcomingCount(db, mia, NOW) }, owner, opts);
+  await rejects(plan(db, "booking.request", court90(court2, "2026-12-07", "20:00", mia), as("Pat"), opts), "error.forbidden_reason");
+  await rejects(plan(db, "booking.request", court90(court2, "2026-12-07", "20:00", mia), asMia(), opts), "error.too_many_bookings");
+  await run(db, "policy.set", { max_active: 10 }, owner, opts);
+  // Pat is the front desk for a while: as the desk, Pat may book a court for anyone.
   await run(db, "role.assign", { person_id: people.Pat, role: "front_desk" }, owner, opts);
   const desk = await plan(db, "booking.request", court90(court2, "2026-12-07", "20:00", mia), as("Pat"), opts);
   assert.equal(desk.status, "planned");

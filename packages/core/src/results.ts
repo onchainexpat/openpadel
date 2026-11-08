@@ -150,8 +150,10 @@ export const resultConfirm = defineAction({
   owners: async (db, i) => ({ ownerIds: [i.person_id], locationId: await gameLocation(db, i.game_id) }),
   async plan(ctx, i) {
     const g = await gameView(ctx.db, i.game_id);
+    // Someone not in the game hears only that, not whether it's been answered.
+    if (![...g.a, ...g.b].some((p) => p.person_id === i.person_id)) throw new KumiError("error.not_in_match");
     if (g.status !== "awaiting_confirmation") throw new KumiError("error.result_answered");
-    if (!g.b.some((p) => p.person_id === i.person_id)) throw new KumiError(g.a.some((p) => p.person_id === i.person_id) ? "error.other_side_confirms" : "error.not_in_match");
+    if (!g.b.some((p) => p.person_id === i.person_id)) throw new KumiError("error.other_side_confirms");
     const b = await factsOf(ctx.db, g), seen = await teamsFor(ctx.db, g, i.person_id);
     return { title: both("action.result.confirm"), summary: both("plan.result.confirm", { score: g.score, teamA: seen.teamA, teamB: seen.teamB, counts: both(g.rated ? "result.counts_rated" : "result.counts_friendly") }),
       reads: [{ entity: "game", id: g.id, version: g.version }], locationId: b.location_id, ownerIds: [i.person_id], undo: { kind: "none", note: both("result.undo_dispute") } };

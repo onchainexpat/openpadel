@@ -39,10 +39,16 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   cancelled already, a player's level. Courts, open matches and taking a place, scores, lessons, programs,
   memberships, families, the waiver and kids' logins, friends, questions to the club, the answers about club news and
   texts, assistants, and a person's profile, authenticator, data download and account deletion were like this, and
-  (0.3.0 on) weekly courts, tournaments and leagues, and paying with a pass or a code. It's a plain no now, before the preview, and whose it is
-  is asked again at the yes, so a parent who has left the family since can't confirm a preview made for their junior.
-  A parent still hears that their junior doesn't book courts, and staff kept to one location preview their own
-  location's changes as before.
+  (0.3.0 on) weekly courts, tournaments and leagues, and paying with a pass or a code. It's a plain no now, before the
+  preview, and whose it is is asked again at the yes, so a parent who has left the family since can't confirm a preview
+  made for their junior. A parent still hears that a junior without a login of their own doesn't book courts, and
+  staff kept to one location preview their own location's changes as before. Someone naming themselves on another
+  pair's tournament invite, or on a score from a match they weren't in, heard whether it had been answered already;
+  now they hear only that it isn't theirs.
+- **Courts booked together could be at different locations, and a front desk kept to one location was judged by the
+  first court alone (0.1.0 on).** So an Eastside desk could book a Westside court for a member by adding an Eastside
+  court before it. Courts booked together have to be at the same location now ("Book the others on their own"), for
+  members and staff alike; the members' app only ever sent one location's.
 - **Setting a player's level below their floor previewed the level asked for (0.1.0 to 0.5.0).** "Change Ann Lee's
   level from 3.50 to 3.00", and the change set the floor's 3.25 instead. It's refused now, as answering a review
   refuses it: "3.00 is below the floor set for Ann Lee (3.25)." Lower the floor first. And setting the level they

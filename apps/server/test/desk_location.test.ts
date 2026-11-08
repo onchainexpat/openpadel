@@ -143,3 +143,18 @@ test("Eastside's desk still previews and confirms what's Eastside's for a member
   assert.equal((await post("Lee", "/actions/booking.cancel/plan", { booking_id: "00000000-0000-7000-8000-00000000abcd" })).status, 404);
   assert.equal((await post("Dana", "/actions/booking.cancel/plan", { booking_id: theirs })).status, 200);
 });
+
+test("courts booked together are one location's: Eastside's desk can't take a Westside court behind an Eastside one, nor can a member mix them", async () => {
+  await run(db, "club.update", { court_bookings: true }, owner);
+  const eastCourt = (await db.selectFrom("court").select("id").where("location_id", "=", east).executeTakeFirstOrThrow()).id;
+  const slot = (court: string) => ({ court_id: court, starts_at: `${day()}T15:00:00-08:00`, minutes: 60 });
+  // Judged by the first court alone (0.1.0 to 0.5.0), Eastside's desk booked the Westside court too.
+  for (const [who, person] of [["Lee", people.Ann], ["Ann", people.Ann]] as const) {
+    const r = await post(who, "/actions/booking.request_courts/plan", { courts: [slot(eastCourt), slot(westCourt)], person_id: person });
+    assert.equal(r.json.error, "error.courts_one_location", `${who}: ${JSON.stringify(r.json)}`);
+    assert.equal(r.json.message, "Courts booked together have to be at the same location. Book the others on their own.");
+  }
+  // Westside's court first: refused for where it is, before the preview, as before.
+  assert.equal((await post("Lee", "/actions/booking.request_courts/plan", { courts: [slot(westCourt), slot(eastCourt)], person_id: people.Ann })).status, 403);
+  assert.equal((await db.selectFrom("booking").select("id").where("organiser_id", "=", people.Ann!).where("source", "=", "app").execute()).length, 0);
+});

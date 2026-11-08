@@ -1839,6 +1839,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "plan.booking.request_courts": "Reservar {count} canchas: {list}. {total} en total, pagado ahora en un solo pago con tarjeta. Cada cancha es su propia reserva y se puede cancelar por separado según la regla del club.",
   "plan.booking.court_item": "{court}, {when}, {minutes} minutos ({price})",
   "error.courts_same_day": "Las canchas que se reservan juntas tienen que ser el mismo día.",
+  "error.courts_one_location": "Las canchas que se reservan juntas tienen que ser de la misma sede. Reserva las demás por separado.",
   "error.too_many_courts": { one: "Eso supera el límite del club de {count} reserva próxima (tienes {have}).", other: "Eso supera el límite del club de {count} reservas próximas (tienes {have}).", many: "Eso supera el límite del club de {count} reservas próximas (tienes {have})." },
   "msg.booking_courts.subject": "Reservadas: {count} canchas",
   "msg.booking_courts.body": "Tus canchas están reservadas: {list}. Pagaste {amount} en un solo pago con tarjeta. Cada cancha es su propia reserva, así que puedes cancelar una sin las otras.",

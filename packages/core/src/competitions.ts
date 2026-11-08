@@ -113,8 +113,8 @@ export const entryInvite = defineAction({
 
 async function answerable(db: Db | Trx, entryId: string, personId: string) {
   const { row: e, read } = await readRow(db, "pair_entry", entryId, "thing.entry");
+  if (e.person_b !== personId) throw new KumiError("error.not_your_invite");   // first: whether it's answered is theirs to hear
   if (e.status !== "invited") throw new KumiError("error.entry_answered");
-  if (e.person_b !== personId) throw new KumiError("error.not_your_invite");
   const { p } = await programOf(db, e.program_id);
   await notDrawn(db, e.program_id);
   return { e, p, read };
@@ -192,8 +192,8 @@ export const entryWithdraw = defineAction({
   owners: (db, i) => playerIn(db, i.person_id, { entry_id: i.entry_id }),   // without a player, staff's alone
   async plan(ctx, i) {
     const { row: e, read } = await readRow(ctx.db, "pair_entry", i.entry_id, "thing.entry");
-    if (e.status !== "invited" && e.status !== "entered") throw new KumiError("error.entry_answered");
     if (i.person_id && i.person_id !== e.person_a && i.person_id !== e.person_b) throw new KumiError("error.not_your_invite");
+    if (e.status !== "invited" && e.status !== "entered") throw new KumiError("error.entry_answered");
     const { p } = await programOf(ctx.db, e.program_id);
     const open = await ctx.db.selectFrom("fixture").select("id").where("program_id", "=", e.program_id).where("status", "in", ["ready", "waiting"])
       .where((eb) => eb.or([eb("entry_a", "=", e.id), eb("entry_b", "=", e.id)])).execute();

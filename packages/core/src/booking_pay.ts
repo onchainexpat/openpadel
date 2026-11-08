@@ -70,9 +70,14 @@ export async function bookingFor(db: Db | Trx, by: { id?: string | null; code?: 
 /** These people, at the booking the input names: a player's own change to one (joining, leaving). */
 export const playerAt = async (db: Db | Trx, ownerIds: string[], by: { id?: string | null; code?: string | null }) =>
   ({ ownerIds, locationId: (await bookingFor(db, by))?.location_id });
-/** Asked first of the player and a junior's parents, so a parent still hears that their junior doesn't book courts;
- *  the preview's own check, after it, is the player's alone, as it was, and so is the yes (apply keeps only who both named). */
-export const playerOrParents = (db: Db | Trx, personId: string) => withManagers(db, [personId]);
+/** Asked first of the player, and of a junior's parents when the junior has no login of their own (exactly when the
+ *  preview says "a junior doesn't book courts", notJunior), so a parent still hears that. A kid with a login books for
+ *  themselves: their parents get the plain no anyone else does. The preview's own check, after it, is the player's
+ *  alone, as it was, and so is the yes (apply keeps only who both named). */
+export async function playerOrParents(db: Db | Trx, personId: string): Promise<string[]> {
+  const p = await db.selectFrom("person").select(["junior", "own_login"]).where("id", "=", personId).executeTakeFirst();
+  return p?.junior && !p.own_login ? withManagers(db, [personId]) : [personId];
+}
 /** Its organiser (and the parents who manage them), at its location: a booking's own change (who's on it, whether it counts). */
 export const organiserOf = async (db: Db | Trx, bookingId: string | null | undefined) => {
   const b = await bookingFor(db, { id: bookingId });
@@ -201,6 +206,10 @@ export const bookingRequestCourts = defineAction({
     await notJunior(ctx.db, i.person_id);
     await notOwing(ctx.db, i.person_id, ctx.actor, ctx.now);
     await requireWaiver(ctx, i.person_id);
+    // One location's courts: the preview, its permission and each booking are that location's (a desk kept to one
+    // location was judged by the first court alone, 0.1.0 to 0.5.0, and could book another location's after it).
+    const places = await ctx.db.selectFrom("court").select("location_id").distinct().where("id", "in", i.courts.map((s) => s.court_id)).execute();
+    if (places.length > 1) throw new KumiError("error.courts_one_location");
     const policy = await currentPolicy(ctx.db), slots = [];
     for (const s of i.courts) slots.push({ ...s, ...(await checkSlot(ctx, policy, s, i.person_id)) });
     if (new Set(slots.map((s) => s.day)).size > 1) throw new KumiError("error.courts_same_day");

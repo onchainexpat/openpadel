@@ -1836,6 +1836,7 @@ export const en = {
   "plan.booking.request_courts": "Book {count} courts: {list}. {total} in all, paid now in one card payment. Each court is its own booking and can be cancelled on its own under the club's rule.",
   "plan.booking.court_item": "{court}, {when}, {minutes} minutes ({price})",
   "error.courts_same_day": "Courts booked together have to be on the same day.",
+  "error.courts_one_location": "Courts booked together have to be at the same location. Book the others on their own.",
   "error.too_many_courts": { one: "That's more than the club's limit of {count} upcoming booking (you have {have}).", other: "That's more than the club's limit of {count} upcoming bookings (you have {have})." },
   "msg.booking_courts.subject": "Booked: {count} courts",
   "msg.booking_courts.body": "Your courts are booked: {list}. {amount} paid in one card payment. Each court is its own booking, so you can cancel one without the others.",

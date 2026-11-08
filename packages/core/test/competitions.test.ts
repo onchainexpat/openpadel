@@ -151,6 +151,9 @@ test("entering with a partner: both need places, they must be friends, and the p
   assert.deepEqual((await myCompetitions(db, stranger)).can_enter, []);
   await run(db, "entry.accept", { entry_id: id, person_id: b! }, as(b!));
   assert.equal((await db.selectFrom("pair_entry").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status, "entered");
+  // Answered now: someone naming themselves hears only that it isn't theirs (it said "already answered"); the partner hears it is.
+  for (const action of ["entry.accept", "entry.decline"]) await rejects(plan(db, action, { entry_id: id, person_id: stranger }, as(stranger)), "error.not_your_invite");
+  await rejects(plan(db, "entry.accept", { entry_id: id, person_id: b! }, as(b!)), "error.entry_answered");
   const msgs = await db.selectFrom("event_outbox").select("topic").where("topic", "in", ["entry.invited", "entry.accepted"]).execute();
   assert.equal(msgs.length, 2);
 });
@@ -224,6 +227,11 @@ test("players enter their own score; the other pair confirms and the winner move
   assert.equal((await db.selectFrom("game").select("status").where("id", "=", g).executeTakeFirstOrThrow()).status, "awaiting_confirmation");
   assert.equal((await myCompetitions(db, them!)).entries[0]!.to_confirm[0], g, "the other pair has it to confirm");
   await run(db, "result.confirm", { game_id: g, person_id: them! }, as(them!), after);
+  // Someone in the tournament but not this match, naming themselves, hears only that (it said "already answered").
+  const [other] = t.people[1]!;
+  await rejects(plan(db, "result.confirm", { game_id: g, person_id: other! }, as(other!), after), "error.not_in_match");
+  await rejects(plan(db, "result.dispute", { game_id: g, person_id: other!, note: "Not my match" }, as(other!), after), "error.not_in_match");
+  await rejects(plan(db, "result.confirm", { game_id: g, person_id: them! }, as(them!), after), "error.result_answered");
   fs = await fixtures(t.programId);
   const final = fs.find((f) => f.round === 2)!;
   assert.ok(final.entry_a === ids[0] || final.entry_b === ids[0], "the winner is in the final");
