@@ -150,7 +150,7 @@ export interface PlaytomicBookingTable { booking_id: string; object_id: string |
 export interface PlaytomicBookingPlayerTable { id: string; booking_id: string; participant_id: string; family_member_id: string | null; name: string | null; email: string | null; accepts_commercial: boolean | null;
   participant_type: string | null; is_owner: Generated<boolean>; person_id: string | null; erased_at: Date | null; version: Generated<number> }
 export interface PlaytomicCompareToldTable { key: string; told_at: Generated<Date> }
-export interface PlaytomicErasedTable { id: string; playtomic_id: string | null; email_hash: string | null; erased_at: Generated<Date> }
+export interface PlaytomicErasedTable { id: string; playtomic_id: string | null; email_hash: string | null; erased_at: Generated<Date>; erased_person_id: string | null; rejoined_at: Date | null }
 
 export interface KidRuleTable { person_id: string; open_matches: Generated<boolean>; courts: Generated<boolean>; programs: Generated<boolean>; lessons: Generated<boolean>; monthly_limit_cents: Generated<number>; friends: Generated<boolean>; texts: Generated<boolean>; updated_by: string | null; updated_at: Generated<Date>; version: Generated<number> }
 export interface FamilyCardTable { id: string; household_id: string; saved_by: string; status: Generated<"pending" | "saved" | "removed">; provider: string; provider_ref: string | null; provider_account: string | null; saved_customer: string | null; saved_method: string | null; created_at: Generated<Date>; saved_at: Date | null; removed_at: Date | null; version: Generated<number> }

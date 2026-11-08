@@ -428,3 +428,36 @@ test("bookings further ahead than members can book are archived too, up to a yea
   assert.ok(await db.selectFrom("playtomic_booking").select("booking_id").where("booking_id", "=", "far1").executeTakeFirst(), "archived");
   assert.equal(await mb("far1:pt-1"), undefined, "held by nothing: past what Kumi sells");
 });
+
+// ---- The second review: the marker learns ids, and a rejoin starts fresh ----
+test("an id matched by address only is learned: a later booking listing it without the address keeps them out", async () => {
+  const gil = ((await run(db, "person.create", { display_name: "Gil Member", email: "gil@example.test" }, owner)).result as { person_id: string }).person_id;
+  await run(db, "privacy.erase", { person_id: gil }, as(gil), { now: new Date(base) });
+  await archiveBookings(db, [booking("gil-1", 24 * 30 + 4, { owner: "u-gil", players: [{ participant_id: "u-gil", name: "Gil Hart", email: "gil@example.test" }] })], new Date(base));
+  assert.equal((await players("gil-1"))[0]!.name, null);
+  assert.ok(await db.selectFrom("playtomic_erased").select("id").where("playtomic_id", "=", "u-gil").executeTakeFirst(), "learned");
+  await archiveBookings(db, [booking("gil-2", 24 * 31 + 4, { owner: "u-gil", players: [{ participant_id: "u-gil", name: "Gil Hart" }] })], new Date(base));
+  assert.equal((await players("gil-2"))[0]!.name, null, "no address on this row, still out");
+});
+
+test("someone who deleted their account and joined again starts fresh from that day: earlier bookings stay out, later ones come in", async () => {
+  const hal = ((await run(db, "person.create", { display_name: "Hal Member", email: "hal@example.test" }, owner)).result as { person_id: string }).person_id;
+  await db.insertInto("external_ref").values({ entity: "person", entity_id: hal, system: "playtomic", external_id: "u-hal" }).execute();
+  await run(db, "privacy.erase", { person_id: hal }, as(hal), { now: new Date(base) });
+  // Hal signs up again with the same address: a new person here.
+  const again = ((await run(db, "person.create", { display_name: "Hal Again", email: "HAL@example.test" }, owner)).result as { person_id: string }).person_id;
+  const marks = await db.selectFrom("playtomic_erased").select(["playtomic_id", "rejoined_at", "erased_person_id"]).where("erased_person_id", "=", hal).execute();
+  assert.ok(marks.length >= 2 && marks.every((m) => m.rejoined_at), JSON.stringify(marks));
+  const rejoined = new Date(marks[0]!.rejoined_at!);
+  await archiveBookings(db, [
+    booking("hal-before", -24 * 40, { owner: "u-hal", players: [{ participant_id: "u-hal", name: "Hal Hart", email: "hal@example.test" }] }),
+    booking("hal-after", (rejoined.getTime() - base) / H + 24 * 3, { owner: "u-hal", players: [{ participant_id: "u-hal", name: "Hal Hart", email: "hal@example.test" }] }),
+  ], new Date(base));
+  assert.equal((await players("hal-before"))[0]!.name, null, "from before the rejoin: out");
+  const after = (await players("hal-after"))[0]!;
+  assert.deepEqual([after.name, after.person_id], ["Hal Hart", again], "after it: theirs");
+  // Deleted again: marked afresh, the rejoin no longer counts.
+  await run(db, "privacy.erase", { person_id: again }, as(again), { now: new Date(base) });
+  const fresh = await db.selectFrom("playtomic_erased").select(["rejoined_at", "erased_person_id"]).where("playtomic_id", "=", "u-hal").executeTakeFirstOrThrow();
+  assert.deepEqual([fresh.rejoined_at, fresh.erased_person_id], [null, again]);
+});

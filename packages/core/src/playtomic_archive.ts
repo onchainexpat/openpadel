@@ -25,7 +25,7 @@ import { insertTime, lockCourts, range } from "./bookings.ts";
 import { courtAndPlace, newCode } from "./booking_pay.ts";
 import { currentPolicy, quote } from "./prices.ts";
 import { normalize, PLAYTOMIC, typeKey } from "./playtomic.ts";
-import { erasedMatcher } from "./playtomic_erased.ts";
+import { erasedMatcher, learnErasedIds } from "./playtomic_erased.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const join = (xs: Text[], sep = " "): Text => ({ en: xs.map((x) => x.en).filter(Boolean).join(sep), es: xs.map((x) => x.es).filter(Boolean).join(sep) });
@@ -124,13 +124,14 @@ export async function archiveBookings(db: Db, raws: unknown[], now = new Date())
           .map((p) => `${p.participant_id}|${p.family_member_id ?? ""}`));
         for (const p of participants) {
           if (kept.has(`${p.participant_id}|${p.family_member_id ?? ""}`)) continue;
-          const gone = erased({ id: p.family_member_id ? null : p.participant_id, email: p.email });
+          const gone = erased({ id: p.family_member_id ? null : p.participant_id, email: p.email, at: r.starts_at });
           await trx.insertInto("playtomic_booking_player").values({ id: uuidv7(), booking_id: r.booking_id, participant_id: p.participant_id, family_member_id: p.family_member_id,
             name: gone ? null : p.name, email: gone ? null : p.email, accepts_commercial: gone ? null : p.accepts_commercial, participant_type: p.participant_type, is_owner: p.is_owner,
             person_id: gone ? null : who(p), erased_at: gone ? now : null }).execute();
         }
         written++;
       }
+      await learnErasedIds(trx, erased);
     });
   }
   return { read: rows.length, written, unreadable: raws.length - rows.length };
@@ -374,8 +375,8 @@ export async function comparison(db: Db | Trx, now: Date, days = 14) {
   const pt = await db.selectFrom("playtomic_booking").leftJoin("mirror_booking", (j) => j.on(sql<boolean>`mirror_booking.ref = playtomic_booking.booking_id || ':' || playtomic_booking.resource_id`))
     .leftJoin("booking", "booking.id", "playtomic_booking.taken_over_booking_id")
     .select(["playtomic_booking.booking_id", "playtomic_booking.court_id", "playtomic_booking.starts_at", "playtomic_booking.ends_at", "playtomic_booking.booking_type", "mirror_booking.status",
-      "booking.code", "booking.id as kumi_id", "booking.status as kumi_status", "booking.price_cents", "playtomic_booking.payment_status",
-      sql<string>`(SELECT coalesce(sum(p.amount_cents), 0) FROM payment p JOIN booking_player bp ON bp.id = p.booking_player_id WHERE bp.booking_id = booking.id AND p.status = 'succeeded')`.as("kumi_paid"),
+      "booking.code", "booking.id as kumi_id", "booking.status as kumi_status", "playtomic_booking.price_cents as pt_price", "playtomic_booking.payment_status",
+      sql<string>`(SELECT coalesce(sum(p.amount_cents), 0) FROM payment p JOIN booking_player bp ON bp.id = p.booking_player_id WHERE bp.booking_id = booking.id AND p.status = 'succeeded' AND p.method = 'playtomic')`.as("kumi_pt_paid"),
       sql<Date | null>`(SELECT lower(ct.during) FROM court_time ct WHERE ct.booking_id = booking.id AND ct.active ORDER BY ct.id DESC LIMIT 1)`.as("kumi_start"),
       sql<string | null>`(SELECT ct.court_id::text FROM court_time ct WHERE ct.booking_id = booking.id AND ct.active ORDER BY ct.id DESC LIMIT 1)`.as("kumi_court")])
     .where("playtomic_booking.canceled", "=", false).where("playtomic_booking.court_id", "in", ids)
@@ -400,7 +401,8 @@ export async function comparison(db: Db | Trx, now: Date, days = 14) {
       if (r.kumi_start && (new Date(r.kumi_start).getTime() !== new Date(r.starts_at).getTime() || r.kumi_court !== r.court_id))
         diffs.push({ key: `moved:${r.booking_id}:${new Date(r.starts_at).toISOString()}:${r.court_id}`, kind: "moved", ...base, code: r.code });
       // Owed here when it was taken over, and paid in Playtomic since: staff mark it paid there (booking.paid_in_playtomic).
-      if (r.payment_status === "PAID" && Number(r.kumi_paid) < (r.price_cents ?? 0))
+      // Measured against what Playtomic says it took, never the price here (time added here is owed here).
+      if (r.payment_status === "PAID" && Number(r.kumi_pt_paid) < (r.pt_price ?? 0))
         diffs.push({ key: `paid:${r.booking_id}`, kind: "paid", ...base, code: r.code, booking_id: r.kumi_id });
     } else if (r.status === "held" || r.status === "covered") c.held++;
     else if (r.status === "conflict") diffs.push({ key: `clash:${r.booking_id}`, kind: "clash", ...base });
@@ -464,14 +466,17 @@ export const bookingPaidInPlaytomic = defineAction({
 async function owedFromPlaytomic(db: Db | Trx, bookingId: string) {
   const b = await db.selectFrom("booking").select(["id", "code", "status", "price_cents", "organiser_id", "location_id"]).where("id", "=", bookingId).executeTakeFirst();
   if (!b) throw new KumiError("error.not_found", { thing: both("thing.booking") }, 404);
-  const twin = await playtomicTwin(db, bookingId);
+  const twin = await db.selectFrom("playtomic_booking").select(["payment_status", "price_cents"]).where("taken_over_booking_id", "=", bookingId).executeTakeFirst();
   if (!twin) throw new KumiError("error.not_from_playtomic");
-  if (twin.payment_status !== "PAID") throw new KumiError("error.not_paid_in_playtomic");
+  if (twin.payment_status !== "PAID" || twin.price_cents === null) throw new KumiError("error.not_paid_in_playtomic");
   if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
   const bp = await db.selectFrom("booking_player").select("id").where("booking_id", "=", bookingId).where("person_id", "=", b.organiser_id).where("removed_at", "is", null).executeTakeFirst();
-  const paid = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(sql<string>`coalesce(sum(payment.amount_cents), 0)`.as("c"))
+  const paid = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+    .select([sql<string>`coalesce(sum(payment.amount_cents), 0)`.as("all"), sql<string>`coalesce(sum(payment.amount_cents) FILTER (WHERE payment.method = 'playtomic'), 0)`.as("pt")])
     .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "succeeded").executeTakeFirstOrThrow();
-  const owed = b.price_cents - Number(paid.c);
+  // What Playtomic says was paid there, less what's already counted as paid there: never the price here, so time added
+  // here (owed at the desk) stays owed here.
+  const owed = Math.min(twin.price_cents - Number(paid.pt), b.price_cents - Number(paid.all));
   if (owed <= 0 || !bp || !b.organiser_id) throw new KumiError("error.booking_paid_in_full");
   return { ...b, owed, bp: bp.id };
 }
