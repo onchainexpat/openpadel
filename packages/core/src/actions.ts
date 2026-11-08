@@ -57,6 +57,9 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   /** What it changes belongs to no location unless the plan names one (a membership): a role kept to one location
    *  may do it too (permissions.ts, Subject.clubWide). */
   clubWide?: boolean;
+  /** The whole club's, never a location's (a message to everyone, the club's facts, a person's data): a role kept to
+   *  one location is refused it, in these words (permissions.ts, Subject.wholeClub), and the staff app hides it. */
+  wholeClub?: Key;
   /** Input it uses once and never keeps (a reason someone typed): left out of the stored input when the change is
    *  refused, taken out once it's applied, and out of a preview nobody confirmed once it expires (forgetStaleInputs). */
   forget?: string[];
@@ -283,7 +286,7 @@ export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
 
 /** What the permission check needs to know about how it was asked: through an assistant, and for an action that
  *  needs a strong sign-in (support access reaches neither). */
-const how = (def: ActionDef<any>, actor: Actor) => ({ assistant: actor.auth === "oauth" || Boolean(actor.grantId), strongAuth: Boolean(def.strongAuth), clubWide: Boolean(def.clubWide), memberOnly: Boolean(actor.memberOnly) });
+const how = (def: ActionDef<any>, actor: Actor) => ({ assistant: actor.auth === "oauth" || Boolean(actor.grantId), strongAuth: Boolean(def.strongAuth), clubWide: Boolean(def.clubWide), wholeClub: def.wholeClub, memberOnly: Boolean(actor.memberOnly) });
 
 /** Sensitive changes: a person with a passkey makes them signed in with it, or with two steps. */
 async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor, input: unknown): Promise<void> {

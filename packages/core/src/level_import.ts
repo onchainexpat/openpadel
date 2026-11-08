@@ -154,7 +154,7 @@ const confOf = (i: Confidence): Confidence => Object.fromEntries(Object.entries(
 
 /** Staff record a start they saw in the player's app, or looked up. They're the check; it applies at once. */
 export const levelImport = defineAction({
-  name: "level.import", version: 1,
+  name: "level.import", version: 1, clubWide: true,
   input: z.object({
     person_id: z.uuid(), platform: z.enum(PLATFORM_KEYS), value: valueInput, ...confInput,
     evidence: z.enum(["staff_seen", "public_lookup"]).check(z.describe("staff_seen: seen in the player's app; public_lookup: looked up on the app's public pages.")),
@@ -190,7 +190,7 @@ export const levelImport = defineAction({
 /** A player (or a parent, for their junior) says what their level is on another app. At or below the club's line it
  *  starts at once, as their own word; above it, or from an app whose scale Kumi doesn't convert, it waits for staff. */
 export const levelClaim = defineAction({
-  name: "level.claim", version: 1,
+  name: "level.claim", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid(), platform: z.enum(PLATFORM_KEYS), value: valueInput, ...confInput, last_played: dayInput }),
   async plan(ctx, i) {
     const conf = confOf(i);
@@ -222,7 +222,7 @@ export const levelClaim = defineAction({
 
 /** Take an import away while still new: the level is worked out again as if it never came, everyone's games replayed. */
 export const levelRemoveImport = defineAction({
-  name: "level.remove_import", version: 1,
+  name: "level.remove_import", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid() }),
   async plan(ctx, i) {
     const imp = (await activeImports(ctx.db, i.person_id))[0];

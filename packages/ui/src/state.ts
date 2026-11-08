@@ -23,6 +23,8 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   areas?: string[] | null;
   /** For those people: which of the staff screens' changes their roles allow (null: everyone else, as their role always has). */
   can?: string[] | null;
+  /** For a staff role kept to one location: the whole club's changes it can't make, whose buttons stay hidden. */
+  cannot?: string[];
   /** A junior with a login of their own: their parents' rules apply, and payments go on the family card. */
   kid?: { friends: boolean } | null;
   /** The day the club's Kumi ends (leaving.ts), for owners and managers: the staff app says so at the top. */
@@ -53,8 +55,9 @@ export type Club = { name: string; brand_colour: string; languages: string[]; de
   hosted?: boolean };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
-/** Whether to offer a button for a change: a role the club made may not allow it (the server decides either way). */
-export const mayDo = (action: string) => !me.value?.can || me.value.can.includes(action);
+/** Whether to offer a button for a change: a role the club made may not allow it, and a role kept to one location
+ *  doesn't make the whole club's changes (the server decides either way). */
+export const mayDo = (action: string) => (!me.value?.can || me.value.can.includes(action)) && !me.value?.cannot?.includes(action);
 /** The account was just deleted: the sign-in page says so. */
 export const farewell = signal(false);
 export const club = signal<Club | null>(null);

@@ -321,7 +321,7 @@ export const personUntag = defineAction({
 const stable = (o: unknown) => JSON.stringify(Object.fromEntries(Object.entries((o ?? {}) as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))));
 const segName = z.string().check(z.trim(), z.minLength(1), z.maxLength(60));
 export const segmentSave = defineAction({
-  name: "segment.save", version: 1,
+  name: "segment.save", version: 1, wholeClub: "reason.whole_club_groups",
   input: z.object({ name: segName, filters: filtersInput }),
   async plan(ctx, i) {
     const f = cleanFilters(i.filters), n = (await segmentMembers(ctx.db, f, ctx.now)).length;
@@ -336,7 +336,7 @@ export const segmentSave = defineAction({
 });
 
 export const segmentUpdate = defineAction({
-  name: "segment.update", version: 1,
+  name: "segment.update", version: 1, wholeClub: "reason.whole_club_groups",
   input: z.object({ segment_id: z.uuid(), name: z.optional(segName), filters: z.optional(filtersInput), active: z.optional(z.boolean()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "segment", i.segment_id, "thing.segment");
@@ -364,7 +364,7 @@ const text = z.optional(z.nullable(z.string().check(z.maxLength(5000))));
 const wordsShape = { subject_en: subject, body_en: text, subject_es: subject, body_es: text };
 
 export const templateSave = defineAction({
-  name: "template.save", version: 1,
+  name: "template.save", version: 1, wholeClub: "reason.whole_club_templates",
   input: z.object({ name: segName, ...wordsShape }),
   async plan(ctx, i) {
     await checkWords(ctx.db, cleanWords(i));
@@ -378,7 +378,7 @@ export const templateSave = defineAction({
 });
 
 export const templateUpdate = defineAction({
-  name: "template.update", version: 1,
+  name: "template.update", version: 1, wholeClub: "reason.whole_club_templates",
   input: z.object({ template_id: z.uuid(), name: z.optional(segName), ...wordsShape, active: z.optional(z.boolean()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "message_template", i.template_id, "thing.template");
@@ -428,7 +428,7 @@ async function outlook(db: Db | Trx, f: Filters, purpose: Purpose, now: Date, se
 const when = (d: Date, tz: string): Text => ({ en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) });
 
 export const broadcastSend = defineAction({
-  name: "broadcast.send", version: 1,
+  name: "broadcast.send", version: 1, wholeClub: "reason.whole_club_messages",
   input: z.object({ purpose: z.enum(["club_news", "service"]), segment_id: z.optional(z.uuid()), filters: z.optional(filtersInput), ...wordsShape,
     send_at: z.optional(z.iso.datetime({ offset: true })) }),
   async plan(ctx, i) {
@@ -547,7 +547,7 @@ export async function sendBroadcasts(db: Db, now = new Date()) {
 }
 
 export const broadcastCancel = defineAction({
-  name: "broadcast.cancel", version: 1,
+  name: "broadcast.cancel", version: 1, wholeClub: "reason.whole_club_messages",
   input: z.object({ broadcast_id: z.uuid() }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "broadcast", i.broadcast_id, "thing.broadcast");

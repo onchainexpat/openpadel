@@ -417,11 +417,15 @@ export function makeApp(deps: AppDeps) {
     const areas = me.gate ? null : await customAreas(db, me.id);
     // For those people, which of the buttons that start a change their roles allow (the server checks again).
     const can = areas ? await customCan(db, me.id, CLIENT_ACTIONS) : null;
+    // A staff role kept to one location: the whole club's changes it can't make (a message to a group, the club's
+    // facts, someone's data), so the staff app hides their buttons (the server refuses them either way).
+    const cannot = roles.some((r) => r.key !== "member" && r.location_id) ? (await Promise.all(actions().filter((d) => d.wholeClub && !d.internal)
+      .map(async (d) => ((await decide(db, d.name, { personId: me.id, locationId: null, at: now(), wholeClub: d.wholeClub })).mode === "no" ? d.name : null)))).filter((x): x is string => Boolean(x)) : [];
     // An account with no email (it joined by phone): the apps ask, never require, for one.
     const row = await db.selectFrom("person").select(["email", "created_via"]).where("id", "=", me.id).executeTakeFirst(), email = row?.email ?? null;
     // The day the club's Kumi ends (leaving.ts): for the top of the staff app, the owner's and managers' to see.
     const leaving = !me.gate && roles.some((r) => r.key === "owner" || r.key === "manager") ? await leavingOn(db) : null;
-    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can,
+    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can, cannot,
       has_email: Boolean(email), email, email_problem: email ? await personEmailProblem(db, me.id) : null, leaving, support: support ? { name: support.name, level: support.level, ends_at: support.ends_at } : null, support_now: supportNow,
       // An account made for support access whose access has ended: the staff app says so, rather than showing empty pages.
       support_ended: !support && row?.created_via === "support" });

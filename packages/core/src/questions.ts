@@ -98,7 +98,7 @@ const factInput = { topic, question_en: factText, answer_en: factText, question_
 const clean = (v: string | null | undefined) => (v ?? "").trim() || null;
 
 export const factCreate = defineAction({
-  name: "fact.create", version: 1,
+  name: "fact.create", version: 1, wholeClub: "reason.whole_club_facts",
   input: z.object({ ...factInput, from_message_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const f = { question_en: clean(i.question_en), answer_en: clean(i.answer_en), question_es: clean(i.question_es), answer_es: clean(i.answer_es) };
@@ -116,7 +116,7 @@ export const factCreate = defineAction({
 });
 
 export const factUpdate = defineAction({
-  name: "fact.update", version: 1,
+  name: "fact.update", version: 1, wholeClub: "reason.whole_club_facts",
   input: z.object({ fact_id: z.uuid(), topic: z.optional(topic), question_en: factText, answer_en: factText, question_es: factText, answer_es: factText,
     public: z.optional(z.boolean()), active: z.optional(z.boolean()) }),
   async plan(ctx, i) {
@@ -343,7 +343,7 @@ export const questionNotAnswered = toStaff("question.not_answered", "not_answere
 export const questionAskPerson = toStaff("question.ask_person", "wants_person");
 
 export const questionAnswer = defineAction({
-  name: "question.answer", version: 1,
+  name: "question.answer", version: 1, clubWide: true,
   input: z.object({ question_id: z.uuid(), body, close: z.optional(z.boolean()) }),
   async plan(ctx, i) {
     const { q, read } = await threadOf(ctx.db, i.question_id);
@@ -363,7 +363,7 @@ export const questionAnswer = defineAction({
 });
 
 export const questionAssign = defineAction({
-  name: "question.assign", version: 1,
+  name: "question.assign", version: 1, clubWide: true,
   input: z.object({ question_id: z.uuid(), to: z.nullable(z.uuid()) }),
   async plan(ctx, i) {
     const { q, read } = await threadOf(ctx.db, i.question_id);
@@ -387,7 +387,7 @@ export const questionAssign = defineAction({
 });
 
 export const questionClose = defineAction({
-  name: "question.close", version: 1,
+  name: "question.close", version: 1, clubWide: true,
   input: z.object({ question_id: z.uuid() }),
   async plan(ctx, i) {
     const { q, read } = await threadOf(ctx.db, i.question_id);

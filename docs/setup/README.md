@@ -344,7 +344,7 @@ Nothing to set up for the club; if the club uses Stripe, the webhook's `setup_in
 
 ### Step 5h: common questions and the staff inbox (optional, but worth an hour)
 
-Under Questions, Club facts, front desk writes the club's own answers to what members ask most: where
+Under Questions, Club facts, front desk with no location limit writes the club's own answers to what members ask most: where
 to park, the door code, what juniors bring, how to cancel. Each has a topic, and the question and the
 answer in each of the club's languages. Members see the switched-on ones as Common questions in the
 app (Ask), searched by plain words, before they ask anything, and the ones ticked "Also on the public
@@ -376,7 +376,8 @@ language's version, and the club's own words where there isn't one.
 
 ### Step 5i: messages to members (optional)
 
-Front desk and up write to members from Messages in the staff app. A message goes to a group: a set of
+Front desk and up write to members from Messages in the staff app (a front desk kept to one location doesn't: see
+"Signing in, roles and bots"). A message goes to a group: a set of
 filters (members on a plan, a level range, the club's own tags, who played lately or hasn't, adults or
 juniors, language, a program, a booking or place on a date, when they joined). Build one on the spot or
 save it under Groups with a name; a saved group means whoever matches when it's used, and the count
@@ -584,6 +585,15 @@ Not done yet, and each needs a decision before a club outside the US goes live:
 - **The club's own roles.** Settings, then Roles: make one from nothing or copy a built-in one, and pick
   what it can do, area by area. Give it to someone on their page. It holds only what a manager can do
   without asking, and the people who have it see only those areas in the staff app.
+- **A role kept to one location.** A staff role given for one location (in `club.yaml`, `location:`; or on
+  their page) works there: its bookings, courts, programs and payments. What belongs to no location it does
+  too: adding people and their juniors, tags on a person, members' questions, levels, and staff alerts that
+  aren't about one place (an alert about a booking or a program is its location's, so Eastside's front desk
+  doesn't mark Westside's handled). The whole club's own things stay with managers and the owner: messages to
+  a group of members, the groups, message templates, the club's facts, and downloading someone's data or
+  deleting their account. The staff app doesn't show those buttons to a role kept to one location, and the
+  server refuses them with a reason that says who does them. A role with no location keeps all of its
+  role's reach.
 - **Bot protection** is on by itself: sign-up, sign-in codes and card forms ask the browser to solve a
   small puzzle first, and a hidden field catches scripts that fill in everything. Nothing to set up. On a
   practice machine, `KUMI_BOT_CHECK=0` turns it off for scripts that sign in over the API; production

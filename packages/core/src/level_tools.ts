@@ -62,7 +62,7 @@ async function lastRequest(db: Db | Trx, personId: string): Promise<Date | null>
 }
 
 export const levelRequestReview = defineAction({
-  name: "level.request_review", version: 1,
+  name: "level.request_review", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid(), note: z.optional(z.string().check(z.maxLength(500))) }),
   async plan(ctx, i) {
     if (await ctx.db.selectFrom("level_review").select("id").where("person_id", "=", i.person_id).where("status", "=", "open").executeTakeFirst()) throw new KumiError("error.review_open");
@@ -84,7 +84,7 @@ export const levelRequestReview = defineAction({
 });
 
 export const levelSelfAdjust = defineAction({
-  name: "level.self_adjust", version: 1,
+  name: "level.self_adjust", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid(), level: levelInput }),
   async plan(ctx, i) {
     const s = await loadRating(ctx.db, i.person_id), target = round2(i.level);
@@ -154,7 +154,7 @@ export async function levelQueue(db: Db | Trx, now: Date) {
 }
 
 export const levelAnswerReview = defineAction({
-  name: "level.answer_review", version: 1,
+  name: "level.answer_review", version: 1, clubWide: true,
   // "accept": a level a player brought from another app (level_import.ts), checked by staff (the player showed them the
   // app, say): it starts there, at the confidence the evidence gives, unless staff give the start themselves.
   input: z.object({ person_id: z.uuid(), outcome: z.enum(["keep", "change", "accept"]), level: z.optional(levelInput), reason: z.optional(z.string().check(z.maxLength(300))) }),
@@ -231,7 +231,7 @@ export async function sessionPlayers(db: Db | Trx, sessionId: string) {
 }
 
 export const levelSetSession = defineAction({
-  name: "level.set_session", version: 1,
+  name: "level.set_session", version: 1, clubWide: true,
   input: z.object({ session_id: z.uuid(), reason: z.string().check(z.minLength(3), z.maxLength(300)),
     levels: z.array(z.object({ person_id: z.uuid(), level: levelInput })).check(z.minLength(1), z.maxLength(64)) }),
   async plan(ctx, i) {

@@ -22,7 +22,8 @@ type Item = { start: string; end: string; kind: string; booking_id?: string; cod
 type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
 type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; courts: Court[] };
 type Loc = { id: string; name: string; time_zone: string };
-type Alert = { event_id: string; kind: string; subject: string; body: string; link: string | null; at: string };
+/** can_handle: false for one at another location than a desk kept to one (the server says so for each). */
+type Alert = { event_id: string; kind: string; subject: string; body: string; link: string | null; at: string; can_handle?: boolean };
 type Alerts = { open: Alert[]; handled: (Alert & { handled_at: string; handled_by: string })[] };
 type Preview = (action: string, input: unknown) => Promise<void>;
 /** Where a dragged (or keyed) item would go: a court, a start, and how long. */
@@ -140,7 +141,7 @@ function AlertList({ a, clock, preview }: { a: Alerts; clock: (s: string) => str
               {/* The Playtomic wallets alert is done only on the move-in page, by saying they're at zero (brought_in.ts). */}
               {x.kind === "playtomic_wallets_staff" ? <span><a href={x.link ?? "/playtomic/move-in"}>{t("ui.alert_wallets_go")}</a></span>
                 : <span>{x.link && <a href={x.link}>{t("ui.open")}</a>}{" "}
-                  {mayDo("alert.handle") && <button class="small" onClick={() => preview("alert.handle", { event_id: x.event_id, kind: x.kind })}>{t("ui.alert_handled_button")}</button>}</span>}</div>
+                  {mayDo("alert.handle") && x.can_handle !== false && <button class="small" onClick={() => preview("alert.handle", { event_id: x.event_id, kind: x.kind })}>{t("ui.alert_handled_button")}</button>}</span>}</div>
           </li>))}</ul>
       )}
       {a.handled.length > 0 && <details><summary class="meta">{t("count.alerts_handled", { count: a.handled.length })}</summary>

@@ -4,7 +4,7 @@
 // switched-on ones as Common questions before they ask.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation, useRoute } from "preact-iso";
-import { api, lang, t, usePreview, clubTime } from "@kumi/ui";
+import { api, lang, mayDo, t, usePreview, clubTime } from "@kumi/ui";
 
 type Status = "open" | "answered" | "closed";
 type Row = { id: string; status: Status; waiting_since: string | null; alerted_at: string | null; created_at: string; asker: string; about: string | null; assignee: string | null; first: string; last_side: string | null };
@@ -64,7 +64,7 @@ export function QuestionPage() {
           {/* Kumi sent this fact by itself: which one, how sure, and what the member said about it. */}
           {m.kumi && <p class="meta">{t("ui.kumi_picked", { fact: m.kumi.fact, sure: m.kumi.confidence === null ? "" : t("ui.kumi_sure", { pct: Math.round(m.kumi.confidence * 100) }) })}
             {m.kumi.corrected && <><br />{t(m.kumi.corrected === "not_answered" ? "ui.kumi_not_answered" : "ui.kumi_wants_person")}</>}</p>}
-          {m.side === "staff" && <p><a class="small" href={`/facts?from=${d.id}&message=${m.id}`}>{t("ui.make_fact")}</a></p>}</li>)}</ul>
+          {m.side === "staff" && mayDo("fact.create") && <p><a class="small" href={`/facts?from=${d.id}&message=${m.id}`}>{t("ui.make_fact")}</a></p>}</li>)}</ul>
       </section>
       <section class="card card-form">
         <label>{t("ui.answer_label")}<textarea rows={4} maxLength={2000} value={text} onInput={(e) => setText(e.currentTarget.value)} /></label>
@@ -127,19 +127,20 @@ export function Facts() {
       <h1>{t("ui.club_facts")}</h1>
       <p class="meta">{t("ui.facts_help")}</p>
       {sheet}
-      <section class="card">
+      {/* The club's facts are kept by a manager or the owner: a role kept to one location reads them (mayDo). */}
+      {mayDo("fact.create") ? <section class="card">
         <h2>{t("ui.new_fact")}</h2>
         <FactForm key={`new-${key}-${prefill ? "q" : ""}`} start={prefill?.form ?? blank} from={prefill?.person} onSend={save(null, blank)} />
-      </section>
+      </section> : <p class="meta">{t("error.forbidden_reason", { reason: t("reason.whole_club_facts") })}</p>}
       {TOPICS.filter((x) => facts.some((f) => f.topic === x)).map((topic) => <section class="card" key={topic}>
         <h2>{t(`ui.topic_${topic}`)}</h2>
         <ul class="plain">{facts.filter((f) => f.topic === topic).map((f) => <li key={f.id}>
           <p><strong>{(lang.value === "es" ? f.question_es ?? f.question_en : f.question_en ?? f.question_es) ?? ""}</strong>
             {!f.active && <span class="badge muted">{t("ui.fact_hidden")}</span>}{f.public && f.active && <span class="badge">{t("ui.fact_on_public")}</span>}</p>
           <p class="pre meta">{(lang.value === "es" ? f.answer_es ?? f.answer_en : f.answer_en ?? f.answer_es) ?? ""}</p>
-          <p><button class="small" onClick={() => setEditing(editing === f.id ? null : f.id)}>{t("ui.edit")}</button>{" "}
-            <button class="small" onClick={() => preview("fact.update", { fact_id: f.id, active: !f.active })}>{t(f.active ? "ui.fact_hide" : "ui.fact_show")}</button></p>
-          {editing === f.id && <FactForm key={`${f.id}-${key}`} start={formOf(f)} onSend={save(f.id, formOf(f))} />}
+          {mayDo("fact.update") && <p><button class="small" onClick={() => setEditing(editing === f.id ? null : f.id)}>{t("ui.edit")}</button>{" "}
+            <button class="small" onClick={() => preview("fact.update", { fact_id: f.id, active: !f.active })}>{t(f.active ? "ui.fact_hide" : "ui.fact_show")}</button></p>}
+          {editing === f.id && mayDo("fact.update") && <FactForm key={`${f.id}-${key}`} start={formOf(f)} onSend={save(f.id, formOf(f))} />}
         </li>)}</ul>
       </section>)}
     </main>

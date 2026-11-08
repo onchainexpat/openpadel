@@ -333,7 +333,7 @@ async function subject(ctx: { db: Db | Trx; actor: { personId: string | null } }
 }
 
 export const privacyExport = defineAction({
-  name: "privacy.export", version: 1,
+  name: "privacy.export", version: 1, wholeClub: "reason.whole_club_privacy",
   input: z.object({ person_id: z.uuid() }),
   async plan(ctx, i) {
     const s = await subject(ctx, i.person_id);
@@ -362,7 +362,7 @@ export async function exportRun(db: Db, runId: string, actorId: string, now: Dat
 }
 
 export const privacyErase = defineAction({
-  name: "privacy.erase", version: 1, strongAuth: true,
+  name: "privacy.erase", version: 1, wholeClub: "reason.whole_club_privacy", strongAuth: true,
   input: z.object({ person_id: z.uuid() }),
   async plan(ctx, i) {
     const s = await subject(ctx, i.person_id);

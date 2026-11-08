@@ -3,7 +3,7 @@
 // means whoever matches when it's used; the count beside the filters says who that is now.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
-import { api, lang, t, usePreview, clubTime, serverNow, clubMoment } from "@kumi/ui";
+import { api, lang, mayDo, t, usePreview, clubTime, serverNow, clubMoment } from "@kumi/ui";
 
 type Filters = { membership?: string; plan_ids?: string[]; level_min?: number; level_max?: number; tag_ids?: string[]; played_within_days?: number; not_played_days?: number;
   age?: string; lang?: string; program_id?: string; on_date?: string; joined_from?: string; joined_to?: string };
@@ -26,7 +26,9 @@ const useOptions = () => {
   return [o, load] as const;
 };
 function Tabs({ on }: { on: string }) {
-  const tabs = [["/messages", "ui.messages_title"], ["/messages/new", "ui.new_message"], ["/groups", "ui.groups_title"], ["/templates", "ui.templates_title"]] as const;
+  // A role kept to one location doesn't send to a group (mayDo): no tab for a new message.
+  const tabs = ([["/messages", "ui.messages_title"], ["/messages/new", "ui.new_message"], ["/groups", "ui.groups_title"], ["/templates", "ui.templates_title"]] as const)
+    .filter(([href]) => href !== "/messages/new" || mayDo("broadcast.send"));
   return <p class="chips">{tabs.map(([href, k]) => <a class={href === on ? "chip on" : "chip"} href={href}>{t(k)}</a>)}</p>;
 }
 
@@ -104,9 +106,9 @@ export function Messages() {
             {t("ui.bc_reached", { people: t("count.people", { count: b.recipients }) })}{b.left_out ? ` · ${t("ui.bc_left_out", { count: b.left_out })}` : ""}<br />
             {t("ui.bc_email_counts", { sent: email.sent ?? 0, waiting, dropped: email.dropped ?? 0, failed: email.failed ?? 0 })}{b.email_days > 1 ? ` · ${t("ui.bc_spread", { days: b.email_days })}` : ""}</p>}
           <details><summary>{t("ui.bc_words")}</summary><p class="pre">{b.body}</p></details>
-          {b.status === "scheduled" && <button class="small" onClick={() => preview("broadcast.cancel", { broadcast_id: b.id })}>{t("ui.bc_cancel")}</button>}
+          {b.status === "scheduled" && mayDo("broadcast.cancel") && <button class="small" onClick={() => preview("broadcast.cancel", { broadcast_id: b.id })}>{t("ui.bc_cancel")}</button>}
           {/* Emails held for later (the daily cap, or quiet hours) can still be stopped; ones going out now can't, really. */}
-          {b.status === "sent" && waiting > 0 && b.next_email_at && new Date(b.next_email_at).getTime() > serverNow() + 2 * 60_000 &&
+          {b.status === "sent" && waiting > 0 && b.next_email_at && new Date(b.next_email_at).getTime() > serverNow() + 2 * 60_000 && mayDo("broadcast.cancel") &&
             <><p class="meta">{t("ui.bc_next_email", { when: when(b.next_email_at) })}</p><button class="small" onClick={() => preview("broadcast.cancel", { broadcast_id: b.id })}>{t("ui.bc_stop")}</button></>}
         </section>;
       })}
@@ -120,6 +122,7 @@ export function Compose() {
   const [segment, setSegment] = useState(""), [filters, setFilters] = useState<Filters>({}), [w, setW] = useState<Words>(blankWords);
   const [later, setLater] = useState(false), [at, setAt] = useState("");
   const { preview, sheet } = usePreview(() => route("/messages"));
+  if (!mayDo("broadcast.send")) return <main><h1>{t("ui.new_message")}</h1><Tabs on="/messages/new" /><p class="card">{t("error.forbidden_reason", { reason: t("reason.whole_club_messages") })}</p></main>;
   if (!o) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const use = (id: string) => { const x = o.templates.find((y) => y.id === id); if (x) setW({ subject_en: x.subject_en ?? "", body_en: x.body_en ?? "", subject_es: x.subject_es ?? "", body_es: x.body_es ?? "" }); };
   const langs = LANGS.filter(([l]) => o.languages.includes(l));
@@ -182,19 +185,19 @@ export function Groups() {
           <p><strong>{s.name}</strong> <span class="meta">{t("count.people", { count: s.people })}</span></p>
           <p class="meta">{s.what}</p>
           <p><a class="small" href={`/people?segment=${s.id}`}>{t("ui.see_people")}</a>{" "}
-            <button class="small" onClick={() => setEditing(editing === s.id ? null : s.id)}>{t("ui.edit")}</button>{" "}
-            <button class="small" onClick={() => preview("segment.update", { segment_id: s.id, active: false })}>{t("ui.remove")}</button></p>
-          {editing === s.id && <EditGroup start={s} o={o} onSend={(n, f) => preview("segment.update", { segment_id: s.id, name: n, filters: f })} />}
+            {mayDo("segment.update") && <><button class="small" onClick={() => setEditing(editing === s.id ? null : s.id)}>{t("ui.edit")}</button>{" "}
+            <button class="small" onClick={() => preview("segment.update", { segment_id: s.id, active: false })}>{t("ui.remove")}</button></>}</p>
+          {editing === s.id && mayDo("segment.update") && <EditGroup start={s} o={o} onSend={(n, f) => preview("segment.update", { segment_id: s.id, name: n, filters: f })} />}
         </li>)}</ul>}
       </section>
-      <section class="card">
+      {mayDo("segment.save") && <section class="card">
         <h2>{t("ui.new_group")}</h2>
         <FilterForm value={filters} onChange={setFilters} o={o} />
         <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("segment.save", { name: name.trim(), filters }); }}>
           <label>{t("ui.group_name")}<input required maxLength={60} value={name} onInput={(e) => setName(e.currentTarget.value)} /></label>
           <button class="primary">{t("ui.save_group")}</button>
         </form>
-      </section>
+      </section>}
       <section class="card">
         <h2>{t("ui.tags_title")}</h2>
         <p class="meta">{t("ui.tags_help")}</p>
@@ -242,15 +245,15 @@ export function Templates() {
         {!o.templates.length ? <p class="meta">{t("ui.no_templates")}</p> : <ul class="plain">{o.templates.map((x) => <li key={x.id}>
           <p><strong>{x.name}</strong></p>
           <p class="meta">{(lang.value === "es" ? x.subject_es ?? x.subject_en : x.subject_en ?? x.subject_es) ?? ""}</p>
-          <p><button class="small" onClick={() => setEditing(editing === x.id ? null : x.id)}>{t("ui.edit")}</button>{" "}
-            <button class="small" onClick={() => preview("template.update", { template_id: x.id, active: false })}>{t("ui.remove")}</button></p>
-          {editing === x.id && form(x.id, { name: x.name, subject_en: x.subject_en ?? "", body_en: x.body_en ?? "", subject_es: x.subject_es ?? "", body_es: x.body_es ?? "" })}
+          {mayDo("template.update") && <p><button class="small" onClick={() => setEditing(editing === x.id ? null : x.id)}>{t("ui.edit")}</button>{" "}
+            <button class="small" onClick={() => preview("template.update", { template_id: x.id, active: false })}>{t("ui.remove")}</button></p>}
+          {editing === x.id && mayDo("template.update") && form(x.id, { name: x.name, subject_en: x.subject_en ?? "", body_en: x.body_en ?? "", subject_es: x.subject_es ?? "", body_es: x.body_es ?? "" })}
         </li>)}</ul>}
       </section>
-      <section class="card">
+      {mayDo("template.save") && <section class="card">
         <h2>{t("ui.new_template")}</h2>
         {form(null, { name: "", ...blankWords })}
-      </section>
+      </section>}
     </main>
   );
 }

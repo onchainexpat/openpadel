@@ -10,8 +10,9 @@ export interface Decision { mode: Mode; reason?: Key; support?: string }
 /** `assistant`: asked through an assistant (MCP), where support access never reaches. `strongAuth`: the action
  *  needs a strong sign-in (actions.ts), which support access never stretches to. `clubWide`: the action's things
  *  belong to no location when they have none of their own (a membership), so a role kept to one location does
- *  them too; one with a location (a booking's refund) is still that location's. */
-export interface Subject { personId: string | null; agentId?: string | null; locationId?: string | null; ownerIds?: string[]; at: Date; assistant?: boolean; strongAuth?: boolean; clubWide?: boolean;
+ *  them too; one with a location (a booking's refund) is still that location's. `wholeClub`: the action is the whole
+ *  club's (a message to everyone, the club's facts), so a role kept to one location never does it, and this says why. */
+export interface Subject { personId: string | null; agentId?: string | null; locationId?: string | null; ownerIds?: string[]; at: Date; assistant?: boolean; strongAuth?: boolean; clubWide?: boolean; wholeClub?: Key;
   /** Only the member role counts: an assistant connection held to a member's reach (assistant_reach.ts). */
   memberOnly?: boolean }
 
@@ -73,7 +74,7 @@ async function decidePerson(db: Db | Trx, action: string, s: Subject & { personI
     if (!g) continue;
     let d: Decision = { mode: g.mode, ...(g.mode === "no" ? { reason: "reason.owner_only" as Key } : {}) };
     if (g.location_id && s.locationId && g.location_id !== s.locationId) d = { mode: "no", reason: "reason.other_location" };
-    else if (g.location_id && !s.locationId && !s.clubWide) d = { mode: "no", reason: "reason.other_location" };
+    else if (g.location_id && !s.locationId && !s.clubWide) d = { mode: "no", reason: s.wholeClub ?? "reason.other_location" };
     if (d.mode !== "no" && g.rows_scope === "own" && !(s.ownerIds ?? []).includes(s.personId)) d = { mode: "no", reason: "reason.own_only" };
     if (d.mode !== "no" && g.time_scope === "on_shift" && !(await onShift(db, s.personId, s.locationId, s.at))) d = { mode: "no", reason: "reason.off_shift" };
     if (rank[d.mode] > rank[best.mode] || (best.mode === "no" && d.mode === "no" && best.reason === "reason.no_role")) best = d;

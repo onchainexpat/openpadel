@@ -114,7 +114,7 @@ export async function recompute(ctx: ApplyCtx): Promise<void> {
 async function nameOf(db: Db | Trx, id: string | null) { return id ? (await readRow(db, "person", id, "thing.person")).row.display_name as string : ((await db.selectFrom("club").select("name").executeTakeFirst())?.name ?? ""); }
 
 export const levelSet = defineAction({
-  name: "level.set", version: 1,
+  name: "level.set", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid(), level: z.number().check(z.minimum(0), z.maximum(7)), reason: z.string().check(z.minLength(3)) }),
   async plan(ctx, i) {
     const s = await loadRating(ctx.db, i.person_id);
@@ -133,7 +133,7 @@ export const levelSet = defineAction({
 });
 
 export const levelSetFloor = defineAction({
-  name: "level.set_floor", version: 1,
+  name: "level.set_floor", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid(), floor: z.number().check(z.minimum(0), z.maximum(7)), reason: z.string().check(z.minLength(3)) }),
   async plan(ctx, i) {
     return { title: both("action.level.set_floor"), summary: both("plan.level.set_floor", { person: await nameOf(ctx.db, i.person_id), floor: lvl(i.floor), reason: i.reason }), reads: [], undo: { kind: "compensating" } };
