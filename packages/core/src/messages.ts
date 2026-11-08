@@ -283,7 +283,12 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     if (!items.length) return [];
     if (left.length === 1) return composers["booking.confirmed"]!(c, { booking_id: left[0] });
     const list = { en: items.map((x) => x.en).join("; "), es: items.map((x) => x.es).join("; ") };
-    return [{ to: p.person_id, kind: "booking_courts", params: { count: items.length, list, amount: amount(p.cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    // What the courts listed came to (each court's part of the one card payment), not the whole payment: one cancelled
+    // before this was written is told, with its refund, by its own cancellation.
+    const cents = left.length === p.booking_ids.length ? p.cents : Number((await c.db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+      .select(sql<string>`coalesce(sum(payment.amount_cents), 0)`.as("c")).where("booking_player.booking_id", "in", left).where("payment.person_id", "=", p.person_id)
+      .where("payment.status", "=", "succeeded").executeTakeFirstOrThrow()).c);
+    return [{ to: p.person_id, kind: "booking_courts", params: { count: items.length, list, amount: amount(cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "booking.cancelled"({ db }, p: { booking_id: string; by?: string | null }) {
     // The weeks of a weekly booking called off together are told once, by booking.repeat_ended.

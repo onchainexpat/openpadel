@@ -102,6 +102,23 @@ test("two courts paid together, one cancelled before the message was written: th
   }
 });
 
+test("three courts paid together, one cancelled before the message was written: the two listed, and what those two came to", async () => {
+  const hal = ((await run(db, "person.create", { display_name: "Hal", email: "hal@example.test" }, owner, { now: NOW })).result as any).person_id;
+  people.Hal = hal;
+  const out = (await courts("Hal", [slot(c1, at("2026-12-09", "08:00")), slot(c2, at("2026-12-09", "08:00"), 60), slot(c3, at("2026-12-09", "08:00"), 120)])).result as
+    { bookings: { booking_id: string; code: string }[]; payment_id: string; total_cents: number };
+  assert.equal(out.total_cents, 6000 + 4000 + 8000);
+  await openPayment(db, out.payment_id, hal);
+  stripe.settle(await ref(out.payment_id), "succeeded");
+  await checkPayment(db, out.payment_id, "test");
+  await run(db, "booking.cancel", { booking_id: out.bookings[2]!.booking_id }, as("Hal"), { now: NOW });
+  await deliver();
+  const m = await db.selectFrom("outbound_message").select(["subject", "body"]).where("person_id", "=", hal).where("channel", "=", "email").where("kind", "=", "booking_courts").executeTakeFirstOrThrow();
+  assert.equal(m.subject, "Booked: 2 courts");
+  assert.match(m.body, new RegExp(`booking ${out.bookings[0]!.code}\\); Court 2 .*booking ${out.bookings[1]!.code}\\)\\. \\$100\\.00 paid in one card payment\\.`));
+  assert.doesNotMatch(m.body, new RegExp(`${out.bookings[2]!.code}|\\$180`));
+});
+
 test("the rules: the same day, the same court not twice at once, the club's limit, and all or nothing", async () => {
   await rejects(plan(db, "booking.request_courts", { courts: [slot(c1, at("2026-12-03", "10:00")), slot(c2, at("2026-12-04", "10:00"))], person_id: people.Ben }, as("Ben"), { now: NOW }), "error.courts_same_day");
   await rejects(plan(db, "booking.request_courts", { courts: [slot(c1, at("2026-12-03", "10:00")), slot(c1, at("2026-12-03", "11:00"))], person_id: people.Ben }, as("Ben"), { now: NOW }), "error.court_taken");

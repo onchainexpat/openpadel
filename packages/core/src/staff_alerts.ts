@@ -65,7 +65,10 @@ export async function alertLocation(db: Db | Trx, eventId: string): Promise<stri
   const seat = id("booking_player_id"), enrolment = id("enrolment_id"), refund = id("refund_id"), thread = id("thread_id");
   if (seat) booking ??= (await db.selectFrom("booking_player").select("booking_id").where("id", "=", seat).executeTakeFirst())?.booking_id ?? null;
   if (thread) {
-    const t = await db.selectFrom("chat_thread").select(["kind", "ref_id"]).where("id", "=", thread).executeTakeFirst();
+    // A chat's game. The chat itself goes 90 days after the game (tidyChats) while its report can still be on Today:
+    // then the event's own kind and ref_id (chat.reported carries both) still say whose it is.
+    const t = await db.selectFrom("chat_thread").select(["kind", "ref_id"]).where("id", "=", thread).executeTakeFirst()
+      ?? (id("kind") && id("ref_id") ? { kind: id("kind")!, ref_id: id("ref_id")! } : undefined);
     if (t?.kind === "booking") booking ??= t.ref_id; else if (t?.kind === "session") session ??= t.ref_id;
   }
   if (refund && !booking && !program) {
