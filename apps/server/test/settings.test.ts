@@ -35,7 +35,7 @@ test("settings: the club and each location with its courts", async () => {
 
 test("closing sign-up is a club setting, previewed like any other", async () => {
   const p = await plan(db, "club.update", { sign_up_open: false }, owner);
-  assert.equal(p.plan.summary.en, "Change whether people can join by themselves.");
+  assert.equal(p.plan.summary.en, "Change whether people can join by themselves (no).");
   await run(db, "club.update", { sign_up_open: false }, owner);
   assert.equal((await db.selectFrom("club").select("sign_up_open").executeTakeFirstOrThrow()).sign_up_open, false);
   await run(db, "club.update", { sign_up_open: true }, owner);

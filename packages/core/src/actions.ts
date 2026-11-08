@@ -201,6 +201,17 @@ export function getAction(name: string): ActionDef<any> {
 export const PLAN_MINUTES = 15;
 const APPROVAL_DAYS = 7;
 const keyOf = (e: Entity, id: string) => `${e}:${id}`;
+/** Why an ask ended without a yes, for whoever looks at it later (the Changes page, a late approve). */
+export const ASK_ENDED = new Set(["error.ask_settled", "error.ask_out_of_date", "error.declined"]);
+/** After a change: asks still waiting that read anything it changed are out of date (they'd be refused at the yes:
+ *  "error.changed"), so they say so now. One query on what this change touched. */
+async function outdateAsks(trx: Trx, runId: string, by: string | null) {
+  const touched = await trx.selectFrom("entity_change").select(["entity", "entity_id"]).distinct().where("action_run_id", "=", runId).execute();
+  if (!touched.length) return;
+  const keys = touched.map((t) => `${t.entity}:${t.entity_id}`);
+  await sql`UPDATE action_run SET status = 'failed', error = ${JSON.stringify({ code: "error.ask_out_of_date", params: { by, run: runId } })}::jsonb
+    WHERE status = 'awaiting_approval' AND id <> ${runId} AND read_versions ?| ${keys}::text[]`.execute(trx);
+}
 
 async function currentVersion(db: Db | Trx, entity: Entity, id: string): Promise<number | null> {
   const { table, key } = ENTITIES[entity];
@@ -440,6 +451,9 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
         ...(def.forget?.length ? { input: JSON.stringify(kept(def, run.input)) } : {}),
         approved_by: opts.approvedBy ?? null, undo_until: p.undo.minutes ? new Date(now.getTime() + p.undo.minutes * 60_000) : null,
       }).where("id", "=", runId).execute();
+      // An ask still waiting that read something this change has just changed can never be done as it was asked: it's
+      // marked out of date, with a reason staff read, instead of waiting for a yes that would be refused.
+      await outdateAsks(trx, runId, runActor.personId ?? null);
       if (def.after) after = () => def.after!(db, run.input, result, { actor: runActor, now });
       return result;
     }));
@@ -469,6 +483,9 @@ export async function approve(db: Db, runId: string, approver: Actor, opts: { no
   const now = opts.now ?? new Date();
   const run = await db.selectFrom("action_run").selectAll().where("id", "=", runId).executeTakeFirst();
   if (!run) throw new KumiError("error.not_found", { thing: both("thing.change") }, 404);
+  // An ask that ended (done meanwhile, out of date, someone said no) says why, not just that it's "failed".
+  const ended = run.status === "failed" ? (run.error as { code?: string; params?: Record<string, unknown> } | null) : null;
+  if (ended?.code && ASK_ENDED.has(ended.code)) throw new KumiError(ended.code as Key, ended.params as any);
   if (run.actor_person_id === approver.personId) throw new KumiError("error.own_approval", {}, 403);
   const p = run.plan as Plan, def = getAction(run.action);
   // Saying yes to a change that needs a strong sign-in needs one too: the approver is the one making it happen.

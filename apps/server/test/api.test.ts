@@ -100,12 +100,12 @@ test("signed out callers are turned away", async () => {
 test("preview, then confirm once, through the API; the change shows in Changes", async () => {
   const cookie = await signIn(OWNER);
   const p = await call("/actions/club.update/plan", { body: { name: "Kestrel Padel Club" }, cookie });
-  assert.equal(p.status, 200); assert.equal(p.json.summary, "Change the name."); assert.equal(p.json.undo, "reversible");
+  assert.equal(p.status, 200); assert.equal(p.json.summary, "Change the name to Kestrel Padel Club."); assert.equal(p.json.undo, "reversible");
   const key = uuidv7();
   assert.equal((await call(`/runs/${p.json.run_id}/apply`, { method: "POST", cookie, headers: { "idempotency-key": key } })).status, 200);
   assert.equal((await call(`/runs/${p.json.run_id}/apply`, { method: "POST", cookie, headers: { "idempotency-key": key } })).status, 200);
   const changes = await call("/staff/changes", { cookie });
-  assert.equal(changes.json[0].summary, "Change the name."); assert.equal(changes.json[0].by, "Robin Hale");
+  assert.equal(changes.json[0].summary, "Change the name to Kestrel Padel Club."); assert.equal(changes.json[0].by, "Robin Hale");
 });
 
 test("a member is refused in Spanish and can't read Changes", async () => {

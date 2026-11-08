@@ -13,8 +13,8 @@ import { manifestRoutes } from "./manifest.ts";
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
-import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, productName, type Lang } from "@kumi/i18n";
-import { connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, productName, type Key, type Lang } from "@kumi/i18n";
+import { ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -486,7 +486,10 @@ export function makeApp(deps: AppDeps) {
         // deletions and money sent can't be put back, so the screen doesn't offer to (it used to, then refused).
         can_undo: r.status === "applied" && r.undo_kind !== "none" && r.action !== "action.undo" && r.action !== "club.setup" && (!r.undo_until || r.undo_until.getTime() > now().getTime()),
         can_answer: waiting && await mayAnswer(db, r, a.personId, now()), approved_by: r.approver_name ?? null, declined_by: declinedBy.get(r.id) ?? null,
-        reason: declinedBy.has(r.id) ? (r.error as { params?: { reason?: string | null } }).params?.reason ?? null : null });
+        reason: declinedBy.has(r.id) ? (r.error as { params?: { reason?: string | null } }).params?.reason ?? null : null,
+        // Why an ask ended without a yes, in words (done meanwhile by another change, out of date).
+        ended: r.status === "failed" && ASK_ENDED.has((r.error as { code?: string } | null)?.code ?? "") && (r.error as { code: string }).code !== "error.declined"
+          ? t(lang, (r.error as { code: string }).code as Key, {}) : null });
     }
     return c.json(out);
   });

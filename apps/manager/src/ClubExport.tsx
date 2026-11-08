@@ -7,22 +7,35 @@ import { api, ApiError, club, t, type Club, useBackCloses } from "@kumi/ui";
 type Made = { passphrase: string; name: string; bytes: number; download: string; minutes: number };
 
 export function ClubExport() {
-  const [pending, setPending] = useState<{ runId: string; summary: string } | null>(null), [made, setMade] = useState<Made | null>(null);
+  const [pending, setPending] = useState<{ runId: string; summary: string; ask?: { action: string; input: unknown } } | null>(null), [made, setMade] = useState<Made | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false), [making, setMaking] = useState(false), [error, setError] = useState<string | null>(null);
   useBackCloses(Boolean(pending), () => setPending(null));
   const guard = async (f: () => Promise<void>) => { setBusy(true); setError(null); try { await f(); } catch (e) { setError(e instanceof ApiError ? e.message : (e as Error).message); } finally { setBusy(false); } };
   const [moving, setMoving] = useState(false), [to, setTo] = useState("");
   const ask = () => guard(async () => {
     setMade(null); setMoving(false);
-    const p = await api<{ run_id: string; summary: string }>("/actions/club.export/plan", {});
-    setPending({ runId: p.run_id, summary: p.summary });
+    await look("club.export", {});
   });
+  // First a look: one that needs the owner's yes (a manager's) is shown, and asked for only when they say so.
+  const look = async (action: string, input: unknown) => {
+    setNote(null);
+    const p = await api<{ run_id: string; status: string; summary: string }>(`/actions/${action}/plan?ask=hold`, input);
+    if (p.status === "awaiting_approval") { setNote(`${p.summary} ${t("ui.sent_for_approval")}`); return; }
+    setPending({ runId: p.run_id, summary: p.summary, ...(p.status === "would_ask" ? { ask: { action, input } } : {}) });
+  };
   const move = (on: boolean) => guard(async () => {
     setMade(null); setMoving(true);
-    const p = await api<{ run_id: string; summary: string }>("/actions/club.moved/plan", { on, ...(on && to.trim() ? { to: to.trim() } : {}) });
-    setPending({ runId: p.run_id, summary: p.summary });
+    await look("club.moved", { on, ...(on && to.trim() ? { to: to.trim() } : {}) });
   });
   const confirm = () => guard(async () => {
+    const ask = pending!.ask;
+    if (ask) {
+      const a = await api<{ run_id: string; status: string; summary: string }>(`/actions/${ask.action}/plan`, ask.input);
+      if (a.status === "awaiting_approval") { setPending(null); setNote(t("ui.sent_for_approval")); return; }
+      setPending({ runId: a.run_id, summary: a.summary });   // no yes needed now: confirm it
+      return;
+    }
     const runId = pending!.runId;
     await api(`/runs/${runId}/apply`, {}, { "idempotency-key": runId });
     setPending(null);
@@ -39,7 +52,9 @@ export function ClubExport() {
       <p class="meta">{t("ui.export_help")}</p>
       {!made && <button disabled={busy} onClick={ask}>{t("ui.export_start")}</button>}
       {pending && <div class="sheet" role="dialog" aria-modal="true"><p>{pending.summary}</p>
-        <button class="primary" disabled={busy} onClick={confirm}>{t("ui.confirm")}</button> <button disabled={busy} onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
+        {pending.ask && <p class="meta">{t("ui.would_ask")}</p>}
+        <button class="primary" disabled={busy} onClick={confirm}>{t(pending.ask ? "ui.ask_for_yes" : "ui.confirm")}</button> <button disabled={busy} onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
+      {note && <p class="note" role="status">{note}</p>}
       {making && <p class="meta" role="status">{t("ui.export_making")}</p>}
       {made && <div class="sheet" role="status">
         <p>{t("ui.export_passphrase")}</p>

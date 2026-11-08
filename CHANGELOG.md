@@ -72,6 +72,17 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     already a member here, a plan that's full, a membership with no end date and a commitment period (kept in the note,
     not held to) are said in the preview, as is stopping the renewals in Playtomic.
 ### Fixed
+- **An ask the owner's own change made out of date waited for a yes it could never get.** A manager's ask (club
+  details, say) that read something the owner then changed directly is now marked out of date at once. The Changes
+  page says why ("Out of date: what it asked for has changed since..."), as it does for one done meanwhile by another
+  change, and approving either says the same instead of "it is failed". Asks to say the Playtomic wallets are being
+  set to zero, or are at zero, are settled when the owner says it, and approving one later never moves when the
+  zeroing started.
+- **A member's data download, the club's export and move, and an undo sent their ask on the first tap.** Like every
+  other change that needs someone's yes, each is shown first and asked for only when the person says so.
+- **A club setting's preview said only which setting changed** ("Change the legal name."). It says what to now: "the
+  legal name to Kestrel Padel LLC", "whether members book courts in the app (yes)".
+- **The Moving in page lost who uploaded the export** ("by -") and how many deleted members it left out.
 - **A member's own weekly court was refunded again when their account was deleted again after a restore (in 0.3.0
   to 0.4.0).** Putting a copy back from before a member ended their weekly court (refunded then by the club's rule)
   and deleted their account, Kumi deletes the account again, and ends the weekly court it finds with no money moving:

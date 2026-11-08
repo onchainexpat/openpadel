@@ -443,8 +443,11 @@ export const creditBroughtZeroing = defineAction({
     return { title: both("action.credit.brought_zeroing"), summary: both("plan.credit.brought_zeroing"), reads: [], undo: { kind: "none" } };
   },
   async apply(ctx) {
-    await ctx.update("club", "singleton", { brought_zeroing_at: ctx.now });
-    return null;
+    // Said already (an ask approved after the owner said it themselves): the time it started stays as it was.
+    const c = await ctx.trx.selectFrom("club").select(["brought_zeroing_at", "brought_wallets_zeroed_at"]).forUpdate().executeTakeFirstOrThrow();
+    if (!c.brought_zeroing_at && !c.brought_wallets_zeroed_at) await ctx.update("club", "singleton", { brought_zeroing_at: ctx.now });
+    await settleAsks(ctx, "credit.brought_zeroing", async () => false);
+    return c.brought_zeroing_at ? { already: true } : null;
   },
 });
 
@@ -459,7 +462,12 @@ export const creditBroughtZeroed = defineAction({
     return { title: both("action.credit.brought_zeroed"), summary: both("plan.credit.brought_zeroed"), reads: [], undo: { kind: "none" } };
   },
   async apply(ctx) {
+    const c = await ctx.trx.selectFrom("club").select("brought_wallets_zeroed_at").forUpdate().executeTakeFirstOrThrow();
+    if (c.brought_wallets_zeroed_at) { await settleAsks(ctx, "credit.brought_zeroed", async () => false); return { already: true }; }
     await ctx.update("club", "singleton", { brought_wallets_zeroed_at: ctx.now, brought_wallets_zeroed_by: ctx.actor.personId ?? null });
+    // Asks to say it, or to say the zeroing had started, are done with it.
+    await settleAsks(ctx, "credit.brought_zeroed", async () => false);
+    await settleAsks(ctx, "credit.brought_zeroing", async () => false);
     const open = await ctx.trx.selectFrom("event_outbox").select("id").where("topic", "=", "credit.brought_in")
       .where((eb) => eb.not(eb.exists(eb.selectFrom("staff_alert").select("staff_alert.id").whereRef("staff_alert.event_id", "=", "event_outbox.id").where("staff_alert.kind", "=", BROUGHT_ALERT)))).execute();
     for (const e of open) await ctx.insert("staff_alert", { id: uuidv7(), event_id: e.id, kind: BROUGHT_ALERT, handled_by: ctx.actor.personId ?? null, handled_at: ctx.now });

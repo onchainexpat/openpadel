@@ -4699,4 +4699,9 @@ export const es: { [K in keyof typeof en]: Message } = {
   "count.import_erased": { one: "{count} línea es de una cuenta borrada aquí y queda fuera.", other: "{count} líneas son de cuentas borradas aquí y quedan fuera.", many: "{count} líneas son de cuentas borradas aquí y quedan fuera."},
   "plan.person.create_erased": "Esta dirección era de una cuenta borrada aquí: su historial de Playtomic queda fuera, a menos que la persona inicie sesión por su cuenta.",
   "plan.person.import_nobody": "No hay nadie nuevo que agregar. No se envía ningún correo.",
+  "plan.field_to": "{field} a {value}",
+  "plan.field_yes": "{field} (sí)",
+  "plan.field_no": "{field} (no)",
+  "plan.value_none": "nada",
+  "error.ask_out_of_date": "Desactualizado: lo que se pidió cambió desde entonces, así que no se puede hacer como se pidió. Vuelve a pedirlo si todavía hace falta.",
 };

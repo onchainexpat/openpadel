@@ -49,8 +49,9 @@ test("setup is an action run, with its change log and outbox, and can't run twic
 test("plan shows the change in both languages; apply makes it and logs before and after", async () => {
   const p = await plan(db, "club.update", { name: "Kestrel Padel Club" }, owner);
   assert.equal(p.status, "planned");
-  assert.equal(p.plan.summary.en, "Change the name.");
-  assert.equal(p.plan.summary.es, "Cambiar el nombre.");
+  // What it changes to, not only which setting.
+  assert.equal(p.plan.summary.en, "Change the name to Kestrel Padel Club.");
+  assert.equal(p.plan.summary.es, "Cambiar el nombre a Kestrel Padel Club.");
   assert.equal((await club()).name, "Kestrel Padel", "nothing changes at plan time");
   await apply(db, p.runId, owner);
   assert.equal((await club()).name, "Kestrel Padel Club");

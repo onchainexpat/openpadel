@@ -624,6 +624,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const l = lang(c);
     // The latest upload of the club's export, as the server read it: what staff choose from (never sent back as rows).
     const up = upload ? { id: upload.id, sha256: upload.sha256, file_name: upload.file_name, at: upload.at, rows: upload.rows, wallet_columns: upload.wallet_columns,
+      uploaded_by: upload.uploaded_by, erased: upload.erased,
       problems: upload.problems.slice(0, 50).map((p) => ({ line: p.line, text: p.text[l] })), benefits: benefitCounts(upload.players) } : null;
     return c.json({ ...st, upload: up, has_keys: Boolean(process.env.KUMI_PLAYTOMIC_CLIENT_ID && process.env.KUMI_PLAYTOMIC_SECRET && process.env.KUMI_PLAYTOMIC_TENANT_ID),
       benefits: benefitCounts(kept.map((k) => ({ benefits: k.benefits as { name: string; until: string | null }[] }))),

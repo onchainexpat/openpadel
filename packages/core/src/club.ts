@@ -28,9 +28,27 @@ export const ROLE_KEYS = ["owner", "manager", "front_desk", "coach", "accountant
 const roleKey = z.string().check(z.minLength(1), z.maxLength(40));
 
 /** "the name and the time zone", in each language. */
-function fieldList(fields: string[]): Text {
-  const keys = fields.map((f) => `field.${f}` as Key);
-  return { en: keys.map((k) => both(k).en).join(", "), es: keys.map((k) => both(k).es).join(", ") };
+function fieldList(fields: string[], values?: Record<string, unknown>, currency = "USD"): Text {
+  const parts = fields.map((f) => {
+    const name = both(`field.${f}` as Key), raw = values?.[f];
+    // A yes-or-no setting reads "whether members book courts in the app (yes)"; the rest "the legal name to ...".
+    if (values && typeof raw === "boolean") return both(raw ? "plan.field_yes" : "plan.field_no", { field: name });
+    const v = values ? shownValue(f, raw, currency) : null;
+    return v ? both("plan.field_to", { field: name, value: v }) : name;
+  });
+  return { en: parts.map((p) => p.en).join(", "), es: parts.map((p) => p.es).join(", ") };
+}
+/** What a club setting changes to, in words for its preview ("the legal name to Kestrel Padel LLC"), or null where a
+ *  value isn't worth reading out (a long text, the other language's words, a code nobody reads). */
+function shownValue(field: string, v: unknown, currency: string): Text | string | null {
+  if (v === undefined || ["about", "translations", "two_factor"].includes(field)) return null;
+  if (v === null || v === "") return both("plan.value_none");
+  if (field === "tax_rate_bp" && typeof v === "number") return `${(v / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
+  if (field.endsWith("_cents") && typeof v === "number") return { en: money(v, "en", currency), es: money(v, "es", currency) };
+  if (Array.isArray(v)) return v.join(", ");
+  if (typeof v === "number") return String(v);
+  if (typeof v === "string") return v.length > 80 ? `${v.slice(0, 79)}...` : v;
+  return null;
 }
 const changed = (row: Record<string, unknown>, input: Record<string, unknown>) =>
   Object.keys(input).filter((k) => input[k] !== undefined && JSON.stringify(row[k]) !== JSON.stringify(input[k]));
@@ -133,7 +151,8 @@ export const clubUpdate = defineAction({
     // A gift card is at most about $5,000, in the club's currency.
     const cur = (i.currency ?? row.currency).toUpperCase();
     if (i.gift_card_max_cents !== undefined && i.gift_card_max_cents > capFor(500000, cur)) throw new KumiError("error.amount_range", { min: money(capFor(100, cur), "en", cur), max: money(capFor(500000, cur), "en", cur) });
-    const summary = both("plan.club.update", { fields: fieldList(fields) });
+    // What each changes to, so whoever says yes reads the new value, not only which setting.
+    const summary = both("plan.club.update", { fields: fieldList(fields, i as Record<string, unknown>, cur) });
     return { title: both("action.club.update"), summary: pausing ? { en: `${summary.en} ${both("plan.club.weekly_pause", { count: pausing }).en}`, es: `${summary.es} ${both("plan.club.weekly_pause", { count: pausing }).es}` } : summary,
       reads: [read], undo: { kind: "reversible" }, details: { fields } };
   },

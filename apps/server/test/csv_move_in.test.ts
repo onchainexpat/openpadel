@@ -82,7 +82,7 @@ test("the move-in page reads for the owner, and not for front desk; the latest u
   assert.deepEqual([s.json.players_read_at, s.json.credit_cents, s.json.memberships, s.json.upload, s.json.plans.map((p: any) => p.name)], [null, 0, 0, null, ["Gold"]]);
   await run(db, "playtomic.upload", { csv: "Name,Email,Wallet,Category,Expiry\nAnn,ann@example.test,10,Gold,2026-12-01\n", file_name: "export.csv" }, owner);
   const u = (await call("/staff/move-in", robin)).json.upload;
-  assert.deepEqual([u.file_name, u.rows, u.wallet_columns, u.benefits], ["export.csv", 1, [{ ref: "wallet", name: "Wallet" }], [{ name: "Gold", people: 1 }]]);
+  assert.deepEqual([u.file_name, u.rows, u.wallet_columns, u.benefits, u.uploaded_by, u.erased], ["export.csv", 1, [{ ref: "wallet", name: "Wallet" }], [{ name: "Gold", people: 1 }], "Robin Hale", 0]);
   // The rows themselves never go back and forth: a preview names the upload.
   assert.equal(u.players, undefined);
   assert.equal(await db.selectFrom("brought_credit").select("id").executeTakeFirst(), undefined);

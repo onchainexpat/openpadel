@@ -5,7 +5,7 @@ import { useBackCloses } from "./back.ts";
 import { api, ApiError, t } from "./state.ts";
 
 type Check = { blockers: { kind: string; text: string; how: string }[]; juniors: string[]; ends: string[] };
-type Pending = { kind: "export" | "erase"; runId: string; summary: string };
+type Pending = { kind: "export" | "erase"; runId: string; summary: string; ask?: boolean };
 
 export function AccountData({ personId, self, kid = false, onDeleted }: { personId: string; self: boolean; kid?: boolean; onDeleted: () => void }) {
   const [pending, setPending] = useState<Pending | null>(null), [blocked, setBlocked] = useState<Check["blockers"] | null>(null);
@@ -19,12 +19,19 @@ export function AccountData({ personId, self, kid = false, onDeleted }: { person
       const c = await api<Check>(`/my/privacy/check?person_id=${encodeURIComponent(personId)}`);
       if (c.blockers.length) { setBlocked(c.blockers); return; }
     }
-    const p = await api<{ run_id: string; status: "planned" | "awaiting_approval"; summary: string }>(`/actions/privacy.${kind}/plan`, { person_id: personId });
+    // First a look: one that needs the owner's yes is shown, and asked for only when the person says so (Preview.tsx).
+    const p = await api<{ run_id: string; status: "planned" | "awaiting_approval" | "would_ask"; summary: string }>(`/actions/privacy.${kind}/plan?ask=hold`, { person_id: personId });
     if (p.status === "awaiting_approval") { setNote(`${p.summary} ${t("ui.sent_for_approval")}`); return; }
-    setPending({ kind, runId: p.run_id, summary: p.summary });
+    setPending({ kind, runId: p.run_id, summary: p.summary, ask: p.status === "would_ask" });
   });
   const confirm = () => guard(async () => {
     const p = pending!;
+    if (p.ask) {
+      const a = await api<{ run_id: string; status: "planned" | "awaiting_approval"; summary: string }>(`/actions/privacy.${p.kind}/plan`, { person_id: personId });
+      if (a.status === "awaiting_approval") { setPending(null); setNote(t("ui.sent_for_approval")); return; }
+      setPending({ kind: p.kind, runId: a.run_id, summary: a.summary });   // no yes needed now: confirm it
+      return;
+    }
     const r = await api<{ result: { download?: string } }>(`/runs/${p.runId}/apply`, {}, { "idempotency-key": p.runId });
     setPending(null);
     if (p.kind === "export") { if (r.result.download) window.location.assign(r.result.download); setNote(t("ui.data_downloading")); }
@@ -40,7 +47,8 @@ export function AccountData({ personId, self, kid = false, onDeleted }: { person
       {self && kid && <p class="meta">{t("ui.data_kid")}</p>}
       {blocked && <div class="sheet" role="status"><p>{t("ui.data_blocked")}</p><ul>{blocked.map((b) => <li>{b.text}: <span class="meta">{b.how}</span></li>)}</ul></div>}
       {pending && <div class="sheet" role="dialog" aria-modal="true"><p>{pending.summary}</p>
-        <button class={pending.kind === "erase" ? "danger" : "primary"} disabled={busy} onClick={confirm}>{t("ui.confirm")}</button> <button disabled={busy} onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
+        {pending.ask && <p class="meta">{t("ui.would_ask")}</p>}
+        <button class={pending.kind === "erase" ? "danger" : "primary"} disabled={busy} onClick={confirm}>{t(pending.ask ? "ui.ask_for_yes" : "ui.confirm")}</button> <button disabled={busy} onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
       {note && <p class="note" role="status">{note}</p>}
       {error && <p class="error" role="alert">{error}</p>}
     </section>

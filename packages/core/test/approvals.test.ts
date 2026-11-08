@@ -75,7 +75,7 @@ test("saying no: nothing changes, it's kept as declined with who and why, and on
   await rejects(decline(db, asked.runId, { ...second, auth: "oauth", grantId: "g" }), "error.assistant_in_app");
   await decline(db, asked.runId, second, { reason: "  Too much for November  " });
   await rejects(decline(db, asked.runId, owner), "error.not_planned");
-  await rejects(approve(db, asked.runId, owner), "error.not_planned");
+  await rejects(approve(db, asked.runId, owner), "error.declined");
   assert.equal((await db.selectFrom("club").select("usage_cap_cents").executeTakeFirstOrThrow()).usage_cap_cents, before);
   const row = await runRow(asked.runId);
   assert.equal(row.status, "failed");

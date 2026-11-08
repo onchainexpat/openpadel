@@ -281,8 +281,14 @@ test("an owner's own run settles only the asks it covered: a manager's ask for o
 });
 
 test("once the owner says the wallets are being set to zero, a run only brings credit in", async () => {
-  assert.equal((await plan(db, "credit.brought_zeroing", {}, manager, opts)).status, "awaiting_approval");
+  const asked = await plan(db, "credit.brought_zeroing", {}, manager, opts);
+  assert.equal(asked.status, "awaiting_approval");
   await run(db, "credit.brought_zeroing", {}, owner, opts);
+  // The manager's ask is done with it, and approving it later says so, never moving when the zeroing started.
+  const since = (await db.selectFrom("club").select("brought_zeroing_at").executeTakeFirstOrThrow()).brought_zeroing_at!;
+  assert.equal((await db.selectFrom("action_run").select("status").where("id", "=", asked.runId).executeTakeFirstOrThrow()).status, "failed");
+  await rejects(approve(db, asked.runId, owner, { now: new Date(NOW.getTime() + 60_000) }), "error.ask_settled");
+  assert.equal((await db.selectFrom("club").select("brought_zeroing_at").executeTakeFirstOrThrow()).brought_zeroing_at!.toISOString(), since.toISOString());
   const zero = await upload("Name,Email,Wallet\nDee,dee@example.test,0\nIvy,ivy@example.test,4");
   await rejects(plan(db, "credit.bring_in", { ...zero, take_back: true }, owner, opts), "error.brought_zeroing_take_back");
   const s = (await plan(db, "credit.bring_in", zero, owner, opts)).plan.summary.en;

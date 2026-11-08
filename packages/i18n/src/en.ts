@@ -4698,4 +4698,9 @@ export const en = {
   "count.import_erased": { one: "{count} line belongs to an account deleted here and is left out.", other: "{count} lines belong to accounts deleted here and are left out."},
   "plan.person.create_erased": "This address belonged to an account deleted here: its Playtomic history stays out unless they sign in themselves.",
   "plan.person.import_nobody": "Nobody new to add. Nobody is emailed.",
+  "plan.field_to": "{field} to {value}",
+  "plan.field_yes": "{field} (yes)",
+  "plan.field_no": "{field} (no)",
+  "plan.value_none": "nothing",
+  "error.ask_out_of_date": "Out of date: what it asked for has changed since, so it can't be done as asked. Ask again if it's still wanted.",
 } as const;

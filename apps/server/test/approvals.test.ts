@@ -54,5 +54,6 @@ test("declining keeps it in Changes as declined, with who and why", async () => 
   assert.equal(no.status, 200, JSON.stringify(no.json));
   const row = (await req("/staff/changes", "mia")).json.find((r: any) => r.id === asked.json.run_id);
   assert.deepEqual([row.status, row.declined_by, row.reason, row.can_answer], ["declined", "Robin Hale", "Not this month", false]);
-  assert.equal((await req(`/runs/${asked.json.run_id}/approve`, "owner", {})).json.error, "error.not_planned");
+  // Approving it later says someone said no, not "it is failed".
+  assert.equal((await req(`/runs/${asked.json.run_id}/approve`, "owner", {})).json.error, "error.declined");
 });
