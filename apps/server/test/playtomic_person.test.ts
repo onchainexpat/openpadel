@@ -49,3 +49,13 @@ test("front desk sees who a person played with in Playtomic; a coach sees the bo
   assert.equal(coach.status, 200, "her own student's page");
   assert.deepEqual(coach.json.playtomic.map((b: any) => [b.court, b.others]), [["Padel 1", []]]);
 });
+
+test("the desk adds someone at a deleted member's address: nothing comes back until they sign in themselves, and then it does", async () => {
+  const pia = ((await run(db, "person.create", { display_name: "Pia", email: "pia@example.test" }, owner)).result as any).person_id;
+  await run(db, "privacy.erase", { person_id: pia }, { personId: pia, via: "test", lang: "en" });
+  const rows = () => db.selectFrom("playtomic_erased").select("rejoined_at").where("erased_person_id", "=", pia).execute();
+  await run(db, "person.create", { display_name: "Pia Again", email: "pia@example.test" }, owner);
+  assert.ok((await rows()).length > 0 && (await rows()).every((r) => !r.rejoined_at), "the desk lifted nothing");
+  await signIn("pia@example.test");
+  assert.ok((await rows()).every((r) => r.rejoined_at), "their own first sign-in did");
+});

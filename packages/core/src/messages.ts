@@ -222,8 +222,9 @@ async function seriesInfo(db: Db, seriesId: string) {
     base: { court: s.court, weekday: f({ weekday: "long" }), time: f({ hour: "numeric", minute: "2-digit" }), minutes: s.minutes } };
 }
 /** What a change to a booking means for one player's money: more to pay at the desk (the organiser), or what goes back. */
-function changeMoney(personId: string, organiserId: string | null, p: { owed: number; refunds: Record<string, number>; desk?: Record<string, number>; credit?: Record<string, number> }): Text {
-  if (p.refunds[personId] || p.desk?.[personId] || p.credit?.[personId]) return backWords(p.refunds[personId] ?? 0, p.desk?.[personId] ?? 0, p.credit?.[personId] ?? 0);
+function changeMoney(personId: string, organiserId: string | null, p: { owed: number; refunds: Record<string, number>; desk?: Record<string, number>; credit?: Record<string, number>; playtomic?: Record<string, number> }): Text {
+  if (p.refunds[personId] || p.desk?.[personId] || p.credit?.[personId] || p.playtomic?.[personId])
+    return backWords(p.refunds[personId] ?? 0, p.desk?.[personId] ?? 0, p.credit?.[personId] ?? 0, p.playtomic?.[personId] ?? 0);
   if (p.owed > 0 && personId === organiserId) return both("msg.change_owed", { amount: amount(p.owed) });
   return NOTHING;
 }
@@ -297,13 +298,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   // Staff moved a booking or changed its length: everyone in it hears the new time, and what it means for money
   // (more to pay at the desk, for the organiser; what goes back, for each player it goes back to).
-  async "booking.moved"({ db }, p: { booking_id: string; from: Text; to: Text; owed: number; refunds: Record<string, number> }) {
+  async "booking.moved"({ db }, p: { booking_id: string; from: Text; to: Text; owed: number; refunds: Record<string, number>; desk?: Record<string, number>; credit?: Record<string, number>; playtomic?: Record<string, number> }) {
     const b = await bookingInfo(db, p.booking_id), lesson = b.kind === "lesson";
     const drafts: Draft[] = b.players.filter((pl) => pl.person_id).map((pl) => ({ to: pl.person_id!, kind: lesson ? "lesson_moved" : "booking_moved",
       params: { ...b.base, from: p.from, to: p.to, money: changeMoney(pl.person_id!, b.organiser_id, p) }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
     return [...drafts, ...toCoach(b, "coach_lesson_moved", { essential: true }).map((d) => ({ ...d, params: { ...d.params, from: p.from, to: p.to } }))];
   },
-  async "booking.resized"({ db }, p: { booking_id: string; old: number; until: Text; owed: number; refunds: Record<string, number> }) {
+  async "booking.resized"({ db }, p: { booking_id: string; old: number; until: Text; owed: number; refunds: Record<string, number>; desk?: Record<string, number>; credit?: Record<string, number>; playtomic?: Record<string, number> }) {
     const b = await bookingInfo(db, p.booking_id), lesson = b.kind === "lesson";
     const drafts: Draft[] = b.players.filter((pl) => pl.person_id).map((pl) => ({ to: pl.person_id!, kind: lesson ? "lesson_resized" : "booking_resized",
       params: { ...b.base, old: p.old, until: p.until, money: changeMoney(pl.person_id!, b.organiser_id, p) }, purpose: "account" as const, essential: true, email: true, link: "/places" }));

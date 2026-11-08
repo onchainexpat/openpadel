@@ -194,10 +194,10 @@ export const bookingMove = defineAction({
     const refunds = d.back ? await giveBack(ctx, b.id, d.back.cards) : {}, credit = d.back ? await giveBackAtDesk(ctx, b.id, d.back.credit ?? 0, "credit") : {},
       desk = d.back ? await giveBackAtDesk(ctx, b.id, d.back.desk ?? 0) : {};
     // Paid in Playtomic: that part goes back there (the managers are told), and counts as given back.
-    if (d.back?.playtomic?.length) await givenBackInPlaytomic(ctx, b.id, d.back.playtomic);
+    const playtomic = d.back?.playtomic?.length ? await givenBackInPlaytomic(ctx, b.id, d.back.playtomic) : {};
     // A reminder already sent was for the old time: the new one gets its own.
     if (b.reminded_at && start.getTime() - ctx.now.getTime() > REMINDER_HOURS * 3600_000) await ctx.update("booking", b.id, { reminded_at: null });
-    await ctx.emit("booking.moved", { booking_id: b.id, from: d.from, to: d.to, owed: d.owed, refunds, desk, credit });
+    await ctx.emit("booking.moved", { booking_id: b.id, from: d.from, to: d.to, owed: d.owed, refunds, desk, credit, playtomic });
     return { booking_id: b.id };
   },
 });
@@ -248,8 +248,8 @@ export const bookingExtend = defineAction({
     const refunds = d.back ? await giveBack(ctx, b.id, d.back.cards) : {}, credit = d.back ? await giveBackAtDesk(ctx, b.id, d.back.credit ?? 0, "credit") : {},
       desk = d.back ? await giveBackAtDesk(ctx, b.id, d.back.desk ?? 0) : {};
     // Paid in Playtomic: that part goes back there (the managers are told), and counts as given back.
-    if (d.back?.playtomic?.length) await givenBackInPlaytomic(ctx, b.id, d.back.playtomic);
-    await ctx.emit("booking.resized", { booking_id: b.id, old: b.minutes, until: d.until, owed: d.owed, refunds, desk, credit });
+    const playtomic = d.back?.playtomic?.length ? await givenBackInPlaytomic(ctx, b.id, d.back.playtomic) : {};
+    await ctx.emit("booking.resized", { booking_id: b.id, old: b.minutes, until: d.until, owed: d.owed, refunds, desk, credit, playtomic });
     return { booking_id: b.id };
   },
 });

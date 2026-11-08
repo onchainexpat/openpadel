@@ -1,7 +1,7 @@
 // People whose account here was deleted, as Playtomic knows them (migration 102). Erasing a person (privacy.ts) marks
 // them here first; every later read of Playtomic, its bookings (playtomic_archive.ts, three months back included) and
 // its players (brought_in.ts), asks erasedMatcher and keeps anyone it matches out, without a name, email or phone. A
-// person who comes back (migration 105) starts fresh from that day.
+// person who comes back by their own act (markRejoined) starts fresh from that day; nothing staff do brings them back.
 // Kept: Playtomic's own id for them, and a one-way hash of each address salted with the club's own random value,
 // never the address.
 import { createHash } from "node:crypto";
@@ -32,6 +32,32 @@ export async function markErased(trx: Trx, personId: string, emails: string[], n
   for (const a of addresses) n += Number((await trx.insertInto("playtomic_erased").values({ id: uuidv7(), email_hash: emailHash(s, a), ...fresh })
     .onConflict((oc) => oc.column("email_hash").where("email_hash", "is not", null).doUpdateSet(fresh)).executeTakeFirst()).numInsertedOrUpdatedRows ?? 0);
   return n;
+}
+
+/**
+ * Someone deleted here who comes back by their own act: signing up themselves (person.sign_up), adding or changing their
+ * own address (email.add, email.change without staff), or the first sign-in that proves the address on an account
+ * the desk made for them. Never what staff do (an import, support access, the desk's person.create, a staff email
+ * change): those leave the person marked. Every marker row of the deleted account is lifted from now (what Playtomic
+ * holds from before stays out), and their upcoming bookings in the archive are read afresh at the next read, so what's
+ * theirs from now comes in by name. Returns how many marker rows it lifted.
+ */
+export async function markRejoined(trx: Trx, personId: string, now: Date): Promise<number> {
+  const p = await trx.selectFrom("person").select(["email", "redacted_at", "created_via"]).where("id", "=", personId).executeTakeFirst();
+  if (!p || p.redacted_at || p.created_via === "support") return 0;
+  const more = await trx.selectFrom("auth_identity").select("value").where("person_id", "=", personId).where("kind", "=", "email").execute();
+  const s = await salt(trx), hashes = [...new Set([p.email, ...more.map((m) => m.value)].filter((e): e is string => Boolean(e) && e!.includes("@")).map((e) => emailHash(s, e)))];
+  if (!hashes.length) return 0;
+  const hit = await trx.selectFrom("playtomic_erased").select(["id", "erased_person_id"]).where("email_hash", "in", hashes).where("rejoined_at", "is", null).execute();
+  if (!hit.length) return 0;
+  const people = [...new Set(hit.map((h) => h.erased_person_id).filter((x): x is string => Boolean(x)))];
+  const rows = await trx.updateTable("playtomic_erased").set({ rejoined_at: now }).where("rejoined_at", "is", null)
+    .where((w) => w.or([w("id", "in", hit.map((h) => h.id)), ...(people.length ? [w("erased_person_id", "in", people)] : [])])).returning("playtomic_id").execute();
+  // Their upcoming bookings already in the archive (kept nameless until now) are written again at the next read.
+  const ids = rows.map((r) => r.playtomic_id).filter((x): x is string => Boolean(x));
+  if (ids.length) await trx.updateTable("playtomic_booking").set({ row_hash: "rejoined" })
+    .where("starts_at", ">=", now).where("booking_id", "in", trx.selectFrom("playtomic_booking_player").select("booking_id").where("participant_id", "in", ids)).execute();
+  return rows.length;
 }
 
 export interface ErasedMatcher {

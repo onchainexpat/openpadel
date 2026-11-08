@@ -7,7 +7,7 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { sql } from "kysely";
 import { t, type Lang } from "@kumi/i18n";
-import { countText, KumiError, runAsSystem, segments, textAllowed, textingOn, textWords, TextError, UNSUBSCRIBED, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
+import { countText, KumiError, markRejoined, runAsSystem, segments, textAllowed, textingOn, textWords, TextError, UNSUBSCRIBED, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import type { Mailer } from "./mailer.ts";
 import { countCodes, lockCodes, PER_CLUB, PER_NUMBER } from "./texts.ts";
 
@@ -106,7 +106,12 @@ async function startSession(db: Db, personId: string, userAgent: string | null, 
   await db.transaction().execute(async (trx) => {
     await trx.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", challengeId).execute();
     await trx.insertInto("web_session").values({ token_hash: sha(token), person_id: personId, expires_at: new Date(now.getTime() + SESSION_DAYS * 864e5), last_seen_at: now, user_agent: userAgent, revoked_at: null, method }).execute();
-    if (method === "email_code") await trx.updateTable("auth_identity").set({ verified_at: now }).where("person_id", "=", personId).where("kind", "=", "email").where("verified_at", "is", null).execute();
+    if (method === "email_code") {
+      const proven = await trx.updateTable("auth_identity").set({ verified_at: now }).where("person_id", "=", personId).where("kind", "=", "email").where("verified_at", "is", null).returning("id").execute();
+      // Their first sign-in with an address the desk gave them: their own act, so an account deleted here at this address
+      // comes back from now (playtomic_erased.ts; support logins never do).
+      if (proven.length) await markRejoined(trx, personId, now);
+    }
   });
   return token;
 }

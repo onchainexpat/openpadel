@@ -4696,4 +4696,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.movein_zeroing": "Los monederos se están dejando en cero en Playtomic desde el {when}: cada vez solo se trae crédito.",
   "ui.movein_cap": "Límite para el crédito de una persona",
   "ui.movein_cap_help": "openPadel no puede calcular su límite de $10,000 en la moneda del club, así que indica uno.",
+  "count.import_erased": { one: "{count} línea es de una cuenta borrada aquí y queda fuera.", other: "{count} líneas son de cuentas borradas aquí y quedan fuera.", many: "{count} líneas son de cuentas borradas aquí y quedan fuera."},
+  "plan.person.create_erased": "Esta dirección era de una cuenta borrada aquí: su historial de Playtomic queda fuera, a menos que la persona inicie sesión por su cuenta.",
+  "plan.person.import_nobody": "No hay nadie nuevo que agregar. No se envía ningún correo.",
 };

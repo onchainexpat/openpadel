@@ -1,5 +1,6 @@
 // The first actions: setting up the club, its details, locations, roles and profiles.
 import { sql } from "kysely";
+import { erasedMatcher, markRejoined } from "./playtomic_erased.ts";
 import * as z from "zod/mini";
 import { both, capFor, currencyProblem, money, setClubFormat, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
@@ -195,7 +196,12 @@ export const personCreate = defineAction({
   async plan(ctx, i) {
     const email = i.email?.trim().toLowerCase();
     if (email && await ctx.db.selectFrom("person").select("id").where((eb) => eb(eb.fn("lower", ["email"]), "=", email)).executeTakeFirst()) throw new KumiError("error.duplicate_email");
-    return { title: both("action.person.create"), summary: both("plan.person.create", { name: i.display_name, email: email ?? "-" }), reads: [], undo: { kind: "compensating" } };
+    const base = both("plan.person.create", { name: i.display_name, email: email ?? "-" });
+    // An address of an account deleted here: they may be standing at the desk, so they can be added; what Playtomic holds
+    // of the deleted account stays out until they sign in themselves (playtomic_erased.ts). Nothing of it is named.
+    const marked = email ? (await erasedMatcher(ctx.db, { ids: [], emails: [email] }))({ email }) : false;
+    const summary = marked ? { en: `${base.en} ${both("plan.person.create_erased").en}`, es: `${base.es} ${both("plan.person.create_erased").es}` } : base;
+    return { title: both("action.person.create"), summary, reads: [], undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
     const id = uuidv7(), email = i.email?.trim().toLowerCase() ?? null;
@@ -226,9 +232,10 @@ export const personImport = defineAction({
     const p = await importPlan(ctx.db, i.rows);
     const people = both("count.people", { count: p.add.length });
     const already = both("count.already_here", { count: p.skipped });
-    const base = !p.skipped ? both("plan.person.import", { people })
+    const base = !p.add.length && !p.skipped ? both("plan.person.import_nobody") : !p.skipped ? both("plan.person.import", { people })
       : p.add.length ? both("plan.person.import_skipped", { people, already }) : both("plan.person.import_none", { already });
-    const more = ([[p.updated, "count.import_updated"], [p.levels, "count.import_levels"], [p.news, "count.import_news"], [p.phoneBad, "count.import_phone_bad"], [p.phoneTaken, "count.import_phone_taken"]] as const)
+    const more = ([[p.updated, "count.import_updated"], [p.levels, "count.import_levels"], [p.news, "count.import_news"], [p.phoneBad, "count.import_phone_bad"], [p.phoneTaken, "count.import_phone_taken"],
+      [p.gone, "count.import_erased"]] as const)
       .filter(([n]) => n > 0).map(([n, k]) => both(k, { count: n }));
     const summary = more.length ? { en: `${base.en} ${more.map((m) => m.en).join(" ")}`, es: `${base.es} ${more.map((m) => m.es).join(" ")}` } : base;
     return { title: both("action.person.import"), summary, reads: [], undo: { kind: "compensating" }, details: { add: p.add.length, skipped: p.skipped, updated: p.updated, levels: p.levels } };
@@ -266,11 +273,16 @@ async function importPlan(db: Db | Trx, rows: ImportRow[]) {
   const byEmail = new Map(emails.length ? (await db.selectFrom("person").select(["id", sql<string>`lower(email)`.as("e")]).where(sql<string>`lower(email)`, "in", emails).execute()).map((r) => [r.e, r.id]) : []);
   const byPt = new Map(ids.length ? (await db.selectFrom("external_ref").select(["external_id", "entity_id"]).where("system", "=", "playtomic").where("entity", "=", "person").where("external_id", "in", ids).execute()).map((r) => [r.external_id, r.entity_id]) : []);
   const seenEmail = new Set<string>(), seenPt = new Set<string>(), seenPhone = new Set<string>();
+  // A line for an account deleted here (by its Playtomic id or address, playtomic_erased.ts) is left out, counted and
+  // never named: an import is staff's act, and never brings someone back (only their own act does).
+  const erased = await erasedMatcher(db, { ids, emails });
+  let gone = 0;
   const out: { row: ImportRow; personId: string | null; email?: string; phone: string | null; link: boolean; news: boolean; level: ImportRow["level"] | null }[] = [];
   let skipped = 0, updated = 0, phoneBad = 0, phoneTaken = 0, levels = 0, news = 0;
   for (const row of rows) {
     const email = row.email?.trim().toLowerCase(), pt = row.playtomic_id?.trim();
     if ((email && seenEmail.has(email)) || (pt && seenPt.has(pt))) { skipped++; continue; }   // the same person twice in the file
+    if (erased({ id: pt ?? null, email: email ?? null })) { gone++; continue; }
     if (email) seenEmail.add(email);
     if (pt) seenPt.add(pt);
     const personId = (pt ? byPt.get(pt) : undefined) ?? (email ? byEmail.get(email) : undefined) ?? null;
@@ -301,7 +313,7 @@ async function importPlan(db: Db | Trx, rows: ImportRow[]) {
     if (personId) updated++;
     out.push({ row, personId, ...(email ? { email } : {}), phone, link, news: yes, level });
   }
-  return { rows: out, add: out.filter((r) => !r.personId), skipped, updated, phoneBad, phoneTaken, levels, news };
+  return { rows: out, add: out.filter((r) => !r.personId), skipped, updated, phoneBad, phoneTaken, levels, news, gone };
 }
 
 /** Someone joins by themselves, after proving their email address or (by a texted code) their mobile number.
@@ -340,6 +352,8 @@ export const personSignUp = defineAction({
     if (email) await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: id, channel: "email", purpose: "club_news", granted: i.club_news, source: "sign_up", form_version: SIGN_UP_FORM, evidence: JSON.stringify({ at: ctx.now.toISOString() }) }).execute();
     const agreed = (plan.details as { policies: { terms_url: string | null; privacy_policy_url: string | null } | null }).policies;
     if (agreed) await ctx.trx.insertInto("policy_acceptance").values({ id: uuidv7(), person_id: id, ...agreed, lang: i.locale, source: "sign_up", accepted_at: ctx.now }).execute();
+    // Their own act: someone whose account here was deleted, signing up again, comes back from today (playtomic_erased.ts).
+    await markRejoined(ctx.trx, id, ctx.now);
     await ctx.emit("person.signed_up", { person_id: id });
     return { person_id: id };
   },
@@ -363,6 +377,8 @@ export const emailAdd = defineAction({
     const email = i.email.trim().toLowerCase();
     await ctx.update("person", i.person_id, { email });
     await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: i.person_id, kind: "email", value: email, verified_at: ctx.now }).execute();
+    // Proven by the person themselves (not staff at the desk): an address of a deleted account comes back from now.
+    if (!i.by || i.by === i.person_id) await markRejoined(ctx.trx, i.person_id, ctx.now);
     return null;
   },
 });
@@ -386,6 +402,8 @@ export const emailChange = defineAction({
     await ctx.update("person", i.person_id, { email });
     const had = await ctx.trx.updateTable("auth_identity").set({ value: email, verified_at: ctx.now }).where("person_id", "=", i.person_id).where("kind", "=", "email").returning("id").execute();
     if (!had.length) await ctx.trx.insertInto("auth_identity").values({ id: uuidv7(), person_id: i.person_id, kind: "email", value: email, verified_at: ctx.now }).execute();
+    // Proven by the person themselves (not staff at the desk): an address of a deleted account comes back from now.
+    if (!i.by || i.by === i.person_id) await markRejoined(ctx.trx, i.person_id, ctx.now);
     return null;
   },
 });

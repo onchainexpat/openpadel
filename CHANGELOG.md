@@ -19,9 +19,12 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     person's on their page, read only (a coach without who they played with, as in Kumi's own list); it comes with the
     member's data download; and their name and email go from it with their account. Deleting an account marks the
     person, by their Playtomic id and a salted one-way hash of each address (never the address; ids are learned as
-    they're matched), so no later read of Playtomic, bookings or players, brings them back. Someone who joins again
-    with the same address starts fresh from that day: what Playtomic holds from before stays out, what's theirs after
-    comes in.
+    they're matched), so no later read of Playtomic, bookings or players, brings them back. Only their own act brings
+    them back (signing up again themselves, adding or changing their own address, or first signing in to an account
+    the desk made for them), and it starts fresh from that day: what Playtomic holds from before stays out, what's
+    theirs after comes in (their upcoming bookings are read again by name). Nothing staff do lifts it: a member import
+    leaves their line out, counted and not named; support access or the desk at their address lifts nothing (the
+    desk's preview says the address belonged to a deleted account, naming nothing of it).
   - **Taking over upcoming bookings** (staff app, Playtomic; owners and managers). Chosen Playtomic bookings become
     bookings here on their linked court, with their players, and read "Paid in Playtomic" at the desk and in My places.
     What was paid in Playtomic stays paid there: nothing is owed, nothing enters the books, and no receipt is made. A
@@ -33,7 +36,8 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     preview says why by name. The mirror knows a taken-over booking by Playtomic's id: it never holds it twice, even
     when Playtomic moves it to another court, and holds it again if it's cancelled here. One taken over unpaid and paid
     in Playtomic since: the desk marks it paid there (booking.paid_in_playtomic), for what Playtomic says it took, never
-    the price here (time added here stays owed here). The players are told what the club refunds them in Playtomic.
+    the price here (time added here stays owed here). The players are told what the club refunds them in Playtomic,
+    when it's cancelled, moved or made shorter.
   - **A daily comparison for the owner**: each linked court and day, Playtomic and openPadel side by side, on the
     Playtomic page; a clash, a booking not held yet, or a taken-over one moved (another time or court), cancelled or
     paid in Playtomic is told to the owners once.

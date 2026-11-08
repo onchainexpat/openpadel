@@ -567,15 +567,19 @@ export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: P
 }
 /** The part of a booking taken over from Playtomic that goes back there: kept as a refund 'sent' (nothing moves through
  *  Kumi), so a later change counts what's left of it; and the managers are told to give it back in Playtomic. */
-export async function givenBackInPlaytomic(ctx: ApplyCtx, bookingId: string, refunds: { payment_id: string; playtomic?: number }[]) {
+export async function givenBackInPlaytomic(ctx: ApplyCtx, bookingId: string, refunds: { payment_id: string; playtomic?: number }[]): Promise<Record<string, number>> {
   let total = 0;
+  const byPerson: Record<string, number> = {};
   for (const r of refunds) if ((r.playtomic ?? 0) > 0) {
     const cents = Math.min(r.playtomic!, await leftOf(ctx.trx, r.payment_id));
     if (cents <= 0) continue;
     await ctx.insert("refund", { id: uuidv7(), payment_id: r.payment_id, enrolment_id: null, amount_cents: cents, destination: "playtomic", status: "sent" });
+    const who = (await ctx.trx.selectFrom("payment").select("person_id").where("id", "=", r.payment_id).executeTakeFirstOrThrow()).person_id;
+    byPerson[who] = (byPerson[who] ?? 0) + cents;
     total += cents;
   }
   if (total > 0) await ctx.emit("booking.refund_in_playtomic", { booking_id: bookingId, cents: total });
+  return byPerson;
 }
 /** Someone who still owes on a court (the deadline charge that didn't go through, or time owed at the desk on a
  *  booking that's over) books and joins nothing more until it's paid at the desk. Staff booking for them can. */

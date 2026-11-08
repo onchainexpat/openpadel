@@ -38,9 +38,13 @@ There are four stages. Keep the second one short: weeks, not months.
   - When a member's account is deleted here, their name and email go from the archive too, and the person is marked
     by their Playtomic id and a one-way hash of each address (salted with the club's own random value; never the
     address), so no later read of Playtomic, their bookings from before or after, or its players list, copies them
-    back. A Playtomic id matched later by address is added too. If they join again with the same address (or a
-    member import links their Playtomic id to a live member), they start fresh from that day: what Playtomic holds
-    from before stays out, what's theirs after comes in. The salt is in the database, not the server's key, so a
+    back. A Playtomic id matched later by address is added too. Only their own act brings them back: signing up again
+    themselves, adding or changing their own address, or first signing in to an account the desk made for them.
+    Then they start fresh from that day: what Playtomic holds from before stays out, what's theirs after comes in
+    (their upcoming bookings are read again, by name). Nothing staff do brings them back: a member import leaves their
+    line out (the preview counts it, naming nothing), and support access or the desk at their address lifts nothing.
+    The desk can still add someone at that address (they may be standing there); the preview says the address
+    belonged to an account deleted here, and nothing of it comes back unless they sign in themselves. The salt is in the database, not the server's key, so a
     change of that key never lets anyone back in. Their account in Playtomic is Playtomic's: delete it there too if
     they asked the club to.
   - Mention the archive in the club's privacy policy ([the template](../templates/member-privacy-policy.md) has the
@@ -116,7 +120,7 @@ shorter, moved or repriced. The preview says how much goes back, by the club's r
 told by email and in the app (it stays on Today until someone marks it handled), and refund it in Playtomic; openPadel
 keeps it as given back there, so a later change counts only what's left. If Playtomic already refunded it (the player
 cancelled in Playtomic's app), the preview says so and nobody is told to refund it again. The players are told what
-the club refunds them in Playtomic.
+the club refunds them in Playtomic, when it's cancelled, moved or made shorter.
 
 ### Wallets and credit
 

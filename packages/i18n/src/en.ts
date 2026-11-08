@@ -4695,4 +4695,7 @@ export const en = {
   "ui.movein_zeroing": "The wallets are being set to zero in Playtomic (since {when}): runs only bring credit in.",
   "ui.movein_cap": "Ceiling for one person's credit",
   "ui.movein_cap_help": "openPadel can't size its $10,000 ceiling in the club's currency, so give one.",
+  "count.import_erased": { one: "{count} line belongs to an account deleted here and is left out.", other: "{count} lines belong to accounts deleted here and are left out."},
+  "plan.person.create_erased": "This address belonged to an account deleted here: its Playtomic history stays out unless they sign in themselves.",
+  "plan.person.import_nobody": "Nobody new to add. Nobody is emailed.",
 } as const;

@@ -118,12 +118,10 @@ export async function archiveBookings(db: Db, raws: unknown[], now = new Date())
         const values = { ...row, court_id: courts.get(r.resource_id) ?? null, raw: JSON.stringify(r.raw), last_seen_at: now };
         await trx.insertInto("playtomic_booking").values({ ...values, first_seen_at: now })
           .onConflict((oc) => oc.column("booking_id").doUpdateSet({ ...values, version: sql`playtomic_booking.version + 1` })).execute();
-        // The players as Playtomic lists them now; one whose account here was deleted keeps their row as it is.
-        await trx.deleteFrom("playtomic_booking_player").where("booking_id", "=", r.booking_id).where("erased_at", "is", null).execute();
-        const kept = new Set((await trx.selectFrom("playtomic_booking_player").select(["participant_id", "family_member_id"]).where("booking_id", "=", r.booking_id).execute())
-          .map((p) => `${p.participant_id}|${p.family_member_id ?? ""}`));
+        // The players as Playtomic lists them now, each kept out or not by the marker (playtomic_erased.ts), which holds
+        // every deleted person's Playtomic ids: so one who came back by their own act comes in by name for what's after.
+        await trx.deleteFrom("playtomic_booking_player").where("booking_id", "=", r.booking_id).execute();
         for (const p of participants) {
-          if (kept.has(`${p.participant_id}|${p.family_member_id ?? ""}`)) continue;
           const gone = erased({ id: p.family_member_id ? null : p.participant_id, email: p.email, at: r.starts_at });
           await trx.insertInto("playtomic_booking_player").values({ id: uuidv7(), booking_id: r.booking_id, participant_id: p.participant_id, family_member_id: p.family_member_id,
             name: gone ? null : p.name, email: gone ? null : p.email, accepts_commercial: gone ? null : p.accepts_commercial, participant_type: p.participant_type, is_owner: p.is_owner,

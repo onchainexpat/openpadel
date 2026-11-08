@@ -444,8 +444,8 @@ test("someone who deleted their account and joined again starts fresh from that 
   const hal = ((await run(db, "person.create", { display_name: "Hal Member", email: "hal@example.test" }, owner)).result as { person_id: string }).person_id;
   await db.insertInto("external_ref").values({ entity: "person", entity_id: hal, system: "playtomic", external_id: "u-hal" }).execute();
   await run(db, "privacy.erase", { person_id: hal }, as(hal), { now: new Date(base) });
-  // Hal signs up again with the same address: a new person here.
-  const again = ((await run(db, "person.create", { display_name: "Hal Again", email: "HAL@example.test" }, owner)).result as { person_id: string }).person_id;
+  // Hal signs up again himself with the same address: a new person here, by his own act.
+  const again = ((await runAsSystem(db, "person.sign_up", { email: "HAL@example.test", display_name: "Hal Again", locale: "en", club_news: false }, "web", { now: new Date(base) })).result as { person_id: string }).person_id;
   const marks = await db.selectFrom("playtomic_erased").select(["playtomic_id", "rejoined_at", "erased_person_id"]).where("erased_person_id", "=", hal).execute();
   assert.ok(marks.length >= 2 && marks.every((m) => m.rejoined_at), JSON.stringify(marks));
   const rejoined = new Date(marks[0]!.rejoined_at!);
@@ -536,4 +536,77 @@ test("Today's alerts read in the reader's language now, not the one they had whe
   assert.match(same.subject, /Un reembolso que hacer en Playtomic/);
   assert.match(same.body, /reembólsalos en Playtomic/);
   await db.updateTable("person").set({ locale: "en" }).where("id", "=", owner.personId!).execute();
+});
+
+// ---- The third review: only the person's own act brings someone back ----
+const marker = (id: string) => db.selectFrom("playtomic_erased").select(["rejoined_at"]).where("erased_person_id", "=", id).execute();
+
+test("a member import leaves out a deleted member, counted not named, and lifts nothing", async () => {
+  const jo = ((await run(db, "person.create", { display_name: "Jo Member", email: "jo@example.test" }, owner)).result as { person_id: string }).person_id;
+  await db.insertInto("external_ref").values({ entity: "person", entity_id: jo, system: "playtomic", external_id: "u-jo" }).execute();
+  await run(db, "privacy.erase", { person_id: jo }, as(jo), { now: new Date(base) });
+  const rows = [{ display_name: "Jo Hart", email: "jo@example.test", playtomic_id: "u-jo", club_news: true, phone: "4155550188" },
+    { display_name: "Jo H.", email: "jo.other@example.test", playtomic_id: "u-jo" }, { display_name: "Kit New", email: "kit@example.test" }];
+  const p = await plan(db, "person.import", { rows }, owner, { now: new Date(base) });
+  assert.match(p.plan.summary.en, /2 lines belong to accounts deleted here and are left out/);
+  assert.doesNotMatch(p.plan.summary.en, /Jo/);
+  await run(db, "person.import", { rows }, owner, { now: new Date(base) });
+  assert.equal(await db.selectFrom("person").select("id").where("email", "in", ["jo@example.test", "jo.other@example.test"]).executeTakeFirst(), undefined, "nobody made at the address");
+  assert.ok(await db.selectFrom("person").select("id").where("email", "=", "kit@example.test").executeTakeFirst(), "the others come in");
+  assert.ok((await marker(jo)).every((m) => !m.rejoined_at), "still marked");
+});
+
+test("support access and the desk at a deleted member's address lift nothing; the desk is told without a name", async () => {
+  const lu = ((await run(db, "person.create", { display_name: "Lu Member", email: "lu@example.test" }, owner)).result as { person_id: string }).person_id;
+  await run(db, "privacy.erase", { person_id: lu }, as(lu), { now: new Date(base) });
+  await run(db, "support.grant", { email: "lu@example.test", name: "Lu Support", reason: "setup help" }, { ...owner, auth: "passkey" } as Actor, { now: new Date(base) });
+  assert.ok(await db.selectFrom("person").select("id").where("email", "=", "lu@example.test").where("created_via", "=", "support").executeTakeFirst(), "support login made");
+  assert.ok((await marker(lu)).every((m) => !m.rejoined_at), "support access lifted nothing");
+  // The desk adds someone at another deleted member's address: allowed, said without a name, lifting nothing.
+  const nia = ((await run(db, "person.create", { display_name: "Nia Member", email: "nia@example.test" }, owner)).result as { person_id: string }).person_id;
+  await run(db, "privacy.erase", { person_id: nia }, as(nia), { now: new Date(base) });
+  const p = await plan(db, "person.create", { display_name: "Nia Again", email: "nia@example.test" }, owner, { now: new Date(base) });
+  assert.match(p.plan.summary.en, /belonged to an account deleted here: its Playtomic history stays out unless they sign in themselves/);
+  assert.doesNotMatch(p.plan.summary.en, /Nia Member/);
+  const desk = ((await run(db, "person.create", { display_name: "Nia Again", email: "nia@example.test" }, owner, { now: new Date(base) })).result as { person_id: string }).person_id;
+  assert.ok((await marker(nia)).every((m) => !m.rejoined_at), "the desk lifted nothing");
+  // A staff email change lifts nothing either; their own does.
+  await runAsSystem(db, "email.change", { person_id: desk, email: "lu@example.test", by: owner.personId! }, "staff", { now: new Date(base) }).catch(() => null);
+  assert.ok((await marker(lu)).every((m) => !m.rejoined_at), "a staff email change lifted nothing");
+});
+
+test("coming back by their own act re-reads their upcoming bookings, which were archived nameless, so they come in by name", async () => {
+  const mo = ((await run(db, "person.create", { display_name: "Mo Member", email: "mo@example.test" }, owner)).result as { person_id: string }).person_id;
+  await db.insertInto("external_ref").values({ entity: "person", entity_id: mo, system: "playtomic", external_id: "u-mo" }).execute();
+  await run(db, "privacy.erase", { person_id: mo }, as(mo), { now: new Date(base) });
+  const raw = booking("mo-up", 24 * 50 + 5, { owner: "u-mo", players: [{ participant_id: "u-mo", name: "Mo Hart", email: "mo@example.test" }] });
+  await archiveBookings(db, [raw], new Date(base));
+  assert.equal((await players("mo-up"))[0]!.name, null, "nameless while deleted");
+  const back = ((await runAsSystem(db, "person.sign_up", { email: "mo@example.test", display_name: "Mo Again", locale: "en", club_news: false }, "web", { now: new Date(base) })).result as { person_id: string }).person_id;
+  assert.equal((await db.selectFrom("playtomic_booking").select("row_hash").where("booking_id", "=", "mo-up").executeTakeFirstOrThrow()).row_hash, "rejoined", "read afresh");
+  await archiveBookings(db, [raw], new Date(base));
+  const p = (await players("mo-up"))[0]!;
+  assert.deepEqual([p.name, p.person_id], ["Mo Hart", back], "same row from Playtomic, now theirs by name");
+});
+
+test("moved or made shorter, paid in Playtomic: the player's message says what the club refunds them there", async () => {
+  pt.bookings.push(booking("msg1", 24 * 14 + 9, { court: "pt-2" }));
+  await sync();
+  await run(db, "mirror.take_over", { booking_ids: ["msg1"] }, owner, { now: new Date(base) });
+  const k = await kumiOf("msg1");
+  await run(db, "booking.extend", { booking_id: k, minutes: 60 }, owner, { now: new Date(base) });
+  await processOutbox(db, messageHandlers);
+  const m = await db.selectFrom("outbound_message").select("body").where("person_id", "=", people.Ann!).where("kind", "=", "booking_resized").where("channel", "=", "inbox")
+    .orderBy("created_at", "desc").executeTakeFirst();
+  assert.ok(m && /you paid in Playtomic is refunded to you there by the club/.test(m.body), m?.body);
+});
+
+test("a support login never counts as coming back, even signing in itself", async () => {
+  const { markRejoined } = await import("../src/index.ts");
+  const ola = ((await run(db, "person.create", { display_name: "Ola Member", email: "ola@example.test" }, owner)).result as { person_id: string }).person_id;
+  await run(db, "privacy.erase", { person_id: ola }, as(ola), { now: new Date(base) });
+  await run(db, "support.grant", { email: "ola@example.test", name: "Ola Support", reason: "setup help" }, { ...owner, auth: "passkey" } as Actor, { now: new Date(base) });
+  const sup = (await db.selectFrom("person").select("id").where("email", "=", "ola@example.test").where("created_via", "=", "support").executeTakeFirstOrThrow()).id;
+  assert.equal(await db.transaction().execute((trx) => markRejoined(trx, sup, new Date(base))), 0);
+  assert.ok((await marker(ola)).every((m) => !m.rejoined_at));
 });
