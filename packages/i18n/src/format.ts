@@ -40,13 +40,14 @@ export function format(catalog: Catalog, lang: Lang, key: Key, params: Params = 
   if (m === undefined) return key;
   const raw = typeof m === "string" ? m : (m[plurals[lang].select(Number(params.count ?? 0)) as keyof Plural] ?? m.other);
   // A value that ends its own sentence ("Fine for now.", a question) takes the place of the full stop after it, so a
-  // reason or a note someone typed never shows "..". A Spanish time ("9:00 a.m.") at a sentence's end is the same.
-  return sayFormer(raw.replace(/\{(\w+)\}(\.(?!\.))?/g, (_, k: string, stop: string | undefined) => {
+  // reason or a note someone typed never shows "..". Quoted, the same: an answer someone wrote ends inside its quotes
+  // ("Yes, behind the club."), never with another stop after them. A Spanish time ("9:00 a.m.") at a sentence's end too.
+  return sayFormer(raw.replace(/\{(\w+)\}(["”»]?)(\.(?!\.))?/g, (_, k: string, quote: string, stop: string | undefined) => {
     // The club's currency sign and how it writes an amount fill {currency} and {amount_example} when not given.
     const v = params[k] ?? (k === "currency" ? currencySign() : k === "amount_example" ? amountExample() : k === "product" ? productName() : undefined);
-    if (v === undefined) return `{${k}}${stop ?? ""}`;
+    if (v === undefined) return `{${k}}${quote}${stop ?? ""}`;
     const s = typeof v === "object" ? v[lang] : String(v);
-    return stop && /[.!?…]$/.test(s.trimEnd()) ? s.trimEnd() : s + (stop ?? "");
+    return stop && /[.!?…]$/.test(s.trimEnd()) ? s.trimEnd() + quote : s + quote + (stop ?? "");
   }).replace(/([ap]\.\s?m\.)\./g, "$1"), lang);
 }
 

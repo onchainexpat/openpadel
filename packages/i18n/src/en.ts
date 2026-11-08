@@ -427,6 +427,7 @@ export const en = {
   "action.level.set": "Change a level",
   "action.level.set_floor": "Set a level floor",
   "plan.level.set": "Change {person}'s level from {before} to {after}: {reason}.",
+  "plan.level.set_none": "Start {person} at {after} (no level yet): {reason}.",
   "plan.level.set_floor": "Set {person}'s floor at {floor}: {reason}. Results can't take their level below it.",
   "level.why": "{result} {us} to {them} with {partner} against {opponents} ({expect}). Level {before} to {after}.",
   "level.won": "Won",

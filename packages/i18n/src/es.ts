@@ -430,6 +430,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "action.level.set": "Cambiar un nivel",
   "action.level.set_floor": "Fijar un nivel mínimo",
   "plan.level.set": "Cambiar el nivel de {person} de {before} a {after}: {reason}.",
+  "plan.level.set_none": "Empezar a {person} en {after} (sin nivel todavía): {reason}.",
   "plan.level.set_floor": "Fijar el mínimo de {person} en {floor}: {reason}. Los resultados no pueden bajar su nivel de ahí.",
   "level.why": "{result} {us} a {them} con {partner} contra {opponents} ({expect}). Nivel {before} a {after}.",
   "level.won": "Ganaste",

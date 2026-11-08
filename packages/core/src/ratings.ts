@@ -119,7 +119,10 @@ export const levelSet = defineAction({
   async plan(ctx, i) {
     const s = await loadRating(ctx.db, i.person_id);
     const reads = s.exists ? [{ entity: "rating" as const, id: i.person_id, version: (await readRow(ctx.db, "rating", i.person_id)).row.version }] : [];
-    return { title: both("action.level.set"), summary: both("plan.level.set", { person: await nameOf(ctx.db, i.person_id), before: lvl(s.level), after: lvl(i.level), reason: i.reason }), reads,
+    // Someone with no level yet has nothing to change from: the default start isn't theirs.
+    const say = s.exists ? both("plan.level.set", { person: await nameOf(ctx.db, i.person_id), before: lvl(s.level), after: lvl(i.level), reason: i.reason })
+      : both("plan.level.set_none", { person: await nameOf(ctx.db, i.person_id), after: lvl(i.level), reason: i.reason });
+    return { title: both("action.level.set"), summary: say, reads,
       undo: { kind: "compensating" }, details: { before: s.level } };
   },
   async apply(ctx, i) {

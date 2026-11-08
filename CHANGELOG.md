@@ -125,6 +125,10 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   has changed it since"). Its runs, the wallets being zeroed and every read of Playtomic's players wrote to the
   club's row, so each looked like a change to the club's details, and it also put a manager's waiting ask to change
   one out of date. The move-in keeps its state in a row of its own now (migration 110).
+- **Setting a level for someone with no level yet read "from 3.50 to 3.50" (in 0.4.0 too).** The preview took the
+  default starting level as theirs. It says "Start Ann Lee at 3.50 (no level yet)" now.
+- **A quoted answer or question ended with two full stops (in 0.4.0 too):** `"Yes, behind the club.".` Text someone
+  wrote that ends its own sentence now ends inside its quotes, in every preview and message that quotes it.
 - **An undo's preview of the club's details named no values** ("Undo: Change the club's details"). It says what goes
   back: "Undo: the legal name goes back to Kestrel Padel Co."
 - **A Playtomic take-back could reach a member's own refund or gift card.** What they had spent here was counted

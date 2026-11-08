@@ -35,7 +35,7 @@ test("staff write the club's facts in its languages; members search them by plai
   await rejects(plan(db, "fact.create", { topic: "parking", question_en: "Where do I park?", question_es: "¿Dónde estaciono?", answer_es: "Detrás del club." }, as("Fay")), "error.fact_half");
   const p = await run(db, "fact.create", { topic: "parking", question_en: "Where do I park?", answer_en: "Free parking in the lot behind the club, and bike racks by the door.",
     question_es: "¿Dónde estaciono?", answer_es: "Estacionamiento gratis detrás del club, y aparcabicis junto a la puerta.", public: true }, as("Fay"));
-  assert.equal(p.plan.summary.en, "Add a club fact under Parking and getting here: \"Where do I park?\". Members see it in Common questions, and on the club's public page while it's on.");
+  assert.equal(p.plan.summary.en, "Add a club fact under Parking and getting here: \"Where do I park?\" Members see it in Common questions, and on the club's public page while it's on.");
   parking = (p.result as any).fact_id;
   await run(db, "fact.create", { topic: "hours", question_en: "When are you open?", answer_en: "Every day, 9 AM to 5 PM.", question_es: "¿Cuándo abren?", answer_es: "Todos los días, de 9 a. m. a 5 p. m." }, as("Fay"));
   doorCode = ((await run(db, "fact.create", { topic: "facilities", question_en: "What's the door code?", answer_en: "4417, then the green button.", question_es: "¿Cuál es el código de la puerta?", answer_es: "4417 y luego el botón verde." }, as("Fay"))).result as any).fact_id;
@@ -58,7 +58,7 @@ test("staff write the club's facts in its languages; members search them by plai
 
 test("a member asks; front desk answers; a reply opens it again; others can't join in", async () => {
   const a = await run(db, "question.ask", { person_id: people.Ann, body: "Can I bring my dog to watch a match on Saturday?" }, as("Ann"), { now: NOW });
-  assert.equal(a.plan.summary.en, "Ask the club: \"Can I bring my dog to watch a match on Saturday?\". The staff answer in the app, and you hear when they do.");
+  assert.equal(a.plan.summary.en, "Ask the club: \"Can I bring my dog to watch a match on Saturday?\" The staff answer in the app, and you hear when they do.");
   const id = (a.result as any).question_id;
   assert.equal((a.result as any).answered_by, "staff");
   let q = await thread(id);
@@ -69,7 +69,7 @@ test("a member asks; front desk answers; a reply opens it again; others can't jo
   await rejects(plan(db, "question.answer", { question_id: id, body: "Yes" }, as("Ann")), "error.forbidden_reason");   // only staff answer
   await rejects(plan(db, "question.reply", { question_id: id, body: "Me too" }, as("Ben")), "error.forbidden_reason"); // not Ben's thread
   const ans = await run(db, "question.answer", { question_id: id, body: "Dogs on a lead are welcome on the terrace, Ann. Not on court." }, as("Fay"), { now: at("2026-12-01", "10:20") });
-  assert.equal(ans.plan.summary.en, "Answer Ann: \"Dogs on a lead are welcome on the terrace, Ann. Not on court.\". They hear straight away.");
+  assert.equal(ans.plan.summary.en, "Answer Ann: \"Dogs on a lead are welcome on the terrace, Ann. Not on court.\" They hear straight away.");
   q = await thread(id);
   assert.deepEqual([q.status, q.waiting_since, q.assigned_to], ["answered", null, people.Fay]);   // whoever answers takes it
   await processOutbox(db, messageHandlers);
@@ -91,12 +91,12 @@ test("a member asks; front desk answers; a reply opens it again; others can't jo
   const g = await run(db, "question.assign", { question_id: id, to: owner.personId }, as("Fay"));
   assert.equal(g.plan.summary.en, "Give Ann's question to Robin Hale.");
   await processOutbox(db, messageHandlers);
-  assert.equal((await said(owner.personId!, "question_assigned_staff", "inbox")).body, "Fay gave you Ann's question: \"Can I bring my dog to watch a match on Saturday?\". Answer it on the Questions page.");
+  assert.equal((await said(owner.personId!, "question_assigned_staff", "inbox")).body, "Fay gave you Ann's question: \"Can I bring my dog to watch a match on Saturday?\" Answer it on the Questions page.");
 });
 
 test("a parent asks about their junior; a member can't ask about someone else", async () => {
   const a = await run(db, "question.ask", { person_id: people.Mia, body: "What should Mia bring to her first junior clinic?" }, as("Ann"), { now: NOW });
-  assert.equal(a.plan.summary.en, "Ask the club about Mia: \"What should Mia bring to her first junior clinic?\". The staff answer in the app, and you hear when they do.");
+  assert.equal(a.plan.summary.en, "Ask the club about Mia: \"What should Mia bring to her first junior clinic?\" The staff answer in the app, and you hear when they do.");
   const q = await thread((a.result as any).question_id);
   assert.deepEqual([q.person_id, q.asked_by], [people.Mia, people.Ann]);
   await rejects(plan(db, "question.ask", { person_id: people.Mia, body: "Is Mia playing today?" }, as("Ben")), "error.forbidden_reason");
@@ -124,7 +124,7 @@ test("a question that waits past the club's setting: front desk hears once, coun
   await processOutbox(db, messageHandlers);
   const m = await said(people.Fay!, "question_unanswered_staff");
   assert.equal(m.subject, "A question is waiting: Cal");
-  assert.equal(m.body, "Cal asked on Fri, Dec 4, 4:30 PM, and nobody has answered in 2 hours of opening time: \"Do you rent rackets for beginners?\". Answer it on the Questions page.");
+  assert.equal(m.body, "Cal asked on Fri, Dec 4, 4:30 PM, and nobody has answered in 2 hours of opening time: \"Do you rent rackets for beginners?\" Answer it on the Questions page.");
   assert.ok(await said(owner.personId!, "question_unanswered_staff"));                       // front desk and up
   assert.equal((await db.selectFrom("outbound_message").select("id").where("person_id", "=", people.Cal!).where("kind", "=", "question_unanswered_staff").execute()).length, 0);
 
@@ -194,7 +194,7 @@ test("ask the club: the question is saved before the model is asked, a staff ans
   } });
   try {
     const p = await plan(db, "question.ask", { person_id: people.Ben, body: "¿Dónde estaciono la moto?" }, as("Ben", "es"), { now: at("2026-12-08", "10:00") });
-    assert.equal(p.plan.summary.en, "Ask the club: \"¿Dónde estaciono la moto?\". If one of the club's answers fits, you get it straight away; if not, the staff answer in the app, and you hear when they do.");
+    assert.equal(p.plan.summary.en, "Ask the club: \"¿Dónde estaciono la moto?\" If one of the club's answers fits, you get it straight away; if not, the staff answer in the app, and you hear when they do.");
     const a = await run(db, "question.ask", { person_id: people.Ben, body: "¿Dónde estaciono la moto?" }, as("Ben", "es"), { now: at("2026-12-08", "10:00") });
     assert.equal((a.result as any).answered_by, "club");
     assert.equal(during, "open");   // already saved, with the staff, while the model thought
