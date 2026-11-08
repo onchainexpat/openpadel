@@ -371,10 +371,25 @@ export const sessionAdd = defineAction({
 });
 
 // ---- Rosters ----
+/** Where a program is, for ActionDef.owners: undefined when there's no such program (its preview says so). */
+export async function programLocation(db: Db | Trx, programId: string | null | undefined): Promise<string | undefined> {
+  if (!programId) return undefined;
+  return (await db.selectFrom("program").select("location_id").where("id", "=", programId).executeTakeFirst())?.location_id;
+}
+/** A person's place in a program, signing up or giving it up: theirs, and the parents' who manage a junior. */
+const signingUp = async (db: Db | Trx, i: { program_id: string; person_id: string }) => ({ ownerIds: await withManagers(db, [i.person_id]), locationId: await programLocation(db, i.program_id) });
+/** A place someone holds: whose it is (a junior's parents too) and where. */
+export async function placeOwners(db: Db | Trx, enrolmentId: string) {
+  const e = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").select(["enrolment.person_id", "program.location_id"]).where("enrolment.id", "=", enrolmentId).executeTakeFirst();
+  return { ownerIds: await withManagers(db, [e?.person_id]), locationId: e?.location_id };
+}
+
 export const enrolmentJoin = defineAction({
   name: "enrolment.join", version: 1,
   input: z.object({ program_id: z.uuid(), person_id: z.uuid(),
     session_id: z.optional(z.uuid().check(z.describe("The date, for a program signed up per date. Several dates at once: enrolment.join_dates."))) }),
+  // Whether someone has a place already, and their price (a member's), are theirs.
+  owners: signingUp,
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     if (p.status !== "published") throw new KumiError("error.not_published");
@@ -430,6 +445,7 @@ async function endWatches(ctx: ApplyContext, programId: string, personId: string
 export const enrolmentJoinDates = defineAction({
   name: "enrolment.join_dates", version: 1,
   input: z.object({ program_id: z.uuid(), person_id: z.uuid(), session_ids: z.array(z.uuid()).check(z.minLength(1), z.maxLength(20), z.describe("The dates (session ids) to sign up for.")) }),
+  owners: signingUp,
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     if (p.status !== "published") throw new KumiError("error.not_published");
@@ -580,6 +596,7 @@ export const leaving = (refund: Refund, how: string, reason: string, ruleVersion
 export const enrolmentLeave = defineAction({
   name: "enrolment.leave", version: 1,
   input: z.object({ enrolment_id: z.uuid() }),
+  owners: (db, i) => placeOwners(db, i.enrolment_id),   // what was paid, and what would come back
   async plan(ctx, i) {
     const g = await goingPlan(ctx, i.enrolment_id, "late_cancel");
     return { title: both("action.enrolment.leave"), summary: join2(both("plan.enrolment.leave", { person: g.person, name: g.p.name, refund: g.refund.text }), g.offer), reads: [g.read],
@@ -641,6 +658,7 @@ export const enrolmentRemove = defineAction({
 export const enrolmentTransfer = defineAction({
   name: "enrolment.transfer", version: 1,
   input: z.object({ enrolment_id: z.uuid(), to_person_id: z.uuid(), pay: z.enum(["sub_pays", "gift"]) }),
+  owners: (db, i) => placeOwners(db, i.enrolment_id),
   async plan(ctx, i) {
     const { row: e, read } = await readRow(ctx.db, "enrolment", i.enrolment_id, "thing.person");
     const person = await personName(ctx.db, e.person_id), sub = await personName(ctx.db, i.to_person_id);
@@ -712,6 +730,7 @@ export const enrolmentComp = defineAction({
 export const enrolmentAcceptOffer = defineAction({
   name: "enrolment.accept_offer", version: 1,
   input: z.object({ enrolment_id: z.uuid() }),
+  owners: (db, i) => placeOwners(db, i.enrolment_id),
   async plan(ctx, i) {
     const { row: e, read } = await readRow(ctx.db, "enrolment", i.enrolment_id, "thing.person");
     const offer = await ctx.db.selectFrom("waitlist_offer").selectAll().where("enrolment_id", "=", i.enrolment_id).where("outcome", "is", null).where("expires_at", ">", ctx.now).executeTakeFirst();

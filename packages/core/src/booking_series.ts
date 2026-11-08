@@ -17,7 +17,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, localParts, onDate } from "./clock.ts";
 import { courtOpening, insertTime, lockCourts, MAX_MINUTES, occupied, range, STEP_MINUTES } from "./bookings.ts";
-import { cancelBooking, cancelRefunds, checkSlot, courtAndPlace, daysAhead, deskOrUp, HOLD_MINUTES, keepRefund, lockBooking, newCode, notOwing, paidSincePreview, playtomicText, upcomingCount, type PlannedRefund, type RefundChoice } from "./booking_pay.ts";
+import { cancelBooking, cancelRefunds, checkSlot, courtAndPlace, courtLocation, daysAhead, deskOrUp, HOLD_MINUTES, keepRefund, lockBooking, newCode, notOwing, paidSincePreview, playerOrParents, playtomicText, upcomingCount, type PlannedRefund, type RefundChoice } from "./booking_pay.ts";
 import { currentPolicy, quote, type Quote } from "./prices.ts";
 import { notJunior, requireWaiver, withManagers } from "./households.ts";
 import { paymentProvider } from "./money.ts";
@@ -159,6 +159,7 @@ export const bookingRepeatRequest = defineAction({
   name: "booking.repeat_request", version: 1,
   input: z.object({ court_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), minutes: z.number().check(z.int()), person_id: z.uuid(),
     weeks: z.number().check(z.int(), z.minimum(2), z.maximum(MAX_WEEKS)) }),
+  owners: async (db, i) => ({ ownerIds: await playerOrParents(db, i.person_id), locationId: await courtLocation(db, i.court_id) }),
   async plan(ctx, i) {
     const club = await ctx.db.selectFrom("club").select(["court_bookings", "weekly_bookings", "weekly_max_weeks"]).executeTakeFirstOrThrow();
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
@@ -317,6 +318,10 @@ async function seriesToEnd(db: Db | Trx, seriesId: string, from: string, now: Da
 export const bookingRepeatEnd = defineAction({
   name: "booking.repeat_end", version: 1,
   input: z.object({ series_id: z.uuid(), from_date: z.optional(clubDate), refund: z.optional(z.enum(["rule", "full", "none"])) }),
+  owners: async (db, i) => {
+    const s = await db.selectFrom("booking_series").select(["organiser_id", "location_id"]).where("id", "=", i.series_id).executeTakeFirst();
+    return { ownerIds: await withManagers(db, [s?.organiser_id]), locationId: s?.location_id };
+  },
   async plan(ctx, i) {
     const { row: s, read } = await readRow(ctx.db, "booking_series", i.series_id, "thing.weekly_booking");
     // Choosing what comes back instead of each week's rule is for the club (rule 2), not the member.

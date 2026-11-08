@@ -61,8 +61,9 @@ test("a parent turns on a login for a kid of 13 or more: their own email, the me
   const p = await db.selectFrom("person").select(["junior", "own_login", "email"]).where("id", "=", mia).executeTakeFirstOrThrow();
   assert.deepEqual(p, { junior: true, own_login: true, email: "mia@example.test" });
   assert.equal((await kidOf(db, mia))?.monthly_limit_cents, 10000);
-  await rejects(plan(db, "kid.set_rules", { person_id: mia, monthly_limit_cents: 999_999 }, asMia(), opts), "error.amount_range");   // past about $1,000 a month
-  await rejects(plan(db, "kid.set_rules", { person_id: mia, courts: false }, asMia(), opts), "error.forbidden_reason");   // a kid doesn't set their own rules
+  await rejects(plan(db, "kid.set_rules", { person_id: mia, monthly_limit_cents: 999_999 }, as("Pat"), opts), "error.amount_range");   // past about $1,000 a month
+  for (const input of [{ monthly_limit_cents: 999_999 }, { courts: false }])   // a kid doesn't set their own rules: a plain no, before anything about them
+    await rejects(plan(db, "kid.set_rules", { person_id: mia, ...input }, asMia(), opts), "error.forbidden_reason");
   await processOutbox(db, messageHandlers);
   assert.deepEqual(await msg(mia, "kid_login"), [{ subject: "Your login at Kestrel Padel",
     body: "Pat turned on a login for you at Kestrel Padel. Sign in with mia@example.test. What you book goes on the family card, and your parents see it." }]);
@@ -270,7 +271,8 @@ test("turning the login off signs the kid out and they're a junior booked by a p
   assert.deepEqual(p, { own_login: false, email: null });
   assert.equal((await db.selectFrom("auth_identity").select("id").where("person_id", "=", mia).execute()).length, 0);
   assert.equal(await kidOf(db, mia), null);
-  await rejects(plan(db, "booking.request", court90(court, "2026-12-10", "18:00", mia), asMia(), opts), "error.junior_no_courts");
+  await rejects(plan(db, "booking.request", court90(court, "2026-12-10", "18:00", mia), as("Pat"), opts), "error.junior_no_courts");
+  await rejects(plan(db, "booking.request", court90(court, "2026-12-10", "18:00", mia), asMia(), opts), "error.forbidden_reason");   // no login, no role
 });
 
 test("at 18, a kid who already signs in keeps their address and becomes an adult account", async () => {

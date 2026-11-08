@@ -78,6 +78,16 @@ test("lesson hours and the times offered: inside the hours, a court free, not on
   assert.deepEqual(await lessonTimes(db, { coachId: people.Lou!, date: "2026-12-02", minutes: 60, now: NOW }), []);   // Lou takes no lessons
 });
 
+test("a desk kept to one location books a member's lesson there, the court named or left to the preview; a member books only their own", async () => {
+  const dot = ((await run(db, "person.create", { display_name: "Dot", email: "dot@example.test" }, owner, { now: NOW })).result as any).person_id;
+  await run(db, "role.assign", { person_id: dot, role: "front_desk", location_id: loc }, owner, { now: NOW });
+  const desk: Actor = { personId: dot, via: "test", lang: "en" }, ask = { coach_id: people.Kim, starts_at: at("2026-12-02", "09:00"), minutes: 60, pay: "whole", person_id: people.Ben };
+  // No court named: the preview picks a free one (at Eastside), so whose it is is asked first and where after it.
+  assert.equal((await plan(db, "lesson.request", ask, desk, { now: NOW })).status, "planned");
+  assert.equal((await plan(db, "lesson.request", { ...ask, court_id: c1 }, desk, { now: NOW })).status, "planned");
+  await rejects(plan(db, "lesson.request", ask, as("Ann"), { now: NOW }), "error.forbidden_reason");
+});
+
 test("booking a lesson: the coach's rate is the price, court included; paid, it's confirmed and both are told", async () => {
   const r = await lesson("Ann", at("2026-12-02", "09:00"));
   assert.equal(r.plan.summary.en, "Book a 60-minute lesson with Kim for 1 player: Court 1, Wed, Dec 2, 9:00 AM. $90.00, court included, paid now.");

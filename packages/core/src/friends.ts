@@ -106,6 +106,7 @@ async function applyAdd(ctx: ApplyCtx, personId: string, friendId: string) {
 export const friendAdd = defineAction({
   name: "friend.add", version: 1,
   input: z.object({ person_id: z.uuid(), friend_id: z.uuid() }),
+  owners: async (_db, i) => [i.person_id],   // whom someone has added, or played with, is theirs
   plan: (ctx, i) => planAdd(ctx, i.person_id, i.friend_id, false),
   apply: (ctx, i) => applyAdd(ctx, i.person_id, i.friend_id),
 });
@@ -114,6 +115,7 @@ export const friendAddByCode = defineAction({
   name: "friend.add_by_code", version: 1,
   // From someone's friend link: they gave it out, so it doesn't matter whether you've played together.
   input: z.object({ person_id: z.uuid(), code: z.string().check(z.minLength(6), z.maxLength(40)) }),
+  owners: async (_db, i) => [i.person_id],
   async plan(ctx, i) {
     const p = await personByFriendCode(ctx.db, i.code);
     if (!p) throw new KumiError("error.friend_link_unknown", {}, 404);
@@ -125,6 +127,7 @@ export const friendAddByCode = defineAction({
 export const friendRemove = defineAction({
   name: "friend.remove", version: 1,
   input: z.object({ person_id: z.uuid(), friend_id: z.uuid() }),
+  owners: async (_db, i) => [i.person_id],
   async plan(ctx, i) {
     const row = await added(ctx.db, i.person_id, i.friend_id);
     if (!row || row.removed_at) throw new KumiError("error.friend_not_added");

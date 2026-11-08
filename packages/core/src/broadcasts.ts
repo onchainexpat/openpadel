@@ -593,6 +593,7 @@ export { clubNews as clubNewsAnswer };
 export const consentClubNews = defineAction({
   name: "consent.club_news", version: 1,
   input: z.object({ person_id: z.uuid(), granted: z.boolean() }),
+  owners: async (_db, i) => [i.person_id],   // their answer ("nothing changed") is theirs
   async plan(ctx, i) {
     const club = await clubOf(ctx.db);
     if (await clubNews(ctx.db, i.person_id) === i.granted) throw new KumiError("error.nothing_changed");

@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { messageHandlers, processOutbox, run, runAsSystem, setPaymentProvider, TestProvider, type Actor, type Db } from "@kumi/core";
+import { localDate, messageHandlers, processOutbox, run, runAsSystem, setPaymentProvider, TestProvider, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
@@ -165,4 +165,42 @@ test("a junior's level is only their parents': a stranger learns nothing from a 
   const told = await db.selectFrom("outbound_message").select(["person_id", "subject", "link"]).where("kind", "=", "level_import_kept").where("channel", "=", "inbox").orderBy("person_id").execute();
   assert.deepEqual(told.map((m) => [m.person_id === leo ? "Leo" : m.person_id === people.Pat ? "Pat" : "someone else", m.subject, m.link]).sort(),
     [["Leo", "Your level from Playtomic", "/level"], ["Pat", "Leo: Your level from Playtomic", "/family"]]);
+});
+
+test("a junior's places, family and account are their parents' alone: a stranger learns nothing from a preview, a parent who left can't confirm", async () => {
+  const where = await db.selectFrom("court").select(["id", "location_id"]).executeTakeFirstOrThrow();
+  await run(db, "hours.set", { location_id: where.location_id, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "08:00", closes: "22:00" })) }, owner);
+  const day = localDate(new Date(Date.now() + 3 * 86400_000), "America/Los_Angeles");
+  const court = ((await run(db, "booking.create", { court_id: where.id, starts_at: `${day}T18:00:00-08:00`, minutes: 60, person_id: mia }, owner)).result as any).booking_id;
+  const place = (await db.selectFrom("enrolment").select("id").where("person_id", "=", mia).where("status", "=", "booked").executeTakeFirstOrThrow()).id;
+  const leo = (await db.selectFrom("person").select("id").where("display_name", "=", "Leo").executeTakeFirstOrThrow()).id;
+  // Zed, a stranger. Each of these said what stood in the way, and whose: "Mia still has places", "Mia can have a login
+  // of their own from 2034", "Mia has accepted it already", "Mia is signed up already", the family has no card. Now a plain no.
+  for (const [action, input] of [
+    ["household.remove_junior", { person_id: mia }], ["household.give_login", { person_id: mia, email: "mia@example.test" }], ["waiver.accept", { person_id: mia }],
+    ["kid.give_login", { person_id: mia, email: "mia@example.test" }], ["kid.set_rules", { person_id: leo, courts: false }], ["family_card.remove", { person_id: people.Pat }],
+    ["program.watch", { program_id: clinic, person_id: mia }], ["enrolment.leave", { enrolment_id: place }], ["booking.cancel", { booking_id: court }],
+  ] as const) {
+    const r = await post(`/actions/${action}/plan`, "zed@example.test", input);
+    assert.equal(r.status, 403, `${action}: ${JSON.stringify(r.json)}`);
+    assert.equal(r.json.error, "error.forbidden_reason", action);
+    assert.doesNotMatch(JSON.stringify(r.json), /Mia|Leo|20\d\d/, action);
+  }
+  // Sam joins the family again: Mia's court and her place are Sam's to give up too, and what stands in the way is said.
+  const inv = await act("pat@example.test", "household.invite", { person_id: people.Pat });
+  assert.equal((await act("sam@example.test", "household.accept_invite", { person_id: people.Sam, code: inv.json.result.code })).status, 200);
+  const cancel = await post("/actions/booking.cancel/plan", "sam@example.test", { booking_id: court });
+  assert.equal(cancel.status, 200, JSON.stringify(cancel.json));
+  const leave = await post("/actions/enrolment.leave/plan", "sam@example.test", { enrolment_id: place });
+  assert.equal(leave.status, 200, JSON.stringify(leave.json));
+  const remove = await post("/actions/household.remove_junior/plan", "sam@example.test", { person_id: mia });
+  assert.equal(remove.json.error, "error.junior_has_places");
+  assert.match(remove.json.message, /Mia/);
+  // Sam leaves the family before saying yes: neither goes through, and Mia keeps both.
+  assert.equal((await act("sam@example.test", "household.leave", { person_id: people.Sam })).status, 200);
+  for (const run_ of [cancel, leave]) assert.equal((await post(`/runs/${run_.json.run_id}/apply`, "sam@example.test")).status, 403);
+  assert.equal((await db.selectFrom("booking").select("status").where("id", "=", court).executeTakeFirstOrThrow()).status, "confirmed");
+  assert.equal((await db.selectFrom("enrolment").select("status").where("id", "=", place).executeTakeFirstOrThrow()).status, "booked");
+  // Pat, still her parent, cancels her court.
+  assert.equal((await act("pat@example.test", "booking.cancel", { booking_id: court })).status, 200);
 });

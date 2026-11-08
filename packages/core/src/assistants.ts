@@ -22,6 +22,11 @@ export async function assistantsOf(db: Db | Trx, personId: string, now: Date) {
     connected_at: r.created_at, last_used_at: (r.last_used as Date | null) ?? null })));
 }
 
+/** Whose a connection is, for ActionDef.owners: nobody's when there's none. */
+async function grantHolder(db: Db | Trx, id: string): Promise<string[]> {
+  const g = await db.selectFrom("oauth_grant").select("person_id").where("id", "=", id).executeTakeFirst();
+  return g ? [g.person_id] : [];
+}
 async function grantOf(ctx: { db: Db | Trx }, id: string) {
   const { row, read } = await readRow(ctx.db, "oauth_grant", id, "thing.assistant");
   if (row.revoked_at) throw new KumiError("error.assistant_disconnected", {}, 409);
@@ -32,6 +37,7 @@ async function grantOf(ctx: { db: Db | Trx }, id: string) {
 export const assistantSetCap = defineAction({
   name: "assistant.set_cap", version: 1,
   input: z.object({ grant_id: z.uuid(), weekly_cap_cents: z.number().check(z.int(), z.minimum(0), z.maximum(MAX_WEEKLY_CAP_CENTS)) }),
+  owners: (db, i) => grantHolder(db, i.grant_id),   // its cap ("nothing changed") and whether it's disconnected are theirs
   async plan(ctx, i) {
     const g = await grantOf(ctx, i.grant_id);
     if (g.row.weekly_cap_cents === i.weekly_cap_cents) throw new KumiError("error.nothing_changed");
@@ -47,6 +53,7 @@ export const assistantSetCap = defineAction({
 export const assistantDisconnect = defineAction({
   name: "assistant.disconnect", version: 1,
   input: z.object({ grant_id: z.uuid() }),
+  owners: (db, i) => grantHolder(db, i.grant_id),
   async plan(ctx, i) {
     // An assistant may disconnect itself, never another one.
     if (ctx.actor.auth === "oauth" && ctx.actor.grantId !== i.grant_id) throw new KumiError("error.assistant_in_app", {}, 403);

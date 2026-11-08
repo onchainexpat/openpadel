@@ -114,3 +114,23 @@ test("running late tells the others; the host marks who didn't come, and it goes
   assert.equal((await db.selectFrom("outbound_message").select("id").where("person_id", "=", people.Cal!).where("kind", "=", "match_running_late").execute()).length, 0);   // not to Cal
   assert.equal((await inbox("Eve", "match_no_show")).subject, "Marked as not coming: Court 1, Wed, Dec 2, 6:00 PM");
 });
+
+test("someone else's match tells a stranger nothing in a preview: refused before it's built, and the host and players still hear what stands in the way", async () => {
+  const later = { now: at("2026-12-02", "20:30") }, eve = (await seat("Eve")).id;
+  // Fay isn't in it. Each of these said what stood in the way ("already marked", "not in this match", "the match has
+  // started", the score's preview with the players' names); now it's a plain no.
+  for (const [action, input] of [
+    ["booking.mark_no_show", { booking_player_id: eve }],
+    ["booking.leave", { booking_id: match, person_id: people.Cal }],
+    ["booking.running_late", { booking_id: match, person_id: people.Ann, minutes: 10 }],
+    ["booking.save_place", { booking_id: match, person_id: people.Fay }],
+    ["booking.offer_place", { booking_id: match, person_id: people.Cal }],
+    ["result.enter", { booking_id: match, person_id: people.Hal, partner_id: people.Cal, sets: [{ us: 6, them: 4 }] }],
+  ] as const) await rejects(plan(db, action, input, as("Fay"), later), "error.forbidden_reason");
+  // A booking that isn't there reads the same as one that isn't theirs.
+  await rejects(plan(db, "booking.cancel", { booking_id: "00000000-0000-7000-8000-00000000abcd" }, as("Fay"), later), "error.forbidden_reason");
+  // The host, and a player, still hear it.
+  await rejects(plan(db, "booking.mark_no_show", { booking_player_id: eve }, as("Hal"), later), "error.already_no_show");
+  await rejects(plan(db, "booking.leave", { booking_id: match, person_id: people.Cal }, as("Cal"), later), "error.match_started");
+  assert.match((await plan(db, "booking.cancel", { booking_id: match }, as("Hal"), later)).plan.summary.en, /^Cancel booking /);
+});

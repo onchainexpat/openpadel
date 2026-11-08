@@ -335,6 +335,7 @@ async function subject(ctx: { db: Db | Trx; actor: { personId: string | null } }
 export const privacyExport = defineAction({
   name: "privacy.export", version: 1, wholeClub: "reason.whole_club_privacy",
   input: z.object({ person_id: z.uuid() }),
+  owners: (db, i) => withManagers(db, [i.person_id]),   // whether an account is deleted is theirs
   async plan(ctx, i) {
     const s = await subject(ctx, i.person_id);
     const juniors = (await juniorsOf(ctx.db, i.person_id)).map((j) => j.display_name);
@@ -364,6 +365,7 @@ export async function exportRun(db: Db, runId: string, actorId: string, now: Dat
 export const privacyErase = defineAction({
   name: "privacy.erase", version: 1, wholeClub: "reason.whole_club_privacy", strongAuth: true,
   input: z.object({ person_id: z.uuid() }),
+  owners: (db, i) => withManagers(db, [i.person_id]),   // what stands in the way (their bookings, what they owe) is theirs
   async plan(ctx, i) {
     const s = await subject(ctx, i.person_id);
     if (s.self && s.row.junior) throw new KumiError("error.privacy_kid_parent");

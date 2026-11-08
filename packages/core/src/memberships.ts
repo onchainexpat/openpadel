@@ -330,6 +330,7 @@ export async function afterMembershipPayment(ctx: ApplyCtx, pay: { id: string; p
 export const membershipJoin = defineAction({
   name: "membership.join", version: 1, clubWide: true,
   input: z.object({ plan_id: z.uuid(), person_id: z.uuid() }),
+  owners: async (_db, i) => [i.person_id],   // "already a member" is theirs to hear
   async plan(ctx, i) {
     const { row: plan, read } = await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan");
     if (!plan.active || !plan.join_in_app) throw new KumiError("error.plan_not_in_app", { name: textOf(plan.name, plan.translations, "name") });
@@ -380,6 +381,11 @@ export const membershipJoin = defineAction({
   },
 });
 
+/** Whose a membership is (who pays for it), for ActionDef.owners: nobody's when there's no such membership. */
+async function holderOf(db: Db | Trx, id: string): Promise<string[]> {
+  const m = await db.selectFrom("membership").select("person_id").where("id", "=", id).executeTakeFirst();
+  return m ? [m.person_id] : [];
+}
 async function membershipRow(db: Db | Trx, id: string) {
   const { row, read } = await readRow(db, "membership", id, "thing.membership");
   const plan = await db.selectFrom("membership_plan").select(["name", "translations", "price_cents", "period"]).where("id", "=", row.plan_id).executeTakeFirstOrThrow();
@@ -390,6 +396,7 @@ async function membershipRow(db: Db | Trx, id: string) {
 export const membershipCancel = defineAction({
   name: "membership.cancel", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid() }),
+  owners: (db, i) => holderOf(db, i.membership_id),
   async plan(ctx, i) {
     const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
     if (m.status === "ended") throw new KumiError("error.membership_ended");
@@ -425,6 +432,7 @@ export const membershipCancel = defineAction({
 export const membershipResume = defineAction({
   name: "membership.resume", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid() }),
+  owners: (db, i) => holderOf(db, i.membership_id),
   async plan(ctx, i) {
     const { m, read, plan, person } = await membershipRow(ctx.db, i.membership_id);
     if (m.status === "ended" || !m.cancel_at_period_end) throw new KumiError("error.membership_not_cancelled");
@@ -649,6 +657,7 @@ const usdText = (cents: number): Text => ({ en: money(cents, "en"), es: money(ce
 export const membershipAddPerson = defineAction({
   name: "membership.add_person", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid(), person_id: z.uuid() }),
+  owners: (db, i) => holderOf(db, i.membership_id),   // whether someone is in the family, or a member already, is the payer's
   async plan(ctx, i) {
     const { m, read, plan, person: payer } = await membershipRow(ctx.db, i.membership_id);
     if (!["upcoming", "active", "past_due"].includes(m.status)) throw new KumiError("error.membership_not_live");
@@ -717,6 +726,7 @@ export const membershipAddPerson = defineAction({
 export const membershipRemovePerson = defineAction({
   name: "membership.remove_person", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid(), person_id: z.uuid() }),
+  owners: (db, i) => holderOf(db, i.membership_id),   // who it covers is the payer's
   async plan(ctx, i) {
     const { m, read, plan } = await membershipRow(ctx.db, i.membership_id);
     const row = (await coveredBy(ctx.db, m.id, ctx.now)).find((x) => x.person_id === i.person_id && !x.ends_at);
@@ -915,6 +925,7 @@ export const membershipRecordPayment = defineAction({
 export const membershipPayNext = defineAction({
   name: "membership.pay_next", version: 1, clubWide: true,
   input: z.object({ membership_id: z.uuid() }),
+  owners: async (db, i) => withManagers(db, await holderOf(db, i.membership_id)),   // what's owed at the desk
   async plan(ctx, i) {
     const { m, read, plan } = await membershipRow(ctx.db, i.membership_id);
     const name = textOf(plan.name, plan.translations, "name");

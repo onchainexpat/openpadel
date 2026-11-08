@@ -12,7 +12,7 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { paymentProvider } from "./money.ts";
-import { HOLD_MINUTES, notOwing, pastDeadline, policyOf, refundTarget, refundUpTo } from "./booking_pay.ts";
+import { HOLD_MINUTES, notOwing, pastDeadline, playerAt, playerOrParents, policyOf, refundTarget, refundUpTo } from "./booking_pay.ts";
 import { endOffer, matchFacts, paidBy, seatOf } from "./open_matches.ts";
 import { areFriends } from "./friends.ts";
 import { friendsAllowed } from "./kids.ts";
@@ -36,6 +36,11 @@ async function offerFacts(db: Db | Trx, by: { code?: string; id?: string }) {
   return { o, place, m: await matchFacts(db, place.booking_id), from: await nameOf(db, place.person_id!) };
 }
 
+/** An offer, by its id or its link's code, with whose place it is and where (ActionDef.owners). */
+const offerFor = (db: Db | Trx, by: { code?: string; id?: string }) => db.selectFrom("place_offer").innerJoin("booking_player", "booking_player.id", "place_offer.booking_player_id")
+  .innerJoin("booking", "booking.id", "booking_player.booking_id").select(["booking_player.person_id", "booking.location_id"])
+  .$if(Boolean(by.code), (q) => q.where("place_offer.code", "=", by.code!)).$if(Boolean(by.id), (q) => q.where("place_offer.id", "=", by.id!)).executeTakeFirst();
+
 /** Someone paying to take over this place right now (their seat held while they pay). */
 async function subPaying(db: Db | Trx, placeId: string, now: Date) {
   return (await db.selectFrom("booking_player").select(["id", "person_id"]).where("replaces", "=", placeId).where("removed_at", "is", null).where("held_until", ">", now).executeTakeFirst()) ?? null;
@@ -45,6 +50,8 @@ export const bookingOfferPlace = defineAction({
   name: "booking.offer_place", version: 1,
   // To a friend by name, or (no friend) as a link for anyone inside the band.
   input: z.object({ booking_id: z.uuid(), person_id: z.uuid(), to_person_id: z.optional(z.uuid()) }),
+  // The player's own place: whether they've paid, who their friends are and a friend's level are theirs.
+  owners: (db, i) => playerAt(db, [i.person_id], { id: i.booking_id }),
   async plan(ctx, i) {
     const m = await matchFacts(ctx.db, i.booking_id);
     if (i.person_id === m.organiser_id) throw new KumiError("error.host_cancels");
@@ -83,6 +90,7 @@ export const bookingOfferPlace = defineAction({
 export const bookingWithdrawOffer = defineAction({
   name: "booking.withdraw_offer", version: 1,
   input: z.object({ offer_id: z.uuid() }),
+  owners: async (db, i) => { const o = await offerFor(db, { id: i.offer_id }); return { ownerIds: o?.person_id ? [o.person_id] : [], locationId: o?.location_id }; },
   async plan(ctx, i) {
     const { o, place, m } = await offerFacts(ctx.db, { id: i.offer_id });
     if (o.status !== "offered") throw new KumiError("error.offer_closed");
@@ -99,6 +107,7 @@ export const bookingWithdrawOffer = defineAction({
 export const bookingTakePlace = defineAction({
   name: "booking.take_place", version: 1,
   input: z.object({ code: z.string().check(z.minLength(8), z.maxLength(40)), person_id: z.uuid() }),
+  owners: async (db, i) => ({ ownerIds: await playerOrParents(db, i.person_id), locationId: (await offerFor(db, { code: i.code }))?.location_id }),
   async plan(ctx, i) {
     await notJunior(ctx.db, i.person_id);
     await notOwing(ctx.db, i.person_id, ctx.actor, ctx.now);

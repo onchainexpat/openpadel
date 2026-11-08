@@ -55,6 +55,40 @@ export async function courtAndPlace(db: Db | Trx, courtId: string) {
   return c;
 }
 
+// ---- Whose a booking is, before its preview (ActionDef.owners) ----
+/** Where a court is: the location a booking of it names. Undefined when there's no such court (its preview says so). */
+export async function courtLocation(db: Db | Trx, courtId: string | undefined): Promise<string | undefined> {
+  if (!courtId) return undefined;
+  return (await db.selectFrom("court").select("location_id").where("id", "=", courtId).executeTakeFirst())?.location_id;
+}
+/** A booking, by its id or a link's code, with who it's for and where: undefined when there's none. */
+export async function bookingFor(db: Db | Trx, by: { id?: string | null; code?: string | null }) {
+  if (!by.id && !by.code) return undefined;
+  return db.selectFrom("booking").select(["id", "kind", "organiser_id", "coach_id", "location_id"])
+    .$if(Boolean(by.code), (q) => q.where("invite_code", "=", by.code!)).$if(!by.code, (q) => q.where("id", "=", by.id!)).executeTakeFirst();
+}
+/** These people, at the booking the input names: a player's own change to one (joining, leaving). */
+export const playerAt = async (db: Db | Trx, ownerIds: string[], by: { id?: string | null; code?: string | null }) =>
+  ({ ownerIds, locationId: (await bookingFor(db, by))?.location_id });
+/** Asked first of the player and a junior's parents, so a parent still hears that their junior doesn't book courts;
+ *  the preview's own check, after it, is the player's alone, as it was. */
+export const playerOrParents = (db: Db | Trx, personId: string) => withManagers(db, [personId]);
+/** Its organiser (and the parents who manage them), at its location: a booking's own change (who's on it, whether it counts). */
+export const organiserOf = async (db: Db | Trx, bookingId: string | null | undefined) => {
+  const b = await bookingFor(db, { id: bookingId });
+  return { ownerIds: await withManagers(db, [b?.organiser_id]), locationId: b?.location_id };
+};
+/** The host alone, at its location: an open match's host decides who's in it (an ask, a saved place, a no-show). */
+export const hostOf = async (db: Db | Trx, bookingId: string | null | undefined) => {
+  const b = await bookingFor(db, { id: bookingId });
+  return { ownerIds: b?.organiser_id ? [b.organiser_id] : [], locationId: b?.location_id };
+};
+/** A seat on a booking: whose it is and the booking's. Undefined when there's none. */
+export async function seatFor(db: Db | Trx, bookingPlayerId: string) {
+  return db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id")
+    .select(["booking_player.person_id", "booking.id as booking_id", "booking.organiser_id", "booking.location_id"]).where("booking_player.id", "=", bookingPlayerId).executeTakeFirst();
+}
+
 /** The checks every court booking passes: a length the club offers, a bookable court, in the future, inside
  *  the person's booking window and the opening hours, and free. A lesson's length is the coach's to offer. */
 export async function checkSlot(ctx: PlanCtx, policy: Awaited<ReturnType<typeof currentPolicy>>, s: { court_id: string; starts_at: string; minutes: number }, personId: string, o: { anyLength?: boolean } = {}) {
@@ -94,6 +128,8 @@ export const bookingRequest = defineAction({
     // An open match: other players can find it and join, inside the level band (or ask the host).
     open: z.optional(z.object({ level_min: levelInput, level_max: levelInput, outside_band: z.optional(z.enum(["ask", "closed"])), rated: z.optional(z.boolean()),
       listed: z.optional(z.boolean()), note: z.optional(z.string().check(z.maxLength(200))) })) }),
+  // Whose booking it'll be: what they owe, whether they're a junior and their price are said to nobody else.
+  owners: async (db, i) => ({ ownerIds: await playerOrParents(db, i.person_id), locationId: await courtLocation(db, i.court_id) }),
   async plan(ctx, i) {
     const club = await ctx.db.selectFrom("club").select(["court_bookings"]).executeTakeFirstOrThrow();
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
@@ -158,6 +194,7 @@ const slotInput = z.object({ court_id: z.uuid(), starts_at: z.iso.datetime({ off
 export const bookingRequestCourts = defineAction({
   name: "booking.request_courts", version: 1,
   input: z.object({ courts: z.array(slotInput).check(z.minLength(2), z.maxLength(8)), person_id: z.uuid() }),
+  owners: async (db, i) => ({ ownerIds: await playerOrParents(db, i.person_id), locationId: await courtLocation(db, i.courts[0]?.court_id) }),   // the first court's, as the preview names
   async plan(ctx, i) {
     const club = await ctx.db.selectFrom("club").select(["court_bookings"]).executeTakeFirstOrThrow();
     if (!club.court_bookings) throw new KumiError("error.bookings_off");
@@ -211,6 +248,7 @@ export const bookingJoin = defineAction({
   name: "booking.join", version: 1,
   // From its link, or (an open match) from the Play page.
   input: z.object({ invite_code: z.optional(z.string().check(z.minLength(8))), booking_id: z.optional(z.uuid()), person_id: z.uuid() }),
+  owners: async (db, i) => playerAt(db, await playerOrParents(db, i.person_id), i.invite_code ? { code: i.invite_code } : { id: i.booking_id }),
   async plan(ctx, i) {
     const b = await ctx.db.selectFrom("booking").selectAll().$if(Boolean(i.invite_code), (q) => q.where("invite_code", "=", i.invite_code!))
       .$if(!i.invite_code, (q) => q.where("id", "=", i.booking_id ?? "00000000-0000-0000-0000-000000000000")).executeTakeFirst();
@@ -476,6 +514,11 @@ export function playtomicText(refunds: { playtomic?: number }[], done: boolean, 
 export const bookingCancel = defineAction({
   name: "booking.cancel", version: 1,
   input: z.object({ booking_id: z.uuid(), reason: z.optional(z.string().check(z.maxLength(200))), refund: z.optional(z.enum(["rule", "full", "none", "credit"])) }),
+  // Its organiser (a junior's parents) and, for a lesson, its coach: "already cancelled" and what a refund comes to are theirs.
+  owners: async (db, i) => {
+    const b = await bookingFor(db, { id: i.booking_id });
+    return { ownerIds: [...await withManagers(db, [b?.organiser_id]), b?.kind === "lesson" ? b.coach_id : null].filter((x): x is string => Boolean(x)), locationId: b?.location_id };
+  },
   async plan(ctx, i) {
     const { row: b, read } = await readRow(ctx.db, "booking", i.booking_id, "thing.booking");
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");

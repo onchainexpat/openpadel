@@ -26,6 +26,15 @@ async function programOf(db: Db | Trx, programId: string) {
   if (p.kind !== "tournament" && p.kind !== "league") throw new KumiError("error.not_a_competition");
   return { p, read };
 }
+/** Whose a competition change is (the player the input names) and where its program is (ActionDef.owners), by the
+ *  program, an entry or a match: where it's left out, there's no such row (the preview says so). */
+async function playerIn(db: Db | Trx, personId: string | undefined, by: { program_id?: string; entry_id?: string; fixture_id?: string }) {
+  const q = db.selectFrom("program").select("program.location_id");
+  const at = by.program_id ? await q.where("program.id", "=", by.program_id).executeTakeFirst()
+    : by.entry_id ? await q.innerJoin("pair_entry", "pair_entry.program_id", "program.id").where("pair_entry.id", "=", by.entry_id).executeTakeFirst()
+    : by.fixture_id ? await q.innerJoin("fixture", "fixture.program_id", "program.id").where("fixture.id", "=", by.fixture_id).executeTakeFirst() : undefined;
+  return { ownerIds: personId ? [personId] : [], locationId: at?.location_id };
+}
 async function drawnOf(db: Db | Trx, programId: string) {
   return db.selectFrom("competition").selectAll().where("program_id", "=", programId).where("status", "!=", "void").executeTakeFirst();
 }
@@ -75,6 +84,8 @@ const notDrawn = async (db: Db | Trx, programId: string) => { if (await drawnOf(
 export const entryInvite = defineAction({
   name: "entry.invite", version: 1,
   input: z.object({ program_id: z.uuid(), person_id: z.uuid(), partner_id: z.uuid() }),
+  // As the player themselves: whether they have a place, who their friends are and whether a friend has entered are theirs.
+  owners: (db, i) => playerIn(db, i.person_id, { program_id: i.program_id }),
   async plan(ctx, i) {
     const { p, read } = await programOf(ctx.db, i.program_id);
     if (p.status !== "published") throw new KumiError("error.not_published");
@@ -112,6 +123,7 @@ async function answerable(db: Db | Trx, entryId: string, personId: string) {
 export const entryAccept = defineAction({
   name: "entry.accept", version: 1,
   input: z.object({ entry_id: z.uuid(), person_id: z.uuid() }),
+  owners: (db, i) => playerIn(db, i.person_id, { entry_id: i.entry_id }),
   async plan(ctx, i) {
     const { e, p, read } = await answerable(ctx.db, i.entry_id, i.person_id);
     if (!(await hasPlace(ctx.db, e.program_id, i.person_id))) throw new KumiError("error.need_place_first");
@@ -133,6 +145,7 @@ export const entryAccept = defineAction({
 export const entryDecline = defineAction({
   name: "entry.decline", version: 1,
   input: z.object({ entry_id: z.uuid(), person_id: z.uuid() }),
+  owners: (db, i) => playerIn(db, i.person_id, { entry_id: i.entry_id }),
   async plan(ctx, i) {
     const { e, p, read } = await answerable(ctx.db, i.entry_id, i.person_id);
     const partner = (await names(ctx.db, [e.person_a])).get(e.person_a) ?? "";
@@ -176,6 +189,7 @@ export const entryPair = defineAction({
 export const entryWithdraw = defineAction({
   name: "entry.withdraw", version: 1,
   input: z.object({ entry_id: z.uuid(), person_id: z.optional(z.uuid()) }),
+  owners: (db, i) => playerIn(db, i.person_id, { entry_id: i.entry_id }),   // without a player, staff's alone
   async plan(ctx, i) {
     const { row: e, read } = await readRow(ctx.db, "pair_entry", i.entry_id, "thing.entry");
     if (e.status !== "invited" && e.status !== "entered") throw new KumiError("error.entry_answered");
@@ -557,6 +571,7 @@ export const fixturePlace = defineAction({
 export const fixtureAskMove = defineAction({
   name: "fixture.ask_move", version: 1,
   input: z.object({ fixture_id: z.uuid(), person_id: z.uuid(), note: z.string().check(z.minLength(3), z.maxLength(300)) }),
+  owners: (db, i) => playerIn(db, i.person_id, { fixture_id: i.fixture_id }),
   async plan(ctx, i) {
     const { f, p, read } = await myFixture(ctx.db, i.fixture_id, i.person_id);
     if (f.status !== "ready" && f.status !== "waiting") throw new KumiError("error.match_decided");
@@ -638,6 +653,7 @@ export const fixtureScore = defineAction({
 export const fixtureEnter = defineAction({
   name: "fixture.enter", version: 1,
   input: z.object({ fixture_id: z.uuid(), person_id: z.uuid(), sets: z.array(z.object({ us: z.number().check(z.int(), z.minimum(0), z.maximum(99)), them: z.number().check(z.int(), z.minimum(0), z.maximum(99)) })).check(z.minLength(1), z.maxLength(3)) }),
+  owners: (db, i) => playerIn(db, i.person_id, { fixture_id: i.fixture_id }),
   async plan(ctx, i) {
     const { f, p, read, theirs } = await myFixture(ctx.db, i.fixture_id, i.person_id);
     const c = await scorable(ctx.db, f, ctx.now);

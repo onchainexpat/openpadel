@@ -260,6 +260,11 @@ export async function answerCounts(db: Db, now = new Date()) {
 async function threadOwners(db: Db | Trx, q: { person_id: string; asked_by: string }) {
   return [...new Set([q.asked_by, ...(await withManagers(db, [q.person_id]))])];
 }
+/** A thread's owners from its id alone (ActionDef.owners): nobody's when there's no such thread. */
+async function ownersOfThread(db: Db | Trx, id: string): Promise<string[]> {
+  const q = await db.selectFrom("question").select(["person_id", "asked_by"]).where("id", "=", id).executeTakeFirst();
+  return q ? threadOwners(db, q) : [];
+}
 async function threadOf(db: Db | Trx, id: string) {
   const { row, read } = await readRow(db, "question", id, "thing.question");
   return { q: row as { id: string; person_id: string; asked_by: string; status: "open" | "answered" | "closed"; assigned_to: string | null; waiting_since: Date | null; alerted_at: Date | null; version: number }, read };
@@ -272,6 +277,8 @@ async function firstWords(db: Db | Trx, questionId: string) {
 export const questionAsk = defineAction({
   name: "question.ask", version: 1,
   input: z.object({ person_id: z.uuid(), body }),
+  // About themselves, or their junior: the asker is in this list exactly when they're in the preview's (themselves, or the junior's parents).
+  owners: (db, i) => withManagers(db, [i.person_id]),
   async plan(ctx, i) {
     const asker = ctx.actor.personId;
     if (!asker) throw new KumiError("error.signed_out", {}, 401);
@@ -301,6 +308,7 @@ export const questionAsk = defineAction({
 export const questionReply = defineAction({
   name: "question.reply", version: 1,
   input: z.object({ question_id: z.uuid(), body }),
+  owners: (db, i) => ownersOfThread(db, i.question_id),
   async plan(ctx, i) {
     const { q, read } = await threadOf(ctx.db, i.question_id);
     return { title: both("action.question.reply"), reads: [read], ownerIds: await threadOwners(ctx.db, q), undo: { kind: "none" },
@@ -322,6 +330,7 @@ function toStaff(name: "question.not_answered" | "question.ask_person", label: "
   return defineAction({
     name, version: 1,
     input: z.object({ question_id: z.uuid() }),
+    owners: (db, i) => ownersOfThread(db, i.question_id),   // whether the club has answered is the thread's
     async plan(ctx, i) {
       const { q, read } = await threadOf(ctx.db, i.question_id);
       const last = await ctx.db.selectFrom("question_message").select("side").where("question_id", "=", q.id).orderBy("created_at", "desc").orderBy("id", "desc").limit(1).executeTakeFirst();
@@ -389,6 +398,7 @@ export const questionAssign = defineAction({
 export const questionClose = defineAction({
   name: "question.close", version: 1, clubWide: true,
   input: z.object({ question_id: z.uuid() }),
+  owners: (db, i) => ownersOfThread(db, i.question_id),
   async plan(ctx, i) {
     const { q, read } = await threadOf(ctx.db, i.question_id);
     if (q.status === "closed") throw new KumiError("error.question_closed");

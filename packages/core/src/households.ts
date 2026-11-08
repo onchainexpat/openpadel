@@ -104,6 +104,8 @@ async function adultRow(ctx: PlanCtx, personId: string) {
 export const householdAddJunior = defineAction({
   name: "household.add_junior", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid(), display_name: nameInput(80), birth_year: z.number().check(z.int()) }),
+  // The parent's own: whether someone is a junior or in a household is said to nobody else.
+  owners: async (_db, i) => [i.person_id],
   async plan(ctx, i) {
     const { hh } = await adultRow(ctx, i.person_id);
     if (hh && hh.role !== "adult") throw new KumiError("error.household_not_parent");
@@ -128,6 +130,7 @@ export const householdAddJunior = defineAction({
 export const householdRemoveJunior = defineAction({
   name: "household.remove_junior", version: 1,
   input: z.object({ person_id: z.uuid() }),
+  owners: (db, i) => withManagers(db, [i.person_id]),   // a junior's name, and their places, are their parents'
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     if (!row.junior || row.status !== "active") throw new KumiError("error.not_a_junior", { name: row.display_name });
@@ -150,6 +153,7 @@ export const householdRemoveJunior = defineAction({
 export const householdInvite = defineAction({
   name: "household.invite", version: 1,
   input: z.object({ person_id: z.uuid() }),
+  owners: async (_db, i) => [i.person_id],
   async plan(ctx, i) {
     const { hh } = await adultRow(ctx, i.person_id);
     if (hh && hh.role !== "adult") throw new KumiError("error.household_not_parent");
@@ -167,6 +171,10 @@ export const householdInvite = defineAction({
 export const householdWithdrawInvite = defineAction({
   name: "household.withdraw_invite", version: 1,
   input: z.object({ invite_id: z.uuid() }),
+  owners: async (db, i) => {   // the household's adults now, as the preview says
+    const inv = await db.selectFrom("household_invite").select("household_id").where("id", "=", i.invite_id).executeTakeFirst();
+    return inv ? adultsNow(db, inv.household_id) : [];
+  },
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "household_invite", i.invite_id, "thing.household_invite");
     if (row.status !== "open") throw new KumiError("error.household_invite_closed");
@@ -189,6 +197,7 @@ export async function inviteByCode(db: Db | Trx, code: string, now: Date) {
 export const householdAcceptInvite = defineAction({
   name: "household.accept_invite", version: 1,
   input: z.object({ person_id: z.uuid(), code: z.string().check(z.minLength(8), z.maxLength(40)) }),
+  owners: async (_db, i) => [i.person_id],
   async plan(ctx, i) {
     const inv = await inviteByCode(ctx.db, i.code, ctx.now);
     if (!inv || !inv.open) throw new KumiError("error.household_invite_closed");
@@ -215,6 +224,7 @@ export const householdAcceptInvite = defineAction({
 export const householdLeave = defineAction({
   name: "household.leave", version: 1,
   input: z.object({ person_id: z.uuid() }),
+  owners: async (_db, i) => [i.person_id],
   async plan(ctx, i) {
     const hh = await householdOf(ctx.db, i.person_id);
     if (!hh || hh.role === "junior") throw new KumiError("error.not_in_household");
@@ -240,6 +250,7 @@ export const householdLeave = defineAction({
 export const householdGiveLogin = defineAction({
   name: "household.give_login", version: 1,
   input: z.object({ person_id: z.uuid(), email: z.email() }),
+  owners: (db, i) => withManagers(db, [i.person_id]),   // a junior's birth year, and whether an address is taken, are for their parents
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     if (!row.junior) throw new KumiError("error.not_a_junior", { name: row.display_name });
@@ -329,6 +340,7 @@ export const waiverClear = defineAction({
 export const waiverAccept = defineAction({
   name: "waiver.accept", version: 1,
   input: z.object({ person_id: z.uuid() }),
+  owners: (db, i) => withManagers(db, [i.person_id]),   // whether someone has accepted it is theirs
   async plan(ctx, i) {
     const st = await waiverStatus(ctx.db, i.person_id);
     if (!st) throw new KumiError("error.no_waiver");

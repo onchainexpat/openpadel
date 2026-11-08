@@ -158,6 +158,19 @@ test("a member can leave their own place but can't take anyone off", async () =>
   await run(db, "enrolment.leave", { enrolment_id: e1.enrolment_id }, as(m1));
 });
 
+test("someone else's place tells a member nothing in a preview: signed up already, watching, an offer; their own still does", async () => {
+  const p = await americano("Whose places", 300, court2);
+  const m3 = await person("M3"), m4 = await person("M4");
+  const e3 = await join(p, m3);
+  // Each said what stood in the way, and whose: "M3 is already signed up", "there's no offer". Now a plain no.
+  for (const [action, input] of [
+    ["enrolment.join", { program_id: p, person_id: m3 }], ["program.watch", { program_id: p, person_id: m3 }],
+    ["enrolment.transfer", { enrolment_id: e3.enrolment_id, to_person_id: m4, pay: "gift" }], ["enrolment.accept_offer", { enrolment_id: e3.enrolment_id }],
+  ] as const) await rejects(plan(db, action, input, as(m4)), "error.forbidden_reason");
+  await rejects(plan(db, "enrolment.join", { program_id: p, person_id: m3 }, as(m3)), "error.already_signed_up");
+  await rejects(plan(db, "enrolment.accept_offer", { enrolment_id: e3.enrolment_id }, as(m3)), "error.no_offer");
+});
+
 test("a place offered from the waitlist is held for that person, and a second opening goes to the next one", async () => {
   const p = await americano("Held places", 120);
   const [a, b, c, d, w1, w2, x] = await Promise.all(["Hp A", "Hp B", "Hp C", "Hp D", "Hp W1", "Hp W2", "Hp X"].map((n) => person(n)));

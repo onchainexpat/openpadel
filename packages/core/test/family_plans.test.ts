@@ -75,6 +75,17 @@ test("the payer joins and adds the family: up to the plan's number included, one
   assert.deepEqual(msgs, [{ person_id: people.Sam, subject: "You're on the Family membership", body: "Pat added you to their Family membership: its member benefits are yours too." }]);   // the juniors' parents already know
 });
 
+test("someone else's membership tells a member nothing in a preview; the payer still hears what stands in the way", async () => {
+  // Max isn't in the family. Each said whose it is: "Ann isn't in this family", "isn't covered", "Sam is a member
+  // already", "renews by itself". Now a plain no.
+  for (const [action, input] of [
+    ["membership.add_person", { membership_id: mid, person_id: people.Ann }], ["membership.remove_person", { membership_id: mid, person_id: people.Ann }],
+    ["membership.join", { plan_id: family, person_id: people.Sam }], ["membership.pay_next", { membership_id: mid }], ["membership.cancel", { membership_id: mid }],
+  ] as const) await rejects(plan(db, action, input, as("Max"), opts), "error.forbidden_reason");
+  await rejects(plan(db, "membership.add_person", { membership_id: mid, person_id: people.Ann }, as("Pat"), opts), "error.not_in_family", "Ann isn't in this family. A parent adds them under Family first (a junior), or invites them (another adult).");
+  assert.equal((await plan(db, "membership.cancel", { membership_id: mid }, as("Pat"), opts)).status, "planned");
+});
+
 test("program perks for each person: their own included session, then the member price", async () => {
   const a = await clinic("Clinic A"), b = await clinic("Clinic B");
   assert.equal((await run(db, "enrolment.join", { program_id: a, person_id: people.Mia }, as("Sam"), opts)).plan.summary.en, "Sign Mia up for Clinic A at no charge: included session 1 of 1 in the membership this period.");

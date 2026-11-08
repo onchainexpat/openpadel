@@ -106,6 +106,8 @@ async function countTry(db: Db | Trx, personId: string, code: string, now: Date)
 export const paymentUsePromo = defineAction({
   name: "payment.use_promo", version: 1,
   input: z.object({ payment_id: z.uuid(), code: z.string().check(z.minLength(2), z.maxLength(40)) }),
+  // Whose payment: what it's for, and what a code would take off it, are theirs.
+  owners: async (db, i) => { const p = await db.selectFrom("payment").select("person_id").where("id", "=", i.payment_id).executeTakeFirst(); return p ? [p.person_id] : []; },
   async plan(ctx, i) {
     const { read } = await readRow(ctx.db, "payment", i.payment_id, "thing.payment");
     const pay = await ctx.db.selectFrom("payment").selectAll().where("id", "=", i.payment_id).executeTakeFirstOrThrow();

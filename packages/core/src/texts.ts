@@ -148,6 +148,7 @@ export const consentTexts = defineAction({
   name: "consent.texts", version: 1,
   input: z.object({ person_id: z.uuid(), granted: z.boolean(), form_version: z.optional(z.string().check(z.maxLength(40))), app: z.optional(z.enum(["member", "staff"])),
     device: z.optional(z.string().check(z.maxLength(300))) }),
+  owners: async (_db, i) => [i.person_id],   // a confirmed number, a kid's rules and their answer are theirs
   async plan(ctx, i) {
     if (!textingOn()) throw new KumiError("error.texts_off", {}, 409);
     const p = await ctx.db.selectFrom("person").leftJoin("kid_rule", "kid_rule.person_id", "person.id").select(["person.junior", "person.own_login", "kid_rule.texts"])

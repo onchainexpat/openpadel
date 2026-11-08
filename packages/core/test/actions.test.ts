@@ -111,6 +111,54 @@ test("own-rows grants: a member changes their own profile, not someone else's", 
   await rejects(plan(db, "person.update_profile", { person_id: b, display_name: "Hacked" }, as(a)), "error.forbidden_reason");
 });
 
+test("whose it is, asked before the preview: someone else's profile, friends, family and sign-in tell a member nothing; their own still does", async () => {
+  const a = await person("Dot", "member"), b = await person("Eli", "member");
+  // Each was answered from Eli's own rows: "nothing changed" (so Eli's language is English), whether Eli has an
+  // authenticator, whether Eli added Dot or has played with her, whether Eli is in a family. Now a plain no.
+  for (const [action, input] of [
+    ["person.update_profile", { person_id: b, locale: "en" }], ["person.factor_remove", { person_id: b }], ["friend.remove", { person_id: b, friend_id: a }],
+    ["friend.add", { person_id: b, friend_id: a }], ["household.leave", { person_id: b }], ["household.add_junior", { person_id: b, display_name: "Kit", birth_year: 2020 }],
+  ] as const) await rejects(plan(db, action, input, as(a)), "error.forbidden_reason");
+  // Her own: what stands in the way is hers to hear.
+  await rejects(plan(db, "person.update_profile", { person_id: a, locale: "en" }, as(a)), "error.nothing_changed");
+  await rejects(plan(db, "person.factor_remove", { person_id: a }, as(a)), "error.not_found");
+  await rejects(plan(db, "household.leave", { person_id: a }, as(a)), "error.not_in_household");
+});
+
+test("whose it is is judged where the preview would be: a desk kept to one location keeps its own, a place only the preview knows is left to it, and whose it is is asked again at the yes", async () => {
+  const north = ((await run(db, "location.create", { name: "North", time_zone: "America/Los_Angeles" }, owner)).result as { location_id: string }).location_id;
+  const south = ((await run(db, "location.create", { name: "South", time_zone: "America/Los_Angeles" }, owner)).result as { location_id: string }).location_id;
+  const desk = await person("Nia", "front_desk", north), mo = await person("Moss", "member"), ola = await person("Ola", "member");
+  let whose: string[] = [];
+  defineAction({ name: "test.owned", version: 1, input: z.object({ person_id: z.uuid(), at: z.enum(["north", "south", "later", "none"]), stuck: z.optional(z.boolean()) }),
+    // `later`: the preview picks the place (North), as a lesson with no court named does.
+    owners: async (_db, i) => i.at === "none" ? [...whose, i.person_id] : { ownerIds: [...whose, i.person_id], ...(i.at === "later" ? {} : { locationId: i.at === "north" ? north : south }) },
+    async plan(_ctx, i) {
+      if (i.stuck) throw new KumiError("error.changed");   // what the preview would say of the person's own rows
+      return { title: { en: "t", es: "t" }, summary: { en: "t", es: "t" }, reads: [], undo: { kind: "reversible" }, ownerIds: [...whose, i.person_id],
+        locationId: i.at === "none" ? null : i.at === "south" ? south : north };
+    },
+    async apply() { return null; } });
+  for (const [role, rows] of [["front_desk", "any"], ["member", "own"]] as const) {
+    const r = await db.selectFrom("role").select("id").where("key", "=", role).executeTakeFirstOrThrow();
+    await db.insertInto("role_grant").values({ id: uuidv7(), role_id: r.id, pattern: "test.owned", mode: "allow", rows_scope: rows }).execute();
+  }
+  // A member: someone else's is refused before the preview; their own preview says what it says.
+  await rejects(plan(db, "test.owned", { person_id: ola, at: "north", stuck: true }, as(mo)), "error.forbidden_reason");
+  await rejects(plan(db, "test.owned", { person_id: mo, at: "north", stuck: true }, as(mo)), "error.changed");
+  // North's desk: North's as before, South's refused as before, and one whose place only the preview knows goes on to it.
+  assert.equal((await plan(db, "test.owned", { person_id: ola, at: "north" }, as(desk))).status, "planned");
+  await rejects(plan(db, "test.owned", { person_id: ola, at: "south" }, as(desk)), "error.forbidden_reason");
+  assert.equal((await plan(db, "test.owned", { person_id: ola, at: "later" }, as(desk))).status, "planned");
+  await rejects(plan(db, "test.owned", { person_id: ola, at: "later", stuck: true }, as(desk)), "error.changed");
+  // Ola is Mo's for a moment (a junior, say): Mo previews it, it stops being Mo's, and the yes is refused.
+  whose = [mo];
+  const p = await plan(db, "test.owned", { person_id: ola, at: "none" }, as(mo));
+  whose = [];
+  await rejects(apply(db, p.runId, as(mo)), "error.forbidden_reason");
+  assert.equal((await db.selectFrom("action_run").select("status").where("id", "=", p.runId).executeTakeFirstOrThrow()).status, "failed");
+});
+
 test("undo puts things back exactly, once, and only if nothing changed since", async () => {
   const before = (await club()).name;
   const r = await run(db, "club.update", { name: "Temporary" }, owner);

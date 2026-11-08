@@ -12,7 +12,7 @@ import { uuidv7 } from "./ids.ts";
 import { ENTER_DAYS } from "./results.ts";
 import { notJunior, withManagers } from "./households.ts";
 import { friendsOf } from "./friends.ts";
-import { deskOrUp } from "./booking_pay.ts";
+import { bookingFor, deskOrUp, organiserOf, seatFor } from "./booking_pay.ts";
 
 const when = (d: Date, tz: string): Text => ({ en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) });
 
@@ -55,6 +55,7 @@ async function seat(ctx: ApplyCtx, bookingId: string, personId: string, addedBy:
 export const bookingAddPlayer = defineAction({
   name: "booking.add_player", version: 1,
   input: z.object({ booking_id: z.uuid(), person_id: z.uuid() }),
+  owners: (db, i) => organiserOf(db, i.booking_id),   // whether someone is on it, a junior, or known to the booker: the booker's
   async plan(ctx, i) {
     const b = await wholeBooking(ctx.db, { id: i.booking_id }, ctx.now);
     const person = await someone(ctx.db, i.person_id);
@@ -79,6 +80,7 @@ export const bookingAddPlayer = defineAction({
 export const bookingJoinPlayers = defineAction({
   name: "booking.join_players", version: 1,
   input: z.object({ invite_code: z.string().check(z.minLength(8)), person_id: z.uuid() }),
+  owners: async (db, i) => ({ ownerIds: await withManagers(db, [i.person_id]), locationId: (await bookingFor(db, { code: i.invite_code }))?.location_id }),
   async plan(ctx, i) {
     const b = await wholeBooking(ctx.db, { code: i.invite_code }, ctx.now);
     if (b.on.includes(i.person_id)) throw new KumiError("error.already_in_booking");
@@ -97,6 +99,7 @@ export const bookingJoinPlayers = defineAction({
 export const bookingRemovePlayer = defineAction({
   name: "booking.remove_player", version: 1,
   input: z.object({ booking_player_id: z.uuid() }),
+  owners: async (db, i) => { const p = await seatFor(db, i.booking_player_id); return { ownerIds: await withManagers(db, [p?.organiser_id, p?.person_id]), locationId: p?.location_id }; },
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "booking_player", i.booking_player_id, "thing.booking");
     const b = await wholeBooking(ctx.db, { id: p.booking_id }, ctx.now);
@@ -120,6 +123,7 @@ export const bookingRemovePlayer = defineAction({
 export const bookingSetRated = defineAction({
   name: "booking.set_rated", version: 1,
   input: z.object({ booking_id: z.uuid(), rated: z.boolean() }),
+  owners: (db, i) => organiserOf(db, i.booking_id),
   async plan(ctx, i) {
     const b = await ctx.db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id")
       .innerJoin("location", "location.id", "court.location_id").select(["booking.id", "booking.kind", "booking.status", "booking.organiser_id", "booking.location_id", "court.name as court",

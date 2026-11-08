@@ -32,6 +32,17 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   way ("a review is open", "already brought", "no level yet") instead of a plain no. It's refused before the preview
   now. And a parent's preview for their junior, confirmed after they'd left the family, still went through: whose it
   is is asked again at the yes.
+- **A preview of a change to someone else's booking, place, family or account told a member about it (0.1.0 on).**
+  Asked with someone else's booking, place or account, the members' app and an assistant answered with what stood in
+  the way before saying no: what that person owed the club, that they were a junior and their birth year, whether two
+  people were friends or had played together, whether someone was signed up already or a member, that a booking was
+  cancelled already, a player's level. Courts, open matches and taking a place, scores, lessons, programs,
+  memberships, families, the waiver and kids' logins, friends, questions to the club, the answers about club news and
+  texts, assistants, and a person's profile, authenticator, data download and account deletion were like this, and
+  (0.3.0 on) weekly courts, tournaments and leagues, and paying with a pass or a code. It's a plain no now, before the preview, and whose it is
+  is asked again at the yes, so a parent who has left the family since can't confirm a preview made for their junior.
+  A parent still hears that their junior doesn't book courts, and staff kept to one location preview their own
+  location's changes as before.
 - **Setting a player's level below their floor previewed the level asked for (0.1.0 to 0.5.0).** "Change Ann Lee's
   level from 3.50 to 3.00", and the change set the floor's 3.25 instead. It's refused now, as answering a review
   refuses it: "3.00 is below the floor set for Ann Lee (3.25)." Lower the floor first. And setting the level they

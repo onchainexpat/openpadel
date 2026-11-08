@@ -129,6 +129,7 @@ export const factorCodes = defineAction({
 export const factorRemove = defineAction({
   name: "person.factor_remove", version: 1, strongAuth: true,
   input: z.object({ person_id: z.uuid() }),
+  owners: async (_db, i) => [i.person_id],   // whether someone has an authenticator, or must keep one, is theirs
   async plan(ctx, i) {
     const f = await activeFactor(ctx.db, i.person_id);
     if (!f) throw new KumiError("error.not_found", { thing: both("thing.authenticator") }, 404);

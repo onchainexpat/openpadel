@@ -65,7 +65,7 @@ test("the waiver: asked before the first sign-up, for an adult and for each juni
   await rejects(plan(db, "enrolment.join", { program_id: clinic, person_id: mia }, as("Pat"), opts), "error.waiver_needed_junior",
     "Before Mia plays, the club asks you to accept its waiver for them. Open it from the note at the top of the app.");
   await rejects(plan(db, "booking.request", { court_id: court, starts_at: "2026-12-04T18:00:00-08:00", minutes: 90, pay: "whole", person_id: people.Pat }, as("Pat"), opts), "error.waiver_needed");
-  await rejects(plan(db, "waiver.accept", { person_id: mia }, as("Ann"), opts), "error.waiver_own");
+  await rejects(plan(db, "waiver.accept", { person_id: mia }, as("Ann"), opts), "error.forbidden_reason");   // not Ann's junior: a plain no, before whether it's accepted
   await rejects(plan(db, "waiver.accept", { person_id: mia }, owner, opts), "error.waiver_own");   // staff don't accept it for anyone
   const w = await run(db, "waiver.accept", { person_id: mia }, as("Sam"), opts);
   assert.equal(w.plan.summary.en, "Accept the club's waiver (version 1) for Mia, as their parent.");

@@ -17,7 +17,7 @@ import { localDate, onDate, weekdayOf } from "./clock.ts";
 import { freeCourts, itsTimeNow, occupied } from "./bookings.ts";
 import { currentPolicy, taxSplit } from "./prices.ts";
 import { paymentProvider } from "./money.ts";
-import { checkSlot, courtAndPlace, HOLD_MINUTES, newCode, notOwing, shares } from "./booking_pay.ts";
+import { checkSlot, courtAndPlace, courtLocation, HOLD_MINUTES, newCode, notOwing, shares } from "./booking_pay.ts";
 import { requireWaiver, withManagers } from "./households.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
@@ -304,6 +304,8 @@ export const lessonRequest = defineAction({
   name: "lesson.request", version: 1,
   input: z.object({ coach_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), minutes: z.number().check(z.int()), court_id: z.optional(z.uuid()),
     pay: z.enum(["whole", "split"]), players: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(4), z.describe("Players in the lesson. Paying each their part: 2 to 4."))), person_id: z.uuid() }),
+  // The player's (a junior's parents'): what they owe is theirs. Without a court named, the preview picks one, and its place.
+  owners: async (db, i) => ({ ownerIds: await withManagers(db, [i.person_id]), locationId: await courtLocation(db, i.court_id) }),
   async plan(ctx, i) {
     const c = await lessonCoach(ctx.db, i.coach_id), rate = c.rates[String(i.minutes)];
     if (i.person_id === i.coach_id) throw new KumiError("error.own_lesson");

@@ -120,3 +120,26 @@ test("a desk with no location keeps what it has: the club's facts and messages, 
   assert.equal(f.status, 200, JSON.stringify(f.json));
   assert.equal((await get("Robin", "/me")).json.cannot.length, 0);
 });
+
+test("Eastside's desk still previews and confirms what's Eastside's for a member (cancelling a court, a sign-up), and still not Westside's", async () => {
+  const eastCourt = ((await run(db, "court.create", { location_id: east, name: "East 1" }, owner)).result as any).court_id;
+  await run(db, "hours.set", { location_id: east, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "08:00", closes: "22:00" })) }, owner);
+  const booked = async (court: string) => ((await run(db, "booking.create", { court_id: court, starts_at: `${day()}T19:00:00-08:00`, minutes: 60, person_id: people.Ann }, owner)).result as any).booking_id as string;
+  const mine = await booked(eastCourt), theirs = await booked(westCourt);
+  // Whose these are is asked before the preview now, at the booking's location: Eastside's desk keeps Eastside's.
+  const c = await post("Lee", "/actions/booking.cancel/plan", { booking_id: mine });
+  assert.equal(c.status, 200, JSON.stringify(c.json));
+  assert.equal((await post("Lee", `/runs/${c.json.run_id}/apply`)).status, 200);
+  const clinic = ((await run(db, "program.create", { location_id: east, kind: "clinic", name: "Eastside Clinic", capacity: 8, price_cents: 0 }, owner)).result as any).program_id;
+  await run(db, "session.add", { program_id: clinic, starts_at: `${day()}T10:00:00-08:00`, ends_at: `${day()}T11:00:00-08:00`, court_ids: [eastCourt] }, owner);
+  await run(db, "program.publish", { program_id: clinic }, owner);
+  const j = await post("Lee", "/actions/enrolment.join/plan", { program_id: clinic, person_id: people.Ann });
+  assert.equal(j.status, 200, JSON.stringify(j.json));
+  assert.equal((await post("Lee", `/runs/${j.json.run_id}/apply`)).status, 200);
+  // Westside's is still refused for where it is, as it was; a booking that isn't there is still "not found".
+  const w = await post("Lee", "/actions/booking.cancel/plan", { booking_id: theirs });
+  assert.equal(w.status, 403);
+  assert.match(JSON.stringify(w.json), /your role doesn't cover this location/);
+  assert.equal((await post("Lee", "/actions/booking.cancel/plan", { booking_id: "00000000-0000-7000-8000-00000000abcd" })).status, 404);
+  assert.equal((await post("Dana", "/actions/booking.cancel/plan", { booking_id: theirs })).status, 200);
+});

@@ -53,6 +53,13 @@ async function bookingFacts(db: Db | Trx, bookingId: string) {
   return { ...b, rated: Boolean(b.rated), when: { en: dateTime(new Date(b.start), "en", b.time_zone), es: dateTime(new Date(b.start), "es", b.time_zone) } as Text };
 }
 
+/** Where a game was played, as factsOf says it, from its id alone (ActionDef.owners): undefined when there's no such game. */
+async function gameLocation(db: Db | Trx, gameId: string): Promise<string | undefined> {
+  const g = await db.selectFrom("game").leftJoin("booking", "booking.id", "game.booking_id").leftJoin("fixture", "fixture.id", "game.fixture_id").leftJoin("program", "program.id", "fixture.program_id")
+    .select(["booking.location_id as booked", "program.location_id as drawn", "game.booking_id"]).where("game.id", "=", gameId).executeTakeFirst();
+  return (g?.booking_id ? g.booked : g?.drawn) ?? undefined;
+}
+
 /** Where and when a game was played: its court booking's, or (a tournament or league match) its fixture's. */
 async function factsOf(db: Db | Trx, g: { booking_id: string | null; fixture_id: string | null }) {
   if (g.booking_id) return bookingFacts(db, g.booking_id);
@@ -91,6 +98,8 @@ const answer = (ctx: ApplyCtx, gameId: string, personId: string | null, side: "a
 export const resultEnter = defineAction({
   name: "result.enter", version: 1,
   input: z.object({ booking_id: z.uuid(), person_id: z.uuid(), partner_id: z.uuid(), sets: setsInput }),
+  // Entered as the player themselves: nobody previews a score as someone else (with their partner and opponents named).
+  owners: async (db, i) => ({ ownerIds: [i.person_id], locationId: (await db.selectFrom("booking").select("location_id").where("id", "=", i.booking_id).executeTakeFirst())?.location_id }),
   async plan(ctx, i) {
     const b = await bookingFacts(ctx.db, i.booking_id);
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
@@ -138,6 +147,7 @@ async function count(ctx: ApplyCtx, gameId: string) {
 export const resultConfirm = defineAction({
   name: "result.confirm", version: 1,
   input: z.object({ game_id: z.uuid(), person_id: z.uuid() }),
+  owners: async (db, i) => ({ ownerIds: [i.person_id], locationId: await gameLocation(db, i.game_id) }),
   async plan(ctx, i) {
     const g = await gameView(ctx.db, i.game_id);
     if (g.status !== "awaiting_confirmation") throw new KumiError("error.result_answered");
@@ -157,6 +167,7 @@ export const resultConfirm = defineAction({
 export const resultDispute = defineAction({
   name: "result.dispute", version: 1,
   input: z.object({ game_id: z.uuid(), person_id: z.uuid(), note: z.string().check(z.minLength(3), z.maxLength(300)) }),
+  owners: async (db, i) => ({ ownerIds: [i.person_id], locationId: await gameLocation(db, i.game_id) }),
   async plan(ctx, i) {
     const g = await gameView(ctx.db, i.game_id);
     const side = g.a.some((p) => p.person_id === i.person_id) ? "a" : g.b.some((p) => p.person_id === i.person_id) ? "b" : null;

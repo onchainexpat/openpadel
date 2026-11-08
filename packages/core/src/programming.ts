@@ -18,7 +18,7 @@ import { localDate, onDate } from "./clock.ts";
 import { coachBusy, isCoach } from "./lessons.ts";
 import { withManagers } from "./households.ts";
 import { clashList, dateClashes } from "./program_clashes.ts";
-import { askAgain, clubTz, firstStart, freePlace, join2, leaving, paidFor, perDate, placesOf, signUpDate, startRefund, started, takenCount, tellWatchers, type ApplyContext, type Refund } from "./programs.ts";
+import { askAgain, clubTz, firstStart, freePlace, join2, leaving, paidFor, perDate, placesOf, programLocation, signUpDate, startRefund, started, takenCount, tellWatchers, type ApplyContext, type Refund } from "./programs.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const when = (at: Date, tz: string): Text => ({ en: dateTime(at, "en", tz), es: dateTime(at, "es", tz) });
@@ -459,6 +459,7 @@ export async function decidePrograms(db: Db, now = new Date()) {
 export const programWatch = defineAction({
   name: "program.watch", version: 1,
   input: z.object({ program_id: z.uuid(), person_id: z.uuid(), session_id: z.optional(z.uuid().check(z.describe("The date, for a program signed up per date."))) }),
+  owners: async (db, i) => ({ ownerIds: await withManagers(db, [i.person_id]), locationId: await programLocation(db, i.program_id) }),   // "already signed up", "already watching"
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     if (p.status !== "published") throw new KumiError("error.not_published");
@@ -487,6 +488,10 @@ export const programWatch = defineAction({
 export const programUnwatch = defineAction({
   name: "program.unwatch", version: 1,
   input: z.object({ watch_id: z.uuid() }),
+  owners: async (db, i) => {
+    const w = await db.selectFrom("program_watch").innerJoin("program", "program.id", "program_watch.program_id").select(["program_watch.person_id", "program.location_id"]).where("program_watch.id", "=", i.watch_id).executeTakeFirst();
+    return { ownerIds: await withManagers(db, [w?.person_id]), locationId: w?.location_id };
+  },
   async plan(ctx, i) {
     const { row: w, read } = await readRow(ctx.db, "program_watch", i.watch_id, "thing.program");
     if (w.told_at || w.ended_at) throw new KumiError("error.not_watching");

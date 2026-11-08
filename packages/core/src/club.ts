@@ -490,6 +490,7 @@ export const roleRemove = defineAction({
 export const personUpdateProfile = defineAction({
   name: "person.update_profile", version: 1,
   input: z.object({ person_id: z.uuid(), display_name: z.optional(nameInput()), locale: z.optional(lang) }),
+  owners: (db, i) => withManagers(db, [i.person_id]),   // "nothing changed" would tell someone else's name or language
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     const { person_id, ...rest } = i;
@@ -526,6 +527,7 @@ export const passkeyAdd = defineAction({
 export const passkeyRemove = defineAction({
   name: "person.passkey_remove", version: 1, strongAuth: true,
   input: z.object({ person_id: z.uuid(), credential_id: z.string() }),
+  owners: async (_db, i) => [i.person_id],
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "passkey", i.credential_id, "thing.passkey");
     if (row.person_id !== i.person_id || row.revoked_at) throw new KumiError("error.not_found", { thing: both("thing.passkey") }, 404);

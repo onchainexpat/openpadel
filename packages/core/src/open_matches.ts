@@ -13,7 +13,7 @@ import { uuidv7 } from "./ids.ts";
 import { paymentProvider } from "./money.ts";
 import { callOff } from "./desk_pay.ts";
 import { abandonPayment } from "./programs.ts";
-import { deadlineSql, notOwing, pastDeadline, policyOf, refundPayment, refundTarget, refundUpTo, shares } from "./booking_pay.ts";
+import { deadlineSql, hostOf, notOwing, pastDeadline, playerAt, playerOrParents, policyOf, refundPayment, refundTarget, refundUpTo, seatFor, shares } from "./booking_pay.ts";
 import { band, levelOf, openMatchOf } from "./match_rules.ts";
 import { notJunior, requireWaiver } from "./households.ts";
 import { areFriends } from "./friends.ts";
@@ -40,10 +40,14 @@ export async function matchFacts(db: Db | Trx, bookingId: string) {
   return { ...b, om, seated, when, share: shares(b.price_cents, b.players).each };
 }
 export const isOpen = (m: { status: string; settled_at: Date | null; start: Date }, now: Date) => m.status === "confirmed" && !m.settled_at && new Date(m.start) > now;
+/** An ask to join, with the player who asked and the match's host and location (ActionDef.owners). */
+const askFor = (db: Db | Trx, requestId: string) => db.selectFrom("join_request").innerJoin("booking", "booking.id", "join_request.booking_id")
+  .select(["join_request.person_id", "booking.organiser_id", "booking.location_id"]).where("join_request.id", "=", requestId).executeTakeFirst();
 
 export const bookingAsk = defineAction({
   name: "booking.ask", version: 1,
   input: z.object({ booking_id: z.uuid(), person_id: z.uuid(), note: z.optional(z.string().check(z.maxLength(200))) }),
+  owners: async (db, i) => playerAt(db, await playerOrParents(db, i.person_id), { id: i.booking_id }),
   async plan(ctx, i) {
     await notJunior(ctx.db, i.person_id);
     await notOwing(ctx.db, i.person_id, ctx.actor, ctx.now);
@@ -71,6 +75,7 @@ export const bookingAsk = defineAction({
 export const bookingWithdrawAsk = defineAction({
   name: "booking.withdraw_ask", version: 1,
   input: z.object({ request_id: z.uuid() }),
+  owners: async (db, i) => { const r = await askFor(db, i.request_id); return { ownerIds: r ? [r.person_id] : [], locationId: r?.location_id }; },
   async plan(ctx, i) {
     const { row: r, read } = await readRow(ctx.db, "join_request", i.request_id, "thing.join_request");
     if (r.status !== "requested") throw new KumiError("error.request_answered");
@@ -84,6 +89,7 @@ export const bookingWithdrawAsk = defineAction({
 export const bookingAnswerAsk = defineAction({
   name: "booking.answer_ask", version: 1,
   input: z.object({ request_id: z.uuid(), approve: z.boolean() }),
+  owners: async (db, i) => { const r = await askFor(db, i.request_id); return { ownerIds: r?.organiser_id ? [r.organiser_id] : [], locationId: r?.location_id }; },
   async plan(ctx, i) {
     const { row: r, read } = await readRow(ctx.db, "join_request", i.request_id, "thing.join_request");
     if (r.status !== "requested") throw new KumiError("error.request_answered");
@@ -182,6 +188,7 @@ export async function paidBy(db: Db | Trx, bookingPlayerId: string): Promise<num
 export const bookingSavePlace = defineAction({
   name: "booking.save_place", version: 1,
   input: z.object({ booking_id: z.uuid(), person_id: z.uuid() }),
+  owners: (db, i) => hostOf(db, i.booking_id),   // whether the host and someone are friends is the host's
   async plan(ctx, i) {
     const m = await matchFacts(ctx.db, i.booking_id);
     if (!isOpen(m, ctx.now)) throw new KumiError("error.invite_closed");
@@ -213,6 +220,7 @@ export const bookingSavePlace = defineAction({
 export const bookingDropSavedPlace = defineAction({
   name: "booking.drop_saved_place", version: 1,
   input: z.object({ booking_player_id: z.uuid() }),
+  owners: async (db, i) => hostOf(db, (await seatFor(db, i.booking_player_id))?.booking_id),
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "booking_player", i.booking_player_id, "thing.booking");
     if (!p.saved_by || p.removed_at || await paidBy(ctx.db, p.id)) throw new KumiError("error.place_not_saved");
@@ -255,6 +263,7 @@ export async function lateTerms(db: Db | Trx, bookingId: string, seatId: string)
 export const bookingLeave = defineAction({
   name: "booking.leave", version: 1,
   input: z.object({ booking_id: z.uuid(), person_id: z.uuid() }),
+  owners: (db, i) => playerAt(db, [i.person_id], { id: i.booking_id }),   // what they paid, and what would come back, are theirs
   async plan(ctx, i) {
     const m = await matchFacts(ctx.db, i.booking_id);
     if (i.person_id === m.organiser_id) throw new KumiError("error.host_cancels");
@@ -291,6 +300,7 @@ export const bookingLeave = defineAction({
 export const bookingRunningLate = defineAction({
   name: "booking.running_late", version: 1,
   input: z.object({ booking_id: z.uuid(), person_id: z.uuid(), minutes: z.number().check(z.int(), z.minimum(5), z.maximum(60)) }),
+  owners: (db, i) => playerAt(db, [i.person_id], { id: i.booking_id }),
   async plan(ctx, i) {
     const m = await matchFacts(ctx.db, i.booking_id).catch(() => null) ?? await plainBooking(ctx.db, i.booking_id);
     const seat = await seatOf(ctx.db, i.booking_id, i.person_id);
@@ -313,6 +323,7 @@ async function plainBooking(db: Db | Trx, bookingId: string) {
 export const bookingMarkNoShow = defineAction({
   name: "booking.mark_no_show", version: 1,
   input: z.object({ booking_player_id: z.uuid() }),
+  owners: async (db, i) => hostOf(db, (await seatFor(db, i.booking_player_id))?.booking_id),   // "already marked" is the host's to hear
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "booking_player", i.booking_player_id, "thing.booking");
     const b = await ctx.db.selectFrom("booking").select(["organiser_id", "location_id"]).where("id", "=", p.booking_id).executeTakeFirstOrThrow();

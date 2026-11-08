@@ -33,6 +33,9 @@ export interface Plan {
   details?: unknown;
 }
 export interface PlanCtx { db: Db | Trx; actor: Actor; now: Date }
+/** Whose a change is and where, before its preview (ActionDef.owners). `locationId` left out: the row it names isn't
+ *  there (or the preview chooses the place, a lesson's court), so only whose it is is judged first, and where after. */
+export interface Owners { ownerIds: string[]; locationId?: string | null }
 export interface ApplyCtx extends PlanCtx {
   trx: Trx;
   runId: string;
@@ -69,11 +72,13 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   /** Only this person may do it (their own credit, their own code): anyone else is refused before the preview is
    *  built, and the refusal is logged like any other (without what only the preview reads). */
   selfOnly?: (db: Db | Trx, input: any) => Promise<string | null>;
-  /** Whose the change is, known from the input alone (a player and the parents who manage them), for a change that
-   *  belongs to no location: someone it isn't theirs is refused before the preview is built, so what the preview
-   *  would have said ("already brought", "a review is open") never reaches them, and it's asked again at the yes,
-   *  so a parent who has left the family since can't confirm what they previewed. */
-  owners?: (db: Db | Trx, input: any) => Promise<string[]>;
+  /** Whose the change is, known from the input alone (a player and the parents who manage them, a booking's organiser),
+   *  the same people its preview names in ownerIds: someone it isn't theirs is refused before the preview is built, so
+   *  what the preview would have said ("already brought", "already cancelled", what a refund comes to) never reaches
+   *  them, and it's asked again at the yes, so a parent who has left the family since can't confirm what they
+   *  previewed. A list: the change belongs to no location. With a location (`Owners`): the one its preview names, so a
+   *  role kept to one location is judged there before the preview as after it. */
+  owners?: (db: Db | Trx, input: any) => Promise<string[] | Owners>;
   input: S;
   plan(ctx: PlanCtx, input: z.infer<S>): Promise<Plan>;
   apply(ctx: ApplyCtx, input: z.infer<S>, plan: Plan): Promise<unknown>;
@@ -334,12 +339,30 @@ type PlanGate = (db: Db, name: string, input: unknown, actor: Actor, plan: Plan,
 let planGate: PlanGate | null = null;
 export function setPlanGate(gate: PlanGate): void { planGate = gate; }
 
+/** Whose a change is, as the action says from its input alone (ActionDef.owners): a list belongs to no location. */
+async function ownersOf(db: Db | Trx, def: ActionDef<any>, input: unknown): Promise<Owners | null> {
+  if (!def.owners) return null;
+  const o = await def.owners(db, input);
+  return Array.isArray(o) ? { ownerIds: o, locationId: null } : o;
+}
+/** Asked before the preview is built, for an action that knows whose it is from its input: the same question the
+ *  preview's own check asks, of the same people and location. A location the input can't tell is left to that check
+ *  (judged here as if it were theirs), so nobody is refused here who'd be let through there. */
+async function ownersFirst(db: Db | Trx, def: ActionDef<any>, input: unknown, actor: Actor, now: Date): Promise<Decision | null> {
+  const o = await ownersOf(db, def, input);
+  if (!o) return null;
+  return decide(db, def.name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: o.locationId ?? null, ownerIds: o.ownerIds, at: now, ...how(def, actor),
+    ...(o.locationId === undefined ? { clubWide: true } : {}) });
+}
+
 /** Validate, build the preview and check permission, storing nothing: what an action would do, for a
  *  plan that wraps another (a kid asking a parent shows what they're asking for). */
 export async function dryPlan(db: Db | Trx, name: string, raw: unknown, actor: Actor, now: Date): Promise<Plan> {
   const def = getAction(name);
   if (def.system || def.internal) throw new KumiError("error.unknown_action", {}, 404);
   const input = validate(def, raw);
+  const first = await ownersFirst(db, def, input, actor, now);
+  if (first?.mode === "no") throw new KumiError("error.forbidden_reason", { reason: both(first.reason ?? "reason.no_role") }, 403);
   const p = await def.plan({ db, actor, now }, input);
   const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
   if (d.mode === "no") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
@@ -360,10 +383,8 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     const self = await def.selfOnly(db, input);
     if (self && actor.personId !== self) return refuse(db, def, input, actor, null, { mode: "no", reason: "reason.self_only" });
   }
-  if (def.owners) {
-    const before = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: null, ownerIds: await def.owners(db, input), at: now, ...how(def, actor) });
-    if (before.mode === "no") return refuse(db, def, input, actor, null, before);
-  }
+  const first = await ownersFirst(db, def, input, actor, now);
+  if (first?.mode === "no") return refuse(db, def, input, actor, null, first);
   const p = await def.plan({ db, actor, now }, input);
   const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
   if (d.mode === "no") return refuse(db, def, input, actor, p, d);
@@ -442,7 +463,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       if (!approving && !opts.system) await requireStrongAuth(trx, def, actor, run.input);
       if (opts.system && !def.system) throw new KumiError("error.forbidden_reason", { reason: both("reason.no_role") }, 403);
       if (!approving && !opts.system) {   // permissions may have changed since the preview, and whose it is (owners)
-        const ownerIds = def.owners ? await def.owners(trx, run.input) : p.ownerIds ?? [];
+        const ownerIds = (await ownersOf(trx, def, run.input))?.ownerIds ?? p.ownerIds ?? [];
         const d = await decide(trx, run.action, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: run.location_id, ownerIds, at: now, ...how(def, actor) });
         if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
         await allowedAsJudged(trx, def, run.input, actor, run.location_id, ownerIds, now);

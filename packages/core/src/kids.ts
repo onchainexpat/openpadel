@@ -210,6 +210,8 @@ export const familyCardSaved = defineAction({
 export const familyCardRemove = defineAction({
   name: "family_card.remove", version: 1,
   input: z.object({ person_id: z.uuid() }),
+  // The household's adults: whether a family has a card is theirs. Nobody's for someone who isn't a parent in one.
+  owners: async (db, i) => { const hh = await householdOf(db, i.person_id); return hh?.role === "adult" ? adultsOf(db, hh.household_id) : []; },
   async plan(ctx, i) {
     const hh = await parentHousehold(ctx.db, i.person_id), card = await familyCardFor(ctx.db, i.person_id);
     if (!card) throw new KumiError("error.no_family_card");
@@ -379,6 +381,7 @@ export const rulesText = (r: Record<KidKind, boolean> & { monthly_limit_cents: n
 export const kidGiveLogin = defineAction({
   name: "kid.give_login", version: 1,
   input: z.object({ person_id: z.uuid(), email: z.email() }),
+  owners: (db, i) => managersOf(db, i.person_id),   // a kid's age, and whether an address is taken, are for their parents
   async plan(ctx, i) {
     const { row, read } = await juniorRow(ctx.db, i.person_id);
     if (row.own_login) throw new KumiError("error.kid_has_login", { name: row.display_name });
@@ -413,6 +416,7 @@ export const kidGiveLogin = defineAction({
 export const kidRemoveLogin = defineAction({
   name: "kid.remove_login", version: 1,
   input: z.object({ person_id: z.uuid() }),
+  owners: (db, i) => managersOf(db, i.person_id),
   async plan(ctx, i) {
     const { row, read } = await juniorRow(ctx.db, i.person_id);
     if (!row.own_login) throw new KumiError("error.kid_no_login", { name: row.display_name });
@@ -434,6 +438,7 @@ export const kidSetRules = defineAction({
   name: "kid.set_rules", version: 1,
   input: z.object({ person_id: z.uuid(), open_matches: z.optional(z.boolean()), courts: z.optional(z.boolean()), programs: z.optional(z.boolean()), lessons: z.optional(z.boolean()),
     monthly_limit_cents: z.optional(limitInput), friends: z.optional(z.boolean()), texts: z.optional(z.boolean()) }),
+  owners: (db, i) => managersOf(db, i.person_id),
   async plan(ctx, i) {
     const { row } = await juniorRow(ctx.db, i.person_id);
     // At most about $1,000 a month, in the club's currency.
@@ -479,6 +484,11 @@ export const kidAskParent = defineAction({
   },
 });
 
+/** The kid who asked, for ActionDef.owners: nobody when there's no such request. */
+async function askedBy(db: Db | Trx, requestId: string): Promise<string | null> {
+  return (await db.selectFrom("kid_request").select("person_id").where("id", "=", requestId).executeTakeFirst())?.person_id ?? null;
+}
+const kidsParents = async (db: Db | Trx, requestId: string) => { const kid = await askedBy(db, requestId); return kid ? managersOf(db, kid) : []; };
 async function openRequest(db: Db | Trx, requestId: string) {
   const { row, read } = await readRow(db, "kid_request", requestId, "thing.kid_request");
   if (row.status !== "asked") throw new KumiError("error.kid_request_closed");
@@ -489,6 +499,7 @@ async function openRequest(db: Db | Trx, requestId: string) {
 export const kidWithdrawRequest = defineAction({
   name: "kid.withdraw_request", version: 1,
   input: z.object({ request_id: z.uuid() }),
+  owners: async (db, i) => { const kid = await askedBy(db, i.request_id); return kid ? [kid] : []; },
   async plan(ctx, i) {
     const { r, read } = await openRequest(ctx.db, i.request_id);
     return { title: both("action.kid.withdraw_request"), summary: both("plan.kid.withdraw_request", { what: r.what as Text }), reads: [read], ownerIds: [r.person_id], undo: { kind: "none" } };
@@ -499,6 +510,7 @@ export const kidWithdrawRequest = defineAction({
 export const kidDeclineRequest = defineAction({
   name: "kid.decline_request", version: 1,
   input: z.object({ request_id: z.uuid() }),
+  owners: (db, i) => kidsParents(db, i.request_id),
   async plan(ctx, i) {
     const { r, read, name } = await openRequest(ctx.db, i.request_id);
     return { title: both("action.kid.decline_request"), summary: both("plan.kid.decline_request", { name, what: r.what as Text }), reads: [read], ownerIds: await parentsOf(ctx.db, r.person_id), undo: { kind: "none" } };
@@ -515,6 +527,7 @@ export const kidDeclineRequest = defineAction({
 export const kidApproveRequest = defineAction({
   name: "kid.approve_request", version: 1, internal: true,
   input: z.object({ request_id: z.uuid() }),
+  owners: (db, i) => kidsParents(db, i.request_id),   // a parent's yes from the app (approveKidRequest)
   async plan(ctx, i) {
     const { r, read, name } = await openRequest(ctx.db, i.request_id);
     return { title: both("action.kid.approve_request"), summary: both(r.cents > 0 ? "plan.kid.approve_request" : "plan.kid.approve_request_free", { name, what: r.what as Text, amount: usd(r.cents) }),

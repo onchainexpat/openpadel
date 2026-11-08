@@ -216,6 +216,8 @@ export async function passPaid(ctx: ApplyCtx, passId: string) {
 export const paymentUsePass = defineAction({
   name: "payment.use_pass", version: 1,
   input: z.object({ payment_id: z.uuid(), pass_id: z.uuid() }),
+  // Whose payment: what it's for, and what a pass has left, are theirs.
+  owners: async (db, i) => { const p = await db.selectFrom("payment").select("person_id").where("id", "=", i.payment_id).executeTakeFirst(); return p ? [p.person_id] : []; },
   async plan(ctx, i) {
     const { read } = await readRow(ctx.db, "payment", i.payment_id, "thing.payment");
     const pay = await ctx.db.selectFrom("payment").selectAll().where("id", "=", i.payment_id).executeTakeFirstOrThrow();
