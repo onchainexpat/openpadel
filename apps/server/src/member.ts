@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff } from "@kumi/core";
+import { messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff } from "@kumi/core";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
 import { clubFileStem } from "./file_names.ts";
@@ -89,9 +89,11 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   // (the delivery log, like the outbox, is written by the messages code, not through an action).
   app.get("/my/inbox", async (c) => {
     const pid = who(c);
-    const rows = await db.selectFrom("outbound_message").select(["id", "kind", "subject", "body", "link", "created_at", "read_at"])
+    const rows = await db.selectFrom("outbound_message").select(["id", "kind", "subject", "body", "lang", "alt_subject", "alt_body", "link", "created_at", "read_at"])
       .where("person_id", "=", pid).where("channel", "=", "inbox").orderBy("created_at", "desc").limit(50).execute();
-    return c.json({ unread: rows.filter((r) => !r.read_at).length, messages: rows });
+    // In their language now, whatever it was when each was sent (messages.ts messageInLang).
+    const l = await readerLang(db, pid);
+    return c.json({ unread: rows.filter((r) => !r.read_at).length, messages: rows.map(({ lang: _l, alt_subject: _s, alt_body: _b, ...r }) => ({ ...r, ...messageInLang({ lang: _l, subject: r.subject, body: r.body, alt_subject: _s, alt_body: _b }, l) })) });
   });
   // Their answer to club news by email: yes, no, or never asked (null). Changed with consent.club_news.
   app.get("/my/club-news", async (c) => c.json({ granted: await clubNewsAnswer(db, who(c)) }));

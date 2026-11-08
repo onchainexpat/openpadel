@@ -17,7 +17,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, localParts, onDate } from "./clock.ts";
 import { courtOpening, insertTime, lockCourts, MAX_MINUTES, occupied, range, STEP_MINUTES } from "./bookings.ts";
-import { cancelBooking, cancelRefunds, checkSlot, courtAndPlace, daysAhead, deskOrUp, HOLD_MINUTES, keepRefund, lockBooking, newCode, notOwing, playtomicText, upcomingCount, type PlannedRefund } from "./booking_pay.ts";
+import { cancelBooking, cancelRefunds, checkSlot, courtAndPlace, daysAhead, deskOrUp, HOLD_MINUTES, keepRefund, lockBooking, newCode, notOwing, paidSincePreview, playtomicText, upcomingCount, type PlannedRefund } from "./booking_pay.ts";
 import { currentPolicy, quote, type Quote } from "./prices.ts";
 import { notJunior, requireWaiver, withManagers } from "./households.ts";
 import { paymentProvider } from "./money.ts";
@@ -359,15 +359,15 @@ type WeekCancel = { booking_id: string; refunds: PlannedRefund[] };
 /** A series' booked weeks from a date on, cancelled with what the preview said comes back. The weeks as they are now:
  *  one booked since the preview goes too, and anyone who paid after the preview never agreed to its rule, so all of
  *  theirs comes back (as booking.cancel does). The series and its court are locked by the caller. */
-async function cancelWeeksFrom(ctx: ApplyCtx, s: { id: string }, from: string, cancels: WeekCancel[]) {
+async function cancelWeeksFrom(ctx: ApplyCtx, s: { id: string }, from: string, cancels: WeekCancel[], o: { noMoney?: boolean; reason?: string } = {}) {
   for (const w of await seriesToEnd(ctx.trx, s.id, from, ctx.now)) {
     const b = await lockBooking(ctx.trx, w.id);
     if (b.status === "cancelled") continue;
+    // An account deleted again after a restore: no money moves at all (endSeriesForErase). Its weeks were paid back by
+    // the club's rule when the member ended them, before the restore; refunding them here would pay them twice.
+    if (o.noMoney) { await cancelBooking(ctx, w.id, [], o.reason ?? "series_ended"); continue; }
     const planned = cancels.find((c) => c.booking_id === w.id)?.refunds ?? [];
-    const late = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "payment.amount_cents", backSql.as("back")])
-      .where("booking_player.booking_id", "=", w.id).where("booking_player.removed_at", "is", null).where("payment.status", "=", "succeeded")
-      .$if(planned.length > 0, (q) => q.where("payment.id", "not in", planned.map((r) => r.payment_id))).execute();
-    await cancelBooking(ctx, w.id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents - Number(p.back) }))], "series_ended");
+    await cancelBooking(ctx, w.id, [...planned, ...await paidSincePreview(ctx.trx, w.id, planned)], o.reason ?? "series_ended");
   }
 }
 
@@ -442,7 +442,7 @@ export async function endSeriesForErase(ctx: ApplyCtx, personId: string): Promis
         WHERE r.status <> 'failed' AND r.payment_id IN (SELECT p.id FROM payment p WHERE ${pays})), 0) AS n FROM payment p WHERE ${pays}`.execute(ctx.trx)).rows[0]?.n ?? 0);
       out.push({ code: b.code, paid_cents: paid });
     }
-    await cancelWeeksFrom(ctx, s, from, cancels);
+    await cancelWeeksFrom(ctx, s, from, cancels, { noMoney: true });
     await ctx.update("booking_series", s.id, { ended_at: ctx.now });
   }
   return out;

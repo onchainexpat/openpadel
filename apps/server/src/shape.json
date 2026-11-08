@@ -4,6 +4,7 @@
     "extension btree_gist in public",
     "extension plpgsql in pg_catalog",
     "function ledger_txn_balances() | 9f9e864db0094e727bbd6f1e54f39663",
+    "function playtomic_rejoined() | 5c5d9d0598360185c8c85af454a8b960",
     "function rating_event_words_only() | 5be0826ff89960b2a8ff3d482c703710",
     "rule public.channel_consent.channel_consent_no_delete | d56c015cfb1a94f69ab79681fee5dae3",
     "rule public.channel_consent.channel_consent_no_update | f47543e9dde5117245d0dc6e1142266f",
@@ -11,7 +12,9 @@
     "rule public.ledger_entry.ledger_entry_no_update | b5ae930ecf039aa3b6b14ac437d8b491",
     "rule public.rating_event.rating_event_no_delete | eb70c346e04cb029fc9773267f874fd7",
     "schema public",
+    "trigger external_ref.external_ref_playtomic_rejoined | 0057f5f07eed259e6d42fe595ecfacc8",
     "trigger ledger_entry.ledger_entry_balances | bb5b00b9f2e670a356ce4df0bdb55d56",
+    "trigger person.person_playtomic_rejoined | 76b46096361f6edf036c1b39d5163a4e",
     "trigger rating_event.rating_event_words_only | b703ff85af4703bacf76258646405119",
     "view public.member_credit_balance | a0d8ade1dc36d4cecc57eade828a0bca"
   ]

@@ -444,6 +444,17 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
   const left = paid.reduce((n, p) => n + Math.max(0, p.amount_cents - Number(p.back)), 0);
   return { percent, early, hours: policy.free_cancel_hours, refunds, left, ptDone };
 }
+/** Paid since a cancellation's preview was made: whoever paid never agreed to its rule, so all of theirs goes back. Paid
+ *  in Playtomic since (marked so, booking.paid_in_playtomic): all of that goes back in Playtomic, and the managers are
+ *  told. Unless Playtomic itself has refunded it already. */
+export async function paidSincePreview(trx: Trx, bookingId: string, planned: { payment_id: string }[]): Promise<PlannedRefund[]> {
+  const late = await trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "payment.amount_cents", "payment.method", backSql.as("back")])
+    .where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null).where("payment.status", "=", "succeeded")
+    .$if(planned.length > 0, (q) => q.where("payment.id", "not in", planned.map((r) => r.payment_id))).execute();
+  const ptDone = late.some((p) => p.method === "playtomic") && (await playtomicTwin(trx, bookingId))?.payment_status === "REFUNDED";
+  return late.map((p) => p.method === "playtomic" ? { payment_id: p.id, cents: 0, playtomic: ptDone ? 0 : p.amount_cents - Number(p.back) }
+    : { payment_id: p.id, cents: p.amount_cents - Number(p.back) });
+}
 /** A cancellation's refunds as a preview keeps them: the payment, what goes back here, and what goes back in
  *  Playtomic (a booking taken over), so cancelBooking tells the managers of that part. */
 export type PlannedRefund = { payment_id: string; cents: number; credit?: boolean; playtomic?: number };
@@ -502,11 +513,7 @@ export const bookingCancel = defineAction({
     const planned = (plan.details as { refunds: PlannedRefund[] }).refunds;
     const b = await lockBooking(ctx.trx, i.booking_id);
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
-    // Someone who paid after the preview was made never agreed to its rule: all of theirs back.
-    const late = await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.id", "payment.amount_cents", backSql.as("back")])
-      .where("booking_player.booking_id", "=", i.booking_id).where("booking_player.removed_at", "is", null).where("payment.status", "=", "succeeded")
-      .$if(planned.length > 0, (q) => q.where("payment.id", "not in", planned.map((r) => r.payment_id))).execute();
-    await cancelBooking(ctx, i.booking_id, [...planned, ...late.map((p) => ({ payment_id: p.id, cents: p.amount_cents - Number(p.back) }))], i.reason ?? null);
+    await cancelBooking(ctx, i.booking_id, [...planned, ...await paidSincePreview(ctx.trx, i.booking_id, planned)], i.reason ?? null);
     return null;
   },
 });

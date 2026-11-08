@@ -4676,4 +4676,5 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.movein_take_back_help": "Déjalo sin marcar mientras los monederos se dejan en cero en Playtomic: todos se leerían en 0 y se quitaría el crédito de todos.",
   "ui.movein_columns": "Columnas de monedero",
   "ui.movein_upload_read": "{name}, leído {when}: {players}.",
+  "msg.refund_playtomic": "El club te devuelve en Playtomic los {amount} que pagaste allí.",
 };

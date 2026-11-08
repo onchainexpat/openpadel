@@ -4675,4 +4675,5 @@ export const en = {
   "ui.movein_take_back_help": "Leave this off while the wallets are being set to zero in Playtomic: they'd all read 0, and everyone's credit would be taken back.",
   "ui.movein_columns": "Wallet columns",
   "ui.movein_upload_read": "{name}, read {when}: {players}.",
+  "msg.refund_playtomic": "{amount} you paid in Playtomic is refunded to you there by the club.",
 } as const;

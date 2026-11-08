@@ -18,8 +18,10 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     (up to a year, read once a day for the archive only), matched to members by email or Playtomic id. Staff see a
     person's on their page, read only (a coach without who they played with, as in Kumi's own list); it comes with the
     member's data download; and their name and email go from it with their account. Deleting an account marks the
-    person, by their Playtomic id and a salted one-way hash of each address (never the address), so no later read of
-    Playtomic, bookings or players, brings them back.
+    person, by their Playtomic id and a salted one-way hash of each address (never the address; ids are learned as
+    they're matched), so no later read of Playtomic, bookings or players, brings them back. Someone who joins again
+    with the same address starts fresh from that day: what Playtomic holds from before stays out, what's theirs after
+    comes in.
   - **Taking over upcoming bookings** (staff app, Playtomic; owners and managers). Chosen Playtomic bookings become
     bookings here on their linked court, with their players, and read "Paid in Playtomic" at the desk and in My places.
     What was paid in Playtomic stays paid there: nothing is owed, nothing enters the books, and no receipt is made. A
@@ -30,7 +32,8 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     taken over (a class, a player not a member here yet, partly paid, a clash) stays in Playtomic, held here, and the
     preview says why by name. The mirror knows a taken-over booking by Playtomic's id: it never holds it twice, even
     when Playtomic moves it to another court, and holds it again if it's cancelled here. One taken over unpaid and paid
-    in Playtomic since: the desk marks it paid there (booking.paid_in_playtomic).
+    in Playtomic since: the desk marks it paid there (booking.paid_in_playtomic), for what Playtomic says it took, never
+    the price here (time added here stays owed here). The players are told what the club refunds them in Playtomic.
   - **A daily comparison for the owner**: each linked court and day, Playtomic and openPadel side by side, on the
     Playtomic page; a clash, a booking not held yet, or a taken-over one moved (another time or court), cancelled or
     paid in Playtomic is told to the owners once.
@@ -58,6 +61,14 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     already a member here, a plan that's full, a membership with no end date and a commitment period (kept in the note,
     not held to) are said in the preview, as is stopping the renewals in Playtomic.
 ### Fixed
+- **A member's own weekly court was refunded again when their account was deleted again after a restore (in 0.3.0
+  to 0.4.0).** Putting a copy back from before a member ended their weekly court (refunded then by the club's rule)
+  and deleted their account, Kumi deletes the account again, and ends the weekly court it finds with no money moving:
+  but every paid week went back to the card a second time. Now nothing moves; the weeks are listed for the staff to
+  check against the payment provider, as before.
+- **A message in the app, or an alert on Today, stayed in the language it was sent in (always).** The owner who
+  switched to Spanish still read English alerts. The in-app copy now keeps both languages' words, and each reads in the
+  reader's language when it's shown. Emails, pushes and texts go out in one language, as before.
 - A person's page offered front desk (and anyone below a manager) the form to give or take away a role, including
   owner, and then refused it. Only owners and managers see it now. A refusal to give a role says what the role
   would let them do in words ("Undo a change"), not the action's internal name.

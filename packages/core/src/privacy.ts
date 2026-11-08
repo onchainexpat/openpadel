@@ -664,7 +664,7 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
     if (coach.photo_id) await db.deleteFrom("photo").where("id", "=", coach.photo_id).execute();
   }
   // Messages to them: kept as a record that something was sent, without the words; anything not sent yet isn't.
-  await db.updateTable("outbound_message").set({ subject: REMOVED, body: REMOVED, link: null }).where("person_id", "=", personId).execute();
+  await db.updateTable("outbound_message").set({ subject: REMOVED, body: REMOVED, alt_subject: null, alt_body: null, link: null }).where("person_id", "=", personId).execute();
   await db.updateTable("outbound_message").set({ status: "dropped", failure: "account deleted" }).where("person_id", "=", personId).where("status", "in", ["waiting", "held"]).execute();
   // A new friend code nobody has, so an old friend link leads nowhere.
   // The club's tags come off; a new news key, so an old unsubscribe link leads nowhere.
@@ -706,10 +706,12 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   }
   // Other people's messages that named them, about something of theirs.
   for (const m of await db.selectFrom("outbound_message").leftJoin("event_outbox", "event_outbox.id", "outbound_message.event_id").leftJoin("action_run", "action_run.id", "event_outbox.action_run_id")
-    .select(["outbound_message.id", "outbound_message.lang", "outbound_message.subject", "outbound_message.body", "event_outbox.payload", "action_run.input", "action_run.plan"])
-    .where("outbound_message.person_id", "!=", personId).where(sql<boolean>`(outbound_message.subject || ' ' || outbound_message.body) ILIKE ANY (${needles}::text[])`).execute()) {
+    .select(["outbound_message.id", "outbound_message.lang", "outbound_message.subject", "outbound_message.body", "outbound_message.alt_subject", "outbound_message.alt_body", "event_outbox.payload", "action_run.input", "action_run.plan"])
+    .where("outbound_message.person_id", "!=", personId).where(sql<boolean>`concat_ws(' ', outbound_message.subject, outbound_message.body, outbound_message.alt_subject, outbound_message.alt_body) ILIKE ANY (${needles}::text[])`).execute()) {
     const mine = related(JSON.stringify([m.payload, m.input, m.plan])), lang = m.lang === "es" ? "es" : "en";
-    await db.updateTable("outbound_message").set({ subject: scrubString(m.subject, x, lang, mine), body: scrubString(m.body, x, lang, mine) }).where("id", "=", m.id).execute();
+    const alt = lang === "es" ? "en" : "es";
+    await db.updateTable("outbound_message").set({ subject: scrubString(m.subject, x, lang, mine), body: scrubString(m.body, x, lang, mine),
+      alt_subject: m.alt_subject === null ? null : scrubString(m.alt_subject, x, alt, mine), alt_body: m.alt_body === null ? null : scrubString(m.alt_body, x, alt, mine) }).where("id", "=", m.id).execute();
     n++;
   }
   // Other players' level history: "Won 6-3 with Ann" in a game they played.

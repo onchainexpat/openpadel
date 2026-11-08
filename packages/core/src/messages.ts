@@ -160,9 +160,10 @@ async function paidByPass(db: Db, enrolmentId: string): Promise<boolean> {
   return r.length > 0 && r.every((x) => x.method === "pass");
 }
 /** What goes back to the card, and what's to collect at the desk (money paid there goes back there). */
-function backWords(card: number, desk: number, credit = 0): Text {
+function backWords(card: number, desk: number, credit = 0, playtomic = 0): Text {
+  // Paid in Playtomic (a booking the club took over from it): the club gives it back there.
   const parts = [card > 0 ? both("msg.refund_card", { amount: amount(card) }) : null, desk > 0 ? both("msg.refund_desk", { amount: amount(desk) }) : null,
-    credit > 0 ? both("msg.refund_credit", { amount: amount(credit) }) : null].filter((x): x is Text => Boolean(x));
+    credit > 0 ? both("msg.refund_credit", { amount: amount(credit) }) : null, playtomic > 0 ? both("msg.refund_playtomic", { amount: amount(playtomic) }) : null].filter((x): x is Text => Boolean(x));
   return { en: parts.map((x) => x.en).join(" "), es: parts.map((x) => x.es).join(" ") };
 }
 
@@ -289,7 +290,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       const back = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")])
         .where("payment.booking_player_id", "=", pl.id).groupBy("refund.destination").execute();
       const cents = (where: string) => Number(back.find((x) => x.destination === where)?.c ?? 0);
-      drafts.push({ to: pl.person_id, kind: lesson ? "lesson_cancelled" : "booking_cancelled", params: { ...b.base, refund: backWords(cents("card"), cents("desk"), cents("credit")) }, purpose: "account", essential: true, email: true, link: "/places" });
+      drafts.push({ to: pl.person_id, kind: lesson ? "lesson_cancelled" : "booking_cancelled", params: { ...b.base, refund: backWords(cents("card"), cents("desk"), cents("credit"), cents("playtomic")) }, purpose: "account", essential: true, email: true, link: "/places" });
     }
     // The coach, unless they called it off themselves.
     return [...drafts, ...(p.by && p.by === b.coach_id ? [] : toCoach(b, "coach_lesson_cancelled", { essential: true }))];
@@ -368,7 +369,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       .innerJoin("booking", "booking.id", "booking_player.booking_id").select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")])
       .where("booking.series_id", "=", p.series_id).where("booking.cancel_reason", "=", "series_ended").groupBy("refund.destination").execute();
     const cents = (where: string) => Number(back.find((x) => x.destination === where)?.c ?? 0);
-    return [{ to: s.organiser_id, kind: "booking_repeat_ended", params: { ...s.base, from: dayText(p.from), refund: backWords(cents("card"), cents("desk"), cents("credit")) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: s.organiser_id, kind: "booking_repeat_ended", params: { ...s.base, from: dayText(p.from), refund: backWords(cents("card"), cents("desk"), cents("credit"), cents("playtomic")) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   /** Every member's weekly courts stopped by the club at once (weekly.end_all): each member hears once, with what came back. */
   // A gift card ready to give (gift_cards.ts): the buyer hears where to find its code (in the app, never here).
@@ -383,7 +384,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       .innerJoin("booking", "booking.id", "booking_player.booking_id").select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")])
       .where("booking.series_id", "in", p.series_ids).where("booking.cancel_reason", "=", "series_ended").groupBy("refund.destination").execute() : [];
     const cents = (where: string) => Number(back.find((x) => x.destination === where)?.c ?? 0);
-    return [{ to: p.person_id, kind: "weekly_all_ended", params: { count: p.series_ids.length, from: dayText(p.from), refund: backWords(cents("card"), cents("desk"), cents("credit")) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: p.person_id, kind: "weekly_all_ended", params: { count: p.series_ids.length, from: dayText(p.from), refund: backWords(cents("card"), cents("desk"), cents("credit"), cents("playtomic")) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "booking.asked"({ db }, p: { request_id: string }) {
     const r = await db.selectFrom("join_request").innerJoin("person", "person.id", "join_request.person_id").innerJoin("open_match", "open_match.booking_id", "join_request.booking_id")
@@ -1178,6 +1179,18 @@ async function forJuniors(db: Db, drafts: Draft[]): Promise<(Draft & { junior?: 
 /** A sentence that ends on a Spanish time ("10:00 a.m.") keeps one full stop, and an empty last line goes. */
 const tidy = (text: string) => text.replace(/([ap]\.\s?m\.)\./g, "$1").replace(/\s+$/, "");
 
+/** An in-app message in the reader's language now: its own words when it was written in that language, the other
+ *  language's when it kept them (migration 107), or else as it was written. */
+export function messageInLang<T extends { lang: string; subject: string; body: string; alt_subject?: string | null; alt_body?: string | null }>(m: T, lang: Lang): { subject: string; body: string } {
+  return m.lang !== lang && m.alt_subject != null && m.alt_body != null ? { subject: m.alt_subject, body: m.alt_body } : { subject: m.subject, body: m.body };
+}
+/** The language someone reads in: their own, or the club's. */
+export async function readerLang(db: Db | Trx, personId: string): Promise<Lang> {
+  const p = await db.selectFrom("person").select("locale").where("id", "=", personId).executeTakeFirst();
+  const club = await db.selectFrom("club").select("default_language").executeTakeFirst();
+  return pickLang(p?.locale ?? null, pickLang(club?.default_language ?? null));
+}
+
 /** Record when this server started telling people about each kind of event. Called when the server
  *  starts, before any event is handled; a kind that's already recorded keeps its date. */
 export async function registerMessageTopics(db: Db, now = new Date()): Promise<string[]> {
@@ -1199,10 +1212,15 @@ async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<numbe
     const person = await db.selectFrom("person").select(["locale", "email", "status", "redacted_at"]).where("id", "=", d.to).executeTakeFirst();
     if (!person || person.redacted_at || person.status === "archived") continue;
     const lang: Lang = pickLang(person.locale, pickLang(club.default_language));
-    let words = { subject: tidy(t(lang, `msg.${d.kind}.subject` as Key, d.params)), body: tidy(t(lang, `msg.${d.kind}.body` as Key, d.params)) };
-    if (d.junior) words = { subject: t(lang, "msg.for_junior.subject", { name: d.junior, text: words.subject }), body: t(lang, "msg.for_junior.body", { name: d.junior, text: words.body }) };
+    const wordsIn = (l: Lang) => {
+      const w = { subject: tidy(t(l, `msg.${d.kind}.subject` as Key, d.params)), body: tidy(t(l, `msg.${d.kind}.body` as Key, d.params)) };
+      return d.junior ? { subject: t(l, "msg.for_junior.subject", { name: d.junior, text: w.subject }), body: t(l, "msg.for_junior.body", { name: d.junior, text: w.body }) } : w;
+    };
+    const words = wordsIn(lang);
     const base = { event_id: ev.id, person_id: d.to, kind: d.kind, purpose: d.purpose, essential: d.essential, lang, ...words, link: d.link ?? null, stale_at: d.staleAt ?? null };
-    const rows = d.inbox === false ? [] : [{ ...base, id: uuidv7(now.getTime()), channel: "inbox", status: "sent", send_after: now, sent_at: now }];
+    // The inbox copy keeps the other language's words too, so it reads in the reader's language when it's shown (messageInLang).
+    const other = wordsIn(lang === "en" ? "es" : "en");
+    const rows: Record<string, unknown>[] = d.inbox === false ? [] : [{ ...base, alt_subject: other.subject, alt_body: other.body, id: uuidv7(now.getTime()), channel: "inbox", status: "sent", send_after: now, sent_at: now }];
     // Staff alerts and essential messages go straight away; the rest wait out quiet hours.
     const wait = d.essential || d.purpose === "staff" ? null : quietUntil(now, club.time_zone);
     const later = d.emailUnlessRead ? new Date(now.getTime() + d.emailUnlessRead * 60_000) : null;

@@ -461,3 +461,79 @@ test("someone who deleted their account and joined again starts fresh from that 
   const fresh = await db.selectFrom("playtomic_erased").select(["rejoined_at", "erased_person_id"]).where("playtomic_id", "=", "u-hal").executeTakeFirstOrThrow();
   assert.deepEqual([fresh.rejoined_at, fresh.erased_person_id], [null, again]);
 });
+
+test("time added here is owed here: marking paid in Playtomic counts only what Playtomic took, and a cancel sends no more than that back there", async () => {
+  await run(db, "price.rule_set", { location_id: locationId, name: "Standard", cents_per_hour: 4000 }, owner).catch(() => null);
+  await run(db, "hours.set", { location_id: locationId, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "00:00", closes: "23:59" })) }, owner).catch(() => null);
+  // Taken over unpaid ($40, 90 minutes); the desk adds 30 minutes here; then Playtomic says it's paid there.
+  pt.bookings.push(booking("ext1", 24 * 12 + 9, { court: "pt-2", paid: "PENDING" }));
+  await sync();
+  await run(db, "mirror.take_over", { booking_ids: ["ext1"] }, owner, { now: new Date(base) });
+  const k = await kumiOf("ext1");
+  await run(db, "booking.extend", { booking_id: k, minutes: 120 }, owner, { now: new Date(base) });
+  const priceHere = (await db.selectFrom("booking").select("price_cents").where("id", "=", k).executeTakeFirstOrThrow()).price_cents;
+  assert.ok(priceHere > 4000, String(priceHere));
+  pt.bookings = pt.bookings.map((b) => b.booking_id === "ext1" ? booking("ext1", 24 * 12 + 9, { court: "pt-2", paid: "PAID" }) : b);
+  await sync();
+  const p = await plan(db, "booking.paid_in_playtomic", { booking_id: k }, owner, { now: new Date(base) });
+  assert.match(p.plan.summary.en, /paid in Playtomic: \$40\.00/);
+  await run(db, "booking.paid_in_playtomic", { booking_id: k }, owner, { now: new Date(base) });
+  const pays = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.method", "payment.amount_cents"])
+    .where("booking_player.booking_id", "=", k).execute();
+  assert.deepEqual(pays, [{ method: "playtomic", amount_cents: 4000 }], "the added time stays owed here");
+  assert.equal((await comparison(db, new Date(base), 30)).diffs.some((d) => d.key === "paid:ext1"), false);
+  await rejects(plan(db, "booking.paid_in_playtomic", { booking_id: k }, owner, { now: new Date(base) }), "error.booking_paid_in_full");
+  await run(db, "booking.cancel", { booking_id: k, refund: "full" }, owner, { now: new Date(base) });
+  assert.deepEqual(await alerts(k), [4000], "never more back there than Playtomic took");
+});
+
+test("marked paid in Playtomic between a cancel's preview and its apply: the apply sees it, and the managers are told", async () => {
+  pt.bookings.push(booking("late1", 24 * 13 + 9, { court: "pt-2", paid: "PENDING" }));
+  await sync();
+  await run(db, "mirror.take_over", { booking_ids: ["late1"] }, owner, { now: new Date(base) });
+  const k = await kumiOf("late1");
+  pt.bookings = pt.bookings.map((b) => b.booking_id === "late1" ? booking("late1", 24 * 13 + 9, { court: "pt-2", paid: "PAID" }) : b);
+  await sync();
+  // The preview first, while nothing is paid; the desk marks it paid in Playtomic; then the cancel is confirmed.
+  const p = await plan(db, "booking.cancel", { booking_id: k }, owner, { now: new Date(base) });
+  await run(db, "booking.paid_in_playtomic", { booking_id: k }, owner, { now: new Date(base) });
+  const { apply } = await import("../src/index.ts");
+  await apply(db, p.runId, owner, { now: new Date(base) });
+  assert.deepEqual(await alerts(k), [4000]);
+});
+
+test("a weekly court ended for an account deleted again after a restore moves no money (released since 0.3.0)", async () => {
+  const { eraseAfterRestore } = await import("../src/index.ts");
+  const ivy = ((await run(db, "person.create", { display_name: "Ivy Member", email: "ivy@example.test" }, owner)).result as { person_id: string }).person_id;
+  await run(db, "hours.set", { location_id: locationId, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "06:00", closes: "23:00" })) }, owner).catch(() => null);
+  const start = new Date(base + 24 * 40 * H); start.setUTCHours(18, 0, 0, 0);
+  const r = await run(db, "booking.repeat", { court_id: court1, starts_at: start.toISOString(), minutes: 90, person_id: ivy, weeks: 3, price_cents: 4000 }, owner, { now: new Date(base) });
+  const series = (r.result as { series_id: string }).series_id;
+  // A member's own weekly court, still running, each week paid by card.
+  await db.updateTable("booking_series").set({ source: "app", pay: "card", ended_at: null }).where("id", "=", series).execute();
+  for (const w of await db.selectFrom("booking").select("id").where("series_id", "=", series).execute()) {
+    const bp = await db.selectFrom("booking_player").select("id").where("booking_id", "=", w.id).executeTakeFirstOrThrow();
+    await db.insertInto("payment").values({ id: uuidv7(), person_id: ivy, amount_cents: 4000, method: "card", provider: "stripe", provider_ref: `pi_${w.id.slice(-10)}`, status: "succeeded", booking_player_id: bp.id }).execute();
+  }
+  // The copy a restore brought back: Ivy had ended it (refunded then) and deleted her account since.
+  await db.insertInto("erase_after_restore").values({ person_id: ivy, redacted_at: new Date(base) }).execute();
+  const out = await eraseAfterRestore(db, new Date(base));
+  assert.equal(out.toCheck.filter((x: any) => x.what === "weekly").length, 3, "listed for the staff to check, as before");
+  assert.deepEqual((await db.selectFrom("booking").select("status").where("series_id", "=", series).execute()).map((b) => b.status), ["cancelled", "cancelled", "cancelled"]);
+  const refunds = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select("refund.id").where("payment.person_id", "=", ivy).execute();
+  assert.equal(refunds.length, 0, "no money moves: no second refund");
+});
+
+test("Today's alerts read in the reader's language now, not the one they had when the alert was made", async () => {
+  const { staffAlerts } = await import("../src/index.ts");
+  await processOutbox(db, messageHandlers);
+  const before = await staffAlerts(db, owner.personId!, new Date(base));
+  const one = before.open.find((a: any) => a.kind === "playtomic_refund_staff");
+  assert.ok(one && /refund it in Playtomic/.test(one.body), JSON.stringify(before.open.map((a: any) => a.kind)));
+  await db.updateTable("person").set({ locale: "es" }).where("id", "=", owner.personId!).execute();
+  const after = await staffAlerts(db, owner.personId!, new Date(base));
+  const same = after.open.find((a: any) => a.event_id === one.event_id && a.kind === one.kind)!;
+  assert.match(same.subject, /Un reembolso que hacer en Playtomic/);
+  assert.match(same.body, /reembólsalos en Playtomic/);
+  await db.updateTable("person").set({ locale: "en" }).where("id", "=", owner.personId!).execute();
+});

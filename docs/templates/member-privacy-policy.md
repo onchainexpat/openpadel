@@ -128,7 +128,8 @@ week, and you can disconnect it in the app at any time.
 - [IF THE CLUB USES PLAYTOMIC] We keep a copy of your bookings on Playtomic (court, time, price, whether it was paid,
   and the players in it by name and email), as our own record of the club's bookings. You see yours in your data
   download. When you delete your account here, your name and email go from that copy too; Playtomic's own number for
-  you stays on it, without either, so they aren't copied back. Your Playtomic account itself is Playtomic's.
+  you stays on it, without either, so they aren't copied back. If you join again later with the same address, what's
+  yours from then on is kept like anyone's. Your Playtomic account itself is Playtomic's.
 - Backups keep a copy for a while after: [BACKUP DAYS ON THE SERVER] days on the server, and up to
   [OFFSITE DAILY DAYS] days (monthly copies [OFFSITE MONTHLY MONTHS] months) offsite. *Note: with openPadel's defaults
   that's 14 days, 30 days and 12 months.* If we ever put a backup back, anything you deleted or took back since it
