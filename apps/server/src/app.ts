@@ -433,7 +433,8 @@ export function makeApp(deps: AppDeps) {
     return c.json(actions().filter((a) => !a.system && !a.name.startsWith("test.")).map((a) => ({ name: a.name, input: toJSONSchema(a.input as any), lang })));
   });
   app.post("/actions/:name/plan", async (c) => {
-    const p = await plan(db, c.req.param("name"), await c.req.json().catch(() => ({})), actor(c), { now: now() });
+    // ?ask=hold: a change that needs someone else's yes is only shown, until the person says to ask (Preview.tsx).
+    const p = await plan(db, c.req.param("name"), await c.req.json().catch(() => ({})), actor(c), { now: now(), holdAsk: c.req.query("ask") === "hold" });
     const lang = c.get("lang");
     return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt });
   });

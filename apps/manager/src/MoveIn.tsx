@@ -2,9 +2,9 @@ import { useEffect, useState } from "preact/hooks";
 import { api, clubTime, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 
 type Benefit = { name: string; people: number };
-type Upload = { id: string; sha256: string; file_name: string | null; at: string; rows: number; wallet_columns: { ref: string; name: string }[]; problems: { line: number; text: string }[]; benefits: Benefit[] };
+type Upload = { id: string; sha256: string; file_name: string | null; at: string; rows: number; uploaded_by: string | null; erased: number; wallet_columns: { ref: string; name: string }[]; problems: { line: number; text: string }[]; benefits: Benefit[] };
 type Status = { has_keys: boolean; players: number; players_read_at: string | null; players_wanted_at: string | null; players_error: string | null;
-  credit_cents: number; credit_people: number; wallets_brought_at: string | null; wallets_zeroed_at: string | null; memberships: number;
+  credit_cents: number; credit_people: number; wallets_brought_at: string | null; wallets_zeroed_at: string | null; wallets_zeroing_at: string | null; memberships: number; cap_needed: boolean;
   benefits: Benefit[]; upload: Upload | null; plans: { id: string; name: string; join_in_app: boolean }[] };
 
 /** Moving in from Playtomic, the money side (brought_in.ts): wallets into club credit, memberships carried over, from
@@ -12,7 +12,7 @@ type Status = { has_keys: boolean; players: number; players_read_at: string | nu
  *  manager who asks the owner. */
 export function MoveIn() {
   const [s, setS] = useState<Status | null>(null), [from, setFrom] = useState<"playtomic" | "file">("playtomic");
-  const [map, setMap] = useState<Record<string, string>>({}), [off, setOff] = useState<Record<string, boolean>>({}), [takeBack, setTakeBack] = useState(false);
+  const [map, setMap] = useState<Record<string, string>>({}), [off, setOff] = useState<Record<string, boolean>>({}), [takeBack, setTakeBack] = useState(false), [cap, setCap] = useState("");
   const load = () => api<Status>("/staff/move-in").then((x) => { setS(x); if (!x.players_read_at && x.upload) setFrom("file"); });
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
@@ -45,7 +45,8 @@ export function MoveIn() {
           {!reading && <button onClick={() => preview("playtomic.read_players", {})}>{t("ui.movein_read_now")}</button>}
         </> : <p class="meta">{t("ui.movein_no_keys")}</p>}
         <label>{t("ui.movein_file")}<input type="file" accept=".csv,text/csv" onChange={pick} /></label>
-        {u && <p>{t("ui.movein_upload_read", { name: u.file_name ?? "CSV", when: fmt(u.at), players: t("count.movein_rows", { count: u.rows }) })}</p>}
+        {u && <p>{t("ui.movein_upload_read", { name: u.file_name ?? "CSV", when: fmt(u.at), by: u.uploaded_by ?? "-", players: t("count.movein_rows", { count: u.rows }) })}</p>}
+        {u && u.erased > 0 && <p class="meta">{t("plan.movein_erased", { count: u.erased })}</p>}
         {u && u.problems.length > 0 && <><p class="meta">{t("count.lines_skipped", { count: u.problems.length })}</p><ul class="meta">{u.problems.slice(0, 20).map((p) => <li>{p.text}</li>)}</ul></>}
         {s.players_read_at && u && <fieldset class="choices"><legend>{t("ui.movein_use")}</legend>
           <label><input type="radio" name="from" checked={from === "playtomic"} onChange={() => setFrom("playtomic")} /> {t("ui.movein_use_playtomic")}</label>
@@ -61,10 +62,18 @@ export function MoveIn() {
           {from === "file" && u && u.wallet_columns.length > 0 && <fieldset class="choices"><legend>{t("ui.movein_columns")}</legend>
             {u.wallet_columns.map((c) => <label><input type="checkbox" checked={!off[c.ref]} onChange={(e) => { const on = e.currentTarget.checked; setOff((o) => ({ ...o, [c.ref]: !on })); }} /> {c.name}</label>)}
           </fieldset>}
-          <label class="check"><input type="checkbox" checked={takeBack} onChange={(e) => setTakeBack(e.currentTarget.checked)} /> {t("ui.movein_take_back")}</label>
-          <p class="meta">{t("ui.movein_take_back_help")}</p>
-          <button class="primary" disabled={!ready} onClick={() => preview("credit.bring_in", { ...src, ...(columns ? { columns } : {}), take_back: takeBack })}>{t("ui.preview")}</button>
-          {s.wallets_brought_at && <div class="note"><p>{t("ui.movein_zero_help")}</p>
+          {/* Once the wallets are being emptied in Playtomic, a run only brings credit in (brought_in.ts). */}
+          {s.wallets_zeroing_at ? <p class="note">{t("ui.movein_zeroing", { when: fmt(s.wallets_zeroing_at) })}</p> : <>
+            <label class="check"><input type="checkbox" checked={takeBack} onChange={(e) => setTakeBack(e.currentTarget.checked)} /> {t("ui.movein_take_back")}</label>
+            <p class="meta">{t("ui.movein_take_back_help")}</p>
+          </>}
+          {s.cap_needed && <label>{t("ui.movein_cap")}<input type="number" min="1" step="1" inputMode="numeric" value={cap} onInput={(e) => setCap(e.currentTarget.value)} />
+            <span class="meta">{t("ui.movein_cap_help")}</span></label>}
+          <button class="primary" disabled={!ready || (s.cap_needed && !(Number(cap) > 0))} onClick={() => preview("credit.bring_in", { ...src, ...(columns ? { columns } : {}), take_back: Boolean(takeBack && !s.wallets_zeroing_at),
+            ...(s.cap_needed ? { cap: Math.round(Number(cap)) } : {}) })}>{t("ui.preview")}</button>
+          {s.wallets_brought_at && <div class="note">
+            {!s.wallets_zeroing_at && <><p>{t("ui.movein_zeroing_help")}</p><button onClick={() => preview("credit.brought_zeroing", {})}>{t("ui.movein_zeroing_start")}</button></>}
+            <p>{t("ui.movein_zero_help")}</p>
             <button onClick={() => preview("credit.brought_zeroed", {})}>{t("ui.movein_zero_done")}</button></div>}
         </>}
       </section>

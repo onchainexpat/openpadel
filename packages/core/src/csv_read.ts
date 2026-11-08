@@ -52,8 +52,11 @@ export const CSV_COLUMNS = {
 const MOVE_IN = {
   wallet: /(wallet|monedero|saldo|balance|cartera|credit|credito)/,
   notWallet: /(total|pending|pendiente|used|usado|usados|spent|gastado|consumido|debt|deuda|owed|due|adeudado|count|numero|number|history|historial|movement|movimiento|limit|limite|expir|caduc|vence|date|fecha)/,
-  benefit: ["category", "categories", "benefit", "benefits", "membership", "memberships", "plan", "categoria", "categorias", "beneficio", "beneficios", "membresia", "abono", "tarifa"],
-  until: ["expiry", "expires", "expiresat", "expirydate", "expirationdate", "validuntil", "until", "enddate", "paidthrough", "caducidad", "fechadecaducidad", "vence", "vencimiento", "validohasta", "hasta", "fechafin", "fin"],
+  // Playtomic's English export says "Benefit name" and "Expiry date"; its Spanish one "Beneficio" and "Caducidad".
+  benefit: ["category", "categories", "categoryname", "benefit", "benefits", "benefitname", "membership", "memberships", "membershipname", "plan", "planname",
+    "categoria", "categorias", "beneficio", "beneficios", "nombredelbeneficio", "nombrebeneficio", "membresia", "nombredelamembresia", "abono", "tarifa"],
+  until: ["expiry", "expires", "expiresat", "expirydate", "expirationdate", "benefitexpirydate", "benefitexpiry", "benefitexpires", "benefitenddate", "validuntil", "validto", "until",
+    "enddate", "paidthrough", "caducidad", "fechadecaducidad", "fechacaducidad", "vence", "vencimiento", "fechadevencimiento", "validohasta", "hasta", "fechafin", "fin"],
   commitment: ["commitment", "commitmentuntil", "permanencia", "compromiso", "permanenciahasta"],
 };
 /** A row of the export: who, each wallet column's cell (a blank one is 0: the wallet is there, empty), their

@@ -193,7 +193,9 @@ async function main(): Promise<number> {
       }
       const src = upload ? { source: "file", ...upload } : { source: "playtomic" };
       // Less in Playtomic than brought in is taken back only when asked (not while the wallets are being zeroed there).
-      let input: Record<string, unknown> = { ...src, ...(args.includes("--take-back") ? { take_back: true } : {}) }, name = "credit.bring_in";
+      // --cap=10000: one person's ceiling in the club's whole units, for a currency openPadel can't size its own in.
+      const cap = Number((args.find((a) => a.startsWith("--cap=")) ?? "").slice(6)) || undefined;
+      let input: Record<string, unknown> = { ...src, ...(args.includes("--take-back") ? { take_back: true } : {}), ...(cap ? { cap } : {}) }, name = "credit.bring_in";
       if (sub === "memberships") {
         // --map "Gold=Gold monthly": a plan here by its name or id, or skip.
         const plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).execute();

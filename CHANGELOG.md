@@ -39,7 +39,8 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     paid in Playtomic is told to the owners once.
 - **Moving in from Playtomic: wallets and memberships** (the staff app's Playtomic page, Moving in; or
   `openpadel move-in` on the server; [the guide](docs/setup/playtomic-wallets-and-memberships.md)). The owner's, with a
-  manager asking; never support access or an assistant. Both read only what the server read itself: Playtomic's
+  manager first seeing the preview, then asking (an ask the owner's own run covers is settled); never support access or
+  an assistant. Both read only what the server read itself, newer than the last run: Playtomic's
   players through its Third Party API (at Playtomic's pace; a read that can't reach the end fails and says so), or the
   club's customer export as uploaded and read on the server. Each player is matched to a member here by Playtomic id
   or email (import the members first), and someone whose account was deleted isn't read again. Nothing changes in
@@ -47,10 +48,12 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   - **Wallets become club credit:** each member's wallets, added up in the club's currency, are owed to them here like
     any club credit (in the books as money owed, from "brought in", never revenue). Each member has one total from
     Playtomic, so a re-run moves only the difference whatever the wallets are called, and the same money never comes in
-    twice. Less than before is taken back only when staff choose it, never while the wallets are being zeroed in
-    Playtomic, and never more than the member still holds. The same player on two rows counts once, and rows that
+    twice. Less than before is taken back only when staff choose it, up to what the member still holds, and never once
+    the owner says the wallets are being set to zero in Playtomic. The same player on two rows counts once, and rows that
     disagree are listed. The preview lists the export's columns read as wallets, any of which can be left out, and
-    anything over $10,000 for one person, in another currency or unreadable. The owner and managers hear once, on
+    anything over $10,000 for one person (a ceiling the owner gives for a currency openPadel can't size), in another
+    currency or unreadable. Players who aren't members here are counted, not named, and an upload keeps nobody whose
+    account was deleted here; the change history keeps only an upload's hash and row count. The owner and managers hear once, on
     Today, to set the wallets to zero in Playtomic in the same hour; it stays there, with a link to the page, until the
     owner says it's done, and after that no more credit comes over. Paying this credit out at the desk warns that it
     may have been topped up by card.

@@ -5,6 +5,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
+import { sizesCurrency } from "@kumi/i18n";
 import { apply, creditBalance, deleteCheck, exportData, lastDayPaid, messageHandlers, normalizePlayer, onDate, parseBalance, plan, PlaytomicClient, processOutbox, readPlaytomicPlayers,
   remindMembershipEnds, renewMemberships, run, runAsSystem, setPaymentProvider, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
@@ -22,8 +23,8 @@ async function held(kind: string) {
   return Number(r?.c ?? 0);
 }
 /** The club's export, uploaded: the server reads it and keeps what it read; the move-in reads only that. */
-async function upload(csv: string) {
-  const r = await run(db, "playtomic.upload", { csv, file_name: "export.csv" }, owner, opts);
+async function upload(csv: string, at = NOW) {
+  const r = await run(db, "playtomic.upload", { csv, file_name: "export.csv" }, owner, { now: at });
   return { source: "file" as const, ...(r.result as { upload_id: string; sha256: string }) };
 }
 const bring = async (src: object, more: object = {}) => { const p = await plan(db, "credit.bring_in", { ...src, ...more }, owner, opts); await apply(db, p.runId, owner, opts); return p.plan.summary.en; };
@@ -34,7 +35,7 @@ before(async () => {
   setPaymentProvider(new TestProvider());
   const s = await runAsSystem(db, "club.setup", { name: "Kestrel Padel", time_zone: TZ, owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
   owner = { personId: (s.result as any).owner_person_id, via: "test", lang: "en" };
-  for (const name of ["Mia", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo"])
+  for (const name of ["Mia", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kai", "Lou", "Kim", "Cy", "Max"])
     people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner, opts)).result as { person_id: string }).person_id;
   await run(db, "role.assign", { person_id: people.Mia, role: "manager" }, owner, opts);
   manager = as("Mia");
@@ -73,7 +74,9 @@ test("wallets become club credit once: one total per person, never revenue; the 
   assert.match(s, /Wallet columns read: Club wallet, Bonus wallet\./);
   assert.match(s, /Ann: \$30\.00 \(Club wallet, Bonus wallet\)/);
   assert.match(s, /Left out, in another currency than the club's: Cal \(5 EUR\)/);
-  assert.match(s, /1 player with a wallet or membership isn't a member here yet .*Zed/);
+  // Zed isn't a member here: counted, not named.
+  assert.match(s, /1 player with a wallet or membership isn't a member here yet: import the members first/);
+  assert.doesNotMatch(s, /Zed/);
   assert.deepEqual([await credit("Ann"), await credit("Ben"), await credit("Cal")], [3000, 1000, 0]);
   assert.deepEqual([await held("member_credit"), await held("brought_in"), await held("revenue")], [-4000, 4000, 0]);
   // Playtomic in Spanish this time, the columns named and split differently: the same money, so nothing comes in.
@@ -115,6 +118,55 @@ test("less in Playtomic is taken back only when chosen: kept while the wallets a
   assert.deepEqual([await credit("Dee"), await credit("Ann"), await credit("Ben")], [2000, 3450, 1000]);
 });
 
+test("a take-back takes what's left: spent here meanwhile stays spent, and the rest comes back out", async () => {
+  // Kai: $50 brought in, $30 spent here, then all $50 spent in Playtomic too.
+  await bring(await upload("Name,Email,Wallet\nKai,kai@example.test,50 USD"));
+  await run(db, "credit.pay_out", { person_id: people.Kai!, cents: 3000, method: "cash" }, owner, opts);
+  const s = await bring(await upload("Name,Email,Wallet\nKai,kai@example.test,0"), { take_back: true });
+  assert.match(s, /Taken back from credit, \$20\.00 in all.*Kai \(\$20\.00\)/, s);
+  assert.match(s, /Spent here meanwhile, so not taken back: Kai \(\$30\.00\)/, s);
+  assert.equal(await credit("Kai"), 0);
+  // The same again: nothing left to take.
+  assert.match((await plan(db, "credit.bring_in", { ...(await upload("Name,Email,Wallet\nKai,kai@example.test,0")), take_back: true }, owner, opts)).plan.summary.en, /Left as they are, because they've spent their credit here since: Kai/);
+});
+
+test("nothing older than the last run's read: an older upload can't bring back what a take-back removed", async () => {
+  const first = await upload("Name,Email,Wallet\nLou,lou@example.test,60 USD", new Date(NOW.getTime() - 2 * 3600_000));
+  await bring(first);
+  await bring(await upload("Name,Email,Wallet\nLou,lou@example.test,10 USD", new Date(NOW.getTime() - 3600_000)), { take_back: true });
+  assert.equal(await credit("Lou"), 1000);
+  await rejects(plan(db, "credit.bring_in", first, owner, opts), "error.brought_read_older");
+  assert.equal(await credit("Lou"), 1000);
+});
+
+test("an upload keeps nobody whose account was deleted here, and the change log keeps only its hash and count", async () => {
+  await run(db, "privacy.erase", { person_id: people.Kim! }, owner, opts);
+  const r = await run(db, "playtomic.upload", { csv: "Name,Email,Phone,Wallet\nKim Stone,kim@example.test,+15550001111,15 USD\nNon Member,non.member@example.test,,25 USD", file_name: "export.csv" }, owner, opts);
+  assert.match(r.plan.summary.en, /1 player whose account was deleted here is left out\./, r.plan.summary.en);
+  const id = (r.result as { upload_id: string }).upload_id;
+  const kept = await db.selectFrom("playtomic_upload").select(["rows", "row_count", "erased_count"]).where("id", "=", id).executeTakeFirstOrThrow();
+  assert.deepEqual([(kept.rows as any[]).map((x) => x.email), kept.row_count, kept.erased_count], [["non.member@example.test"], 1, 1]);
+  const log = JSON.stringify((await db.selectFrom("entity_change").select("after").where("entity", "=", "playtomic_upload").where("entity_id", "=", id).executeTakeFirstOrThrow()).after);
+  assert.doesNotMatch(log, /Non Member|non\.member|Kim/, log);
+  assert.match(log, /"row_count":1/);
+  // And a bring-in from it doesn't name those who aren't members here: only how many.
+  const p = await plan(db, "credit.bring_in", { source: "file", upload_id: id, sha256: (r.result as { sha256: string }).sha256 }, owner, opts);
+  assert.match(p.plan.summary.en, /1 player with a wallet or membership isn't a member here yet: import the members first/);
+  assert.doesNotMatch(JSON.stringify(p.plan), /Non Member/);
+});
+
+test("a ceiling needs a figure for a currency openPadel can't size, rather than one dollar each", async () => {
+  assert.equal(sizesCurrency("EUR"), true);
+  assert.equal(sizesCurrency("BOB"), false);
+  await db.updateTable("club").set({ currency: "BOB" }).execute();
+  try {
+    const u = await upload("Name,Email,Wallet\nMax,max@example.test,120");
+    await rejects(plan(db, "credit.bring_in", u, owner, opts), "error.brought_cap_needed");
+    const p = await plan(db, "credit.bring_in", { ...u, cap: 100 }, owner, opts);
+    assert.match(p.plan.summary.en, /Left out, over the .*100\.00.*Max/, p.plan.summary.en);
+  } finally { await db.updateTable("club").set({ currency: "USD" }).execute(); }
+});
+
 test("one person's credit has a ceiling: over it is listed, the rest still comes in, and nothing fails on the database", async () => {
   const s = await bring(await upload("Name,Email,Wallet\nFay,fay@example.test,12.00 USD\nGus,gus@example.test,30000000 USD"));
   assert.match(s, /Left out, over the \$10,000\.00 that can come over for one person .*Gus \(\$30,000,000\.00\)/, s);
@@ -125,9 +177,11 @@ test("credit spent here isn't taken back, and paying out Playtomic credit in cas
   const out = await plan(db, "credit.pay_out", { person_id: people.Ann!, cents: 3000, method: "cash" }, owner, opts);
   assert.match(out.plan.summary.en, /came from Playtomic wallets, which members may have topped up by card/, out.plan.summary.en);
   await apply(db, out.runId, owner, opts);
-  const s = await plan(db, "credit.bring_in", { ...(await upload("Name,Email,Wallet\nAnn,ann@example.test,0")), take_back: true }, owner, opts);
-  assert.match(s.plan.summary.en, /Left as they are, because they've spent their credit here since: Ann/, s.plan.summary.en);
-  assert.equal(await credit("Ann"), 450);
+  // Then Playtomic shows her wallet empty: what she still holds here ($4.50) comes back out; what she spent here stays spent.
+  const s = await bring(await upload("Name,Email,Wallet\nAnn,ann@example.test,0"), { take_back: true });
+  assert.match(s, /Taken back from credit, \$4\.50 in all.*Ann \(\$4\.50\)/, s);
+  assert.match(s, /Spent here meanwhile, so not taken back: Ann \(\$30\.00\)/, s);
+  assert.equal(await credit("Ann"), 0);
 });
 
 test("who may: the owner; a manager asks; never front desk, support access or an assistant", async () => {
@@ -144,6 +198,33 @@ test("who may: the owner; a manager asks; never front desk, support access or an
   const sup: Actor = { personId: g.person_id, via: "test", lang: "en" };
   for (const [name, input] of [["playtomic.upload", { csv: "Name,Wallet\nX,1" }], ["credit.bring_in", u], ["membership.bring_in", { ...u, map: {} }], ["credit.brought_zeroed", {}]] as const)
     await rejects(plan(db, name, input, sup, opts), "error.forbidden_reason");
+});
+
+test("a manager first sees what they'd ask for (nothing sent), then asks; the owner doing it settles the ask", async () => {
+  const u = await upload("Name,Email,Wallet\nHal,hal@example.test,7");
+  const look = await plan(db, "credit.bring_in", u, manager, { ...opts, holdAsk: true });
+  assert.deepEqual([look.status, look.runId], ["would_ask", ""]);
+  assert.match(look.plan.summary.en, /From export\.csv, uploaded by Robin Hale on /, look.plan.summary.en);
+  const asked = await plan(db, "credit.bring_in", u, manager, opts);
+  assert.equal(asked.status, "awaiting_approval");
+  // The owner brings it in directly: the manager's ask is settled, not left waiting.
+  await bring(u);
+  const run_ = await db.selectFrom("action_run").select(["status", "error"]).where("id", "=", asked.runId).executeTakeFirstOrThrow();
+  assert.equal(run_.status, "failed");
+  assert.match(JSON.stringify(run_.error), /error\.ask_settled/);
+  // Asking again later isn't "already asked".
+  assert.equal((await plan(db, "credit.bring_in", await upload("Name,Email,Wallet\nHal,hal@example.test,9"), manager, opts)).status, "awaiting_approval");
+});
+
+test("once the owner says the wallets are being set to zero, a run only brings credit in", async () => {
+  assert.equal((await plan(db, "credit.brought_zeroing", {}, manager, opts)).status, "awaiting_approval");
+  await run(db, "credit.brought_zeroing", {}, owner, opts);
+  const zero = await upload("Name,Email,Wallet\nDee,dee@example.test,0\nIvy,ivy@example.test,4");
+  await rejects(plan(db, "credit.bring_in", { ...zero, take_back: true }, owner, opts), "error.brought_zeroing_take_back");
+  const s = (await plan(db, "credit.bring_in", zero, owner, opts)).plan.summary.en;
+  assert.match(s, /The wallets are being set to zero in Playtomic: this run only brings credit in\./, s);
+  assert.match(s, /as the wallets are being set to zero there, and left as it is here: Dee/, s);
+  assert.match(s, /Ivy: \$4\.00/);
 });
 
 test("once the owner says the Playtomic wallets are at zero, Today's reminder is done and no more credit comes over", async () => {
@@ -202,6 +283,18 @@ test("with a card it renews on Playtomic's day of the month, and a 31st comes ba
     ends.push((await db.selectFrom("membership").select("current_period_end").where("id", "=", m.id).executeTakeFirstOrThrow()).current_period_end!.toISOString());
   }
   assert.deepEqual(ends, [onDate("2027-02-28", "00:00", TZ), onDate("2027-03-31", "00:00", TZ), onDate("2027-04-30", "00:00", TZ)].map((d) => d.toISOString()));
+});
+
+test("paying the next period at the desk says the day it really runs to, on Playtomic's day of the month", async () => {
+  const p0 = await plan(db, "membership.bring_in", { ...(await upload("Name,Email,Category,Expiry\nCy,cy@example.test,Gold PT,2026-12-31")), map: { "Gold PT": gold } }, owner, opts);
+  await apply(db, p0.runId, owner, opts);
+  const m = await db.selectFrom("membership").select("id").where("person_id", "=", people.Cy!).executeTakeFirstOrThrow();
+  const desk = { now: new Date("2026-12-20T18:00:00Z") };
+  const p = await plan(db, "membership.record_payment", { membership_id: m.id, cents: 6000, method: "cash" }, owner, desk);
+  await apply(db, p.runId, owner, desk);
+  const end = (await db.selectFrom("membership").select("current_period_end").where("id", "=", m.id).executeTakeFirstOrThrow()).current_period_end!;
+  assert.equal(end.toISOString(), onDate("2027-02-01", "00:00", TZ).toISOString());
+  assert.match(p.plan.summary.en, /February 1, 2027/, p.plan.summary.en);
 });
 
 test("Playtomic's players read: kept, a player gone goes; a read that can't reach the end fails and keeps what was there", async () => {

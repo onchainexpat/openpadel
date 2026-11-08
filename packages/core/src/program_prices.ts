@@ -26,11 +26,13 @@ export function memberCents(p: Pick<ProgramLike, "price_cents" | "member_price_c
   return p.price_cents;
 }
 
-/** When the membership period holding `at` began: periods run from the day it started, a month or a year at a time. */
-export function periodStart(m: { started_at: Date; period: "month" | "year" }, tz: string, at: Date): Date {
-  const day = localParts(m.started_at, tz).d;
+/** When the membership period holding `at` began: periods run from the day it started, a month or a year at a time.
+ *  One carried over from Playtomic (first_renewal_at) has a first period to that renewal, then runs on its anchor_day,
+ *  so its included sessions line up with what it renews. */
+export function periodStart(m: { started_at: Date; period: "month" | "year"; first_renewal_at?: Date | null; anchor_day?: number | null }, tz: string, at: Date): Date {
+  const day = m.anchor_day ?? localParts(m.started_at, tz).d;
   let start = m.started_at;
-  for (let next = addPeriod(start, m.period, tz, day); next <= at; next = addPeriod(next, m.period, tz, day)) start = next;
+  for (let next = m.first_renewal_at ?? addPeriod(start, m.period, tz, day); next <= at; next = addPeriod(next, m.period, tz, day)) start = next;
   return start;
 }
 
@@ -48,12 +50,12 @@ export async function programPerks(db: Db | Trx, personId: string, at: Date) {
   const m = await memberPlan(db, personId, at);
   if (!m) return null;
   const row = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
-    .select(["membership.id", "membership.status", "membership.started_at", "membership.period", "membership_plan.period as plan_period", "membership_plan.name", "membership_plan.program_percent_off",
+    .select(["membership.id", "membership.status", "membership.started_at", "membership.period", "membership.first_renewal_at", "membership.anchor_day", "membership_plan.period as plan_period", "membership_plan.name", "membership_plan.program_percent_off",
       "membership_plan.program_cents_off", "membership_plan.included_sessions", "membership_plan.included_kinds"]).where("membership.id", "=", m.membership_id).executeTakeFirstOrThrow();
   const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
   // A founding member before the start has the discounts, not the included sessions: those come with the first period.
   const { status, ...rest } = row;
-  const start = rest.included_sessions && status !== "upcoming" ? periodStart({ started_at: rest.started_at, period: rest.period ?? rest.plan_period }, tz, at) : null;
+  const start = rest.included_sessions && status !== "upcoming" ? periodStart({ started_at: rest.started_at, period: rest.period ?? rest.plan_period, first_renewal_at: rest.first_renewal_at, anchor_day: rest.anchor_day }, tz, at) : null;
   return { ...rest, membership_id: rest.id, period: rest.period ?? rest.plan_period, period_start: start, used: start ? await includedUsed(db, rest.id, start, personId) : 0 };
 }
 export type ProgramPerks = NonNullable<Awaited<ReturnType<typeof programPerks>>>;

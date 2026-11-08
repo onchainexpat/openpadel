@@ -178,6 +178,9 @@ export function capFor(usdCents: number, currency: string = clubFmt.currency): n
   const c = currency.toUpperCase(), per = c === "USD" ? 1 : PER_USD[c] ?? 1;
   return fromMajor(Math.round(usdCents / 100 * per), c);
 }
+/** Whether capFor can size a dollar limit for this currency (the dollar itself, or one with a rate above); for any
+ *  other it would treat the currency as worth a dollar, so a caller that matters asks for the limit instead. */
+export const sizesCurrency = (currency: string): boolean => { const c = currency.toUpperCase(); return c === "USD" || c in PER_USD; };
 /** How the club writes an amount, for a hint: "1,200.50" in the US, "1.200,50" in Spain, "1,200" in yen. */
 export function amountExample(f: ClubFormat = clubFmt): string {
   const d = minorUnits(f.currency);

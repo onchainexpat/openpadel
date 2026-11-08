@@ -4,7 +4,7 @@ import { api, ApiError, lang, t } from "./state.ts";
 import { useBackCloses } from "./back.ts";
 import { money } from "@kumi/i18n/format";
 
-export type Pending = { runId: string; status: "planned" | "awaiting_approval"; summary: string };
+export type Pending = { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; summary: string; action?: string; input?: unknown };
 
 export function usePreview(onDone: (result?: any) => void) {
   const [pending, setPending] = useState<Pending | null>(null), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
@@ -14,13 +14,24 @@ export function usePreview(onDone: (result?: any) => void) {
   const preview = async (action: string, input: unknown) => {
     setError(null); setNote(null);
     try {
-      const p = await api<{ run_id: string; status: Pending["status"]; summary: string }>(`/actions/${action}/plan`, input);
+      // First a look: a change that needs someone else's yes is asked for only when the person says so (ask below).
+      const p = await api<{ run_id: string; status: Pending["status"]; summary: string }>(`/actions/${action}/plan?ask=hold`, input);
       if (p.status === "awaiting_approval") { setNote(`${p.summary} ${t("ui.sent_for_approval")}`); onDone(); return; }
-      setPending({ runId: p.run_id, status: p.status, summary: p.summary });
+      setPending({ runId: p.run_id, status: p.status, summary: p.summary, action, input });
     } catch (e) { setError(e instanceof ApiError ? e.message : String(e)); }
+  };
+  const ask = async () => {
+    if (!pending?.action) return;
+    try {
+      const p = await api<{ run_id: string; status: Pending["status"]; summary: string }>(`/actions/${pending.action}/plan`, pending.input);
+      setPending(null);
+      setNote(p.status === "awaiting_approval" ? t("ui.sent_for_approval") : t("ui.done"));
+      onDone();
+    } catch (e) { setError(e instanceof ApiError ? e.message : String(e)); setPending(null); }
   };
   const confirm = async () => {
     if (!pending) return;
+    if (pending.status === "would_ask") return ask();
     try {
       const r = await api<{ result?: any }>(`/runs/${pending.runId}/apply`, {}, { "idempotency-key": pending.runId });
       setPending(null);
@@ -36,7 +47,8 @@ export function usePreview(onDone: (result?: any) => void) {
   const sheet = (
     <div class="dock">
       {pending && <div class="card sheet" role="dialog" aria-modal="true"><p>{pending.summary}</p>
-        <button class="primary" onClick={confirm}>{t("ui.confirm")}</button> <button onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
+        {pending.status === "would_ask" && <p class="meta">{t("ui.would_ask")}</p>}
+        <button class="primary" onClick={confirm}>{t(pending.status === "would_ask" ? "ui.ask_for_yes" : "ui.confirm")}</button> <button onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
       {note && <p class="note" role="status" onClick={() => setNote(null)}>{note}</p>}
       {error && <p class="error" role="alert" onClick={() => setError(null)}>{error}</p>}
     </div>

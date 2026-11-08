@@ -825,7 +825,8 @@ async function dueAtDesk(db: Db | Trx, m: Record<string, any>, planCents: number
 }
 /** "until 3 December 2026", for the period after the current one. */
 async function nextUntil(db: Db | Trx, m: Record<string, any>, plan: { period: "month" | "year" }): Promise<Text> {
-  const tz = await clubTz(db), end = addPeriod(m.current_period_end, m.period ?? plan.period, tz, localParts(m.started_at, tz).d);
+  // On its own day of the month: anchor_day when it keeps one apart (carried over from Playtomic), as extend() does.
+  const tz = await clubTz(db), end = addPeriod(m.current_period_end, m.period ?? plan.period, tz, m.anchor_day ?? localParts(m.started_at, tz).d);
   return dayText(endDay({ current_period_end: end, source: m.source }, tz));
 }
 /** For the staff's and members' pages: what the desk would take for a membership now (what's still owed on it, or

@@ -162,7 +162,9 @@ export type Entity = keyof typeof ENTITIES;
 /** Columns that are keys to something (a club news email's unsubscribe link, an authenticator's secret):
  *  never copied into the change log. */
 const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"], staff_factor: ["secret"], chat_message: ["body"], chat_report: ["reason"], chat_stop: ["reason"],
-  gift_card: ["code_hash", "code_sealed"] };
+  gift_card: ["code_hash", "code_sealed"],
+  // An upload of the club's export (brought_in.ts): its hash and row count are logged, never the people in it.
+  playtomic_upload: ["rows", "problems", "wallet_columns"] };
 const unkept = (entity: Entity, row: unknown) => {
   const drop = KEYS_NOT_KEPT[entity];
   if (!drop || !row || typeof row !== "object") return row;
@@ -256,7 +258,7 @@ export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.
   // Moving in from Playtomic (brought_in.ts): credit members are owed and memberships, in bulk, from the club's own
   // export or Playtomic itself, and saying Playtomic's wallets are at zero. Rows an assistant typed could make credit
   // from nothing: the app, or `openpadel playtomic` on the server, which read the file or Playtomic themselves.
-  "playtomic.upload", "credit.bring_in", "membership.bring_in", "credit.brought_zeroed"]);
+  "playtomic.upload", "credit.bring_in", "membership.bring_in", "credit.brought_zeroing", "credit.brought_zeroed"]);
 export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news"]);
 /** Whether an action is the app's alone, never an assistant's: with `input`, for this input. */
 export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
@@ -296,8 +298,11 @@ async function allowedAsJudged(db: Db | Trx, def: ActionDef<any>, input: unknown
   if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
 }
 
-export interface Planned { runId: string; status: "planned" | "awaiting_approval"; plan: Plan; expiresAt: Date }
-export interface PlanOpts { now?: Date; internal?: boolean; /** A parent approved it: a kid's rules don't stop it again. */ parentApproved?: boolean }
+export interface Planned { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; plan: Plan; expiresAt: Date }
+export interface PlanOpts { now?: Date; internal?: boolean; /** A parent approved it: a kid's rules don't stop it again. */ parentApproved?: boolean;
+  /** The staff app's first look: a change that needs someone else's yes is shown, not yet asked for, until the person
+   *  says to ask (status "would_ask", nothing stored or sent). */
+  holdAsk?: boolean }
 
 /** A last look before a plan is stored, for what the action itself can't know: a kid's own rules (kids.ts).
  *  It can hand back another action to plan instead (asking a parent). */
@@ -358,6 +363,7 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     oauth_grant_id: actor.grantId ?? null, support_grant_id: d.support ?? null,
   };
   if (status === "planned") { await db.insertInto("action_run").values(row).execute(); return { runId, status, plan: p, expiresAt }; }
+  if (opts.holdAsk) return { runId: "", status: "would_ask", plan: p, expiresAt };
   await db.transaction().execute(async (trx) => {
     // The same change asked for again while the first ask still waits, by anyone, isn't asked twice: everyone who can
     // say yes would be told again, and two yeses would do it twice. One ask of each action at a time gets this far.

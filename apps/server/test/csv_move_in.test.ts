@@ -31,6 +31,12 @@ test("each wallet column is a wallet, a blank cell an empty one; a total, a pend
   assert.deepEqual(r.problems.map((p) => p.text.en), ["Line 5 has no email or Playtomic id, so it can't be matched to anyone here.", "Line 6: \"31/02/2026\" isn't a date, so that membership is left out."]);
 });
 
+test("Playtomic's English export: Benefit name and Expiry date are its membership and its last day", () => {
+  const r = readMoveInCsv("Name,Email,Benefit name,Expiry date\nAnn,ann@example.test,Gold,12/01/2026\n", { dayFirst: false });
+  assert.equal(r.fatal, undefined);
+  assert.deepEqual(r.rows[0]!.benefits, [{ name: "Gold", until: "2026-12-01" }]);
+});
+
 test("days: ISO, day first, or the US way for a club that writes month first", () => {
   assert.equal(readDay("2026-12-01T00:00:00", true), "2026-12-01");
   assert.equal(readDay("01/12/2026", true), "2026-12-01");

@@ -2,7 +2,9 @@
 
 The money side of moving a club from Playtomic to openPadel: members' wallet balances become club credit, and their
 memberships carry over. The staff app's Playtomic page, Moving in, or `openpadel move-in` on the server. Both are the
-owner's; a manager asks the owner, and support access and assistants never do them. Bookings, the archive and the
+owner's; a manager sees the preview first and then asks the owner (the owner sees who uploaded the file and when), and
+support access and assistants never do them. If the owner does it meanwhile, the manager's ask is settled, not left
+waiting. Bookings, the archive and the
 stages of the move are in the main guide, [moving from Playtomic](moving-from-playtomic.md).
 
 ## Where it reads from
@@ -14,12 +16,16 @@ The move-in only reads what the server read itself, never rows sent to it:
   server, `openpadel move-in players` reads them now. A read that can't reach the end (Playtomic stops answering, or a
   club bigger than 2,000 pages) fails and says so, keeping the last full read.
 - **The club's customer export** (a CSV from Playtomic Manager), uploaded on the page (or named to `openpadel move-in`).
-  The server reads it there and keeps what it read for 30 days; each preview names that upload. The columns it reads
-  are listed below.
+  The server reads it there and keeps what it read for 30 days; each preview names that upload. The change history
+  keeps only its hash and how many rows it had, never the people in it. The columns it reads are listed below.
 
 Each player is matched to a member here by their Playtomic id (the member import keeps it), else their email. Import
-the members first (People, Import, or `openpadel import members`): a player who isn't a member here yet is listed and
-left out. Someone whose account was deleted here isn't read again.
+the members first (People, Import, or `openpadel import members`): a player who isn't a member here yet is counted and
+left out (not named, as they aren't the club's members). Someone whose account was deleted here isn't read again, from
+Playtomic or an upload, and the preview says how many were left out; if they join again, they're read from then on.
+
+Each run reads only what's newer than the last run: an upload or a read of Playtomic from before it would bring back
+what that run took back, so it's refused. Upload the export again, or read Playtomic again.
 
 ## Wallets and credit
 
@@ -35,22 +41,26 @@ Nothing changes in Playtomic.
    own read all count the same money once.
    - **More than before** (topped up there) comes in.
    - **Less than before** (spent there) is listed and left as it is here, unless you tick "Take back what was spent in
-     Playtomic". Then it comes back out of their credit, never more than they still hold here.
-   - **Never tick it while the wallets are being set to zero in Playtomic:** they'd all read 0, and everyone's credit
-     would be taken back.
-3. **At the switch, in the same hour:** set the wallets to zero in Playtomic (its wallet import overwrites balances, or
-   by hand), so nobody spends the same money in both. Then the owner says "The Playtomic wallets are at zero" on the
-   page (a manager asks the owner). Until then it stays on Today for the owner and managers, with a link to the page.
-   After it, no more credit comes over.
+     Playtomic". Then it comes back out of their credit, up to what they still hold here: what they spent here
+     meanwhile stays spent, and the preview says so.
+3. **At the switch, in the same hour:**
+   1. The owner says "We're setting the wallets to zero in Playtomic now" on the page (a manager asks). From then a run
+      only brings credit in, and taking back is refused: every wallet is about to read 0.
+   2. Set the wallets to zero in Playtomic (its wallet import overwrites balances, or by hand), so nobody spends the
+      same money in both. A last run can still bring in anyone's last top-up.
+   3. The owner says "The Playtomic wallets are at zero" (a manager asks). Until then it stays on Today for the owner and
+      managers, with a link to the page. After it, no more credit comes over.
 
 - **The same player on two rows** of the export (one membership a row) counts once. Rows that disagree on the wallets
   are listed for staff to check, and nothing moves for that person.
 - **A ceiling:** at most $10,000 (sized for the club's currency) comes over for one person. More is listed and left, to
-  check the file or give it as credit by hand.
+  check the file or give it as credit by hand. For a currency openPadel can't size a dollar limit in, the owner gives
+  the ceiling (on the page, or `--cap=<whole units>` on the server).
 - **In the books:** club credit, money owed to members, from a "brought in" account (money the club took in Playtomic),
   never revenue. Reports' club credit includes it.
 - **Paying it out at the desk** warns that it came from Playtomic wallets, which members may have topped up by card.
-- **On the server:** `openpadel move-in wallets [export.csv] [--take-back] [--apply]`, a preview unless `--apply`.
+- **On the server:** `openpadel move-in wallets [export.csv] [--take-back] [--cap=<whole units>] [--apply]`, a preview
+  unless `--apply`.
 
 ## Memberships
 
@@ -86,8 +96,8 @@ They are found by name in English or Spanish (Playtomic doesn't publish them):
 |---|---|
 | Who | Name (or First name and Last name), Email, Playtomic ID, as for the member import |
 | Wallets | Any column whose name says wallet, balance or credit ("Wallet", "Saldo monedero Club"), each one wallet, and a blank cell an empty one. Not a column that adds the others up ("total") or counts what's pending, used, spent or owed. The preview lists the columns read, and any can be left out |
-| Membership | Category, Benefit, Membership, Plan, Categoría, Beneficio, Membresía, Abono, Tarifa |
-| Its last day | Expiry, Expires, Expiry date, Valid until, Until, End date, Paid through, Caducidad, Fecha de caducidad, Vence, Vencimiento, Válido hasta, Hasta, Fecha fin |
+| Membership | Benefit name, Category, Benefit, Membership, Plan (Playtomic's English export); Beneficio, Nombre del beneficio, Categoría, Membresía, Abono, Tarifa (its Spanish one) |
+| Its last day | Expiry date, Benefit expiry date, Expiry, Expires, Valid until, Valid to, Until, End date, Paid through; Caducidad, Fecha de caducidad, Fecha de vencimiento, Vence, Vencimiento, Válido hasta, Hasta, Fecha fin |
 | Commitment | Commitment, Permanencia, Compromiso |
 
 A day reads as 2026-12-01, or as 01/12/2026 with the day first, unless the club writes dates the US way (month first).
