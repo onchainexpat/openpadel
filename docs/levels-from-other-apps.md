@@ -36,8 +36,9 @@ line waits for staff; once staff check it, it counts as seen in the app.
 
 A parent brings their junior's the same way, on the members' app's Family page (Level, beside the
 junior): it counts as the player's own word, under the same line and the same 5 rated games, and the
-junior's history says which parent gave it. Either parent can take it away while the junior is new,
-and the club's answer to one that waits goes to the parents.
+junior's history says which parent gave it (staff see it too, in the Levels queue). Either parent can take
+it away while the junior is new, and the club's answer to one that waits goes to the parents; for a kid
+with a login of their own, to the kid and the parent who sent it.
 
 ## Not built yet
 

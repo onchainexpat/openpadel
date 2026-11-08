@@ -13,11 +13,19 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 - **A parent brings their junior's level from another app** (the members' app, Family, Level beside the junior), as a
   player does on My level: while the junior has played fewer than 5 rated games here, at or below the club's line it
   starts at once, and above it staff check it first. Either parent sees it and can take it away while the junior is
-  new. The preview names the junior ("Start Mia's level at 2.40, from Playtomic"), the junior's history says which
-  parent gave it, and the club's answer reaches the parents with a link to Family, as any news of a junior's level
-  now does (it opened the parent's own level).
+  new. The preview names the junior ("Start Mia's level at 2.40, from Playtomic"), and the junior's history says which
+  parent gave it, also once staff have checked it. Staff read "Pat says Mia's level on Playtomic is 5" and "Sent ... by
+  Pat" in the Levels queue. The club's answer reaches the parents with a link to Family, as any news of a junior's
+  level now does (it opened the parent's own level), and for a kid with a login of their own it reaches the kid and
+  the parent who sent it.
 
 ### Fixed
+- **A preview of a change to someone's level told a stranger about it, and a parent who'd left a family could still
+  confirm one (0.1.0 on).** Asked for someone who isn't theirs or their junior's, asking for a review, moving a
+  player's own level, and (0.4.0 on) bringing or taking away a level from another app answered with what stood in the
+  way ("a review is open", "already brought", "no level yet") instead of a plain no. It's refused before the preview
+  now. And a parent's preview for their junior, confirmed after they'd left the family, still went through: whose it
+  is is asked again at the yes.
 - **Setting a player's level below their floor previewed the level asked for (0.1.0 to 0.5.0).** "Change Ann Lee's
   level from 3.50 to 3.00", and the change set the floor's 3.25 instead. It's refused now, as answering a review
   refuses it: "3.00 is below the floor set for Ann Lee (3.25)." Lower the floor first. And setting the level they

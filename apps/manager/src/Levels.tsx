@@ -5,7 +5,7 @@ import { api, lang, t, usePreview, clubTime } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 
 type Claim = { platform: string; raw: number; conf: { reliability?: number; matches?: number; wpr?: string; percent?: number }; start_level: number | null };
-type Request = { id: string; person_id: string; name: string; note: string | null; created_at: string; level: string | null; provisional: boolean | null; rated_games: number | null; kind: string; claim: Claim | null };
+type Request = { id: string; person_id: string; name: string; note: string | null; created_at: string; level: string | null; provisional: boolean | null; rated_games: number | null; kind: string; claim: Claim | null; sent_by?: string | null };   // sent_by: a parent who sent their junior's
 
 /** What the player's other app showed, as they gave it. */
 function shown(c: Claim): string {
@@ -50,7 +50,7 @@ export function Levels() {
           <Answer key={r.id} personId={r.person_id} name={r.name} level={r.level} preview={preview} claim={r.claim}>
             {r.claim!.start_level === null ? t("ui.level_import_claim_staff", { shown: shown(r.claim!), source: t(`level_source.${r.claim!.platform}` as Key) })
               : t("ui.level_import_claim", { shown: shown(r.claim!), source: t(`level_source.${r.claim!.platform}` as Key), level: r.claim!.start_level.toFixed(2) })}
-            <br /><span class="meta">{t("ui.claimed_on", { date: day(r.created_at) })}</span></Answer>)}</ul>
+            <br /><span class="meta">{r.sent_by ? t("ui.claimed_on_by", { date: day(r.created_at), by: r.sent_by }) : t("ui.claimed_on", { date: day(r.created_at) })}</span></Answer>)}</ul>
       </section>}
       <section class="card">
         <h2>{t("ui.review_requests")}</h2>

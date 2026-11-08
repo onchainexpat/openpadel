@@ -27,7 +27,7 @@ export const MOVE_LIMIT = 0.5;
 export const MOVE_DAYS = 30;
 
 /** What a player said when they brought a level from another app (level.claim), kept on their review. */
-interface Claim { platform: Platform; raw: number; conf: Confidence; start_level: number | null; last_played?: string | null }
+interface Claim { platform: Platform; raw: number; conf: Confidence; start_level: number | null; last_played?: string | null; by?: string | null }   // by: who sent it (a parent, for a junior)
 const lvl = (n: number) => n.toFixed(2);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const levelInput = z.number().check(z.minimum(0), z.maximum(7));
@@ -63,6 +63,7 @@ async function lastRequest(db: Db | Trx, personId: string): Promise<Date | null>
 
 export const levelRequestReview = defineAction({
   name: "level.request_review", version: 1, clubWide: true,
+  owners: (db, i) => withManagers(db, [i.person_id]),
   input: z.object({ person_id: z.uuid(), note: z.optional(z.string().check(z.maxLength(500))) }),
   async plan(ctx, i) {
     if (await ctx.db.selectFrom("level_review").select("id").where("person_id", "=", i.person_id).where("status", "=", "open").executeTakeFirst()) throw new KumiError("error.review_open");
@@ -85,6 +86,7 @@ export const levelRequestReview = defineAction({
 
 export const levelSelfAdjust = defineAction({
   name: "level.self_adjust", version: 1, clubWide: true,
+  owners: async (_db, i) => [i.person_id],
   input: z.object({ person_id: z.uuid(), level: levelInput }),
   async plan(ctx, i) {
     const s = await loadRating(ctx.db, i.person_id), target = round2(i.level);
@@ -150,7 +152,11 @@ export async function levelQueue(db: Db | Trx, now: Date) {
     .select(["level_review.id", "level_review.person_id", "level_review.kind", "level_review.claim", "person.display_name as name", "level_review.note", "level_review.created_at", "rating.level", "rating.provisional", "rating.rated_games", "rating.floor"])
     .where("level_review.status", "=", "open").orderBy("level_review.created_at").execute();
   const asked = new Set(requests.map((r) => r.person_id));
-  return { requests, moves: (await bigMoves(db, now)).filter((m) => !asked.has(m.person_id)) };
+  // A level a parent sent for their junior says whose word it is.
+  const senders = [...new Set(requests.map((r) => (r.claim as Claim | null)?.by).filter((by, k): by is string => Boolean(by) && by !== requests[k]!.person_id))];
+  const names = new Map(senders.length ? (await db.selectFrom("person").select(["id", "display_name"]).where("id", "in", senders).execute()).map((p) => [p.id, p.display_name]) : []);
+  return { requests: requests.map((r) => { const by = (r.claim as Claim | null)?.by; return { ...r, sent_by: by && by !== r.person_id ? names.get(by) ?? null : null }; }),
+    moves: (await bigMoves(db, now)).filter((m) => !asked.has(m.person_id)) };
 }
 
 export const levelAnswerReview = defineAction({
@@ -189,13 +195,15 @@ export const levelAnswerReview = defineAction({
     if ((open?.id ?? null) !== review_id) throw new KumiError("error.changed");   // asked, or answered, meanwhile
     const before = await loadRating(ctx.trx, i.person_id);
     let after = before.exists ? before.level : null;
-    const claim = open && i.outcome !== "change" ? (await ctx.trx.selectFrom("level_review").select(["kind", "claim"]).where("id", "=", open.id).executeTakeFirstOrThrow()) : null;
+    const claim = open ? (await ctx.trx.selectFrom("level_review").select(["kind", "claim"]).where("id", "=", open.id).executeTakeFirstOrThrow()) : null;
+    // A parent who sent their junior's level hears the answer too, even when the junior has a login of their own.
+    const sentBy = claim?.kind === "import" ? (claim.claim as Claim).by ?? null : null, parent = sentBy && sentBy !== i.person_id ? sentBy : null;
     if (i.outcome === "accept") {
       const c = claim!.claim as Claim, d = plan.details as { start_level: number; sigma: number };
       if (before.games >= SELF_ADJUST_GAMES) throw new KumiError("error.import_late", { count: SELF_ADJUST_GAMES });
       const by = await nameOf(ctx.trx, ctx.actor.personId), date = dayText(localDate(ctx.now, await clubTz(ctx.trx)));
       after = await writeImport(ctx, i.person_id, { platform: c.platform, raw: c.raw, conf: c.conf, start_level: d.start_level, sigma: d.sigma, evidence: "staff_seen", last_played: c.last_played ?? null },
-        both("level_import.how_checked", { by, date }), ctx.actor.personId);
+        parent ? both("level_import.how_checked_parent", { parent: await nameOf(ctx.trx, parent), by, date }) : both("level_import.how_checked", { by, date }), ctx.actor.personId);
     }
     if (i.outcome === "change") {
       const next = staffSet(before, Math.max(before.floor ?? -Infinity, round2(i.level!)));
@@ -206,9 +214,11 @@ export const levelAnswerReview = defineAction({
     const answer = { status: i.outcome === "keep" ? "kept" : "changed", level_at: after === null ? null : lvl(after), answer: i.reason?.trim() || null, answered_by: ctx.actor.personId, answered_at: ctx.now };
     if (open) await ctx.update("level_review", open.id, answer);
     else await ctx.insert("level_review", { id: uuidv7(), person_id: i.person_id, kind: "move", created_at: ctx.now, ...answer });
-    const brought = claim?.kind === "import" ? (claim.claim as Claim).platform : null;
+    // A changed level says so whatever was asked (level_review_changed); what came from another app is named only
+    // when it was started from, or not used.
+    const brought = claim?.kind === "import" && i.outcome !== "change" ? (claim.claim as Claim).platform : null;
     await ctx.emit("level.reviewed", { person_id: i.person_id, asked: Boolean(open), outcome: i.outcome, before: before.exists ? lvl(before.level) : null, after: after === null ? null : lvl(after), reason: i.reason?.trim() || null,
-      ...(brought ? { platform: brought } : {}) });
+      ...(brought ? { platform: brought } : {}), ...(parent ? { sent_by: parent } : {}) });
     return { level: after };
   },
 });

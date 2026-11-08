@@ -123,11 +123,46 @@ test("a parent brings their junior's level from another app on Family; the other
   assert.equal(high.json.summary, "Send Mia's level on Playtomic (5) to the club. Staff check levels above 4.50 first, for example by looking at the app. You'll hear in the app.");
   await post(`/runs/${high.json.run_id}/apply`, "pat@example.test");
   assert.equal((await get(`/my/level?for=${mia}`, "sam@example.test")).json.review.open.kind, "import");
+  // Staff hear whose word it is, on Today and in the Levels queue.
+  await processOutbox(db, messageHandlers);
+  const staff = await db.selectFrom("outbound_message").select(["kind", "body"]).where("person_id", "=", owner.personId!).where("kind", "like", "level_import_claimed%").where("channel", "=", "inbox").execute();
+  assert.deepEqual(staff.map((m) => m.kind), ["level_import_claimed_staff_by"]);
+  assert.match(staff[0]!.body, /^Pat says Mia's level on Playtomic is 5\./);
+  await signIn("robin@example.test");
+  assert.equal((await get("/staff/levels", "robin@example.test")).json.requests.find((r: any) => r.person_id === mia).sent_by, "Pat");
   await run(db, "level.answer_review", { person_id: mia, outcome: "accept" }, owner);
   await processOutbox(db, messageHandlers);
+  assert.match((await get(`/my/level?for=${mia}`, "pat@example.test")).json.import.explanation, /Given in the app by Pat and checked by Robin Hale on /);
   const told = await db.selectFrom("outbound_message").select(["person_id", "subject", "link"]).where("kind", "=", "level_import_accepted").where("channel", "=", "inbox").execute();
   assert.deepEqual(told.map((m) => [m.person_id === people.Pat || m.person_id === people.Sam, m.subject, m.link]).sort(),
     [[true, "Mia: Your level starts at 5.00", "/family"], [true, "Mia: Your level starts at 5.00", "/family"]]);
   // A parent's own level still reads as theirs.
   assert.match((await post("/actions/level.claim/plan", "pat@example.test", { person_id: people.Pat, platform: "playtomic", value: 3 })).json.summary, /^Start your level at 3\.00/);
+});
+
+test("a junior's level is only their parents': a stranger learns nothing from a preview, a parent who left can't confirm, a kid with a login and the parent who sent it both hear", async () => {
+  people.Zed = ((await run(db, "person.create", { display_name: "Zed", email: "zed@example.test" }, owner)).result as any).person_id;
+  await signIn("zed@example.test");
+  // Mia has a level from Playtomic now: a stranger is refused as for anyone, not told "already brought".
+  for (const [action, input] of [["level.claim", { person_id: mia, platform: "playtomic", value: 3 }], ["level.remove_import", { person_id: mia }], ["level.request_review", { person_id: mia }]] as const) {
+    const r = await post(`/actions/${action}/plan`, "zed@example.test", input);
+    assert.equal(r.status, 403, action);
+  }
+  // Sam previews taking Mia's away, leaves the family, and can't confirm it.
+  const take = await post("/actions/level.remove_import/plan", "sam@example.test", { person_id: mia });
+  assert.equal(take.status, 200);
+  await act("sam@example.test", "household.leave", { person_id: people.Sam });
+  assert.equal((await post(`/runs/${take.json.run_id}/apply`, "sam@example.test")).status, 403);
+  assert.ok((await get(`/my/level?for=${mia}`, "pat@example.test")).json.import, "Mia's level from Playtomic stays");
+  // Leo, 14, has a login of his own: Pat sends his level, and the club's answer reaches Leo and Pat (who sent it).
+  const leo = (await act("pat@example.test", "household.add_junior", { person_id: people.Pat, display_name: "Leo", birth_year: new Date().getFullYear() - 14 })).json.result.person_id;
+  await db.updateTable("person").set({ own_login: true }).where("id", "=", leo).execute();
+  const sent = await post("/actions/level.claim/plan", "pat@example.test", { person_id: leo, platform: "playtomic", value: 5.1 });
+  assert.match(sent.json.summary, /^Send Leo's level on Playtomic \(5\.1\) to the club\..* You'll hear in the app\.$/);
+  await post(`/runs/${sent.json.run_id}/apply`, "pat@example.test");
+  await run(db, "level.answer_review", { person_id: leo, outcome: "keep", reason: "Let's see a few games first" }, owner);
+  await processOutbox(db, messageHandlers);
+  const told = await db.selectFrom("outbound_message").select(["person_id", "subject", "link"]).where("kind", "=", "level_import_kept").where("channel", "=", "inbox").orderBy("person_id").execute();
+  assert.deepEqual(told.map((m) => [m.person_id === leo ? "Leo" : m.person_id === people.Pat ? "Pat" : "someone else", m.subject, m.link]).sort(),
+    [["Leo", "Your level from Playtomic", "/level"], ["Pat", "Leo: Your level from Playtomic", "/family"]]);
 });

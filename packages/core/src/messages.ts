@@ -55,6 +55,7 @@ interface Draft {
   push?: boolean;               // false: no notification on their phones (a receipt)
   inbox?: boolean;              // false: no new inbox copy (a receipt sent again by email)
   emailUnlessRead?: number;     // the email waits this many minutes, and isn't sent if the inbox copy was read by then
+  parents?: string[];           // to a junior with a login of their own: these parents hear it too (one who sent it for them)
 }
 /** Emails not sent when the member saw it in the app first: an automatic answer, shown on their question's page
  *  as soon as they ask. Seen means the inbox copy read, or the question opened after the answer was written. */
@@ -649,20 +650,24 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const params = { person, level: p.level ?? both("plan.level.no_level"), note: p.note ? both("msg.level_review_note", { note: p.note }) : NOTHING };
     return (await desk(db)).map((to) => ({ to, kind: "level_review_requested_staff", params, purpose: "staff" as const, essential: false, email: false, link: "/levels" }));
   },
-  async "level.import_claimed"({ db }, p: { person_id: string; platform: string; shown: Text; start_level: number | null }) {
+  async "level.import_claimed"({ db }, p: { person_id: string; platform: string; shown: Text; start_level: number | null; sent_by?: string }) {
     const person = (await db.selectFrom("person").select("display_name").where("id", "=", p.person_id).executeTakeFirstOrThrow()).display_name;
-    const params = { person, source: both(`level_source.${p.platform}` as Key), shown: p.shown };
-    return (await desk(db)).map((to) => ({ to, kind: "level_import_claimed_staff", params, purpose: "staff" as const, essential: false, email: false, link: "/levels" }));
+    // Sent by a parent for their junior: staff hear whose word it is.
+    const by = p.sent_by ? await nameOf(db, p.sent_by) : null;
+    const params = { person, source: both(`level_source.${p.platform}` as Key), shown: p.shown, ...(by ? { by } : {}) };
+    return (await desk(db)).map((to) => ({ to, kind: by ? "level_import_claimed_staff_by" : "level_import_claimed_staff", params, purpose: "staff" as const, essential: false, email: false, link: "/levels" }));
   },
-  async "level.reviewed"(_c, p: { person_id: string; asked: boolean; outcome: "keep" | "change" | "accept"; before: string | null; after: string | null; reason: string | null; platform?: string }) {
+  async "level.reviewed"(_c, p: { person_id: string; asked: boolean; outcome: "keep" | "change" | "accept"; before: string | null; after: string | null; reason: string | null; platform?: string; sent_by?: string }) {
     // A big move staff checked and kept: the player never asked, so there's nothing to tell them.
     if (!p.asked && p.outcome === "keep") return [];
     const note = p.reason ? both("msg.level_review_note", { note: p.reason }) : NOTHING;
+    // The parent who sent a junior's level hears the answer, as the preview said, even if the junior has a login.
+    const parents = p.sent_by ? [p.sent_by] : undefined;
     // A level they brought from another app: started there, or not used.
     if (p.platform && p.outcome !== "change") return [{ to: p.person_id, kind: p.outcome === "accept" ? "level_import_accepted" : "level_import_kept", purpose: "account" as const, essential: false, email: true, link: "/level",
-      params: { source: both(`level_source.${p.platform}` as Key), level: p.after ?? both("plan.level.no_level"), note } }];
+      params: { source: both(`level_source.${p.platform}` as Key), level: p.after ?? both("plan.level.no_level"), note }, parents }];
     return [{ to: p.person_id, kind: p.outcome === "keep" ? "level_review_kept" : "level_review_changed", purpose: "account" as const, essential: false, email: true, link: "/level",
-      params: { before: p.before ?? both("plan.level.no_level"), after: p.after ?? both("plan.level.no_level"), level: p.after ?? both("plan.level.no_level"), note } }];
+      params: { before: p.before ?? both("plan.level.no_level"), after: p.after ?? both("plan.level.no_level"), level: p.after ?? both("plan.level.no_level"), note }, parents }];
   },
   // ---- Asking the club ----
   async "question.answered"(_c, p: { question_id: string; to: string; by: string; question: string; answer: string }) {
@@ -1187,10 +1192,13 @@ async function forJuniors(db: Db, drafts: Draft[]): Promise<(Draft & { junior?: 
   for (const d of drafts) {
     const p = await db.selectFrom("person").select(["junior", "own_login", "display_name"]).where("id", "=", d.to).executeTakeFirst();
     if (!p?.junior) { out.push(d); continue; }
-    if (p.own_login) { out.push(d); if (!PARENTS_TOO.has(d.kind)) continue; }
+    if (p.own_login) { out.push(d); if (!PARENTS_TOO.has(d.kind) && !d.parents?.length) continue; }
     // The junior's level is on the parent's Family page, not their own My level.
     const link = d.link === "/level" ? "/family" : d.link;
-    for (const to of await managersOf(db, d.to)) if (!out.some((x) => x.to === to && x.kind === d.kind)) out.push({ ...d, to, link, junior: p.display_name });
+    for (const to of await managersOf(db, d.to)) {
+      if (p.own_login && !PARENTS_TOO.has(d.kind) && !d.parents?.includes(to)) continue;   // a kid with a login hears it themselves
+      if (!out.some((x) => x.to === to && x.kind === d.kind)) out.push({ ...d, to, link, junior: p.display_name });
+    }
   }
   return out;
 }

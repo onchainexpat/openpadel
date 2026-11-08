@@ -192,6 +192,7 @@ export const levelImport = defineAction({
  *  starts at once, as their own word; above it, or from an app whose scale Kumi doesn't convert, it waits for staff. */
 export const levelClaim = defineAction({
   name: "level.claim", version: 1, clubWide: true,
+  owners: (db, i) => withManagers(db, [i.person_id]),
   input: z.object({ person_id: z.uuid(), platform: z.enum(PLATFORM_KEYS), value: valueInput, ...confInput, last_played: dayInput }),
   async plan(ctx, i) {
     const conf = confOf(i);
@@ -214,7 +215,8 @@ export const levelClaim = defineAction({
       const id = uuidv7(), claim = { platform: i.platform, raw: i.value, conf, start_level: kumi, last_played: i.last_played ?? null, by: ctx.actor.personId };
       try { await ctx.insert("level_review", { id, person_id: i.person_id, kind: "import", claim: JSON.stringify(claim), created_at: ctx.now }); }
       catch (e: any) { if (e?.code === "23505") throw new KumiError("error.review_open"); throw e; }
-      await ctx.emit("level.import_claimed", { review_id: id, person_id: i.person_id, platform: i.platform, shown: shownText(i.platform, i.value, conf), start_level: kumi });
+      await ctx.emit("level.import_claimed", { review_id: id, person_id: i.person_id, platform: i.platform, shown: shownText(i.platform, i.value, conf), start_level: kumi,
+        ...(ctx.actor.personId && ctx.actor.personId !== i.person_id ? { sent_by: ctx.actor.personId } : {}) });
       return { review_id: id, waits: true };
     }
     // Given by a parent for their junior: the junior's history says who gave it.
@@ -228,6 +230,7 @@ export const levelClaim = defineAction({
 /** Take an import away while still new: the level is worked out again as if it never came, everyone's games replayed. */
 export const levelRemoveImport = defineAction({
   name: "level.remove_import", version: 1, clubWide: true,
+  owners: (db, i) => withManagers(db, [i.person_id]),
   input: z.object({ person_id: z.uuid() }),
   async plan(ctx, i) {
     const imp = (await activeImports(ctx.db, i.person_id))[0];

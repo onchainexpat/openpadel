@@ -69,6 +69,11 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   /** Only this person may do it (their own credit, their own code): anyone else is refused before the preview is
    *  built, and the refusal is logged like any other (without what only the preview reads). */
   selfOnly?: (db: Db | Trx, input: any) => Promise<string | null>;
+  /** Whose the change is, known from the input alone (a player and the parents who manage them), for a change that
+   *  belongs to no location: someone it isn't theirs is refused before the preview is built, so what the preview
+   *  would have said ("already brought", "a review is open") never reaches them, and it's asked again at the yes,
+   *  so a parent who has left the family since can't confirm what they previewed. */
+  owners?: (db: Db | Trx, input: any) => Promise<string[]>;
   input: S;
   plan(ctx: PlanCtx, input: z.infer<S>): Promise<Plan>;
   apply(ctx: ApplyCtx, input: z.infer<S>, plan: Plan): Promise<unknown>;
@@ -355,6 +360,10 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     const self = await def.selfOnly(db, input);
     if (self && actor.personId !== self) return refuse(db, def, input, actor, null, { mode: "no", reason: "reason.self_only" });
   }
+  if (def.owners) {
+    const before = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: null, ownerIds: await def.owners(db, input), at: now, ...how(def, actor) });
+    if (before.mode === "no") return refuse(db, def, input, actor, null, before);
+  }
   const p = await def.plan({ db, actor, now }, input);
   const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
   if (d.mode === "no") return refuse(db, def, input, actor, p, d);
@@ -432,10 +441,11 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       await readOnlyGate(trx, run.action);   // a preview made before the club went read-only
       if (!approving && !opts.system) await requireStrongAuth(trx, def, actor, run.input);
       if (opts.system && !def.system) throw new KumiError("error.forbidden_reason", { reason: both("reason.no_role") }, 403);
-      if (!approving && !opts.system) {   // permissions may have changed since the preview
-        const d = await decide(trx, run.action, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
+      if (!approving && !opts.system) {   // permissions may have changed since the preview, and whose it is (owners)
+        const ownerIds = def.owners ? await def.owners(trx, run.input) : p.ownerIds ?? [];
+        const d = await decide(trx, run.action, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: run.location_id, ownerIds, at: now, ...how(def, actor) });
         if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
-        await allowedAsJudged(trx, def, run.input, actor, run.location_id, p.ownerIds ?? [], now);
+        await allowedAsJudged(trx, def, run.input, actor, run.location_id, ownerIds, now);
       }
       // Checked again as it happens, with the connection locked, so two confirms at once can't both fit.
       // A preview an assistant made dies with it: once it's disconnected, nobody can apply it.
