@@ -98,6 +98,17 @@ test("attendance: the date's coach or front desk, from the start until 48 hours 
   assert.equal((await db.selectFrom("outbound_message").select("id").where("person_id", "=", people.Ben!).where("kind", "=", "attendance_no_show").where("channel", "=", "inbox").execute()).length, 2);
 });
 
+test("another coach hears nothing of a date or a lesson that isn't theirs, before the no", async () => {
+  // Its own coach hears what stands in the way; another coach only that it isn't theirs (who's on it, when it opens).
+  await rejects(plan(db, "attendance.mark", { session_id: date, marks: [{ person_id: people.Lou, came: true }] }, as("Kim"), after_(START, 30)), "error.not_in_session");
+  await rejects(plan(db, "attendance.mark", { session_id: date, marks: [{ person_id: people.Lou, came: true }] }, as("Lou"), after_(START, 30)), "error.forbidden_reason");
+  await rejects(plan(db, "attendance.mark", { session_id: date, marks: [{ person_id: people.Ann, came: true }] }, as("Lou"), after_(START, -5)), "error.forbidden_reason");
+  await rejects(plan(db, "attendance.mark", { booking_id: lesson, marks: [{ person_id: people.Ann, came: true }] }, as("Lou"), after_(START, 30)), "error.forbidden_reason");
+  await rejects(plan(db, "attendance.mark", { session_id: "00000000-0000-7000-8000-00000000dead", marks: [{ person_id: people.Ann, came: true }] }, as("Lou"), after_(START, 30)), "error.forbidden_reason");
+  await rejects(plan(db, "level.set_session", { session_id: date, reason: "Assessed", levels: [{ person_id: people.Ben, level: 3 }] }, as("Kim"), after_(START, 60)), "error.not_in_session");
+  await rejects(plan(db, "level.set_session", { session_id: date, reason: "Assessed", levels: [{ person_id: people.Ben, level: 3 }] }, as("Lou"), after_(START, 60)), "error.forbidden_reason");
+});
+
 test("a lesson's attendance, and one no-show however it was marked", async () => {
   const r = await mark("Kim", [{ person: "Ann", came: false }], after_(LESSON, 10), { booking_id: lesson });
   assert.equal(r.plan.summary.en, "Attendance at the lesson on Court 1, Thu, Dec 3, 9:00 AM: didn't come: Ann. Anyone marked as not having come is told, and it counts in their no-show record.");

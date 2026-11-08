@@ -6,6 +6,7 @@ import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, dateTime, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type Read } from "./actions.ts";
+import { coachOwners } from "./coach_tools.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { withManagers } from "./households.ts";
@@ -242,6 +243,8 @@ export async function sessionPlayers(db: Db | Trx, sessionId: string) {
 
 export const levelSetSession = defineAction({
   name: "level.set_session", version: 1, clubWide: true,
+  // A coach sets levels after their own sessions: another coach hears nothing of who's in one, or their floors.
+  owners: (db, i) => coachOwners(db, "session", i.session_id),
   input: z.object({ session_id: z.uuid(), reason: z.string().check(z.minLength(3), z.maxLength(300)),
     levels: z.array(z.object({ person_id: z.uuid(), level: levelInput })).check(z.minLength(1), z.maxLength(64)) }),
   async plan(ctx, i) {

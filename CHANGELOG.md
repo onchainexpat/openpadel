@@ -7,6 +7,13 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## Unreleased
+
+### Fixed
+- A coach marking who came, or setting levels after a date, for a session or lesson that isn't theirs heard who was on
+  it, or that marking hadn't opened yet, before being told no (0.1.0 on). It's a plain no now, before anything is
+  worked out, as for members since 0.6.0.
+
 ## 0.6.0 (2026-11-08)
 
 A member could learn about someone else before the app said no: what they owed the club, that they were a junior and

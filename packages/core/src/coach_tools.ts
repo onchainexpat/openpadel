@@ -6,7 +6,7 @@ import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, dateTime, pickLang, t, type Lang, type Text } from "@kumi/i18n";
-import { defineAction, type Read } from "./actions.ts";
+import { defineAction, type Owners, type Read } from "./actions.ts";
 import { itsTimeNow } from "./bookings.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -30,6 +30,14 @@ const calendarName = (p: { display_name: string; junior: boolean }) => p.junior 
 export type CoachItemKind = "lesson" | "session";
 
 /** A lesson or a program date: when, where, who runs it, and whether it's off. */
+/** Whose a session's or a lesson's players are, before anything about them is said (ActionDef.owners): its coach,
+ *  where it is, as coachItem reads them. Nobody for one that isn't there (its plan says not found). */
+export async function coachOwners(db: Db | Trx, kind: CoachItemKind, id: string | undefined): Promise<Owners> {
+  const row = !id ? undefined : kind === "lesson"
+    ? await db.selectFrom("booking").select(["coach_id", "location_id"]).where("id", "=", id).where("kind", "=", "lesson").executeTakeFirst()
+    : await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.coach_id", "program.location_id"]).where("session.id", "=", id).executeTakeFirst();
+  return { ownerIds: row?.coach_id ? [row.coach_id] : [], locationId: row?.location_id };
+}
 export async function coachItem(db: Db | Trx, kind: CoachItemKind, id: string) {
   if (kind === "lesson") {
     const b = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id")
@@ -93,6 +101,8 @@ export async function rosterOf(db: Db | Trx, kind: CoachItemKind, id: string, no
 const markInput = z.object({ person_id: z.uuid(), came: z.nullable(z.boolean()) });
 export const attendanceMark = defineAction({
   name: "attendance.mark", version: 1,
+  // A coach marks who came to their own sessions and lessons: another coach hears nothing of who's on one.
+  owners: (db, i) => coachOwners(db, i.session_id ? "session" : "lesson", i.session_id ?? i.booking_id),
   input: z.object({ session_id: z.optional(z.uuid()), booking_id: z.optional(z.uuid()), marks: z.array(markInput).check(z.minLength(1), z.maxLength(64)) }),
   async plan(ctx, i) {
     if (Boolean(i.session_id) === Boolean(i.booking_id)) throw new KumiError("error.invalid_input", { details: "session_id or booking_id" }, 400);
