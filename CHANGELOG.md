@@ -16,7 +16,7 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   - **The archive.** Every Playtomic booking the mirror reads is kept as Playtomic gave it, players by name and email
     included, from the first read, three months back (Playtomic keeps no more) and as far ahead as Playtomic has them
     (up to a year, read once a day for the archive only), matched to members by email or Playtomic id. Staff see a
-    person's on their page, read only (a coach without who they played with, as in Kumi's own list); it comes with the
+    person's on their page, read only (a coach without who they played with, as in openPadel's own list); it comes with the
     member's data download; and their name and email go from it with their account. Deleting an account marks the
     person, by their Playtomic id and a salted one-way hash of each address (never the address; ids are learned as
     they're matched), so no later read of Playtomic, bookings or players, brings them back. Only their own act brings
@@ -30,13 +30,14 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     What was paid in Playtomic stays paid there: nothing is owed, nothing enters the books, and no receipt is made. A
     refund of it is made in Playtomic, whatever gives it back (the booking cancelled, its weekly court ended, a court
     blocked over it, made shorter, moved or repriced): the preview says how much, by the club's rule or as staff chose,
-    or that Playtomic already refunded it; the managers are told (on Today until handled); and it's kept as given back
+    or that Playtomic already refunded it; the managers are told why and by which (on Today until handled); and it's kept as given back
     there, so a later change counts only what's left. Recurring ones every week become a weekly court. What can't be
     taken over (a class, a player not a member here yet, partly paid, a clash) stays in Playtomic, held here, and the
     preview says why by name. The mirror knows a taken-over booking by Playtomic's id: it never holds it twice, even
     when Playtomic moves it to another court, and holds it again if it's cancelled here. One taken over unpaid and paid
     in Playtomic since: the desk marks it paid there (booking.paid_in_playtomic), for what Playtomic says it took, never
-    the price here (time added here stays owed here). The players are told what the club refunds them in Playtomic,
+    the price here (time added here stays owed here, and the preview, the desk's court detail and the person's page
+    say how much, beside what was paid in Playtomic). The players are told what the club refunds them in Playtomic,
     when it's cancelled, moved or made shorter.
   - **A daily comparison for the owner**: each linked court and day, Playtomic and openPadel side by side, on the
     Playtomic page; a clash, a booking not held yet, or a taken-over one moved (another time or court), cancelled or
@@ -72,6 +73,16 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     already a member here, a plan that's full, a membership with no end date and a commitment period (kept in the note,
     not held to) are said in the preview, as is stopping the renewals in Playtomic.
 ### Fixed
+- **A booking moved, then cancelled, was said to be at its old time, and a moved booking showed twice in My places
+  (0.1.0 to 0.4.0).** A move (or a new length) retires the booking's court time and takes a new one; once it's
+  cancelled none is current, and what read "the current one" took any. So the players' cancellation said the old time
+  and court ("Cancelled: Court 3, Sat, Nov 14, 9:00 AM" for one moved to 1:00 PM), and so could the match page, the
+  person's page in the staff app, receipts and what a payment was for; a cancelled lesson's place in the coach's
+  earnings and calendar always took the oldest; a chat about it (0.3.0 on) spanned both times. And before any cancel,
+  My places listed a moved booking once for each time it had had. Each now reads the time the booking has, or, once
+  cancelled, the last one it had. News of a move or a new length not yet gone out by email, push or text when the
+  booking is cancelled doesn't go (the in-app copy stays), and one not written yet isn't: the cancellation says where
+  it was and what comes back.
 - **An ask the owner's own change made out of date waited for a yes it could never get.** A manager's ask (club
   details, say) that read something the owner then changed directly is now marked out of date at once. The Changes
   page says why ("Out of date: what it asked for has changed since..."), as it does for one done meanwhile by another
@@ -85,7 +96,7 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 - **The Moving in page lost who uploaded the export** ("by -") and how many deleted members it left out.
 - **A member's own weekly court was refunded again when their account was deleted again after a restore (in 0.3.0
   to 0.4.0).** Putting a copy back from before a member ended their weekly court (refunded then by the club's rule)
-  and deleted their account, Kumi deletes the account again, and ends the weekly court it finds with no money moving:
+  and deleted their account, openPadel deletes the account again, and ends the weekly court it finds with no money moving:
   but every paid week went back to the card a second time. Now nothing moves; the weeks are listed for the staff to
   check against the payment provider, as before.
 - **A message in the app, or an alert on Today, stayed in the language it was sent in (always).** The owner who

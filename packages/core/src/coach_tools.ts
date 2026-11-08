@@ -7,6 +7,7 @@ import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, dateTime, pickLang, t, type Lang, type Text } from "@kumi/i18n";
 import { defineAction, type Read } from "./actions.ts";
+import { itsTimeNow } from "./bookings.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { managersOf, waiverStatus } from "./households.ts";
@@ -37,7 +38,7 @@ export async function coachItem(db: Db | Trx, kind: CoachItemKind, id: string) {
         "coach.display_name as coach", sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
       .where("booking.id", "=", id).where("booking.kind", "=", "lesson")
       // A cancelled lesson's court time is let go; its time is still when it was meant to be.
-      .where(sql<boolean>`court_time.id = (SELECT ct.id FROM court_time ct WHERE ct.booking_id = booking.id ORDER BY ct.active DESC, ct.id LIMIT 1)`).executeTakeFirst();
+      .where(itsTimeNow).executeTakeFirst();
     if (!b) throw new KumiError("error.not_found", { thing: both("thing.booking") }, 404);
     return { kind, id: b.id, program_id: null, name: null, code: b.code, start: new Date(b.start), end: new Date(b.end), cancelled: b.status === "cancelled", status: b.status,
       coach_id: b.coach_id, coach: b.coach, location_id: b.location_id, courts: [b.court], location: b.location, address: b.address };
@@ -227,7 +228,7 @@ export async function coachCalendar(db: Db | Trx, token: string, now = new Date(
     .where("booking.kind", "=", "lesson").where("booking.coach_id", "=", f.id).where("booking.status", "in", ["confirmed", "completed", "cancelled"])
     // Never confirmed (the card form wasn't finished, or the court went to someone else): never in a calendar.
     .where((w) => w.or([w("booking.cancel_reason", "is", null), w("booking.cancel_reason", "not in", ["not_paid", "hold_lost"])]))
-    .where(sql<boolean>`court_time.id = (SELECT ct.id FROM court_time ct WHERE ct.booking_id = booking.id ORDER BY ct.active DESC, ct.id LIMIT 1)`)
+    .where(itsTimeNow)
     .where(sql<boolean>`lower(court_time.during) >= ${from}`).where(sql<boolean>`lower(court_time.during) < ${to}`).execute();
   for (const l of lessons) {
     const who = await db.selectFrom("booking_player").innerJoin("person", "person.id", "booking_player.person_id").select(["person.display_name", "person.junior"])

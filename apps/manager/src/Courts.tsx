@@ -8,6 +8,7 @@ import type { Key } from "@kumi/i18n";
 import { amountPattern, parseDollars, formatLocale, weekOrder } from "@kumi/i18n/format";
 import { api, club, dollars, lang, lazyPage, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
 import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
+import { playtomicParts } from "./paid_line.ts";
 
 // The desk's payment form comes when someone taps Record payment, so the first screen doesn't carry it.
 const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
@@ -295,13 +296,16 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
   const [changing, setChanging] = useState(false), [paying, setPaying] = useState(false), [cancelling, setCancelling] = useState(false), card = useRef<HTMLElement>(null);
   // On a phone the grid is long: bring what was picked into view.
   useEffect(() => { card.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, []);
+  // Paid in Playtomic: said, with what's still owed here (time added here) beside it.
+  const pt = playtomicParts({ paid: it.paid_cents ?? 0, pt: it.pt_cents ?? 0, owed: unpaid(it) });
   return (
     <section class="card" ref={card}>
       <div class="row"><h2>{clock(it.start)} - {clock(it.end)} · {court.name}</h2><button class="small" onClick={onClose}>{t("ui.close")}</button></div>
       <p>{labelOf(it)}{it.code ? ` · ${it.code}` : ""}</p>
       {(it.players?.length ?? 0) > 0 && <p class="meta">{t("ui.today_players", { names: it.players!.join(", ") })}</p>}
-      {isBooking(it) && <p class="meta">{unpaid(it) > 0 ? t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) }) : (it.off_cents ?? 0) > 0 ? t("ui.paid_off", { amount: dollars(it.paid_cents ?? 0, lang.value), off: dollars(it.off_cents ?? 0, lang.value) })
-        : (it.pt_cents ?? 0) > 0 && (it.pt_cents ?? 0) >= (it.paid_cents ?? 0) ? t("ui.paid_in_playtomic", { amount: dollars(it.paid_cents ?? 0, lang.value) }) : t("ui.today_paid", { amount: dollars(it.paid_cents ?? 0, lang.value) })}</p>}
+      {isBooking(it) && <p class="meta">{pt ? pt.map((x) => t(x.key, { amount: dollars(x.cents, lang.value) })).join(" · ")
+        : unpaid(it) > 0 ? t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) }) : (it.off_cents ?? 0) > 0 ? t("ui.paid_off", { amount: dollars(it.paid_cents ?? 0, lang.value), off: dollars(it.off_cents ?? 0, lang.value) })
+        : t("ui.today_paid", { amount: dollars(it.paid_cents ?? 0, lang.value) })}</p>}
       {it.late?.map((l) => <p class="note">{t("ui.late_note", { name: l.name, minutes: l.minutes })} · {clock(l.at)}</p>)}
       <div class="chips">
         {isBooking(it) && unpaid(it) > 0 && mayDo("booking.record_payment") && <button class="small" onClick={() => setPaying(!paying)}>{t("ui.record_payment")}</button>}

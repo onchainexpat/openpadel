@@ -462,7 +462,9 @@ export const keepRefund = (r: { payment_id: string; cents: number; credit?: bool
   ({ payment_id: r.payment_id, cents: r.cents, ...(r.credit ? { credit: true } : {}), ...(r.playtomic !== undefined ? { playtomic: r.playtomic } : {}) });
 /** What a preview says of the part paid in Playtomic, over one booking or many: how much goes back there, that
  *  nothing does, or that Playtomic already gave it back. Null when nothing was paid in Playtomic. */
-export function playtomicText(refunds: { playtomic?: number }[], done: boolean, choice: "rule" | "full" | "none" | "credit" = "rule"): Text | null {
+/** What staff chose to give back instead of the club's rule (booking.cancel, a move, a new length, a weekly court ended). */
+export type RefundChoice = "rule" | "full" | "none" | "credit";
+export function playtomicText(refunds: { playtomic?: number }[], done: boolean, choice: RefundChoice = "rule"): Text | null {
   const pt = refunds.filter((r) => r.playtomic !== undefined);
   if (!pt.length) return done ? both("plan.booking.refund_playtomic_done") : null;
   if (done) return both("plan.booking.refund_playtomic_done");
@@ -513,7 +515,7 @@ export const bookingCancel = defineAction({
     const planned = (plan.details as { refunds: PlannedRefund[] }).refunds;
     const b = await lockBooking(ctx.trx, i.booking_id);
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
-    await cancelBooking(ctx, i.booking_id, [...planned, ...await paidSincePreview(ctx.trx, i.booking_id, planned)], i.reason ?? null);
+    await cancelBooking(ctx, i.booking_id, [...planned, ...await paidSincePreview(ctx.trx, i.booking_id, planned)], i.reason ?? null, i.refund ?? "rule");
     return null;
   },
 });
@@ -551,10 +553,23 @@ async function refundable(db: Db | Trx, bookingId: string, paymentId: string) {
   if (pay.provider === "none") throw new KumiError("error.refund_cash");
   return { person_id: pay.person_id, left: pay.amount_cents - Number(pay.back) };
 }
+/** What a move or a new length said (messages.ts, booking.moved and booking.resized), to the players and the coach. */
+const CHANGE_KINDS = ["booking_moved", "booking_resized", "lesson_moved", "lesson_resized", "coach_lesson_moved", "coach_lesson_resized"];
+/** A booking called off: news of a move or a new length that hasn't gone out by email, push or text yet doesn't go
+ *  (it would arrive after, or with, the cancellation, which says where it was and what comes back). Its inbox copy
+ *  stays, as what happened; one not written yet isn't (the composers skip a cancelled booking). */
+async function dropChangeNews(trx: Trx, bookingId: string) {
+  await trx.updateTable("outbound_message").set({ status: "dropped", failure: "the booking was cancelled before it went" })
+    .where("status", "=", "waiting").where("kind", "in", CHANGE_KINDS)
+    .where((eb) => eb.exists(eb.selectFrom("event_outbox").select("event_outbox.id").whereRef("event_outbox.id", "=", "outbound_message.event_id")
+      .where("event_outbox.topic", "in", ["booking.moved", "booking.resized"]).where(sql<string>`event_outbox.payload->>'booking_id'`, "=", bookingId)))
+    .execute();
+}
 /** Call a booking off: its court time is free, the refunds chosen in the plan go back, shares not paid yet can't
  *  be paid any more, and its players are told. Also for a repeating block that cancels bookings in its way. */
-export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: PlannedRefund[], reason: string | null) {
+export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: PlannedRefund[], reason: string | null, choice: RefundChoice = "rule") {
   await ctx.update("booking", bookingId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: reason });
+  await dropChangeNews(ctx.trx, bookingId);
   for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", bookingId).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
   for (const r of refunds) await refundTo(ctx, r.payment_id, r.cents, { credit: r.credit });
   // Shares not paid yet can't be paid any more.
@@ -563,11 +578,12 @@ export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: P
   await ctx.emit("booking.cancelled", { booking_id: bookingId, by: ctx.actor.personId });
   // Paid in Playtomic (a booking taken over, playtomic_archive.ts): whatever cancelled it (the booking itself, its
   // weekly court ended, a court blocked), the managers are told to give that part back there, once, until handled.
-  await givenBackInPlaytomic(ctx, bookingId, refunds);
+  await givenBackInPlaytomic(ctx, bookingId, refunds, { choice });
 }
 /** The part of a booking taken over from Playtomic that goes back there: kept as a refund 'sent' (nothing moves through
  *  Kumi), so a later change counts what's left of it; and the managers are told to give it back in Playtomic. */
-export async function givenBackInPlaytomic(ctx: ApplyCtx, bookingId: string, refunds: { payment_id: string; playtomic?: number }[]): Promise<Record<string, number>> {
+export async function givenBackInPlaytomic(ctx: ApplyCtx, bookingId: string, refunds: { payment_id: string; playtomic?: number }[],
+  o: { choice?: RefundChoice; changed?: boolean } = {}): Promise<Record<string, number>> {
   let total = 0;
   const byPerson: Record<string, number> = {};
   for (const r of refunds) if ((r.playtomic ?? 0) > 0) {
@@ -578,7 +594,9 @@ export async function givenBackInPlaytomic(ctx: ApplyCtx, bookingId: string, ref
     byPerson[who] = (byPerson[who] ?? 0) + cents;
     total += cents;
   }
-  if (total > 0) await ctx.emit("booking.refund_in_playtomic", { booking_id: bookingId, cents: total });
+  // The managers' alert says why (cancelled, or a move or new length that costs less) and how much: the club's rule,
+  // or what staff chose instead, as the preview did.
+  if (total > 0) await ctx.emit("booking.refund_in_playtomic", { booking_id: bookingId, cents: total, chosen: (o.choice ?? "rule") !== "rule", changed: Boolean(o.changed) });
   return byPerson;
 }
 /** Someone who still owes on a court (the deadline charge that didn't go through, or time owed at the desk on a
@@ -753,6 +771,7 @@ async function paidPlaces(trx: Trx, bookingId: string): Promise<number> {
 /** An open match not full at the deadline: it's off, the court is free, and everyone gets back all they paid. */
 async function cancelUnfilled(ctx: ApplyCtx, bookingId: string) {
   await ctx.update("booking", bookingId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: "not_filled" });
+  await dropChangeNews(ctx.trx, bookingId);
   for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", bookingId).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
   for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
     .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await callOff(ctx, p.id);

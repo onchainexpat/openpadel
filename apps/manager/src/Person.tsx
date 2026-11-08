@@ -6,6 +6,7 @@ import { AccountData, api, club, dollars, lang, mayDo, me, ReceiptSheet, t, useP
 import { WeeklyCourts, type WeeklyCourt } from "@kumi/ui/weekly";
 import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
 import { amountStep, capFor, fromMajor, plainAmount, toMajor } from "@kumi/i18n/format";
+import { playtomicParts } from "./paid_line.ts";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
 type P = {
@@ -196,6 +197,11 @@ export function Person({ id }: { id: string }) {
 
 /** Their court bookings and lessons: the desk cancels one (the club's rule, everything back or nothing back) or
  *  refunds part of a card payment on one that stays (leaving and refunding are separate decisions). */
+/** Paid in Playtomic, and what the organiser still owes here (time added here), both said; null when not paid there. */
+function ptLine(b: P["bookings"][number]): string | null {
+  const owed = b.organiser && b.status !== "cancelled" ? b.price_cents - b.paid_cents - (b.off_cents ?? 0) : 0;
+  return playtomicParts({ paid: b.paid_cents, pt: b.pt_cents ?? 0, owed })?.map((x) => t(x.key, { amount: dollars(x.cents, lang.value) })).join(" · ") ?? null;
+}
 function PersonBookings({ bookings, preview }: { bookings: P["bookings"]; preview: (action: string, input: unknown) => Promise<void> | void }) {
   const when = (iso: string) => clubTime(iso, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   return (
@@ -207,7 +213,7 @@ function PersonBookings({ bookings, preview }: { bookings: P["bookings"]; previe
           return (
             <li class="row" key={b.id} id={`booking-${b.id}`}>
               <span>{when(b.starts_at)} · {b.court} · {b.code}</span>
-              <span class="meta">{[b.status === "cancelled" ? t("ui.status_cancelled") : null, b.paid_cents && b.off_cents ? t("ui.paid_by_them_off", { amount: dollars(b.paid_cents, lang.value), off: dollars(b.off_cents, lang.value) }) : b.paid_cents && (b.pt_cents ?? 0) >= b.paid_cents ? t("ui.paid_in_playtomic", { amount: dollars(b.paid_cents, lang.value) })
+              <span class="meta">{[b.status === "cancelled" ? t("ui.status_cancelled") : null, b.paid_cents && b.off_cents ? t("ui.paid_by_them_off", { amount: dollars(b.paid_cents, lang.value), off: dollars(b.off_cents, lang.value) }) : b.paid_cents && ptLine(b) ? ptLine(b)
                 : b.paid_cents ? t("ui.paid_by_them", { amount: dollars(b.paid_cents, lang.value) }) : null].filter(Boolean).join(" · ")}</span>
               {upcoming && mayDo("booking.cancel") && <form class="inline" onSubmit={(e) => { e.preventDefault(); preview("booking.cancel", { booking_id: b.id, refund: ((e.currentTarget as HTMLFormElement).elements.namedItem("refund") as HTMLSelectElement).value }); }}>
                 <select name="refund" aria-label={t("ui.refund")}><option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option><option value="credit">{t("ui.refund_as_credit")}</option></select>

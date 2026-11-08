@@ -112,12 +112,13 @@ for it again, since it's still booked there.
 
 Taken over unpaid, and paid in Playtomic since: the daily comparison says so, and the desk marks it paid there from
 the Playtomic page (Mark paid in Playtomic), so it isn't owed here. That counts what Playtomic says it took, never the
-price here: time added here stays owed here.
+price here: time added here stays owed here, and the preview, the desk's court detail and the person's page say
+how much ("Paid $40.00 in Playtomic · $20.00 unpaid").
 
 **Refunds of what was paid in Playtomic are made in Playtomic, never as money here,** whatever gives it back: the
 booking cancelled, its weekly court ended (by the member or the desk), a court blocked over it, or the booking made
 shorter, moved or repriced. The preview says how much goes back, by the club's rule or as staff chose. The managers are
-told by email and in the app (it stays on Today until someone marks it handled), and refund it in Playtomic; openPadel
+told why and by which, by email and in the app (it stays on Today until someone marks it handled), and refund it in Playtomic; openPadel
 keeps it as given back there, so a later change counts only what's left. If Playtomic already refunded it (the player
 cancelled in Playtomic's app), the preview says so and nobody is told to refund it again. The players are told what
 the club refunds them in Playtomic, when it's cancelled, moved or made shorter.

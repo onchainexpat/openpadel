@@ -231,6 +231,10 @@ export async function lockCourts(ctx: ApplyCtx, courtIds: string[]) {
   await ctx.trx.updateTable("court_time").set({ active: false }).where("court_id", "in", courtIds).where("kind", "=", "hold").where("active", "=", true).where("hold_until", "<=", ctx.now).execute();
 }
 export const range = (start: Date, end: Date) => sql<string>`tstzrange(${start}, ${end})`;
+/** In a query joining a booking to its court_time: only the time it has now, or, once it's let go (cancelled), the
+ *  last one it had. A move or a new length retires the old time and takes a new one, so a booking has as many as
+ *  it has had places; ids are time-ordered (uuidv7), so the newest is where it is (or was, when it was called off). */
+export const itsTimeNow = sql<boolean>`court_time.id = (SELECT ct.id FROM court_time ct WHERE ct.booking_id = booking.id ORDER BY ct.active DESC, ct.id DESC LIMIT 1)`;
 export async function insertTime(ctx: ApplyCtx, rows: Record<string, unknown>[]) {
   try { for (const r of rows) await ctx.insert("court_time", r); }
   catch (e: any) { if (e?.code === "23P01") throw new KumiError("error.court_taken"); throw e; }

@@ -14,7 +14,7 @@ import { KumiError } from "./errors.ts";
 import { mergeTranslations, translationsInput } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, onDate, weekdayOf } from "./clock.ts";
-import { freeCourts, occupied } from "./bookings.ts";
+import { freeCourts, itsTimeNow, occupied } from "./bookings.ts";
 import { currentPolicy, taxSplit } from "./prices.ts";
 import { paymentProvider } from "./money.ts";
 import { checkSlot, courtAndPlace, HOLD_MINUTES, newCode, notOwing, shares } from "./booking_pay.ts";
@@ -392,7 +392,7 @@ export async function coachEarnings(db: Db | Trx, from: string, to: string, coac
     ])
     .where("booking.kind", "=", "lesson").where("booking.status", "in", ["confirmed", "completed", "cancelled"])
     // A cancelled lesson's court time is let go; its time is still when it was meant to be.
-    .where(sql<boolean>`court_time.id = (SELECT ct.id FROM court_time ct WHERE ct.booking_id = booking.id ORDER BY ct.active DESC, ct.id LIMIT 1)`)
+    .where(itsTimeNow)
     .where(sql<boolean>`lower(court_time.during) >= ${start}`).where(sql<boolean>`lower(court_time.during) < ${end}`)
     .$if(Boolean(coachIds), (q) => q.where("booking.coach_id", "in", coachIds!.length ? coachIds! : ["00000000-0000-0000-0000-000000000000"])).orderBy(sql`lower(court_time.during)`).execute();
   const sessions = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").innerJoin("person as coach", "coach.id", "session.coach_id")

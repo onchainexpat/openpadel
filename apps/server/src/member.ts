@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff } from "@kumi/core";
+import { itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff } from "@kumi/core";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
 import { clubFileStem } from "./file_names.ts";
@@ -192,7 +192,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       ])
       .select("booking_player.person_id")
       .where("booking_player.person_id", "in", (await meAndJuniors(pid)).map((x) => x.id)).where("booking_player.removed_at", "is", null).where("booking.status", "in", ["held", "confirmed"])
-      .where(sql<boolean>`upper(court_time.during) > now() - interval '1 day'`).orderBy(sql`lower(court_time.during)`).execute();
+      .where(itsTimeNow).where(sql<boolean>`upper(court_time.during) > now() - interval '1 day'`).orderBy(sql`lower(court_time.during)`).execute();
     // A junior's lessons show too, marked with their name: the parent pays for and manages them.
     const people = await meAndJuniors(pid), forName = (id: string | null) => people.find((x) => x.id === id)?.display_name ?? null;
     // The first week of a weekly court being paid: the later weeks going on the same card, and what they come to.
@@ -225,7 +225,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
         deadlineSql.as("full_by"), sql<boolean>`open_match.cutoff_at IS NOT NULL`.as("same_day")])
       // An open match, or any other court booking (its players see who's on it, and enter the score).
       .where("booking.id", "=", bookingId).where((eb) => eb.or([eb("open_match.booking_id", "is not", null), eb("booking.kind", "=", "court")]))
-      .orderBy(sql`court_time.active`, "desc").executeTakeFirst();   // a cancelled one still shows, as cancelled
+      .orderBy(sql`court_time.active`, "desc").orderBy("court_time.id", "desc").executeTakeFirst();   // a cancelled one still shows, as cancelled, where it last was
     if (!b) return null;
     const cancelled = b.status === "cancelled";
     const seats = await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id")

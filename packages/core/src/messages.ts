@@ -202,9 +202,9 @@ async function fixtureInfo(db: Db, fixtureId: string, tz: string, any = false) {
 async function bookingInfo(db: Db, bookingId: string) {
   const b = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id")
     .innerJoin("location", "location.id", "court.location_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
-    .select(["booking.id", "booking.code", "booking.kind", "booking.coach_id", "booking.organiser_id", "booking.pay_mode", "booking.balance_cents", "court.name as court", "location.name as location", "location.time_zone",
+    .select(["booking.id", "booking.code", "booking.kind", "booking.status", "booking.coach_id", "booking.organiser_id", "booking.pay_mode", "booking.balance_cents", "court.name as court", "location.name as location", "location.time_zone",
       "coach.display_name as coach", sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
-    .where("booking.id", "=", bookingId).orderBy(sql`court_time.active`, "desc").executeTakeFirstOrThrow();
+    .where("booking.id", "=", bookingId).orderBy(sql`court_time.active`, "desc").orderBy("court_time.id", "desc").executeTakeFirstOrThrow();
   const players = await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id").select(["booking_player.id", "booking_player.person_id", "person.display_name"])
     .where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null).where("booking_player.replaces", "is", null).execute();
   const minutes = Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60_000);
@@ -298,14 +298,17 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   // Staff moved a booking or changed its length: everyone in it hears the new time, and what it means for money
   // (more to pay at the desk, for the organiser; what goes back, for each player it goes back to).
+  // Called off since: the cancellation tells them, with the time it had last and all that comes back.
   async "booking.moved"({ db }, p: { booking_id: string; from: Text; to: Text; owed: number; refunds: Record<string, number>; desk?: Record<string, number>; credit?: Record<string, number>; playtomic?: Record<string, number> }) {
     const b = await bookingInfo(db, p.booking_id), lesson = b.kind === "lesson";
+    if (b.status === "cancelled") return [];
     const drafts: Draft[] = b.players.filter((pl) => pl.person_id).map((pl) => ({ to: pl.person_id!, kind: lesson ? "lesson_moved" : "booking_moved",
       params: { ...b.base, from: p.from, to: p.to, money: changeMoney(pl.person_id!, b.organiser_id, p) }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
     return [...drafts, ...toCoach(b, "coach_lesson_moved", { essential: true }).map((d) => ({ ...d, params: { ...d.params, from: p.from, to: p.to } }))];
   },
   async "booking.resized"({ db }, p: { booking_id: string; old: number; until: Text; owed: number; refunds: Record<string, number>; desk?: Record<string, number>; credit?: Record<string, number>; playtomic?: Record<string, number> }) {
     const b = await bookingInfo(db, p.booking_id), lesson = b.kind === "lesson";
+    if (b.status === "cancelled") return [];
     const drafts: Draft[] = b.players.filter((pl) => pl.person_id).map((pl) => ({ to: pl.person_id!, kind: lesson ? "lesson_resized" : "booking_resized",
       params: { ...b.base, old: p.old, until: p.until, money: changeMoney(pl.person_id!, b.organiser_id, p) }, purpose: "account" as const, essential: true, email: true, link: "/places" }));
     return [...drafts, ...toCoach(b, "coach_lesson_resized", { essential: true }).map((d) => ({ ...d, params: { ...d.params, old: p.old, until: p.until } }))];
@@ -1028,11 +1031,14 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   // Moving from Playtomic (playtomic_archive.ts): a cancelled booking that had been paid in Playtomic, to give back
   // there; and the owner's daily comparison, each difference said once.
-  async "booking.refund_in_playtomic"({ db }, p: { booking_id: string; cents: number }) {
+  // Why it goes back (cancelled, or changed to cost less) and by what: the club's rule, or what staff chose instead.
+  async "booking.refund_in_playtomic"({ db }, p: { booking_id: string; cents: number; chosen?: boolean; changed?: boolean }) {
     const b = await db.selectFrom("booking").leftJoin("person", "person.id", "booking.organiser_id").select(["booking.code", "booking.organiser_id", "person.display_name"])
       .where("booking.id", "=", p.booking_id).executeTakeFirst();
     if (!b) return [];
-    const params = { amount: amount(p.cents), code: b.code, person: b.display_name ?? "" };
+    const who = { code: b.code, person: b.display_name ?? "" }, sum = { amount: amount(p.cents) };
+    const params = { ...who, ...sum, what: both(p.changed ? "msg.playtomic_refund_staff.changed" : "msg.playtomic_refund_staff.cancelled", who),
+      back: both(p.chosen ? "msg.playtomic_refund_staff.back_chosen" : "msg.playtomic_refund_staff.back_rule", sum) };
     return (await managers(db)).map((to) => ({ to, kind: "playtomic_refund_staff", params, purpose: "staff" as const, essential: false, email: true, link: b.organiser_id ? `/people/${b.organiser_id}` : "/playtomic" }));
   },
   async "mirror.compared"({ db, tz }, p: { lines: { kind: "clash" | "missing" | "moved" | "cancelled" | "paid"; court: string; starts_at: string; type: string; code: string | null }[]; more: number }) {

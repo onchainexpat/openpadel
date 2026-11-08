@@ -17,7 +17,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, localParts, onDate } from "./clock.ts";
 import { courtOpening, insertTime, lockCourts, MAX_MINUTES, occupied, range, STEP_MINUTES } from "./bookings.ts";
-import { cancelBooking, cancelRefunds, checkSlot, courtAndPlace, daysAhead, deskOrUp, HOLD_MINUTES, keepRefund, lockBooking, newCode, notOwing, paidSincePreview, playtomicText, upcomingCount, type PlannedRefund } from "./booking_pay.ts";
+import { cancelBooking, cancelRefunds, checkSlot, courtAndPlace, daysAhead, deskOrUp, HOLD_MINUTES, keepRefund, lockBooking, newCode, notOwing, paidSincePreview, playtomicText, upcomingCount, type PlannedRefund, type RefundChoice } from "./booking_pay.ts";
 import { currentPolicy, quote, type Quote } from "./prices.ts";
 import { notJunior, requireWaiver, withManagers } from "./households.ts";
 import { paymentProvider } from "./money.ts";
@@ -343,7 +343,7 @@ export const bookingRepeatEnd = defineAction({
     const d = plan.details as { from: string; cancels: WeekCancel[] };
     const s = await ctx.trx.selectFrom("booking_series").selectAll().where("id", "=", i.series_id).forUpdate().executeTakeFirstOrThrow();
     await lockCourts(ctx, [s.court_id]);
-    await cancelWeeksFrom(ctx, s, d.from, d.cancels);
+    await cancelWeeksFrom(ctx, s, d.from, d.cancels, { choice: i.refund ?? "rule" });
     const last = addDays(d.from, -1), lastDate = last < s.last_date ? last : s.last_date;
     // Ended whenever no week is left to book from today (as the job would end it, but read-only it isn't running).
     const today = localDate(ctx.now, await seriesTz(ctx.trx, s.location_id));
@@ -359,7 +359,7 @@ type WeekCancel = { booking_id: string; refunds: PlannedRefund[] };
 /** A series' booked weeks from a date on, cancelled with what the preview said comes back. The weeks as they are now:
  *  one booked since the preview goes too, and anyone who paid after the preview never agreed to its rule, so all of
  *  theirs comes back (as booking.cancel does). The series and its court are locked by the caller. */
-async function cancelWeeksFrom(ctx: ApplyCtx, s: { id: string }, from: string, cancels: WeekCancel[], o: { noMoney?: boolean; reason?: string } = {}) {
+async function cancelWeeksFrom(ctx: ApplyCtx, s: { id: string }, from: string, cancels: WeekCancel[], o: { noMoney?: boolean; reason?: string; choice?: RefundChoice } = {}) {
   for (const w of await seriesToEnd(ctx.trx, s.id, from, ctx.now)) {
     const b = await lockBooking(ctx.trx, w.id);
     if (b.status === "cancelled") continue;
@@ -367,7 +367,7 @@ async function cancelWeeksFrom(ctx: ApplyCtx, s: { id: string }, from: string, c
     // the club's rule when the member ended them, before the restore; refunding them here would pay them twice.
     if (o.noMoney) { await cancelBooking(ctx, w.id, [], o.reason ?? "series_ended"); continue; }
     const planned = cancels.find((c) => c.booking_id === w.id)?.refunds ?? [];
-    await cancelBooking(ctx, w.id, [...planned, ...await paidSincePreview(ctx.trx, w.id, planned)], o.reason ?? "series_ended");
+    await cancelBooking(ctx, w.id, [...planned, ...await paidSincePreview(ctx.trx, w.id, planned)], o.reason ?? "series_ended", o.choice ?? "rule");
   }
 }
 
@@ -413,7 +413,7 @@ export const weeklyEndAll = defineAction({
     for (const s of locked) {
       if (s.ended_at) continue;   // ended in the meantime: nothing more to do, nor to tell
       const x = d.series.find((y) => y.id === s.id)!;
-      if (i.booked === "cancel") await cancelWeeksFrom(ctx, s, x.from, x.cancels);
+      if (i.booked === "cancel") await cancelWeeksFrom(ctx, s, x.from, x.cancels, { choice: i.refund ?? "rule" });
       await ctx.update("booking_series", s.id, { ended_at: ctx.now });
       const t = told.get(s.organiser_id) ?? { series: [], from: x.from };
       t.series.push(s.id); if (x.from < t.from) t.from = x.from; told.set(s.organiser_id, t);

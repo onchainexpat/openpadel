@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { sql } from "kysely";
 import { freshDb } from "./helpers.ts";
-import { checkPayment, messageHandlers, openPayment, plan, processOutbox, run, runAsSystem, setPaymentProvider, staffAlerts, uuidv7, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
+import { checkPayment, coachEarnings, messageHandlers, openPayment, plan, processOutbox, run, runAsSystem, setPaymentProvider, staffAlerts, uuidv7, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, loc: string, c1: string, c2: string, annBooking: string;
 const stripe = new TestProvider();
@@ -126,6 +126,22 @@ test("a lesson moves only to a time its coach gives lessons and isn't busy; the 
   await rejects(plan(db, "booking.extend", { booking_id: id, minutes: 120 }, as("Lee"), opts), "error.coach_busy");
   assert.equal(plain((await told("Kim", "coach_lesson_moved"))[0]!.body), "Your lesson with Ann (booking KP-0000) moved from Court 1, Wed, Dec 2, 9:00 AM to Court 2, Wed, Dec 2, 10:30 AM.");
   assert.match((await told("Ann", "lesson_moved"))[0]!.subject, /^Lesson moved: Kim, Wed, Dec 2, 10:30 AM$/);
+});
+
+test("a lesson moved, then cancelled: the coach's earnings and everyone's cancellation say where it last was", async () => {
+  // Kim gives lessons on Wednesdays from 9 to 1 (the test above).
+  const day = "2026-12-09";
+  const l = await run(db, "lesson.request", { coach_id: people.Kim, starts_at: at("09:00", day), minutes: 60, pay: "whole", person_id: people.Ann }, as("Ann"), opts);
+  await pay((l.result as any).payment_id, "Ann");
+  const id = (l.result as any).booking_id;
+  await run(db, "booking.move", { booking_id: id, court_id: c2, starts_at: at("11:00", day) }, as("Lee"), opts);
+  await processOutbox(db, messageHandlers);
+  await run(db, "booking.cancel", { booking_id: id }, as("Lee"), opts);
+  const line = (await coachEarnings(db, day, day, [people.Kim!])).lessons.find((x: any) => x.id === id) as any;
+  assert.equal(new Date(line.start).toISOString(), at("11:00", day));
+  assert.equal(line.court, "Court 2");
+  assert.match((await told("Ann", "lesson_cancelled")).at(-1)!.subject, /Wed, Dec 9, 11:00 AM$/);
+  assert.match((await told("Kim", "coach_lesson_cancelled")).at(-1)!.body, /on Court 2 at Eastside, Wed, Dec 9, 11:00 AM, is cancelled/);
 });
 
 test("staff alerts: each shows to whoever was told until someone handles it, once for the whole club", async () => {

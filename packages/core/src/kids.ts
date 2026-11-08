@@ -116,7 +116,7 @@ export async function paymentWhat(db: Db | Trx, pay: { person_id: string; bookin
     const b = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
       .innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
       .select(["booking.kind", "booking.organiser_id", "court.name as court", "location.time_zone", "coach.display_name as coach", sql<Date>`lower(court_time.during)`.as("start")])
-      .where("booking_player.id", "=", pay.booking_player_id).orderBy(sql`court_time.active`, "desc").executeTakeFirst();
+      .where("booking_player.id", "=", pay.booking_player_id).orderBy(sql`court_time.active`, "desc").orderBy("court_time.id", "desc").executeTakeFirst();
     if (!b) return both("kid.what_other");
     const p = { court: b.court, when: when(new Date(b.start), b.time_zone), coach: b.coach ?? "" };
     return both(b.kind === "lesson" ? "kid.what_lesson" : b.organiser_id === pay.person_id ? "kid.what_court" : "kid.what_place", p);

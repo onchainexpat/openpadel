@@ -309,6 +309,10 @@ test("an account deleted before any of its Playtomic bookings were read: they co
 const kumiOf = async (ptId: string) => (await db.selectFrom("playtomic_booking").select("taken_over_booking_id").where("booking_id", "=", ptId).executeTakeFirstOrThrow()).taken_over_booking_id!;
 const alerts = async (bookingId: string) => (await db.selectFrom("event_outbox").select("payload").where("topic", "=", "booking.refund_in_playtomic").execute())
   .filter((e) => (e.payload as any).booking_id === bookingId).map((e) => (e.payload as any).cents as number);
+/** What the owner was told to refund in Playtomic for a booking, each alert in turn. */
+const staffTold = async (bookingId: string) => { await processOutbox(db, messageHandlers); return (await db.selectFrom("outbound_message").innerJoin("event_outbox", "event_outbox.id", "outbound_message.event_id")
+  .select(["outbound_message.body", "event_outbox.id as ev"]).where("outbound_message.kind", "=", "playtomic_refund_staff").where("outbound_message.channel", "=", "inbox")
+  .where("outbound_message.person_id", "=", owner.personId!).where(sql<string>`event_outbox.payload->>'booking_id'`, "=", bookingId).orderBy("event_outbox.id").execute()).map((m) => m.body); };
 const ptRefunds = async (bookingId: string) => (await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
   .select(["refund.amount_cents", "refund.destination", "refund.status"]).where("booking_player.booking_id", "=", bookingId).execute());
 
@@ -347,6 +351,10 @@ test("a taken-over booking made shorter: the part paid in Playtomic goes back th
   const all = await alerts(k);
   assert.equal(all.length, 2);
   assert.equal(all[0]! + all[1]!, 4000, "never more than was paid there");
+  // The managers hear why each goes back, and by what: shorter by the rule, then cancelled with all of it, as chosen.
+  const [shorter, cancelled] = await staffTold(k);
+  assert.match(shorter!, /^Booking KP-\w{4} for Ann .*was changed here and costs less now\. \$\d+\.\d\d of what was paid in Playtomic goes back by the club's rule: refund it in Playtomic\.$/);
+  assert.match(cancelled!, /was cancelled here\. \$\d+\.\d\d of what was paid in Playtomic goes back, as chosen: refund it in Playtomic\.$/);
 });
 
 test("Playtomic moving a taken-over booking to another court: one court time, the move is a difference, and nothing goes 'gone'", async () => {
@@ -476,7 +484,9 @@ test("time added here is owed here: marking paid in Playtomic counts only what P
   pt.bookings = pt.bookings.map((b) => b.booking_id === "ext1" ? booking("ext1", 24 * 12 + 9, { court: "pt-2", paid: "PAID" }) : b);
   await sync();
   const p = await plan(db, "booking.paid_in_playtomic", { booking_id: k }, owner, { now: new Date(base) });
-  assert.match(p.plan.summary.en, /paid in Playtomic: \$40\.00/);
+  assert.match(p.plan.summary.en, /paid in Playtomic: \$40\.00\. It isn't counted in the books here\. \$20\.00 is still owed here, at the desk, for what changed here\.$/);
+  assert.doesNotMatch(p.plan.summary.en, /Nothing is owed/);
+  assert.match(p.plan.summary.es, /Aún se deben 20,00\s?US\$ aquí|Aún se deben \S*20[.,]00\S* aquí/);
   await run(db, "booking.paid_in_playtomic", { booking_id: k }, owner, { now: new Date(base) });
   const pays = await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(["payment.method", "payment.amount_cents"])
     .where("booking_player.booking_id", "=", k).execute();
@@ -485,6 +495,7 @@ test("time added here is owed here: marking paid in Playtomic counts only what P
   await rejects(plan(db, "booking.paid_in_playtomic", { booking_id: k }, owner, { now: new Date(base) }), "error.booking_paid_in_full");
   await run(db, "booking.cancel", { booking_id: k, refund: "full" }, owner, { now: new Date(base) });
   assert.deepEqual(await alerts(k), [4000], "never more back there than Playtomic took");
+  assert.match((await staffTold(k)).at(-1)!, /cancelled here\. \$40\.00 of what was paid in Playtomic goes back, as chosen: refund it in Playtomic\.$/);
 });
 
 test("marked paid in Playtomic between a cancel's preview and its apply: the apply sees it, and the managers are told", async () => {

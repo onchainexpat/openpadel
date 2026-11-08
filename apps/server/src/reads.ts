@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
@@ -405,8 +405,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where((w) => w.or([w("booking.organiser_id", "=", id), w.exists(w.selectFrom("booking_player").select("booking_player.id").whereRef("booking_player.booking_id", "=", "booking.id")
         .where("booking_player.person_id", "=", id).where("booking_player.removed_at", "is", null))]))
       .where(sql<boolean>`upper(court_time.during) >= ${since}`).where("booking.status", "in", ["held", "confirmed", "completed", "cancelled"])
-      .where((w) => w.or([w("court_time.active", "=", true), w("booking.status", "=", "cancelled")]))
-      .distinctOn("booking.id").orderBy("booking.id").orderBy(sql`lower(court_time.during)`).execute();
+      .where((w) => w.or([w("court_time.active", "=", true), w("booking.status", "=", "cancelled")])).where(itsTimeNow)
+      .orderBy("booking.id").execute();
     const pays = booked.length ? await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
       .select(["payment.id", "booking_player.booking_id", "payment.amount_cents", "payment.provider", "payment.person_id", "payment.method"]).select(promoOff().as("off"))
       .select(sql<string>`coalesce((select sum(r.amount_cents) from refund r where r.payment_id = payment.id and r.status in ('pending', 'sent')), 0)`.as("back"))

@@ -15,6 +15,7 @@ import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, dateTime, type Key, type Lang, type Params, type Text, t } from "@kumi/i18n";
 import { defineAction, forgetStaleInputs, readRow } from "./actions.ts";
+import { itsTimeNow } from "./bookings.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
@@ -66,13 +67,11 @@ export async function gameOf(db: Db | Trx, kind: ChatKind, id: string): Promise<
   if (kind === "booking") {
     const b = await db.selectFrom("booking").select(["organiser_id", "status", "location_id"]).where("id", "=", id).executeTakeFirst();
     if (!b) return null;
-    // Its court time now; a cancelled booking has only retired ones, and still has a time. A booking moved earlier
-    // ends when it ends now, not at its old time.
+    // Its court time now; a cancelled booking has only retired ones, and still has a time: the last one it had, as a
+    // move retires the old one. A booking moved earlier ends when it ends now, not at its old time.
     const span = await db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id")
-      .select([sql<Date | null>`coalesce(min(lower(court_time.during)) FILTER (WHERE court_time.active), min(lower(court_time.during)))`.as("starts"),
-        sql<Date | null>`coalesce(max(upper(court_time.during)) FILTER (WHERE court_time.active), max(upper(court_time.during)))`.as("ends"),
-        sql<string | null>`coalesce(min(court.name) FILTER (WHERE court_time.active), min(court.name))`.as("court")])
-      .where("court_time.booking_id", "=", id).executeTakeFirst();
+      .select([sql<Date | null>`lower(court_time.during)`.as("starts"), sql<Date | null>`upper(court_time.during)`.as("ends"), "court.name as court"])
+      .where("court_time.booking_id", "=", id).orderBy("court_time.active", "desc").orderBy("court_time.id", "desc").executeTakeFirst();
     if (!span?.starts || !span.ends) return null;
     if (b.organiser_id) current.add(b.organiser_id);
     const seats = await db.selectFrom("booking_player").select(["booking_player.id", "booking_player.person_id", "booking_player.removed_at", "booking_player.leaving_at", "booking_player.saved_by"])
@@ -342,7 +341,7 @@ async function myGames(db: Db, personId: string, now: Date): Promise<{ kind: Cha
   const bookings = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").select("booking.id").distinct()
     .where((w) => w.or([w("booking.organiser_id", "=", personId), w.exists(w.selectFrom("booking_player").select("booking_player.id").whereRef("booking_player.booking_id", "=", "booking.id")
       .where("booking_player.person_id", "=", personId).where("booking_player.removed_at", "is", null))]))
-    .where("booking.status", "in", ["confirmed", "completed"]).where(sql<boolean>`court_time.during && tstzrange(${from}, ${to})`).limit(40).execute();
+    .where("booking.status", "in", ["confirmed", "completed"]).where(itsTimeNow).where(sql<boolean>`court_time.during && tstzrange(${from}, ${to})`).limit(40).execute();
   const sessions = await db.selectFrom("session").innerJoin("enrolment", "enrolment.program_id", "session.program_id").select("session.id").distinct()
     .where("enrolment.person_id", "=", personId).where("enrolment.status", "in", ["booked", "attended", "no_show"])
     .where((w) => w.or([w("enrolment.session_id", "is", null), w("enrolment.session_id", "=", w.ref("session.id"))]))
@@ -438,10 +437,8 @@ export async function gameHeads(db: Db | Trx, chats: { kind: string; ref_id: str
   const bookings = [...new Set(chats.filter((c) => c.kind === "booking").map((c) => c.ref_id))], sessions = [...new Set(chats.filter((c) => c.kind !== "booking").map((c) => c.ref_id))];
   if (bookings.length) {
     const spans = await db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id").innerJoin("booking", "booking.id", "court_time.booking_id")
-      .select(["court_time.booking_id", sql<Date | null>`coalesce(min(lower(court_time.during)) FILTER (WHERE court_time.active), min(lower(court_time.during)))`.as("starts"),
-        sql<Date | null>`coalesce(max(upper(court_time.during)) FILTER (WHERE court_time.active), max(upper(court_time.during)))`.as("ends"),
-        sql<string | null>`coalesce(min(court.name) FILTER (WHERE court_time.active), min(court.name))`.as("court")])
-      .where("court_time.booking_id", "in", bookings).groupBy("court_time.booking_id").execute();
+      .select(["court_time.booking_id", sql<Date | null>`lower(court_time.during)`.as("starts"), sql<Date | null>`upper(court_time.during)`.as("ends"), "court.name as court"])
+      .where("court_time.booking_id", "in", bookings).where(itsTimeNow).execute();
     for (const s of spans) if (s.booking_id && s.starts && s.ends) out.set(`booking:${s.booking_id}`, { title: s.court ?? "", starts_at: new Date(s.starts) });
   }
   if (sessions.length) {

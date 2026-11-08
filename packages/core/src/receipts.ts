@@ -79,7 +79,7 @@ async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { 
     const b = await db.selectFrom("booking_player").innerJoin("booking", "booking.id", "booking_player.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
       .innerJoin("court", "court.id", "court_time.court_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
       .select(["booking.kind", "booking.price_cents", "booking.tax_cents", "booking.quote", "booking.location_id", "court.name as court", "coach.display_name as coach", sql<Date>`lower(court_time.during)`.as("start")])
-      .where("booking_player.id", "=", p.booking_player_id).orderBy(sql`court_time.active`, "desc").executeTakeFirst();
+      .where("booking_player.id", "=", p.booking_player_id).orderBy(sql`court_time.active`, "desc").orderBy("court_time.id", "desc").executeTakeFirst();
     if (b) {
       const params = { court: b.court, when: whenText(new Date(b.start), tz), coach: b.coach ?? "" };
       const key = b.kind === "lesson" ? "receipt.line_lesson" : p.amount_cents + (p.discount_cents ?? 0) >= b.price_cents ? "receipt.line_court" : "receipt.line_share";

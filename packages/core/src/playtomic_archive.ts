@@ -451,7 +451,10 @@ export const bookingPaidInPlaytomic = defineAction({
   input: z.object({ booking_id: z.uuid() }),
   async plan(ctx, i) {
     const b = await owedFromPlaytomic(ctx.db, i.booking_id);
-    return { title: both("action.booking.paid_in_playtomic"), summary: both("plan.booking.paid_in_playtomic", { code: b.code, amount: usd(b.owed) }), reads: [],
+    // Time added here (or a dearer move) stays owed here: the preview says how much, not that nothing is.
+    const summary = b.rest > 0 ? both("plan.booking.paid_in_playtomic_rest", { code: b.code, amount: usd(b.owed), rest: usd(b.rest) })
+      : both("plan.booking.paid_in_playtomic", { code: b.code, amount: usd(b.owed) });
+    return { title: both("action.booking.paid_in_playtomic"), summary, reads: [],
       locationId: b.location_id, ownerIds: b.organiser_id ? [b.organiser_id] : [], moneyCents: 0, undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
@@ -476,7 +479,7 @@ async function owedFromPlaytomic(db: Db | Trx, bookingId: string) {
   // here (owed at the desk) stays owed here.
   const owed = Math.min(twin.price_cents - Number(paid.pt), b.price_cents - Number(paid.all));
   if (owed <= 0 || !bp || !b.organiser_id) throw new KumiError("error.booking_paid_in_full");
-  return { ...b, owed, bp: bp.id };
+  return { ...b, owed, rest: b.price_cents - Number(paid.all) - owed, bp: bp.id };
 }
 
 /** For booking.cancel: a booking that took over a Playtomic one, still booked there. */
