@@ -269,16 +269,19 @@ async function placeChanged(db: Db, p: { from_seat: string; to_seat: string; ref
 const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "booking.confirmed"({ db }, p: { booking_id: string }) {
     const b = await bookingInfo(db, p.booking_id), lesson = b.kind === "lesson";
-    if (!b.organiser_id) return [];
+    // Cancelled before this was written (in the same moment): the cancellation tells them.
+    if (!b.organiser_id || b.status === "cancelled") return [];
     const kind = `${lesson ? "lesson" : "booking"}_confirmed${b.pay_mode === "split" ? "_split" : ""}`;
     return [{ to: b.organiser_id, kind, params: b.base, purpose: "account", essential: true, email: true, link: "/places" }, ...toCoach(b, "coach_lesson_booked")];
   },
   // Several courts paid together: one message for them all.
   async "booking.courts_confirmed"({ db }, p: { person_id: string; booking_ids: string[]; cents: number }) {
     const items: Text[] = [];
-    for (const id of p.booking_ids) items.push(both("msg.booking_courts.item", (await bookingInfo(db, id)).base));
+    // Those cancelled before this was written aren't listed (their cancellation tells them); none left, nothing to say.
+    for (const id of p.booking_ids) { const b = await bookingInfo(db, id); if (b.status !== "cancelled") items.push(both("msg.booking_courts.item", b.base)); }
+    if (!items.length) return [];
     const list = { en: items.map((x) => x.en).join("; "), es: items.map((x) => x.es).join("; ") };
-    return [{ to: p.person_id, kind: "booking_courts", params: { count: p.booking_ids.length, list, amount: amount(p.cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
+    return [{ to: p.person_id, kind: "booking_courts", params: { count: items.length, list, amount: amount(p.cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },
   async "booking.cancelled"({ db }, p: { booking_id: string; by?: string | null }) {
     // The weeks of a weekly booking called off together are told once, by booking.repeat_ended.

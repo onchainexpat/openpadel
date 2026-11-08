@@ -89,3 +89,15 @@ test("a move's news not sent yet when the booking is called off doesn't go; one 
     .where(sql<string>`event_outbox.payload->>'booking_id'`, "=", b2).where("outbound_message.channel", "=", "inbox").executeTakeFirstOrThrow();
   assert.match(last.subject, /^Cancelled: Court 3, .*5:00\s?PM$/);
 });
+
+test("a cancelled booking's page is read only: no players to name or link to share, and what came back", async () => {
+  const b = ((await run(db, "booking.create", { court_id: c1, starts_at: at("19:00"), minutes: 60, person_id: people.Di }, owner)).result as any).booking_id;
+  await run(db, "booking.record_payment", { booking_id: b, cents: 4000, method: "cash" }, owner);
+  const before = (await get(`/matches/${b}`, "Di")).json;
+  assert.ok(before.whole && before.can_name && before.players_link, "on: Di names who's playing, or shares the link");
+  await run(db, "booking.cancel", { booking_id: b, refund: "full" }, owner);
+  const m = (await get(`/matches/${b}`, "Di")).json;
+  assert.equal(m.cancelled, true);
+  assert.deepEqual([m.can_name, m.can_rate, m.players_link, m.can_score], [false, false, null, false]);
+  assert.deepEqual(m.back, { desk: 4000 }, "what came back, and where: for her to collect at the desk");
+});

@@ -81,6 +81,12 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   the desk on a court moved to next week couldn't book anything once the time it left had gone by ("You still owe
   $20.00 on a court booking"), and the list of bookings refunded after a restore and still to come (0.3.0 on) could
   keep one moved earlier and already over.
+- A cancelled booking's page still offered to chat with the players (0.3.0 on) and to name who's playing (0.1.0 on).
+  It's read only now: what it was, that it's cancelled ("This booking was cancelled." for a court, as a match says),
+  and what came back of what you paid, and where to.
+- A booking cancelled in the same moment it was made (at the speed of an assistant or a script) could still send its
+  "Booked" email after it. News of it being booked not gone out yet by email, push or text doesn't go now, as for a
+  move; the in-app copy stays.
 - **A booking moved, then cancelled, was said to be at its old time, and a moved booking showed twice in My places
   (0.1.0 to 0.4.0).** A move (or a new length) retires the booking's court time and takes a new one; once it's
   cancelled none is current, and what read "the current one" took any. So the players' cancellation said the old time

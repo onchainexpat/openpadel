@@ -1684,6 +1684,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "msg.match_left_refund.subject": "Saliste del partido: {court}, {when}",
   "msg.match_left_refund.body": "Ya no estás en el partido en {court}, {when}, y te devolvemos {amount} a tu tarjeta.",
   "ui.match_cancelled": "Este partido se canceló.",
+  "ui.booking_was_cancelled": "Esta reserva se canceló.",
+  "ui.cancelled_nothing_back": "No se devolvió nada de lo que pagaste.",
   "action.friend.add": "Agregar a tus amistades",
   "action.friend.add_by_code": "Agregar una amistad desde su enlace",
   "action.friend.remove": "Quitar de tus amistades",

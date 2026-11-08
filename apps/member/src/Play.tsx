@@ -12,6 +12,8 @@ export type Match = {
   players: { id?: string; name: string | null; level: number | null; host: boolean; added?: boolean; paying: boolean; saved: boolean; leaving: boolean; no_show?: boolean; record?: Rec }[];
   // Any other court booking shows here too: is_match is false, and a court booked in full has its players named.
   is_match: boolean; whole: boolean; players_link: string | null; can_name: boolean; can_rate: boolean;
+  // Cancelled: what came back of what I paid, by where it went (card, desk, credit, playtomic).
+  back?: Record<string, number> | null;
   can: "join" | "ask" | "closed" | null; started: boolean; late_window: boolean; no_show_window: boolean;
   me: { seat_id: string; added: boolean; pending_payment_id: string | null; held_until: string | null; leaving: boolean; saved: boolean; paid: boolean; sub: boolean; offer: { id: string; code: string; to_name: string | null } | null } | null;
   request: { id: string; status: string } | null;
@@ -86,7 +88,7 @@ export function MatchPage({ id }: { id: string }) {
     <main>
       <h1>{m.is_match ? (m.host_is_me ? t("ui.your_match") : t("ui.match_by", { host: m.host ?? "" })) : m.host_is_me ? t("ui.your_booking") : t("ui.booking_by", { host: m.host ?? "" })}</h1>
       {sheet}
-      {(m.host_is_me || m.me) && club.value?.players_chat && <p><a href={`/chats/booking/${m.id}`}>{t("ui.chat_open")}</a></p>}
+      {(m.host_is_me || m.me) && club.value?.players_chat && !m.cancelled && <p><a href={`/chats/booking/${m.id}`}>{t("ui.chat_open")}</a></p>}
       {paying && <PaySheet paymentId={paying} amountCents={m.share_cents} name={m.court} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); void load(); }} />}
       {paying && provider === "test" && import.meta.env.DEV && <p><button class="primary" onClick={async () => { await api(`/dev/payments/${paying}/settle`, {}); setPaying(null); void load(); }}>{t("ui.pay_test")}</button></p>}
       <section class="card">
@@ -104,7 +106,7 @@ export function MatchPage({ id }: { id: string }) {
             {m.request?.status !== "declined" && <NewOnly><button class="primary" onClick={() => preview("booking.ask", { booking_id: m.id, person_id: pid })}>{t("ui.ask_to_join")}</button></NewOnly>}
           </>)}
         {m.can === "closed" && <p class="meta">{t("ui.outside_band_closed", { level: lv(m.my_level), band: band(m) })}</p>}
-        {m.cancelled ? <p class="meta">{t("ui.match_cancelled")}</p> : !m.open && !m.me && <p class="meta">{t("ui.match_closed")}</p>}
+        {m.cancelled ? <><p class="meta">{t(m.is_match ? "ui.match_cancelled" : "ui.booking_was_cancelled")}</p><BackLines m={m} /></> : !m.open && !m.me && <p class="meta">{t("ui.match_closed")}</p>}
         {m.me && m.me.leaving && <p class="meta">{t("ui.you_cant_make_it")}</p>}
         {m.me && m.late_window && !m.me.leaving && <div class="chips" role="group" aria-label={t("ui.running_late")}><span class="meta">{t("ui.running_late")}:</span>
           {[5, 10, 15, 20].map((n) => <button type="button" class="chip" onClick={() => preview("booking.running_late", { booking_id: m.id, person_id: pid, minutes: n })}>{t("ui.minutes", { count: n })}</button>)}</div>}
@@ -124,7 +126,7 @@ export function MatchPage({ id }: { id: string }) {
         </>}
         <p><button onClick={() => preview("booking.leave", { booking_id: m.id, person_id: pid })}>{t("ui.cant_make_it")}</button></p>
       </section>}
-      {!m.is_match && <Players m={m} preview={preview} />}
+      {!m.is_match && !m.cancelled && <Players m={m} preview={preview} />}
       <Result m={m} preview={preview} />
       {m.is_match && m.host_is_me && !m.cancelled && <section class="card">
         <h2>{t("ui.requests")}</h2>
@@ -151,6 +153,14 @@ export function MatchPage({ id }: { id: string }) {
       </section>}
     </main>
   );
+}
+
+/** A cancelled booking, read only: what came back of what I paid, and where to (or that nothing did). */
+function BackLines({ m }: { m: Match }) {
+  if (!m.me?.paid && !m.back) return null;
+  const keys = { card: "msg.refund_card", desk: "msg.refund_desk", credit: "msg.refund_credit", playtomic: "msg.refund_playtomic" } as const;
+  const lines = Object.entries(m.back ?? {}).filter((x): x is [keyof typeof keys, number] => x[1] > 0 && x[0] in keys).map(([k, c]) => t(keys[k], { amount: dollars(c, lang.value) }));
+  return <p class="meta">{lines.length ? lines.join(" ") : m.me?.paid ? t("ui.cancelled_nothing_back") : null}</p>;
 }
 
 /** A court booked in full: the booker names who's playing (friends and members, by name) or shares the players

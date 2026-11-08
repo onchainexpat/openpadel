@@ -260,6 +260,10 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     // A rated match not played yet: what it could do to my level, once the four are known (or I'd make the fourth).
     const playing = mine && !mine.leaving_at && !mine.replaces;
     const stakes = b.rated && !g && !cancelled && now < start && (playing || (!mine && open && taken === b.players - 1)) ? await levelStakes(db, b.id, pid) : null;
+    // Cancelled: what came back of what I paid, by where it went (as the cancellation said).
+    const back = cancelled && mine ? Object.fromEntries((await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
+      .select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")]).where("payment.booking_player_id", "=", mine.id).where("refund.status", "!=", "failed")
+      .groupBy("refund.destination").execute()).map((r) => [r.destination, Number(r.c)])) as Record<string, number> : null;
     const { organiser_id, invite_code, settled_at, ...rest } = b;
     return { ...rest, host_is_me: host, open, cancelled, share_cents: shares(b.price_cents, b.players).each, spots_left: cancelled ? 0 : Math.max(0, b.players - taken), my_level: level,
       started: now >= start, late_window: !cancelled && now >= start - 3 * 3600_000 && now <= start + 30 * 60_000, no_show_window: !cancelled && now >= start && now <= start + 48 * 3600_000,
@@ -268,7 +272,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
         record: host && x.person_id !== organiser_id ? record.get(x.person_id!) ?? { no_shows: 0, late_leaves: 0 } : undefined })),
       can: mine || !open || taken >= b.players ? null : joinRule({ level_min: b.level_min!, level_max: b.level_max!, outside_band: b.outside_band! }, level),
       // A court booked in full: the booker names the players (or shares the players link), and says whether it counts for levels.
-      whole: b.pay_mode === "whole" && !b.is_match, players_link: host && b.pay_mode === "whole" && !b.is_match ? invite_code : null,
+      whole: b.pay_mode === "whole" && !b.is_match, players_link: host && b.pay_mode === "whole" && !b.is_match && !cancelled ? invite_code : null, back,
       can_name: host && b.pay_mode === "whole" && !b.is_match && !cancelled && !g && taken < b.players && now <= start + ENTER_DAYS * 86400_000,
       can_rate: host && !b.is_match && !cancelled && !g,
       me: mine ? { seat_id: mine.id, added: Boolean(mine.added_by) && !g && !cancelled, pending_payment_id: mine.pending_payment_id, held_until: mine.held_until, leaving: Boolean(mine.leaving_at), saved: Boolean(mine.saved_by && !mine.paid_id), paid: Boolean(mine.paid_id),

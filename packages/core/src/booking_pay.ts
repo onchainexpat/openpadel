@@ -554,16 +554,20 @@ async function refundable(db: Db | Trx, bookingId: string, paymentId: string) {
   if (pay.provider === "none") throw new KumiError("error.refund_cash");
   return { person_id: pay.person_id, left: pay.amount_cents - Number(pay.back) };
 }
-/** What a move or a new length said (messages.ts, booking.moved and booking.resized), to the players and the coach. */
-const CHANGE_KINDS = ["booking_moved", "booking_resized", "lesson_moved", "lesson_resized", "coach_lesson_moved", "coach_lesson_resized"];
-/** A booking called off: news of a move or a new length that hasn't gone out by email, push or text yet doesn't go
- *  (it would arrive after, or with, the cancellation, which says where it was and what comes back). Its inbox copy
- *  stays, as what happened; one not written yet isn't (the composers skip a cancelled booking). */
+/** What a booking being made, moved or given a new length said (messages.ts: booking.confirmed, booking.moved and
+ *  booking.resized), to the players and the coach. */
+const STALE_TOPICS = ["booking.confirmed", "booking.moved", "booking.resized"];
+const STALE_KINDS = ["booking_confirmed", "booking_confirmed_split", "lesson_confirmed", "lesson_confirmed_split", "coach_lesson_booked",
+  "booking_moved", "booking_resized", "lesson_moved", "lesson_resized", "coach_lesson_moved", "coach_lesson_resized"];
+/** A booking called off: news of it being booked (cancelled in the same moment it was made), moved or given a new length
+ *  that hasn't gone out by email, push or text yet doesn't go: it would arrive after, or with, the cancellation, which
+ *  says where it was and what comes back. Its inbox copy stays, as what happened; one not written yet isn't (the
+ *  composers skip a cancelled booking). One message for several courts paid together still goes: it's of the others too. */
 async function dropChangeNews(trx: Trx, bookingId: string) {
   await trx.updateTable("outbound_message").set({ status: "dropped", failure: "the booking was cancelled before it went" })
-    .where("status", "=", "waiting").where("kind", "in", CHANGE_KINDS)
+    .where("status", "=", "waiting").where("kind", "in", STALE_KINDS)
     .where((eb) => eb.exists(eb.selectFrom("event_outbox").select("event_outbox.id").whereRef("event_outbox.id", "=", "outbound_message.event_id")
-      .where("event_outbox.topic", "in", ["booking.moved", "booking.resized"]).where(sql<string>`event_outbox.payload->>'booking_id'`, "=", bookingId)))
+      .where("event_outbox.topic", "in", STALE_TOPICS).where(sql<string>`event_outbox.payload->>'booking_id'`, "=", bookingId)))
     .execute();
 }
 /** Call a booking off: its court time is free, the refunds chosen in the plan go back, shares not paid yet can't

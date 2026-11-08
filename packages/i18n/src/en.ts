@@ -1681,6 +1681,8 @@ export const en = {
   "msg.match_left_refund.subject": "You left the match: {court}, {when}",
   "msg.match_left_refund.body": "You're out of the match on {court}, {when}, and {amount} goes back to your card.",
   "ui.match_cancelled": "This match was cancelled.",
+  "ui.booking_was_cancelled": "This booking was cancelled.",
+  "ui.cancelled_nothing_back": "Nothing of what you paid came back.",
   "action.friend.add": "Add a friend",
   "action.friend.add_by_code": "Add a friend from their link",
   "action.friend.remove": "Remove a friend",

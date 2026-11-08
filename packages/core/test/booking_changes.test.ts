@@ -144,6 +144,28 @@ test("a lesson moved, then cancelled: the coach's earnings and everyone's cancel
   assert.match((await told("Kim", "coach_lesson_cancelled")).at(-1)!.body, /on Court 2 at Eastside, Wed, Dec 9, 11:00 AM, is cancelled/);
 });
 
+test("booked and cancelled in the same moment: a booked email still waiting doesn't go, and one not written yet isn't", async () => {
+  const sent = async (id: string) => (await db.selectFrom("outbound_message").innerJoin("event_outbox", "event_outbox.id", "outbound_message.event_id")
+    .select(["outbound_message.kind", "outbound_message.channel", "outbound_message.status"]).where(sql<string>`event_outbox.payload->>'booking_id'`, "=", id)
+    .where("outbound_message.person_id", "=", people.Ann!).execute()).map((m) => `${m.kind} ${m.channel} ${m.status}`).sort();
+  const book = async (hhmm: string) => {
+    const r = await run(db, "booking.request", { court_id: c2, starts_at: at(hhmm, "2026-12-03"), minutes: 60, pay: "whole", person_id: people.Ann }, as("Ann"), opts);
+    await pay((r.result as any).payment_id, "Ann");
+    return (r.result as any).booking_id as string;
+  };
+  // Booked and told in the app; the email of it still waiting when she cancels.
+  const a = await book("08:00");
+  await processOutbox(db, messageHandlers);
+  await run(db, "booking.cancel", { booking_id: a }, as("Ann"), opts);
+  await processOutbox(db, messageHandlers);
+  assert.deepEqual(await sent(a), ["booking_cancelled email waiting", "booking_cancelled inbox sent", "booking_confirmed email dropped", "booking_confirmed inbox sent"]);
+  // Cancelled before the booked news was written at all: only the cancellation.
+  const b = await book("10:00");
+  await run(db, "booking.cancel", { booking_id: b }, as("Ann"), opts);
+  await processOutbox(db, messageHandlers);
+  assert.deepEqual(await sent(b), ["booking_cancelled email waiting", "booking_cancelled inbox sent"]);
+});
+
 test("staff alerts: each shows to whoever was told until someone handles it, once for the whole club", async () => {
   const ev = await db.insertInto("event_outbox").values({ topic: "booking.balance_due", payload: JSON.stringify({}), delivered_at: NOW }).returning("id").executeTakeFirstOrThrow();
   const msg = (to: string, kind: string, staleAt: Date | null = null, eventId = ev.id) => ({ id: uuidv7(), event_id: eventId, person_id: to, kind, channel: "inbox" as const, purpose: "staff" as const, essential: false,
