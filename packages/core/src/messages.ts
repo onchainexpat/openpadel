@@ -275,11 +275,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: b.organiser_id, kind, params: b.base, purpose: "account", essential: true, email: true, link: "/places" }, ...toCoach(b, "coach_lesson_booked")];
   },
   // Several courts paid together: one message for them all.
-  async "booking.courts_confirmed"({ db }, p: { person_id: string; booking_ids: string[]; cents: number }) {
-    const items: Text[] = [];
-    // Those cancelled before this was written aren't listed (their cancellation tells them); none left, nothing to say.
-    for (const id of p.booking_ids) { const b = await bookingInfo(db, id); if (b.status !== "cancelled") items.push(both("msg.booking_courts.item", b.base)); }
+  async "booking.courts_confirmed"(c, p: { person_id: string; booking_ids: string[]; cents: number }) {
+    const items: Text[] = [], left: string[] = [];
+    // Those cancelled before this was written aren't listed (their cancellation tells them); none left, nothing to say;
+    // one left, it's told as any one court booked is (never "Booked: 1 courts").
+    for (const id of p.booking_ids) { const b = await bookingInfo(c.db, id); if (b.status !== "cancelled") { items.push(both("msg.booking_courts.item", b.base)); left.push(id); } }
     if (!items.length) return [];
+    if (left.length === 1) return composers["booking.confirmed"]!(c, { booking_id: left[0] });
     const list = { en: items.map((x) => x.en).join("; "), es: items.map((x) => x.es).join("; ") };
     return [{ to: p.person_id, kind: "booking_courts", params: { count: items.length, list, amount: amount(p.cents) }, purpose: "account", essential: true, email: true, link: "/places" }];
   },

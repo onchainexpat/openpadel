@@ -68,6 +68,40 @@ test("two courts in one checkout: each its own booking, one card payment for bot
   assert.equal((await booking(out.bookings[1]!.booking_id)).status, "confirmed");
 });
 
+test("two courts paid together, one cancelled before the message was written: the other is told as one court booked", async () => {
+  const pay = async (who: string, list: ReturnType<typeof slot>[]) => {
+    const out = (await courts(who, list)).result as { bookings: { booking_id: string; code: string }[]; payment_id: string };
+    await openPayment(db, out.payment_id, people[who]!);
+    stripe.settle(await ref(out.payment_id), "succeeded");
+    await checkPayment(db, out.payment_id, "test");
+    return out.bookings;
+  };
+  const told = (who: string) => db.selectFrom("outbound_message").select(["kind", "subject", "body", "status"]).where("person_id", "=", people[who]!).where("channel", "=", "email")
+    .where("kind", "like", "booking%").where("kind", "!=", "booking_cancelled").execute();
+  // Fay, in English; Gus reads Spanish.
+  for (const name of ["Fay", "Gus"]) people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner, { now: NOW })).result as any).person_id;
+  await db.updateTable("person").set({ locale: "es" }).where("id", "=", people.Gus!).execute();
+  for (const who of ["Fay", "Gus"]) {
+    const [first, second] = await pay(who, [slot(c3, at(who === "Fay" ? "2026-12-07" : "2026-12-08", "08:00")), slot(c3, at(who === "Fay" ? "2026-12-07" : "2026-12-08", "10:00"), 60)]);
+    await run(db, "booking.cancel", { booking_id: first!.booking_id }, as(who), { now: NOW });
+    await deliver();
+    const [m, ...more] = await told(who);
+    assert.equal(more.length, 0, JSON.stringify(more));
+    assert.equal(m!.kind, "booking_confirmed");
+    if (who === "Fay") {
+      assert.equal(m!.subject, "Booked: Court 3, Mon, Dec 7, 10:00 AM");
+      assert.equal(m!.body, `Your court is booked: Court 3 at Eastside, Mon, Dec 7, 10:00 AM, for 60 minutes. Booking ${second!.code}.`);
+    } else {
+      assert.match(m!.subject, /^Reservado: Court 3, /);
+      assert.match(m!.body, /^Tu cancha está reservada: Court 3 en Eastside, .* por 60 minutos\. Reserva /);
+      assert.match(m!.body, new RegExp(second!.code));
+    }
+    // Then the one left is cancelled too, its email still waiting: it doesn't go.
+    await run(db, "booking.cancel", { booking_id: second!.booking_id }, as(who), { now: NOW });
+    assert.deepEqual((await told(who)).map((x) => [x.kind, x.status]), [["booking_confirmed", "dropped"]]);
+  }
+});
+
 test("the rules: the same day, the same court not twice at once, the club's limit, and all or nothing", async () => {
   await rejects(plan(db, "booking.request_courts", { courts: [slot(c1, at("2026-12-03", "10:00")), slot(c2, at("2026-12-04", "10:00"))], person_id: people.Ben }, as("Ben"), { now: NOW }), "error.courts_same_day");
   await rejects(plan(db, "booking.request_courts", { courts: [slot(c1, at("2026-12-03", "10:00")), slot(c1, at("2026-12-03", "11:00"))], person_id: people.Ben }, as("Ben"), { now: NOW }), "error.court_taken");

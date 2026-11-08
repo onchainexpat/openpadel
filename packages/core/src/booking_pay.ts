@@ -562,12 +562,16 @@ const STALE_KINDS = ["booking_confirmed", "booking_confirmed_split", "lesson_con
 /** A booking called off: news of it being booked (cancelled in the same moment it was made), moved or given a new length
  *  that hasn't gone out by email, push or text yet doesn't go: it would arrive after, or with, the cancellation, which
  *  says where it was and what comes back. Its inbox copy stays, as what happened; one not written yet isn't (the
- *  composers skip a cancelled booking). One message for several courts paid together still goes: it's of the others too. */
+ *  composers skip a cancelled booking). One message for several courts paid together still goes, as it's of the others
+ *  too, unless only this one was left in it. */
 async function dropChangeNews(trx: Trx, bookingId: string) {
   await trx.updateTable("outbound_message").set({ status: "dropped", failure: "the booking was cancelled before it went" })
     .where("status", "=", "waiting").where("kind", "in", STALE_KINDS)
     .where((eb) => eb.exists(eb.selectFrom("event_outbox").select("event_outbox.id").whereRef("event_outbox.id", "=", "outbound_message.event_id")
-      .where("event_outbox.topic", "in", STALE_TOPICS).where(sql<string>`event_outbox.payload->>'booking_id'`, "=", bookingId)))
+      .where((w) => w.or([w.and([w("event_outbox.topic", "in", STALE_TOPICS), w(sql<string>`event_outbox.payload->>'booking_id'`, "=", bookingId)]),
+        // The one court left of several paid together, told as one court booked: that message is of this booking alone.
+        w.and([w("event_outbox.topic", "=", "booking.courts_confirmed"), w(sql`outbound_message.kind`, "=", "booking_confirmed"),
+          w(sql<boolean>`event_outbox.payload->'booking_ids' @> jsonb_build_array(${bookingId}::text)`, "=", true)])]))))
     .execute();
 }
 /** Call a booking off: its court time is free, the refunds chosen in the plan go back, shares not paid yet can't
