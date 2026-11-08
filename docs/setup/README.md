@@ -587,13 +587,14 @@ Not done yet, and each needs a decision before a club outside the US goes live:
   without asking, and the people who have it see only those areas in the staff app.
 - **A role kept to one location.** A staff role given for one location (in `club.yaml`, `location:`; or on
   their page) works there: its bookings, courts, programs and payments. What belongs to no location it does
-  too: adding people and their juniors, tags on a person, members' questions, levels, and staff alerts that
-  aren't about one place (an alert about a booking or a program is its location's, so Eastside's front desk
-  doesn't mark Westside's handled). The whole club's own things stay with managers and the owner: messages to
-  a group of members, the groups, message templates, the club's facts, and downloading someone's data or
-  deleting their account. The staff app doesn't show those buttons to a role kept to one location, and the
-  server refuses them with a reason that says who does them. A role with no location keeps all of its
-  role's reach.
+  too: adding people and their juniors, tags on a person and new tags, members' questions, levels, and staff
+  alerts that aren't about one place (an alert about a booking or a program is its location's, so Eastside's
+  front desk doesn't mark Westside's handled). The whole club's own things stay with staff who cover the whole
+  club (a role with no location, and the owner): messages to a group of members, the groups, message templates,
+  the club's facts, renaming or removing a tag, and downloading someone's data or deleting their account. That
+  goes for a manager kept to one location too. The staff app doesn't show those buttons to a role kept to one
+  location, and the server refuses them with a reason that says who does them. A role with no location keeps
+  all of its role's reach.
 - **Bot protection** is on by itself: sign-up, sign-in codes and card forms ask the browser to solve a
   small puzzle first, and a hidden field catches scripts that fill in everything. Nothing to set up. On a
   practice machine, `KUMI_BOT_CHECK=0` turns it off for scripts that sign in over the API; production

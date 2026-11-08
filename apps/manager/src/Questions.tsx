@@ -127,7 +127,7 @@ export function Facts() {
       <h1>{t("ui.club_facts")}</h1>
       <p class="meta">{t("ui.facts_help")}</p>
       {sheet}
-      {/* The club's facts are kept by a manager or the owner: a role kept to one location reads them (mayDo). */}
+      {/* The club's facts are kept by staff who cover the whole club: a role kept to one location reads them (mayDo). */}
       {mayDo("fact.create") ? <section class="card">
         <h2>{t("ui.new_fact")}</h2>
         <FactForm key={`new-${key}-${prefill ? "q" : ""}`} start={prefill?.form ?? blank} from={prefill?.person} onSend={save(null, blank)} />

@@ -203,16 +203,16 @@ export function Groups() {
         <p class="meta">{t("ui.tags_help")}</p>
         {!o.tags.length ? <p class="meta">{t("ui.no_tags")}</p> : <ul class="plain">{o.tags.map((x) => <li key={x.id} class="row">
           <span>{x.name} <span class="meta">{t("count.people", { count: x.people })}</span></span>
-          <span><button class="small" onClick={() => setRenaming(renaming?.id === x.id ? null : { id: x.id, name: x.name })}>{t("ui.rename")}</button>{" "}
-            <button class="small" onClick={() => preview("tag.update", { tag_id: x.id, active: false })}>{t("ui.retire_tag")}</button></span>
-          {renaming?.id === x.id && <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("tag.update", { tag_id: x.id, name: renaming.name.trim() }); }}>
+          {mayDo("tag.update") && <span><button class="small" onClick={() => setRenaming(renaming?.id === x.id ? null : { id: x.id, name: x.name })}>{t("ui.rename")}</button>{" "}
+            <button class="small" onClick={() => preview("tag.update", { tag_id: x.id, active: false })}>{t("ui.retire_tag")}</button></span>}
+          {renaming?.id === x.id && mayDo("tag.update") && <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("tag.update", { tag_id: x.id, name: renaming.name.trim() }); }}>
             <label>{t("ui.tag_name")}<input required maxLength={40} value={renaming.name} onInput={(e) => setRenaming({ id: x.id, name: e.currentTarget.value })} /></label>
             <button class="primary">{t("ui.preview")}</button></form>}
         </li>)}</ul>}
-        <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("tag.create", { name: tag.trim() }); }}>
+        {mayDo("tag.create") && <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("tag.create", { name: tag.trim() }); }}>
           <label>{t("ui.new_tag")}<input required maxLength={40} value={tag} onInput={(e) => setTag(e.currentTarget.value)} /></label>
           <button>{t("ui.preview")}</button>
-        </form>
+        </form>}
       </section>
     </main>
   );

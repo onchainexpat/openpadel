@@ -28,8 +28,9 @@ locations:
 staff:                               # roles: manager, front_desk, coach, accountant (or another owner)
   - { name: Dana Ortiz, email: dana@kestrelpadel.example, role: manager }
   - { name: Sam Patel, email: sam@kestrelpadel.example, role: coach }
-  # Kept to one location: that location's desk, plus people, questions, levels and alerts of no place; messages
-  # to groups, templates, the club's facts and members' data stay with managers (docs/setup, roles).
+  # Kept to one location: that location's desk, plus people, tags, questions, levels and alerts of no place;
+  # messages to groups, templates, the club's facts, tag renames and members' data stay with staff who cover the
+  # whole club (docs/setup, roles).
   - { name: Lee Chen, email: lee@kestrelpadel.example, role: front_desk, location: Eastside }
 
 # Texts (optional): the business as it's registered, for `kumi texting`, which registers the club's texting

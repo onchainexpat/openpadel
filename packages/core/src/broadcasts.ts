@@ -233,7 +233,7 @@ async function activeTagNamed(db: Db | Trx, name: string) {
 async function nameOf(db: Db | Trx, id: string) { return (await readRow(db, "person", id, "thing.person")).row.display_name as string; }
 
 export const tagCreate = defineAction({
-  name: "tag.create", version: 1,
+  name: "tag.create", version: 1, clubWide: true,
   input: z.object({ name: tagName }),
   async plan(ctx, i) {
     if (await activeTagNamed(ctx.db, i.name)) throw new KumiError("error.tag_exists", { name: i.name });
@@ -247,7 +247,7 @@ export const tagCreate = defineAction({
 });
 
 export const tagUpdate = defineAction({
-  name: "tag.update", version: 1,
+  name: "tag.update", version: 1, wholeClub: "reason.whole_club_tags",
   input: z.object({ tag_id: z.uuid(), name: z.optional(tagName), active: z.optional(z.boolean()) }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "tag", i.tag_id, "thing.tag");

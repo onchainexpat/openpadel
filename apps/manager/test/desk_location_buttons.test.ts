@@ -1,5 +1,5 @@
 // A front desk kept to one location (Kelly, 8 Nov 2026) isn't shown buttons the server refuses it: the whole club's
-// messages, groups, templates and facts sit behind mayDo, which reads /me's `cannot`, and an alert at another
+// messages, groups, templates, facts and tag renames sit behind mayDo, which reads /me's `cannot`, and an alert at another
 // location has no Handled button.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const src = (f: string) => readFileSync(join(import.meta.dirname, "../src", f), "utf8");
-const WHOLE_CLUB = ["broadcast.send", "broadcast.cancel", "segment.save", "segment.update", "template.save", "template.update", "fact.create", "fact.update"];
+const WHOLE_CLUB = ["broadcast.send", "broadcast.cancel", "segment.save", "segment.update", "template.save", "template.update", "fact.create", "fact.update", "tag.update"];
 
 test("mayDo hides what /me says a role kept to one location can't do", () => {
   const state = readFileSync(join(import.meta.dirname, "../../../packages/ui/src/state.ts"), "utf8");
@@ -38,6 +38,7 @@ test("every whole-club button in the staff app is behind mayDo for its own kind 
   assert.match(src("Questions.tsx"), /\{editing === f\.id && mayDo\("fact\.update"\) && <FactForm/);
   assert.match(src("Messages.tsx"), /\{editing === x\.id && mayDo\("template\.update"\) && form\(/);
   assert.match(src("Messages.tsx"), /href !== "\/messages\/new" \|\| mayDo\("broadcast\.send"\)/, "no New message tab");
+  assert.match(src("Messages.tsx"), /\{mayDo\("tag\.update"\) && <span><button class="small" onClick=\{\(\) => setRenaming/, "no Rename or Stop using on a tag");
 });
 
 test("an alert at another location has no Handled button", () => {

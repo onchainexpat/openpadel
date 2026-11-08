@@ -75,12 +75,12 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 ### Changed
 - **What a staff role kept to one location may do.** It works its own location as before, and now also what belongs
   to no location: staff alerts that aren't about one place (an alert about a booking or a program stays its
-  location's, so Eastside's front desk can't mark Westside's handled), members' questions, and levels. The whole
-  club's own things stay with managers and the owner: messages to a group of members, the groups, message
-  templates, the club's facts, and downloading someone's data or deleting their account. Those are refused in words
-  that say who does them ("messages to a group of members are sent by a manager or the owner"), not "your role
-  doesn't cover this location", and the staff app hides their buttons (/me lists them as `cannot`). A role with no
-  location keeps everything its role allows.
+  location's, so Eastside's front desk can't mark Westside's handled), members' questions, levels, and adding a
+  tag. The whole club's own things stay with staff who cover the whole club: messages to a group of members, the
+  groups, message templates, the club's facts, renaming or removing a tag, and downloading someone's data or
+  deleting their account. Those are refused in words that say who does them ("messages to a group of members are
+  sent by staff who cover the whole club"), not "your role doesn't cover this location", and the staff app hides
+  their buttons (/me lists them as `cannot`). A role with no location keeps everything its role allows.
 ### Fixed
 - **A booking moved later was refunded by the time it left (0.1.0 to 0.4.0).** A cancel measured "how long before"
   from the earliest time the booking ever had, so a court moved from tomorrow to next week and cancelled five days

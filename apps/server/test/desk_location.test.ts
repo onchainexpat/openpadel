@@ -79,10 +79,10 @@ test("Eastside's desk answers a member's question and sets a level (asking, as e
 test("the whole club's own things: refused in words, and named in /me so the buttons hide", async () => {
   const words = { subject_en: "Courts closed Sunday", body_en: "For the resurfacing.", subject_es: "Pistas cerradas el domingo", body_es: "Por el nuevo suelo." };
   const tries: [string, object, RegExp][] = [
-    ["broadcast.send", { purpose: "club_news", filters: {}, ...words }, /messages to a group of members are sent by a manager or the owner/],
-    ["template.save", { name: "Closed", ...words }, /message templates are kept by a manager or the owner/],
-    ["fact.create", fact, /the club's facts are kept by a manager or the owner/],
-    ["privacy.export", { person_id: people.Ann }, /downloading someone's data or deleting their account is done by a manager or the owner/],
+    ["broadcast.send", { purpose: "club_news", filters: {}, ...words }, /messages to a group of members are sent by staff who cover the whole club/],
+    ["template.save", { name: "Closed", ...words }, /message templates are kept by staff who cover the whole club/],
+    ["fact.create", fact, /the club's facts are kept by staff who cover the whole club/],
+    ["privacy.export", { person_id: people.Ann }, /downloading someone's data or deleting their account is done by staff who cover the whole club/],
   ];
   for (const [action, input, says] of tries) {
     const r = await post("Lee", `/actions/${action}/plan`, input);
@@ -91,14 +91,27 @@ test("the whole club's own things: refused in words, and named in /me so the but
     assert.doesNotMatch(JSON.stringify(r.json), /doesn't cover this location/, action);
   }
   const lee = (await get("Lee", "/me")).json;
-  for (const a of ["broadcast.send", "broadcast.cancel", "segment.save", "segment.update", "template.save", "template.update", "fact.create", "fact.update", "privacy.export", "privacy.erase"])
+  for (const a of ["broadcast.send", "broadcast.cancel", "segment.save", "segment.update", "template.save", "template.update", "fact.create", "fact.update", "privacy.export", "privacy.erase", "tag.update"])
     assert.ok(lee.cannot.includes(a), a);
-  assert.ok(!lee.cannot.includes("question.answer") && !lee.cannot.includes("alert.handle"));
+  for (const a of ["question.answer", "alert.handle", "tag.create", "person.tag"]) assert.ok(!lee.cannot.includes(a), a);
   // In Spanish (Lee reads Spanish for a moment), the same refusal.
   await db.updateTable("person").set({ locale: "es" }).where("id", "=", people.Lee!).execute();
   const es = await post("Lee", "/actions/fact.create/plan", fact);
   await db.updateTable("person").set({ locale: "en" }).where("id", "=", people.Lee!).execute();
-  assert.equal(es.json.message, "No puedes hacer eso: las respuestas del club las lleva un gerente o el dueño.");
+  assert.equal(es.json.message, "No puedes hacer eso: las respuestas del club las gestiona alguien del equipo que lleva todo el club.");
+});
+
+test("Eastside's desk adds a tag, as tagging a person already can; renaming or removing one is the whole club's", async () => {
+  const c = await post("Lee", "/actions/tag.create/plan", { name: "Beginners" });
+  assert.equal(c.status, 200, JSON.stringify(c.json));
+  assert.equal((await post("Lee", `/runs/${c.json.run_id}/apply`)).status, 200);
+  const tag = await db.selectFrom("tag").select("id").where("name", "=", "Beginners").executeTakeFirstOrThrow();
+  for (const input of [{ tag_id: tag.id, name: "Starters" }, { tag_id: tag.id, active: false }]) {
+    const r = await post("Lee", "/actions/tag.update/plan", input);
+    assert.equal(r.status, 403, JSON.stringify(r.json));
+    assert.equal(r.json.message, "You can't do that: the club's tags are renamed or removed by staff who cover the whole club.");
+  }
+  assert.equal((await post("Dana", "/actions/tag.update/plan", { tag_id: tag.id, name: "Starters" })).status, 200);
 });
 
 test("a desk with no location keeps what it has: the club's facts and messages, and nothing hidden", async () => {
