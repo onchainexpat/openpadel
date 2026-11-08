@@ -73,6 +73,14 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
     already a member here, a plan that's full, a membership with no end date and a commitment period (kept in the note,
     not held to) are said in the preview, as is stopping the renewals in Playtomic.
 ### Fixed
+- **A booking moved later was refunded by the time it left (0.1.0 to 0.4.0).** A cancel measured "how long before"
+  from the earliest time the booking ever had, so a court moved from tomorrow to next week and cancelled five days
+  ahead counted as cancelled late: "Nothing comes back: it's less than 24 hours before", and nothing did. The same
+  wrong time decided what goes back in Playtomic for a booking taken over from it, and for a moved week of a weekly
+  court when it ended. It's measured from the time the booking has now. Also measured from the old time: a member with time owed at
+  the desk on a court moved to next week couldn't book anything once the time it left had gone by ("You still owe
+  $20.00 on a court booking"), and the list of bookings refunded after a restore and still to come (0.3.0 on) could
+  keep one moved earlier and already over.
 - **A booking moved, then cancelled, was said to be at its old time, and a moved booking showed twice in My places
   (0.1.0 to 0.4.0).** A move (or a new length) retires the booking's court time and takes a new one; once it's
   cancelled none is current, and what read "the current one" took any. So the players' cancellation said the old time

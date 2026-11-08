@@ -108,8 +108,10 @@ async function startSession(db: Db, personId: string, userAgent: string | null, 
     await trx.insertInto("web_session").values({ token_hash: sha(token), person_id: personId, expires_at: new Date(now.getTime() + SESSION_DAYS * 864e5), last_seen_at: now, user_agent: userAgent, revoked_at: null, method }).execute();
     if (method === "email_code") {
       const proven = await trx.updateTable("auth_identity").set({ verified_at: now }).where("person_id", "=", personId).where("kind", "=", "email").where("verified_at", "is", null).returning("id").execute();
-      // Their first sign-in with an address the desk gave them: their own act, so an account deleted here at this address
-      // comes back from now (playtomic_erased.ts; support logins never do).
+      // The first sign-in that proves an address someone else entered for them (the desk, a parent giving a kid their own
+      // login, a junior made an adult, the owner's address at setup): only whoever reads that mailbox can, so it's their
+      // own act, and an account deleted here at this address comes back from now (playtomic_erased.ts). Entering the
+      // address lifts nothing; an import leaves a deleted member's address out altogether; support logins never lift.
       if (proven.length) await markRejoined(trx, personId, now);
     }
   });

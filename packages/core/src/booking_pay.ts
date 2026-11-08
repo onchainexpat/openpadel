@@ -17,7 +17,7 @@ import { holdsRole, type Asker } from "./permissions.ts";
 import { account, paymentProvider, post } from "./money.ts";
 import { promoOff, towardPrice } from "./promo_off.ts";
 import { playtomicTwin } from "./playtomic_archive.ts";
-import { courtOpening, occupied } from "./bookings.ts";
+import { bookingTimeNow, courtOpening, itsTimeNow, occupied } from "./bookings.ts";
 import { currentPolicy, quote } from "./prices.ts";
 import { memberPlan } from "./memberships.ts";
 import { band, joinRule, levelOf, openMatchOf } from "./match_rules.ts";
@@ -411,7 +411,8 @@ export async function lockBooking(trx: Trx, bookingId: string) {
  *  back whatever the timing (the host called it off, not them); the late rule is for the host's own payment. */
 export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, choice: "rule" | "full" | "none" | "credit") {
   const b = await db.selectFrom("booking").select(["id", "policy_id", "organiser_id"]).where("id", "=", bookingId).executeTakeFirstOrThrow();
-  const start = await db.selectFrom("court_time").select(sql<Date>`min(lower(during))`.as("s")).where("booking_id", "=", bookingId).executeTakeFirst();
+  // When it starts now: a booking moved later is cancelled early or late by its new time, not the one it left.
+  const start = (await bookingTimeNow(db, bookingId))?.start;
   const policy = b.policy_id ? await db.selectFrom("booking_policy").selectAll().where("id", "=", b.policy_id).executeTakeFirstOrThrow() : await currentPolicy(db);
   // A place let go was already paid back (or never paid): only the players still in it. Of each payment, what's
   // left of it: part may have gone back already (the booking made shorter, or moved somewhere cheaper).
@@ -419,7 +420,7 @@ export async function cancelRefunds(db: Db | Trx, bookingId: string, now: Date, 
     .select(["payment.id", "payment.amount_cents", "payment.provider", "payment.method", "booking_player.person_id", backSql.as("back"),
       sql<boolean>`EXISTS (SELECT 1 FROM refund r WHERE r.payment_id = payment.id AND r.seen_after_restore AND r.status != 'failed')`.as("seen")]).where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null)
     .where("payment.status", "=", "succeeded").execute();
-  const early = start?.s ? new Date(start.s).getTime() - now.getTime() >= policy.free_cancel_hours * 3600_000 : true;
+  const early = start ? start.getTime() - now.getTime() >= policy.free_cancel_hours * 3600_000 : true;
   const percent = choice === "full" || choice === "credit" ? 100 : choice === "none" ? 0 : early ? 100 : policy.late_refund_percent;
   const open = choice === "rule" && Boolean(await openMatchOf(db, bookingId));
   // Taken over from Playtomic and refunded there since (the player cancelled in Playtomic's app): nothing of what was
@@ -605,8 +606,9 @@ export async function notOwing(db: Db | Trx, personId: string, actor: Asker | nu
   if (actor?.personId && actor.personId !== personId && await deskOrUp(db, actor)) return;
   const r = await db.selectFrom("booking").select(sql<string>`coalesce(sum(balance_cents), 0)`.as("c")).where("organiser_id", "=", personId).where("balance_cents", ">", 0)
     .where("status", "!=", "cancelled")
+    // Over by the time it has now: one moved to next week isn't over when the time it left goes by.
     .where((w) => w.or([w("settled_at", "is not", null), w.exists(w.selectFrom("court_time").select("court_time.id").whereRef("court_time.booking_id", "=", "booking.id")
-      .where(sql<boolean>`upper(court_time.during) <= ${now}`))]))
+      .where(itsTimeNow).where(sql<boolean>`upper(court_time.during) <= ${now}`))]))
     .executeTakeFirstOrThrow();
   if (Number(r.c) > 0) throw new KumiError("error.balance_owed", { amount: usd(Number(r.c)) });
 }

@@ -235,6 +235,13 @@ export const range = (start: Date, end: Date) => sql<string>`tstzrange(${start},
  *  last one it had. A move or a new length retires the old time and takes a new one, so a booking has as many as
  *  it has had places; ids are time-ordered (uuidv7), so the newest is where it is (or was, when it was called off). */
 export const itsTimeNow = sql<boolean>`court_time.id = (SELECT ct.id FROM court_time ct WHERE ct.booking_id = booking.id ORDER BY ct.active DESC, ct.id DESC LIMIT 1)`;
+/** One booking's time by the same rule as itsTimeNow: what "how long before it" and "is it over" are measured from. Never
+ *  the earliest of its times: a booking moved later would be refunded, or counted as over, by the time it left. */
+export async function bookingTimeNow(db: Db | Trx, bookingId: string): Promise<{ start: Date; end: Date } | undefined> {
+  const t = await db.selectFrom("court_time").select([sql<Date>`lower(during)`.as("start"), sql<Date>`upper(during)`.as("end")]).where("booking_id", "=", bookingId)
+    .orderBy("active", "desc").orderBy("id", "desc").executeTakeFirst();
+  return t ? { start: new Date(t.start), end: new Date(t.end) } : undefined;
+}
 export async function insertTime(ctx: ApplyCtx, rows: Record<string, unknown>[]) {
   try { for (const r of rows) await ctx.insert("court_time", r); }
   catch (e: any) { if (e?.code === "23P01") throw new KumiError("error.court_taken"); throw e; }

@@ -59,3 +59,17 @@ test("the desk adds someone at a deleted member's address: nothing comes back un
   await signIn("pia@example.test");
   assert.ok((await rows()).every((r) => r.rejoined_at), "their own first sign-in did");
 });
+
+test("a parent gives their kid a login at a deleted member's address: nothing comes back until the kid signs in with it", async () => {
+  // Whoever enters the address (here a parent), proving it takes reading that mailbox: the first sign-in with it is the
+  // kid's own act, as for an account the desk made.
+  const old = ((await run(db, "person.create", { display_name: "Mo", email: "mo@example.test" }, owner)).result as any).person_id;
+  await run(db, "privacy.erase", { person_id: old }, { personId: old, via: "test", lang: "en" });
+  const rows = () => db.selectFrom("playtomic_erased").select("rejoined_at").where("erased_person_id", "=", old).execute();
+  const ann = { personId: people.Ann!, via: "test", lang: "en" } as Actor;
+  const kid = ((await run(db, "household.add_junior", { person_id: people.Ann, display_name: "Mo", birth_year: new Date().getFullYear() - 14 }, ann)).result as any).person_id;
+  await run(db, "kid.give_login", { person_id: kid, email: "mo@example.test" }, ann);
+  assert.ok((await rows()).length > 0 && (await rows()).every((r) => !r.rejoined_at), "the parent entering it lifted nothing");
+  await signIn("mo@example.test");
+  assert.ok((await rows()).every((r) => r.rejoined_at), "the kid's own first sign-in did");
+});

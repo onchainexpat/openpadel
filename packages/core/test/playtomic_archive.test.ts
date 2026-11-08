@@ -498,6 +498,23 @@ test("time added here is owed here: marking paid in Playtomic counts only what P
   assert.match((await staffTold(k)).at(-1)!, /cancelled here\. \$40\.00 of what was paid in Playtomic goes back, as chosen: refund it in Playtomic\.$/);
 });
 
+test("taken over, then moved later: what goes back in Playtomic is by the new time (a week ahead: all of it), not the old", async () => {
+  // Opening hours are 00:00 to 23:59 (set above): 10:00 the club's time, 20 days on, then moved a week later.
+  const hourIn = (d: Date) => Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hourCycle: "h23" }).format(d));
+  let h = 24 * 20; while (hourIn(at(h)) !== 10) h++;
+  pt.bookings.push(booking("mvl1", h, { court: "pt-2" }));
+  await sync();
+  await run(db, "mirror.take_over", { booking_ids: ["mvl1"] }, owner, { now: new Date(base) });
+  const k = await kumiOf("mvl1");
+  await run(db, "booking.move", { booking_id: k, court_id: court2, starts_at: at(h + 7 * 24).toISOString() }, owner, { now: new Date(base) });
+  // Cancelled 20 hours before the time it left: late by that, but a week and more early by the time it has.
+  const when = { now: at(h - 20) };
+  const c = await plan(db, "booking.cancel", { booking_id: k }, owner, when);
+  assert.match(c.plan.summary.en, /\$40\.00 paid in Playtomic goes back by the club's rule/);
+  await run(db, "booking.cancel", { booking_id: k }, owner, when);
+  assert.deepEqual(await alerts(k), [4000]);
+});
+
 test("marked paid in Playtomic between a cancel's preview and its apply: the apply sees it, and the managers are told", async () => {
   pt.bookings.push(booking("late1", 24 * 13 + 9, { court: "pt-2", paid: "PENDING" }));
   await sync();

@@ -36,9 +36,11 @@ export async function markErased(trx: Trx, personId: string, emails: string[], n
 
 /**
  * Someone deleted here who comes back by their own act: signing up themselves (person.sign_up), adding or changing their
- * own address (email.add, email.change without staff), or the first sign-in that proves the address on an account
- * the desk made for them. Never what staff do (an import, support access, the desk's person.create, a staff email
- * change): those leave the person marked. Every marker row of the deleted account is lifted from now (what Playtomic
+ * own address (email.add, email.change without staff), or the first sign-in that proves an address someone else
+ * entered for them (the desk's person.create, a parent's kid.give_login, household.give_login, the owner at setup):
+ * proving it takes reading that mailbox, which only they can. Never what anyone else does (an import, which leaves a
+ * deleted member's address out, support access, the desk or a parent entering the address, a staff email change):
+ * those leave the person marked. Every marker row of the deleted account is lifted from now (what Playtomic
  * holds from before stays out), and their upcoming bookings in the archive are read afresh at the next read, so what's
  * theirs from now comes in by name. Returns how many marker rows it lifted.
  */
