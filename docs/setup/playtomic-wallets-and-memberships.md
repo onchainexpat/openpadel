@@ -3,8 +3,8 @@
 The money side of moving a club from Playtomic to openPadel: members' wallet balances become club credit, and their
 memberships carry over. The staff app's Playtomic page, Moving in, or `openpadel move-in` on the server. Both are the
 owner's; a manager sees the preview first and then asks the owner (the owner sees who uploaded the file and when), and
-support access and assistants never do them. If the owner does it meanwhile, the manager's ask is settled, not left
-waiting. Bookings, the archive and the
+support access and assistants never do them. If the owner does the same thing meanwhile, the manager's ask is settled,
+not left waiting; an ask for something the owner's run didn't cover (other memberships, other people) keeps waiting. Bookings, the archive and the
 stages of the move are in the main guide, [moving from Playtomic](moving-from-playtomic.md).
 
 ## Where it reads from
@@ -38,11 +38,14 @@ Nothing changes in Playtomic.
    read, is listed and left. Confirm it.
 2. **Run it again nearer the switch.** Each member has one total from Playtomic, so only the difference moves, whatever
    the wallets are called: a renamed column, Playtomic in another language, two staff with two exports or Playtomic's
-   own read all count the same money once.
+   own read all count the same money once. The total also follows them as Playtomic knows them (their Playtomic id and
+   address, kept only as one-way hashes), so someone who deleted their account and joined again doesn't get the same
+   wallet twice.
    - **More than before** (topped up there) comes in.
    - **Less than before** (spent there) is listed and left as it is here, unless you tick "Take back what was spent in
-     Playtomic". Then it comes back out of their credit, up to what they still hold here: what they spent here
-     meanwhile stays spent, and the preview says so.
+     Playtomic". Then it comes back out of their credit, up to what they still hold of what came from Playtomic: what
+     they spent here meanwhile stays spent, and credit from anything else (a refund given as credit, a gift card) is
+     never touched. The preview says so.
 3. **At the switch, in the same hour:**
    1. The owner says "We're setting the wallets to zero in Playtomic now" on the page (a manager asks). From then a run
       only brings credit in, and taking back is refused: every wallet is about to read 0.
@@ -55,7 +58,7 @@ Nothing changes in Playtomic.
   are listed for staff to check, and nothing moves for that person.
 - **A ceiling:** at most $10,000 (sized for the club's currency) comes over for one person. More is listed and left, to
   check the file or give it as credit by hand. For a currency openPadel can't size a dollar limit in, the owner gives
-  the ceiling (on the page, or `--cap=<whole units>` on the server).
+  the ceiling (on the page, or `--cap=<whole units>` on the server); for one it can, a figure given only lowers it.
 - **In the books:** club credit, money owed to members, from a "brought in" account (money the club took in Playtomic),
   never revenue. Reports' club credit includes it.
 - **Paying it out at the desk** warns that it came from Playtomic wallets, which members may have topped up by card.

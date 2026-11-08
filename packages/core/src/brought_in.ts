@@ -19,7 +19,7 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, localParts, onDate } from "./clock.ts";
 import { account, creditBalance, post } from "./money.ts";
-import { lockCredit } from "./credit.ts";
+import { creditSources, lockCredit } from "./credit.ts";
 import { dayText, holds, planPrice } from "./memberships.ts";
 import { textOf } from "./club_text.ts";
 import { PLAYTOMIC, type PlaytomicClient } from "./playtomic.ts";
@@ -246,7 +246,10 @@ export async function playersWanted(db: Db): Promise<boolean> {
 }
 
 // ---- Wallets into club credit ----
-interface CreditLine { person_id: string; name: string; before: number; after: number; delta: number; wallets: { name: string; cents: number }[]; short: number }
+/** One person's change: `before` is what has come over for them as Playtomic knows them (by their Playtomic id or
+ *  address, which outlives their account here: brought_identity), `own_before` what this person here holds of it. */
+interface CreditLine { person_id: string; name: string; before: number; after: number; delta: number; wallets: { name: string; cents: number }[]; short: number;
+  own_before: number; keys: { hash: string; cents: number | null }[] }
 interface CreditPlan { people: CreditLine[]; total: number; taken_back: number; less: { name: string; cents: number }[]; not_taken_back: { name: string; cents: number }[];
   other_currency: { name: string; wallet: string; balance: string }[]; unreadable: { name: string; wallet: string; balance: string }[]; unmatched: number; disagree: string[];
   over_cap: { name: string; cents: number }[]; columns: string[] | null; read_at: string; cap: number; zeroing: boolean; erased: number }
@@ -254,14 +257,23 @@ interface CreditPlan { people: CreditLine[]; total: number; taken_back: number; 
 /** The ceiling for one person: $10,000 sized for the club's currency, or the owner's own figure (needed for a currency
  *  capFor can't size, rather than treating it as worth a dollar and leaving nearly everyone over it). */
 function capOf(currency: string, given: number | undefined): number {
-  // Given in whole units of the club's currency (10,000, not 1,000,000 cents).
-  if (given) return given * 10 ** minorUnits(currency);
-  if (!sizesCurrency(currency)) throw new KumiError("error.brought_cap_needed", { currency });
-  return capFor(BROUGHT_CAP_USD_CENTS, currency);
+  // Given in whole units of the club's currency (10,000, not 1,000,000 cents). For a currency openPadel can size, a
+  // figure given can only lower its ceiling, never raise it.
+  const unit = 10 ** minorUnits(currency);
+  if (sizesCurrency(currency)) { const own = capFor(BROUGHT_CAP_USD_CENTS, currency); return given ? Math.min(own, given * unit) : own; }
+  if (!given) throw new KumiError("error.brought_cap_needed", { currency });
+  return given * unit;
+}
+/** A Playtomic identity as the move-in remembers it: its id and its address, each a one-way hash salted with the club's
+ *  own value (club.erase_salt, as the erased marker keeps them), so what came over survives an account being deleted
+ *  and joined again, with nothing in it that reads back to anyone. */
+function identityKeys(salt: string, p: { playtomic_id?: string; email?: string }): string[] {
+  const h = (x: string) => createHash("sha256").update(`${salt}:${x}`).digest("hex");
+  return [...(p.playtomic_id ? [h(`id:${p.playtomic_id}`)] : []), ...(p.email?.trim() ? [h(`mail:${p.email.trim().toLowerCase()}`)] : [])];
 }
 
 async function creditPlan(db: Db | Trx, i: { source: "playtomic" | "file"; upload_id?: string; sha256?: string; columns?: string[]; take_back?: boolean; cap?: number }): Promise<CreditPlan & { from: Text }> {
-  const club = await db.selectFrom("club").select(["currency", "time_zone", "brought_wallets_zeroed_at", "brought_zeroing_at", "brought_wallets_at", "brought_run_seq", "brought_run_source", "playtomic_players_read_seq"]).executeTakeFirstOrThrow();
+  const club = await db.selectFrom("club").select(["currency", "time_zone", "brought_wallets_zeroed_at", "brought_zeroing_at", "brought_wallets_at", "brought_run_seq", "brought_run_source", "playtomic_players_read_seq", "erase_salt"]).executeTakeFirstOrThrow();
   if (club.brought_wallets_zeroed_at) throw new KumiError("error.brought_wallets_closed", { date: dayText(localDate(club.brought_wallets_zeroed_at, club.time_zone)) });
   // Once the owner says the wallets are being set to zero in Playtomic, every read shows them emptying: credit only
   // comes in from then, never back out.
@@ -276,14 +288,15 @@ async function creditPlan(db: Db | Trx, i: { source: "playtomic" | "file"; uploa
     columns: columns ? columns.filter((c) => use!.has(c.ref)).map((c) => c.name) : null, read_at: readAt.toISOString(), cap, zeroing: Boolean(club.brought_zeroing_at), erased };
   // Each row's wallets as one target, grouped by the person here it is. The same person on two rows (one membership a
   // row) is one person: rows that agree count once, rows that disagree are listed and left.
-  const byPerson = new Map<string, { name: string; rows: { cents: number; wallets: { name: string; cents: number }[]; key: string }[]; bad: boolean }>();
+  const byPerson = new Map<string, { name: string; rows: { cents: number; wallets: { name: string; cents: number }[]; key: string }[]; bad: boolean; keys: Set<string> }>();
   for (const p of players) {
     const ws = (p.wallets ?? []).filter((w) => !use || use.has(w.ref));
     if (!ws.length) continue;
     const who = await personFor(db, p);
     // Someone who isn't a member here is counted, not named: their name isn't the club's to keep in its change history.
     if (!who) { if (ws.some((w) => (parseBalance(w.balance, club.currency)?.cents ?? 1) !== 0)) out.unmatched++; continue; }
-    const entry = byPerson.get(who.id) ?? { name: who.name, rows: [], bad: false };
+    const entry = byPerson.get(who.id) ?? { name: who.name, rows: [], bad: false, keys: new Set<string>() };
+    for (const k of identityKeys(club.erase_salt, p)) entry.keys.add(k);
     let cents = 0;
     const wallets: { name: string; cents: number }[] = [];
     for (const w of ws) {
@@ -301,18 +314,25 @@ async function creditPlan(db: Db | Trx, i: { source: "playtomic" | "file"; uploa
     if (new Set(e.rows.map((r) => r.key)).size > 1) { out.disagree.push(e.name); continue; }
     const target = e.rows[0]!;
     if (target.cents > cap) { out.over_cap.push({ name: e.name, cents: target.cents }); continue; }
-    const before = (await db.selectFrom("brought_credit").select("cents").where("person_id", "=", personId).where("system", "=", "playtomic").executeTakeFirst())?.cents ?? 0;
+    // What has come over for them: this person's own, or more under their Playtomic id or address (an account deleted
+    // and joined again is a new person here, and the same wallet mustn't come in twice).
+    const ownBefore = (await db.selectFrom("brought_credit").select("cents").where("person_id", "=", personId).where("system", "=", "playtomic").executeTakeFirst())?.cents ?? 0;
+    const known = new Map((e.keys.size ? await db.selectFrom("brought_identity").select(["key_hash", "cents"]).where("key_hash", "in", [...e.keys]).execute() : []).map((r) => [r.key_hash, r.cents]));
+    const keys = [...e.keys].map((hash) => ({ hash, cents: known.get(hash) ?? null }));
+    const before = Math.max(ownBefore, ...keys.map((k) => k.cents ?? 0));
     let delta = target.cents - before, short = 0;
     if (!delta) continue;
     if (delta < 0) {
       // Less in Playtomic now: spent there since, or the wallets being zeroed for the switch. Taken back only when staff
-      // choose it, and only up to what they still hold here (what they spent here meanwhile stays spent).
+      // choose it, and only from what came from Playtomic and they still hold (credits.ts, creditSources): what they
+      // spent here meanwhile stays spent, and a refund or gift card given here is never touched.
       if (!i.take_back) { out.less.push({ name: e.name, cents: -delta }); continue; }
-      const holds = await creditBalance(db, personId);
-      if (!holds) { out.not_taken_back.push({ name: e.name, cents: -delta }); continue; }
-      if (-delta > holds) { short = -delta - holds; delta = -holds; }
+      const { fromPlaytomic } = await creditSources(db, personId);
+      const left = Math.min(fromPlaytomic, ownBefore);
+      if (!left) { out.not_taken_back.push({ name: e.name, cents: -delta }); continue; }
+      if (-delta > left) { short = -delta - left; delta = -left; }
     }
-    out.people.push({ person_id: personId, name: e.name, before, after: before + delta, delta, wallets: target.wallets, short });
+    out.people.push({ person_id: personId, name: e.name, before, after: before + delta, delta, wallets: target.wallets, short, own_before: ownBefore, keys });
     if (delta > 0) out.total += delta; else out.taken_back += -delta;
   }
   out.people.sort((a, b) => a.name.localeCompare(b.name));
@@ -330,10 +350,17 @@ async function staleSource(db: Db | Trx, i: { source: "playtomic" | "file"; uplo
   return !seq || BigInt(seq) < BigInt(club.brought_run_seq);
 }
 
-/** Asks for the same change still waiting when it's done: settled by it, so nobody is asked again for what's done. */
-async function settleAsks(ctx: { trx: Trx; runId: string; actor: { personId?: string | null } }, name: string) {
-  await ctx.trx.updateTable("action_run").set({ status: "failed", error: JSON.stringify({ code: "error.ask_settled", params: { by: ctx.actor.personId ?? null, run: ctx.runId } }) })
-    .where("action", "=", name).where("status", "=", "awaiting_approval").where("id", "!=", ctx.runId).execute();
+/** Asks for the same action still waiting once a run is done: those it covered (planned again now, nothing is left to
+ *  do, or their source is out of turn) are settled, so nobody is asked again for what's done. Any with something left
+ *  to do (other memberships, other people) keep waiting. */
+async function settleAsks(ctx: { trx: Trx; runId: string; actor: { personId?: string | null } }, name: string, leftToDo: (input: any) => Promise<boolean>) {
+  const waiting = await ctx.trx.selectFrom("action_run").select(["id", "input"]).where("action", "=", name).where("status", "=", "awaiting_approval").where("id", "!=", ctx.runId).execute();
+  for (const w of waiting) {
+    const left = await leftToDo(w.input).catch(() => false);
+    if (left) continue;
+    await ctx.trx.updateTable("action_run").set({ status: "failed", error: JSON.stringify({ code: "error.ask_settled", params: { by: ctx.actor.personId ?? null, run: ctx.runId } }) })
+      .where("id", "=", w.id).where("status", "=", "awaiting_approval").execute();
+  }
 }
 
 /** Playtomic wallet balances become club credit (the owner; a manager asks), once the members are here. */
@@ -374,15 +401,22 @@ export const creditBringIn = defineAction({
     if (await staleSource(ctx.trx, i, club)) throw new KumiError("error.changed");
     const first = !(await ctx.trx.selectFrom("brought_credit").select("id").where("system", "=", "playtomic").executeTakeFirst());
     for (const p of d.people) {
-      if (p.after > d.cap) throw new KumiError("error.changed");
+      if (p.after > d.cap || p.own_before + p.delta < 0) throw new KumiError("error.changed");
       await lockCredit(ctx.trx, p.person_id);
       const row = await ctx.trx.selectFrom("brought_credit").select(["id", "cents"]).where("person_id", "=", p.person_id).where("system", "=", "playtomic").executeTakeFirst();
-      // What the preview saw is still so: nothing brought in or spent meanwhile.
-      if ((row?.cents ?? 0) !== p.before) throw new KumiError("error.changed");
-      if (p.delta < 0 && -p.delta > await creditBalance(ctx.trx, p.person_id)) throw new KumiError("error.changed");
-      const wallets = JSON.stringify(p.wallets);
-      if (row) await ctx.update("brought_credit", row.id, { cents: p.after, wallets, updated_at: ctx.now });
-      else await ctx.insert("brought_credit", { id: uuidv7(), person_id: p.person_id, system: "playtomic", cents: p.after, wallets, action_run_id: ctx.runId, at: ctx.now, updated_at: ctx.now });
+      // What the preview saw is still so: nothing brought in or spent meanwhile, here or under their Playtomic identity.
+      if ((row?.cents ?? 0) !== p.own_before) throw new KumiError("error.changed");
+      const now = p.keys.length ? await ctx.trx.selectFrom("brought_identity").select(["key_hash", "cents"]).where("key_hash", "in", p.keys.map((k) => k.hash)).forUpdate().execute() : [];
+      for (const k of p.keys) if ((now.find((r) => r.key_hash === k.hash)?.cents ?? null) !== k.cents) throw new KumiError("error.changed");
+      if (p.delta < 0 && -p.delta > (await creditSources(ctx.trx, p.person_id)).fromPlaytomic) throw new KumiError("error.changed");
+      const wallets = JSON.stringify(p.wallets), own = p.own_before + p.delta;
+      if (row) await ctx.update("brought_credit", row.id, { cents: own, wallets, updated_at: ctx.now });
+      else await ctx.insert("brought_credit", { id: uuidv7(), person_id: p.person_id, system: "playtomic", cents: own, wallets, action_run_id: ctx.runId, at: ctx.now, updated_at: ctx.now });
+      // And under their Playtomic id and address, for an account deleted and joined again.
+      for (const k of p.keys) {
+        if (k.cents === null) await ctx.insert("brought_identity", { key_hash: k.hash, system: "playtomic", cents: p.after, updated_at: ctx.now });
+        else await ctx.update("brought_identity", k.hash, { cents: p.after, updated_at: ctx.now });
+      }
       // A liability: credit given is a negative entry (credit.ts); the club took this money before, in Playtomic.
       await post(ctx.trx, ctx.runId, "brought_in", p.delta > 0 ? "club credit brought from Playtomic's wallets" : "club credit from Playtomic taken back (spent there)", [
         { account: await account(ctx.trx, "member_credit", { personId: p.person_id }), cents: -p.delta },
@@ -391,7 +425,7 @@ export const creditBringIn = defineAction({
     // This run's turn, and what it read: anything read before it is out of turn from now on.
     const seq = (await sql<{ n: string }>`SELECT nextval('brought_seq')::text AS n`.execute(ctx.trx)).rows[0]!.n;
     await ctx.update("club", "singleton", { brought_wallets_at: ctx.now, brought_run_seq: seq, brought_run_source: i.source === "file" ? i.upload_id! : "playtomic" });
-    await settleAsks(ctx, "credit.bring_in");
+    await settleAsks(ctx, "credit.bring_in", async (input) => (await creditPlan(ctx.trx, input)).people.length > 0);
     // The owner and managers hear once, on Today, to zero the wallets in Playtomic.
     if (first) await ctx.emit("credit.brought_in", { people: d.people.length, cents: d.total });
     return { people: d.people.length, cents: d.total, taken_back: d.taken_back };
@@ -556,7 +590,7 @@ export const membershipBringIn = defineAction({
       } catch (e: any) { if (e?.code === "23505") throw new KumiError("error.changed"); throw e; }
       ids.push(id);
     }
-    await settleAsks(ctx, "membership.bring_in");
+    await settleAsks(ctx, "membership.bring_in", async (input) => (await membershipPlan(ctx.trx, input, localDate(ctx.now, tz))).people.length > 0);
     // Nobody is told now: telling members about the club's new app is the club's own announcement (as with an import).
     return { memberships: ids.length };
   },

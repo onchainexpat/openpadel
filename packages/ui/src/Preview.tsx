@@ -24,9 +24,10 @@ export function usePreview(onDone: (result?: any) => void) {
     if (!pending?.action) return;
     try {
       const p = await api<{ run_id: string; status: Pending["status"]; summary: string }>(`/actions/${pending.action}/plan`, pending.input);
-      setPending(null);
-      setNote(p.status === "awaiting_approval" ? t("ui.sent_for_approval") : t("ui.done"));
-      onDone();
+      // Asked: it waits for a yes. If it no longer needs one (something changed since the first look), nothing has
+      // happened yet: it's shown again, to confirm, rather than said to be done.
+      if (p.status === "awaiting_approval") { setPending(null); setNote(t("ui.sent_for_approval")); onDone(); return; }
+      setPending({ runId: p.run_id, status: p.status, summary: p.summary });
     } catch (e) { setError(e instanceof ApiError ? e.message : String(e)); setPending(null); }
   };
   const confirm = async () => {

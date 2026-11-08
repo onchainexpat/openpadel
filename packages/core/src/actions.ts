@@ -150,6 +150,7 @@ const ENTITIES = {
   payment_found: { table: "payment_found", key: "id", retire: null },
   credit_payout: { table: "credit_payout", key: "id", retire: null },
   brought_credit: { table: "brought_credit", key: "id", retire: null },
+  brought_identity: { table: "brought_identity", key: "key_hash", retire: null },
   playtomic_upload: { table: "playtomic_upload", key: "id", retire: null },
   gift_card: { table: "gift_card", key: "id", retire: null },
   pass_product: { table: "pass_product", key: "id", retire: { on_sale: false } },

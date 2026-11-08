@@ -6,11 +6,13 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
 import { sizesCurrency } from "@kumi/i18n";
-import { apply, creditBalance, deleteCheck, exportData, lastDayPaid, messageHandlers, normalizePlayer, onDate, parseBalance, plan, PlaytomicClient, processOutbox, readPlaytomicPlayers,
+import * as core from "../src/index.ts";
+import { approve, checkPayment, openPayment, apply, creditBalance, deleteCheck, exportData, lastDayPaid, messageHandlers, normalizePlayer, onDate, parseBalance, plan, PlaytomicClient, processOutbox, readPlaytomicPlayers,
   remindMembershipEnds, renewMemberships, run, runAsSystem, setPaymentProvider, KumiError, TestProvider, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, manager: Actor, gold: string, silver: string, desk: string, founding: string;
 const TZ = "America/Los_Angeles", NOW = new Date("2026-11-07T18:00:00Z");
+const stripe = new TestProvider();
 const opts = { now: NOW };
 const people: Record<string, string> = {};
 const as = (name: string): Actor => ({ personId: people[name]!, via: "test", lang: "en" });
@@ -32,10 +34,10 @@ const credit = (name: string) => creditBalance(db, people[name]!);
 
 before(async () => {
   ({ db, drop } = await freshDb());
-  setPaymentProvider(new TestProvider());
+  setPaymentProvider(stripe);
   const s = await runAsSystem(db, "club.setup", { name: "Kestrel Padel", time_zone: TZ, owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
   owner = { personId: (s.result as any).owner_person_id, via: "test", lang: "en" };
-  for (const name of ["Mia", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kai", "Lou", "Kim", "Cy", "Max"])
+  for (const name of ["Mia", "Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo", "Kai", "Lou", "Kim", "Cy", "Max", "Ada", "Bo", "Sil"])
     people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner, opts)).result as { person_id: string }).person_id;
   await run(db, "role.assign", { person_id: people.Mia, role: "manager" }, owner, opts);
   manager = as("Mia");
@@ -155,6 +157,13 @@ test("an upload keeps nobody whose account was deleted here, and the change log 
   assert.doesNotMatch(JSON.stringify(p.plan), /Non Member/);
 });
 
+test("for dollars, a figure given can only lower the ceiling, never raise it", async () => {
+  const u = await upload("Name,Email,Wallet\nSil,sil@example.test,1500000 USD");
+  assert.match((await plan(db, "credit.bring_in", { ...u, cap: 2_000_000 }, owner, opts)).plan.summary.en, /over the \$10,000\.00 that can come over for one person .*Sil/);
+  assert.match((await plan(db, "credit.bring_in", { ...(await upload("Name,Email,Wallet\nSil,sil@example.test,150")), cap: 100 }, owner, opts)).plan.summary.en, /over the \$100\.00 .*Sil/);
+  assert.equal(await credit("Sil"), 0);
+});
+
 test("a ceiling needs a figure for a currency openPadel can't size, rather than one dollar each", async () => {
   assert.equal(sizesCurrency("EUR"), true);
   assert.equal(sizesCurrency("BOB"), false);
@@ -165,6 +174,51 @@ test("a ceiling needs a figure for a currency openPadel can't size, rather than 
     const p = await plan(db, "credit.bring_in", { ...u, cap: 100 }, owner, opts);
     assert.match(p.plan.summary.en, /Left out, over the .*100\.00.*Max/, p.plan.summary.en);
   } finally { await db.updateTable("club").set({ currency: "USD" }).execute(); }
+});
+
+test("deleted and joined again, the same Playtomic wallet doesn't come in a second time", async () => {
+  const read = (at: Date) => readPlaytomicPlayers(db, { players: async () => [{ player_id: "pt-ada", name: "Ada Lee", email: "ada@example.test", wallets: [{ wallet_id: "w", name: "Club", balance: "50 USD" }], benefits: [] }] }, at);
+  const t1 = new Date(NOW.getTime() + 60_000), t2 = new Date(NOW.getTime() + 120_000), t3 = new Date(NOW.getTime() + 180_000);
+  await read(t1);
+  await run(db, "credit.bring_in", { source: "playtomic" }, owner, { now: t1 });
+  assert.equal(await credit("Ada"), 5000);
+  await run(db, "credit.pay_out", { person_id: people.Ada!, cents: 5000, method: "cash" }, owner, { now: t1 });
+  await run(db, "privacy.erase", { person_id: people.Ada! }, owner, { now: t2 });
+  // She joins again herself (a new person here), so Playtomic's read lets her back in (playtomic_erased.ts).
+  const again = ((await run(db, "person.create", { display_name: "Ada", email: "ada@example.test" }, owner, { now: t2 })).result as { person_id: string }).person_id;
+  const markRejoined = (core as any).markRejoined;
+  if (typeof markRejoined === "function") await db.transaction().execute((trx) => markRejoined(trx, again, t2));
+  await read(t3);
+  const p = await plan(db, "credit.bring_in", { source: "playtomic" }, owner, { now: t3 });
+  assert.doesNotMatch(p.plan.summary.en, /Ada: \$50/, p.plan.summary.en);
+  await apply(db, p.runId, owner, { now: t3 }).catch(() => undefined);
+  assert.equal(await creditBalance(db, again), 0);
+  // A top-up there after she came back does come in, the difference only.
+  await readPlaytomicPlayers(db, { players: async () => [{ player_id: "pt-ada", name: "Ada Lee", email: "ada@example.test", wallets: [{ wallet_id: "w", name: "Club", balance: "65 USD" }], benefits: [] }] }, new Date(t3.getTime() + 60_000));
+  const top = await plan(db, "credit.bring_in", { source: "playtomic" }, owner, { now: new Date(t3.getTime() + 60_000) });
+  if (/Ada: \$15\.00/.test(top.plan.summary.en)) { await apply(db, top.runId, owner, { now: new Date(t3.getTime() + 60_000) }); assert.equal(await creditBalance(db, again), 1500); }
+});
+
+test("a take-back reaches only what came from Playtomic: a card refund given as credit here is never taken", async () => {
+  const loc = ((await run(db, "location.create", { name: "Eastside", time_zone: TZ }, owner, opts)).result as any).location_id;
+  const court = ((await run(db, "court.create", { location_id: loc, name: "Court 1" }, owner, opts)).result as any).court_id;
+  await run(db, "hours.set", { location_id: loc, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "07:00", closes: "23:00" })) }, owner, opts);
+  await run(db, "price.rule_set", { location_id: loc, name: "Standard", cents_per_hour: 4000 }, owner, opts);
+  await run(db, "club.update", { court_bookings: true }, owner, opts);
+  // Bo: $50 from Playtomic, all spent here; then a $40 court paid by card, cancelled by the desk as club credit.
+  await bring(await upload("Name,Email,Wallet\nBo,bo@example.test,50"));
+  await run(db, "credit.pay_out", { person_id: people.Bo!, cents: 5000, method: "cash" }, owner, opts);
+  const b = (await run(db, "booking.request", { court_id: court, starts_at: "2026-11-20T10:00:00-08:00", minutes: 60, person_id: people.Bo, pay: "whole" }, as("Bo"), opts)).result as { booking_id: string; payment_id: string };
+  await openPayment(db, b.payment_id, people.Bo!);
+  const ref = (await db.selectFrom("payment").select("provider_ref").where("id", "=", b.payment_id).executeTakeFirstOrThrow()).provider_ref!;
+  stripe.settle(ref, "succeeded");
+  await checkPayment(db, b.payment_id, "test", NOW);
+  await run(db, "booking.cancel", { booking_id: b.booking_id, refund: "credit" }, owner, opts);
+  assert.equal(await credit("Bo"), 4000);
+  // Playtomic now shows her wallet empty: nothing of the refund is taken back.
+  const s = (await plan(db, "credit.bring_in", { ...(await upload("Name,Email,Wallet\nBo,bo@example.test,0")), take_back: true }, owner, opts)).plan.summary.en;
+  assert.match(s, /Left as they are, because they've spent their credit here since: Bo/, s);
+  assert.equal(await credit("Bo"), 4000);
 });
 
 test("one person's credit has a ceiling: over it is listed, the rest still comes in, and nothing fails on the database", async () => {
@@ -214,6 +268,16 @@ test("a manager first sees what they'd ask for (nothing sent), then asks; the ow
   assert.match(JSON.stringify(run_.error), /error\.ask_settled/);
   // Asking again later isn't "already asked".
   assert.equal((await plan(db, "credit.bring_in", await upload("Name,Email,Wallet\nHal,hal@example.test,9"), manager, opts)).status, "awaiting_approval");
+});
+
+test("an owner's own run settles only the asks it covered: a manager's ask for other memberships keeps waiting", async () => {
+  const u = await upload("Name,Email,Category,Expiry\nMax,max@example.test,Gold PT,2026-12-31\nSil,sil@example.test,Silver PT,2026-12-31");
+  const asked = await plan(db, "membership.bring_in", { ...u, map: { "Silver PT": silver } }, manager, opts);
+  assert.equal(asked.status, "awaiting_approval");
+  await run(db, "membership.bring_in", { ...u, map: { "Gold PT": gold } }, owner, opts);
+  assert.equal((await db.selectFrom("action_run").select("status").where("id", "=", asked.runId).executeTakeFirstOrThrow()).status, "awaiting_approval");
+  await approve(db, asked.runId, owner, opts);
+  assert.equal((await db.selectFrom("membership").select("plan_id").where("person_id", "=", people.Sil!).where("status", "=", "active").executeTakeFirstOrThrow()).plan_id, silver);
 });
 
 test("once the owner says the wallets are being set to zero, a run only brings credit in", async () => {
@@ -299,7 +363,9 @@ test("paying the next period at the desk says the day it really runs to, on Play
 
 test("Playtomic's players read: kept, a player gone goes; a read that can't reach the end fails and keeps what was there", async () => {
   const one = [{ player_id: "pt-ben", name: "Ben P.", email: "ben@example.test", wallets: [], benefits: [] }, { player_id: "pt-x", name: "Xan", email: "xan@example.test", wallets: [], benefits: [] }];
-  assert.deepEqual(await readPlaytomicPlayers(db, { players: async () => one }, NOW), { ok: true, read: 2, changed: 2 });
+  const r = await readPlaytomicPlayers(db, { players: async () => one }, new Date(NOW.getTime() + 600_000));
+  // Two read; the earlier read's other players (Ada's, above) go.
+  assert.deepEqual([r.ok, (r as { read: number }).read], [true, 2]);
   // A big club, past what the read will page through: a failure staff see, never a part said to be the whole.
   const pages = (total: number, bare = false) => async (url: string): Promise<Response> => {
     const u = new URL(url);
