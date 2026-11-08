@@ -315,10 +315,10 @@ test("once the owner says the wallets are being set to zero, a run only brings c
   assert.equal(asked.status, "awaiting_approval");
   await run(db, "credit.brought_zeroing", {}, owner, opts);
   // The manager's ask is done with it, and approving it later says so, never moving when the zeroing started.
-  const since = (await db.selectFrom("club").select("brought_zeroing_at").executeTakeFirstOrThrow()).brought_zeroing_at!;
+  const since = (await db.selectFrom("move_in").select("brought_zeroing_at").executeTakeFirstOrThrow()).brought_zeroing_at!;
   assert.equal((await db.selectFrom("action_run").select("status").where("id", "=", asked.runId).executeTakeFirstOrThrow()).status, "failed");
   await rejects(approve(db, asked.runId, owner, { now: new Date(NOW.getTime() + 60_000) }), "error.ask_settled");
-  assert.equal((await db.selectFrom("club").select("brought_zeroing_at").executeTakeFirstOrThrow()).brought_zeroing_at!.toISOString(), since.toISOString());
+  assert.equal((await db.selectFrom("move_in").select("brought_zeroing_at").executeTakeFirstOrThrow()).brought_zeroing_at!.toISOString(), since.toISOString());
   const zero = await upload("Name,Email,Wallet\nDee,dee@example.test,0\nIvy,ivy@example.test,4");
   await rejects(plan(db, "credit.bring_in", { ...zero, take_back: true }, owner, opts), "error.brought_zeroing_take_back");
   const s = (await plan(db, "credit.bring_in", zero, owner, opts)).plan.summary.en;
@@ -417,7 +417,7 @@ test("Playtomic's players read: kept, a player gone goes; a read that can't reac
   const failed = await readPlaytomicPlayers(db, { players: () => big.players(3) }, NOW);
   assert.equal(failed.ok, false);
   assert.deepEqual((await db.selectFrom("playtomic_player").select("player_id").orderBy("player_id").execute()).map((x) => x.player_id), ["pt-ben", "pt-x"]);
-  assert.match((await db.selectFrom("club").select("playtomic_players_error").executeTakeFirstOrThrow()).playtomic_players_error ?? "", /more than 3 pages/);
+  assert.match((await db.selectFrom("move_in").select("playtomic_players_error").executeTakeFirstOrThrow()).playtomic_players_error ?? "", /more than 3 pages/);
 });
 
 test("a member's download has their Playtomic record and credit; deleted, the record and uploads naming them go, and a later read doesn't bring them back", async () => {

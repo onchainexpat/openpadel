@@ -4709,5 +4709,11 @@ export const en = {
   "plan.field_yes": "{field} (yes)",
   "plan.field_no": "{field} (no)",
   "plan.value_none": "nothing",
+  "plan.undo_fields": "Undo: {fields}.",
+  "plan.field_back": "{field} goes back to {value}",
+  "plan.field_back_yes": "{field} goes back to yes",
+  "plan.field_back_no": "{field} goes back to no",
+  "plan.field_back_plain": "{field} goes back to what it was",
+  "plan.field_back_none": "{field} goes back to nothing",
   "error.ask_out_of_date": "Out of date: what it asked for has changed since, so it can't be done as asked. Ask again if it's still wanted.",
 } as const;

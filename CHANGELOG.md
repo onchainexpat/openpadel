@@ -108,6 +108,16 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 - **A club setting's preview said only which setting changed** ("Change the legal name."). It says what to now: "the
   legal name to Kestrel Padel LLC", "whether members book courts in the app (yes)".
 - **The Moving in page lost who uploaded the export** ("by -") and how many deleted members it left out.
+- **Front desk kept to one location couldn't add a person** ("your role doesn't cover this location"), though the
+  button showed and the role allows it. A person belongs to no location, so a desk role kept to one now adds people,
+  tags and untags them, adds a junior, lets a held-back address through again and sends a receipt again (one from
+  another location stays that location's). In 0.4.0 too.
+- **A change to the club's details couldn't be undone once the move-in from Playtomic had done anything** ("something
+  has changed it since"). Its runs, the wallets being zeroed and every read of Playtomic's players wrote to the
+  club's row, so each looked like a change to the club's details, and it also put a manager's waiting ask to change
+  one out of date. The move-in keeps its state in a row of its own now (migration 110).
+- **An undo's preview of the club's details named no values** ("Undo: Change the club's details"). It says what goes
+  back: "Undo: the legal name goes back to Kestrel Padel Co."
 - **A Playtomic take-back could reach a member's own refund or gift card.** What they had spent here was counted
   against credit that wasn't card money first, so a cash refund given as credit, or a gift card bought in cash, could
   count as spent and leave Playtomic's credit whole to take back. Now what they spend counts against Playtomic's

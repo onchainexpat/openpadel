@@ -102,7 +102,7 @@ export const emailReport = defineAction({
 /** The desk clears it, once the member says the address works (or it's been fixed at their end): email goes to it
  *  again, until the next report. Changing the member's address needs nothing of this: a new address has no report. */
 export const emailUnsuppress = defineAction({
-  name: "person.email_unsuppress", version: 1,
+  name: "person.email_unsuppress", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid() }),
   async plan(ctx, i) {
     const { row: p, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");

@@ -210,14 +210,16 @@ export const receiptIssue = defineAction({
 
 /** Staff send a receipt again, by email, to the person it's for (a lost email, a new address). */
 export const receiptResend = defineAction({
-  name: "receipt.resend", version: 1,
+  name: "receipt.resend", version: 1, clubWide: true,
   input: z.object({ receipt_id: z.uuid() }),
   async plan(ctx, i) {
-    const r = await ctx.db.selectFrom("receipt").innerJoin("person", "person.id", "receipt.person_id").select(["receipt.number", "receipt.person_id", "person.display_name", "person.email"])
+    const r = await ctx.db.selectFrom("receipt").innerJoin("person", "person.id", "receipt.person_id").select(["receipt.number", "receipt.person_id", "receipt.location_id", "person.display_name", "person.email"])
       .where("receipt.id", "=", i.receipt_id).executeTakeFirst();
     if (!r) throw new KumiError("error.not_found", { thing: both("thing.receipt") }, 404);
     if (!r.email) throw new KumiError("error.receipt_no_email", { name: r.display_name });
-    return { title: both("action.receipt.resend"), summary: both("plan.receipt.resend", { number: receiptNo(r.number), name: r.display_name, email: r.email }), reads: [], undo: { kind: "none" } };
+    return { title: both("action.receipt.resend"), summary: both("plan.receipt.resend", { number: receiptNo(r.number), name: r.display_name, email: r.email }), reads: [],
+      // A receipt from one place is that place's; one for something of no place (a membership, a gift card) anyone's at the desk.
+      locationId: r.location_id, undo: { kind: "none" } };
   },
   async apply(ctx, i) {
     await ctx.emit("receipt.resent", { receipt_id: i.receipt_id, by: ctx.actor.personId });

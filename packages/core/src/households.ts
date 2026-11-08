@@ -102,7 +102,7 @@ async function adultRow(ctx: PlanCtx, personId: string) {
 }
 
 export const householdAddJunior = defineAction({
-  name: "household.add_junior", version: 1,
+  name: "household.add_junior", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid(), display_name: nameInput(80), birth_year: z.number().check(z.int()) }),
   async plan(ctx, i) {
     const { hh } = await adultRow(ctx, i.person_id);

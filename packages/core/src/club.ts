@@ -2,7 +2,7 @@
 import { sql } from "kysely";
 import { erasedMatcher, markRejoined } from "./playtomic_erased.ts";
 import * as z from "zod/mini";
-import { both, capFor, currencyProblem, money, setClubFormat, type Key, type Text } from "@kumi/i18n";
+import { both, capFor, currencyProblem, en, money, setClubFormat, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { KumiError } from "./errors.ts";
 import type { Db, Trx } from "./db.ts";
@@ -27,17 +27,26 @@ export const ROLE_KEYS = ["owner", "manager", "front_desk", "coach", "accountant
 // A built-in role (ROLE_KEYS) or one the club made (custom_...).
 const roleKey = z.string().check(z.minLength(1), z.maxLength(40));
 
+/** How a field and its value are said: going to it ("the legal name to ..."), or going back ("the legal name goes
+ *  back to ..."), with the words for a yes-or-no, a value not worth reading out, and an empty one. */
+type Says = { to: Key; yes: Key; no: Key; plain?: Key; none?: Key };
+const FORWARD: Says = { to: "plan.field_to", yes: "plan.field_yes", no: "plan.field_no" };
+const BACK: Says = { to: "plan.field_back", yes: "plan.field_back_yes", no: "plan.field_back_no", plain: "plan.field_back_plain", none: "plan.field_back_none" };
+
 /** "the name and the time zone", in each language. */
-function fieldList(fields: string[], values?: Record<string, unknown>, currency = "USD"): Text {
+function fieldList(fields: string[], values?: Record<string, unknown>, currency = "USD", says = FORWARD): Text {
   const parts = fields.map((f) => {
     const name = both(`field.${f}` as Key), raw = values?.[f];
     // A yes-or-no setting reads "whether members book courts in the app (yes)"; the rest "the legal name to ...".
-    if (values && typeof raw === "boolean") return both(raw ? "plan.field_yes" : "plan.field_no", { field: name });
+    if (values && typeof raw === "boolean") return both(raw ? says.yes : says.no, { field: name });
+    if (values && says.none && (raw === null || raw === "")) return both(says.none, { field: name });
     const v = values ? shownValue(f, raw, currency) : null;
-    return v ? both("plan.field_to", { field: name, value: v }) : name;
+    return v ? both(says.to, { field: name, value: v }) : says.plain ? both(says.plain, { field: name }) : name;
   });
   return { en: parts.map((p) => p.en).join(", "), es: parts.map((p) => p.es).join(", ") };
 }
+/** A sentence ends once, even where the value it ends on has its own full stop ("Kestrel Padel Co."). */
+const endOnce = (t: Text): Text => ({ en: t.en.replace(/\.\.$/, "."), es: t.es.replace(/\.\.$/, ".") });
 /** What a club setting changes to, in words for its preview ("the legal name to Kestrel Padel LLC"), or null where a
  *  value isn't worth reading out (a long text, the other language's words, a code nobody reads). */
 function shownValue(field: string, v: unknown, currency: string): Text | string | null {
@@ -152,9 +161,18 @@ export const clubUpdate = defineAction({
     const cur = (i.currency ?? row.currency).toUpperCase();
     if (i.gift_card_max_cents !== undefined && i.gift_card_max_cents > capFor(500000, cur)) throw new KumiError("error.amount_range", { min: money(capFor(100, cur), "en", cur), max: money(capFor(500000, cur), "en", cur) });
     // What each changes to, so whoever says yes reads the new value, not only which setting.
-    const summary = both("plan.club.update", { fields: fieldList(fields, i as Record<string, unknown>, cur) });
+    const summary = endOnce(both("plan.club.update", { fields: fieldList(fields, i as Record<string, unknown>, cur) }));
     return { title: both("action.club.update"), summary: pausing ? { en: `${summary.en} ${both("plan.club.weekly_pause", { count: pausing }).en}`, es: `${summary.es} ${both("plan.club.weekly_pause", { count: pausing }).es}` } : summary,
       reads: [read], undo: { kind: "reversible" }, details: { fields } };
+  },
+  // Its undo says what goes back, as the change said what it changed to: "the legal name goes back to Kestrel Padel Co.".
+  async undoSummary(changes) {
+    const c = changes.find((x) => x.entity === "club" && x.op === "update");
+    if (!c?.before) return null;
+    const before = c.before as Record<string, unknown>, after = c.after as Record<string, unknown>;
+    const fields = Object.keys(after).filter((k) => `field.${k}` in en && JSON.stringify(before[k]) !== JSON.stringify(after[k]));
+    if (!fields.length) return null;
+    return endOnce(both("plan.undo_fields", { fields: fieldList(fields, before, String(before.currency ?? "USD"), BACK) }));
   },
   async apply(ctx, i) {
     const { translations, ...rest } = i;
@@ -210,7 +228,7 @@ export const locationUpdate = defineAction({
 
 /** Staff add someone: a member by default. Signing in later is by an emailed code to this address. */
 export const personCreate = defineAction({
-  name: "person.create", version: 1,
+  name: "person.create", version: 1, clubWide: true,
   input: z.object({ display_name: nameInput(), email: z.optional(z.email()), locale: z.optional(lang) }),
   async plan(ctx, i) {
     const email = i.email?.trim().toLowerCase();

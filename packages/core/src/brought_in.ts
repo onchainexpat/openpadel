@@ -94,7 +94,7 @@ async function playersFrom(db: Db | Trx, i: { source: "playtomic" | "file"; uplo
     const from = both("plan.movein_from_file", { file: u.file_name || "CSV", name: u.display_name ?? "-", when: whenText(u.at, tz) });
     return { players: u.rows as BroughtPlayer[], readAt: u.at, columns: u.wallet_columns as { ref: string; name: string }[], from, erased: u.erased_count };
   }
-  const club = await db.selectFrom("club").select(["playtomic_players_read_at", "playtomic_players_erased"]).executeTakeFirstOrThrow();
+  const club = await db.selectFrom("move_in").select(["playtomic_players_read_at", "playtomic_players_erased"]).executeTakeFirstOrThrow();
   if (!club.playtomic_players_read_at) throw new KumiError("error.playtomic_players_not_read");
   const rows = await db.selectFrom("playtomic_player").selectAll().orderBy("name").execute();
   return { players: rows.map((r) => fromStored(r, tz)), readAt: club.playtomic_players_read_at, columns: null,
@@ -210,7 +210,7 @@ export const playtomicPlayersStore = defineAction({
     return { title: both("action.playtomic.players_store"), summary: both("action.playtomic.players_store"), reads: [], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
-    if (i.error) { await ctx.update("club", "singleton", { playtomic_players_error: i.error, playtomic_players_wanted_at: null }); return null; }
+    if (i.error) { await ctx.update("move_in", "singleton", { playtomic_players_error: i.error, playtomic_players_wanted_at: null }); return null; }
     for (const p of i.upserts)
       await ctx.trx.insertInto("playtomic_player").values({ ...p, wallets: JSON.stringify(p.wallets), benefits: JSON.stringify(p.benefits), read_at: ctx.now } as any)
         .onConflict((oc) => oc.column("player_id").doUpdateSet({ name: p.name, email: p.email, phone: p.phone, wallets: JSON.stringify(p.wallets), benefits: JSON.stringify(p.benefits), read_at: ctx.now } as any)).execute();
@@ -221,7 +221,7 @@ export const playtomicPlayersStore = defineAction({
     }
     if (i.done) {
       const seq = (await sql<{ n: string }>`SELECT nextval('brought_seq')::text AS n`.execute(ctx.trx)).rows[0]!.n;
-      await ctx.update("club", "singleton", { playtomic_players_read_at: ctx.now, playtomic_players_read_seq: seq, playtomic_players_error: null, playtomic_players_wanted_at: null, playtomic_players_erased: i.erased ?? 0 });
+      await ctx.update("move_in", "singleton", { playtomic_players_read_at: ctx.now, playtomic_players_read_seq: seq, playtomic_players_error: null, playtomic_players_wanted_at: null, playtomic_players_erased: i.erased ?? 0 });
     }
     return { kept: i.upserts.length, removed: i.deletes.length };
   },
@@ -235,13 +235,13 @@ export const playtomicReadPlayers = defineAction({
     return { title: both("action.playtomic.read_players"), summary: both("plan.playtomic.read_players"), reads: [], undo: { kind: "none" } };
   },
   async apply(ctx) {
-    await ctx.update("club", "singleton", { playtomic_players_wanted_at: ctx.now, playtomic_players_error: null });
+    await ctx.update("move_in", "singleton", { playtomic_players_wanted_at: ctx.now, playtomic_players_error: null });
     return null;
   },
 });
 /** Whether someone asked for Playtomic's players and they haven't been read since. */
 export async function playersWanted(db: Db): Promise<boolean> {
-  const c = await db.selectFrom("club").select(["playtomic_players_wanted_at", "playtomic_players_read_at"]).executeTakeFirst();
+  const c = await db.selectFrom("move_in").select(["playtomic_players_wanted_at", "playtomic_players_read_at"]).executeTakeFirst();
   return Boolean(c?.playtomic_players_wanted_at && (!c.playtomic_players_read_at || c.playtomic_players_read_at < c.playtomic_players_wanted_at));
 }
 
@@ -273,7 +273,8 @@ function identityKeys(salt: string, p: { playtomic_id?: string; email?: string }
 }
 
 async function creditPlan(db: Db | Trx, i: { source: "playtomic" | "file"; upload_id?: string; sha256?: string; columns?: string[]; take_back?: boolean; cap?: number }): Promise<CreditPlan & { from: Text }> {
-  const club = await db.selectFrom("club").select(["currency", "time_zone", "brought_wallets_zeroed_at", "brought_zeroing_at", "brought_wallets_at", "brought_run_seq", "brought_run_source", "playtomic_players_read_seq", "erase_salt"]).executeTakeFirstOrThrow();
+  const club = { ...(await db.selectFrom("club").select(["currency", "time_zone", "erase_salt"]).executeTakeFirstOrThrow()),
+    ...(await db.selectFrom("move_in").select(["brought_wallets_zeroed_at", "brought_zeroing_at", "brought_wallets_at", "brought_run_seq", "brought_run_source", "playtomic_players_read_seq"]).executeTakeFirstOrThrow()) };
   if (club.brought_wallets_zeroed_at) throw new KumiError("error.brought_wallets_closed", { date: dayText(localDate(club.brought_wallets_zeroed_at, club.time_zone)) });
   // Once the owner says the wallets are being set to zero in Playtomic, every read shows them emptying: credit only
   // comes in from then, never back out.
@@ -396,7 +397,7 @@ export const creditBringIn = defineAction({
   async apply(ctx, i, plan) {
     const d = plan.details as CreditPlan;
     if (!d.people.length) throw new KumiError("error.nothing_to_do");
-    const club = await ctx.trx.selectFrom("club").select(["brought_wallets_zeroed_at", "brought_zeroing_at", "brought_run_seq", "brought_run_source", "playtomic_players_read_seq"]).forUpdate().executeTakeFirstOrThrow();
+    const club = await ctx.trx.selectFrom("move_in").select(["brought_wallets_zeroed_at", "brought_zeroing_at", "brought_run_seq", "brought_run_source", "playtomic_players_read_seq"]).forUpdate().executeTakeFirstOrThrow();
     if (club.brought_wallets_zeroed_at || (club.brought_zeroing_at && d.taken_back)) throw new KumiError("error.changed");
     if (await staleSource(ctx.trx, i, club)) throw new KumiError("error.changed");
     const first = !(await ctx.trx.selectFrom("brought_credit").select("id").where("system", "=", "playtomic").executeTakeFirst());
@@ -424,7 +425,7 @@ export const creditBringIn = defineAction({
     }
     // This run's turn, and what it read: anything read before it is out of turn from now on.
     const seq = (await sql<{ n: string }>`SELECT nextval('brought_seq')::text AS n`.execute(ctx.trx)).rows[0]!.n;
-    await ctx.update("club", "singleton", { brought_wallets_at: ctx.now, brought_run_seq: seq, brought_run_source: i.source === "file" ? i.upload_id! : "playtomic" });
+    await ctx.update("move_in", "singleton", { brought_wallets_at: ctx.now, brought_run_seq: seq, brought_run_source: i.source === "file" ? i.upload_id! : "playtomic" });
     await settleAsks(ctx, "credit.bring_in", async (input) => (await creditPlan(ctx.trx, input)).people.length > 0);
     // The owner and managers hear once, on Today, to zero the wallets in Playtomic.
     if (first) await ctx.emit("credit.brought_in", { people: d.people.length, cents: d.total });
@@ -437,15 +438,15 @@ export const creditBroughtZeroing = defineAction({
   name: "credit.brought_zeroing", version: 1, clubWide: true,
   input: z.object({}),
   async plan(ctx) {
-    const c = await ctx.db.selectFrom("club").select(["brought_wallets_at", "brought_zeroing_at", "brought_wallets_zeroed_at"]).executeTakeFirstOrThrow();
+    const c = await ctx.db.selectFrom("move_in").select(["brought_wallets_at", "brought_zeroing_at", "brought_wallets_zeroed_at"]).executeTakeFirstOrThrow();
     if (!c.brought_wallets_at) throw new KumiError("error.brought_nothing_yet");
     if (c.brought_zeroing_at || c.brought_wallets_zeroed_at) throw new KumiError("error.already_done");
     return { title: both("action.credit.brought_zeroing"), summary: both("plan.credit.brought_zeroing"), reads: [], undo: { kind: "none" } };
   },
   async apply(ctx) {
     // Said already (an ask approved after the owner said it themselves): the time it started stays as it was.
-    const c = await ctx.trx.selectFrom("club").select(["brought_zeroing_at", "brought_wallets_zeroed_at"]).forUpdate().executeTakeFirstOrThrow();
-    if (!c.brought_zeroing_at && !c.brought_wallets_zeroed_at) await ctx.update("club", "singleton", { brought_zeroing_at: ctx.now });
+    const c = await ctx.trx.selectFrom("move_in").select(["brought_zeroing_at", "brought_wallets_zeroed_at"]).forUpdate().executeTakeFirstOrThrow();
+    if (!c.brought_zeroing_at && !c.brought_wallets_zeroed_at) await ctx.update("move_in", "singleton", { brought_zeroing_at: ctx.now });
     await settleAsks(ctx, "credit.brought_zeroing", async () => false);
     return c.brought_zeroing_at ? { already: true } : null;
   },
@@ -456,15 +457,15 @@ export const creditBroughtZeroed = defineAction({
   name: "credit.brought_zeroed", version: 1, clubWide: true,
   input: z.object({}),
   async plan(ctx) {
-    const c = await ctx.db.selectFrom("club").select(["brought_wallets_at", "brought_wallets_zeroed_at"]).executeTakeFirstOrThrow();
+    const c = await ctx.db.selectFrom("move_in").select(["brought_wallets_at", "brought_wallets_zeroed_at"]).executeTakeFirstOrThrow();
     if (!c.brought_wallets_at) throw new KumiError("error.brought_nothing_yet");
     if (c.brought_wallets_zeroed_at) throw new KumiError("error.already_done");
     return { title: both("action.credit.brought_zeroed"), summary: both("plan.credit.brought_zeroed"), reads: [], undo: { kind: "none" } };
   },
   async apply(ctx) {
-    const c = await ctx.trx.selectFrom("club").select("brought_wallets_zeroed_at").forUpdate().executeTakeFirstOrThrow();
+    const c = await ctx.trx.selectFrom("move_in").select("brought_wallets_zeroed_at").forUpdate().executeTakeFirstOrThrow();
     if (c.brought_wallets_zeroed_at) { await settleAsks(ctx, "credit.brought_zeroed", async () => false); return { already: true }; }
-    await ctx.update("club", "singleton", { brought_wallets_zeroed_at: ctx.now, brought_wallets_zeroed_by: ctx.actor.personId ?? null });
+    await ctx.update("move_in", "singleton", { brought_wallets_zeroed_at: ctx.now, brought_wallets_zeroed_by: ctx.actor.personId ?? null });
     // Asks to say it, or to say the zeroing had started, are done with it.
     await settleAsks(ctx, "credit.brought_zeroed", async () => false);
     await settleAsks(ctx, "credit.brought_zeroing", async () => false);
@@ -478,7 +479,8 @@ export const BROUGHT_ALERT = "playtomic_wallets_staff";
 
 /** What the move-in has done so far, for the staff page. */
 export async function moveInStatus(db: Db | Trx) {
-  const c = await db.selectFrom("club").select(["brought_wallets_at", "brought_wallets_zeroed_at", "brought_zeroing_at", "currency", "playtomic_players_read_at", "playtomic_players_wanted_at", "playtomic_players_error", "playtomic_players_erased"]).executeTakeFirstOrThrow();
+  const c = { ...(await db.selectFrom("club").select("currency").executeTakeFirstOrThrow()),
+    ...(await db.selectFrom("move_in").select(["brought_wallets_at", "brought_wallets_zeroed_at", "brought_zeroing_at", "playtomic_players_read_at", "playtomic_players_wanted_at", "playtomic_players_error", "playtomic_players_erased"]).executeTakeFirstOrThrow()) };
   const credit = await db.selectFrom("brought_credit").select([sql<string>`coalesce(sum(cents), 0)`.as("c"), sql<string>`count(*) FILTER (WHERE cents > 0)`.as("n")]).executeTakeFirstOrThrow();
   const kept = await db.selectFrom("membership").select(sql<string>`count(*)`.as("n")).where("brought_from", "=", "playtomic").executeTakeFirstOrThrow();
   const players = await db.selectFrom("playtomic_player").select(sql<string>`count(*)`.as("n")).executeTakeFirstOrThrow();

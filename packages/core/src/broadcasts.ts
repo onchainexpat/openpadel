@@ -277,7 +277,7 @@ export const tagUpdate = defineAction({
 });
 
 export const personTag = defineAction({
-  name: "person.tag", version: 1,
+  name: "person.tag", version: 1, clubWide: true,
   // An existing tag, or a new one by name (made on the spot).
   input: z.object({ person_id: z.uuid(), tag_id: z.optional(z.uuid()), name: z.optional(tagName) }),
   async plan(ctx, i) {
@@ -304,7 +304,7 @@ export const personTag = defineAction({
 });
 
 export const personUntag = defineAction({
-  name: "person.untag", version: 1,
+  name: "person.untag", version: 1, clubWide: true,
   input: z.object({ person_id: z.uuid(), tag_id: z.uuid() }),
   async plan(ctx, i) {
     const row = await ctx.db.selectFrom("person_tag").innerJoin("tag", "tag.id", "person_tag.tag_id").select(["person_tag.id", "tag.name"])

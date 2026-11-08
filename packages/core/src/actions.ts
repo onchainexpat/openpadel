@@ -51,6 +51,9 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   internal?: boolean;
   /** Once the person has a passkey, this needs a passkey sign-in, not an emailed code. */
   strongAuth?: boolean;
+  /** What its undo's preview says, from what the change wrote (its entity_change rows), where that says more than
+   *  "Undo: " and its title: what goes back, and to what. */
+  undoSummary?: (changes: { entity: string; op: string; before: unknown; after: unknown }[]) => Promise<Text | null> | Text | null;
   /** What it changes belongs to no location unless the plan names one (a membership): a role kept to one location
    *  may do it too (permissions.ts, Subject.clubWide). */
   clubWide?: boolean;
@@ -151,6 +154,7 @@ const ENTITIES = {
   credit_payout: { table: "credit_payout", key: "id", retire: null },
   brought_credit: { table: "brought_credit", key: "id", retire: null },
   brought_identity: { table: "brought_identity", key: "key_hash", retire: null },
+  move_in: { table: "move_in", key: "singleton", retire: null },
   playtomic_upload: { table: "playtomic_upload", key: "id", retire: null },
   gift_card: { table: "gift_card", key: "id", retire: null },
   pass_product: { table: "pass_product", key: "id", retire: { on_sale: false } },
@@ -608,7 +612,7 @@ export const undoAction = defineAction({
     }
     return {
       title: both("action.action.undo"),
-      summary: both("plan.undo", { title: op.title }),
+      summary: (await getAction(original.action).undoSummary?.(changes)) ?? both("plan.undo", { title: op.title }),
       reads, locationId: original.location_id, ownerIds: op.ownerIds ?? [],
       undo: { kind: "none", note: both("reason.undo_final") },
       details: { undoes: input.run_id, changes: changes.length },

@@ -4710,5 +4710,11 @@ export const es: { [K in keyof typeof en]: Message } = {
   "plan.field_yes": "{field} (sí)",
   "plan.field_no": "{field} (no)",
   "plan.value_none": "nada",
+  "plan.undo_fields": "Deshacer: {fields}.",
+  "plan.field_back": "{field} vuelve a {value}",
+  "plan.field_back_yes": "{field} vuelve a sí",
+  "plan.field_back_no": "{field} vuelve a no",
+  "plan.field_back_plain": "{field} vuelve a como estaba",
+  "plan.field_back_none": "{field} vuelve a quedar en blanco",
   "error.ask_out_of_date": "Desactualizado: lo que se pidió cambió desde entonces, así que no se puede hacer como se pidió. Vuelve a pedirlo si todavía hace falta.",
 };
