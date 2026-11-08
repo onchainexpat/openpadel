@@ -247,7 +247,7 @@ function PersonPlaytomic({ rows }: { rows: NonNullable<P["playtomic"]> }) {
   );
 }
 
-type ReceiptRow = { id: string; number: string; kind: "payment" | "refund"; total: string; when: string; what: string; more: number };
+type ReceiptRow = { id: string; number: string; kind: "payment" | "refund"; total: string; when: string; what: string; more: number; for_name: string | null; paid_by: string | null };
 /** Their receipts, for whoever takes or sees the club's money (the server says who): open one to print it, or
  *  email it to them again. Nothing shows for anyone else. */
 function PersonReceipts({ personId, preview }: { personId: string; preview: (action: string, input: unknown) => Promise<void> | void }) {
@@ -261,7 +261,9 @@ function PersonReceipts({ personId, preview }: { personId: string; preview: (act
       {rows.length === 0 ? <p class="meta">{t("ui.receipts_none")}</p> : (
         <ul class="plain">{rows.map((r) => (
           <li class="row"><button class="link" onClick={() => show(r.id)}>{r.number}</button>
-            <span class="meta">{[r.when, `${r.what}${r.more ? ` ${t("ui.receipt_more", { count: r.more })}` : ""}`, `${r.kind === "refund" ? `${t("ui.receipt_refund_tag")} ` : ""}${r.total}`].join(" · ")}</span>
+            <span class="meta">{[r.when, `${r.what}${r.more ? ` ${t("ui.receipt_more", { count: r.more })}` : ""}`,
+              ...(r.for_name ? [t("ui.receipt_row_for", { name: r.for_name })] : []), ...(r.paid_by ? [t("ui.receipt_paid_by", { name: r.paid_by })] : []),
+              `${r.kind === "refund" ? `${t("ui.receipt_refund_tag")} ` : ""}${r.total}`].join(" · ")}</span>
             <button class="small" onClick={() => preview("receipt.resend", { receipt_id: r.id })}>{t("ui.receipt_resend")}</button></li>
         ))}</ul>
       )}

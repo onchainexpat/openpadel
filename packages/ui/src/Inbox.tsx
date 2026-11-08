@@ -23,7 +23,8 @@ export function Inbox() {
         <section class={m.read_at ? "card" : "card unread"}>
           <p><strong>{m.subject}</strong> <span class="meta">{shortTime(m.created_at)}</span></p>
           <p>{m.body}</p>
-          {m.link && <p><a href={m.link} download={isFile(m.link) || undefined}>{t("ui.inbox_open")}</a></p>}
+          {/* "small": a thumb's 44 px on a touch screen (styles.css), and a plain link otherwise. */}
+          {m.link && <p><a class="small" href={m.link} download={isFile(m.link) || undefined}>{t("ui.inbox_open")}</a></p>}
         </section>
       ))}
     </main>

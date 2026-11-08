@@ -29,7 +29,8 @@ function srcText(src: Src, tz: string): Text {
     ...(src.off !== undefined ? { off: { en: money(src.off, "en"), es: money(src.off, "es") } } : {}), ...(src.inner ? { what: srcText(src.inner, tz) } : {}) });
 }
 type Paid = { id: string; person_id: string; amount_cents: number; method: string; booking_player_id: string | null; enrolment_id: string | null; membership_plan_id: string | null;
-  membership_id: string | null; membership_member_id: string | null; family_card_id: string | null; discount_cents?: number; gift_card_id?: string | null; pass_id?: string | null };
+  membership_id: string | null; membership_member_id: string | null; family_card_id: string | null; discount_cents?: number; gift_card_id?: string | null; pass_id?: string | null;
+  paid_by?: string | null };
 
 /** A date and time with the year, in the club's time: a receipt is kept. */
 // One formatter per language, zone and shape, kept (as clock.ts keeps its own): making one costs about 60 µs, and a
@@ -144,7 +145,7 @@ async function lineWithout(db: Db | Trx, p: Paid, tz: string): Promise<Line & { 
 }
 
 const PAID_COLUMNS = ["id", "person_id", "amount_cents", "method", "booking_player_id", "enrolment_id", "membership_plan_id", "membership_id", "membership_member_id", "family_card_id",
-  "group_id", "provider_ref", "discount_cents", "gift_card_id", "pass_id"] as const;
+  "group_id", "provider_ref", "discount_cents", "gift_card_id", "pass_id", "paid_by"] as const;
 
 /** The tax inside a payment still to pay, for the pay sheet, when the club's prices include tax: what its receipt will
  *  say ("Of which VAT (21%): €4.17"), the same way (lineOf, at the rate the booking was sold). Several paid together
@@ -162,9 +163,11 @@ export async function includedTaxOf(db: Db | Trx, paymentId: string): Promise<{ 
   return { cents, label: taxWord(f.tax_label, true), rate: f.tax_bp ? rateText(f.tax_bp) : null };
 }
 
-/** Who a payment's receipt is for: whoever paid, which for a kid's charge on the family card is the parent who
- *  saved the card (the kid is named on it). */
+/** Who a payment's receipt is for: whoever paid, naming the kid when it was a parent. A parent who paid their junior's
+ *  place by card (paid_by: who opened the card form), or a kid's charge on the family card (the parent who saved the
+ *  card). The payment stays the kid's, as the place is; credit given back goes to the same parent (creditee). */
 async function payerOf(db: Db | Trx, p: Paid): Promise<{ to: string; forPerson: string | null }> {
+  if (p.paid_by && p.paid_by !== p.person_id) return { to: p.paid_by, forPerson: p.person_id };
   if (!p.family_card_id) return { to: p.person_id, forPerson: null };
   const card = await db.selectFrom("family_card").select("saved_by").where("id", "=", p.family_card_id).executeTakeFirst();
   return card && card.saved_by !== p.person_id ? { to: card.saved_by, forPerson: p.person_id } : { to: p.person_id, forPerson: null };
@@ -321,14 +324,17 @@ export async function issueReceipts(db: Db, o: { card?: CardLookup; now?: Date; 
 
 /** Someone's receipts, newest first: theirs, and the ones for a kid they paid for. */
 export async function receiptsOf(db: Db | Trx, personId: string, o: { asStaff?: boolean } = {}) {
-  const rows = await db.selectFrom("receipt").select(["id", "number", "kind", "total_cents", "paid_at", "lines", "person_id", "for_person_id"])
-    .where((eb) => o.asStaff ? eb.or([eb("person_id", "=", personId), eb("for_person_id", "=", personId)]) : eb("person_id", "=", personId))
-    .orderBy("created_at", "desc").limit(200).execute();
+  const rows = await db.selectFrom("receipt").leftJoin("person as payer", "payer.id", "receipt.person_id").leftJoin("person as kid", "kid.id", "receipt.for_person_id")
+    .select(["receipt.id", "receipt.number", "receipt.kind", "receipt.total_cents", "receipt.paid_at", "receipt.lines", "receipt.person_id", "receipt.for_person_id", "payer.display_name as payer", "kid.display_name as kid"])
+    .where((eb) => o.asStaff ? eb.or([eb("receipt.person_id", "=", personId), eb("receipt.for_person_id", "=", personId)]) : eb("receipt.person_id", "=", personId))
+    .orderBy("receipt.created_at", "desc").limit(200).execute();
   const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone;
   return rows.map((r) => {
     const lines = r.lines as { what: Text; cents: number }[];
+    // A parent's receipt for their kid says whom it was for; on the kid's page (staff), who paid.
     return { id: r.id, number: receiptNo(r.number), kind: r.kind, total: usd(r.total_cents), when: { en: receiptDate(r.paid_at, "en", tz), es: receiptDate(r.paid_at, "es", tz) } as Text,
-      what: lines[0]?.what ?? NOTHING, more: Math.max(0, lines.length - 1) };
+      what: lines[0]?.what ?? NOTHING, more: Math.max(0, lines.length - 1),
+      for_name: r.for_person_id && r.person_id === personId ? r.kid ?? null : null, paid_by: r.for_person_id === personId ? r.payer ?? null : null };
   });
 }
 

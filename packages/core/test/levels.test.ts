@@ -117,7 +117,9 @@ test("a coach's floor holds, however the results go", async () => {
 test("replaying every event reproduces the ratings exactly, including after a corrected score", async () => {
   const t = await americano([["Vi", 3], ["Wes", 3.5], ["Xan", 2.5], ["Yu", 4], ["Zed", 3], ["Abe", 3], ["Bo", 3.5], ["Cal", 2.5]]);
   for (const g of t.games) await run(db, "game.score", { game_id: g.id, a: 15, b: 9 }, monica, await played(g.id));
-  await run(db, "level.set", { person_id: t.people[0]!, level: 3.2, reason: "Coach review" }, monica);
+  // A level they don't have already (b583f9a refuses that one): the draw is random, so 3.20 could be where the games left them.
+  const was = Number((await rating(t.people[0]!))!.level);
+  await run(db, "level.set", { person_id: t.people[0]!, level: was === 3.2 ? 3.3 : 3.2, reason: "Coach review" }, monica);
   const check = async () => {
     const replayed = await replay(db);
     for (const r of await db.selectFrom("rating").selectAll().execute()) {

@@ -20,6 +20,12 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   the parent who sent it.
 
 ### Fixed
+- **A parent who paid their junior's place by card didn't get the receipt (0.1.0 on).** It went to the junior: the
+  parents read "Mia: Your receipt from Kestrel Padel", its link opened nothing, it was in neither parent's Receipts,
+  and the club's receipts said "Paid by: Mia". It's the receipt of the parent who paid now, naming the junior, as a
+  charge on the family card already was. Receipts made before this update stay as they were.
+- Receipts lists say whom a parent's receipt was for ("for Leo"), and a junior's page in the staff app says who paid
+  ("paid by Pat Moss"). The inbox's Open link was a 37 by 19 px target on a phone; it's 44 px, like the other controls.
 - **A preview of a change to someone's level told a stranger about it, and a parent who'd left a family could still
   confirm one (0.1.0 on).** Asked for someone who isn't theirs or their junior's, asking for a review, moving a
   player's own level, and (0.4.0 on) bringing or taking away a level from another app answered with what stood in the

@@ -2,7 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { useRoute } from "preact-iso";
 import { api, lang, t, ReceiptSheet, type ReceiptView } from "@kumi/ui";
 
-type Row = { id: string; number: string; kind: "payment" | "refund"; total: string; when: string; what: string; more: number };
+type Row = { id: string; number: string; kind: "payment" | "refund"; total: string; when: string; what: string; more: number; for_name: string | null };   // for_name: a kid it was for
 
 /** Every receipt the member has: one for each payment that went through and each refund sent. */
 export function Receipts() {
@@ -16,7 +16,7 @@ export function Receipts() {
       <ul class="changes">{(rows ?? []).map((r) => (
         <li class="card" key={r.id}>
           <div class="summary"><a href={`/receipts/${r.id}`}>{r.what}{r.more ? ` ${t("ui.receipt_more", { count: r.more })}` : ""}</a></div>
-          <div class="meta">{r.when} · {r.number} · {r.kind === "refund" ? `${t("ui.receipt_refund_tag")} ` : ""}{r.total}</div>
+          <div class="meta">{r.when} · {r.number}{r.for_name ? ` · ${t("ui.receipt_row_for", { name: r.for_name })}` : ""} · {r.kind === "refund" ? `${t("ui.receipt_refund_tag")} ` : ""}{r.total}</div>
         </li>
       ))}</ul>
     </main>

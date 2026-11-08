@@ -18,7 +18,7 @@ export function BringLevel({ d, send, name }: { d: L; send: (input: Record<strin
   const Wrap = name ? "div" : "section", H = name ? "h3" : "h2";
   return (
     <Wrap class={name ? undefined : "card"}>
-      <H>{t("ui.bring_level_title")}</H>
+      <H>{name ? t("ui.bring_level_title_for", { name }) : t("ui.bring_level_title")}</H>
       <p class="meta">{name ? t("ui.bring_level_help_for", { name, games: d.games, line: d.line.toFixed(2) }) : t("ui.bring_level_help", { games: d.games, line: d.line.toFixed(2) })}</p>
       <label>{t("ui.level_app")}<select value={key} onChange={(e) => { setKey(e.currentTarget.value); setConf(""); }}>
         {d.platforms.map((x) => <option value={x.key}>{t(`level_source.${x.key}` as Key)}</option>)}

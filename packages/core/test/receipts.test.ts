@@ -121,6 +121,26 @@ test("a kid's charge on the family card is the receipt of the parent who saved t
   assert.equal((await receiptsOf(db, people.Dee!, { asStaff: true })).length, 1);   // but on their page for staff
 });
 
+test("a parent who pays their junior's place by card gets the receipt, naming the junior; the junior's page says who paid", async () => {
+  // Phone run 15: it went to the junior (no login), so the parents read "Mia: Your receipt..." and the link opened nothing.
+  const mia = ((await run(db, "household.add_junior", { person_id: people.Ben, display_name: "Mia", birth_year: 2016 }, as("Ben"), { now: NOW })).result as any).person_id as string;
+  people.Mia = mia;
+  const p = uuidv7();
+  await db.insertInto("payment").values({ id: p, person_id: mia, amount_cents: 2500, method: "card", provider: "test", provider_ref: null, status: "pending" } as any).execute();
+  await pay(p, "Ben");
+  assert.equal((await db.selectFrom("payment").select("paid_by").where("id", "=", p).executeTakeFirstOrThrow()).paid_by, people.Ben, "whoever opened the card form paid");
+  await issue(); await deliver();
+  const r = await db.selectFrom("receipt").select(["id", "person_id", "for_person_id"]).where("payment_id", "=", p).executeTakeFirstOrThrow();
+  assert.deepEqual([r.person_id, r.for_person_id], [people.Ben, mia]);
+  const email = (await emails("Ben", "receipt")).filter((m) => m.channel === "email").at(-1)!;
+  assert.match(email.subject, /^Your receipt from Kestrel Padel: \$25\.00$/, "Ben's own, not forwarded as Mia's");
+  assert.match(email.body, /\nFor Mia\n/);
+  assert.equal((await receiptsOf(db, people.Ben!)).find((x) => x.id === r.id)?.for_name, "Mia");
+  assert.equal((await receiptsOf(db, mia)).length, 0, "not the junior's own");
+  const onHerPage = await receiptsOf(db, mia, { asStaff: true });
+  assert.deepEqual(onHerPage.map((x) => [x.paid_by, x.for_name]), [["Ben", null]]);
+});
+
 test("payments from before receipts began get none; staff with the club's money send one again, by email only", async () => {
   const old = uuidv7();
   await db.insertInto("payment").values({ id: old, person_id: people.Cal!, amount_cents: 1000, method: "cash", provider: "none", provider_ref: null, status: "succeeded", created_at: new Date("2020-01-01T00:00:00Z") } as any).execute();
