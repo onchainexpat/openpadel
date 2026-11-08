@@ -571,8 +571,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   /** Whether a plan has member prices on courts. */
   const planPerks = async (planId: string) => Boolean(await db.selectFrom("price_rule").select("id").where("active", "=", true).where(sql<boolean>`${planId} = ANY(plan_ids)`).executeTakeFirst());
 
+  // Their own level, or (?for=) a junior's they manage: a parent brings a junior's level from another app (Family).
   app.get("/my/level", async (c) => {
-    const pid = who(c), l = lang(c);
+    const pid = await forWhom(c), l = lang(c);
     const rating = await db.selectFrom("rating").select(["level", "provisional", "floor", "rated_games"]).where("person_id", "=", pid).where("sport", "=", "padel").executeTakeFirst();
     const events = await db.selectFrom("rating_event").select(["at", "kind", "level_after", "explanation"]).where("person_id", "=", pid).orderBy("id", "desc").limit(30).execute();
     const imports = await importOptions(db, pid);

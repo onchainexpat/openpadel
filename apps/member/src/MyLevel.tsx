@@ -3,21 +3,23 @@ import { api, lang, me, t, usePreview, clubTime } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 
 type Platform = { key: string; min: number; max: number; whole: boolean; conf: "reliability" | "matches" | "wpr" | "percent" | null; converts: boolean };
-type L = { rating: { level: string; provisional: boolean; floor: string | null; rated_games: number } | null; events: { at: string; explanation: string }[];
+export type L = { rating: { level: string; provisional: boolean; floor: string | null; rated_games: number } | null; events: { at: string; explanation: string }[];
   self_adjust: { can: boolean; used: number; games: number; played: number; max: number; floor: number | null };
   review: { open: { created_at: string; note: string | null; kind: string; claim: { platform: string } | null } | null; next_at: string | null; every: number };
   // A starting level brought from another app (level_import.ts), and what they can still do with it.
   import: { at: string; level: number; platform: string; explanation: string } | null; can_remove: boolean; can_claim: boolean; games: number; line: number; platforms: Platform[] };
 
-/** Their level on another app, as it shows there: the app, the number, and how sure the app says it is. */
-function BringLevel({ d, send }: { d: L; send: (input: Record<string, unknown>) => void }) {
+/** Their level on another app, as it shows there: the app, the number, and how sure the app says it is. With
+ *  `name`, a parent brings their junior's, inside the junior's level on Family. */
+export function BringLevel({ d, send, name }: { d: L; send: (input: Record<string, unknown>) => void; name?: string }) {
   const [key, setKey] = useState("playtomic"), [value, setValue] = useState(""), [conf, setConf] = useState("");
   const p = d.platforms.find((x) => x.key === key) ?? d.platforms[0]!;
   const confInput = p.conf === "wpr" ? { wpr: conf || undefined } : p.conf && conf !== "" ? { [p.conf]: Math.round(Number(conf)) } : {};
+  const Wrap = name ? "div" : "section", H = name ? "h3" : "h2";
   return (
-    <section class="card">
-      <h2>{t("ui.bring_level_title")}</h2>
-      <p class="meta">{t("ui.bring_level_help", { games: d.games, line: d.line.toFixed(2) })}</p>
+    <Wrap class={name ? undefined : "card"}>
+      <H>{t("ui.bring_level_title")}</H>
+      <p class="meta">{name ? t("ui.bring_level_help_for", { name, games: d.games, line: d.line.toFixed(2) }) : t("ui.bring_level_help", { games: d.games, line: d.line.toFixed(2) })}</p>
       <label>{t("ui.level_app")}<select value={key} onChange={(e) => { setKey(e.currentTarget.value); setConf(""); }}>
         {d.platforms.map((x) => <option value={x.key}>{t(`level_source.${x.key}` as Key)}</option>)}
       </select></label>
@@ -27,8 +29,8 @@ function BringLevel({ d, send }: { d: L; send: (input: Record<string, unknown>) 
         : p.conf && <label>{t(p.conf === "reliability" ? "ui.level_reliability" : p.conf === "matches" ? "ui.level_matches" : "ui.level_percent")}
           <input type="number" inputMode="numeric" min="0" max={p.conf === "matches" ? 100000 : 100} step="1" value={conf} onInput={(e) => setConf(e.currentTarget.value)} /></label>}
       <p class="meta">{t("ui.bring_level_no_photo")}</p>
-      <button disabled={value === ""} onClick={() => send({ platform: key, value: Number(value.replace(",", ".")), ...confInput })}>{t("ui.bring_level_send")}</button>
-    </section>
+      <button disabled={value === ""} onClick={() => send({ platform: key, value: Number(value.replace(",", ".")), ...confInput })}>{name ? t("ui.bring_level_send_for", { name }) : t("ui.bring_level_send")}</button>
+    </Wrap>
   );
 }
 

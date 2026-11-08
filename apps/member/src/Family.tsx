@@ -6,6 +6,8 @@
 import { useEffect, useState } from "preact/hooks";
 import { AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { loadFamily } from "./ForWhom.tsx";
+import { BringLevel, type L } from "./MyLevel.tsx";
+import type { Key } from "@kumi/i18n";
 import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { capFor, fromMajor, toMajor, formatLocale } from "@kumi/i18n/format";
 
@@ -32,6 +34,8 @@ function ParentFamily() {
   const [k, setK] = useState<Kids | null>(null), [kidLoginFor, setKidLoginFor] = useState<string | null>(null), [rulesFor, setRulesFor] = useState<string | null>(null);
   // A junior's data: downloaded, or their account deleted (only by a parent who alone manages them; the server says).
   const [dataFor, setDataFor] = useState<string | null>(null);
+  // A junior's level: where it stands, and one brought from another app while they're new here.
+  const [levelFor, setLevelFor] = useState<string | null>(null);
   const [paying, setPaying] = useState<{ id: string; cents: number; name: string } | "card" | null>(null), [note, setNote] = useState<string | null>(null), [provider, setProvider] = useState("test");
   const loadKids = () => api<Kids>("/my/kids").then(setK);
   const load = () => Promise.all([api<Page>("/my/household").then(setF), loadKids()]);
@@ -77,10 +81,12 @@ function ParentFamily() {
                 {kidOf(j.id)?.own_login && <><button class="small" onClick={() => setRulesFor(rulesFor === j.id ? null : j.id)}>{t("ui.kid_rules_button")}</button>{" "}
                   <button class="small" onClick={() => preview("kid.remove_login", { person_id: j.id })}>{t("ui.kid_login_off")}</button>{" "}</>}
                 <button class="small" onClick={() => preview("household.remove_junior", { person_id: j.id })}>{t("ui.remove")}</button>{" "}
+                <button class="small" onClick={() => setLevelFor(levelFor === j.id ? null : j.id)}>{t("ui.junior_level_button")}</button>{" "}
                 <button class="small" onClick={() => setDataFor(dataFor === j.id ? null : j.id)}>{t("ui.junior_data")}</button>
               </span>}
               </div>
               {kidOf(j.id)?.own_login && <div class="meta">{t("ui.kid_has_login", { email: kidOf(j.id)!.email ?? "" })} · {t("ui.kid_spent", { spent: usd(kidOf(j.id)!.spent_cents), limit: usd(kidOf(j.id)!.rules!.monthly_limit_cents) })}</div>}
+              {levelFor === j.id && <JuniorLevel id={j.id} name={j.display_name} onChanged={() => void load()} />}
               {dataFor === j.id && <AccountData personId={j.id} self={false} onDeleted={() => { setDataFor(null); void load(); }} />}
               {rulesFor === j.id && kidOf(j.id)?.rules && <KidRules id={j.id} name={j.display_name} rules={kidOf(j.id)!.rules!} send={preview} />}
             </li>))}</ul>
@@ -242,5 +248,29 @@ export function Waiver() {
           </li>))}</ul>
       </section>
     </main>
+  );
+}
+
+/** A junior's level as a parent sees it on Family: where it stands, and a level from another app brought (or taken
+ *  away) for them while they're new here, as a player does on My level. */
+function JuniorLevel({ id, name, onChanged }: { id: string; name: string; onChanged?: () => void }) {
+  const [d, setD] = useState<L | null>(null);
+  const load = () => api<L>(`/my/level?for=${encodeURIComponent(id)}`).then(setD);
+  const { preview, sheet } = usePreview(() => { void load(); onChanged?.(); });
+  useEffect(() => { void load(); }, [id, lang.value]);
+  if (!d) return <p class="meta">{t("ui.loading")}</p>;
+  const rv = d.review, day = (iso: string) => clubTime(iso, { dateStyle: "long" });
+  return (
+    <section class="card">
+      <h2>{t("ui.junior_level_title", { name })}</h2>
+      {sheet}
+      {d.rating ? <><p class="big">{d.rating.level}</p>
+          <p class="meta">{t("ui.rated_games", { count: d.rating.rated_games })}{d.rating.provisional ? ` · ${t("ui.provisional")}` : ""}</p></>
+        : <p class="meta">{t("ui.level_not_yet_for")}</p>}
+      {d.import && <><h3>{t("ui.level_started_from_for", { name })}</h3><p>{d.import.explanation}</p>
+        {d.can_remove && <button class="small" onClick={() => preview("level.remove_import", { person_id: id })}>{t("ui.remove_import")}</button>}</>}
+      {rv.open?.kind === "import" && rv.open.claim && <p class="meta">{t("ui.level_import_waiting_for", { name, source: t(`level_source.${rv.open.claim.platform}` as Key), date: day(rv.open.created_at) })}</p>}
+      {d.can_claim && !d.import && !rv.open && <BringLevel d={d} name={name} send={(input) => preview("level.claim", { person_id: id, ...input })} />}
+    </section>
   );
 }

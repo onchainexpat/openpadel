@@ -34,6 +34,11 @@ The uncertainty a start begins with, in level units (a stranger starts at 1.17, 
 Only 0.60 for Playtomic levels has been tested against real results. A player's claim above the club's
 line waits for staff; once staff check it, it counts as seen in the app.
 
+A parent brings their junior's the same way, on the members' app's Family page (Level, beside the
+junior): it counts as the player's own word, under the same line and the same 5 rated games, and the
+junior's history says which parent gave it. Either parent can take it away while the junior is new,
+and the club's answer to one that waits goes to the parents.
+
 ## Not built yet
 
 - **Links the player approves on the other app**, for WPR and PadelLevels, once they give API access

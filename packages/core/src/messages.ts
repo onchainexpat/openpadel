@@ -1188,7 +1188,9 @@ async function forJuniors(db: Db, drafts: Draft[]): Promise<(Draft & { junior?: 
     const p = await db.selectFrom("person").select(["junior", "own_login", "display_name"]).where("id", "=", d.to).executeTakeFirst();
     if (!p?.junior) { out.push(d); continue; }
     if (p.own_login) { out.push(d); if (!PARENTS_TOO.has(d.kind)) continue; }
-    for (const to of await managersOf(db, d.to)) if (!out.some((x) => x.to === to && x.kind === d.kind)) out.push({ ...d, to, junior: p.display_name });
+    // The junior's level is on the parent's Family page, not their own My level.
+    const link = d.link === "/level" ? "/family" : d.link;
+    for (const to of await managersOf(db, d.to)) if (!out.some((x) => x.to === to && x.kind === d.kind)) out.push({ ...d, to, link, junior: p.display_name });
   }
   return out;
 }

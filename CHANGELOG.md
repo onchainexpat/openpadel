@@ -9,6 +9,14 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+### Added
+- **A parent brings their junior's level from another app** (the members' app, Family, Level beside the junior), as a
+  player does on My level: while the junior has played fewer than 5 rated games here, at or below the club's line it
+  starts at once, and above it staff check it first. Either parent sees it and can take it away while the junior is
+  new. The preview names the junior ("Start Mia's level at 2.40, from Playtomic"), the junior's history says which
+  parent gave it, and the club's answer reaches the parents with a link to Family, as any news of a junior's level
+  now does (it opened the parent's own level).
+
 ### Fixed
 - **Setting a player's level below their floor previewed the level asked for (0.1.0 to 0.5.0).** "Change Ann Lee's
   level from 3.50 to 3.00", and the change set the floor's 3.25 instead. It's refused now, as answering a review

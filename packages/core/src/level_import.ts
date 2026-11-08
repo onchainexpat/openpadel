@@ -98,7 +98,8 @@ export function shownText(p: Platform, raw: number, c: Confidence): Text {
   return conf ? { en: `${n}, ${conf.en}`, es: `${n}, ${conf.es}` } : { en: n, es: n };
 }
 
-async function nameOf(db: Db | Trx, id: string | null) { return id ? (await readRow(db, "person", id, "thing.person")).row.display_name as string : "Kumi"; }
+// A change nobody made by hand is the club's own, as in ratings.ts: members read this, so it's the club's name, never a product's.
+async function nameOf(db: Db | Trx, id: string | null) { return id ? (await readRow(db, "person", id, "thing.person")).row.display_name as string : ((await db.selectFrom("club").select("name").executeTakeFirst())?.name ?? ""); }
 async function today(db: Db | Trx, now: Date) { return dayText(localDate(now, (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone)); }
 async function ratingRead(db: Db | Trx, personId: string): Promise<Read[]> {
   const r = await db.selectFrom("rating").select("version").where("person_id", "=", personId).where("sport", "=", "padel").executeTakeFirst();
@@ -200,9 +201,11 @@ export const levelClaim = defineAction({
     const kumi = toKumi(i.platform, i.value), line = await clubLine(ctx.db);
     const waits = kumi === null || kumi > line + 1e-9;
     const shown = shownText(i.platform, i.value, conf);
+    // A parent bringing their junior's (Family) reads the junior's name where a player reads "your".
+    const name = ctx.actor.personId === i.person_id ? null : await nameOf(ctx.db, i.person_id), _for = name === null ? "" : "_for";
     return { title: both("action.level.claim"), reads: await ratingRead(ctx.db, i.person_id), ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "none" }, details: { waits, kumi },
-      summary: waits ? both(kumi === null ? "plan.level.claim_staff" : "plan.level.claim_wait", { source: source(i.platform), shown, line: lvl(line) })
-        : both("plan.level.claim_now", { source: source(i.platform), shown, level: lvl(kumi), games: SELF_ADJUST_GAMES }) };
+      summary: waits ? both(`${kumi === null ? "plan.level.claim_staff" : "plan.level.claim_wait"}${_for}` as Key, { source: source(i.platform), shown, line: lvl(line), name: name ?? "" })
+        : both(`plan.level.claim_now${_for}` as Key, { source: source(i.platform), shown, level: lvl(kumi), games: SELF_ADJUST_GAMES, name: name ?? "" }) };
   },
   async apply(ctx, i, plan) {
     const conf = confOf(i), { waits, kumi } = plan.details as { waits: boolean; kumi: number | null };
@@ -214,7 +217,9 @@ export const levelClaim = defineAction({
       await ctx.emit("level.import_claimed", { review_id: id, person_id: i.person_id, platform: i.platform, shown: shownText(i.platform, i.value, conf), start_level: kumi });
       return { review_id: id, waits: true };
     }
-    const how = both("level_import.how_self", { date: await today(ctx.trx, ctx.now) });
+    // Given by a parent for their junior: the junior's history says who gave it.
+    const how = ctx.actor.personId === i.person_id || !ctx.actor.personId ? both("level_import.how_self", { date: await today(ctx.trx, ctx.now) })
+      : both("level_import.how_parent", { by: await nameOf(ctx.trx, ctx.actor.personId), date: await today(ctx.trx, ctx.now) });
     const level = await writeImport(ctx, i.person_id, { platform: i.platform, raw: i.value, conf, start_level: kumi!, sigma: startSigma(i.platform, "self", conf)!, evidence: "self", last_played: i.last_played ?? null }, how, null);
     return { level, waits: false };
   },
@@ -230,8 +235,9 @@ export const levelRemoveImport = defineAction({
     const s = await loadRating(ctx.db, i.person_id);
     if (s.games >= SELF_ADJUST_GAMES) throw new KumiError("error.import_remove_late", { count: SELF_ADJUST_GAMES });
     const after = (await replay(ctx.db, { leaveOut: new Set([imp.id]) })).get(i.person_id);
+    const name = ctx.actor.personId === i.person_id ? null : await nameOf(ctx.db, i.person_id), _for = name === null ? "" : "_for";   // a parent, for their junior
     return { title: both("action.level.remove_import"), reads: await ratingRead(ctx.db, i.person_id), ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "none" }, details: { event_id: imp.id },
-      summary: both(after ? "plan.level.remove_import" : "plan.level.remove_import_none", { source: source(imp.factors.platform), level: lvl(imp.level), after: after ? lvl(after.level) : both("plan.level.no_level") }) };
+      summary: both(`${after ? "plan.level.remove_import" : "plan.level.remove_import_none"}${_for}` as Key, { source: source(imp.factors.platform), level: lvl(imp.level), after: after ? lvl(after.level) : both("plan.level.no_level"), name: name ?? "" }) };
   },
   async apply(ctx, i, plan) {
     const { event_id } = plan.details as { event_id: string };
