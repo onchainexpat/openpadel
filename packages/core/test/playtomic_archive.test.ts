@@ -10,8 +10,16 @@ import { archiveBookings, archiveOf, comparePlaytomic, comparison, diffMirror, n
 let db: Db, drop: () => Promise<void>, owner: Actor, court1: string, court2: string, locationId: string;
 const people: Record<string, string> = {};
 const as = (personId: string): Actor => ({ personId, via: "test", lang: "en" });
-const H = 3600_000, base = Math.ceil(Date.now() / H) * H + 24 * H;
-const at = (h: number) => new Date(base + h * H);
+const H = 3600_000;
+/** Noon in the club's time zone, a day or two from now: "later the same club day" and "the next day" below stay on the
+ *  days they mean whenever the suite runs (a base that followed the clock put "two hours on" past midnight there when
+ *  it ran between 9 and 11 pm Pacific). */
+const hourThere = (t: number) => Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hourCycle: "h23" }).format(new Date(t)));
+const base = (() => { let t = Math.ceil(Date.now() / H) * H + 24 * H; while (hourThere(t) !== 12) t += H; return t; })();
+/** Noon there `days` on, across a change of clocks too. */
+const noonOn = (days: number) => { let t = base + days * 24 * H; while (hourThere(t) > 12) t -= H; while (hourThere(t) < 12) t += H; return t; };
+/** `h` hours from base by the club's clock: at(24 * 12 + 9) is 9 pm there twelve days on, whatever the clocks did. */
+const at = (h: number) => { const d = Math.floor(h / 24); return new Date(noonOn(d) + (h - 24 * d) * H); };
 async function rejects(p: Promise<unknown>, code: string) {
   await assert.rejects(p, (e: unknown) => { assert.ok(e instanceof KumiError, String(e)); assert.equal(e.code, code); return true; });
 }
@@ -259,7 +267,7 @@ test("the owner's daily comparison: run once a club day, each difference told on
   const first = await comparePlaytomic(db, { now: new Date(base) });
   assert.ok(first.ran);
   assert.ok(first.told >= 1, JSON.stringify(first));
-  const again = await comparePlaytomic(db, { now: new Date(base + 2 * H) });
+  const again = await comparePlaytomic(db, { now: new Date(base + 2 * H) });   // later the same club day
   assert.equal(again.ran, false, "once a club day");
   await processOutbox(db, messageHandlers);
   const msgs = await db.selectFrom("outbound_message").select(["person_id", "body"]).where("kind", "=", "playtomic_compare").where("channel", "=", "inbox").execute();
@@ -500,8 +508,7 @@ test("time added here is owed here: marking paid in Playtomic counts only what P
 
 test("taken over, then moved later: what goes back in Playtomic is by the new time (a week ahead: all of it), not the old", async () => {
   // Opening hours are 00:00 to 23:59 (set above): 10:00 the club's time, 20 days on, then moved a week later.
-  const hourIn = (d: Date) => Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hourCycle: "h23" }).format(d));
-  let h = 24 * 20; while (hourIn(at(h)) !== 10) h++;
+  const h = 24 * 20 - 2;   // 10 am there
   pt.bookings.push(booking("mvl1", h, { court: "pt-2" }));
   await sync();
   await run(db, "mirror.take_over", { booking_ids: ["mvl1"] }, owner, { now: new Date(base) });
