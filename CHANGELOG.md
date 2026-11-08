@@ -49,6 +49,8 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   first court alone (0.1.0 on).** So an Eastside desk could book a Westside court for a member by adding an Eastside
   court before it. Courts booked together have to be at the same location now ("Book the others on their own"), for
   members and staff alike; the members' app only ever sent one location's.
+- A person's page in the staff app showed a front desk kept to one location Cancel and Refund on another location's
+  bookings, which were then refused ("your role doesn't cover this location"). They show only at its own location now.
 - **Setting a player's level below their floor previewed the level asked for (0.1.0 to 0.5.0).** "Change Ann Lee's
   level from 3.50 to 3.00", and the change set the floor's 3.25 instead. It's refused now, as answering a review
   refuses it: "3.00 is below the floor set for Ann Lee (3.25)." Lower the floor first. And setting the level they

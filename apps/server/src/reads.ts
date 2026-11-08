@@ -401,7 +401,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // paid on it by card that can still go back, so the desk can cancel it or refund it from here.
     const since = new Date(Date.now() - 30 * 86400_000);
     const booked = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id")
-      .select(["booking.id", "booking.code", "booking.kind", "booking.status", "booking.price_cents", "booking.organiser_id", "court.name as court", sql<string>`lower(court_time.during)`.as("starts_at")])
+      .select(["booking.id", "booking.code", "booking.kind", "booking.status", "booking.price_cents", "booking.organiser_id", "booking.location_id", "court.name as court", sql<string>`lower(court_time.during)`.as("starts_at")])
       .where((w) => w.or([w("booking.organiser_id", "=", id), w.exists(w.selectFrom("booking_player").select("booking_player.id").whereRef("booking_player.booking_id", "=", "booking.id")
         .where("booking_player.person_id", "=", id).where("booking_player.removed_at", "is", null))]))
       .where(sql<boolean>`upper(court_time.during) >= ${since}`).where("booking.status", "in", ["held", "confirmed", "completed", "cancelled"])
@@ -413,7 +413,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("booking_player.booking_id", "in", booked.map((b) => b.id)).where("payment.status", "=", "succeeded").where("payment.person_id", "=", id).execute() : [];
     const bookings = booked.sort((a, b) => String(b.starts_at).localeCompare(String(a.starts_at))).slice(0, 20).map((b) => {
       const mine = pays.filter((x) => x.booking_id === b.id);
-      return { id: b.id, code: b.code, kind: b.kind, status: b.status, court: b.court, starts_at: new Date(b.starts_at).toISOString(), price_cents: b.price_cents, organiser: b.organiser_id === id,
+      return { id: b.id, code: b.code, kind: b.kind, status: b.status, court: b.court, location_id: b.location_id, starts_at: new Date(b.starts_at).toISOString(), price_cents: b.price_cents, organiser: b.organiser_id === id,
         paid_cents: mine.reduce((n, x) => n + x.amount_cents - Number(x.back), 0),
         // What a promo code took off their part, so a share paid in full with a code doesn't read as short.
         off_cents: mine.reduce((n, x) => n + Number(x.off), 0),

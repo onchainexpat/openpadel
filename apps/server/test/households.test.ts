@@ -204,3 +204,17 @@ test("a junior's places, family and account are their parents' alone: a stranger
   // Pat, still her parent, cancels her court.
   assert.equal((await act("pat@example.test", "booking.cancel", { booking_id: court })).status, 200);
 });
+
+test("in development, a parent pressing Pay (test) on their junior's place is its payer, as their card form would make them", async () => {
+  // Phone run 16: the stand-in button settled without opening the card form, so paid_by stayed empty and the receipt
+  // went to the junior in development, unlike with a real card.
+  const p = (await db.insertInto("payment").values({ id: crypto.randomUUID(), person_id: mia, amount_cents: 1500, method: "card", provider: "test", provider_ref: null, status: "pending" } as any)
+    .returning("id").executeTakeFirstOrThrow()).id;
+  assert.equal((await post(`/dev/payments/${p}/settle`, "pat@example.test")).status, 200);
+  assert.equal((await db.selectFrom("payment").select("paid_by").where("id", "=", p).executeTakeFirstOrThrow()).paid_by, people.Pat);
+  // Someone who doesn't manage the payer isn't made it.
+  const q = (await db.insertInto("payment").values({ id: crypto.randomUUID(), person_id: people.Pat!, amount_cents: 1500, method: "card", provider: "test", provider_ref: null, status: "pending" } as any)
+    .returning("id").executeTakeFirstOrThrow()).id;
+  await post(`/dev/payments/${q}/settle`, "zed@example.test");
+  assert.equal((await db.selectFrom("payment").select("paid_by").where("id", "=", q).executeTakeFirstOrThrow()).paid_by, null);
+});

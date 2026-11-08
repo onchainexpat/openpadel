@@ -628,10 +628,14 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   });
   // Development only: settle a stand-in payment, as the provider's webhook would.
   if (!opts.production) app.post("/dev/payments/:id/settle", async (c) => {
-    who(c);
+    const caller = who(c);
     if (paymentProvider().name !== "test") throw new KumiError("error.forbidden", {}, 403);
     // A stand-in card is "saved" too, so "pay my part" can be tried end to end in development.
-    const pay = await db.selectFrom("payment").select("save_card").where("id", "=", c.req.param("id")).executeTakeFirst();
+    const pay = await db.selectFrom("payment").select(["save_card", "person_id", "paid_by"]).where("id", "=", c.req.param("id")).executeTakeFirst();
+    // Paid by whoever pressed it, as the card form they'd have opened records (programs.ts, opened): a parent paying
+    // their junior's place gets its receipt in development too.
+    if (pay && !pay.paid_by && pay.person_id !== caller && await manages(db, caller, pay.person_id))
+      await db.updateTable("payment").set({ paid_by: caller }).where("id", "=", c.req.param("id")).execute();
     return c.json(await runAsSystem(db, "payment.settle", { payment_id: c.req.param("id"), outcome: "succeeded", ...(pay?.save_card ? { saved_customer: "cus_test_dev", saved_method: "pm_test_dev" } : {}) }, "dev"));
   });
   return app;

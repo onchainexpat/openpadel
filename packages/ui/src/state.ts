@@ -58,6 +58,10 @@ export const me = signal<Me | null | undefined>(undefined);      // undefined: n
 /** Whether to offer a button for a change: a role the club made may not allow it, and a role kept to one location
  *  doesn't make the whole club's changes (the server decides either way). */
 export const mayDo = (action: string) => (!me.value?.can || me.value.can.includes(action)) && !me.value?.cannot?.includes(action);
+/** Whether the signed-in person's staff roles reach a location: a role kept to none reaches every one. Only to hide
+ *  what the server would refuse ("your role doesn't cover this location"); the server still decides. */
+export const coversLocation = (locationId: string | null | undefined) =>
+  !locationId || (me.value?.roles ?? []).some((r) => r.key !== "member" && (!r.location_id || r.location_id === locationId));
 /** The account was just deleted: the sign-in page says so. */
 export const farewell = signal(false);
 export const club = signal<Club | null>(null);
