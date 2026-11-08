@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { approveKidRequest, checkFamilyCard, checkPayment, combine, moneyHandlers, friendsOf, kidOf, messageHandlers, monthSpent, openFamilyCardSetup, openPayment, payKidRun, payWithFamilyCard, plan, processOutbox, run,
+import { apply, approveKidRequest, checkFamilyCard, checkPayment, combine, moneyHandlers, friendsOf, kidOf, messageHandlers, monthSpent, openFamilyCardSetup, openPayment, payKidRun, payWithFamilyCard, plan, processOutbox, run,
   runAsSystem, setPaymentProvider, setTexting, textable, KumiError, TestProvider, TEXTS_FORM, type Actor, type Db } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, court: string, court2: string, clinic: string, mia: string, leo: string;
@@ -284,4 +284,26 @@ test("at 18, a kid who already signs in keeps their address and becomes an adult
   assert.deepEqual(p, { junior: false, own_login: false, email: "ivy@example.test" });
   assert.equal((await db.selectFrom("auth_identity").select("value").where("person_id", "=", ivy).execute()).length, 1);
   assert.equal(await kidOf(db, ivy), null);
+});
+
+test("whose it is at the yes is who it was at the preview and still is: a parent who was the desk, and a parent who left the family, are refused", async () => {
+  // Mia signs in again, and Pat is the front desk for a while: as the desk, Pat may book a court for anyone.
+  await run(db, "kid.give_login", { person_id: mia, email: "mia@example.test" }, as("Pat"), opts);
+  await run(db, "role.assign", { person_id: people.Pat, role: "front_desk" }, owner, opts);
+  const desk = await plan(db, "booking.request", court90(court2, "2026-12-07", "20:00", mia), as("Pat"), opts);
+  assert.equal(desk.status, "planned");
+  await run(db, "role.remove", { person_id: people.Pat, role: "front_desk" }, owner, opts);
+  // Only her parent now. A parent gets past the first look at a court for their junior (to hear "a junior doesn't
+  // book courts"), but a court is the player's alone: the yes is refused, and nothing is booked.
+  const hers = async () => (await db.selectFrom("booking").select("id").where("organiser_id", "=", mia).execute()).length, before = await hers();
+  await rejects(apply(db, desk.runId, as("Pat"), opts), "error.forbidden_reason");
+  assert.equal((await db.selectFrom("action_run").select("status").where("id", "=", desk.runId).executeTakeFirstOrThrow()).status, "failed");
+  assert.equal(await hers(), before);
+  // Whose it is from the input alone (Mia's parents): Sam previews her rules, leaves the family, and can't confirm. Pat can.
+  const rules = await plan(db, "kid.set_rules", { person_id: mia, courts: false }, as("Sam"), opts);
+  await run(db, "household.leave", { person_id: people.Sam }, as("Sam"), opts);
+  await rejects(apply(db, rules.runId, as("Sam"), opts), "error.forbidden_reason");
+  assert.equal((await kidOf(db, mia))?.courts, true);
+  await run(db, "kid.set_rules", { person_id: mia, courts: false }, as("Pat"), opts);
+  assert.equal((await kidOf(db, mia))?.courts, false);
 });

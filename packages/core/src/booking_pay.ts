@@ -71,7 +71,7 @@ export async function bookingFor(db: Db | Trx, by: { id?: string | null; code?: 
 export const playerAt = async (db: Db | Trx, ownerIds: string[], by: { id?: string | null; code?: string | null }) =>
   ({ ownerIds, locationId: (await bookingFor(db, by))?.location_id });
 /** Asked first of the player and a junior's parents, so a parent still hears that their junior doesn't book courts;
- *  the preview's own check, after it, is the player's alone, as it was. */
+ *  the preview's own check, after it, is the player's alone, as it was, and so is the yes (apply keeps only who both named). */
 export const playerOrParents = (db: Db | Trx, personId: string) => withManagers(db, [personId]);
 /** Its organiser (and the parents who manage them), at its location: a booking's own change (who's on it, whether it counts). */
 export const organiserOf = async (db: Db | Trx, bookingId: string | null | undefined) => {
