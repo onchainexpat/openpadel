@@ -7,7 +7,13 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.6.0 (2026-11-08)
+
+A member could learn about someone else before the app said no: what they owed the club, that they were a junior and
+their birth year, whether two people had played together, a booking already cancelled (since 0.1.0). It's a plain no
+now, before anything is worked out. Also: a parent who pays their junior's place by card gets the receipt, a front
+desk kept to one location can no longer book another location's court, and a parent brings their junior's level from
+another app. Every club should update.
 
 ### Added
 - **A parent brings their junior's level from another app** (the members' app, Family, Level beside the junior), as a
@@ -60,6 +66,20 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   for a kid (about 80 ms), and the hourly tidy read every change the club ever made (about 470 ms). Each now reads
   only its own, with two indexes (database change 111). And every amount and date the server wrote made its own
   formatter: a month of 1,500 receipts spent about 300 ms on their dates, now about 12. Nothing changes but the speed.
+
+### When updating
+- The database change (111, two indexes) applies by itself as the server starts; on a big club the first start takes
+  a little longer while they're built. The update snapshots the database first, and `sudo openpadel rollback --yes`
+  goes back to 0.5.0 with it. On Docker, `deploy/docker/update.sh v0.6.0`.
+- Receipts made before this update stay as they were: one a parent paid by card for their junior is on the junior's
+  page in the staff app, not in the parent's own Receipts.
+- Nothing in `/etc/kumi/kumi.env` changes.
+
+### Known limits
+- No app store apps yet: the members' and staff apps install from the club's own address ([the phone apps](docs/setup/apps.md)).
+- Moving in from Playtomic changes nothing in Playtomic: each preview says what staff do there (refunds, setting the
+  wallets to zero, stopping memberships' renewals).
+- Emails, pushes and texts go out in one language, the one the person had when it was sent.
 
 ## 0.5.0 (2026-11-08)
 
