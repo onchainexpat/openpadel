@@ -1,6 +1,6 @@
-# Your club, for `kumi setup`. Copy it to club.yaml and change it to match your club, then:
-#   kumi setup plan club.yaml     shows what would change (changes nothing)
-#   kumi setup apply club.yaml    makes those changes
+# Your club, for `openpadel setup`. Copy it to club.yaml and change it to match your club, then:
+#   openpadel setup plan club.yaml     shows what would change (changes nothing)
+#   openpadel setup apply club.yaml    makes those changes
 # Running it again only adds what's new. Renaming or removing things is done in the staff app.
 # No secrets go in this file: Stripe, email and Playtomic keys go in the server's settings.
 
@@ -33,9 +33,9 @@ staff:                               # roles: manager, front_desk, coach, accoun
   # whole club (docs/setup, roles).
   - { name: Lee Chen, email: lee@kestrelpadel.example, role: front_desk, location: Eastside }
 
-# Texts (optional): the business as it's registered, for `kumi texting`, which registers the club's texting
+# Texts (optional): the business as it's registered, for `openpadel texting`, which registers the club's texting
 # with US carriers through its own Twilio account (docs/setup/accounts/twilio.md). The Twilio keys go in the
-# server's settings, never here. `kumi texting plan` says what's still missing.
+# server's settings, never here. `openpadel texting plan` says what's still missing.
 texting:
   business_name: Kestrel Padel LLC                # the legal name, exactly as on the IRS letter for its EIN
   doing_business_as: Kestrel Padel                # optional: the name members know
@@ -46,6 +46,6 @@ texting:
   address: { street: 100 Example St, city: Springfield, state: OR, postal_code: "97477" }   # country: US (or CA)
   contact: { first_name: Robin, last_name: Hale, email: robin@kestrelpadel.example, phone: "+15035550123" }
   monthly_texts: 1000                             # about how many a month; a guess is fine
-  # number: "+18885550123"                        # a toll-free number the club already has in Twilio (else Kumi buys one)
-  # opt_in_image_urls: [https://kestrelpadel.example/texts-opt-in.png]   # screenshots of your own, besides Kumi's page
+  # number: "+18885550123"                        # a toll-free number the club already has in Twilio (else openPadel buys one)
+  # opt_in_image_urls: [https://kestrelpadel.example/texts-opt-in.png]   # screenshots of your own, besides openPadel's page
   # customer_profile_sid: BU...                   # only when texting through a host's Twilio account: the club's own Trust Hub profile

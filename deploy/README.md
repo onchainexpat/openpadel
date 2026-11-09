@@ -50,7 +50,7 @@ releases and the last 3 update snapshots are kept.
 sudo openpadel releases          # which release runs, which is kept, and the snapshot
 sudo openpadel rollback          # explains what going back loses
 sudo openpadel rollback --yes    # the previous release, and the database as it was just before the last update
-sudo openpadel update kumi-v0.3.0.tar   # from a release file instead of ship.sh (git archive --format=tar v0.3.0 > kumi-v0.3.0.tar)
+sudo openpadel update kumi-vX.Y.Z.tar   # from a release file instead of ship.sh (git archive --format=tar vX.Y.Z > kumi-vX.Y.Z.tar)
 ```
 
 Going back loses everything since the update (bookings, payments, sign-ups), which is why it asks for
