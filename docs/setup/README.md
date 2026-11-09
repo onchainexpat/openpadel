@@ -593,8 +593,9 @@ Not done yet, and each needs a decision before a club outside the US goes live:
   club (a role with no location, and the owner): messages to a group of members, the groups, message templates,
   the club's facts, renaming or removing a tag, and downloading someone's data or deleting their account. That
   goes for a manager kept to one location too. The staff app doesn't show those buttons to a role kept to one
-  location, and the server refuses them with a reason that says who does them. A role with no location keeps
-  all of its role's reach.
+  location, and the server refuses them with a reason that says who does them. It still sees the other
+  locations (their calendars, a person's bookings there), so it can answer a member who calls about one, but it
+  can't change them. A role with no location keeps all of its role's reach.
 - **Bot protection** is on by itself: sign-up, sign-in codes and card forms ask the browser to solve a
   small puzzle first, and a hidden field catches scripts that fill in everything. Nothing to set up. On a
   practice machine, `KUMI_BOT_CHECK=0` turns it off for scripts that sign in over the API; production
