@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { amountPattern, parseDollars, formatLocale, weekOrder } from "@kumi/i18n/format";
-import { api, club, dollars, lang, lazyPage, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
+import { api, club, coversLocation, dollars, lang, lazyPage, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
 import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
 import { playtomicParts } from "./paid_line.ts";
 
@@ -36,16 +36,21 @@ const keyOf = (it: Item, court: string) => it.booking_id ?? it.session_id ?? it.
 const unpaid = (it: Item) => Math.max(0, (it.price_cents ?? 0) - (it.paid_cents ?? 0) - (it.off_cents ?? 0));
 const isBooking = (it: Item) => Boolean(it.booking_id) && it.kind === "booking";
 
+// The location on screen, for mayHere. A role kept to one location can look at the others, and only change its own.
+let shown = "";
+const mayHere = (action: string) => mayDo(action) && coversLocation(shown);
+
 export function Courts() {
   const [locs, setLocs] = useState<Loc[]>([]), [loc, setLoc] = useState(""), [date, setDate] = useState(""), [g, setG] = useState<Grid | null>(null);
   const [form, setForm] = useState<{ court: Court; starts: string[]; until: string } | null>(null), [blocking, setBlocking] = useState(false);
   const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null), [done, setDone] = useState(0);
   // The phone's back button closes what was picked, not the page (the same entry while another is picked).
   useBackCloses(Boolean(picked), () => setPicked(null));
+  shown = loc;
   const load = () => loc && api<Grid>(`/staff/grid?location_id=${loc}${date ? `&date=${date}` : ""}`).then((x) => { setG(x); if (!date) setDate(x.date); });
   const loadAlerts = () => api<Alerts>("/staff/alerts").then(setAlerts).catch(() => setAlerts(null));
   const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); setDone((n) => n + 1); });
-  useEffect(() => { api<Loc[]>("/staff/locations").then((l) => { setLocs(l); setLoc(l[0]?.id ?? ""); }); void loadAlerts(); }, []);
+  useEffect(() => { api<Loc[]>("/staff/locations").then((l) => { setLocs(l); setLoc((l.find((x) => coversLocation(x.id)) ?? l[0])?.id ?? ""); }); void loadAlerts(); }, []);
   useEffect(() => { load(); }, [loc, date]);
   // Today, what's on now moves on its own: look again every minute.
   useEffect(() => {
@@ -76,8 +81,8 @@ export function Courts() {
   const seriesOk = roles.includes("owner") || roles.includes("manager") || (me.value?.can ?? []).includes("series.edit");
   // What can be moved, and what made longer or shorter: a confirmed booking (moved before it starts, its length
   // changed until it ends), and a program date before it starts, for those who edit programs.
-  const canMove = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.start) > serverNow() && mayDo("booking.move")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > serverNow());
-  const canResize = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.end) > serverNow() && mayDo("booking.extend")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > serverNow());
+  const canMove = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.start) > serverNow() && mayHere("booking.move")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > serverNow());
+  const canResize = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.end) > serverNow() && mayHere("booking.extend")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > serverNow());
   // A program date on more than one court keeps its courts when moved: only its time changes.
   const courtsOf = (it: Item) => g.courts.filter((c) => c.items.some((x) => it.session_id && x.session_id === it.session_id)).length;
   const drop = (it: Item, from: Court, to: Target) => {
@@ -89,7 +94,7 @@ export function Courts() {
   };
   // Tapping free time books it at the desk, from that half hour.
   const book = (c: Court, at: number) => {
-    if (!mayDo("booking.create")) return;
+    if (!mayHere("booking.create")) return;
     const gap = gaps(c).find((x) => ms(x.from) <= at && at < ms(x.to));
     if (!gap) return;
     const starts = slots.filter((s) => ms(s) >= Math.max(at, ms(gap.from)) && ms(s) + HALF <= ms(gap.to) && new Date(s) > new Date(serverNow()));
@@ -120,10 +125,10 @@ export function Courts() {
       <p class="meta">{t("ui.today_hint")}</p>
       {sel && <Details key={`${picked}|${sel.c.id}|${sel.it.start}|${sel.it.end}`} it={sel.it} court={sel.c} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove(sel.it)} canResize={canResize(sel.it)}
         courtFixed={courtsOf(sel.it) > 1} onClose={() => setPicked(null)} />}
-      {g.open && mayDo("court.block") && <button onClick={() => setBlocking(!blocking)}>{t("ui.block_courts")}</button>}
+      {g.open && mayHere("court.block") && <button onClick={() => setBlocking(!blocking)}>{t("ui.block_courts")}</button>}
       {form && <DeskBooking court={form.court} starts={form.starts} until={form.until} clock={clock} preview={preview} onClose={() => setForm(null)} />}
       {blocking && <BlockForm courts={g.courts} g={g} slots={slots} clock={clock} preview={preview} />}
-      {(mayDo("court.block_repeat_edit") || mayDo("court.block_repeat_end")) && <SeriesList loc={loc} courts={g.courts} stamp={done} preview={preview} />}
+      {(mayHere("court.block_repeat_edit") || mayHere("court.block_repeat_end")) && <SeriesList loc={loc} courts={g.courts} stamp={done} preview={preview} />}
       {sheet}
     </main>
   );
@@ -309,16 +314,16 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
         : t("ui.today_paid", { amount: dollars(it.paid_cents ?? 0, lang.value) })}</p>}
       {it.late?.map((l) => <p class="note">{t("ui.late_note", { name: l.name, minutes: l.minutes })} · {clock(l.at)}</p>)}
       <div class="chips">
-        {isBooking(it) && unpaid(it) > 0 && mayDo("booking.record_payment") && <button class="small" onClick={() => setPaying(!paying)}>{t("ui.record_payment")}</button>}
+        {isBooking(it) && unpaid(it) > 0 && mayHere("booking.record_payment") && <button class="small" onClick={() => setPaying(!paying)}>{t("ui.record_payment")}</button>}
         {(canMove || canResize) && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.move_or_resize")}</button>}
-        {isBooking(it) && mayDo("booking.cancel") && <button class="small" onClick={() => (it.paid_cents ?? 0) > 0 && deskUp() ? setCancelling(!cancelling) : preview("booking.cancel", { booking_id: it.booking_id })}>{t((it.paid_cents ?? 0) > 0 && deskUp() ? "ui.cancel_booking_choose" : "ui.cancel_booking")}</button>}
-        {it.block_id && !it.series && mayDo("court.unblock") && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
-        {it.block_id && it.series && mayDo("court.block_repeat_end") && <>
+        {isBooking(it) && mayHere("booking.cancel") && <button class="small" onClick={() => (it.paid_cents ?? 0) > 0 && deskUp() ? setCancelling(!cancelling) : preview("booking.cancel", { booking_id: it.booking_id })}>{t((it.paid_cents ?? 0) > 0 && deskUp() ? "ui.cancel_booking_choose" : "ui.cancel_booking")}</button>}
+        {it.block_id && !it.series && mayHere("court.unblock") && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
+        {it.block_id && it.series && mayHere("court.block_repeat_end") && <>
           <button class="small" onClick={() => preview("court.block_repeat_end", { block_id: it.block_id, scope: "this" })}>{t("ui.open_this_date")}</button>
           <button class="small" onClick={() => preview("court.block_repeat_end", { block_id: it.block_id, scope: "following" })}>{t("ui.end_from_here")}</button>
           <button class="small" onClick={() => preview("court.block_repeat_end", { block_id: it.block_id, scope: "all" })}>{t("ui.end_series")}</button>
         </>}
-        {it.block_id && it.series && mayDo("court.block_repeat_edit") && ms(it.start) > serverNow() && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.change_series")}</button>}
+        {it.block_id && it.series && mayHere("court.block_repeat_edit") && ms(it.start) > serverNow() && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.change_series")}</button>}
         {it.program_id && <a href={`/programs/${it.program_id}`}>{t("ui.open")}</a>}
       </div>
       {cancelling && <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("booking.cancel", { booking_id: it.booking_id, refund: ((e.currentTarget as HTMLFormElement).elements.namedItem("refund") as HTMLSelectElement).value }); }}>
@@ -327,7 +332,7 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
       {paying && isBooking(it) && unpaid(it) > 0 && <DeskPay key={`${it.booking_id}-${unpaid(it)}`} owed={unpaid(it)} label={t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) })}
         onCancel={() => setPaying(false)} send={(cents, method) => { setPaying(false); preview("booking.record_payment", { booking_id: it.booking_id, cents, method }); }} />}
       {it.empty_places?.map((e) => <EmptyPlace e={e} preview={preview} />)}
-      {it.whole && mayDo("booking.add_player") && <Players it={it} preview={preview} />}
+      {it.whole && mayHere("booking.add_player") && <Players it={it} preview={preview} />}
       {changing && !it.series && <ChangeForm it={it} court={court} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove} canResize={canResize} courtFixed={courtFixed} />}
       {changing && it.series && <SeriesChange it={it} g={g} slots={court.open ? courtSlots(court.open) : slots} clock={clock} preview={preview} />}
     </section>
@@ -345,7 +350,7 @@ function Players({ it, preview }: { it: Item; preview: Preview }) {
     <div class="card-form">
       <h3>{t("ui.players_title")}</h3>
       <ul class="plain">{(it.seats ?? []).map((p) => <li class="row"><span>{p.name}{p.booker ? ` · ${t("ui.booker")}` : ""}</span>
-        {!p.booker && mayDo("booking.remove_player") && <button type="button" class="small" onClick={() => preview("booking.remove_player", { booking_player_id: p.id })}>{t("ui.remove")}</button>}</li>)}</ul>
+        {!p.booker && mayHere("booking.remove_player") && <button type="button" class="small" onClick={() => preview("booking.remove_player", { booking_player_id: p.id })}>{t("ui.remove")}</button>}</li>)}</ul>
       {it.invite_code && (it.seats?.length ?? 0) < 4 && <p><button type="button" class="small" onClick={copy}>{copied ? t("ui.link_copied") : t("ui.copy_players_link")}</button></p>}
       {(it.seats?.length ?? 0) < 4 && <>
         <label>{t("ui.add_player")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>
@@ -585,8 +590,8 @@ function SeriesEdit({ s, courts, preview }: { s: Series; courts: Court[]; previe
       <label>{t("ui.reason")}<select value={f.reason} onChange={(e) => setF({ ...f, reason: e.currentTarget.value })}>{["maintenance", "fault", "resurfacing", "event", "other"].map((r) => <option value={r}>{t(`block.${r}` as Key)}</option>)}</select></label>
       <label>{t("ui.block_note")}<input value={f.note} onInput={(e) => setF({ ...f, note: e.currentTarget.value })} /></label>
       <InTheWay way={f.way} refund={f.refund} onChange={(way, refund) => setF({ ...f, way, refund })} />
-      {mayDo("court.block_repeat_edit") && <button class="primary" disabled={!Object.keys(change).length || !f.courts.length || (!one && !f.days.length) || (!one && !f.noEnd && !f.until)}>{t("ui.preview")}</button>}
-      {mayDo("court.block_repeat_end") && <div class="chips">
+      {mayHere("court.block_repeat_edit") && <button class="primary" disabled={!Object.keys(change).length || !f.courts.length || (!one && !f.days.length) || (!one && !f.noEnd && !f.until)}>{t("ui.preview")}</button>}
+      {mayHere("court.block_repeat_end") && <div class="chips">
         <button type="button" class="small" onClick={() => end("this")}>{t("ui.open_this_date")}</button>
         <button type="button" class="small" onClick={() => end("following")}>{t("ui.end_from_here")}</button>
         <button type="button" class="small" onClick={() => end("all")}>{t("ui.end_series")}</button></div>}

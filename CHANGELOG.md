@@ -13,6 +13,9 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 - A coach marking who came, or setting levels after a date, for a session or lesson that isn't theirs heard who was on
   it, or that marking hadn't opened yet, before being told no (0.1.0 on). It's a plain no now, before anything is
   worked out, as for members since 0.6.0.
+- The Courts page offered a front desk kept to one location its buttons on another location's calendar, and the server
+  then said no, and it could open on a location that wasn't theirs. It opens on their own now, and the others are to
+  look at: no booking, moving, cancelling or blocking buttons there.
 
 ## 0.6.0 (2026-11-08)
 
