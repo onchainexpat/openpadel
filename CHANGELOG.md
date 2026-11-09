@@ -7,7 +7,11 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.6.1 (2026-11-09)
+
+Two small fixes. A coach who asks about a session that isn't theirs gets a plain no, and a front desk kept to one
+location opens the Courts page on its own location, with buttons only there. Every club should update when it's
+convenient.
 
 ### Fixed
 - A coach marking who came, or setting levels after a date, for a session or lesson that isn't theirs heard who was on
@@ -16,6 +20,12 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 - The Courts page offered a front desk kept to one location its buttons on another location's calendar, and the server
   then said no, and it could open on a location that wasn't theirs. It opens on their own now, and the others are to
   look at: no booking, moving, cancelling or blocking buttons there.
+
+### When updating
+- No database change and nothing to set: `deploy/ship.sh`, or on Docker `deploy/docker/update.sh v0.6.1`.
+
+### Known limits
+- A front desk kept to one location still sees the others' calendars, to answer a member who calls; it changes only its own.
 
 ## 0.6.0 (2026-11-08)
 
