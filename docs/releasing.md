@@ -7,12 +7,12 @@ Do these once, before the first public release:
 - [ ] **Turn on private vulnerability reporting:** GitHub, Settings, then Security (Code security),
       then "Private vulnerability reporting": Enable. `SECURITY.md` sends people to the Security tab's
       "Report a vulnerability" button, which only appears once this is on.
-- [ ] **Decide how outside contributions are signed:** DCO (a sign-off line on each commit) or a CLA.
+- [ ] **The CLA** (decided 9 November 2026, over a DCO): put the maintainer's legal name in `CLA.md`, have a lawyer read it,
+      and check `.github/workflows/cla.yml` asks on a test pull request from another account.
 - [ ] **The names:** openPadel for the software (decided 7 November 2026), and the trademark search on "Kumi", the
       hosted service's name, done.
-- [ ] **Real contact addresses:** replace `security@<your-domain>` in `SECURITY.md` and
-      `conduct@<your-domain>` in `CODE_OF_CONDUCT.md` with addresses someone reads, and the
-      `<your-org>` placeholder in the clone commands (`docs/setup/accounts/server.md`,
+- [ ] **Real contact addresses:** `security@openpadel.dev` and `conduct@openpadel.dev` forward to an inbox someone
+      reads (send each a test), and the `<your-org>` placeholder in the clone commands (`docs/setup/accounts/server.md`,
       `deploy/docker/README.md`) with the repository's real address.
 - [ ] **Tests on every push:** add `push:` to `.github/workflows/test.yml` (public repositories don't use up Actions minutes).
 

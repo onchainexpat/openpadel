@@ -11,6 +11,8 @@ careful, small and tested.
   pinned to releases at least two weeks old.
 - **Say what you'd like to change first,** in an issue, for anything bigger than a fix. It saves
   work on both sides.
+- **The CLA.** On your first pull request a bot asks you to accept the [Contributor License Agreement](CLA.md), once, by a
+  comment. You keep owning your work; it lets the project use it, including under other licence terms.
 - **Security problems** go through [`SECURITY.md`](SECURITY.md), never a public issue.
 
 ## Working on it
