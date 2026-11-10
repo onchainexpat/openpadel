@@ -13,11 +13,17 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 - A coach could read another coach's session after it, on the page for setting levels: its players' names, levels
   and floors, and who came, and the night of a Mexicano or Americano run by someone else: its draw, players and scores
   (0.1.0 on). Both are a plain "not yours" now, before anything is read, as the roster of a session or lesson is, and
-  a session that isn't there reads the same. Front desk and up still read them all.
+  a session that isn't there reads the same. Front desk and up still read them all, and so does anyone whose roles
+  (one the club made too) let them set levels, mark who came or run the night at every session; a second role that
+  doesn't, such as accountant, leaves a coach with their own.
 - A coach opening a session or lesson that isn't theirs was told "Only staff can see this", and the page then stayed
   on "Loading" (0.1.0 on). It says it isn't theirs now, and the session's levels and night pages show a no too.
 - Giving a free place to someone who already had a place, paid or free, failed with an error from the server
   (0.1.0 on). The preview says they're already signed up now.
+- Handing a place on to a sub who was given a place of their own meanwhile failed with an error from the server
+  (0.1.0 on). It says to look again now, and the place stays with the player who had it.
+- A coach saw on a program's page what each member paid, their refunds and the note on a free place (0.1.0 on). They
+  see its players, levels and who's signed up now; the money is for front desk and up and the club's money roles.
 - The links in the members' Receipts list, and to the program on a session's roster, were 19 px tall on a phone
   (0.1.0 on). They're 44 px on a touch screen, like the app's other controls.
 

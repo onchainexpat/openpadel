@@ -18,7 +18,7 @@ import { defineAction, forgetStaleInputs, readRow } from "./actions.ts";
 import { itsTimeNow } from "./bookings.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
-import { uuidv7 } from "./ids.ts";
+import { isUuid, uuidv7 } from "./ids.ts";
 import { quietUntil } from "./messages.ts";
 import { leavingOn } from "./leaving.ts";
 import { plainName, plainText, visible } from "./plain_text.ts";
@@ -174,7 +174,6 @@ export function chatText(raw: unknown): string {
   return s;
 }
 
-const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s);
 export function chatKind(k: string): ChatKind {
   if (!CHAT_KINDS.includes(k as ChatKind)) throw new KumiError("error.not_found", { thing: both("thing.chat") }, 404);
   return k as ChatKind;

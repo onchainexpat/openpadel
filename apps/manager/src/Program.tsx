@@ -5,9 +5,10 @@ import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf, clu
 import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 
-type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; paid_by: string; paid_cents: number; price_cents: number; level: string | null; price_basis: string;
-  comp_note: string | null; left_how: string | null; left_reason: string | null; refund_outcome: string | null; refund_cents: number | null; offer_expires_at: string | null; session_id: string | null };
-type Data = { program: any; decide_hours: number; coaches: { id: string; name: string }[]; roster: Person[];
+type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; level: string | null;
+  // What was paid, refunds and a free place's note come only to the club's money people (Data.money): a coach reads the roster without them.
+  paid_by?: string; paid_cents?: number; price_cents?: number; price_basis?: string; comp_note?: string | null; left_how: string | null; left_reason: string | null; refund_outcome?: string | null; refund_cents?: number | null; offer_expires_at: string | null; session_id: string | null };
+type Data = { program: any; money: boolean; decide_hours: number; coaches: { id: string; name: string }[]; roster: Person[];
   sessions: { id: string; starts_at: string; ends_at: string; status: string; courts: string[]; has_draw: boolean; coach_id: string | null; places: number; booked: number }[] };
 type Court = { id: string; name: string };
 type Preview = { card: ProgramCardData; dates: { id: string; starts_at: string; ends_at: string; courts: string[]; coach: string | null }[]; blocks: string[]; warnings: string[] };
@@ -151,13 +152,13 @@ export function Program({ id }: { id: string }) {
         <h2>{t("ui.roster")}{byDate && shown ? `: ${when(d.sessions.find((s) => s.id === shown)!.starts_at)}` : ""}</h2>
         <ul class="plain">{booked.map((r) => (
           <li class="row"><div><a href={`/people/${r.person_id}/level`}>{r.display_name}</a>{r.level && <span class="meta"> · {t("ui.level")} {r.level}</span>}
-            <span class="meta"> · {r.paid_by === "comp" ? t("ui.comped", { note: r.comp_note ?? "" }) : r.price_basis === "included" ? t("ui.included_place") : r.paid_cents > 0 ? t("ui.paid", { amount: money(r.paid_cents) }) : t("ui.unpaid")}</span></div>
-            <span>{r.paid_by !== "comp" && r.price_cents > r.paid_cents && mayDo("enrolment.record_payment") && <><button class="small" onClick={() => { setPaying(r); setRemoving(null); }}>{t("ui.record_payment")}</button>{" "}</>}
+            {d.money && <span class="meta"> · {r.paid_by === "comp" ? t("ui.comped", { note: r.comp_note ?? "" }) : r.price_basis === "included" ? t("ui.included_place") : r.paid_cents! > 0 ? t("ui.paid", { amount: money(r.paid_cents!) }) : t("ui.unpaid")}</span>}</div>
+            <span>{d.money && r.paid_by !== "comp" && r.price_cents! > r.paid_cents! && mayDo("enrolment.record_payment") && <><button class="small" onClick={() => { setPaying(r); setRemoving(null); }}>{t("ui.record_payment")}</button>{" "}</>}
             <button class="small" onClick={() => { setRemoving(r); setPaying(null); setOverride(false); setReason("late_cancel"); }}>{t("ui.remove")}</button></span></li>))}</ul>
         {paying && (
           <div class="card sheet">
             <p><strong>{paying.display_name}</strong></p>
-            <DeskPay key={paying.id} owed={paying.price_cents - paying.paid_cents} label={t("ui.place_owed", { amount: money(paying.price_cents - paying.paid_cents) })} onCancel={() => setPaying(null)}
+            <DeskPay key={paying.id} owed={paying.price_cents! - paying.paid_cents!} label={t("ui.place_owed", { amount: money(paying.price_cents! - paying.paid_cents!) })} onCancel={() => setPaying(null)}
               send={(cents, method) => { const id = paying.id; setPaying(null); preview("enrolment.record_payment", { enrolment_id: id, cents, method }); }} />
           </div>
         )}
@@ -181,7 +182,8 @@ export function Program({ id }: { id: string }) {
         <input placeholder={t("ui.search_person")} value={search} onInput={(e) => find(e.currentTarget.value)} />
         <input placeholder={t("ui.note")} value={compNote} onInput={(e) => setCompNote(e.currentTarget.value)} />
         <ul class="plain">{found.map((f) => <li><button class="small" disabled={!compNote.trim()} onClick={() => preview("enrolment.comp", { program_id: id, person_id: f.id, note: compNote, ...onDate })}>{f.display_name}</button></li>)}</ul>
-        {gone.length > 0 && <><h2>{t("ui.gone")}</h2><ul class="plain">{gone.map((r) => <li class="meta">{r.display_name} · {r.left_reason ? t(`reason.${r.left_reason}` as Key) : ""} · {r.refund_outcome ? t(`ui.outcome_${r.refund_outcome}` as Key) : ""}{r.refund_cents ? ` ${money(r.refund_cents)}` : ""}</li>)}</ul></>}
+        {gone.length > 0 && <><h2>{t("ui.gone")}</h2><ul class="plain">{gone.map((r) => <li class="meta">{[r.display_name, r.left_reason ? t(`reason.${r.left_reason}` as Key) : "",
+          r.refund_outcome ? `${t(`ui.outcome_${r.refund_outcome}` as Key)}${r.refund_cents ? ` ${money(r.refund_cents)}` : ""}` : ""].filter(Boolean).join(" · ")}</li>)}</ul></>}
       </section>
 
       {p.status !== "cancelled" && <section class="card">

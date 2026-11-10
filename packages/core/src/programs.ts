@@ -676,7 +676,9 @@ export const enrolmentTransfer = defineAction({
   },
   async apply(ctx, i, plan) {
     const e = await ctx.trx.selectFrom("enrolment").selectAll().where("id", "=", i.enrolment_id).executeTakeFirstOrThrow();
-    const p = await ctx.trx.selectFrom("program").select(["price_cents", "refund_rule_version"]).where("id", "=", e.program_id).executeTakeFirstOrThrow();
+    // One place change at a time per program, as join and comp take it: the sub may have been given a place meanwhile.
+    const p = await ctx.trx.selectFrom("program").select(["price_cents", "refund_rule_version"]).where("id", "=", e.program_id).forUpdate().executeTakeFirstOrThrow();
+    if (await placeOf(ctx.trx, e.program_id, i.to_person_id, e.session_id)) throw new KumiError("error.changed");
     const planned = (plan.details as { price: ProgramPrice | null }).price;
     const price = planned ? await lockedPrice(ctx, e.program_id, i.to_person_id, true) : null;
     if (planned && (price!.cents !== planned.cents || price!.basis !== planned.basis)) throw new KumiError("error.changed");   // a price or their membership changed meanwhile

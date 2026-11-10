@@ -130,6 +130,18 @@ test("a free place for someone who already has a place: a plain no in the previe
   assert.equal((await db.selectFrom("enrolment").select("id").where("program_id", "=", p).where("person_id", "=", comped).execute()).length, 1);
 });
 
+test("a place handed on while the sub is given a free place meanwhile: 'look again', not a 500", async () => {
+  const p = await americano("Transfer race test", 34, court2);
+  const leaver = await person("Hand1"), sub = await person("Hand2");
+  const e = await join(p, leaver);
+  const t = await plan(db, "enrolment.transfer", { enrolment_id: e.enrolment_id, to_person_id: sub, pay: "gift" }, monica);
+  await run(db, "enrolment.comp", { program_id: p, person_id: sub, note: "Helping out" }, monica);
+  const { apply } = await import("../src/index.ts");
+  await rejects(apply(db, t.runId, monica), "error.changed");
+  assert.equal((await db.selectFrom("enrolment").select("id").where("program_id", "=", p).where("person_id", "=", sub).execute()).length, 1);
+  assert.equal((await enrolment(e.enrolment_id)).status, "booked");
+});
+
 test("a late cancel with a waitlist: the staff give the offered place to the next one straight away", async () => {
   const p = await americano("Late cancel test", 90, court2);
   const firsts = [];

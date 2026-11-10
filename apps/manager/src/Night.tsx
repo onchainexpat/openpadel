@@ -12,7 +12,8 @@ export function Night({ id }: { id: string }) {
   const load = () => api<Night>(`/staff/sessions/${id}/night`).then((x) => { setD(x); setError(null); }).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [id]);
-  if (error) return <main class="card"><p class="error">{error}</p></main>;
+  // Nothing loaded yet: the no is the page. A refresh after a save that fails keeps what was read, with a notice.
+  if (error && !d) return <main class="card"><p class="error" role="alert">{error}</p></main>;
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const score = (g: Game) => preview("game.score", { game_id: g.id, a: Number(scores[g.id]?.a ?? 0), b: Number(scores[g.id]?.b ?? 0) });
   const format = d.draw?.format ?? d.format ?? "americano";
@@ -21,6 +22,7 @@ export function Night({ id }: { id: string }) {
     <main>
       <h1>{t("ui.rounds")}</h1>
       {sheet}
+      {error && <p class="error" role="alert">{error}</p>}
       {d.draw && <p class="meta">{t("ui.night_format", { format: t(`format.${format}`), rounds: d.draw.rounds })}</p>}
       {!d.draw ? (
         <form class="card" onSubmit={(e) => { e.preventDefault(); preview("draw.generate", { session_id: id, rounds, ...(format === "king_of_court" ? { round_minutes: minutes } : { points_per_game: points }) }); }}>

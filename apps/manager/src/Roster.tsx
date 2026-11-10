@@ -13,7 +13,8 @@ export function Roster({ kind, id }: { kind: string; id: string }) {
   const load = () => api<R>(`/staff/roster/${kind}/${id}`).then((x) => { setD(x); setMarks(Object.fromEntries(x.players.map((p) => [p.person_id, p.came]))); setError(null); }).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [kind, id, lang.value]);
-  if (error) return <main class="card"><p class="error">{error}</p></main>;
+  // Nothing loaded yet: the no is the page. A refresh after a save that fails keeps what was read, with a notice.
+  if (error && !d) return <main class="card"><p class="error" role="alert">{error}</p></main>;
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const fmt = (iso: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: d.time_zone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
   const changed = d.players.filter((p) => marks[p.person_id] !== p.came);
@@ -26,6 +27,7 @@ export function Roster({ kind, id }: { kind: string; id: string }) {
       <h1>{d.item.kind === "lesson" ? t("ui.roster_lesson", { court: d.item.courts.join(", ") }) : d.item.name}</h1>
       <p class="meta">{fmt(d.item.start)} · {[d.item.courts.join(", "), d.item.location].filter(Boolean).join(", ")}{d.item.coach ? ` · ${t("ui.roster_with", { coach: d.item.coach })}` : ""}</p>
       {sheet}
+      {error && <p class="error" role="alert">{error}</p>}
       {d.item.cancelled && <p class="card">{t("ui.roster_cancelled")}</p>}
       <section class="card">
         <h2>{t("ui.roster_who")}</h2>

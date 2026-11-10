@@ -132,3 +132,61 @@ test("what waits at the desk to give back to a player: the club's money people s
   assert.deepEqual((await req(`/staff/people/${people.Ann}`, "Fay")).json.to_give_back.map((r: any) => r.amount_cents), [4000]);
   assert.deepEqual((await req(`/staff/people/${people.Ann}`, "Kim")).json.to_give_back, []);
 });
+
+test("a coach whose other role reaches every session reads them all; a second role that doesn't is still only their own", async () => {
+  for (const name of ["Cal", "Ada", "Acc"]) {
+    people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner)).result as any).person_id;
+    await signIn(name);
+  }
+  // Cal also holds a role the club made: setting any session's levels, marking who came to any, and running any night.
+  const head = ((await run(db, "role.create", { name: "Head coach", grants: ["level.set_session", "attendance.mark", "draw.generate", "game.score"].map((action) => ({ action, scope: "any" })) }, owner)).result as any).key;
+  for (const [who, role] of [["Cal", "coach"], ["Cal", head], ["Ada", "coach"], ["Ada", "accountant"], ["Acc", "accountant"]] as const) await run(db, "role.assign", { person_id: people[who], role }, owner);
+  const paths = [`/staff/sessions/${date}/levels`, `/staff/sessions/${date}/night`, `/staff/roster/session/${date}`];
+  for (const path of paths) {
+    assert.equal((await req(path, "Cal")).status, 200, path);
+    for (const who of ["Ada", "Acc"]) {   // coach and accountant, and accountant alone: neither role sets levels, marks or runs a night
+      const r = await req(path, who);
+      assert.equal(r.status, 403, `${who} ${path}`);
+      assert.equal(r.json.error, "error.forbidden_reason", `${who} ${path}`);
+      assert.ok(!JSON.stringify(r.json).includes("Ann"), `${who} ${path}`);
+    }
+  }
+  // One that isn't there is a 404 to whoever may read every one, as to front desk.
+  const gone = "00000000-0000-7000-8000-00000000dead";
+  for (const path of [`/staff/sessions/${gone}/levels`, `/staff/roster/session/${gone}`]) assert.equal((await req(path, "Cal")).status, 404, path);
+});
+
+test("an id that isn't one: the same no to a coach, the same 404 to front desk, never a server error", async () => {
+  for (const bad of ["-".repeat(36), "g".repeat(8) + "-0000-0000-0000-" + "0".repeat(12), "nope"]) {
+    for (const path of [`/staff/sessions/${bad}/levels`, `/staff/sessions/${bad}/night`, `/staff/roster/session/${bad}`, `/staff/roster/lesson/${bad}`]) {
+      const lou = await req(path, "Lou");
+      assert.equal(lou.status, 403, path); assert.equal(lou.json.error, "error.forbidden_reason", path);
+      for (const who of ["Fay", "Robin", "Cal"]) {
+        const r = await req(path, who);
+        assert.equal(r.status, 404, `${who} ${path}`); assert.equal(r.json.error, "error.not_found", `${who} ${path}`);
+      }
+    }
+  }
+});
+
+test("a program's page for a coach: its roster and levels, never what anyone paid, a refund or a free place's note", async () => {
+  const program = (await db.selectFrom("session").select("program_id").where("id", "=", date).executeTakeFirstOrThrow()).program_id;
+  await run(db, "enrolment.comp", { program_id: program, person_id: people.Fay, note: "Covered by the club" }, owner);
+  const MONEY = ["price_cents", "price_basis", "paid_by", "paid_cents", "refund_outcome", "refund_cents", "comp_note"];
+  const kim = await req(`/staff/programs/${program}`, "Kim");
+  assert.equal(kim.status, 200);
+  assert.equal(kim.json.money, false);
+  assert.deepEqual(kim.json.roster.map((r: any) => [r.display_name, r.status]).sort(), [["Ann", "booked"], ["Fay", "booked"]]);
+  for (const r of kim.json.roster) { assert.ok("level" in r); for (const k of MONEY) assert.ok(!(k in r), k); }
+  assert.ok(!JSON.stringify(kim.json).includes("Covered by the club"));
+  // Front desk and up, and a coach who is also the accountant, read it all as before.
+  for (const who of ["Robin", "Fay", "Ada"]) {
+    const r = await req(`/staff/programs/${program}`, who);
+    assert.equal(r.status, 200, who); assert.equal(r.json.money, true, who);
+    for (const k of MONEY) assert.ok(r.json.roster.every((x: any) => k in x), `${who} ${k}`);
+    assert.ok(JSON.stringify(r.json).includes("Covered by the club"), who);
+  }
+  // The list and a competition's page carry no place's money to begin with.
+  const list = await req("/staff/programs", "Kim");
+  for (const k of ["paid_by", "paid_cents", "refund_outcome", "refund_cents", "comp_note"]) assert.ok(list.json.every((x: any) => !(k in x)), k);
+});

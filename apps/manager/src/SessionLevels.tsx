@@ -10,7 +10,8 @@ export function SessionLevels({ id }: { id: string }) {
   const load = () => api<S>(`/staff/sessions/${id}/levels`).then((x) => { setD(x); setLevels(Object.fromEntries(x.players.map((p) => [p.person_id, p.level ?? ""]))); setReason(""); setError(null); }).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [id, lang.value]);
-  if (error) return <main class="card"><p class="error">{error}</p></main>;
+  // Nothing loaded yet: the no is the page. A refresh after a save that fails keeps what was read, with a notice.
+  if (error && !d) return <main class="card"><p class="error" role="alert">{error}</p></main>;
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const submit = (e: Event) => {
     e.preventDefault();
@@ -23,6 +24,7 @@ export function SessionLevels({ id }: { id: string }) {
       <h1>{t("ui.set_levels_title", { program: d.session.name, when: d.session.when })}</h1>
       <p class="meta">{t("ui.set_levels_help")}</p>
       {sheet}
+      {error && <p class="error" role="alert">{error}</p>}
       {!d.session.started && <p class="card">{t("error.session_not_started")}</p>}
       {d.absent > 0 && <p class="meta">{t("ui.levels_absent", { count: d.absent })}</p>}
       {!d.players.length ? <p class="card">{t("ui.no_players_session")}</p> : <form class="card" onSubmit={submit}>
