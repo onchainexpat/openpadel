@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, t } from "@kumi/ui";
+import { ApiError, api, t } from "@kumi/ui";
 import { usePreview } from "@kumi/ui";
 
 type Game = { id: string; court: string; status: string; odds_a: number; a: string[]; b: string[]; score: { a: number; b: number } | null };
@@ -8,10 +8,11 @@ type Night = { draw: Draw | null; format: Draw["format"] | null; rounds: { round
 const MEXICANO_POINTS = [16, 21, 24, 32];
 
 export function Night({ id }: { id: string }) {
-  const [d, setD] = useState<Night | null>(null), [rounds, setRounds] = useState(6), [points, setPoints] = useState(24), [minutes, setMinutes] = useState(12), [scores, setScores] = useState<Record<string, { a: string; b: string }>>({});
-  const load = () => api<Night>(`/staff/sessions/${id}/night`).then(setD);
+  const [d, setD] = useState<Night | null>(null), [error, setError] = useState<string | null>(null), [rounds, setRounds] = useState(6), [points, setPoints] = useState(24), [minutes, setMinutes] = useState(12), [scores, setScores] = useState<Record<string, { a: string; b: string }>>({});
+  const load = () => api<Night>(`/staff/sessions/${id}/night`).then((x) => { setD(x); setError(null); }).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [id]);
+  if (error) return <main class="card"><p class="error">{error}</p></main>;
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const score = (g: Game) => preview("game.score", { game_id: g.id, a: Number(scores[g.id]?.a ?? 0), b: Number(scores[g.id]?.b ?? 0) });
   const format = d.draw?.format ?? d.format ?? "americano";

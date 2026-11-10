@@ -118,6 +118,18 @@ test("a free place for the 17th player, and only when there's room", async () =>
   assert.equal(row.paid_by, "comp"); assert.equal(row.price_cents, 0); assert.equal(row.comp_note, "Covered by C1's kept fee");
 });
 
+test("a free place for someone who already has a place: a plain no in the preview, not a 500", async () => {
+  const p = await americano("Comp twice test", 32, court2);
+  const paid = await person("Twice1"), comped = await person("Twice2");
+  await join(p, paid);
+  await run(db, "enrolment.comp", { program_id: p, person_id: comped, note: "Helping out" }, monica);
+  for (const who of [comped, paid]) {
+    await rejects(plan(db, "enrolment.comp", { program_id: p, person_id: who, note: "Again" }, monica), "error.already_signed_up");
+    await rejects(run(db, "enrolment.comp", { program_id: p, person_id: who, note: "Again" }, monica), "error.already_signed_up");
+  }
+  assert.equal((await db.selectFrom("enrolment").select("id").where("program_id", "=", p).where("person_id", "=", comped).execute()).length, 1);
+});
+
 test("a late cancel with a waitlist: the staff give the offered place to the next one straight away", async () => {
   const p = await americano("Late cancel test", 90, court2);
   const firsts = [];

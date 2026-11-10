@@ -1,15 +1,16 @@
 // Levels after a session: everyone who had a place, each with a new level to set (or left as it is), and one reason.
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { ApiError, api, lang, t, usePreview } from "@kumi/ui";
 
 type S = { session: { id: string; name: string; when: string; started: boolean; status: string; program_id: string };
   players: { person_id: string; name: string; level: string | null; floor: string | null; provisional: boolean | null; came: boolean | null }[]; absent: number };
 
 export function SessionLevels({ id }: { id: string }) {
-  const [d, setD] = useState<S | null>(null), [levels, setLevels] = useState<Record<string, string>>({}), [reason, setReason] = useState("");
-  const load = () => api<S>(`/staff/sessions/${id}/levels`).then((x) => { setD(x); setLevels(Object.fromEntries(x.players.map((p) => [p.person_id, p.level ?? ""]))); setReason(""); });
+  const [d, setD] = useState<S | null>(null), [error, setError] = useState<string | null>(null), [levels, setLevels] = useState<Record<string, string>>({}), [reason, setReason] = useState("");
+  const load = () => api<S>(`/staff/sessions/${id}/levels`).then((x) => { setD(x); setLevels(Object.fromEntries(x.players.map((p) => [p.person_id, p.level ?? ""]))); setReason(""); setError(null); }).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [id, lang.value]);
+  if (error) return <main class="card"><p class="error">{error}</p></main>;
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const submit = (e: Event) => {
     e.preventDefault();

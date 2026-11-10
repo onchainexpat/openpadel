@@ -30,6 +30,7 @@ before(async () => {
     people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner)).result as any).person_id;
     await signIn(name);
   }
+  await signIn("Robin");
   for (const [who, role] of [["Kim", "coach"], ["Lou", "coach"], ["Fay", "front_desk"]] as const) await run(db, "role.assign", { person_id: people[who], role }, owner);
   const clinic = ((await run(db, "program.create", { location_id: loc, kind: "clinic", name: "Volley Clinic", capacity: 8, price_cents: 0 }, owner)).result as any).program_id;
   const start = new Date(Date.now() + 2 * 864e5);
@@ -48,6 +49,25 @@ test("a date's list: its coach and front desk see it, another coach doesn't", as
   assert.equal((await req(`/staff/roster/session/${date}`, "Lou")).status, 403);
   assert.equal((await req(`/staff/roster/session/${date}`, "Ann")).status, 403);
   assert.equal((await req(`/staff/roster/other/${date}`, "Kim")).status, 404);
+});
+
+test("a date's levels and its night: its coach and front desk read them, another coach hears only that it isn't theirs", async () => {
+  for (const path of [`/staff/sessions/${date}/levels`, `/staff/sessions/${date}/night`]) {
+    assert.equal((await req(path, "Kim")).status, 200, path);
+    assert.equal((await req(path, "Fay")).status, 200, path);
+    assert.equal((await req(path, "Robin")).status, 200, path);
+    const lou = await req(path, "Lou");
+    assert.equal(lou.status, 403, path);
+    assert.equal(lou.json.error, "error.forbidden_reason", path);
+    assert.ok(!JSON.stringify(lou.json).includes("Ann"), path);
+  }
+  // A date that isn't there reads the same to a coach, so its existence isn't told either; the roster too.
+  const gone = "00000000-0000-7000-8000-00000000dead";
+  for (const path of [`/staff/sessions/${gone}/levels`, `/staff/sessions/${gone}/night`, `/staff/roster/session/${gone}`, `/staff/roster/lesson/${gone}`])
+    assert.equal((await req(path, "Lou")).json.error, "error.forbidden_reason", path);
+  assert.equal((await req(`/staff/sessions/${gone}/levels`, "Fay")).status, 404);
+  // The roster's no to a coach says it isn't theirs, not that it's for staff.
+  assert.equal((await req(`/staff/roster/session/${date}`, "Lou")).json.error, "error.forbidden_reason");
 });
 
 test("students: a coach sees their own; front desk picks a coach", async () => {

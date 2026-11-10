@@ -1,7 +1,7 @@
 // A lesson's or a program date's players: level, a junior's parents, the club's waiver, and who came. The
 // coach who runs it (or front desk and up) marks "came" or "didn't come" from the start until 48 hours after.
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, usePreview, serverNow } from "@kumi/ui";
+import { ApiError, api, lang, t, usePreview, serverNow } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 
 type Player = { person_id: string; name: string; level: string | null; provisional: boolean | null; junior: boolean; parents: string[]; waiver: "accepted" | "missing" | null; came: boolean | null };
@@ -9,10 +9,11 @@ type R = { item: { kind: "lesson" | "session"; id: string; program_id: string | 
   marking: { open: boolean; until: string }; players: Player[]; time_zone: string; hours: number };
 
 export function Roster({ kind, id }: { kind: string; id: string }) {
-  const [d, setD] = useState<R | null>(null), [marks, setMarks] = useState<Record<string, boolean | null>>({});
-  const load = () => api<R>(`/staff/roster/${kind}/${id}`).then((x) => { setD(x); setMarks(Object.fromEntries(x.players.map((p) => [p.person_id, p.came]))); });
+  const [d, setD] = useState<R | null>(null), [error, setError] = useState<string | null>(null), [marks, setMarks] = useState<Record<string, boolean | null>>({});
+  const load = () => api<R>(`/staff/roster/${kind}/${id}`).then((x) => { setD(x); setMarks(Object.fromEntries(x.players.map((p) => [p.person_id, p.came]))); setError(null); }).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [kind, id, lang.value]);
+  if (error) return <main class="card"><p class="error">{error}</p></main>;
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const fmt = (iso: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: d.time_zone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
   const changed = d.players.filter((p) => marks[p.person_id] !== p.came);
@@ -21,7 +22,7 @@ export function Roster({ kind, id }: { kind: string; id: string }) {
   const save = () => preview("attendance.mark", { [d.item.kind === "lesson" ? "booking_id" : "session_id"]: d.item.id, marks: changed.map((p) => ({ person_id: p.person_id, came: marks[p.person_id] ?? null })) });
   return (
     <main>
-      {d.item.program_id && <p><a href={`/programs/${d.item.program_id}`}>{d.item.name}</a></p>}
+      {d.item.program_id && <p><a class="tap" href={`/programs/${d.item.program_id}`}>{d.item.name}</a></p>}
       <h1>{d.item.kind === "lesson" ? t("ui.roster_lesson", { court: d.item.courts.join(", ") }) : d.item.name}</h1>
       <p class="meta">{fmt(d.item.start)} · {[d.item.courts.join(", "), d.item.location].filter(Boolean).join(", ")}{d.item.coach ? ` · ${t("ui.roster_with", { coach: d.item.coach })}` : ""}</p>
       {sheet}

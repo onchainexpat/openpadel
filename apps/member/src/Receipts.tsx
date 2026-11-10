@@ -15,7 +15,7 @@ export function Receipts() {
       {rows?.length === 0 && <p>{t("ui.receipts_none")}</p>}
       <ul class="changes">{(rows ?? []).map((r) => (
         <li class="card" key={r.id}>
-          <div class="summary"><a href={`/receipts/${r.id}`}>{r.what}{r.more ? ` ${t("ui.receipt_more", { count: r.more })}` : ""}</a></div>
+          <div class="summary"><a class="tap" href={`/receipts/${r.id}`}>{r.what}{r.more ? ` ${t("ui.receipt_more", { count: r.more })}` : ""}</a></div>
           <div class="meta">{r.when} · {r.number}{r.for_name ? ` · ${t("ui.receipt_row_for", { name: r.for_name })}` : ""} · {r.kind === "refund" ? `${t("ui.receipt_refund_tag")} ` : ""}{r.total}</div>
         </li>
       ))}</ul>

@@ -3,7 +3,7 @@
 import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
-import { dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
+import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
 import { itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
@@ -54,6 +54,18 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   const rolesOf = async (id: string) => [...(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
     .where("person_role.person_id", "=", id).where("person_role.active", "=", true).execute()).map((r) => r.key), ...await supportKeys(id)];
   const deskUp = (roles: string[]) => roles.some((r) => ["owner", "manager", "front_desk"].includes(r));
+  // A coach reads a lesson's or a date's players only if they run it: anyone else with the coach role and nothing
+  // wider hears a plain "not yours" first, even for one that isn't there, as the coach's actions answer (attendance.mark,
+  // level.set_session). Front desk and up read them all.
+  const notYours = () => new KumiError("error.forbidden_reason", { reason: both("reason.own_only") }, 403);
+  const coachRuns = async (c: Context<any>, kind: "lesson" | "session", id: string) => {
+    const m = me(c)!, roles = await rolesOf(m.id);
+    if (deskUp(roles) || !roles.includes("coach")) return;
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw notYours();
+    const row = kind === "lesson" ? await db.selectFrom("booking").select("coach_id").where("id", "=", id).where("kind", "=", "lesson").executeTakeFirst()
+      : await db.selectFrom("session").select("coach_id").where("id", "=", id).executeTakeFirst();
+    if (!row || row.coach_id !== m.id) throw notYours();
+  };
 
   // ---- Coaches ----
   // Everyone with the coach role, with their profile (if they have one yet), lesson hours and time off coming
@@ -89,8 +101,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/roster/:kind/:id", async (c) => {
     const m = me(c)!, roles = await rolesOf(m.id), kind = c.req.param("kind");
     if (kind !== "lesson" && kind !== "session") throw new KumiError("error.not_found", { thing: { en: "page", es: "la página" } }, 404);
+    if (!deskUp(roles) && !roles.includes("coach")) throw new KumiError("error.staff_only", {}, 403);
+    await coachRuns(c, kind, c.req.param("id"));
     const item = await coachItem(db, kind, c.req.param("id"));
-    if (!deskUp(roles) && !(roles.includes("coach") && item.coach_id === m.id)) throw new KumiError("error.staff_only", {}, 403);
     const r = await rosterOf(db, kind, item.id, new Date());
     return c.json({ ...r, time_zone: await clubTz(), hours: ATTENDANCE_HOURS });
   });
@@ -544,6 +557,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   app.get("/staff/sessions/:id/night", async (c) => {
     const id = c.req.param("id");
+    await coachRuns(c, "session", id);
     const draw = await db.selectFrom("draw").selectAll().where("session_id", "=", id).where("status", "!=", "void").executeTakeFirst();
     const games = await db.selectFrom("game").leftJoin("court", "court.id", "game.court_id").leftJoin("game_set", (j) => j.onRef("game_set.game_id", "=", "game.id").on("game_set.set_no", "=", 1))
       .select(["game.id", "game.round", "game.status", "game.predicted_a", "court.name as court", "game_set.a", "game_set.b"]).where("game.session_id", "=", id).where("game.status", "!=", "void").orderBy("game.round").orderBy("court.name").execute();
@@ -573,6 +587,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/levels", async (c) => c.json({ ...await levelQueue(db, new Date()), limit: MOVE_LIMIT, days: MOVE_DAYS }));
   // Everyone who had a place in a session, with their levels, for setting levels after it.
   app.get("/staff/sessions/:id/levels", async (c) => {
+    await coachRuns(c, "session", c.req.param("id"));
     const { session, players, absent } = await sessionPlayers(db, c.req.param("id")), tz = await clubTz();
     return c.json({ session: { ...session, when: dateTime(new Date(session.starts_at), lang(c), tz), started: new Date(session.starts_at) <= new Date() }, players, absent });
   });

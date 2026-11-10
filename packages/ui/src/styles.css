@@ -140,11 +140,12 @@ body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
 @media print { header, nav, .no-print, .notices, .banner, .dock { display: none !important; } .card.receipt { border: 0; padding: 0; } }
 /* "Runs on Kumi" stands on its own line: a target of 24 px, and 44 on a touch screen below. */
 .runs-on a { display: inline-flex; align-items: center; min-height: 24px; }
-/* On a touch screen every control is at least 44 px tall and wide, for a thumb (a link inside a sentence stays as it is). */
+/* On a touch screen every control is at least 44 px tall and wide, for a thumb (a link inside a sentence stays as it is;
+   a link that stands on its own line, like a list's row or a page's way back, is a.tap). */
 @media (pointer: coarse) {
-  button:not(.tg-face), a.button, a.small, a.chip, nav a, nav button, .policies a, .runs-on a, select, input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px; }
-  a.button, a.small, a.chip, nav a, .policies a, .runs-on a { display: inline-flex; align-items: center; }
-  button:not(.tg-face), a.button, a.small, nav a, .policies a { min-width: 44px; justify-content: center; }
+  button:not(.tg-face), a.button, a.small, a.chip, a.tap, nav a, nav button, .policies a, .runs-on a, select, input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px; }
+  a.button, a.small, a.chip, a.tap, nav a, .policies a, .runs-on a { display: inline-flex; align-items: center; }
+  button:not(.tg-face), a.button, a.small, a.tap, nav a, .policies a { min-width: 44px; justify-content: center; }
   button.small { padding: 8px 14px; } button.link { padding: 0 4px; }
   label.check input, input[type="checkbox"], input[type="radio"] { width: 24px; height: 24px; min-width: 24px; min-height: 24px; }
   summary { min-height: 44px; padding-block: 12px; box-sizing: border-box; cursor: pointer; }

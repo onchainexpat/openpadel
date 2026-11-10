@@ -433,6 +433,9 @@ export const enrolmentJoin = defineAction({
 const placeOf = (db: Db | Trx, programId: string, personId: string, sessionId: string | null) => db.selectFrom("enrolment").select("id").where("program_id", "=", programId)
   .where("person_id", "=", personId).where("status", "in", ["booked", "waitlisted"]).$if(Boolean(sessionId), (q) => q.where("session_id", "=", sessionId!)).executeTakeFirst();
 
+const bookedPlace = (db: Db | Trx, programId: string, personId: string, sessionId: string | null) => db.selectFrom("enrolment").select("id").where("program_id", "=", programId)
+  .where("person_id", "=", personId).where("status", "=", "booked").$if(Boolean(sessionId), (q) => q.where("session_id", "=", sessionId!)).executeTakeFirst();
+
 /** Signed up (or on the waitlist) now: a watch on the program, or on those dates, has done its job. */
 async function endWatches(ctx: ApplyContext, programId: string, personId: string, sessionIds: (string | null)[]) {
   for (const w of await ctx.trx.selectFrom("program_watch").select(["id", "session_id"]).where("program_id", "=", programId).where("person_id", "=", personId).where("told_at", "is", null).where("ended_at", "is", null).execute())
@@ -703,6 +706,8 @@ export const enrolmentComp = defineAction({
     const { row: p, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
     const date = await signUpDate(ctx.db, p, i.session_id, ctx.now), sid = date?.id ?? null;
     const person = await personName(ctx.db, i.person_id);
+    // Someone with a place already (paid, or given one before) is told so: a second can't be given.
+    if (await bookedPlace(ctx.db, i.program_id, i.person_id, sid)) throw new KumiError("error.already_signed_up", { person });
     // A place held by an open offer to this same person is theirs to be given.
     const waiting = await ctx.db.selectFrom("enrolment").select("id").where("program_id", "=", i.program_id).where("person_id", "=", i.person_id).where("status", "=", "waitlisted")
       .$if(Boolean(sid), (q) => q.where("session_id", "=", sid!)).executeTakeFirst();
@@ -714,6 +719,7 @@ export const enrolmentComp = defineAction({
   async apply(ctx, i) {
     await ctx.trx.selectFrom("program").select("id").where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();
     const sid = i.session_id ?? null;
+    if (await bookedPlace(ctx.trx, i.program_id, i.person_id, sid)) throw new KumiError("error.changed");
     // If they were waiting, their waitlist place becomes the free place, and an offer they held is taken.
     const waiting = await ctx.trx.selectFrom("enrolment").selectAll().where("program_id", "=", i.program_id).where("person_id", "=", i.person_id).where("status", "=", "waitlisted")
       .$if(Boolean(sid), (q) => q.where("session_id", "=", sid!)).executeTakeFirst();

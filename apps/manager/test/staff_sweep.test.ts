@@ -45,6 +45,14 @@ test("on a touch screen, toggles are 44 px tall and every checkbox is the larger
   assert.match(coarse, /input\[type="checkbox"\], input\[type="radio"\] \{ width: 24px; height: 24px; min-width: 24px; min-height: 24px; \}/);
 });
 
+test("a link on its own line is 44 px on a touch screen: the members' receipts and a roster's program (phone run 18: 19 px)", () => {
+  assert.match(coarse, /a\.chip, a\.tap, nav a, nav button,[^{]*\{ min-height: 44px; \}/);
+  assert.match(coarse, /a\.chip, a\.tap, nav a, \.policies a, \.runs-on a \{ display: inline-flex;/);
+  assert.match(src("Roster.tsx"), /<a class="tap" href=\{`\/programs\/\$\{d\.item\.program_id\}`\}>/);
+  const member = readFileSync(join(import.meta.dirname, "../../member/src/Receipts.tsx"), "utf8");
+  assert.match(member, /<div class="summary"><a class="tap" href=\{`\/receipts\/\$\{r\.id\}`\}>/);
+});
+
 test("a checkbox or choice keeps its size beside a long label (phone run 7: 13 of 46 in Settings were squeezed)", () => {
   assert.match(css, /input\[type="checkbox"\], input\[type="radio"\] \{ flex-shrink: 0; \}/);
 });
