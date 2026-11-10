@@ -213,22 +213,46 @@ export async function roleGrantsView(db: Db | Trx, key: string): Promise<{ actio
   return names.map((n) => ({ n, h: roleAllows(grants, n) })).filter((x) => x.h).map((x) => ({ action: x.n, scope: x.h!.scope, approval: x.h!.mode === "ask" }));
 }
 
-/** The areas a person can do anything in through the roles the club made (for their menus and reads). */
-export async function customAreas(db: Db | Trx, personId: string): Promise<string[] | null> {
+/** The staff screens' areas a coach's role reads: their own work (lessons and court time, programs, levels, coaches). */
+export const COACH_AREAS = ["bookings", "programs", "levels", "coaches"];
+/** The built-in roles that read every area: front desk and up, and the accountant. Support access reads as a manager. */
+const ALL_AREAS_ROLES = ["owner", "manager", "front_desk", "accountant"];
+/** What a person's staff roles let them read, all of them together: `all` for a role reading every area (front desk
+ *  and up, the accountant, and `extraKeys`: support access's manager), else `coach` (the coach role, COACH_AREAS) and
+ *  `custom`, the areas the roles the club made cover (null when they hold none). */
+export async function staffReach(db: Db | Trx, personId: string, extraKeys: string[] = []): Promise<{ all: boolean; coach: boolean; custom: string[] | null }> {
   const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(["role.id", "role.key", "role.system"])
     .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true).execute();
-  if (roles.some((r) => r.system && r.key !== "member") || !roles.some((r) => !r.system)) return null;   // a built-in staff role sees what it always has
+  const all = [...roles.filter((r) => r.system).map((r) => r.key), ...extraKeys].some((k) => ALL_AREAS_ROLES.includes(k));
+  const coach = roles.some((r) => r.system && r.key === "coach"), mine = roles.filter((x) => !x.system);
+  if (!mine.length) return { all, coach, custom: null };
   const areas = new Set<string>();
-  for (const r of roles.filter((x) => !x.system))
-    for (const g of await grantsOfRole(db, r.id)) if (g.mode !== "no") areas.add(areaOf(g.pattern));
+  for (const r of mine) for (const g of await grantsOfRole(db, r.id)) if (g.mode !== "no") areas.add(areaOf(g.pattern));
+  return { all, coach, custom: AREAS.map((a) => a.key).filter((k) => areas.has(k)) };
+}
+/** The areas a person reads: the union of what each of their roles gives (a coach COACH_AREAS, each role the club made
+ *  its own areas), or null for every area (front desk and up, the accountant, support access through `extraKeys`).
+ *  [] for someone with no staff role. */
+export async function readAreas(db: Db | Trx, personId: string, extraKeys: string[] = []): Promise<string[] | null> {
+  const r = await staffReach(db, personId, extraKeys);
+  if (r.all) return null;
+  const areas = new Set([...(r.coach ? COACH_AREAS : []), ...(r.custom ?? [])]);
   return AREAS.map((a) => a.key).filter((k) => areas.has(k));
 }
 
-/** Of `actions`, the ones the roles the club made give this person, on any rows (for their buttons; the member
+/** The areas someone holding a role the club made reads (for their menus and reads), with a coach's own areas too when
+ *  they also coach: null when they hold none, or hold a built-in role that reads every area. */
+export async function customAreas(db: Db | Trx, personId: string): Promise<string[] | null> {
+  const r = await staffReach(db, personId);
+  return r.all || !r.custom ? null : readAreas(db, personId);
+}
+
+/** Of `actions`, the ones the roles the club made, or the coach role, give this person (for their buttons; the member
  *  role's own-scope grants, such as cancelling one's own booking, aren't staff work). */
 export async function customCan(db: Db | Trx, personId: string, actions: string[]): Promise<string[]> {
   const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.id")
-    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true).where("role.system", "=", false).execute();
+    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true)
+    .where((w) => w.or([w("role.system", "=", false), w("role.key", "=", "coach")])).execute();
   const grants = await Promise.all(roles.map((r) => grantsOfRole(db, r.id)));
   return actions.filter((a) => grants.some((g) => roleAllows(g, a)));
 }

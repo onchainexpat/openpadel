@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, productName, type Key, type Lang } from "@kumi/i18n";
-import { ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, readAreas, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -38,7 +38,7 @@ import type { Mailer } from "./mailer.ts";
 
 /** The changes a staff screen offers a button for, which /me reports for people with only the club's own roles. */
 const CLIENT_ACTIONS = ["person.create", "person.import", "booking.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "booking.refund", "court.block", "court.unblock", "court.block_repeat", "court.block_repeat_end", "court.block_repeat_edit", "booking.add_player", "booking.remove_player", "alert.handle", "series.edit", "person.email_unsuppress",
-  "membership.sell", "membership.record_payment", "enrolment.record_payment", "refund.give_back"];
+  "membership.sell", "membership.record_payment", "enrolment.record_payment", "refund.give_back", "enrolment.remove", "enrolment.comp", "enrolment.join_dates"];
 
 export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string;
   /** The members' app's address (addresses.ts), for the public page's own links; from publicUrl when not given. */
@@ -415,8 +415,10 @@ export function makeApp(deps: AppDeps) {
     const kid = await kidOf(db, me.id);
     // Someone whose only staff roles are ones the club made sees the areas those roles cover.
     const areas = me.gate ? null : await customAreas(db, me.id);
-    // For those people, which of the buttons that start a change their roles allow (the server checks again).
-    const can = areas ? await customCan(db, me.id, CLIENT_ACTIONS) : null;
+    // For those people, and a coach (whose roles don't read every area), which of the buttons that start a change their
+    // roles allow (the server checks again).
+    const coaching = !me.gate && !support && !areas && roles.some((r) => r.key === "coach") && (await readAreas(db, me.id)) !== null;
+    const can = areas || coaching ? await customCan(db, me.id, CLIENT_ACTIONS) : null;
     // A staff role kept to one location: the whole club's changes it can't make (a message to a group, the club's
     // facts, someone's data), so the staff app hides their buttons (the server refuses them either way).
     const cannot = roles.some((r) => r.key !== "member" && r.location_id) ? (await Promise.all(actions().filter((d) => d.wholeClub && !d.internal)

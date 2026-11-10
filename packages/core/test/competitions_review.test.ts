@@ -251,6 +251,9 @@ test("game.score refuses a tournament match's game: decided, or with a score a p
   assert.equal((await db.selectFrom("fixture").select("status").where("id", "=", final.id).executeTakeFirstOrThrow()).status, "played", "the fixture decides the usual way");
   // (a) Decided: neither the desk nor support access at manager level can rewrite it.
   const help = (await run(db, "support.grant", { email: "sue@help.test", name: "Sue", reason: "Looking at the draws", level: "manager", hours: 24 }, { ...owner, auth: "passkey" } as Actor)).result as { person_id: string };
-  for (const who of [desk, as(help.person_id)]) await rejects(plan(db, "game.score", { game_id: g, a: 0, b: 6 }, who, at), "error.score_not_a_night");
+  await rejects(plan(db, "game.score", { game_id: g, a: 0, b: 6 }, desk, at), "error.score_not_a_night");
+  // Support access given now isn't there yet at the match's hour: a plain no before the preview, so nothing is rewritten either.
+  await rejects(plan(db, "game.score", { game_id: g, a: 0, b: 6 }, as(help.person_id), at), "error.forbidden_reason");
+  await rejects(plan(db, "game.score", { game_id: g, a: 0, b: 6 }, as(help.person_id)), "error.score_not_a_night");
   assert.deepEqual(await db.selectFrom("game_set").select(["a", "b"]).where("game_id", "=", g).execute(), [{ a: 6, b: 2 }]);
 });

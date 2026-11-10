@@ -24,6 +24,19 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   (0.1.0 on). It says to look again now, and the place stays with the player who had it.
 - A coach saw on a program's page what each member paid, their refunds and the note on a free place (0.1.0 on). They
   see its players, levels and who's signed up now; the money is for front desk and up and the club's money roles.
+  The same goes for a student's page: a coach, or a role the club made that covers members but not money, sees no
+  booking prices, payments, refunds, membership price or balance, weekly court prices or a kid's spending there, and
+  the page shows no payment or refund buttons for them. A coach who also held a role the club made read everything a
+  front desk does, the club's reports, memberships and settings among them, and every booking's money on the courts
+  page (0.1.0 on). What someone reads is now what all their roles give together. Previewing a payment or a refund (a
+  place's payment or removal, a booking's refund, club credit, gift cards, passes) told someone with no role for it
+  what was owed or that a place was paid up (0.1.0 on). They hear a plain no first now. The Playtomic page is no
+  longer open to coaches, and shows no prices, payments or owners to a role covering bookings but not money.
+- A coach kept to one location heard one no for another location's session and another for one that isn't there
+  (0.1.0 on). It's the same "not yours" for both now.
+- On a program's page, Remove, "Give place now" and the free place search showed to staff who can't use them, and the
+  search failed silently when refused (0.1.0 on). They show only to those who can now, and a refused search says why.
+  The night, roster and session levels pages no longer keep the last session's players or error when another is opened.
 - The links in the members' Receipts list, and to the program on a session's roster, were 19 px tall on a phone
   (0.1.0 on). They're 44 px on a touch screen, like the app's other controls.
 

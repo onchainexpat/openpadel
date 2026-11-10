@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, isUuid, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, customAreas, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { decide, getAction, isUuid, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
@@ -14,8 +14,8 @@ import { clubFileStem } from "./file_names.ts";
 type Me = { id: string; locale: string } | null;
 /** Which area a staff page's data belongs to (roles.ts AREAS), for roles the club made. Lists every area uses
  *  (locations, courts) belong to none. */
-/** The read areas a coach with no other staff role sees (the staff app shows them the same). */
-export const COACH_READS = ["bookings", "programs", "levels", "coaches"];
+/** The read areas the coach role gives (roles.ts COACH_AREAS; the staff app shows a coach the same). */
+export const COACH_READS = COACH_AREAS;
 /** And, outside those, the pages that answer a coach about themselves: their own earnings, and a question count of 0. */
 const COACH_ALSO = /^\/staff\/(coach-earnings(\.csv)?|questions\/count)$/;
 const READ_AREAS: [RegExp, string][] = [
@@ -38,18 +38,27 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("person_role.person_id", "=", m.id).where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst();
     // Support access the owner gave (support.ts) reads as a manager would, while it lasts.
     if (!staff && !(await supportKeys(m.id)).length) throw new KumiError("error.staff_only", {}, 403);
-    // Someone whose only staff roles are ones the club made reads only the areas those roles cover.
-    const areas = await customAreas(db, m.id), area = readArea(c.req.path);
-    if (areas && area && !areas.includes(area)) throw new KumiError("error.staff_only", {}, 403);
-    // A coach (and nothing else on staff) reads their own work: no club money, no member list or contact details,
-    // no memberships, messages or settings (permissions.md). Their own students' pages stay open to them.
-    if (!areas && area && !COACH_READS.includes(area) && !COACH_ALSO.test(c.req.path) && await coachOnly(m.id)) {
+    // What someone reads is what all their roles give together (roles.ts readAreas): front desk and up, the accountant
+    // and support access every area; a coach their own work (COACH_READS: no club money, no member list or contact
+    // details, no memberships, messages or settings, permissions.md); a role the club made the areas it covers.
+    const reach = await reachOf(m.id), area = readArea(c.req.path);
+    if (!reach.all && area && !reach.areas.includes(area)) {
+      // A coach's pages about themselves, and their own students' pages, stay open to them.
       const one = /^\/staff\/people\/([0-9a-f-]{36})$/.exec(c.req.path)?.[1];
-      if (!(one && area === "members" && (await coachStudents(db, m.id, new Date())).some((s) => s.person_id === one))) throw new KumiError("error.staff_only", {}, 403);
+      if (!(reach.coach && (COACH_ALSO.test(c.req.path) || (one && area === "members" && (await coachStudents(db, m.id, new Date())).some((s) => s.person_id === one)))))
+        throw new KumiError("error.staff_only", {}, 403);
     }
     await next();
   });
-  const coachOnly = async (id: string) => { const k = (await rolesOf(id)).filter((r) => r !== "member"); return k.length > 0 && k.every((r) => r === "coach"); };
+  /** Every area (`all`), or the ones the person's roles give together; `coach` when one of them is the coach role, and
+   *  `custom` the areas the roles the club made give (the wider view a coach's role alone doesn't). */
+  const reachOf = async (id: string) => {
+    const r = await staffReach(db, id, await supportKeys(id));
+    return { all: r.all, coach: r.coach, custom: r.custom ?? [], areas: [...new Set([...(r.coach ? COACH_READS : []), ...(r.custom ?? [])])] };
+  };
+  /** Whether the person reads an area through a role wider than coaching: one reading every area, or a role the club
+   *  made covering it. A coach's role alone reads their own lessons there, not everyone's. */
+  const widerIn = async (id: string, area: string) => { const r = await reachOf(id); return r.all || r.custom.includes(area); };
 
   const rolesOf = async (id: string) => [...(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
     .where("person_role.person_id", "=", id).where("person_role.active", "=", true).execute()).map((r) => r.key), ...await supportKeys(id)];
@@ -57,28 +66,26 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // A lesson's or a date's players are read by whoever may do its work there (`actions`: marking who came, setting its
   // levels, running its night), judged as the action itself is (permissions.ts, with coachOwners for whose it is): a
   // role reaching every row, built-in or one the club made, reads every one; a coach's own-rows grant reads only the
-  // ones they run. Anyone else hears the action's own no first (a coach "not yours", reason.own_only), even for one that
-  // isn't there or an id that isn't one. Front desk and up (and support access) read them all; a missing one is a 404.
+  // ones they run. Anyone else hears one and the same no ("not yours", reason.own_only), whatever the reason inside
+  // (another location's, someone else's, one that isn't there, an id that isn't one), so a refusal never tells whether
+  // or where it exists. Front desk and up (and support access) read them all; a missing one is a 404.
   const coachRuns = async (c: Context<any>, kind: "lesson" | "session", id: string, actions: string[]) => {
     const m = me(c)!, valid = isUuid(id);
     const gone = () => new KumiError("error.not_found", { thing: both(kind === "lesson" ? "thing.booking" : "thing.session") }, 404);
     if (deskUp(await rolesOf(m.id))) { if (!valid) throw gone(); return; }
-    const d = await mayAnyOf(m.id, actions, await coachOwners(db, kind, valid ? id : undefined));
-    if (d.ok) { if (!valid) throw gone(); return; }
-    throw new KumiError("error.forbidden_reason", { reason: both(d.reason) }, 403);
+    if (await mayAnyOf(m.id, actions, await coachOwners(db, kind, valid ? id : undefined))) { if (!valid) throw gone(); return; }
+    throw new KumiError("error.forbidden_reason", { reason: both("reason.own_only") }, 403);
   };
   /** Whether any of `actions` is the person's to do on these rows, asked as each action's own check asks it (permissions.ts,
-   *  every role they hold, built-in or the club's own), and if none is, the no to give (a coach's "not yours" first). */
-  const mayAnyOf = async (personId: string, actions: string[], o: Owners): Promise<{ ok: true } | { ok: false; reason: Key }> => {
-    let reason: Key | undefined;
+   *  every role they hold, built-in or the club's own). */
+  const mayAnyOf = async (personId: string, actions: string[], o: Owners): Promise<boolean> => {
     for (const name of actions) {
       const def = getAction(name);
       const d = await decide(db, name, { personId, locationId: o.locationId ?? null, ownerIds: o.ownerIds, at: new Date(), assistant: Boolean(opts.assistant),
         clubWide: Boolean(def.clubWide) || o.locationId === undefined, wholeClub: def.wholeClub });
-      if (d.mode !== "no") return { ok: true };
-      if (!reason || d.reason === "reason.own_only") reason = d.reason ?? "reason.no_role";
+      if (d.mode !== "no") return true;
     }
-    return { ok: false, reason: reason ?? "reason.no_role" };
+    return false;
   };
   // What members paid for a program place, its refunds and a free place's note: the club's money people (seesMoney:
   // front desk and up, the accountant, a club-made role covering money) or whoever may take a place's payment, give a
@@ -87,7 +94,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   const PLACE_MONEY = ["price_cents", "price_basis", "paid_by", "paid_cents", "refund_outcome", "refund_cents", "comp_note"] as const;
   const seesProgramMoney = async (c: Context<any>, locationId: string | null) => {
     const m = me(c)!;
-    return await seesMoney(db, m.id, { assistant: opts.assistant }) || (await mayAnyOf(m.id, PROGRAM_MONEY, { ownerIds: [], locationId })).ok;
+    return await seesMoney(db, m.id, { assistant: opts.assistant }) || await mayAnyOf(m.id, PROGRAM_MONEY, { ownerIds: [], locationId });
   };
 
   // ---- Coaches ----
@@ -358,9 +365,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .select(["booking_player.id", "booking_player.booking_id", "booking_player.fill_refund_percent", "person.display_name as name"])
       .where("booking_player.booking_id", "in", ids("booking_id")).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is not", null).orderBy("booking_player.leaving_at").execute() : [];
     const l = lang(c);
-    // A coach (and nothing else on staff) sees their own lessons in full; anyone else's booking is only "booked":
-    // bookings and court time are "own lessons" for a coach (permissions.md), so no names, codes or money.
-    const viewer = me(c)!.id, coachView = await coachOnly(viewer);
+    // Someone who reads bookings only as a coach (no role reading every area, nor one the club made covering bookings,
+    // whatever else they hold) sees their own lessons in full; anyone else's booking is only "booked": bookings and
+    // court time are "own lessons" for a coach (permissions.md), so no names, codes or money.
+    const viewer = me(c)!.id, coachView = !(await widerIn(viewer, "bookings"));
     return c.json({ date, time_zone: loc.time_zone, open, now: now.toISOString(), today: localDate(now, loc.time_zone), courts: courts.map((ct) => ({ ...ct, open: hours.get(ct.id) ?? null, items: items.filter((x) => x.court_id === ct.id).map((x) => {
       const base = { start: x.start, end: x.end, kind: x.kind };
       if (x.booking_id && coachView && bookings.find((y) => y.id === x.booking_id)?.coach_id !== viewer) return { ...base, label: t(l, "grid.booked") };
@@ -428,6 +436,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // What they sign in with, for the owner's reset (never the secrets themselves).
     const signIn = { authenticator: Boolean(await activeFactor(db, id)), recovery_left: await recoveryLeft(db, id),
       passkeys: (await db.selectFrom("passkey").select("credential_id").where("person_id", "=", id).where("revoked_at", "is", null).execute()).length };
+    // Money (what they paid or owe, prices, refunds, their balance, a kid's spending) is for the club's money people
+    // (seesMoney), never for someone reading the page without it: a coach looking at their own student, or a role the
+    // club made covering members and not money. They read the rest, and the page says which (`money`).
+    const money = await seesMoney(db, me(c)!.id, { assistant: opts.assistant });
     const places = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id")
       .select(["enrolment.id", "enrolment.status", "enrolment.program_id", "program.name"])
       .select((eb) => eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").as("first_start"))
@@ -468,8 +480,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("membership.person_id", "=", id).where("membership.status", "in", ["upcoming", "active", "past_due"]).executeTakeFirst();
     // What the desk would take for it now (what's owed, or the next period), and what waits there to give back to
     // them: for the club's money people, not a coach looking at their own student.
-    const money = await seesMoney(db, me(c)!.id, { assistant: opts.assistant });
-    const due = membership ? await membershipDue(db, membership.id) : null, giveBack = money ? await toGiveBack(db, id) : [];
+    const due = membership && money ? await membershipDue(db, membership.id) : null, giveBack = money ? await toGiveBack(db, id) : [];
     const plans = await db.selectFrom("membership_plan").select(["id", "name", "description", "translations", "price_cents", "period", "days_ahead", "join_in_app", "max_members", "starts_on", "sort"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
     const tz = await clubTz();
     // Their family (who manages a junior, and the juniors an adult manages), and the waiver.
@@ -487,19 +498,22 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const alsoCovers = membership ? (await coveredBy(db, membership.id, new Date())).map((x) => x.display_name) : [];
     // A kid with a login of their own: the address they sign in with and the rules their parents set.
     const k = await kidOf(db, id);
-    const kid = k ? { email: p.email, rules: rulesText(k)[lang(c)], spent_cents: await monthSpent(db, id, new Date()) } : null;
+    const kid = k ? { email: p.email, rules: rulesText(k)[lang(c)], ...(money ? { spent_cents: await monthSpent(db, id, new Date()) } : {}) } : null;
     // The club's email can't reach them (email_suppression.ts): the desk sees why, and can clear it once it's fixed.
     const emailProblem = p.email ? await personEmailProblem(db, p.id) : null;
     // Their weekly courts still running (booking_series.ts), each with its weeks from today.
-    const series = await seriesOf(db, p.id, new Date());
+    // Without money: each week's price, whether it's owed (as booked) and whether it was charged are left out.
+    const series = (await seriesOf(db, p.id, new Date())).map((x) => money ? x : { ...x, weeks: x.weeks.map(({ price_cents: _p, charged: _c, ...w }) => ({ ...w, state: w.state === "owed" ? "booked" : w.state })) });
     // Their club credit (credit.ts), for staff who see money: what the club owes them, to pay out at the desk.
     const credit = money ? await creditBalance(db, p.id) : null;
-    return c.json({ ...p, email_problem: emailProblem, kid, roles, sign_in: signIn, places, bookings, series, credit_cents: credit, failed_refunds: money ? failedRefunds : [], to_give_back: giveBack.map(({ id, amount_cents, method, created_at }) => ({ id, amount_cents, method, created_at })), consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
-      membership: membership ? { ...membership, ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null, due } : null,
+    const BOOKING_MONEY = ["price_cents", "paid_cents", "off_cents", "pt_cents", "refundable"], MEMBERSHIP_MONEY = ["price_cents", "balance_cents"];
+    const unpaid = <T extends object>(row: T, keys: string[]) => money ? row : Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k))) as Partial<T>;
+    return c.json({ ...p, money, email_problem: emailProblem, kid, roles, sign_in: signIn, places, bookings: bookings.map((b) => unpaid(b, BOOKING_MONEY)), series, credit_cents: credit, failed_refunds: money ? failedRefunds : [], to_give_back: giveBack.map(({ id, amount_cents, method, created_at }) => ({ id, amount_cents, method, created_at })), consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
+      membership: membership ? { ...unpaid(membership, MEMBERSHIP_MONEY), ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null, ...(money ? { due } : {}) } : null,
       // Their bookings in the club's copy of Playtomic, newest first, read only (playtomic_archive.ts).
       // A coach sees who a student played with in Playtomic no more than in Kumi's own list above: front desk and up do.
       playtomic: await (async () => { const desk = deskUp(await rolesOf(me(c)!.id));
-        return (await archiveOf(db, id, { limit: 30 })).map((b) => ({ ...b, others: desk ? b.others : [], kind: t(lang(c), typeKey(b.type)) })); })() });
+        return (await archiveOf(db, id, { limit: 30 })).map(({ price, payment_status, ...b }) => ({ ...b, ...(money ? { price, payment_status } : {}), others: desk ? b.others : [], kind: t(lang(c), typeKey(b.type)) })); })() });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.
   app.post("/staff/people/import-preview", async (c) => {
@@ -674,6 +688,12 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   });
 
   app.get("/staff/mirror", async (c) => {
+    // The Playtomic mirror is the club's moving in and its bookings side by side, not a coach's own work: someone who
+    // reads bookings only as a coach hears the same no as for any page outside their areas.
+    const viewer = me(c)!.id;
+    if (!(await widerIn(viewer, "bookings"))) throw new KumiError("error.staff_only", {}, 403);
+    // A role the club made covering bookings but not money: no price, payment, or Playtomic's owner of a booking.
+    const money = await seesMoney(db, viewer, { assistant: opts.assistant });
     const l = lang(c);
     const status = await db.selectFrom("connector_status").selectAll().where("system", "=", PLAYTOMIC).executeTakeFirst();
     const refs = await db.selectFrom("external_ref").select(["external_id", "entity_id"]).where("system", "=", PLAYTOMIC).where("entity", "=", "court").execute();
@@ -691,8 +711,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       conflicts: conflicts.map((r) => ({ ref: r.ref, court: courts.get(r.court_id) ?? "", kind: kind(r.booking_type), starts_at: r.starts_at, ends_at: r.ends_at, event: r.event, session_id: r.session_id })),
       // Moving from Playtomic (playtomic_archive.ts): the two side by side, a week ahead; and upcoming player
       // bookings that can be taken over.
-      compare: status ? await comparison(db, new Date(), 7).then((x) => ({ days: x.days, diffs: x.diffs.map((d) => ({ ...d, kind_label: kind(d.type) })) })) : null,
-      take_over: status ? (await takeOverCandidates(db, new Date())).map((x) => ({ ...x, kind: kind(x.type) })) : [],
+      compare: status ? await comparison(db, new Date(), 7).then((x) => ({ days: x.days, diffs: x.diffs.filter((d) => money || d.kind !== "paid").map((d) => ({ ...d, kind_label: kind(d.type) })) })) : null,
+      take_over: status ? (await takeOverCandidates(db, new Date())).map(({ price, payment_status, owner, ...x }) => ({ ...x, ...(money ? { price, payment_status, owner } : {}), kind: kind(x.type) })) : [],
     });
   });
   // ---- Members' questions and the club's facts (front desk and up) ----

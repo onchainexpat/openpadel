@@ -7,9 +7,11 @@ import { clubTime, lang, t } from "./state.ts";
 import { dollars } from "./Preview.tsx";
 
 export type WeeklyCourt = { id: string; court: string; starts: string; minutes: number; pay: "card" | "desk"; from_playtomic?: boolean; time_zone: string;
-  weeks: { date: string; starts_at: string; price_cents: number; state: "booked" | "owed" | "cancelled" | "missed" | "waiting"; missed: string | null; code: string | null; charged: boolean }[] };
+  weeks: { date: string; starts_at: string; price_cents?: number; state: "booked" | "owed" | "cancelled" | "missed" | "waiting"; missed: string | null; code: string | null; charged?: boolean }[] };
 
-export function WeeklyCourts({ series, preview, staff }: { series: WeeklyCourt[]; preview: (action: string, input: unknown) => Promise<void> | void; staff?: boolean }) {
+/** `money` false: a staff reader who doesn't see money (the server leaves out each week's price and whether it was charged),
+ *  so no prices and no refund choice. */
+export function WeeklyCourts({ series, preview, staff, money = true }: { series: WeeklyCourt[]; preview: (action: string, input: unknown) => Promise<void> | void; staff?: boolean; money?: boolean }) {
   const [refund, setRefund] = useState("rule");
   if (!series.length) return null;
   return (
@@ -24,13 +26,13 @@ export function WeeklyCourts({ series, preview, staff }: { series: WeeklyCourt[]
             <p class="meta">{t(s.from_playtomic ? "ui.weekly_from_playtomic" : s.pay === "card" ? "ui.weekly_on_card" : "ui.weekly_at_desk")}</p>
             <ul class="plain">{s.weeks.map((w) => (
               <li class="row" key={w.date}>
-                <span>{at(w.starts_at, { weekday: "short", month: "short", day: "numeric" })} · {dollars(w.price_cents, lang.value)} · {w.state === "missed"
+                <span>{at(w.starts_at, { weekday: "short", month: "short", day: "numeric" })} · {w.price_cents === undefined ? "" : `${dollars(w.price_cents, lang.value)} · `}{w.state === "missed"
                   ? t("ui.weekly_missed", { why: t(`msg.repeat_why_${w.missed ?? "taken"}` as Key) })
                   : t(`ui.weekly_${w.state}` as Key)}{w.state === "booked" && w.charged && s.pay === "card" ? ` · ${t("ui.weekly_charged")}` : ""}{w.code ? <span class="meta"> · {w.code}</span> : null}</span>
                 {(w.state === "booked" || w.state === "waiting") && <button class="small" onClick={() => end(w.date)}>{t("ui.cancel_from_week")}</button>}
               </li>
             ))}</ul>
-            {staff && <label>{t("ui.weekly_refund")}<select value={refund} onChange={(e) => setRefund(e.currentTarget.value)}>
+            {staff && money && <label>{t("ui.weekly_refund")}<select value={refund} onChange={(e) => setRefund(e.currentTarget.value)}>
               <option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_all")}</option><option value="none">{t("ui.refund_nothing_more")}</option></select></label>}
           </div>
         );

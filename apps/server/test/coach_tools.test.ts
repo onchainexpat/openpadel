@@ -190,3 +190,148 @@ test("a program's page for a coach: its roster and levels, never what anyone pai
   const list = await req("/staff/programs", "Kim");
   for (const k of ["paid_by", "paid_cents", "refund_outcome", "refund_cents", "comp_note"]) assert.ok(list.json.every((x: any) => !(k in x)), k);
 });
+
+// ---- What every role together gives (coach plus a role the club made), previews, the mirror, a person's page ----
+
+const ids = async () => ({ loc: (await db.selectFrom("location").select("id").where("name", "=", "Eastside").executeTakeFirstOrThrow()).id,
+  court: (await db.selectFrom("court").select("id").orderBy("name").executeTakeFirstOrThrow()).id });
+async function newStaff(name: string, roles: string[]) {
+  people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner)).result as any).person_id;
+  await signIn(name);
+  for (const role of roles) await run(db, "role.assign", { person_id: people[name], role }, owner);
+}
+
+test("a coach who also holds a role the club made reads what both give, no more: no club money, memberships, settings or questions", async () => {
+  // Sam coaches and is a "Session lead" (marking who came to any session): the lead role covers programs only.
+  const lead = ((await run(db, "role.create", { name: "Session lead", grants: [{ action: "attendance.mark", scope: "any" }] }, owner)).result as any).key;
+  await newStaff("Sam", ["coach", lead]);
+  const { loc } = await ids(), d = localDate(new Date(), TZ);
+  for (const path of [`/staff/reports?location_id=${loc}&from=${d}&to=${d}`, `/staff/reports.csv?location_id=${loc}&from=${d}&to=${d}`, "/staff/reports", "/staff/memberships",
+    "/staff/settings", "/staff/questions", "/staff/people", `/staff/people/${people.Lou}`, "/staff/payments", "/staff/facts", "/staff/mirror"]) {
+    const r = await req(path, "Sam");
+    assert.equal(r.status, 403, path); assert.equal(r.json.error, "error.staff_only", path);
+  }
+  // Still a coach: their own work, their earnings, and every session's list through the lead role.
+  for (const path of ["/staff/my-schedule", "/staff/students", "/staff/programs", "/staff/levels", `/staff/coach-earnings?from=${d}&to=${d}`, `/staff/roster/session/${date}`])
+    assert.equal((await req(path, "Sam")).status, 200, path);
+  // The staff app is told the areas both roles give together.
+  assert.deepEqual((await req("/me", "Sam")).json.areas, ["bookings", "programs", "levels", "coaches"]);
+  // A coach whose club-made role does cover money reads the reports too (what each role gives, together).
+  const books = ((await run(db, "role.create", { name: "Bookkeeper", grants: [{ action: "receipt.resend", scope: "any" }] }, owner)).result as any).key;
+  await newStaff("Bo", ["coach", books]);
+  assert.equal((await req(`/staff/reports?location_id=${loc}&from=${d}&to=${d}`, "Bo")).status, 200);
+  assert.equal((await req("/staff/settings", "Bo")).status, 403);
+});
+
+test("the courts day and a student's page for a coach with another role: only booked for others, and no money", async () => {
+  const { loc, court } = await ids(), d = localDate(new Date(Date.now() + 5 * 864e5), TZ);
+  await run(db, "hours.set", { location_id: loc, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "07:00", closes: "22:00" })) }, owner);
+  const b = ((await run(db, "booking.create", { court_id: court, starts_at: onDate(d, "09:00", TZ).toISOString(), minutes: 60, person_id: people.Ann, price_cents: 4000 }, owner)).result as any).booking_id;
+  await run(db, "booking.record_payment", { booking_id: b, cents: 4000, method: "cash" }, owner);
+  const item = (await req(`/staff/grid?location_id=${loc}&date=${d}`, "Sam")).json.courts[0].items.find((x: any) => x.kind === "booking");
+  assert.deepEqual(Object.keys(item).sort(), ["end", "kind", "label", "start"]);
+  // Ann is in a clinic Sam doesn't run, so not Sam's student: her page is closed to Sam as to any coach. Kim's student she is.
+  for (const who of ["Kim", "Sam"]) {
+    if (who === "Sam") await run(db, "session.set_coach", { session_id: date, coach_id: people.Sam }, owner);
+    const r = await req(`/staff/people/${people.Ann}`, who);
+    assert.equal(r.status, 200, who);
+    assert.equal(r.json.money, false, who);
+    const mine = r.json.bookings.find((x: any) => x.id === b);
+    assert.ok(mine, who);
+    for (const k of ["price_cents", "paid_cents", "off_cents", "pt_cents", "refundable"]) assert.ok(!(k in mine), `${who} ${k}`);
+    assert.ok(!JSON.stringify(r.json.bookings).includes("4000"), who);
+    if (who === "Sam") await run(db, "session.set_coach", { session_id: date, coach_id: people.Kim }, owner);
+  }
+  const desk = await req(`/staff/people/${people.Ann}`, "Fay");
+  assert.equal(desk.json.money, true);
+  const row = desk.json.bookings.find((x: any) => x.id === b);
+  assert.equal(row.price_cents, 4000); assert.equal(row.paid_cents, 4000); assert.equal(row.refundable.length, 0);
+});
+
+test("a person's page without money: no membership price, balance or what's due, no kid's spending, no weekly prices", async () => {
+  const plan = ((await run(db, "membership.plan_set", { name: "Club", price_cents: 5000, period: "month" }, owner)).result as any).plan_id;
+  await run(db, "membership.sell", { person_id: people.Ann, plan_id: plan, cents: 2000, method: "cash" }, owner).catch(async () =>
+    run(db, "membership.grant", { person_id: people.Ann, plan_id: plan }, owner));
+  const kim = await req(`/staff/people/${people.Ann}`, "Kim"), fay = await req(`/staff/people/${people.Ann}`, "Fay");
+  assert.ok(fay.json.membership && kim.json.membership);
+  for (const k of ["price_cents", "balance_cents", "due"]) { assert.ok(!(k in kim.json.membership), k); assert.ok(k in fay.json.membership, k); }
+  for (const s of kim.json.series) for (const w of s.weeks) { assert.ok(!("price_cents" in w)); assert.ok(!("charged" in w)); assert.notEqual(w.state, "owed"); }
+  for (const b of kim.json.playtomic) { assert.ok(!("price" in b)); assert.ok(!("payment_status" in b)); }
+});
+
+test("previewing a money change: anyone it can never be theirs hears the plain no first, never what's owed or paid", async () => {
+  const { loc, court } = await ids();
+  const paid = ((await run(db, "program.create", { location_id: loc, kind: "clinic", name: "Paid Clinic", capacity: 8, price_cents: 3000 }, owner)).result as any).program_id;
+  const start = new Date(Date.now() + 6 * 864e5);
+  await run(db, "session.add", { program_id: paid, starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3600_000).toISOString(), court_ids: [court], coach_id: people.Kim }, owner);
+  await run(db, "program.publish", { program_id: paid }, owner);
+  await run(db, "enrolment.comp", { program_id: paid, person_id: people.Fay, note: "On the house" }, owner);
+  await run(db, "enrolment.join", { program_id: paid, person_id: people.Ann }, owner);
+  const place = async (who: string) => (await db.selectFrom("enrolment").select("id").where("program_id", "=", paid).where("person_id", "=", people[who]!).executeTakeFirstOrThrow()).id;
+  const owes = await place("Ann"), comped = await place("Fay"), nothing = "00000000-0000-7000-8000-00000000beef";
+  const b = (await db.selectFrom("booking").select("id").where("organiser_id", "=", people.Ann!).executeTakeFirstOrThrow()).id;
+  const preview = (who: string, action: string, input: unknown) => req(`/actions/${action}/plan`, who, input);
+  const tries: [string, (id: string) => unknown, string[]][] = [
+    ["enrolment.record_payment", (id) => ({ enrolment_id: id, cents: 999_999, method: "cash" }), [owes, comped, nothing]],
+    ["enrolment.remove", (id) => ({ enrolment_id: id, reason: "club" }), [owes, comped, nothing]],
+    ["booking.refund", (id) => ({ booking_id: id, payment_id: nothing, cents: 1 }), [b, nothing]],
+    ["booking.record_payment", (id) => ({ booking_id: id, cents: 999_999, method: "cash" }), [b, nothing]],
+    ["refund.give_back", (id) => ({ refund_id: id }), [nothing]],
+    ["credit.pay_out", (id) => ({ person_id: id, cents: 999_999, method: "cash" }), [people.Ann!, nothing]],
+    ["membership.record_payment", (id) => ({ membership_id: id, cents: 999_999, method: "cash" }), [nothing]],
+    ["gift_card.void", (id) => ({ gift_card_id: id }), [nothing]],
+    ["pass.refund", (id) => ({ pass_id: id }), [nothing]],
+  ];
+  for (const who of ["Kim", "Sam"]) for (const [action, input, rows] of tries) {
+    const answers = [];
+    for (const id of rows) {
+      const r = await preview(who, action, input(id));
+      assert.equal(r.status, 403, `${who} ${action} ${id}`); assert.equal(r.json.error, "error.forbidden_reason", `${who} ${action} ${id}`);
+      assert.ok(!/\$|30\.00|owed|paid/i.test(r.json.message), `${who} ${action}: ${r.json.message}`);
+      answers.push(r.json);
+    }
+    for (const a of answers) assert.deepEqual(a, answers[0], `${who} ${action}: one and the same no`);
+  }
+  // Front desk still hears what's owed: the preview works as before for whoever may take the money.
+  const desk = await preview("Fay", "enrolment.record_payment", { enrolment_id: owes, cents: 999_999, method: "cash" });
+  assert.equal(desk.json.error, "error.more_than_owed_place");
+  assert.equal((await preview("Fay", "enrolment.record_payment", { enrolment_id: comped, cents: 100, method: "cash" })).json.error, "error.place_paid_up");
+});
+
+test("the Playtomic mirror: no to a coach; a role the club made covering bookings but not money reads it without prices or owners", async () => {
+  const { court } = await ids();
+  await db.insertInto("connector_status").values({ system: "playtomic", last_sync_at: new Date(), last_ok_at: new Date(), last_error: null, fetched: 1, unmapped: JSON.stringify([]) })
+    .onConflict((oc) => oc.column("system").doNothing()).execute();
+  await run(db, "connector.map_court", { resource_id: "pt-c", resource_name: "Padel C", court_id: court }, owner);
+  const s = new Date(Date.now() + 8 * 864e5);
+  await db.insertInto("playtomic_booking").values({ booking_id: "ptb-1", resource_id: "pt-c", resource_name: "Padel C", court_id: court, booking_type: "REGULAR_BOOKING", starts_at: s, ends_at: new Date(s.getTime() + 5400_000),
+    price: "40 USD", price_cents: 4000, currency: "USD", payment_status: "PAID", raw: JSON.stringify({}), row_hash: "x" } as any).execute();
+  await db.insertInto("playtomic_booking_player").values({ id: "00000000-0000-7000-8000-0000000000f1", booking_id: "ptb-1", participant_id: "u-zed", name: "Zed Owner", is_owner: true } as any).execute();
+  for (const who of ["Kim", "Sam"]) { const r = await req("/staff/mirror", who); assert.equal(r.status, 403, who); assert.equal(r.json.error, "error.staff_only", who); }
+  const fay = await req("/staff/mirror", "Fay");
+  assert.equal(fay.status, 200);
+  assert.equal(fay.json.take_over[0].owner, "Zed Owner"); assert.equal(fay.json.take_over[0].price, "40 USD");
+  const courts = ((await run(db, "role.create", { name: "Court desk", grants: [{ action: "booking.create", scope: "any" }] }, owner)).result as any).key;
+  await newStaff("Cy", [courts]);
+  const cy = await req("/staff/mirror", "Cy");
+  assert.equal(cy.status, 200);
+  assert.equal(cy.json.take_over.length, 1);
+  for (const k of ["price", "payment_status", "owner"]) assert.ok(!(k in cy.json.take_over[0]), k);
+  assert.ok(!JSON.stringify(cy.json).includes("Zed Owner") && !JSON.stringify(cy.json).includes("40 USD"));
+});
+
+test("a coach kept to one location: another location's date, someone else's and one that isn't there all get the one same no", async () => {
+  const west = ((await run(db, "location.create", { name: "Westside", time_zone: TZ }, owner)).result as any).location_id;
+  await newStaff("Wes", []);
+  await run(db, "role.assign", { person_id: people.Wes, role: "coach", location_id: west }, owner);
+  const gone = "00000000-0000-7000-8000-00000000dead";
+  for (const [a, b] of [[`/staff/sessions/${date}/levels`, `/staff/sessions/${gone}/levels`], [`/staff/sessions/${date}/night`, `/staff/sessions/${gone}/night`],
+    [`/staff/roster/session/${date}`, `/staff/roster/session/${gone}`], [`/staff/roster/lesson/${gone}`, "/staff/roster/lesson/nope"]] as const) {
+    const x = await req(a, "Wes"), y = await req(b, "Wes");
+    assert.equal(x.status, 403, a); assert.equal(y.status, 403, b);
+    assert.deepEqual(x.json, y.json, `${a} / ${b}`);
+    assert.equal(x.json.error, "error.forbidden_reason", a);
+  }
+  // Lou, a coach everywhere, hears the same words about Kim's date.
+  assert.deepEqual((await req(`/staff/sessions/${date}/night`, "Lou")).json, (await req(`/staff/sessions/${date}/night`, "Wes")).json);
+});

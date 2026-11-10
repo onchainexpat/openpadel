@@ -7,7 +7,9 @@ type M = { status: { last_sync_at: string; last_ok_at: string | null; failed: bo
   conflicts: { ref: string; court: string; kind: string; starts_at: string; ends_at: string; event: string | null; session_id: string | null }[];
   compare: { days: { day: string; court: string; playtomic: number; held: number; taken: number; kumi: number }[];
     diffs: { key: string; kind: "clash" | "missing" | "moved" | "cancelled" | "paid"; court: string; starts_at: string; kind_label: string; code?: string | null; booking_id?: string | null }[] } | null;
-  take_over: { booking_id: string; starts_at: string; court: string; kind: string; price: string | null; payment_status: string | null; held: boolean; owner: string | null; owner_known: boolean }[] };
+  take_over: { booking_id: string; starts_at: string; court: string; kind: string; held: boolean; owner_known: boolean;
+    /** Left out for a reader who doesn't see money (a role the club made covering bookings only). */
+    price?: string | null; payment_status?: string | null; owner?: string | null }[] };
 type Court = { id: string; name: string };
 
 /** The read-only Playtomic mirror: link its courts to Kumi's, and see bookings that clash with Kumi's events. */
@@ -66,8 +68,8 @@ export function Mirror() {
               onChange={(e) => { const on = e.currentTarget.checked;
                 // Each pick on its own: several made quickly mustn't overwrite one another.
                 setChosen((was) => { const n = new Set(was); if (on) n.add(x.booking_id); else n.delete(x.booking_id); return n; }); }} />
-              <span><strong>{x.court}</strong> {fmt(x.starts_at)} · {x.kind} · {x.owner_known ? x.owner : `${x.owner ?? ""} (${t("ui.mirror_owner_unknown")})`}
-                <span class="meta"> · {x.price ?? ""} {t(x.payment_status === "PAID" ? "ui.mirror_paid" : x.payment_status === "PARTIAL_PAID" ? "ui.mirror_partly_paid" : "ui.mirror_unpaid")}{x.held ? "" : ` · ${t("ui.mirror_not_held")}`}</span></span></label></li>))}</ul>
+              <span><strong>{x.court}</strong> {fmt(x.starts_at)} · {x.kind}{x.owner === undefined ? "" : ` · ${x.owner_known ? x.owner : `${x.owner ?? ""} (${t("ui.mirror_owner_unknown")})`}`}
+                <span class="meta">{x.payment_status === undefined ? "" : ` · ${x.price ?? ""} ${t(x.payment_status === "PAID" ? "ui.mirror_paid" : x.payment_status === "PARTIAL_PAID" ? "ui.mirror_partly_paid" : "ui.mirror_unpaid")}`}{x.held ? "" : ` · ${t("ui.mirror_not_held")}`}</span></span></label></li>))}</ul>
           <button disabled={chosen.size === 0} onClick={() => preview("mirror.take_over", { booking_ids: [...chosen] })}>{t("ui.mirror_take_over_pick")}</button>
         </>}
       </section>}

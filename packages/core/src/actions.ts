@@ -355,6 +355,17 @@ async function ownersFirst(db: Db | Trx, def: ActionDef<any>, input: unknown, ac
     ...(o.locationId === undefined ? { clubWide: true } : {}) });
 }
 
+/** Asked before the preview is built, for an action that can't tell whose it is from its input (no `owners`): whether
+ *  the person could be let do it anywhere at all, on any rows of theirs or anyone's, as generously as the preview's own
+ *  check could ever answer (their own rows, any location, any shift). Someone it can never be is refused here, so a
+ *  preview's words ("only $X is owed", "paid up", a refund's amount, a place's note) never reach a person with no
+ *  grant for the action. Anyone the later check would let through is let through here. */
+async function mayEver(db: Db | Trx, def: ActionDef<any>, actor: Actor, now: Date): Promise<Decision | null> {
+  if (def.owners || !actor.personId) return null;
+  // The person's own roles and support access only: an assistant's cap can only lower that, and is asked after.
+  return decide(db, def.name, { personId: actor.personId, agentId: null, locationId: null, ownerIds: [actor.personId], at: now, ...how(def, actor), clubWide: true });
+}
+
 /** Validate, build the preview and check permission, storing nothing: what an action would do, for a
  *  plan that wraps another (a kid asking a parent shows what they're asking for). */
 export async function dryPlan(db: Db | Trx, name: string, raw: unknown, actor: Actor, now: Date): Promise<Plan> {
@@ -363,6 +374,8 @@ export async function dryPlan(db: Db | Trx, name: string, raw: unknown, actor: A
   const input = validate(def, raw);
   const first = await ownersFirst(db, def, input, actor, now);
   if (first?.mode === "no") throw new KumiError("error.forbidden_reason", { reason: both(first.reason ?? "reason.no_role") }, 403);
+  const ever = await mayEver(db, def, actor, now);
+  if (ever?.mode === "no") throw new KumiError("error.forbidden_reason", { reason: both(ever.reason ?? "reason.no_role") }, 403);
   const p = await def.plan({ db, actor, now }, input);
   const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
   if (d.mode === "no") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
@@ -385,6 +398,8 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
   }
   const first = await ownersFirst(db, def, input, actor, now);
   if (first?.mode === "no") return refuse(db, def, input, actor, null, first);
+  const ever = await mayEver(db, def, actor, now);
+  if (ever?.mode === "no") return refuse(db, def, input, actor, null, ever);
   const p = await def.plan({ db, actor, now }, input);
   const d = await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: p.locationId ?? null, ownerIds: p.ownerIds ?? [], at: now, ...how(def, actor) });
   if (d.mode === "no") return refuse(db, def, input, actor, p, d);

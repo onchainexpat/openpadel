@@ -13,25 +13,28 @@ type P = {
   id: string; display_name: string; email: string | null; locale: string; created_via: string; created_at: string;
   email_problem: { reason: "bounce" | "complaint" | "provider"; since: string; detail: string | null } | null;
   roles: Role[]; places: { id: string; status: string; program_id: string; name: string; first_start: string | null }[];
-  bookings: { id: string; code: string; kind: string; status: string; court: string; location_id: string | null; starts_at: string; price_cents: number; organiser: boolean; paid_cents: number; off_cents?: number; pt_cents?: number;
-    refundable: { payment_id: string; left_cents: number }[] }[];
+  /** Whether the reader sees money: without it (a coach's own student, a role covering members only) the server leaves
+   *  out what was paid or is owed, prices, refunds, balances and a kid's spending, and the page leaves out their lines and buttons. */
+  money?: boolean;
+  bookings: { id: string; code: string; kind: string; status: string; court: string; location_id: string | null; starts_at: string; price_cents?: number; organiser: boolean; paid_cents?: number; off_cents?: number; pt_cents?: number;
+    refundable?: { payment_id: string; left_cents: number }[] }[];
   failed_refunds: { id: string; amount_cents: number; failure: string | null; created_at: string }[];
   series: WeeklyCourt[];
   to_give_back: { id: string; amount_cents: number; method: string; created_at: string }[];
   credit_cents: number | null;
   consent: { channel: string; purpose: string; granted: boolean }[];
   membership: { id: string; name: string; status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null;
-    price_cents: number | null; balance_cents: number; due: { cents: number; next: boolean } | null } | null;
+    price_cents?: number | null; balance_cents?: number; due?: { cents: number; next: boolean } | null } | null;
   plans: (Omit<Plan, "members"> & { members?: number })[];
   junior: boolean; birth_year: number | null; family_role: "adult" | "member" | "junior" | null;
   family: { id: string; display_name: string; birth_year: number | null; role: "adult" | "member" | "junior" }[];
   waiver: { version_no: number; accepted_on: string | null; accepted_by: string | null } | null;
-  kid: { email: string | null; rules: string; spent_cents: number } | null;
+  kid: { email: string | null; rules: string; spent_cents?: number } | null;
   covered_by: { membership_id: string; payer_id: string; payer: string; plan: string } | null; also_covers: string[];
   redacted_at: string | null;
   tags: { id: string; name: string }[];
   sign_in?: { authenticator: boolean; passkeys: number; recovery_left: number };
-  playtomic?: { booking_id: string; starts_at: string; court: string; kind: string; price: string | null; cancelled: boolean; taken_over_as: string | null; cancelled_here_as?: string | null; others: string[] }[];
+  playtomic?: { booking_id: string; starts_at: string; court: string; kind: string; price?: string | null; cancelled: boolean; taken_over_as: string | null; cancelled_here_as?: string | null; others: string[] }[];
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;
 
@@ -107,7 +110,7 @@ export function Person({ id }: { id: string }) {
           <p class="meta">{membershipLine(p.membership)}</p>
           {p.also_covers.length > 0 && <p class="meta">{t("ui.family_covers_staff", { names: p.also_covers.join(", ") })}</p>}
           <MembershipButtons m={p.membership} send={preview} />
-          {mayDo("membership.record_payment") && <MembershipDesk key={`${p.membership.id}-${p.membership.due?.cents ?? 0}`} m={p.membership} send={preview} />}
+          {p.money !== false && mayDo("membership.record_payment") && <MembershipDesk key={`${p.membership.id}-${p.membership.due?.cents ?? 0}`} m={p.membership} send={preview} />}
         </section>
       ) : p.covered_by ? (
         <section class="card">
@@ -148,7 +151,7 @@ export function Person({ id }: { id: string }) {
       </section>
       <PersonBookings bookings={p.bookings} preview={preview} />
       {p.playtomic && p.playtomic.length > 0 && <PersonPlaytomic rows={p.playtomic} />}
-      <WeeklyCourts series={p.series ?? []} preview={preview} staff />
+      <WeeklyCourts series={p.series ?? []} preview={preview} staff money={p.money !== false} />
       {p.failed_refunds?.length > 0 && <section class="card">
         <h2>{t("ui.refunds_failed")}</h2>
         <ul class="plain">{p.failed_refunds.map((r) => (
@@ -199,6 +202,7 @@ export function Person({ id }: { id: string }) {
  *  refunds part of a card payment on one that stays (leaving and refunding are separate decisions). */
 /** Paid in Playtomic, and what the organiser still owes here (time added here), both said; null when not paid there. */
 function ptLine(b: P["bookings"][number]): string | null {
+  if (b.price_cents === undefined || b.paid_cents === undefined) return null;
   const owed = b.organiser && b.status !== "cancelled" ? b.price_cents - b.paid_cents - (b.off_cents ?? 0) : 0;
   return playtomicParts({ paid: b.paid_cents, pt: b.pt_cents ?? 0, owed })?.map((x) => t(x.key, { amount: dollars(x.cents, lang.value) })).join(" · ") ?? null;
 }
@@ -218,7 +222,7 @@ function PersonBookings({ bookings, preview }: { bookings: P["bookings"]; previe
               {upcoming && mayDo("booking.cancel") && coversLocation(b.location_id) && <form class="inline" onSubmit={(e) => { e.preventDefault(); preview("booking.cancel", { booking_id: b.id, refund: ((e.currentTarget as HTMLFormElement).elements.namedItem("refund") as HTMLSelectElement).value }); }}>
                 <select name="refund" aria-label={t("ui.refund")}><option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option><option value="credit">{t("ui.refund_as_credit")}</option></select>
                 <button class="small">{t("ui.cancel_booking")}</button></form>}
-              {b.status !== "cancelled" && mayDo("booking.refund") && coversLocation(b.location_id) && b.refundable.map((r) => (
+              {b.status !== "cancelled" && mayDo("booking.refund") && coversLocation(b.location_id) && (b.refundable ?? []).map((r) => (
                 <form class="inline" key={r.payment_id} onSubmit={(e) => { e.preventDefault(); const v = Number(((e.currentTarget as HTMLFormElement).elements.namedItem("amount") as HTMLInputElement).value);
                   preview("booking.refund", { booking_id: b.id, payment_id: r.payment_id, cents: fromMajor(v) }); }}>
                   <label>{t("ui.refund_up_to", { amount: dollars(r.left_cents, lang.value) })} <input name="amount" type="number" min={amountStep()} step={amountStep()} max={plainAmount(r.left_cents)} value={plainAmount(r.left_cents)} /></label>

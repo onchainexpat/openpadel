@@ -1,6 +1,6 @@
 // A lesson's or a program date's players: level, a junior's parents, the club's waiver, and who came. The
 // coach who runs it (or front desk and up) marks "came" or "didn't come" from the start until 48 hours after.
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, api, lang, t, usePreview, serverNow } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 
@@ -10,8 +10,13 @@ type R = { item: { kind: "lesson" | "session"; id: string; program_id: string | 
 
 export function Roster({ kind, id }: { kind: string; id: string }) {
   const [d, setD] = useState<R | null>(null), [error, setError] = useState<string | null>(null), [marks, setMarks] = useState<Record<string, boolean | null>>({});
-  const load = () => api<R>(`/staff/roster/${kind}/${id}`).then((x) => { setD(x); setMarks(Object.fromEntries(x.players.map((p) => [p.person_id, p.came]))); setError(null); }).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
+  // What's on the page is this list's: an answer for the one open before (a slow load, then another opened) is dropped.
+  const key = `${kind}/${id}`, shown = useRef(key);
+  const load = () => { const k = key; return api<R>(`/staff/roster/${k}`).then((x) => { if (shown.current !== k) return; setD(x); setMarks(Object.fromEntries(x.players.map((p) => [p.person_id, p.came]))); setError(null); })
+    .catch((e) => { if (shown.current === k) setError(e instanceof ApiError ? e.message : String(e)); }); };
   const { preview, sheet } = usePreview(load);
+  // Another lesson or date opened: nothing of the last one (its players, marks or its no) stays while this one loads.
+  useEffect(() => { shown.current = key; setD(null); setError(null); setMarks({}); }, [key]);
   useEffect(() => { load(); }, [kind, id, lang.value]);
   // Nothing loaded yet: the no is the page. A refresh after a save that fails keeps what was read, with a notice.
   if (error && !d) return <main class="card"><p class="error" role="alert">{error}</p></main>;

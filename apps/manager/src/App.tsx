@@ -60,21 +60,24 @@ function access(m: Me) {
   // A coach with no other staff role sees their own work only: the server answers the rest with "staff only".
   const coachOnly = !areas && coach && roles.every((r) => r === "coach" || r === "member");
   const show = (area: string) => (areas ? areas.includes(area) : !coachOnly || COACH_SEES.includes(area));
+  // A coach whose roles don't read every area (on their own, or with a role the club made): their own students' pages
+  // and their own earnings stay theirs, whatever the other role covers (the server's areas include the coach's).
+  const coachSide = coach && (coachOnly || Boolean(areas));
   const areaHome: Record<string, any> = { bookings: Courts, courts: Courts, programs: Programs, members: People, memberships: Memberships, levels: Levels, messages: Messages, money: Reports, coaches: Coaches, settings: Settings };
-  const home = areas ? (areaHome[areas[0] ?? ""] ?? Profile) : desk ? Courts : coach ? Schedule : roles.includes("accountant") ? Reports : Programs;
+  const home = areas ? (coach ? Schedule : areaHome[areas[0] ?? ""] ?? Profile) : desk ? Courts : coach ? Schedule : roles.includes("accountant") ? Reports : Programs;
   // The pages in someone's menu, fetched while they look at their first one so opening them later doesn't wait.
   const later: { preload?: () => unknown }[] = [home, Profile];
   const add = (yes: boolean, ...pages: { preload?: () => unknown }[]) => { if (yes) later.push(...pages); };
   add(show("programs"), Programs, Program, Night);
-  add(show("members") || coachOnly, People, Person);
+  add(show("members") || coachSide, People, Person);
   add(show("memberships"), Memberships);
   add(show("levels"), Scores, Levels, Level, SessionLevels);
   add(desk || Boolean(areas?.includes("messages")), Questions, Messages);
-  add(show("money") || coachOnly, Reports, Payments);
+  add(show("money") || coachSide, Reports, Payments);
   add(coach || desk || Boolean(areas?.includes("coaches")), Coaches);
   add(show("settings"), Settings);
   add(changes, Changes, Usage);
-  return { coach, desk, changes, areas, coachOnly, show, home, later };
+  return { coach, desk, changes, areas, coachSide, show, home, later };
 }
 
 /** Support access under way: the person who has it, and the owner and managers, are told at the top of every page. */
@@ -138,14 +141,14 @@ export function App() {
   if (!me.value.support && !me.value.roles.some((r) => r.key !== "member")) return (
     <main class="card"><p>{t(me.value.support_ended ? "ui.support_ended_you" : "ui.no_staff_role")}</p><button onClick={signOut}>{t("ui.sign_out")}</button></main>
   );
-  const { coach, desk, changes, areas, coachOnly, show, home } = access(me.value);
+  const { coach, desk, changes, areas, coachSide, show, home } = access(me.value);
   // A page outside those areas says so, rather than failing to load.
   const only = (area: string, page: any) => (show(area) ? page : NotForRole);
   return (
     <LocationProvider>
       <header>
         <strong>{club.value?.name}</strong>
-        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}{show("programs") && <a href="/programs">{t("ui.nav_programs")}</a>}{show("members") && <a href="/people">{t("ui.nav_people")}</a>}{show("members") && club.value?.players_chat && <a href="/chats">{t("ui.nav_chats")}</a>}{show("memberships") && <a href="/memberships">{t("ui.nav_memberships")}</a>}{(coach || desk || areas?.includes("coaches")) && <a href="/coaches">{t("ui.nav_coaches")}</a>}{show("bookings") && <a href="/courts">{t("ui.courts")}</a>}{show("levels") && <a href="/scores">{t("ui.nav_scores")}</a>}{show("levels") && <a href="/levels">{t("ui.nav_levels")}</a>}{(desk || areas?.includes("messages")) && <QuestionsLink />}{(desk || areas?.includes("messages")) && <a href="/messages">{t("ui.nav_messages")}</a>}{show("bookings") && <a href="/playtomic">{t("ui.nav_playtomic")}</a>}{show("money") && <a href="/payments">{t("ui.nav_payments")}</a>}{(show("money") || coachOnly) && <a href="/reports">{t("ui.nav_reports")}</a>}{show("settings") && <a href="/settings">{t("ui.nav_settings")}</a>}{changes && <a href="/usage">{t("ui.nav_usage")}</a>}<InboxLink />{changes && <a href="/changes">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}{show("programs") && <a href="/programs">{t("ui.nav_programs")}</a>}{show("members") && <a href="/people">{t("ui.nav_people")}</a>}{show("members") && club.value?.players_chat && <a href="/chats">{t("ui.nav_chats")}</a>}{show("memberships") && <a href="/memberships">{t("ui.nav_memberships")}</a>}{(coach || desk || areas?.includes("coaches")) && <a href="/coaches">{t("ui.nav_coaches")}</a>}{show("bookings") && <a href="/courts">{t("ui.courts")}</a>}{show("levels") && <a href="/scores">{t("ui.nav_scores")}</a>}{show("levels") && <a href="/levels">{t("ui.nav_levels")}</a>}{(desk || areas?.includes("messages")) && <QuestionsLink />}{(desk || areas?.includes("messages")) && <a href="/messages">{t("ui.nav_messages")}</a>}{show("bookings") && !coachSide && <a href="/playtomic">{t("ui.nav_playtomic")}</a>}{show("money") && <a href="/payments">{t("ui.nav_payments")}</a>}{(show("money") || coachSide) && <a href="/reports">{t("ui.nav_reports")}</a>}{show("settings") && <a href="/settings">{t("ui.nav_settings")}</a>}{changes && <a href="/usage">{t("ui.nav_usage")}</a>}<InboxLink />{changes && <a href="/changes">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
       </header>
       <Notices items={[
         club.value?.moved ? <>{t("ui.moved_banner_staff")} {club.value.moved_to && <a href={club.value.moved_to}>{club.value.moved_to}</a>}</>
@@ -163,7 +166,7 @@ export function App() {
         <Route path="/programs/:id/competition" component={only("programs", Competition)} />
         <Route path="/sessions/:id/levels" component={only("levels", SessionLevels)} />
         <Route path="/people" component={only("members", People)} />
-        <Route path="/people/:id" component={coachOnly ? Person : only("members", Person)} />
+        <Route path="/people/:id" component={coachSide ? Person : only("members", Person)} />
         <Route path="/people/:id/level" component={only("levels", Level)} />
         <Route path="/playtomic" component={only("bookings", Mirror)} />
         <Route path="/playtomic/move-in" component={only("money", MoveIn)} />
@@ -175,7 +178,7 @@ export function App() {
         <Route path="/roles" component={only("settings", Roles)} />
         <Route path="/vault" component={only("settings", Vault)} />
         <Route path="/courts" component={only("bookings", Courts)} />
-        <Route path="/reports" component={coachOnly ? Reports : only("money", Reports)} />
+        <Route path="/reports" component={coachSide ? Reports : only("money", Reports)} />
         <Route path="/memberships" component={only("memberships", Memberships)} />
         <Route path="/scores" component={only("levels", Scores)} />
         <Route path="/levels" component={only("levels", Levels)} />

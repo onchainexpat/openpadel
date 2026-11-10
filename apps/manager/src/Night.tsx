@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, api, t } from "@kumi/ui";
 import { usePreview } from "@kumi/ui";
 
@@ -9,9 +9,13 @@ const MEXICANO_POINTS = [16, 21, 24, 32];
 
 export function Night({ id }: { id: string }) {
   const [d, setD] = useState<Night | null>(null), [error, setError] = useState<string | null>(null), [rounds, setRounds] = useState(6), [points, setPoints] = useState(24), [minutes, setMinutes] = useState(12), [scores, setScores] = useState<Record<string, { a: string; b: string }>>({});
-  const load = () => api<Night>(`/staff/sessions/${id}/night`).then((x) => { setD(x); setError(null); }).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
+  // What's on the page is this night's: an answer for the one open before (a slow load, then another night opened) is dropped.
+  const shown = useRef(id);
+  const load = () => { const k = id; return api<Night>(`/staff/sessions/${k}/night`).then((x) => { if (shown.current === k) { setD(x); setError(null); } })
+    .catch((e) => { if (shown.current === k) setError(e instanceof ApiError ? e.message : String(e)); }); };
   const { preview, sheet } = usePreview(load);
-  useEffect(() => { load(); }, [id]);
+  // Another night opened: nothing of the last one (its rounds or its no) stays on the page while this one loads.
+  useEffect(() => { shown.current = id; setD(null); setError(null); setScores({}); load(); }, [id]);
   // Nothing loaded yet: the no is the page. A refresh after a save that fails keeps what was read, with a notice.
   if (error && !d) return <main class="card"><p class="error" role="alert">{error}</p></main>;
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;

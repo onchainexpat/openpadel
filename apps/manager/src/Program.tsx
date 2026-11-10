@@ -31,6 +31,8 @@ export function Program({ id }: { id: string }) {
   const [naming, setNaming] = useState<{ name: string; tr: string } | null>(null);
   const [day, setDay] = useState<string | null>(null);   // signed up per date: whose roster is shown
   const [adding, setAdding] = useState(false), [search, setSearch] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]), [compNote, setCompNote] = useState("");
+  // The person search's no (a role giving places without reading the members' list): said under the search, not thrown.
+  const [findError, setFindError] = useState<string | null>(null);
   const load = () => api<Data>(`/staff/programs/${id}`).then((x) => {
     setD(x); api<Court[]>(`/staff/courts?location_id=${x.program.location_id}`).then(setCourts);
     // A draft: the card as members will see it, its dates, and anything in the way, before publishing.
@@ -69,7 +71,8 @@ export function Program({ id }: { id: string }) {
   // Who runs a date: one of the coaches, or nobody named.
   const coachPick = (value: string, onPick: (v: string) => void) => <select aria-label={t("ui.coach")} value={value} onChange={(e) => onPick(e.currentTarget.value)}>
     <option value="">{t("ui.no_coach")}</option>{d.coaches.map((c) => <option value={c.id}>{c.name}</option>)}</select>;
-  const find = async (q: string) => { setSearch(q); setFound(q.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(q)}`) : []); };
+  const find = (q: string) => { setSearch(q); setFindError(null); if (q.length <= 1) { setFound([]); return; }
+    api<{ id: string; display_name: string }[]>(`/staff/people?q=${encodeURIComponent(q)}`).then(setFound).catch((e) => { setFound([]); setFindError(e instanceof Error ? e.message : String(e)); }); };
 
   return (
     <main>
@@ -154,7 +157,7 @@ export function Program({ id }: { id: string }) {
           <li class="row"><div><a href={`/people/${r.person_id}/level`}>{r.display_name}</a>{r.level && <span class="meta"> · {t("ui.level")} {r.level}</span>}
             {d.money && <span class="meta"> · {r.paid_by === "comp" ? t("ui.comped", { note: r.comp_note ?? "" }) : r.price_basis === "included" ? t("ui.included_place") : r.paid_cents! > 0 ? t("ui.paid", { amount: money(r.paid_cents!) }) : t("ui.unpaid")}</span>}</div>
             <span>{d.money && r.paid_by !== "comp" && r.price_cents! > r.paid_cents! && mayDo("enrolment.record_payment") && <><button class="small" onClick={() => { setPaying(r); setRemoving(null); }}>{t("ui.record_payment")}</button>{" "}</>}
-            <button class="small" onClick={() => { setRemoving(r); setPaying(null); setOverride(false); setReason("late_cancel"); }}>{t("ui.remove")}</button></span></li>))}</ul>
+            {mayDo("enrolment.remove") && <button class="small" onClick={() => { setRemoving(r); setPaying(null); setOverride(false); setReason("late_cancel"); }}>{t("ui.remove")}</button>}</span></li>))}</ul>
         {paying && (
           <div class="card sheet">
             <p><strong>{paying.display_name}</strong></p>
@@ -176,12 +179,15 @@ export function Program({ id }: { id: string }) {
           </form>
         )}
         {waiting.length > 0 && <><h2>{t("ui.waitlist")}</h2><ol>{waiting.map((r) => <li>{r.display_name}{r.offer_expires_at && <span class="meta"> · {t("ui.offer_until", { time: shortTime(r.offer_expires_at) })}</span>}
-          {" "}<button class="small" onClick={() => preview("enrolment.comp", { program_id: id, person_id: r.person_id, note: compNote.trim() || t("ui.comp_waitlist_note"), ...onDate })}>{t("ui.give_place_now")}</button></li>)}</ol></>}
+          {mayDo("enrolment.comp") && <>{" "}<button class="small" onClick={() => preview("enrolment.comp", { program_id: id, person_id: r.person_id, note: compNote.trim() || t("ui.comp_waitlist_note"), ...onDate })}>{t("ui.give_place_now")}</button></>}</li>)}</ol></>}
         {byDate && p.status === "published" && mayDo("enrolment.join_dates") && <SignUpDates programId={id} sessions={d.sessions} when={when} preview={preview} />}
-        <h2>{t(byDate ? "ui.give_place_date" : "ui.comp")}</h2>
-        <input placeholder={t("ui.search_person")} value={search} onInput={(e) => find(e.currentTarget.value)} />
-        <input placeholder={t("ui.note")} value={compNote} onInput={(e) => setCompNote(e.currentTarget.value)} />
-        <ul class="plain">{found.map((f) => <li><button class="small" disabled={!compNote.trim()} onClick={() => preview("enrolment.comp", { program_id: id, person_id: f.id, note: compNote, ...onDate })}>{f.display_name}</button></li>)}</ul>
+        {mayDo("enrolment.comp") && <>
+          <h2>{t(byDate ? "ui.give_place_date" : "ui.comp")}</h2>
+          <input placeholder={t("ui.search_person")} value={search} onInput={(e) => find(e.currentTarget.value)} />
+          <input placeholder={t("ui.note")} value={compNote} onInput={(e) => setCompNote(e.currentTarget.value)} />
+          {findError && <p class="error" role="alert">{findError}</p>}
+          <ul class="plain">{found.map((f) => <li><button class="small" disabled={!compNote.trim()} onClick={() => preview("enrolment.comp", { program_id: id, person_id: f.id, note: compNote, ...onDate })}>{f.display_name}</button></li>)}</ul>
+        </>}
         {gone.length > 0 && <><h2>{t("ui.gone")}</h2><ul class="plain">{gone.map((r) => <li class="meta">{[r.display_name, r.left_reason ? t(`reason.${r.left_reason}` as Key) : "",
           r.refund_outcome ? `${t(`ui.outcome_${r.refund_outcome}` as Key)}${r.refund_cents ? ` ${money(r.refund_cents)}` : ""}` : ""].filter(Boolean).join(" · ")}</li>)}</ul></>}
       </section>
@@ -203,15 +209,17 @@ export function Program({ id }: { id: string }) {
  *  amount. A place at no charge is "give a place" below. */
 function SignUpDates({ programId, sessions, when, preview }: { programId: string; sessions: Data["sessions"]; when: (iso: string) => string; preview: (action: string, input: unknown) => Promise<void> }) {
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]);
-  const [who, setWho] = useState<{ id: string; display_name: string } | null>(null), [picked, setPicked] = useState<string[]>([]);
+  const [who, setWho] = useState<{ id: string; display_name: string } | null>(null), [picked, setPicked] = useState<string[]>([]), [findError, setFindError] = useState<string | null>(null);
   const ahead = sessions.filter((s) => s.status !== "cancelled" && new Date(s.starts_at) > new Date(serverNow()));
-  const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
+  const find = (v: string) => { setQ(v); setFindError(null); if (v.length <= 1) { setFound([]); return; }
+    api<{ id: string; display_name: string }[]>(`/staff/people?q=${encodeURIComponent(v)}`).then(setFound).catch((e) => { setFound([]); setFindError(e instanceof Error ? e.message : String(e)); }); };
   if (!ahead.length) return null;
   return (
     <form class="card-form" onSubmit={(e) => { e.preventDefault(); void preview("enrolment.join_dates", { program_id: programId, person_id: who!.id, session_ids: picked }); }}>
       <h2>{t("ui.desk_sign_up_dates")}</h2>
       {who ? <p>{who.display_name} <button type="button" class="link" onClick={() => setWho(null)}>{t("ui.change")}</button></p> : <>
         <label>{t("ui.search_person")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>
+        {findError && <p class="error" role="alert">{findError}</p>}
         {found.length > 0 && <ul class="plain">{found.slice(0, 6).map((f) => <li class="row"><span>{f.display_name}</span>
           <button type="button" class="small" onClick={() => { setWho(f); setFound([]); setQ(""); }}>{t("ui.choose")}</button></li>)}</ul>}
       </>}
