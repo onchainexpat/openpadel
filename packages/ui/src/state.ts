@@ -23,6 +23,9 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   areas?: string[] | null;
   /** For those people: which of the staff screens' changes their roles allow (null: everyone else, as their role always has). */
   can?: string[] | null;
+  /** Whether the server lets them read the Playtomic page (/staff/mirror): a role reading every area, or one the club
+   *  made covering bookings; not bookings that come only from coaching. */
+  playtomic?: boolean;
   /** For a staff role kept to one location: the whole club's changes it can't make, whose buttons stay hidden. */
   cannot?: string[];
   /** A junior with a login of their own: their parents' rules apply, and payments go on the family card. */

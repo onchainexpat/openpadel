@@ -31,7 +31,14 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   page (0.1.0 on). What someone reads is now what all their roles give together. Previewing a payment or a refund (a
   place's payment or removal, a booking's refund, club credit, gift cards, passes) told someone with no role for it
   what was owed or that a place was paid up (0.1.0 on). They hear a plain no first now. The Playtomic page is no
-  longer open to coaches, and shows no prices, payments or owners to a role covering bookings but not money.
+  longer open to coaches, and shows no prices, payments or owners to a role covering bookings but not money. Its link
+  shows to whoever may open it, a coach whose other role covers bookings too. On the courts page, a coach's own lesson
+  and a role covering bookings but not money show who's on each court and when, with no paid, owed or promo amounts,
+  no Pay button and no refund choices. A role the club made that takes members' money (a membership desk taking
+  payments or selling memberships, or one giving booking refunds) keeps what's due, its pay buttons and its refund
+  buttons on a person's page, and on the courts page a role taking a booking's payment keeps the amounts. A membership
+  behind on payment reads as running to someone without money. A coach or a role the club made that may send
+  messages was told on Messages that they couldn't, and lost other buttons their roles allow (0.1.0 on): they show now.
 - A coach kept to one location heard one no for another location's session and another for one that isn't there
   (0.1.0 on). It's the same "not yours" for both now.
 - On a program's page, Remove, "Give place now" and the free place search showed to staff who can't use them, and the

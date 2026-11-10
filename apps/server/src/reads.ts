@@ -92,6 +92,11 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // free place or give money back there through any role. A coach reads the roster and levels without them.
   const PROGRAM_MONEY = ["enrolment.record_payment", "enrolment.comp", "enrolment.unpaid", "refund.give_back", "refund.settle"];
   const PLACE_MONEY = ["price_cents", "price_basis", "paid_by", "paid_cents", "refund_outcome", "refund_cents", "comp_note"] as const;
+  // The courts day's money: the club's money people, or whoever may take a booking's payment or give it back there.
+  const GRID_MONEY = ["booking.record_payment", "booking.refund"];
+  // A person's page's money: the club's money people, or whoever may do one of the money changes the page offers
+  // (a booking's refund, a membership's payment or sale, a refund given back or sent again, credit paid out, a pass refunded).
+  const PERSON_MONEY = ["booking.refund", "membership.record_payment", "membership.sell", "refund.give_back", "refund.resend", "credit.pay_out", "pass.refund"];
   const seesProgramMoney = async (c: Context<any>, locationId: string | null) => {
     const m = me(c)!;
     return await seesMoney(db, m.id, { assistant: opts.assistant }) || await mayAnyOf(m.id, PROGRAM_MONEY, { ownerIds: [], locationId });
@@ -369,11 +374,17 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // whatever else they hold) sees their own lessons in full; anyone else's booking is only "booked": bookings and
     // court time are "own lessons" for a coach (permissions.md), so no names, codes or money.
     const viewer = me(c)!.id, coachView = !(await widerIn(viewer, "bookings"));
-    return c.json({ date, time_zone: loc.time_zone, open, now: now.toISOString(), today: localDate(now, loc.time_zone), courts: courts.map((ct) => ({ ...ct, open: hours.get(ct.id) ?? null, items: items.filter((x) => x.court_id === ct.id).map((x) => {
+    // What members paid on each booking (price, paid, promo, Playtomic, balance): for the club's money people or whoever
+    // may take a booking's payment or give it back here (as the person page and a program's page decide); everyone
+    // else (a coach on their own lesson, a role the club made covering bookings only) runs the court without it.
+    const money = await seesMoney(db, viewer, { assistant: opts.assistant }) || await mayAnyOf(viewer, GRID_MONEY, { ownerIds: [], locationId: loc.id });
+    const paidPart = (b: (typeof bookings)[number] | undefined) => money ? { price_cents: b?.price_cents ?? 0, paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0),
+      off_cents: Number(b?.off_cents ?? 0), pt_cents: Number(b?.pt_cents ?? 0), balance_cents: b?.balance_cents ?? 0 } : {};
+    return c.json({ date, time_zone: loc.time_zone, open, now: now.toISOString(), today: localDate(now, loc.time_zone), money, courts: courts.map((ct) => ({ ...ct, open: hours.get(ct.id) ?? null, items: items.filter((x) => x.court_id === ct.id).map((x) => {
       const base = { start: x.start, end: x.end, kind: x.kind };
       if (x.booking_id && coachView && bookings.find((y) => y.id === x.booking_id)?.coach_id !== viewer) return { ...base, label: t(l, "grid.booked") };
-      if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", price_cents: b?.price_cents ?? 0,
-        paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0), off_cents: Number(b?.off_cents ?? 0), pt_cents: Number(b?.pt_cents ?? 0), balance_cents: b?.balance_cents ?? 0, booking_kind: b?.kind ?? "court", coach: b?.coach ?? null, status: b?.status,
+      if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", ...paidPart(b),
+        booking_kind: b?.kind ?? "court", coach: b?.coach ?? null, status: b?.status,
         players: players.filter((p) => p.booking_id === x.booking_id).map((p) => p.display_name ?? p.guest_name ?? ""), late: lateFor(x.booking_id),
         // A member's court paid in full: the desk can name its players (booking_players.ts), and take them off.
         whole: b?.kind === "court" && b.pay_mode === "whole" && Boolean(b.organiser_id) && b.status === "confirmed",
@@ -437,9 +448,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const signIn = { authenticator: Boolean(await activeFactor(db, id)), recovery_left: await recoveryLeft(db, id),
       passkeys: (await db.selectFrom("passkey").select("credential_id").where("person_id", "=", id).where("revoked_at", "is", null).execute()).length };
     // Money (what they paid or owe, prices, refunds, their balance, a kid's spending) is for the club's money people
-    // (seesMoney), never for someone reading the page without it: a coach looking at their own student, or a role the
-    // club made covering members and not money. They read the rest, and the page says which (`money`).
-    const money = await seesMoney(db, me(c)!.id, { assistant: opts.assistant });
+    // (seesMoney) and whoever may do a money change the page offers (PERSON_MONEY: a membership desk, a refunds role),
+    // never for someone reading the page without it: a coach looking at their own student, or a role the club made
+    // covering members and not money. They read the rest, and the page says which (`money`).
+    const money = await seesMoney(db, me(c)!.id, { assistant: opts.assistant }) || await mayAnyOf(me(c)!.id, PERSON_MONEY, { ownerIds: [] });
     const places = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id")
       .select(["enrolment.id", "enrolment.status", "enrolment.program_id", "program.name"])
       .select((eb) => eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").as("first_start"))
@@ -506,10 +518,11 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const series = (await seriesOf(db, p.id, new Date())).map((x) => money ? x : { ...x, weeks: x.weeks.map(({ price_cents: _p, charged: _c, ...w }) => ({ ...w, state: w.state === "owed" ? "booked" : w.state })) });
     // Their club credit (credit.ts), for staff who see money: what the club owes them, to pay out at the desk.
     const credit = money ? await creditBalance(db, p.id) : null;
-    const BOOKING_MONEY = ["price_cents", "paid_cents", "off_cents", "pt_cents", "refundable"], MEMBERSHIP_MONEY = ["price_cents", "balance_cents"];
+    // A membership's payment state too: behind on payment reads as running, and whether a card is saved isn't said.
+    const BOOKING_MONEY = ["price_cents", "paid_cents", "off_cents", "pt_cents", "refundable"], MEMBERSHIP_MONEY = ["price_cents", "balance_cents", "card_saved"];
     const unpaid = <T extends object>(row: T, keys: string[]) => money ? row : Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k))) as Partial<T>;
     return c.json({ ...p, money, email_problem: emailProblem, kid, roles, sign_in: signIn, places, bookings: bookings.map((b) => unpaid(b, BOOKING_MONEY)), series, credit_cents: credit, failed_refunds: money ? failedRefunds : [], to_give_back: giveBack.map(({ id, amount_cents, method, created_at }) => ({ id, amount_cents, method, created_at })), consent, plans, tags, family_role: hh?.role ?? null, family, covered_by: cover ?? null, also_covers: alsoCovers, waiver: waiver ? { ...waiver, accepted_on: waiver.accepted_at ? localDate(waiver.accepted_at, tz) : null } : null,
-      membership: membership ? { ...unpaid(membership, MEMBERSHIP_MONEY), ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null, ...(money ? { due } : {}) } : null,
+      membership: membership ? { ...unpaid(membership, MEMBERSHIP_MONEY), ...(money || membership.status !== "past_due" ? {} : { status: "active" }), ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null, ...(money ? { due } : {}) } : null,
       // Their bookings in the club's copy of Playtomic, newest first, read only (playtomic_archive.ts).
       // A coach sees who a student played with in Playtomic no more than in Kumi's own list above: front desk and up do.
       playtomic: await (async () => { const desk = deskUp(await rolesOf(me(c)!.id));

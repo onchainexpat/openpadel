@@ -20,7 +20,10 @@ type Item = { start: string; end: string; kind: string; booking_id?: string; cod
   coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; invite_code?: string | null; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string; program_id?: string; label?: string; empty_places?: Empty[] };
 // `open`: that court's own hours that day (they can differ from the location's); null when it's closed all day.
 type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
-type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; courts: Court[] };
+/** `money` false: a reader who doesn't see what members paid (a coach on their own lesson, a role the club made covering
+ *  bookings only): the server leaves out each booking's price, paid, promo, Playtomic and balance, and the page shows
+ *  no payment line, no Pay and no refund choices (the club's rule applies). */
+type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; money?: boolean; courts: Court[] };
 type Loc = { id: string; name: string; time_zone: string };
 /** can_handle: false for one at another location than a desk kept to one (the server says so for each). */
 type Alert = { event_id: string; kind: string; subject: string; body: string; link: string | null; at: string; can_handle?: boolean };
@@ -185,7 +188,7 @@ function NowNext({ g, clock }: { g: Grid; clock: (s: string) => string }) {
         return (
           <li><strong>{c.name}</strong>
             <div>{cur ? t("ui.now_on", { who: labelOf(cur), until: clock(cur.end) }) : t("ui.now_free")}
-              {cur && isBooking(cur) && unpaid(cur) > 0 && <span class="badge warn">{t("ui.unpaid_amount", { amount: dollars(unpaid(cur), lang.value) })}</span>}</div>
+              {cur && isBooking(cur) && g.money !== false && unpaid(cur) > 0 && <span class="badge warn">{t("ui.unpaid_amount", { amount: dollars(unpaid(cur), lang.value) })}</span>}</div>
             {[cur, next].flatMap((it) => it?.late ?? []).map((l) => <div class="note">{t("ui.late_note", { name: l.name, minutes: l.minutes })}</div>)}
             <div class="meta">{next ? t("ui.next_on", { who: labelOf(next), at: clock(next.start) }) : t("ui.next_none")}</div>
           </li>
@@ -309,12 +312,12 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
       <div class="row"><h2>{clock(it.start)} - {clock(it.end)} · {court.name}</h2><button class="small" onClick={onClose}>{t("ui.close")}</button></div>
       <p>{labelOf(it)}{it.code ? ` · ${it.code}` : ""}</p>
       {(it.players?.length ?? 0) > 0 && <p class="meta">{t("ui.today_players", { names: it.players!.join(", ") })}</p>}
-      {isBooking(it) && <p class="meta">{pt ? pt.map((x) => t(x.key, { amount: dollars(x.cents, lang.value) })).join(" · ")
+      {isBooking(it) && g.money !== false && <p class="meta">{pt ? pt.map((x) => t(x.key, { amount: dollars(x.cents, lang.value) })).join(" · ")
         : unpaid(it) > 0 ? t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) }) : (it.off_cents ?? 0) > 0 ? t("ui.paid_off", { amount: dollars(it.paid_cents ?? 0, lang.value), off: dollars(it.off_cents ?? 0, lang.value) })
         : t("ui.today_paid", { amount: dollars(it.paid_cents ?? 0, lang.value) })}</p>}
       {it.late?.map((l) => <p class="note">{t("ui.late_note", { name: l.name, minutes: l.minutes })} · {clock(l.at)}</p>)}
       <div class="chips">
-        {isBooking(it) && unpaid(it) > 0 && mayHere("booking.record_payment") && <button class="small" onClick={() => setPaying(!paying)}>{t("ui.record_payment")}</button>}
+        {isBooking(it) && g.money !== false && unpaid(it) > 0 && mayHere("booking.record_payment") && <button class="small" onClick={() => setPaying(!paying)}>{t("ui.record_payment")}</button>}
         {(canMove || canResize) && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.move_or_resize")}</button>}
         {isBooking(it) && mayHere("booking.cancel") && <button class="small" onClick={() => (it.paid_cents ?? 0) > 0 && deskUp() ? setCancelling(!cancelling) : preview("booking.cancel", { booking_id: it.booking_id })}>{t((it.paid_cents ?? 0) > 0 && deskUp() ? "ui.cancel_booking_choose" : "ui.cancel_booking")}</button>}
         {it.block_id && !it.series && mayHere("court.unblock") && <button class="small" onClick={() => preview("court.unblock", { block_id: it.block_id })}>{t("ui.unblock")}</button>}
@@ -331,7 +334,7 @@ function Details({ it, court, g, clock, slots, preview, canMove, canResize, cour
         <button class="small primary">{t("ui.cancel_booking")}</button></form>}
       {paying && isBooking(it) && unpaid(it) > 0 && <DeskPay key={`${it.booking_id}-${unpaid(it)}`} owed={unpaid(it)} label={t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) })}
         onCancel={() => setPaying(false)} send={(cents, method) => { setPaying(false); preview("booking.record_payment", { booking_id: it.booking_id, cents, method }); }} />}
-      {it.empty_places?.map((e) => <EmptyPlace e={e} preview={preview} />)}
+      {it.empty_places?.map((e) => <EmptyPlace e={e} preview={preview} money={g.money !== false} />)}
       {it.whole && mayHere("booking.add_player") && <Players it={it} preview={preview} />}
       {changing && !it.series && <ChangeForm it={it} court={court} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove} canResize={canResize} courtFixed={courtFixed} />}
       {changing && it.series && <SeriesChange it={it} g={g} slots={court.open ? courtSlots(court.open) : slots} clock={clock} preview={preview} />}
@@ -385,7 +388,7 @@ function ChangeForm({ it, court, g, clock, slots, preview, canMove, canResize, c
         {!starts.includes(f.start) && <option value={f.start}>{clock(f.start)}</option>}{starts.map((s) => <option value={s}>{clock(s)}</option>)}</select></label>}
       {canResize && <label>{t("ui.length")}<select value={f.minutes} onChange={(e) => setF({ ...f, minutes: Number(e.currentTarget.value) })}>{lengths.map((m) => <option value={m}>{t("ui.minutes", { count: m })}</option>)}</select></label>}
       {isBooking(it) && it.booking_kind !== "lesson" && canMove && <label class="check"><input type="checkbox" checked={f.reprice} onChange={(e) => setF({ ...f, reprice: e.currentTarget.checked })} /> {t("ui.reprice")}</label>}
-      {isBooking(it) && <label>{t("ui.refund_if_less")}<select value={f.refund} onChange={(e) => setF({ ...f, refund: e.currentTarget.value })}>
+      {isBooking(it) && g.money !== false && <label>{t("ui.refund_if_less")}<select value={f.refund} onChange={(e) => setF({ ...f, refund: e.currentTarget.value })}>
         <option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_all")}</option><option value="none">{t("ui.refund_nothing_more")}</option></select></label>}
       {error && <p class="error" role="alert">{error}</p>}
       <button class="primary" disabled={!moved && !resized}>{t("ui.preview")}</button>
@@ -436,15 +439,15 @@ function DeskBooking({ court, starts, until, clock, preview, onClose }: { court:
 
 /** A place a player gave up after the deadline: open it in the app, or give it to someone free. Leaving and
  *  refunding are separate: what the player gets back is the club's rule unless staff choose otherwise. */
-function EmptyPlace({ e, preview }: { e: Empty; preview: Preview }) {
+function EmptyPlace({ e, preview, money }: { e: Empty; preview: Preview; money: boolean }) {
   const [refund, setRefund] = useState("rule"), [giving, setGiving] = useState(false);
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string }[]>([]);
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
   return (
     <div class="note">
       <p>{t(e.open ? "ui.empty_place_open" : "ui.empty_place", { name: e.name })}</p>
-      <label>{t("ui.refund_choice", { name: e.name })}<select value={refund} onChange={(x) => setRefund(x.currentTarget.value)}>
-        <option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_all")}</option><option value="none">{t("ui.refund_nothing_more")}</option></select></label>
+      {money && <label>{t("ui.refund_choice", { name: e.name })}<select value={refund} onChange={(x) => setRefund(x.currentTarget.value)}>
+        <option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_all")}</option><option value="none">{t("ui.refund_nothing_more")}</option></select></label>}
       <p>{!e.open && <><button class="small" onClick={() => preview("booking.reopen_place", { booking_player_id: e.id, refund })}>{t("ui.open_in_app")}</button>{" "}</>}
         <button class="small" onClick={() => setGiving(!giving)}>{t("ui.give_free")}</button></p>
       {giving && <>

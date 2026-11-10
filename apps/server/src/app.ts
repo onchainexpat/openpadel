@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, productName, type Key, type Lang } from "@kumi/i18n";
-import { ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, readAreas, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -37,8 +37,14 @@ import { receiptRoutes } from "./receipts.ts";
 import type { Mailer } from "./mailer.ts";
 
 /** The changes a staff screen offers a button for, which /me reports for people with only the club's own roles. */
-const CLIENT_ACTIONS = ["person.create", "person.import", "booking.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "booking.refund", "court.block", "court.unblock", "court.block_repeat", "court.block_repeat_end", "court.block_repeat_edit", "booking.add_player", "booking.remove_player", "alert.handle", "series.edit", "person.email_unsuppress",
-  "membership.sell", "membership.record_payment", "enrolment.record_payment", "refund.give_back", "enrolment.remove", "enrolment.comp", "enrolment.join_dates"];
+/** Every change a staff or members' app button asks mayDo about (client_actions.test.ts checks the apps' sources): /me
+ *  says which of them the roles of a coach, or of a role the club made, allow. One left out reads as "not allowed". */
+export const CLIENT_ACTIONS = ["person.create", "person.import", "person.email_unsuppress", "booking.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "booking.refund",
+  "booking.add_player", "booking.remove_player", "booking.paid_in_playtomic", "court.block", "court.unblock", "court.block_repeat", "court.block_repeat_end", "court.block_repeat_edit", "alert.handle",
+  "series.edit", "weekly.end_all", "membership.sell", "membership.record_payment", "membership.bring_in", "enrolment.record_payment", "enrolment.remove", "enrolment.comp", "enrolment.join_dates",
+  "refund.give_back", "refund.resend", "credit.bring_in", "credit.pay_out", "gift_card.sell", "gift_card.resend", "gift_card.void", "pass.sell", "pass.refund", "pass_product.set", "promo_code.set",
+  "payment_found.refund", "payment_found.paid_elsewhere", "mirror.take_over", "broadcast.send", "broadcast.cancel", "segment.save", "segment.update", "template.save", "template.update",
+  "tag.create", "tag.update", "fact.create", "fact.update"];
 
 export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string;
   /** The members' app's address (addresses.ts), for the public page's own links; from publicUrl when not given. */
@@ -419,6 +425,10 @@ export function makeApp(deps: AppDeps) {
     // roles allow (the server checks again).
     const coaching = !me.gate && !support && !areas && roles.some((r) => r.key === "coach") && (await readAreas(db, me.id)) !== null;
     const can = areas || coaching ? await customCan(db, me.id, CLIENT_ACTIONS) : null;
+    // The Playtomic page, as /staff/mirror decides it: a role reading every area (support access too), or one the
+    // club made covering bookings; never bookings that come only from coaching.
+    const reach = me.gate ? null : await staffReach(db, me.id, support ? ["manager"] : []);
+    const playtomic = Boolean(reach && (reach.all || reach.custom?.includes("bookings")));
     // A staff role kept to one location: the whole club's changes it can't make (a message to a group, the club's
     // facts, someone's data), so the staff app hides their buttons (the server refuses them either way).
     const cannot = roles.some((r) => r.key !== "member" && r.location_id) ? (await Promise.all(actions().filter((d) => d.wholeClub && !d.internal)
@@ -427,7 +437,7 @@ export function makeApp(deps: AppDeps) {
     const row = await db.selectFrom("person").select(["email", "created_via"]).where("id", "=", me.id).executeTakeFirst(), email = row?.email ?? null;
     // The day the club's Kumi ends (leaving.ts): for the top of the staff app, the owner's and managers' to see.
     const leaving = !me.gate && roles.some((r) => r.key === "owner" || r.key === "manager") ? await leavingOn(db) : null;
-    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can, cannot,
+    return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can, cannot, playtomic,
       has_email: Boolean(email), email, email_problem: email ? await personEmailProblem(db, me.id) : null, leaving, support: support ? { name: support.name, level: support.level, ends_at: support.ends_at } : null, support_now: supportNow,
       // An account made for support access whose access has ended: the staff app says so, rather than showing empty pages.
       support_ended: !support && row?.created_via === "support" });

@@ -335,3 +335,83 @@ test("a coach kept to one location: another location's date, someone else's and 
   // Lou, a coach everywhere, hears the same words about Kim's date.
   assert.deepEqual((await req(`/staff/sessions/${date}/night`, "Lou")).json, (await req(`/staff/sessions/${date}/night`, "Wes")).json);
 });
+
+// ---- Members' money on the courts day and a person's page: who takes it sees it, everyone else runs the court ----
+
+const GRID_MONEY = ["price_cents", "paid_cents", "balance_cents", "off_cents", "pt_cents"];
+test("the courts day: what members paid is for whoever sees or takes the money, not a plain coach or a role covering bookings only", async () => {
+  const { loc, court } = await ids(), d = localDate(new Date(Date.now() + 9 * 864e5), TZ);
+  await run(db, "hours.set", { location_id: loc, days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: "07:00", closes: "22:00" })) }, owner);
+  const b = ((await run(db, "booking.create", { court_id: court, starts_at: onDate(d, "11:00", TZ).toISOString(), minutes: 60, person_id: people.Ann, price_cents: 4000 }, owner)).result as any).booking_id;
+  await run(db, "booking.record_payment", { booking_id: b, cents: 1500, method: "cash" }, owner);
+  // Kim's own lesson: Kim runs it (who's on it, when, where), and reads nothing of what Ann paid.
+  await db.updateTable("booking").set({ coach_id: people.Kim!, kind: "lesson" }).where("id", "=", b).execute();
+  const item = async (who: string) => { const r = await req(`/staff/grid?location_id=${loc}&date=${d}`, who); assert.equal(r.status, 200, who); return { money: r.json.money, it: r.json.courts[0].items.find((x: any) => x.booking_id === b) }; };
+  const desk = ((await run(db, "role.create", { name: "Court runner", grants: [{ action: "booking.create", scope: "any" }] }, owner)).result as any).key;
+  const till = ((await run(db, "role.create", { name: "Court till", grants: [{ action: "booking.record_payment", scope: "any" }] }, owner)).result as any).key;
+  await newStaff("Rue", [desk]); await newStaff("Tia", [till]);
+  for (const who of ["Kim", "Rue"]) {
+    const { money, it } = await item(who);
+    assert.equal(money, false, who);
+    assert.ok(it, who); assert.equal(it.who, "Ann", who); assert.ok(it.start && it.end, who);
+    for (const k of GRID_MONEY) assert.ok(!(k in it), `${who} ${k}`);
+  }
+  for (const who of ["Fay", "Tia"]) {
+    const { money, it } = await item(who);
+    assert.equal(money, true, who);
+    assert.equal(it.price_cents, 4000, who); assert.equal(it.paid_cents, 1500, who);
+  }
+});
+
+test("a person's page for a role the club made that takes members' money: what's due, pay and refund controls; a coach still none", async () => {
+  const deskRole = ((await run(db, "role.create", { name: "Membership desk", grants: [{ action: "membership.record_payment", scope: "any" }, { action: "membership.sell", scope: "any" }, { action: "person.tag", scope: "any" }] }, owner)).result as any).key;
+  const refunds = ((await run(db, "role.create", { name: "Refunds", grants: [{ action: "booking.refund", scope: "any" }, { action: "person.tag", scope: "any" }] }, owner)).result as any).key;
+  await newStaff("Mo", [deskRole]); await newStaff("Rex", [refunds]);
+  const plan = ((await run(db, "membership.plan_set", { name: "Owing", price_cents: 6000, period: "month" }, owner)).result as any).plan_id;
+  people.Pia = ((await run(db, "person.create", { display_name: "Pia", email: "pia@example.test" }, owner)).result as any).person_id;
+  await run(db, "membership.sell", { person_id: people.Pia, plan_id: plan, cents: 2000, method: "cash" }, owner);
+  const { court } = await ids(), d = localDate(new Date(Date.now() + 10 * 864e5), TZ);
+  const b = ((await run(db, "booking.create", { court_id: court, starts_at: onDate(d, "12:00", TZ).toISOString(), minutes: 60, person_id: people.Pia, price_cents: 3000 }, owner)).result as any).booking_id;
+  await run(db, "booking.record_payment", { booking_id: b, cents: 3000, method: "cash" }, owner);
+  const mo = await req(`/staff/people/${people.Pia}`, "Mo");
+  assert.equal(mo.status, 200);
+  assert.equal(mo.json.money, true);
+  assert.ok(mo.json.membership.due, "the membership desk sees what's due");
+  assert.ok("balance_cents" in mo.json.membership);
+  assert.ok((await req("/me", "Mo")).json.can.includes("membership.record_payment"), "and is offered the membership desk");
+  const rex = await req(`/staff/people/${people.Pia}`, "Rex");
+  assert.equal(rex.json.money, true);
+  const row = rex.json.bookings.find((x: any) => x.id === b);
+  assert.ok(Array.isArray(row.refundable), "a refund role keeps the refund buttons");
+  assert.equal(row.paid_cents, 3000);
+  // A plain coach still reads none of it (Ann is Kim's student).
+  const kim = await req(`/staff/people/${people.Ann}`, "Kim");
+  assert.equal(kim.json.money, false);
+  assert.ok(!("due" in (kim.json.membership ?? {})));
+  for (const r of kim.json.bookings) assert.ok(!("refundable" in r) && !("paid_cents" in r));
+});
+
+test("a membership behind on payment reads as running to someone without money", async () => {
+  await db.updateTable("membership").set({ status: "past_due" }).where("person_id", "=", people.Ann!).execute();
+  const kim = await req(`/staff/people/${people.Ann}`, "Kim"), fay = await req(`/staff/people/${people.Ann}`, "Fay");
+  assert.equal(fay.json.membership.status, "past_due");
+  assert.equal(kim.json.membership.status, "active");
+  assert.ok(!("card_saved" in kim.json.membership));
+  await db.updateTable("membership").set({ status: "active" }).where("person_id", "=", people.Ann!).execute();
+});
+
+test("a coach who also holds a club-made Comms role is offered New message; the Playtomic link follows the server's rule", async () => {
+  const comms = ((await run(db, "role.create", { name: "Comms", grants: [{ action: "broadcast.send", scope: "any" }, { action: "broadcast.cancel", scope: "any" }] }, owner)).result as any).key;
+  await newStaff("Camila", ["coach", comms]);
+  const cam = (await req("/me", "Camila")).json;
+  assert.ok(cam.can.includes("broadcast.send"), JSON.stringify(cam.can));
+  assert.equal(cam.playtomic, false);
+  // A coach with a club-made role covering bookings may read the mirror, and is shown the link; a plain coach isn't.
+  const books = ((await run(db, "role.create", { name: "Court booker", grants: [{ action: "booking.create", scope: "any" }] }, owner)).result as any).key;
+  await newStaff("Cato", ["coach", books]);
+  assert.equal((await req("/me", "Cato")).json.playtomic, true);
+  assert.equal((await req("/staff/mirror", "Cato")).status, 200);
+  assert.equal((await req("/me", "Kim")).json.playtomic, false);
+  assert.equal((await req("/me", "Fay")).json.playtomic, true);
+  assert.equal((await req("/me", "Robin")).json.playtomic, true);
+});

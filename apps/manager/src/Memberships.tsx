@@ -24,13 +24,15 @@ const clubDay = (date: string) => new Intl.DateTimeFormat(formatLocale(lang.valu
 export const pausedNow = (m: { paused_until?: string | null }) => Boolean(m.paused_until && new Date(m.paused_until) > new Date(serverNow()));
 export function membershipLine(m: { status: string; source: string; started_at: string; ends_on: string | null; cancel_at_period_end: boolean; note: string | null; card_saved?: boolean; paused_until?: string | null;
   price_cents?: number | null; balance_cents?: number }) {
-  // Joined before its plan starts: when it starts, and whether the card is saved for the first charge.
-  if (m.status === "upcoming") return [t("ui.starts_on", { date: clubDay(m.ends_on!) }), t(m.card_saved ? "ui.card_saved" : "ui.no_card_yet"), m.note].filter(Boolean).join(" · ");
+  // Joined before its plan starts: when it starts, and whether the card is saved for the first charge (not said to a
+  // reader without money: the server leaves it out).
+  if (m.status === "upcoming") return [t("ui.starts_on", { date: clubDay(m.ends_on!) }), m.card_saved === undefined ? null : t(m.card_saved ? "ui.card_saved" : "ui.no_card_yet"), m.note].filter(Boolean).join(" · ");
   const end = !m.ends_on ? t("ui.no_end_date") : m.source !== "app" ? t("ui.member_until", { date: clubDay(m.ends_on) })
     : m.cancel_at_period_end ? t("ui.cancelled_runs_until", { date: clubDay(m.ends_on) }) : t("ui.renews_on", { date: clubDay(m.ends_on) });
   const paused = pausedNow(m) ? t("ui.paused_until", { date: day(new Date(new Date(m.paused_until!).getTime() - 1).toISOString()) }) : null;
-  // From the desk: given, or paid there for a period (it has a price), and what's still owed there.
-  const how = m.source === "desk" && m.price_cents != null ? t("ui.membership_desk_paid") : t(`ui.membership_${m.source}` as Key);
+  // From the desk: given, or paid there for a period (it has a price), and what's still owed there. Without money
+  // (no price sent) a desk one says neither, rather than "given" for one that was paid.
+  const how = m.source === "desk" && m.price_cents === undefined ? null : m.source === "desk" && m.price_cents != null ? t("ui.membership_desk_paid") : t(`ui.membership_${m.source}` as Key);
   const owed = m.balance_cents ? t("ui.membership_owed", { amount: dollars(m.balance_cents, lang.value) }) : null;
   return [paused, t("ui.member_since", { date: day(m.started_at) }), end, how, owed, m.note].filter(Boolean).join(" · ");
 }
