@@ -7,13 +7,26 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.6.2 (2026-11-09)
+
+One small fix: someone entering the score of a booking they aren't on gets a plain no, before hearing anything about it.
+Every club should update when it's convenient.
 
 ### Fixed
 - Someone entering the score of a booking they weren't on heard whether it had been played, was too old for a score,
   already had one, was short of four players or had been cancelled, before being told no (0.1.0 on). It's a plain no
   now, before anything is worked out, as for the booking's other actions since 0.6.0. Its players, and staff who enter
-  scores for them, hear what they did.
+  scores for them, still hear what stands in the way.
+
+### For contributors
+- Contributions are accepted under a contributor licence agreement ([CLA.md](CLA.md)), which a bot asks for on your
+  first pull request. Security reports go to security@openpadel.dev ([SECURITY.md](SECURITY.md)).
+
+### When updating
+- No database change and nothing to set: `deploy/ship.sh`, or on Docker `deploy/docker/update.sh v0.6.2`.
+
+### Known limits
+- No app store apps yet: the members' and staff apps install from the club's own address ([the phone apps](docs/setup/apps.md)).
 
 ## 0.6.1 (2026-11-09)
 
