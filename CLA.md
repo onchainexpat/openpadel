@@ -1,8 +1,8 @@
 # Contributor License Agreement
 
-Thank you for contributing to openPadel. This agreement is between you and <maintainer's legal name> (the
-"Maintainer", including anyone the project is later passed on to). You accept it once, by the comment the CLA bot asks
-for on your first pull request, and it covers everything you contribute to openPadel from then on.
+Thank you for contributing to openPadel. This agreement is between you and Onchain Expat, the person who owns the
+GitHub account onchainexpat (the "Maintainer", including anyone the project is later passed on to). You accept it
+once, by the comment the CLA bot asks for on your first pull request, and it covers everything you contribute to openPadel from then on.
 
 **1. What a contribution is.** Code, documentation, translations or anything else you intentionally submit to an
 openPadel repository for inclusion in the project. You stay its owner.
