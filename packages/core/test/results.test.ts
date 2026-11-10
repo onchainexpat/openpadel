@@ -17,12 +17,13 @@ async function pay(paymentId: string, who: string) {
   stripe.settle((await db.selectFrom("payment").select("provider_ref").where("id", "=", paymentId).executeTakeFirstOrThrow()).provider_ref!, "succeeded");
   return checkPayment(db, paymentId, "test", NOW);
 }
-/** Hal opens a match and the other three join and pay. */
-async function fullMatch(day: string, hhmm: string, rated: boolean) {
-  const r = await run(db, "booking.request", { court_id: court, starts_at: at(day, hhmm).toISOString(), minutes: 90, pay: "split", person_id: people.Hal, open: { level_min: 3, level_max: 4, rated } }, as("Hal"), { now: NOW });
+/** Hal (or the first of `four`) opens a match and the other three join and pay. */
+async function fullMatch(day: string, hhmm: string, rated: boolean, four = ["Hal", "Ann", "Dee", "Eve"]) {
+  const host = four[0]!;
+  const r = await run(db, "booking.request", { court_id: court, starts_at: at(day, hhmm).toISOString(), minutes: 90, pay: "split", person_id: people[host], open: { level_min: 3, level_max: 4, rated } }, as(host), { now: NOW });
   const id = (r.result as any).booking_id;
-  await pay((r.result as any).payment_id, "Hal");
-  for (const who of ["Ann", "Dee", "Eve"]) await pay(((await run(db, "booking.join", { booking_id: id, person_id: people[who] }, as(who), { now: NOW })).result as any).payment_id, who);
+  await pay((r.result as any).payment_id, host);
+  for (const who of four.slice(1)) await pay(((await run(db, "booking.join", { booking_id: id, person_id: people[who] }, as(who), { now: NOW })).result as any).payment_id, who);
   return id as string;
 }
 const level = async (who: string) => Number((await db.selectFrom("rating").select("level").where("person_id", "=", people[who]!).executeTakeFirstOrThrow()).level);
@@ -123,4 +124,35 @@ test("a court's result is changed only through its result: game.score refuses it
   await rejects(plan(db, "game.score", { game_id: g, a: 0, b: 6 }, owner, { now: after }), "error.score_not_a_night");
   assert.equal(await level("Hal"), lv);
   assert.deepEqual(await db.selectFrom("game_set").select(["a", "b"]).where("game_id", "=", g).execute(), [{ a: 6, b: 2 }]);
+});
+
+test("someone not on a booking, naming themselves, hears only that it isn't theirs: not whether it's been played, entered, cancelled or has four", async () => {
+  // Hal and the others are at the club's limit of upcoming bookings, so four more play these.
+  for (const [name, role] of [["Kit", null], ["Lou", "coach"], ["Pia", null], ["Quin", null], ["Rae", null], ["Sol", null]] as const) {
+    people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner, { now: NOW })).result as { person_id: string }).person_id;
+    await run(db, "level.set", { person_id: people[name], level: 3.5, reason: "Starting level" }, owner, { now: NOW });
+    if (role) await run(db, "role.assign", { person_id: people[name], role }, owner, { now: NOW });
+  }
+  const four = ["Pia", "Quin", "Rae", "Sol"];
+  const fresh = await fullMatch("2026-12-05", "10:00", true, four);
+  const gone = await fullMatch("2026-12-06", "10:00", true, four);
+  await run(db, "booking.cancel", { booking_id: gone, refund: "none" }, owner, { now: NOW });
+  const short = ((await run(db, "booking.request", { court_id: court, starts_at: at("2026-12-05", "14:00").toISOString(), minutes: 90, pay: "split", person_id: people.Pia, open: { level_min: 3, level_max: 4, rated: true } }, as("Pia"), { now: NOW })).result as { booking_id: string }).booking_id;
+  const cases: [string, string, string, Date, string][] = [
+    [fresh, "Pia", "Quin", at("2026-12-05", "09:00"), "error.not_played_yet"],
+    [fresh, "Pia", "Quin", at("2026-12-20", "09:00"), "error.too_late_for_score"],
+    [match, "Hal", "Ann", at("2026-12-02", "20:05"), "error.score_entered"],
+    [short, "Pia", "Quin", at("2026-12-05", "16:00"), "error.need_four"],
+    [gone, "Pia", "Quin", at("2026-12-06", "12:00"), "error.not_found"],   // its court time was let go
+  ];
+  for (const [booking, player, partner, now, heard] of cases) {
+    const input = (who: string) => ({ booking_id: booking, person_id: people[who], partner_id: people[partner], sets: [{ us: 6, them: 3 }] });
+    // A player still hears what stands in the way, and so does the desk entering it for them.
+    await rejects(plan(db, "result.enter", input(player), as(player), { now }), heard);
+    await rejects(plan(db, "result.enter", input(player), owner, { now }), heard);
+    // Kit (a member) and Lou (a coach) aren't on it: a plain no, whatever state it's in.
+    for (const who of ["Kit", "Lou"]) await rejects(plan(db, "result.enter", input(who), as(who), { now }), "error.forbidden_reason");
+  }
+  // A booking that isn't there reads the same.
+  await rejects(plan(db, "result.enter", { booking_id: "00000000-0000-7000-8000-00000000abcd", person_id: people.Kit, partner_id: people.Ann, sets: [{ us: 6, them: 3 }] }, as("Kit"), { now: at("2026-12-05", "12:00") }), "error.forbidden_reason");
 });

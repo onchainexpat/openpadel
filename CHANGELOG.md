@@ -7,6 +7,14 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## Unreleased
+
+### Fixed
+- Someone entering the score of a booking they weren't on heard whether it had been played, was too old for a score,
+  already had one, was short of four players or had been cancelled, before being told no (0.1.0 on). It's a plain no
+  now, before anything is worked out, as for the booking's other actions since 0.6.0. Its players, and staff who enter
+  scores for them, hear what they did.
+
 ## 0.6.1 (2026-11-09)
 
 Two small fixes. A coach who asks about a session that isn't theirs gets a plain no, and a front desk kept to one

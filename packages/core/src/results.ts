@@ -99,7 +99,14 @@ export const resultEnter = defineAction({
   name: "result.enter", version: 1,
   input: z.object({ booking_id: z.uuid(), person_id: z.uuid(), partner_id: z.uuid(), sets: setsInput }),
   // Entered as the player themselves: nobody previews a score as someone else (with their partner and opponents named).
-  owners: async (db, i) => ({ ownerIds: [i.person_id], locationId: (await db.selectFrom("booking").select("location_id").where("id", "=", i.booking_id).executeTakeFirst())?.location_id }),
+  // And only by someone in it now, as fourOf counts them: anyone else naming themselves hears a plain no, not whether
+  // it's been played, entered or cancelled, or how many are in it (0.1.0 on). Staff who may enter any score still do.
+  owners: async (db, i) => {
+    const b = await db.selectFrom("booking").select("location_id").where("id", "=", i.booking_id).executeTakeFirst();
+    const inIt = b && await db.selectFrom("booking_player").select("id").where("booking_id", "=", i.booking_id).where("person_id", "=", i.person_id)
+      .where("removed_at", "is", null).where("leaving_at", "is", null).where("replaces", "is", null).executeTakeFirst();
+    return { ownerIds: inIt ? [i.person_id] : [], locationId: b?.location_id };
+  },
   async plan(ctx, i) {
     const b = await bookingFacts(ctx.db, i.booking_id);
     if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
