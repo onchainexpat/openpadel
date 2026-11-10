@@ -415,3 +415,39 @@ test("a coach who also holds a club-made Comms role is offered New message; the 
   assert.equal((await req("/me", "Fay")).json.playtomic, true);
   assert.equal((await req("/me", "Robin")).json.playtomic, true);
 });
+
+test("a program's dates say which of their pages the reader may open: a coach their own, front desk and a role reaching every date all", async () => {
+  const program = (await db.selectFrom("session").select("program_id").where("id", "=", date).executeTakeFirstOrThrow()).program_id;
+  const opens = async (who: string) => (await req(`/staff/programs/${program}`, who)).json.sessions.find((s: any) => s.id === date).opens;
+  const all = { students: true, levels: true, night: true }, none = { students: false, levels: false, night: false };
+  assert.deepEqual(await opens("Kim"), all);   // her own date
+  assert.deepEqual(await opens("Lou"), none);  // another coach's: each link would be the plain no
+  for (const who of ["Fay", "Robin", "Cal"]) assert.deepEqual(await opens(who), all, who);
+  // What the flags promise is what the pages answer.
+  for (const [who, want] of [["Kim", 200], ["Lou", 403]] as const)
+    for (const path of [`/staff/roster/session/${date}`, `/staff/sessions/${date}/levels`, `/staff/sessions/${date}/night`]) assert.equal((await req(path, who)).status, want, `${who} ${path}`);
+});
+
+test("a coach isn't offered a program's or a person's changes their role refuses; front desk and up are offered everything as before", async () => {
+  const can: string[] = (await req("/me", "Kim")).json.can;
+  for (const a of ["program.set_name", "program.set_prices", "program.set_minimum", "program.cancel", "session.set_coach", "session.add", "series.edit", "series.cancel",
+    "membership.pause", "membership.end", "household.add_junior", "person.tag"]) assert.ok(!can.includes(a), a);
+  for (const who of ["Fay", "Robin"]) assert.equal((await req("/me", who)).json.can, null, who);
+});
+
+test("a role the club made covering memberships opens the page of someone with a membership, not anyone else's, and no money without a money change", async () => {
+  const keeper = ((await run(db, "role.create", { name: "Membership keeper", grants: ["membership.pause", "membership.unpause", "membership.end"].map((action) => ({ action, scope: "any" })) }, owner)).result as any).key;
+  await newStaff("Meg", [keeper]);
+  const plan = ((await run(db, "membership.plan_set", { name: "Keeper plan", price_cents: 5000, period: "month" }, owner)).result as any).plan_id;
+  for (const name of ["Hal", "Ivy"]) people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner)).result as any).person_id;
+  await run(db, "membership.grant", { person_id: people.Hal, plan_id: plan }, owner);
+  const hal = await req(`/staff/people/${people.Hal}`, "Meg");
+  assert.equal(hal.status, 200);
+  assert.equal(hal.json.money, false);
+  assert.ok(!("balance_cents" in hal.json.membership) && !("due" in hal.json.membership));
+  // Someone with no membership, and the member list, stay closed to it.
+  for (const path of [`/staff/people/${people.Ivy}`, "/staff/people", `/staff/people/${people.Hal}/level`]) assert.equal((await req(path, "Meg")).status, 403, path);
+  const me = (await req("/me", "Meg")).json;
+  assert.deepEqual(me.areas, ["memberships"]);
+  assert.ok(me.can.includes("membership.pause") && !me.can.includes("membership.sell") && !me.can.includes("membership.grant"), JSON.stringify(me.can));
+});

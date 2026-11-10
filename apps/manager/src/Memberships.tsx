@@ -47,14 +47,14 @@ export function MembershipButtons({ m, send }: { m: { id: string; status: string
   const [pausing, setPausing] = useState(false), [until, setUntil] = useState("");
   return <span>
     {m.status !== "upcoming" && (pausedNow(m)
-      ? <button class="small" onClick={() => send("membership.unpause", { membership_id: m.id })}>{t("ui.unpause")}</button>
-      : !pausing ? <button class="small" onClick={() => setPausing(true)}>{t("ui.pause")}</button>
+      ? mayDo("membership.unpause") && <button class="small" onClick={() => send("membership.unpause", { membership_id: m.id })}>{t("ui.unpause")}</button>
+      : !mayDo("membership.pause") ? null : !pausing ? <button class="small" onClick={() => setPausing(true)}>{t("ui.pause")}</button>
         : <form class="court-row" onSubmit={(e) => { e.preventDefault(); void send("membership.pause", { membership_id: m.id, until }); }}>
           <label>{t("ui.pause_until")}<input type="date" required value={until} onInput={(e) => setUntil(e.currentTarget.value)} /></label><button class="small">{t("ui.preview")}</button></form>)}{" "}
     {m.source === "app" && m.status !== "upcoming" && (m.cancel_at_period_end
-      ? <button class="small" onClick={() => send("membership.resume", { membership_id: m.id })}>{t("ui.renew_again")}</button>
-      : <button class="small" onClick={() => send("membership.cancel", { membership_id: m.id })}>{t("ui.stop_renewing")}</button>)}{" "}
-    <button class="small" onClick={() => send("membership.end", { membership_id: m.id })}>{t("ui.end_membership")}</button>
+      ? mayDo("membership.resume") && <button class="small" onClick={() => send("membership.resume", { membership_id: m.id })}>{t("ui.renew_again")}</button>
+      : mayDo("membership.cancel") && <button class="small" onClick={() => send("membership.cancel", { membership_id: m.id })}>{t("ui.stop_renewing")}</button>)}{" "}
+    {mayDo("membership.end") && <button class="small" onClick={() => send("membership.end", { membership_id: m.id })}>{t("ui.end_membership")}</button>}
   </span>;
 }
 export const planPrice = (p: { price_cents: number; period: string }) => t(p.period === "year" ? "ui.price_a_year" : "ui.price_a_month", { amount: dollars(p.price_cents, lang.value) });
@@ -72,7 +72,7 @@ export function Memberships() {
       {sheet}
       {/* Keyed, so the forms start empty again after a change. */}
       <Plans key={JSON.stringify(d.plans)} plans={d.plans} send={preview} />
-      {d.plans.length > 0 && <GiveMembership key={d.members.length} plans={d.plans} send={preview} />}
+      {d.plans.length > 0 && (mayDo("membership.grant") || mayDo("membership.sell")) && <GiveMembership key={d.members.length} plans={d.plans} send={preview} />}
       <section class="card">
         <h2>{t("ui.members_now", { count: d.members.filter((m) => m.status !== "ended").length })}</h2>
         {d.members.length > 8 && <label>{t("ui.search_person")}<input type="search" value={q} onInput={(e) => setQ(e.currentTarget.value)} /></label>}
@@ -151,7 +151,8 @@ function Plans({ plans, send }: { plans: Plan[]; send: Preview }) {
 /** Give someone a membership: found by name here, or the person already chosen (their page). */
 export function GiveMembership({ plans, send, person }: { plans: Plan[]; send: Preview; person?: { id: string; display_name: string } }) {
   const [who, setWho] = useState(person ?? null), [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string; email: string | null }[]>([]);
-  const [f, setF] = useState({ plan_id: plans[0]?.id ?? "", until: "", note: "", paid: false, dollars: "", method: "cash" });
+  // A role that may only sell one (not give it) starts on paid at the desk, with no choice to make.
+  const [f, setF] = useState({ plan_id: plans[0]?.id ?? "", until: "", note: "", paid: !mayDo("membership.grant"), dollars: "", method: "cash" });
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
   const chosen = plans.find((p) => p.id === f.plan_id), note = f.note.trim() ? { note: f.note.trim() } : {};
   // Paid at the desk: one period, for the plan's price unless only part is paid now.
@@ -165,7 +166,7 @@ export function GiveMembership({ plans, send, person }: { plans: Plan[]; send: P
         {found.length > 0 && <ul class="plain">{found.slice(0, 6).map((p) => <li class="row"><span>{p.display_name}<span class="meta"> {p.email ?? ""}</span></span><button type="button" class="small" onClick={() => { setWho(p); setFound([]); setQ(""); }}>{t("ui.choose")}</button></li>)}</ul>}
       </>)}
       <label>{t("ui.plan")}<select value={f.plan_id} onChange={(e) => setF({ ...f, plan_id: e.currentTarget.value })}>{plans.map((p) => <option value={p.id}>{p.name} · {planPrice(p)}</option>)}</select></label>
-      {mayDo("membership.sell") && <label>{t("ui.membership_how")}<select value={f.paid ? "paid" : "given"} onChange={(e) => setF({ ...f, paid: e.currentTarget.value === "paid", dollars: "" })}>
+      {mayDo("membership.sell") && mayDo("membership.grant") && <label>{t("ui.membership_how")}<select value={f.paid ? "paid" : "given"} onChange={(e) => setF({ ...f, paid: e.currentTarget.value === "paid", dollars: "" })}>
         <option value="given">{t("ui.membership_given")}</option><option value="paid">{t("ui.membership_paid_desk")}</option></select></label>}
       {f.paid ? <div class="court-row">
         <label>{t("ui.amount_paid")}<input inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} placeholder={chosen ? plainAmount(chosen.price_cents) : ""} value={f.dollars} onInput={(e) => setF({ ...f, dollars: e.currentTarget.value })} /></label>

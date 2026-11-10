@@ -44,6 +44,11 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 - On a program's page, Remove, "Give place now" and the free place search showed to staff who can't use them, and the
   search failed silently when refused (0.1.0 on). They show only to those who can now, and a refused search says why.
   The night, roster and session levels pages no longer keep the last session's players or error when another is opened.
+- A coach was shown buttons their role then refused (0.1.0 on): on a program's page Rename, Change prices, the
+  minimum's Change, each date's coach, Add a date and Cancel the program, and on a person's page Add a junior, Pause,
+  End and Change their email. Each now shows only to whoever may use it, and on another coach's date the Students,
+  Set levels and night links no longer show. A role the club made covering memberships can now open the page of
+  someone with a membership from the Memberships page, with money only if the role takes members' money.
 - The links in the members' Receipts list, and to the program on a session's roster, were 19 px tall on a phone
   (0.1.0 on). They're 44 px on a touch screen, like the app's other controls.
 

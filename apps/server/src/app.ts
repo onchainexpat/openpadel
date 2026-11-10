@@ -44,7 +44,9 @@ export const CLIENT_ACTIONS = ["person.create", "person.import", "person.email_u
   "series.edit", "weekly.end_all", "membership.sell", "membership.record_payment", "membership.bring_in", "enrolment.record_payment", "enrolment.remove", "enrolment.comp", "enrolment.join_dates",
   "refund.give_back", "refund.resend", "credit.bring_in", "credit.pay_out", "gift_card.sell", "gift_card.resend", "gift_card.void", "pass.sell", "pass.refund", "pass_product.set", "promo_code.set",
   "payment_found.refund", "payment_found.paid_elsewhere", "mirror.take_over", "broadcast.send", "broadcast.cancel", "segment.save", "segment.update", "template.save", "template.update",
-  "tag.create", "tag.update", "fact.create", "fact.update"];
+  "tag.create", "tag.update", "fact.create", "fact.update", "program.set_name", "program.set_prices", "program.set_sign_up", "program.set_minimum", "program.publish", "program.cancel",
+  "session.set_coach", "session.add", "series.cancel", "membership.grant", "membership.pause", "membership.unpause", "membership.resume", "membership.cancel", "membership.end",
+  "household.add_junior", "person.tag", "person.untag"];
 
 export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string;
   /** The members' app's address (addresses.ts), for the public page's own links; from publicUrl when not given. */

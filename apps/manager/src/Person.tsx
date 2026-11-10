@@ -37,6 +37,9 @@ type P = {
   playtomic?: { booking_id: string; starts_at: string; court: string; kind: string; price?: string | null; cancelled: boolean; taken_over_as: string | null; cancelled_here_as?: string | null; others: string[] }[];
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;
+/** Who may change someone's email here, as the server decides it (app.ts deskForEmail): front desk and up, or someone whose
+ *  only staff roles are the club's own and cover members. A coach isn't offered it. */
+const changesEmails = () => me.value?.areas ? me.value.areas.includes("members") : (me.value?.roles ?? []).some((r) => ["owner", "manager", "front_desk"].includes(r.key));
 
 export function Person({ id }: { id: string }) {
   const [p, setP] = useState<P | null>(null), [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
@@ -79,13 +82,13 @@ export function Person({ id }: { id: string }) {
 
       {tags && <section class="card">
         <h2>{t("ui.tags_title")}</h2>
-        {p.tags.length ? <p class="chips">{p.tags.map((x) => <span class="chip">{x.name} <button class="link" aria-label={t("ui.untag", { tag: x.name })} onClick={() => preview("person.untag", { person_id: p.id, tag_id: x.id })}>×</button></span>)}</p>
+        {p.tags.length ? <p class="chips">{p.tags.map((x) => <span class="chip">{x.name} {mayDo("person.untag") && <button class="link" aria-label={t("ui.untag", { tag: x.name })} onClick={() => preview("person.untag", { person_id: p.id, tag_id: x.id })}>×</button>}</span>)}</p>
           : <p class="meta">{t("ui.no_person_tags")}</p>}
-        <form class="card-form" onSubmit={(e) => { e.preventDefault(); const known = tags.find((x) => x.name.toLowerCase() === newTag.trim().toLowerCase()); preview("person.tag", known ? { person_id: p.id, tag_id: known.id } : { person_id: p.id, name: newTag.trim() }); }}>
+        {mayDo("person.tag") && <form class="card-form" onSubmit={(e) => { e.preventDefault(); const known = tags.find((x) => x.name.toLowerCase() === newTag.trim().toLowerCase()); preview("person.tag", known ? { person_id: p.id, tag_id: known.id } : { person_id: p.id, name: newTag.trim() }); }}>
           <label>{t("ui.add_tag")}<input list="club-tags" required maxLength={40} value={newTag} onInput={(e) => setNewTag(e.currentTarget.value)} /></label>
           <datalist id="club-tags">{tags.filter((x) => !p.tags.some((y) => y.id === x.id)).map((x) => <option value={x.name} />)}</datalist>
           <button>{t("ui.preview")}</button>
-        </form>
+        </form>}
       </section>}
 
       <section class="card">
@@ -96,7 +99,7 @@ export function Person({ id }: { id: string }) {
           <li class="row"><a href={`/people/${x.id}`}>{x.display_name}</a><span class="meta">{x.role === "junior" ? `${t("ui.junior_tag")}${x.birth_year ? `, ${t("ui.junior_born", { year: x.birth_year })}` : ""}` : ""}</span></li>))}</ul>}
         <p class="meta">{!p.waiver ? t("ui.waiver_off") : `${t("ui.person_waiver")}: `}{!p.waiver ? null : p.waiver.accepted_on
           ? t("ui.waiver_accepted_by", { version: p.waiver.version_no, date: date(`${p.waiver.accepted_on}T12:00:00Z`), name: p.waiver.accepted_by ?? "" }) : t("ui.waiver_not_accepted", { version: p.waiver.version_no })}</p>
-        {!p.junior && p.family_role !== "member" && <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("household.add_junior", { person_id: p.id, display_name: jName, birth_year: Number(jYear) }); }}>
+        {!p.junior && p.family_role !== "member" && mayDo("household.add_junior") && <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("household.add_junior", { person_id: p.id, display_name: jName, birth_year: Number(jYear) }); }}>
           <label>{t("ui.junior_name")}<input required maxLength={80} value={jName} onInput={(e) => setJName(e.currentTarget.value)} /></label>
           <label>{t("ui.birth_year")}<input type="number" required inputMode="numeric" value={jYear} onInput={(e) => setJYear(e.currentTarget.value)} /></label>
           <button>{t("ui.add_junior")}</button>
@@ -117,7 +120,7 @@ export function Person({ id }: { id: string }) {
           <h2>{t("ui.membership")}</h2>
           <p><a href={`/people/${p.covered_by.payer_id}`}>{t("ui.staff_covered_by", { name: p.covered_by.payer, plan: p.covered_by.plan })}</a></p>
         </section>
-      ) : p.plans.length > 0 && <GiveMembership key={p.id} plans={p.plans.map((x) => ({ ...x, members: 0 }))} send={preview} person={p} />}
+      ) : p.plans.length > 0 && (mayDo("membership.grant") || mayDo("membership.sell")) && <GiveMembership key={p.id} plans={p.plans.map((x) => ({ ...x, members: 0 }))} send={preview} person={p} />}
 
       {!p.junior && <section class="card">
         <h2>{t("ui.person_roles")}</h2>
@@ -191,7 +194,7 @@ export function Person({ id }: { id: string }) {
       {(mayDo("pass.sell") || mayDo("pass.refund")) && <PersonPasses personId={p.id} preview={preview} key={`passes-${p.id}-${String(sheet ? 1 : 0)}`} />}
       <PersonReceipts personId={p.id} preview={preview} />
       {privacy && <PersonAssistants personId={p.id} preview={preview} key={`${p.id}-${String(sheet ? 1 : 0)}`} />}
-      {!p.junior && p.id !== me.value?.person.id && (staffRoles.length === 0 || owner) && <ChangeEmail personId={p.id} name={p.display_name} onDone={load} />}
+      {!p.junior && p.id !== me.value?.person.id && (staffRoles.length === 0 || owner) && changesEmails() && <ChangeEmail personId={p.id} name={p.display_name} onDone={load} />}
       {privacy && <AccountData personId={p.id} self={p.id === me.value?.person.id} onDeleted={() => route("/people")} />}
       {sheet}
     </main>

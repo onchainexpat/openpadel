@@ -18,6 +18,8 @@ type Me = { id: string; locale: string } | null;
 export const COACH_READS = COACH_AREAS;
 /** And, outside those, the pages that answer a coach about themselves: their own earnings, and a question count of 0. */
 const COACH_ALSO = /^\/staff\/(coach-earnings(\.csv)?|questions\/count)$/;
+/** Who reads a date's night (its draw, players and scores): whoever runs its draw or scores, or sets its levels after it. */
+const NIGHT_READ = ["draw.generate", "game.score", "level.set_session"];
 const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
   [/^\/staff\/(people|tags|chats)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
@@ -43,9 +45,12 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // details, no memberships, messages or settings, permissions.md); a role the club made the areas it covers.
     const reach = await reachOf(m.id), area = readArea(c.req.path);
     if (!reach.all && area && !reach.areas.includes(area)) {
-      // A coach's pages about themselves, and their own students' pages, stay open to them.
+      // A coach's pages about themselves, and their own students' pages, stay open to them; and a role covering
+      // memberships opens the page of anyone it acts on there: someone with a membership, or covered by one (their
+      // money only as the page's own money rule gives it).
       const one = /^\/staff\/people\/([0-9a-f-]{36})$/.exec(c.req.path)?.[1];
-      if (!(reach.coach && (COACH_ALSO.test(c.req.path) || (one && area === "members" && (await coachStudents(db, m.id, new Date())).some((s) => s.person_id === one)))))
+      const coachs = reach.coach && (COACH_ALSO.test(c.req.path) || (one && area === "members" && (await coachStudents(db, m.id, new Date())).some((s) => s.person_id === one)));
+      if (!coachs && !(one && area === "members" && reach.areas.includes("memberships") && await hasMembership(one)))
         throw new KumiError("error.staff_only", {}, 403);
     }
     await next();
@@ -56,6 +61,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const r = await staffReach(db, id, await supportKeys(id));
     return { all: r.all, coach: r.coach, custom: r.custom ?? [], areas: [...new Set([...(r.coach ? COACH_READS : []), ...(r.custom ?? [])])] };
   };
+  /** Whether someone has (or had) a membership, theirs or one covering them: the people a memberships role acts on. */
+  const hasMembership = async (personId: string) => Boolean(await db.selectFrom("membership").select("id").where("person_id", "=", personId).executeTakeFirst()
+    || await db.selectFrom("membership_member").select("id").where("person_id", "=", personId).executeTakeFirst());
   /** Whether the person reads an area through a role wider than coaching: one reading every area, or a role the club
    *  made covering it. A coach's role alone reads their own lessons there, not everyone's. */
   const widerIn = async (id: string, area: string) => { const r = await reachOf(id); return r.all || r.custom.includes(area); };
@@ -72,9 +80,19 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   const coachRuns = async (c: Context<any>, kind: "lesson" | "session", id: string, actions: string[]) => {
     const m = me(c)!, valid = isUuid(id);
     const gone = () => new KumiError("error.not_found", { thing: both(kind === "lesson" ? "thing.booking" : "thing.session") }, 404);
-    if (deskUp(await rolesOf(m.id))) { if (!valid) throw gone(); return; }
-    if (await mayAnyOf(m.id, actions, await coachOwners(db, kind, valid ? id : undefined))) { if (!valid) throw gone(); return; }
+    if (deskUp(await rolesOf(m.id)) || await mayAnyOf(m.id, actions, await coachOwners(db, kind, valid ? id : undefined))) { if (!valid) throw gone(); return; }
     throw new KumiError("error.forbidden_reason", { reason: both("reason.own_only") }, 403);
+  };
+  /** Which of a program's dates' pages (coachRuns) the reader may open, so the staff app links only those: its players
+   *  (`students`), setting its levels (`levels`) and its night (`night`). Front desk and up open them all. */
+  const datesOpen = async (personId: string, locationId: string | null, sessions: { id: string; coach_id: string | null }[]) => {
+    const all = deskUp(await rolesOf(personId)), out = new Map<string, { students: boolean; levels: boolean; night: boolean }>();
+    for (const s of sessions) {
+      const o: Owners = { ownerIds: s.coach_id ? [s.coach_id] : [], locationId };
+      out.set(s.id, all ? { students: true, levels: true, night: true }
+        : { students: await mayAnyOf(personId, ["attendance.mark"], o), levels: await mayAnyOf(personId, ["level.set_session"], o), night: await mayAnyOf(personId, NIGHT_READ, o) });
+    }
+    return out;
   };
   /** Whether any of `actions` is the person's to do on these rows, asked as each action's own check asks it (permissions.ts,
    *  every role they hold, built-in or the club's own). */
@@ -565,12 +583,12 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const offers = await db.selectFrom("waitlist_offer").select(["enrolment_id", "expires_at"]).where("outcome", "is", null).where("expires_at", ">", new Date())
       .where("enrolment_id", "in", roster.length ? roster.map((r) => r.id) : ["00000000-0000-0000-0000-000000000000"]).execute();
     const club = await db.selectFrom("club").select("program_decide_hours").executeTakeFirstOrThrow();
-    const money = await seesProgramMoney(c, program.location_id);
+    const money = await seesProgramMoney(c, program.location_id), opens = await datesOpen(me(c)!.id, program.location_id, sessions);
     return c.json({
       program, coaches, money, decide_hours: club.program_decide_hours,
       // Signed up per date: each date's own places and how many have one.
       sessions: sessions.map((s) => ({ ...s, courts: courts.filter((x) => x.session_id === s.id).map((x) => x.name), has_draw: draws.some((d) => d.session_id === s.id),
-        places: s.capacity_override ?? program.capacity, booked: roster.filter((r) => r.session_id === s.id && r.status === "booked").length })),
+        places: s.capacity_override ?? program.capacity, booked: roster.filter((r) => r.session_id === s.id && r.status === "booked").length, opens: opens.get(s.id)! })),
       roster: money ? await Promise.all(roster.map(async (r) => ({ ...r, paid_cents: await coveredFor(db, r.id), offer_expires_at: offers.find((o) => o.enrolment_id === r.id)?.expires_at ?? null })))
         : roster.map((r) => ({ ...Object.fromEntries(Object.entries(r).filter(([k]) => !(PLACE_MONEY as readonly string[]).includes(k))), offer_expires_at: offers.find((o) => o.enrolment_id === r.id)?.expires_at ?? null })),
     });
@@ -607,8 +625,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   });
 
   // A night's draw, players and scores: whoever runs its draw or scores, or sets the session's levels after it (a coach,
-  // their own sessions).
-  const NIGHT_READ = ["draw.generate", "game.score", "level.set_session"];
+  // their own sessions): NIGHT_READ.
   app.get("/staff/sessions/:id/night", async (c) => {
     const id = c.req.param("id");
     await coachRuns(c, "session", id, NIGHT_READ);

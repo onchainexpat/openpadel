@@ -76,7 +76,7 @@ test("alerts: the staff messages that need someone, until one of them marks it h
 test("someone with only the club's own role: told which changes their role allows, and kept out of the day", async () => {
   const fran = (await get("Fran", "/me")).json;
   assert.deepEqual(fran.areas, ["members"]);
-  assert.deepEqual(fran.can, []);   // tagging isn't one of the buttons that add, import, book or move
+  assert.deepEqual(fran.can, ["person.tag"]);   // tagging someone on their page, and none of the buttons that add, import, book or move
   assert.equal((await get("Fran", `/staff/grid?location_id=${loc}&date=${day()}`)).status, 403);
   assert.equal((await get("Fran", "/staff/alerts")).status, 403);
   assert.equal((await get("Lee", "/me")).json.can, null);   // a built-in role: what it always had
