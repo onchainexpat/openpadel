@@ -7,7 +7,7 @@ Do these once, before the first public release:
 - [ ] **Turn on private vulnerability reporting:** GitHub, Settings, then Security (Code security),
       then "Private vulnerability reporting": Enable. `SECURITY.md` sends people to the Security tab's
       "Report a vulnerability" button, which only appears once this is on.
-- [ ] **The CLA** (decided 9 November 2026, over a DCO): put the maintainer's legal name in `CLA.md`, have a lawyer read it,
+- [ ] **The CLA** (decided 9 November 2026, over a DCO): `CLA.md` names Onchain Expat (the onchainexpat account); have a lawyer read it,
       and check `.github/workflows/cla.yml` asks on a test pull request from another account.
 - [ ] **The names:** openPadel for the software (decided 7 November 2026), and the trademark search on "Kumi", the
       hosted service's name, done.
