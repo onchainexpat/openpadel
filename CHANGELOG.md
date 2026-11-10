@@ -7,7 +7,11 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.6.3 (2026-11-10)
+
+Coaches see what coaching needs and no more. Another coach's session is a plain no, and a coach sees the players and
+levels on every program, but never what members paid, owe or got back. Roles a club makes for itself now get what all
+of a person's roles give together. Every club with coaches, or with roles of its own, should update.
 
 ### Fixed
 - A coach could read another coach's session after it, on the page for setting levels: its players' names, levels
@@ -24,21 +28,23 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   (0.1.0 on). It says to look again now, and the place stays with the player who had it.
 - A coach saw on a program's page what each member paid, their refunds and the note on a free place (0.1.0 on). They
   see its players, levels and who's signed up now; the money is for front desk and up and the club's money roles.
-  The same goes for a student's page: a coach, or a role the club made that covers members but not money, sees no
-  booking prices, payments, refunds, membership price or balance, weekly court prices or a kid's spending there, and
-  the page shows no payment or refund buttons for them. A coach who also held a role the club made read everything a
-  front desk does, the club's reports, memberships and settings among them, and every booking's money on the courts
-  page (0.1.0 on). What someone reads is now what all their roles give together. Previewing a payment or a refund (a
-  place's payment or removal, a booking's refund, club credit, gift cards, passes) told someone with no role for it
-  what was owed or that a place was paid up (0.1.0 on). They hear a plain no first now. The Playtomic page is no
-  longer open to coaches, and shows no prices, payments or owners to a role covering bookings but not money. Its link
-  shows to whoever may open it, a coach whose other role covers bookings too. On the courts page, a coach's own lesson
-  and a role covering bookings but not money show who's on each court and when, with no paid, owed or promo amounts,
-  no Pay button and no refund choices. A role the club made that takes members' money (a membership desk taking
-  payments or selling memberships, or one giving booking refunds) keeps what's due, its pay buttons and its refund
-  buttons on a person's page, and on the courts page a role taking a booking's payment keeps the amounts. A membership
-  behind on payment reads as running to someone without money. A coach or a role the club made that may send
-  messages was told on Messages that they couldn't, and lost other buttons their roles allow (0.1.0 on): they show now.
+- A student's page showed a coach, or a role the club made that covers members but not money, booking prices,
+  payments, refunds, the membership's price and balance, weekly court prices and a kid's spending, with payment and
+  refund buttons (0.1.0 on). None of it shows for them now, and a membership behind on payment reads as running.
+- A coach who also held a role the club made read everything a front desk does: the club's reports, memberships,
+  settings and every booking's money on the courts page (0.1.0 on). What someone reads is now what all their roles
+  give together.
+- Previewing a payment or a refund (a place's payment or removal, a booking's refund, club credit, gift cards,
+  passes) told someone with no role for it what was owed, or that a place was paid up (0.1.0 on). They hear a plain
+  no first now.
+- On the courts page, a coach's own lesson, and a role covering bookings but not money, showed paid, owed and promo
+  amounts, the Pay button and refund choices (0.1.0 on). They show who's on each court and when now. A role the club
+  made that takes members' money (a membership desk, or one giving booking refunds) keeps its amounts, pay buttons and
+  refund buttons.
+- The Playtomic page was open to coaches, with its prices, payments and owners (0.1.0 on). It isn't now, a role
+  covering bookings but not money sees it without them, and its link shows to whoever may open it.
+- A coach or a role the club made that may send messages was told on Messages that they couldn't, and lost other
+  buttons their roles allow (0.1.0 on). They show now.
 - A coach kept to one location heard one no for another location's session and another for one that isn't there
   (0.1.0 on). It's the same "not yours" for both now.
 - On a program's page, Remove, "Give place now" and the free place search showed to staff who can't use them, and the
@@ -51,6 +57,16 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   someone with a membership from the Memberships page, with money only if the role takes members' money.
 - The links in the members' Receipts list, and to the program on a session's roster, were 19 px tall on a phone
   (0.1.0 on). They're 44 px on a touch screen, like the app's other controls.
+
+### When updating
+- No database change and nothing to set: `deploy/ship.sh`, or on Docker `deploy/docker/update.sh v0.6.3`.
+- Check the roles your club made (staff app, Settings, Roles). A coach who also holds one now reads only what the two
+  give together, and someone with only an accountant role no longer opens session levels pages.
+
+### Known limits
+- A role the club made that covers only memberships can open its members' pages, but can't search people to give a
+  new membership: give it the members area too.
+- A coach still sees their own earnings page (what their own lessons brought in), as before.
 
 ## 0.6.2 (2026-11-09)
 
