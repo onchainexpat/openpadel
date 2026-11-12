@@ -70,7 +70,8 @@ test("an amount allowed over the cap: at the cap the owner hears and everything 
   const p = await run(db, "club.usage_cap_set", { cap_cents: 1000, over_cents: 1000 }, owner, { now: NOW });
   assert.equal(p.plan.summary.en, "Set the club's monthly cap for AI, texts and email to $10.00, and allow up to $10.00 more in a busy month. $15.10 is used this month.");
   assert.deepEqual([(await view()).state, await usageAllows(db, "can_wait", 1, NOW)], ["over", true]);
-  assert.deepEqual((await staffAlerts(db, owner.personId!, new Date())).handled.map((a) => [a.kind, a.handled_by]), [["usage_paused_staff", ""]]);
+  // Handled at the test's own clock (NOW), so read on its day: on the real clock it was "today" only on 10 November.
+  assert.deepEqual((await staffAlerts(db, owner.personId!, NOW)).handled.map((a) => [a.kind, a.handled_by]), [["usage_paused_staff", ""]]);
 });
 
 test("club news email waits for next month past the limit; other email goes, and every email the provider takes counts", async () => {
