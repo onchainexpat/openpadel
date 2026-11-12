@@ -48,6 +48,27 @@ up right there.
   that kind), a court booking or a weekly court (choose a court and a free time), and blocking a court; a private
   lesson and an open match made by staff are shown as coming soon. "People" is now "Customers", and "Programs" is now
   "Clinics, courses and events". The addresses stay the same.
+- The staff app has a Bookings page, after the Schedule, for everyone who reads bookings: "All bookings" lists a
+  location's court bookings, lessons, open matches, program dates and Playtomic copies over a day or a range of days
+  (back, Today, forward and a date picker), with how many, filters for the type, the state (upcoming, in progress, done,
+  cancelled, and unpaid for those who see money) and where each was made (the members' app, the desk, Playtomic), and
+  a page at a time. Each row says when, how long, who (the organiser and how many more), the court, the type, where it
+  was made and how it stands, and opens the same side panel as the Schedule, with the same changes. "Weekly courts"
+  lists the location's weekly courts. Names show only to staff who read people, and what's owed only to those who see
+  money; a coach on their own sees their own lessons (and the day's program dates and Playtomic copies, unnamed), as
+  on the Schedule, and no weekly courts. New reads: `GET /staff/bookings` and `GET /staff/weekly-courts`.
+- Customers is a table, a page at a time: each person's name, phone and email, membership and the day it ends, their
+  answer about club news by email, and their level (for those who read levels), with the search, the filters, "Import
+  from a spreadsheet" and "Add a customer" as before. It's for the staff who read people, as the list was. No staff
+  page shows a phone number in full, so the phone shows only its last two digits (a search by phone still finds
+  them). New read: `GET /staff/customers`.
+- A person's page in the staff app is in tabs: Profile, Bookings, Memberships, Wallet (club credit, money to give back,
+  passes, gift cards, receipts), Family, Agreements (the waiver and what they agreed to hear), Levels and In Playtomic.
+  Every section shows to the same staff as before, and a tab with nothing for the reader isn't shown. A link to a tab
+  (`/people/<id>#wallet`) or to one booking (`#booking-<id>`, from Reports) opens it.
+- The Schedule names who booked a Playtomic copy, and the side panel who plays in it, from the club's archive of
+  Playtomic bookings, for staff who read people (never a coach on their own). A member whose account was deleted here
+  never shows by name.
 
 ### Fixed
 - The sign-in page said "We emailed a 6-digit code" on a server with no email service, where the code only goes to

@@ -12,7 +12,7 @@ const src = (f: string) => readFileSync(join(import.meta.dirname, "../src", f), 
 test("each menu link is shown only to the roles that read its area, as before", () => {
   const app = src("App.tsx");
   const gates: [string, string][] = [
-    ['show("bookings")', "/courts"], ["coach", "/schedule"], ['show("members")', "/people"], ['show("programs")', "/programs"], ['show("money")', "/payments"],
+    ['show("bookings")', "/courts"], ["coach", "/schedule"], ['show("bookings")', "/bookings"], ['show("members")', "/people"], ['show("programs")', "/programs"], ['show("money")', "/payments"],
     ['show("memberships")', "/memberships"], ['coach || desk || areas?.includes("coaches")', "/coaches"], ['show("levels")', "/levels"], ['show("levels")', "/scores"],
     ["messages", "/messages"], ['show("members") && club.value?.players_chat', "/chats"], ["me.value?.playtomic", "/playtomic"], ['show("money") || coachSide', "/reports"],
     ["changes", "/usage"], ["changes", "/changes"], ['show("settings")', "/settings"], ["true", "/profile"],
@@ -84,4 +84,23 @@ test("the day's occupancy counts court time inside each court's hours, less what
   // Used 1 + 2 + 1 + 1 = 5 hours, of 20 open less 2 blocked = 18.
   assert.deepEqual(s, { percent: 28, bookings: 3 });
   assert.deepEqual(dayStats([]), { percent: 0, bookings: 0 });
+});
+
+test("a person's page in tabs keeps each section's check: money, levels and Playtomic tabs only for whoever has them", () => {
+  const person = src("Person.tsx");
+  assert.match(person, /const wallet = p\.money !== false \|\| mayDo\("pass\.sell"\) \|\| mayDo\("pass\.refund"\) \|\| Boolean\(club\.value\?\.gift_cards && mayDo\("gift_card\.sell"\)\);/);
+  assert.match(person, /levels = areas \? areas\.includes\("levels"\) : true;/);
+  assert.match(person, /\(k !== "playtomic" \|\| \(p\.playtomic\?\.length \?\? 0\) > 0\)/);
+  // The checks inside each tab are the ones the long page had.
+  for (const kept of ['p.money !== false && mayDo("membership.record_payment")', 'mayDo("credit.pay_out")', 'mayDo("refund.give_back")', "privacy && <AccountData", "privacy && <PersonAssistants"])
+    assert.ok(person.includes(kept), kept);
+  // A link to one booking opens the Bookings tab.
+  assert.match(person, /h\.startsWith\("booking-"\) \? "bookings"/);
+});
+
+test("the Bookings list shows what the server sends: names and money are decided there; Unpaid is offered only to money readers", () => {
+  const b = src("Bookings.tsx");
+  assert.match(b, /STATES\.filter\(\(s\) => s !== "unpaid" \|\| money\)/);
+  assert.match(b, /\/staff\/bookings\?/);
+  assert.ok(!/display_name|email|\.phone\b/.test(b), "no names or contacts of its own");
 });

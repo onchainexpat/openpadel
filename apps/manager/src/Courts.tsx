@@ -4,6 +4,7 @@
 // the same changes are on buttons and keys for anyone not dragging. Times are the location's, whatever the
 // device's clock says.
 import { useEffect, useRef, useState } from "preact/hooks";
+import { useLocation } from "preact-iso";
 import type { Key } from "@kumi/i18n";
 import { amountPattern, parseDollars, formatLocale, weekOrder } from "@kumi/i18n/format";
 import { api, club, coversLocation, dollars, lang, lazyPage, mayCreate, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
@@ -18,15 +19,17 @@ const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
 type Seat = { id: string; name: string; booker: boolean };
-type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; off_cents?: number; pt_cents?: number; balance_cents?: number; booking_kind?: string;
+/** `who` and `players` on a Playtomic copy: who booked it and plays in it, from the club's archive, only for staff who
+ *  read people (never a coach on their own, never a member whose account was deleted here). */
+export type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; off_cents?: number; pt_cents?: number; balance_cents?: number; booking_kind?: string;
   open_match?: boolean; coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; invite_code?: string | null; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string;
   program_id?: string; program_kind?: string | null; label?: string; empty_places?: Empty[] };
 // `open`: that court's own hours that day (they can differ from the location's); null when it's closed all day.
-type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
+export type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
 /** `money` false: a reader who doesn't see what members paid (a coach on their own lesson, a role the club made covering
  *  bookings only): the server leaves out each booking's price, paid, promo, Playtomic and balance, and the page shows
  *  no payment line, no Pay and no refund choices (the club's rule applies). */
-type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; money?: boolean; courts: Court[] };
+export type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; money?: boolean; courts: Court[] };
 type Loc = { id: string; name: string; time_zone: string };
 /** can_handle: false for one at another location than a desk kept to one (the server says so for each). */
 type Alert = { event_id: string; kind: string; subject: string; body: string; link: string | null; at: string; can_handle?: boolean };
@@ -38,16 +41,37 @@ const HALF = 30 * 60_000, SLOT = 44;   // one half hour is this many pixels tall
 const ms = (iso: string) => new Date(iso).getTime();
 const length = (it: Item) => Math.round((ms(it.end) - ms(it.start)) / 60_000);
 // One item, wherever it is now: picked stays picked after it moves to another court.
-const keyOf = (it: Item, court: string) => it.booking_id ?? it.session_id ?? it.block_id ?? `${court}|${it.start}`;
+export const keyOf = (it: Item, court: string) => it.booking_id ?? it.session_id ?? it.block_id ?? `${court}|${it.start}`;
 const unpaid = (it: Item) => Math.max(0, (it.price_cents ?? 0) - (it.paid_cents ?? 0) - (it.off_cents ?? 0));
 const isBooking = (it: Item) => Boolean(it.booking_id) && it.kind === "booking";
 
 // The location on screen, for mayHere. A role kept to one location can look at the others, and only change its own.
 let shown = "";
 const mayHere = (action: string) => mayDo(action) && coversLocation(shown);
+/** The location another page shows an item of (the Bookings list's side panel), for mayHere. */
+export const showLocation = (id: string) => { shown = id; };
+
+/** Every half hour the location is open that day, as instants: the same list for choosing a start or a block. */
+export const daySlots = (g: Grid) => {
+  const out: string[] = [];
+  if (g.open) for (let s = ms(g.open.opens); s <= ms(g.open.closes); s += HALF) out.push(new Date(s).toISOString());
+  return out;
+};
+/** Program dates are moved or made longer by those who edit programs. */
+const seriesOk = () => { const roles = (me.value?.roles ?? []).map((r) => r.key); return roles.includes("owner") || roles.includes("manager") || (me.value?.can ?? []).includes("series.edit"); };
+/** What can be moved, and what made longer or shorter: a confirmed booking (moved before it starts, its length changed
+ *  until it ends), and a program date before it starts, for those who edit programs. */
+export const canMove = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.start) > serverNow() && mayHere("booking.move")) || (Boolean(it.session_id) && seriesOk() && ms(it.start) > serverNow());
+export const canResize = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.end) > serverNow() && mayHere("booking.extend")) || (Boolean(it.session_id) && seriesOk() && ms(it.start) > serverNow());
+/** A program date on more than one court keeps its courts when moved: only its time changes. */
+export const courtsOf = (g: Grid, it: Item) => g.courts.filter((c) => c.items.some((x) => it.session_id && x.session_id === it.session_id)).length;
+/** A clock time in the location's time zone, in the reader's words. */
+export const clockIn = (tz: string) => (iso: string | number) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(new Date(iso));
 
 export function Courts() {
-  const [locs, setLocs] = useState<Loc[]>([]), [loc, setLoc] = useState(""), [date, setDate] = useState(""), [g, setG] = useState<Grid | null>(null);
+  const { query } = useLocation();
+  // Opened at a day (and a location) from elsewhere: the Bookings list's "See the day".
+  const [locs, setLocs] = useState<Loc[]>([]), [loc, setLoc] = useState(""), [date, setDate] = useState(/^\d{4}-\d{2}-\d{2}$/.test(String(query.date ?? "")) ? String(query.date) : ""), [g, setG] = useState<Grid | null>(null);
   const [form, setForm] = useState<{ court: Court; starts: string[]; until: string; weekly: boolean } | null>(null), [blocking, setBlocking] = useState(false);
   const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null), [done, setDone] = useState(0);
   // Create's panel, and choosing a court and a free time for a booking made from it (once, or every week).
@@ -62,7 +86,7 @@ export function Courts() {
   const load = () => loc && api<Grid>(`/staff/grid?location_id=${loc}${date ? `&date=${date}` : ""}`).then((x) => { setG(x); if (!date) setDate(x.date); });
   const loadAlerts = () => api<Alerts>("/staff/alerts").then(setAlerts).catch(() => setAlerts(null));
   const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); setChoosing(null); setDone((n) => n + 1); });
-  useEffect(() => { api<Loc[]>("/staff/locations").then((l) => { setLocs(l); setLoc((l.find((x) => coversLocation(x.id)) ?? l[0])?.id ?? ""); }); void loadAlerts(); }, []);
+  useEffect(() => { api<Loc[]>("/staff/locations").then((l) => { setLocs(l); setLoc((l.find((x) => x.id === query.location) ?? l.find((x) => coversLocation(x.id)) ?? l[0])?.id ?? ""); }); void loadAlerts(); }, []);
   useEffect(() => { load(); }, [loc, date]);
   // What was picked is gone (cancelled, unblocked, another day): the side panel closes rather than stay empty.
   useEffect(() => { if (picked && g && !g.courts.some((c) => c.items.some((it) => keyOf(it, c.id) === picked))) setPicked(null); }, [g, picked]);
@@ -74,11 +98,9 @@ export function Courts() {
   }, [g?.date, g?.today, loc]);
   if (!g) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
-  const clock = (iso: string | number) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: g.time_zone, hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  const clock = clockIn(g.time_zone);
   const today = g.date === g.today;
-  // Every half hour the location is open, as instants: the same list for choosing a start or a block.
-  const slots: string[] = [];
-  if (g.open) for (let s = ms(g.open.opens); s <= ms(g.open.closes); s += HALF) slots.push(new Date(s).toISOString());
+  const slots = daySlots(g);
   const gaps = (c: Court) => {
     if (!c.open) return [];
     const out: { from: string; to: string }[] = [];
@@ -91,14 +113,6 @@ export function Courts() {
     return out.filter((x) => ms(x.to) - ms(x.from) >= HALF && new Date(x.to) > new Date(serverNow()));
   };
   const shift = (days: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days); setDate(d.toISOString().slice(0, 10)); };
-  const roles = (me.value?.roles ?? []).map((r) => r.key);
-  const seriesOk = roles.includes("owner") || roles.includes("manager") || (me.value?.can ?? []).includes("series.edit");
-  // What can be moved, and what made longer or shorter: a confirmed booking (moved before it starts, its length
-  // changed until it ends), and a program date before it starts, for those who edit programs.
-  const canMove = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.start) > serverNow() && mayHere("booking.move")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > serverNow());
-  const canResize = (it: Item) => (isBooking(it) && it.status === "confirmed" && ms(it.end) > serverNow() && mayHere("booking.extend")) || (Boolean(it.session_id) && seriesOk && ms(it.start) > serverNow());
-  // A program date on more than one court keeps its courts when moved: only its time changes.
-  const courtsOf = (it: Item) => g.courts.filter((c) => c.items.some((x) => it.session_id && x.session_id === it.session_id)).length;
   const drop = (it: Item, from: Court, to: Target) => {
     const minutes = length(it), startsAt = new Date(to.start).toISOString();
     if (it.booking_id) return to.minutes !== minutes ? preview("booking.extend", { booking_id: it.booking_id, minutes: to.minutes })
@@ -144,13 +158,13 @@ export function Courts() {
       <div class="sched-layout">
         <div class="sched-grid">
           <TimeGrid g={g} clock={clock} picked={picked} onPick={pick} canMove={canMove} canResize={canResize}
-            courtFixed={(it) => courtsOf(it) > 1} onDrop={drop} onFree={(c, at) => book(c, at)} />
+            courtFixed={(it) => courtsOf(g, it) > 1} onDrop={drop} onFree={(c, at) => book(c, at)} />
           <p class="meta">{t("ui.today_hint")}</p>
         </div>
         <div class="sched-side">
           {panel && <SidePanel narrow={narrow} onClose={closePanel}>
             {sel && <Details key={`${picked}|${sel.c.id}|${sel.it.start}|${sel.it.end}`} it={sel.it} court={sel.c} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove(sel.it)} canResize={canResize(sel.it)}
-              courtFixed={courtsOf(sel.it) > 1} />}
+              courtFixed={courtsOf(g, sel.it) > 1} />}
             {choosing && <CourtPicker courts={g.courts} gaps={gaps} clock={clock} onPick={(c, at) => book(c, at, choosing === "weekly")} />}
             {form && <DeskBooking key={`${form.court.id}|${form.starts[0]}|${form.weekly}`} court={form.court} starts={form.starts} until={form.until} weekly={form.weekly} clock={clock} preview={preview} onClose={closePanel} />}
             {blocking && <BlockForm courts={g.courts} g={g} slots={slots} clock={clock} preview={preview} />}
@@ -218,7 +232,7 @@ function CreatePanel({ choices, where, onClose }: { choices: { group: string; it
 
 /** The side panel: what was picked on the grid, or a booking or block being made, beside the day on a wide screen and
  *  over it on a phone. */
-function SidePanel({ narrow, onClose, children }: { narrow: boolean; onClose: () => void; children: any }) {
+export function SidePanel({ narrow, onClose, children }: { narrow: boolean; onClose: () => void; children: any }) {
   const ref = useDrawer<HTMLDivElement>(true, onClose, narrow);
   return <>
     {narrow && <div class="scrim" onClick={onClose} />}
@@ -272,9 +286,10 @@ function AlertList({ a, clock, preview }: { a: Alerts; clock: (s: string) => str
   );
 }
 
-/** Who and what an item is, in a few words: the organiser (and coach), a program's or a block's name. */
+/** Who and what an item is, in a few words: the organiser (and coach), a program's or a block's name, and who booked a
+ *  Playtomic copy when the server says (only to those who read people). */
 const labelOf = (it: Item) => it.booking_id ? (it.kind === "hold" ? t("ui.being_paid") : [it.who, it.booking_kind === "lesson" && it.coach ? t("ui.lesson_with", { coach: it.coach }) : ""].filter(Boolean).join(" · "))
-  : [it.label ?? "", it.series ? t("ui.repeats_weekly") : ""].filter(Boolean).join(" · ");
+  : [it.kind === "mirror" ? it.who ?? "" : "", it.label ?? "", it.series ? t("ui.repeats_weekly") : ""].filter(Boolean).join(" · ");
 /** A clock time in the location's time zone, as a club writes it: "18:00", and "24:00" for midnight at the end of the day. */
 const clubTime = (iso: string, tz: string, end = false) => {
   const s = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
@@ -426,7 +441,7 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
 /** The front desk and up choose what goes back when they cancel a paid booking (booking.cancel's refund). */
 const deskUp = () => (me.value?.roles ?? []).some((r) => ["owner", "manager", "front_desk"].includes(r.key));
 /** The item picked: who's playing, what's paid, and every change for it on buttons. */
-function Details({ it, court, g, clock, slots, preview, canMove, canResize, courtFixed }: { it: Item; court: Court; g: Grid; clock: (s: string | number) => string; slots: string[];
+export function Details({ it, court, g, clock, slots, preview, canMove, canResize, courtFixed }: { it: Item; court: Court; g: Grid; clock: (s: string | number) => string; slots: string[];
   preview: Preview; canMove: boolean; canResize: boolean; courtFixed: boolean }) {
   const [changing, setChanging] = useState(false), [paying, setPaying] = useState(false), [cancelling, setCancelling] = useState(false);
   // Paid in Playtomic: said, with what's still owed here (time added here) beside it.

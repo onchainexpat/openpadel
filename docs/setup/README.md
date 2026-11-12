@@ -167,6 +167,15 @@ desk is given back at the desk: what's owed back waits on the person's page unde
 desk" until someone hands it over and taps "Given back", and only then leaves the cash drawer in the books
 (with a refund receipt, as for a card's).
 
+**Bookings** (in the staff app's menu, after the Schedule) lists the same bookings as a table: a location's court
+bookings, lessons, open matches, program dates and Playtomic copies over a day or a range of days, filtered by type,
+state (upcoming, in progress, done, cancelled, unpaid) and where each was made (the members' app, the desk,
+Playtomic), a page at a time. A row opens the side panel the Schedule has, with the same changes. Its "Weekly courts"
+tab lists each member's weekly court. As on the Schedule, names show only to staff who read people, what's owed only
+to those who see money, and a coach on their own sees their own lessons. **Customers** is the club's people as a
+table (name, email, the phone's last two digits, membership and when it ends, club news by email, level), and each person's page is in
+tabs: Profile, Bookings, Memberships, Wallet, Family, Agreements, Levels and In Playtomic.
+
 **Weekly courts.** The desk books a member the same court every week from the Schedule (+ Create, Weekly court, or tap free time): pick the member,
 tick "Every week" and say how many weeks (at most 26). The preview lists every week and its price, and leaves out
 (by name) any week something is already on, the court is closed, or it can't be booked; nothing is moved. Each

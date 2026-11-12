@@ -47,6 +47,9 @@ There are four stages. Keep the second one short: weeks, not months.
     belonged to an account deleted here, and nothing of it comes back unless they sign in themselves. The salt is in the database, not the server's key, so a
     change of that key never lets anyone back in. Their account in Playtomic is Playtomic's: delete it there too if
     they asked the club to.
+  - The Schedule and the Bookings list name who booked each Playtomic copy (and the side panel who plays in it) from
+    the archive, for staff who read people; a coach on their own sees the copy without names. A deleted member's
+    rows have no name, so they never show.
   - Mention the archive in the club's privacy policy ([the template](../templates/member-privacy-policy.md) has the
     line).
 - **Compares the two every day** (staff app, Playtomic, "Playtomic and openPadel, day by day"): for each linked

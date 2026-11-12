@@ -216,6 +216,49 @@ button.icon { min-width: 44px; min-height: 44px; padding: 0; font-size: 22px; li
 .create-item > span:first-child { display: flex; flex-direction: column; gap: 2px; } .create-item .meta { font-weight: 400; }
 a.create-item:hover, button.create-item:hover { border-color: var(--brand-ink); }
 .create-item.off { color: var(--muted); border-style: dashed; } .create-item .badge { white-space: nowrap; flex: none; } .create-item.off strong { color: var(--muted); }
+/* The staff lists (Bookings, Customers) and a person's page in tabs: a head with the count, tabs, a bar of days and
+   filters, then a table that scrolls sideways inside its own box on a phone (never the page). */
+.shell-main > main.wide { max-width: 1200px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 8px; } .page-head h1 { margin: 0; } .page-head button, .page-head select { margin: 0; min-height: 44px; width: auto; }
+.grow { flex: 1; }
+.count-chip { padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--brand) 12%, var(--card)); color: var(--ink); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0 4px; margin: 0 0 12px; border-bottom: 1px solid var(--line); }
+@media (max-width: 599px) { .tabs { flex-wrap: nowrap; overflow-x: auto; } }
+.cap { display: inline-block; } .cap::first-letter { text-transform: uppercase; }
+.tabs [role="tab"] { flex: none; min-height: 44px; margin: 0; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.tabs [role="tab"][aria-selected="true"] { color: var(--ink); border-bottom-color: var(--brand-ink); }
+.tabs [role="tab"]:focus-visible, .pager button:focus-visible, .filter-chip:focus-within { outline: 2px solid var(--brand-ink); outline-offset: 2px; }
+.tab-panel > .card:first-child { margin-top: 0; }
+.list-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 12px; }
+.list-bar button, .list-bar input, .list-bar select { min-height: 44px; margin: 0; }
+.inline-field { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 500; } .inline-field input { width: auto; margin: 0; }
+.search-field { flex: 1 1 240px; margin: 0; } .search-field input { margin: 0; }
+.filter-chip { display: inline-flex; align-items: center; gap: 4px; margin: 0; padding: 0 4px 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); font-size: 14px; font-weight: 600; }
+.filter-chip select { width: auto; margin: 0; min-height: 42px; padding: 6px 8px; border: 0; background: none; font-weight: 400; }
+.filter-chip.on { border-color: var(--brand-ink); background: color-mix(in srgb, var(--brand) 10%, var(--card)); }
+.table-box { border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+table.data { min-width: 760px; font-size: 14px; }
+table.data th { padding: 10px 12px; font-size: 12px; font-weight: 600; color: var(--muted); text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.data td { padding: 10px 12px; vertical-align: middle; border-bottom: 1px solid var(--line); }
+table.data tr:last-child td { border-bottom: 0; }
+table.data tr.clickable { cursor: pointer; } table.data tr.clickable:hover td { background: var(--bg); }
+.row-open { font-weight: 600; text-decoration: none; text-align: left; white-space: nowrap; color: var(--ink); }
+.kind-dot { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 3px; background: var(--k-fill); border: 1px solid var(--k-ink); vertical-align: middle; }
+.pill { display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 18px; white-space: nowrap; border: 1px solid transparent;
+  --pill-bg: var(--line); --pill-ink: var(--ink); background: var(--pill-bg); color: var(--pill-ink); }
+.pill-upcoming, .pill-yes { --pill-bg: color-mix(in srgb, var(--brand) 14%, var(--card)); --pill-ink: var(--brand-ink); }
+.pill-in_progress { --pill-bg: #dce7fb; --pill-ink: #1d4aa8; } .pill-paused { --pill-bg: #fff1dc; --pill-ink: #8a4b00; }
+.pill-cancelled { --pill-bg: transparent; --pill-ink: var(--muted); border-color: var(--line); }
+@media (prefers-color-scheme: dark) { .pill-in_progress { --pill-bg: #22324d; --pill-ink: #a9c4ff; } .pill-paused { --pill-bg: #3d2f17; --pill-ink: #f0bd7e; } }
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 0; } .pager .meta { flex: 1 1 200px; }
+.pager button { min-width: 44px; min-height: 44px; margin: 0; padding: 0 10px; } .pager button[aria-current="page"] { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.person-cell { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; } .person-cell:hover strong { text-decoration: underline; }
+.avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: var(--brand); color: var(--on-brand); font-size: 12px; font-weight: 700; }
+.avatar.big { width: 48px; height: 48px; font-size: 17px; }
+.meta.block { display: block; font-size: 13px; }
+.person-head { display: flex; align-items: center; gap: 12px; margin: 4px 0 8px; } .person-head h1 { margin: 0; }
+.big-level { font-size: 28px; }
 /* A receipt: amounts to the right; printing shows only the receipt. */
 .receipt td.num { text-align: right; white-space: nowrap; }
 @media print { header, nav, .no-print, .notices, .banner, .dock { display: none !important; } .card.receipt { border: 0; padding: 0; } }

@@ -4,8 +4,9 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, isUuid, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { decide, getAction, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
+import { shortContact } from "./mcp.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
 import { translatorOn } from "./translate.ts";
@@ -22,9 +23,9 @@ const COACH_ALSO = /^\/staff\/(coach-earnings(\.csv)?|questions\/count)$/;
 const NIGHT_READ = ["draw.generate", "game.score", "level.set_session"];
 const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
-  [/^\/staff\/(people|tags|chats)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
+  [/^\/staff\/(people|tags|chats|customers)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
   [/^\/staff\/(reports|coach-earnings|payments|receipts|desk|move-in)/, "money"], [/^\/staff\/(settings|roles|vault|usage)/, "settings"],
-  [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|quote|mirror|alerts|block-series)/, "bookings"],
+  [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|quote|mirror|alerts|block-series|bookings|weekly-courts)/, "bookings"],
   [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
 ];
 export const readArea = (path: string) => READ_AREAS.find(([re]) => re.test(path))?.[1] ?? null;
@@ -398,6 +399,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // may take a booking's payment or give it back here (as the person page and a program's page decide); everyone
     // else (a coach on their own lesson, a role the club made covering bookings only) runs the court without it.
     const money = await seesMoney(db, viewer, { assistant: opts.assistant }) || await mayAnyOf(viewer, GRID_MONEY, { ownerIds: [], locationId: loc.id });
+    // Who booked and plays in each Playtomic copy: for those who read people, never a coach on their own.
+    const names = await seesPeople(viewer) ? await playtomicNames(items.filter((x) => x.kind === "mirror").map((x) => x.id)) : new Map<string, { who: string | null; players: string[] }>();
     const paidPart = (b: (typeof bookings)[number] | undefined) => money ? { price_cents: b?.price_cents ?? 0, paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0),
       off_cents: Number(b?.off_cents ?? 0), pt_cents: Number(b?.pt_cents ?? 0), balance_cents: b?.balance_cents ?? 0 } : {};
     return c.json({ date, time_zone: loc.time_zone, open, now: now.toISOString(), today: localDate(now, loc.time_zone), money, courts: courts.map((ct) => ({ ...ct, open: hours.get(ct.id) ?? null, items: items.filter((x) => x.court_id === ct.id).map((x) => {
@@ -413,8 +416,165 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: e.name, open: e.fill_refund_percent !== null })) }; }
       if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, series: Boolean(k?.series_id), label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
       if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, program_kind: s?.kind ?? null, label: s?.name ?? "" }; }
-      return { ...base, label: `Playtomic: ${t(l, typeKey(mirror.find((m) => m.court_time_id === x.id)?.booking_type))}` };
+      // A Playtomic copy: its kind, and who booked it and plays in it (from the club's archive) for those who read people.
+      const pt = names.get(x.id);
+      return { ...base, label: `Playtomic: ${t(l, typeKey(mirror.find((m) => m.court_time_id === x.id)?.booking_type))}`, ...(pt ? { who: pt.who ?? "", players: pt.players } : {}) };
     }) })) });
+  });
+
+  /** Who booked each Playtomic copy and who plays in it, from the club's archive (playtomic_archive.ts), by the copy's court
+   *  time. Only for those who read people (see `seesPeople`). A member whose account was deleted here never shows: their
+   *  rows have no name (erased_at, playtomic_erased.ts), and a row matched to a deleted account is left out as well. */
+  const playtomicNames = async (courtTimeIds: string[]) => {
+    const out = new Map<string, { who: string | null; players: string[] }>();
+    if (!courtTimeIds.length) return out;
+    const rows = await db.selectFrom("mirror_booking")
+      .innerJoin("playtomic_booking", (j) => j.on(sql<boolean>`mirror_booking.ref = playtomic_booking.booking_id || ':' || playtomic_booking.resource_id`))
+      .innerJoin("playtomic_booking_player", "playtomic_booking_player.booking_id", "playtomic_booking.booking_id")
+      .leftJoin("person", "person.id", "playtomic_booking_player.person_id")
+      .select(["mirror_booking.court_time_id", "playtomic_booking_player.name", "playtomic_booking_player.is_owner", "playtomic_booking_player.participant_id",
+        "playtomic_booking_player.family_member_id", "playtomic_booking.owner_id"])
+      .where("mirror_booking.court_time_id", "in", courtTimeIds).where("playtomic_booking_player.erased_at", "is", null)
+      .where("playtomic_booking_player.name", "is not", null).where("person.redacted_at", "is", null)
+      .orderBy("playtomic_booking_player.is_owner", "desc").orderBy("playtomic_booking_player.id").execute();
+    for (const r of rows) {
+      const e = out.get(r.court_time_id!) ?? { who: null, players: [] };
+      const owner = r.is_owner || (r.owner_id && r.participant_id === r.owner_id && !r.family_member_id);
+      if (owner && !e.who) e.who = r.name!;
+      e.players.push(r.name!);
+      out.set(r.court_time_id!, e);
+    }
+    return out;
+  };
+  /** Who reads people's names on the club's bookings lists: someone whose roles read the people area wider than a coach's
+   *  own students (front desk and up, the accountant, support access, a role the club made covering members). */
+  const seesPeople = (id: string) => widerIn(id, "members");
+
+  // ---- Bookings, as a list (the staff app's Bookings page) ----
+  // One location's bookings over some days: court bookings and lessons (open matches among them), program dates and
+  // Playtomic copies, each with its time, length, court, kind, where it was made and how it stands. Read as the day's
+  // grid is: someone who reads bookings only as a coach sees their own lessons (and the program dates and Playtomic
+  // copies the grid shows them, unnamed), never anyone else's booking; names only for those who read people (a coach's
+  // own lesson keeps its player's name, as on the grid); what was paid and owed only for the grid's money readers.
+  const BOOKING_TYPES = ["court", "lesson", "open_match", "program", "playtomic"] as const;
+  const BOOKING_STATES = ["upcoming", "in_progress", "done", "cancelled", "unpaid"] as const;
+  const MADE_IN = ["app", "desk", "playtomic"] as const;
+  const PER_PAGE = 25;
+  app.get("/staff/bookings", async (c) => {
+    const q = (k: string) => c.req.query(k) ?? "", now = new Date(), l = lang(c);
+    const loc = isUuid(q("location_id")) ? await db.selectFrom("location").select(["id", "time_zone"]).where("id", "=", q("location_id")).executeTakeFirst() : undefined;
+    if (!loc) throw new KumiError("error.not_found", { thing: { en: "location", es: "la sede" } }, 404);
+    const ymd = /^\d{4}-\d{2}-\d{2}$/, today = localDate(now, loc.time_zone);
+    const fromDay = ymd.test(q("from")) ? q("from") : today, toDay = ymd.test(q("to")) ? q("to") : fromDay;
+    const span = (Date.parse(`${toDay}T12:00:00Z`) - Date.parse(`${fromDay}T12:00:00Z`)) / 86400_000;
+    if (!(span >= 0 && span <= 62)) throw new KumiError("error.invalid_input", { details: "from and to: up to 62 days, from first" }, 400);
+    const pick = <T extends string>(k: string, ok: readonly T[]) => (ok as readonly string[]).includes(q(k)) ? q(k) as T : null;
+    const type = pick("type", BOOKING_TYPES), madeIn = pick("made_in", MADE_IN);
+    const from = onDate(fromDay, "00:00", loc.time_zone), to = onDate(toDay, "24:00", loc.time_zone);
+    const viewer = me(c)!.id, coachView = !(await widerIn(viewer, "bookings")), people = await seesPeople(viewer);
+    const money = await seesMoney(db, viewer, { assistant: opts.assistant }) || await mayAnyOf(viewer, GRID_MONEY, { ownerIds: [], locationId: loc.id });
+    // "Unpaid" is a state only money readers are offered; for anyone else it narrows nothing.
+    const status = pick("status", BOOKING_STATES.filter((s) => s !== "unpaid" || money));
+    const page = Math.max(1, Math.floor(Number(q("page")) || 1));
+    const courts = new Map((await db.selectFrom("court").select(["id", "name"]).where("location_id", "=", loc.id).execute()).map((x) => [x.id, x.name]));
+    const courtIds = [...courts.keys()].concat(["00000000-0000-0000-0000-000000000000"]);
+    const inRange = sql<boolean>`lower(court_time.during) >= ${from} AND lower(court_time.during) < ${to}`;
+    type Row = { key: string; starts_at: Date; ends_at: Date; court_id: string; court: string; type: (typeof BOOKING_TYPES)[number]; program_kind?: string | null; made_in: (typeof MADE_IN)[number] | "club";
+      status: "upcoming" | "in_progress" | "done" | "cancelled"; owed_cents?: number; who: string | null; person_id?: string | null; more: number; label?: string; code?: string; booking_id?: string; program_id?: string };
+    const state = (s: Date, e: Date, cancelled: boolean): Row["status"] => cancelled ? "cancelled" : now < s ? "upcoming" : now < e ? "in_progress" : "done";
+    const rows: Row[] = [];
+
+    // Court bookings and lessons: where each is now (or was, when it was cancelled).
+    const booked = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").leftJoin("person", "person.id", "booking.organiser_id")
+      .select(["booking.id", "booking.code", "booking.kind", "booking.status", "booking.source", "booking.organiser_id", "booking.coach_id", "booking.price_cents", "court_time.id as ct",
+        "court_time.court_id", "person.display_name", sql<Date>`lower(court_time.during)`.as("s"), sql<Date>`upper(court_time.during)`.as("e")])
+      .select((eb) => eb.selectFrom("booking_player").select("guest_name").whereRef("booking_player.booking_id", "=", "booking.id").where("guest_name", "is not", null).limit(1).as("guest"))
+      .select((eb) => eb.selectFrom("booking_player").select((x) => x.fn.countAll<string>().as("n")).whereRef("booking_player.booking_id", "=", "booking.id").where("booking_player.removed_at", "is", null).as("players"))
+      .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select((x) => x.fn.sum<string>("payment.amount_cents").as("c"))
+        .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("paid"))
+      .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(sql<string>`coalesce(sum(${promoOff()}), 0)`.as("c"))
+        .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("off"))
+      .select((eb) => eb.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+        .select((x) => x.fn.sum<string>("refund.amount_cents").as("c")).whereRef("booking_player.booking_id", "=", "booking.id").where("refund.status", "!=", "failed").as("back"))
+      .where("booking.location_id", "=", loc.id).where("court_time.court_id", "in", courtIds).where(inRange)
+      .where("booking.status", "in", ["confirmed", "completed", "cancelled"]).where((w) => w.or([w("court_time.active", "=", true), w("booking.status", "=", "cancelled")]))
+      .$if(coachView, (x) => x.where("booking.coach_id", "=", viewer)).orderBy("court_time.id", "desc").execute();
+    const matches = new Set(booked.length ? (await db.selectFrom("open_match").select("booking_id").where("booking_id", "in", booked.map((b) => b.id)).execute()).map((m) => m.booking_id) : []);
+    // A cancelled booking is where it last was: a time it was moved away from before it was cancelled isn't listed.
+    const gone = booked.filter((b) => b.status === "cancelled").map((b) => b.id);
+    const last = new Map(gone.length ? (await db.selectFrom("court_time").select(["booking_id", sql<string>`max(id::text)`.as("ct")]).where("booking_id", "in", gone).groupBy("booking_id").execute())
+      .map((x) => [x.booking_id!, x.ct]) : []);
+    const seen = new Set<string>();
+    for (const b of booked) {
+      if (seen.has(b.id) || (b.status === "cancelled" && last.get(b.id) !== b.ct)) continue;
+      seen.add(b.id);
+      const s = new Date(b.s), e = new Date(b.e), named = people || b.coach_id === viewer;
+      const owed = b.price_cents - (Number(b.paid ?? 0) - Number(b.back ?? 0)) - Number(b.off ?? 0);
+      rows.push({ key: b.id, booking_id: b.id, code: b.code, starts_at: s, ends_at: e, court_id: b.court_id, court: courts.get(b.court_id) ?? "",
+        type: b.kind === "lesson" ? "lesson" : matches.has(b.id) ? "open_match" : "court", made_in: b.source === "desk" ? "desk" : b.source === "import" ? "playtomic" : "app",
+        status: state(s, e, b.status === "cancelled"), ...(money && b.status !== "cancelled" && owed > 0 ? { owed_cents: owed } : {}),
+        who: named ? b.display_name ?? b.guest ?? "" : null, person_id: named ? b.organiser_id : null, more: Math.max(0, Number(b.players ?? 0) - 1) });
+    }
+    // Program dates: once each, with every court they're on, and how many have a place.
+    const dates = await db.selectFrom("court_time").innerJoin("session", "session.id", "court_time.session_id").innerJoin("program", "program.id", "session.program_id")
+      .select(["session.id", "session.program_id", "program.name", "program.kind", "court_time.court_id", sql<Date>`lower(court_time.during)`.as("s"), sql<Date>`upper(court_time.during)`.as("e")])
+      .select((eb) => eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).where("enrolment.status", "=", "booked")
+        .where((w) => w.or([w("enrolment.session_id", "=", w.ref("session.id")), w.and([w("enrolment.session_id", "is", null), w("enrolment.program_id", "=", w.ref("session.program_id"))])])).as("places"))
+      .where("court_time.kind", "=", "session").where("court_time.active", "=", true).where("court_time.court_id", "in", courtIds).where(inRange).orderBy("court_time.court_id").execute();
+    for (const d of dates) {
+      const had = rows.find((r) => r.key === d.id);
+      if (had) { had.court = [had.court, courts.get(d.court_id) ?? ""].join(", "); continue; }
+      const s = new Date(d.s), e = new Date(d.e);
+      rows.push({ key: d.id, program_id: d.program_id, starts_at: s, ends_at: e, court_id: d.court_id, court: courts.get(d.court_id) ?? "", type: "program", program_kind: d.kind, made_in: "club",
+        status: state(s, e, false), who: null, label: d.name, more: Number(d.places ?? 0) });
+    }
+    // Playtomic copies: bookings still made in Playtomic while the club moves, held here so courts never double up.
+    const copies = await db.selectFrom("court_time").innerJoin("mirror_booking", "mirror_booking.court_time_id", "court_time.id")
+      .select(["court_time.id", "court_time.court_id", "mirror_booking.booking_type", sql<Date>`lower(court_time.during)`.as("s"), sql<Date>`upper(court_time.during)`.as("e")])
+      .where("court_time.kind", "=", "mirror").where("court_time.active", "=", true).where("court_time.court_id", "in", courtIds).where(inRange).execute();
+    const names = people ? await playtomicNames(copies.map((x) => x.id)) : new Map<string, { who: string | null; players: string[] }>();
+    for (const m of copies) {
+      const s = new Date(m.s), e = new Date(m.e), n = names.get(m.id);
+      rows.push({ key: `${m.court_id}|${s.toISOString()}`, starts_at: s, ends_at: e, court_id: m.court_id, court: courts.get(m.court_id) ?? "", type: "playtomic", made_in: "playtomic",
+        status: state(s, e, false), who: n?.who ?? null, more: n ? Math.max(0, n.players.length - (n.who ? 1 : 0)) : 0, label: t(l, typeKey(m.booking_type)) });
+    }
+    const shown = rows.filter((r) => (!type || r.type === type) && (!madeIn || r.made_in === madeIn) && (!status || (status === "unpaid" ? (r.owed_cents ?? 0) > 0 : r.status === status)))
+      .sort((a, b) => a.starts_at.getTime() - b.starts_at.getTime() || a.court.localeCompare(b.court));
+    const pages = Math.max(1, Math.ceil(shown.length / PER_PAGE));
+    return c.json({ from: fromDay, to: toDay, today, time_zone: loc.time_zone, money, people, total: shown.length, page: Math.min(page, pages), pages, per_page: PER_PAGE,
+      rows: shown.slice((Math.min(page, pages) - 1) * PER_PAGE, Math.min(page, pages) * PER_PAGE).map((r) => ({ ...r, date: localDate(r.starts_at, loc.time_zone),
+        minutes: Math.round((r.ends_at.getTime() - r.starts_at.getTime()) / 60_000) })) });
+  });
+
+  // A location's weekly courts (booking_series.ts): each member's court every week, with who, when it started and runs
+  // until, and how it stands. Members' own courts, not a coach's lessons: someone who reads bookings only as a coach hears
+  // the same no as for the Playtomic mirror. Names for those who read people, the price and what's owed for money readers.
+  app.get("/staff/weekly-courts", async (c) => {
+    const viewer = me(c)!.id;
+    if (!(await widerIn(viewer, "bookings"))) throw new KumiError("error.staff_only", {}, 403);
+    const id = c.req.query("location_id") ?? "";
+    const loc = isUuid(id) ? await db.selectFrom("location").select(["id", "time_zone"]).where("id", "=", id).executeTakeFirst() : undefined;
+    if (!loc) throw new KumiError("error.not_found", { thing: { en: "location", es: "la sede" } }, 404);
+    const now = new Date(), today = localDate(now, loc.time_zone), people = await seesPeople(viewer);
+    const money = await seesMoney(db, viewer, { assistant: opts.assistant }) || await mayAnyOf(viewer, GRID_MONEY, { ownerIds: [], locationId: loc.id });
+    const series = await db.selectFrom("booking_series").innerJoin("court", "court.id", "booking_series.court_id").innerJoin("person", "person.id", "booking_series.organiser_id")
+      .select(["booking_series.id", "booking_series.starts", "booking_series.minutes", "booking_series.first_date", "booking_series.last_date", "booking_series.source", "booking_series.paused_at",
+        "booking_series.organiser_id", "court.name as court", "person.display_name", "person.redacted_at"])
+      .where("booking_series.location_id", "=", loc.id).where("booking_series.last_date", ">=", today)
+      .orderBy("booking_series.first_date").orderBy("booking_series.starts").execute();
+    const weeks = series.length ? await db.selectFrom("booking_series_week").leftJoin("booking", "booking.id", "booking_series_week.booking_id")
+      .select(["booking_series_week.series_id", "booking_series_week.on_date", "booking_series_week.price_cents", "booking_series_week.booking_id", "booking_series_week.missed", "booking.status", "booking.balance_cents"])
+      .where("booking_series_week.series_id", "in", series.map((s) => s.id)).orderBy("booking_series_week.on_date").execute() : [];
+    // A series shows while it has a week still booked (or still to be booked) to come, as on the person's page (seriesOf).
+    const live = series.filter((s) => weeks.some((w) => w.series_id === s.id && w.on_date >= today && w.on_date <= s.last_date && ((w.booking_id && w.status !== "cancelled") || (!w.booking_id && !w.missed))));
+    return c.json({ money, people, total: live.length, rows: live.map((s) => {
+      const mine = weeks.filter((w) => w.series_id === s.id), next = mine.find((w) => w.on_date >= today && w.on_date <= s.last_date && w.status !== "cancelled");
+      const owed = mine.filter((w) => w.on_date <= today && w.status && w.status !== "cancelled" && (w.balance_cents ?? 0) > 0).reduce((n, w) => n + (w.balance_cents ?? 0), 0);
+      const named = people && !s.redacted_at;
+      return { id: s.id, weekday: weekdayOf(s.first_date), starts: s.starts.slice(0, 5), minutes: s.minutes, court: s.court, first_date: s.first_date, last_date: s.last_date,
+        made_in: s.source === "desk" ? "desk" : "app", status: s.paused_at ? "paused" : "active", who: named ? s.display_name : null, person_id: named ? s.organiser_id : null,
+        ...(money ? { price_cents: next?.price_cents ?? null, owed_cents: owed } : {}) };
+    }) });
   });
   // A location's repeating blocks still to come: the pattern, and the next dates a change or an end starts from.
   app.get("/staff/block-series", async (c) => {
@@ -430,8 +590,11 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     .$if(Boolean(c.req.query("location_id")), (q) => q.where("location_id", "=", c.req.query("location_id")!)).orderBy("sort").orderBy("name").execute()));
   // Search by name, email or phone; role=staff for everyone with a staff role, or one role's key; tag_id for
   // one of the club's tags, segment_id for whoever a saved group matches now. Each row has its tags.
-  app.get("/staff/people", async (c) => {
-    const raw = (c.req.query("q") ?? "").trim(), q = `%${raw}%`, role = c.req.query("role"), limit = Math.min(Number(c.req.query("limit") ?? 20) || 20, 200);
+  /** The people a search finds, as /staff/people and the Customers list read them: by name, email or phone; role=staff
+   *  for everyone with a staff role, or one role's key; tag_id for one of the club's tags, segment_id for whoever a saved
+   *  group matches now. null when a saved group matches nobody. */
+  const peopleFound = async (c: Context<any>) => {
+    const raw = (c.req.query("q") ?? "").trim(), q = `%${raw}%`, role = c.req.query("role");
     const digits = raw.replace(/\D/g, ""), tagId = c.req.query("tag_id"), segmentId = c.req.query("segment_id");
     const uuid = (v: string | undefined) => v && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
     let within: string[] | null = null;
@@ -439,14 +602,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       const seg = await db.selectFrom("segment").select("filters").where("id", "=", segmentId!).where("active", "=", true).executeTakeFirst();
       within = seg ? (await segmentMembers(db, seg.filters as Filters, new Date())).map((p) => p.id) : [];
     }
-    // Built-in roles by key (the screen words them); a role the club made by its name.
-    const roles = (eb: any) => eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(sql<string[]>`array_agg(DISTINCT CASE WHEN role.system THEN role.key ELSE coalesce(role.name, role.key) END)`.as("r"))
-      .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true).where("role.active", "=", true);
-    const tags = (eb: any) => eb.selectFrom("person_tag").innerJoin("tag", "tag.id", "person_tag.tag_id").select(sql<string[]>`array_agg(tag.name ORDER BY tag.name)`.as("t"))
-      .whereRef("person_tag.person_id", "=", "person.id").where("person_tag.removed_at", "is", null).where("tag.active", "=", true);
-    if (within && !within.length) return c.json([]);
+    if (within && !within.length) return null;
     // An account made for support access (support.ts) isn't one of the club's people.
-    return c.json(await db.selectFrom("person").select(["id", "display_name", "email", "junior", "created_at"]).select((eb) => [roles(eb).as("roles"), tags(eb).as("tags")]).where("status", "!=", "archived").where("created_via", "!=", "support")
+    return db.selectFrom("person").where("status", "!=", "archived").where("created_via", "!=", "support")
       // Through the assistant door, names only: an email or phone it can match is a yes or no on the whole of one, and
       // the door shows them shortened (mcp.ts), so matching them would let the shortening be undone one letter at a time.
       .where((eb) => eb.or([eb("display_name", "ilike", q), ...(opts.assistant ? [] : [eb("email", "ilike", q), ...(digits.length >= 3 ? [eb(sql<string>`regexp_replace(coalesce(phone, ''), '\\D', '', 'g')`, "like", `%${digits}%`)] : [])])]))
@@ -455,8 +613,50 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         .where("role.key", role === "staff" ? "!=" : "=", role === "staff" ? "member" : role!))))
       .$if(Boolean(uuid(tagId)), (qb) => qb.where((eb) => eb.exists(eb.selectFrom("person_tag").select("person_tag.id").whereRef("person_tag.person_id", "=", "person.id")
         .where("person_tag.tag_id", "=", tagId!).where("person_tag.removed_at", "is", null))))
-      .$if(Boolean(within), (qb) => qb.where("id", "in", within!))
+      .$if(Boolean(within), (qb) => qb.where("id", "in", within!));
+  };
+  // Built-in roles by key (the screen words them); a role the club made by its name.
+  const rolesOfRow = (eb: any) => eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(sql<string[]>`array_agg(DISTINCT CASE WHEN role.system THEN role.key ELSE coalesce(role.name, role.key) END)`.as("r"))
+    .whereRef("person_role.person_id", "=", "person.id").where("person_role.active", "=", true).where("role.active", "=", true);
+  const tagsOfRow = (eb: any) => eb.selectFrom("person_tag").innerJoin("tag", "tag.id", "person_tag.tag_id").select(sql<string[]>`array_agg(tag.name ORDER BY tag.name)`.as("t"))
+    .whereRef("person_tag.person_id", "=", "person.id").where("person_tag.removed_at", "is", null).where("tag.active", "=", true);
+  // Search by name, email or phone (peopleFound). Each row has its tags.
+  app.get("/staff/people", async (c) => {
+    const limit = Math.min(Number(c.req.query("limit") ?? 20) || 20, 200), found = await peopleFound(c);
+    if (!found) return c.json([]);
+    return c.json(await found.select(["id", "display_name", "email", "junior", "created_at"]).select((eb) => [rolesOfRow(eb).as("roles"), tagsOfRow(eb).as("tags")])
       .orderBy("display_name").limit(limit).execute());
+  });
+  // The Customers list: the same search, a page at a time, with how many there are; each person's email and phone (the
+  // contact details whoever reads people sees on their page), their membership (their own, or one covering them) and the
+  // day it ends, their answer about club news by email, and their level for those who read levels.
+  const CUSTOMERS_PAGE = 50;
+  app.get("/staff/customers", async (c) => {
+    const found = await peopleFound(c), page = Math.max(1, Math.floor(Number(c.req.query("page")) || 1));
+    if (!found) return c.json({ total: 0, page: 1, pages: 1, per_page: CUSTOMERS_PAGE, levels: false, rows: [] });
+    const total = Number((await found.select((eb) => eb.fn.countAll<string>().as("n")).executeTakeFirstOrThrow()).n), pages = Math.max(1, Math.ceil(total / CUSTOMERS_PAGE)), at = Math.min(page, pages);
+    const reach = await reachOf(me(c)!.id), levels = reach.all || reach.areas.includes("levels");
+    const rows = await found.select(["id", "display_name", "email", "phone", "junior"]).select((eb) => [rolesOfRow(eb).as("roles"), tagsOfRow(eb).as("tags")])
+      .orderBy("display_name").orderBy("id").limit(CUSTOMERS_PAGE).offset((at - 1) * CUSTOMERS_PAGE).execute();
+    const ids = rows.map((r) => r.id).concat(["00000000-0000-0000-0000-000000000000"]), now = new Date(), tz = await clubTz();
+    const LIVE = ["upcoming", "active", "past_due"] as const;
+    const own = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
+      .select(["membership.person_id", "membership_plan.name", "membership.current_period_end", "membership.source"]).where("membership.person_id", "in", ids).where("membership.status", "in", [...LIVE]).execute();
+    const covered = await db.selectFrom("membership_member").innerJoin("membership", "membership.id", "membership_member.membership_id").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
+      .select(["membership_member.person_id", "membership_plan.name", "membership.current_period_end", "membership.source"]).where("membership_member.person_id", "in", ids).where("membership.status", "in", [...LIVE])
+      .where((w) => w.or([w("membership_member.ends_at", "is", null), w("membership_member.ends_at", ">", now)])).execute();
+    const news = await db.selectFrom("channel_consent").select(["person_id", "granted"]).distinctOn(["person_id"]).where("person_id", "in", ids)
+      .where("channel", "=", "email").where("purpose", "=", "club_news").orderBy("person_id").orderBy("at", "desc").execute();
+    const level = levels ? await db.selectFrom("rating").select(["person_id", "level"]).where("person_id", "in", ids).where("sport", "=", "padel").execute() : [];
+    return c.json({ total, page: at, pages, per_page: CUSTOMERS_PAGE, levels, rows: rows.map((r) => {
+      const m = own.find((x) => x.person_id === r.id) ?? covered.find((x) => x.person_id === r.id), n = news.find((x) => x.person_id === r.id);
+      // No staff page shows a person's phone number in full (their page shows their email only): here it's shortened to
+      // its last two digits, as the assistant door shortens it (mcp.ts), enough to tell two people apart. A search by
+      // phone still finds them.
+      return { ...r, phone: shortContact("phone", r.phone) as string | null, membership: m ? { name: m.name, ends_on: m.current_period_end ? endDay({ current_period_end: m.current_period_end, source: m.source }, tz) : null } : null,
+        // A junior isn't asked about club news (their family is).
+        club_news: r.junior || !n ? null : n.granted, ...(levels ? { level: level.find((x) => x.person_id === r.id)?.level ?? null } : {}) };
+    }) });
   });
   app.get("/staff/people/:id", async (c) => {
     const id = c.req.param("id");

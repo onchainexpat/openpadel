@@ -7,6 +7,7 @@ import { WeeklyCourts, type WeeklyCourt } from "@kumi/ui/weekly";
 import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
 import { amountStep, capFor, fromMajor, plainAmount, toMajor } from "@kumi/i18n/format";
 import { playtomicParts } from "./paid_line.ts";
+import { initials, Tabs } from "./lists.tsx";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
 type P = {
@@ -37,6 +38,15 @@ type P = {
   playtomic?: { booking_id: string; starts_at: string; court: string; kind: string; price?: string | null; cancelled: boolean; taken_over_as: string | null; cancelled_here_as?: string | null; others: string[] }[];
 };
 const STAFF_ROLES = ["manager", "front_desk", "coach", "accountant", "owner"] as const;
+/** The page's tabs, in order. Each keeps every check its sections had on one long page; a tab with nothing for this
+ *  reader isn't shown (Person below). */
+const TABS = ["profile", "bookings", "memberships", "wallet", "family", "agreements", "levels", "playtomic"] as const;
+type TabKey = (typeof TABS)[number];
+/** The tab the address asks for: #wallet, or a booking's own #booking-... (on the Bookings tab). */
+const tabOfHash = (): TabKey => {
+  const h = location.hash.slice(1);
+  return h.startsWith("booking-") ? "bookings" : (TABS as readonly string[]).includes(h) ? h as TabKey : "profile";
+};
 /** Who may change someone's email here, as the server decides it (app.ts deskForEmail): front desk and up, or someone whose
  *  only staff roles are the club's own and cover members. A coach isn't offered it. */
 const changesEmails = () => me.value?.areas ? me.value.areas.includes("members") : (me.value?.roles ?? []).some((r) => ["owner", "manager", "front_desk"].includes(r.key));
@@ -53,9 +63,16 @@ export function Person({ id }: { id: string }) {
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); api<{ id: string; name: string }[]>("/staff/locations").then(setLocations); api<{ id: string; name: string }[]>("/staff/tags").then(setTags).catch(() => setTags(null));
     api<{ key: string; name: string; system: boolean }[]>("/staff/roles").then((r) => setCustom(r.filter((x) => !x.system))).catch(() => setCustom([])); }, [id]);
-  // Opened at one booking (Reports links to /people/:id#booking-...): once it's on the page, bring it into view.
+  // The tab open: the address's #tab, so a link (or a reload) opens the same one. Opened at one booking (Reports links
+  // to /people/:id#booking-...): its tab, and once it's on the page, that booking in view.
+  const [tab, setTabNow] = useState<TabKey>(() => tabOfHash());
+  // A link to another tab (or booking) of the page already open switches to it.
+  const [hash, setHash] = useState(location.hash);
+  useEffect(() => { const on = () => { setHash(location.hash); setTabNow(tabOfHash()); }; addEventListener("hashchange", on); return () => removeEventListener("hashchange", on); }, []);
+  useEffect(() => { setTabNow(tabOfHash()); }, [id]);
   const loaded = Boolean(p);
-  useEffect(() => { if (loaded && location.hash.startsWith("#booking-")) document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: "center" }); }, [loaded, id]);
+  useEffect(() => { if (loaded && location.hash.startsWith("#booking-")) document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: "center" }); }, [loaded, id, hash]);
+  const setTab = (k: string) => { setTabNow(k as TabKey); history.replaceState(history.state, "", `${location.pathname}${location.search}#${k}`); };
   if (!p) return <main class="card"><p>{t("ui.loading")}</p></main>;
 
   const date = (iso: string) => clubTime(iso, { dateStyle: "medium" });
@@ -67,20 +84,37 @@ export function Person({ id }: { id: string }) {
   const privacy = (me.value?.roles ?? []).some((r) => r.key === "owner" || r.key === "manager");
   // Only the owner starts someone's second sign-in step over (a lost phone), and never their own.
   const owner = (me.value?.roles ?? []).some((r) => r.key === "owner") && me.value?.person.id !== p.id;
+  // The tabs this reader has something on: what they did and paid (the wallet) only for those the server sends money to
+  // or who sell or refund passes or sell gift cards here; levels for those who read levels; Playtomic when there's any.
+  const wallet = p.money !== false || mayDo("pass.sell") || mayDo("pass.refund") || Boolean(club.value?.gift_cards && mayDo("gift_card.sell"));
+  const areas = me.value?.areas ?? null, levels = areas ? areas.includes("levels") : true;
+  const tabs = TABS.filter((k) => (k !== "wallet" || wallet) && (k !== "levels" || levels) && (k !== "playtomic" || (p.playtomic?.length ?? 0) > 0));
+  const shownTab = tabs.includes(tab) ? tab : "profile", is = (k: TabKey) => shownTab === k;
   return (
     <main>
-      <h1>{p.display_name}</h1>
-      <section class="card">
+      <div class="person-head"><span class="avatar big" aria-hidden="true">{initials(p.display_name)}</span><h1>{p.display_name}</h1></div>
+      <Tabs label={t("ui.person_sections")} tabs={tabs.map((k) => [k, t(`ui.person_tab_${k}` as Key)])} on={shownTab} pick={setTab} id="person" />
+      <div role="tabpanel" tabIndex={0} id={`person-panel-${shownTab}`} aria-labelledby={`person-tab-${shownTab}`} class="tab-panel">
+      {is("profile") && <section class="card">
         <p>{p.email ?? t("ui.no_email")}</p>
         {p.email_problem && <p class="note" role="status">{t(`ui.email_held_${p.email_problem.reason}` as Key, { date: date(p.email_problem.since) })}{p.email_problem.detail ? ` (${p.email_problem.detail})` : ""}{" "}
           {mayDo("person.email_unsuppress") && <button class="small" onClick={() => preview("person.email_unsuppress", { person_id: p.id })}>{t("ui.email_held_clear")}</button>}</p>}
         <p class="meta">{t("ui.joined", { date: date(p.created_at), how: t(`ui.via_${p.created_via}` as Key) })} · {p.locale === "es" ? "Español" : "English"}</p>
-        {!p.junior && <p class="meta">{t("ui.club_news_email")}: {news ? t(news.granted ? "ui.consent_yes" : "ui.consent_no") : t("ui.consent_unknown")}</p>}
-        {texts && <p class="meta">{t("ui.texts_staff")}: {t(texts.granted ? "ui.consent_yes" : "ui.consent_no")}</p>}
-        <p><a href={`/people/${p.id}/level`}>{t("ui.see_level")}</a></p>
-      </section>
+      </section>}
 
-      {tags && <section class="card">
+      {is("agreements") && <section class="card">
+        <h2>{t("ui.person_consents")}</h2>
+        {!p.junior && <p>{t("ui.club_news_email")}: {news ? t(news.granted ? "ui.consent_yes" : "ui.consent_no") : t("ui.consent_unknown")}</p>}
+        {texts && <p>{t("ui.texts_staff")}: {t(texts.granted ? "ui.consent_yes" : "ui.consent_no")}</p>}
+        {p.junior && !texts && <p class="meta">{t("ui.consents_junior")}</p>}
+        <h2>{t("ui.person_waiver")}</h2>
+        <p class="meta">{!p.waiver ? t("ui.waiver_off") : p.waiver.accepted_on
+          ? t("ui.waiver_accepted_by", { version: p.waiver.version_no, date: date(`${p.waiver.accepted_on}T12:00:00Z`), name: p.waiver.accepted_by ?? "" }) : t("ui.waiver_not_accepted", { version: p.waiver.version_no })}</p>
+      </section>}
+
+      {is("levels") && <PersonLevel id={p.id} />}
+
+      {is("profile") && tags && <section class="card">
         <h2>{t("ui.tags_title")}</h2>
         {p.tags.length ? <p class="chips">{p.tags.map((x) => <span class="chip">{x.name} {mayDo("person.untag") && <button class="link" aria-label={t("ui.untag", { tag: x.name })} onClick={() => preview("person.untag", { person_id: p.id, tag_id: x.id })}>×</button>}</span>)}</p>
           : <p class="meta">{t("ui.no_person_tags")}</p>}
@@ -91,22 +125,21 @@ export function Person({ id }: { id: string }) {
         </form>}
       </section>}
 
-      <section class="card">
+      {is("family") && <section class="card">
         <h2>{t("ui.person_household")}</h2>
         {p.junior && <p>{t(p.kid ? "ui.person_kid" : "ui.person_junior", { year: p.birth_year ?? "", names: p.family.filter((x) => x.role === "adult").map((x) => x.display_name).join(", ") })}</p>}
         {p.kid && <p class="meta">{t("ui.staff_kid_login", { email: p.kid.email ?? "" })}. {p.kid.rules}</p>}
         {p.family.length > 0 && <ul class="plain">{p.family.map((x) => (
           <li class="row"><a href={`/people/${x.id}`}>{x.display_name}</a><span class="meta">{x.role === "junior" ? `${t("ui.junior_tag")}${x.birth_year ? `, ${t("ui.junior_born", { year: x.birth_year })}` : ""}` : ""}</span></li>))}</ul>}
-        <p class="meta">{!p.waiver ? t("ui.waiver_off") : `${t("ui.person_waiver")}: `}{!p.waiver ? null : p.waiver.accepted_on
-          ? t("ui.waiver_accepted_by", { version: p.waiver.version_no, date: date(`${p.waiver.accepted_on}T12:00:00Z`), name: p.waiver.accepted_by ?? "" }) : t("ui.waiver_not_accepted", { version: p.waiver.version_no })}</p>
+        {!p.junior && p.family.length === 0 && <p class="meta">{t("ui.no_family")}</p>}
         {!p.junior && p.family_role !== "member" && mayDo("household.add_junior") && <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("household.add_junior", { person_id: p.id, display_name: jName, birth_year: Number(jYear) }); }}>
           <label>{t("ui.junior_name")}<input required maxLength={80} value={jName} onInput={(e) => setJName(e.currentTarget.value)} /></label>
           <label>{t("ui.birth_year")}<input type="number" required inputMode="numeric" value={jYear} onInput={(e) => setJYear(e.currentTarget.value)} /></label>
           <button>{t("ui.add_junior")}</button>
         </form>}
-      </section>
+      </section>}
 
-      {p.membership ? (
+      {is("memberships") && (p.membership ? (
         <section class="card">
           <h2>{t("ui.membership")}</h2>
           <p><strong>{p.membership.name}</strong> {p.membership.status === "past_due" && <span class="badge">{t("ui.past_due")}</span>}</p>
@@ -120,9 +153,10 @@ export function Person({ id }: { id: string }) {
           <h2>{t("ui.membership")}</h2>
           <p><a href={`/people/${p.covered_by.payer_id}`}>{t("ui.staff_covered_by", { name: p.covered_by.payer, plan: p.covered_by.plan })}</a></p>
         </section>
-      ) : p.plans.length > 0 && (mayDo("membership.grant") || mayDo("membership.sell")) && <GiveMembership key={p.id} plans={p.plans.map((x) => ({ ...x, members: 0 }))} send={preview} person={p} />}
+      ) : p.plans.length > 0 && (mayDo("membership.grant") || mayDo("membership.sell")) ? <GiveMembership key={p.id} plans={p.plans.map((x) => ({ ...x, members: 0 }))} send={preview} person={p} />
+        : <section class="card"><p class="meta">{t("ui.no_membership_here")}</p></section>)}
 
-      {!p.junior && <section class="card">
+      {is("profile") && !p.junior && <section class="card">
         <h2>{t("ui.person_roles")}</h2>
         {staffRoles.length === 0 ? <p class="meta">{t("role.member")}</p> : (
           <ul class="plain">{staffRoles.map((r) => (
@@ -138,23 +172,26 @@ export function Person({ id }: { id: string }) {
         </form>}
       </section>}
 
-      {owner && p.sign_in && (p.sign_in.authenticator || p.sign_in.passkeys > 0 || p.sign_in.recovery_left > 0) && <section class="card">
+      {is("profile") && owner && p.sign_in && (p.sign_in.authenticator || p.sign_in.passkeys > 0 || p.sign_in.recovery_left > 0) && <section class="card">
         <h2>{t("ui.two_step_title")}</h2>
         <p class="meta">{[p.sign_in.authenticator ? t("ui.authenticator_on") : t("ui.authenticator_off"), t("ui.person_passkeys", { count: p.sign_in.passkeys }), t("ui.recovery_left", { count: p.sign_in.recovery_left })].join(" · ")}</p>
         <button onClick={() => preview("person.reset_sign_in", { person_id: p.id })}>{t("ui.reset_sign_in")}</button>
       </section>}
 
-      <section class="card">
-        <h2>{t("ui.person_places")}</h2>
-        {p.places.length === 0 ? <p class="meta">{t("ui.person_no_places")}</p> : (
-          <ul class="plain">{p.places.map((x) => (
-            <li class="row"><a href={`/programs/${x.program_id}`}>{x.name}</a><span class="meta">{[x.first_start && date(x.first_start), t(`ui.place_${x.status}` as Key)].filter(Boolean).join(" · ")}</span></li>
-          ))}</ul>
-        )}
-      </section>
-      <PersonBookings bookings={p.bookings} preview={preview} />
-      {p.playtomic && p.playtomic.length > 0 && <PersonPlaytomic rows={p.playtomic} />}
-      <WeeklyCourts series={p.series ?? []} preview={preview} staff money={p.money !== false} />
+      {is("bookings") && <>
+        <PersonBookings bookings={p.bookings} preview={preview} />
+        <WeeklyCourts series={p.series ?? []} preview={preview} staff money={p.money !== false} />
+        <section class="card">
+          <h2>{t("ui.person_places")}</h2>
+          {p.places.length === 0 ? <p class="meta">{t("ui.person_no_places")}</p> : (
+            <ul class="plain">{p.places.map((x) => (
+              <li class="row"><a href={`/programs/${x.program_id}`}>{x.name}</a><span class="meta">{[x.first_start && date(x.first_start), t(`ui.place_${x.status}` as Key)].filter(Boolean).join(" · ")}</span></li>
+            ))}</ul>
+          )}
+        </section>
+      </>}
+      {is("playtomic") && p.playtomic && p.playtomic.length > 0 && <PersonPlaytomic rows={p.playtomic} />}
+      {is("wallet") && <>
       {p.failed_refunds?.length > 0 && <section class="card">
         <h2>{t("ui.refunds_failed")}</h2>
         <ul class="plain">{p.failed_refunds.map((r) => (
@@ -192,10 +229,15 @@ export function Person({ id }: { id: string }) {
           <button class="small">{t("action.gift_card.sell")}</button></form>
       </section>}
       {(mayDo("pass.sell") || mayDo("pass.refund")) && <PersonPasses personId={p.id} preview={preview} key={`passes-${p.id}-${String(sheet ? 1 : 0)}`} />}
+      {p.money !== false && (p.credit_cents ?? 0) <= 0 && !p.failed_refunds?.length && !p.to_give_back?.length && <section class="card"><p class="meta">{t("ui.no_credit_held")}</p></section>}
       <PersonReceipts personId={p.id} preview={preview} />
+      </>}
+      {is("profile") && <>
       {privacy && <PersonAssistants personId={p.id} preview={preview} key={`${p.id}-${String(sheet ? 1 : 0)}`} />}
       {!p.junior && p.id !== me.value?.person.id && (staffRoles.length === 0 || owner) && changesEmails() && <ChangeEmail personId={p.id} name={p.display_name} onDone={load} />}
       {privacy && <AccountData personId={p.id} self={p.id === me.value?.person.id} onDeleted={() => route("/people")} />}
+      </>}
+      </div>
       {sheet}
     </main>
   );
@@ -250,6 +292,22 @@ function PersonPlaytomic({ rows }: { rows: NonNullable<P["playtomic"]> }) {
           <span class="meta">{[b.price, b.cancelled ? t("ui.person_playtomic_cancelled") : null, b.taken_over_as ? t("ui.person_playtomic_taken", { code: b.taken_over_as }) : b.cancelled_here_as ? t("ui.person_playtomic_taken_cancelled", { code: b.cancelled_here_as }) : null,
             b.others.length ? t("ui.person_playtomic_with", { names: b.others.join(", ") }) : null].filter(Boolean).join(" · ")}</span>
         </li>))}</ul>
+    </section>
+  );
+}
+
+/** Their level at a glance, for those who read levels; the level's own page has its history and the changes. */
+function PersonLevel({ id }: { id: string }) {
+  type L = { rating: { level: string; provisional: boolean; rated_games: number } | null };
+  const [l, setL] = useState<L | null | false>(null);
+  useEffect(() => { api<L>(`/staff/people/${id}/level`).then(setL).catch(() => setL(false)); }, [id]);
+  return (
+    <section class="card">
+      <h2>{t("ui.level")}</h2>
+      {l === null ? <p>{t("ui.loading")}</p> : l && l.rating ? <p><strong class="big-level">{l.rating.level}</strong>{" "}
+        <span class="meta">{[l.rating.provisional ? t("ui.provisional") : "", t("count.rated_games", { count: l.rating.rated_games })].filter(Boolean).join(" · ")}</span></p>
+        : <p class="meta">{t("ui.person_no_level")}</p>}
+      <p><a href={`/people/${id}/level`}>{t("ui.see_level")}</a></p>
     </section>
   );
 }

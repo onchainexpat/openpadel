@@ -13,6 +13,7 @@ const Night = lazyPage(() => import("./Night.tsx").then((m) => m.Night));
 const Competition = lazyPage(() => import("./Competition.tsx").then((m) => m.Competition));
 const Level = lazyPage(() => import("./Level.tsx").then((m) => m.Level));
 const People = lazyPage(() => import("./People.tsx").then((m) => m.People));
+const Bookings = lazyPage(() => import("./Bookings.tsx").then((m) => m.Bookings));
 const Person = lazyPage(() => import("./Person.tsx").then((m) => m.Person));
 const Memberships = lazyPage(() => import("./Memberships.tsx").then((m) => m.Memberships));
 const Scores = lazyPage(() => import("./Scores.tsx").then((m) => m.Scores));
@@ -72,6 +73,7 @@ function access(m: Me) {
   // The pages in someone's menu, fetched while they look at their first one so opening them later doesn't wait.
   const later: { preload?: () => unknown }[] = [home, Profile];
   const add = (yes: boolean, ...pages: { preload?: () => unknown }[]) => { if (yes) later.push(...pages); };
+  add(show("bookings"), Bookings);
   add(show("programs"), Programs, Program, Night);
   add(show("members") || coachSide, People, Person);
   add(show("memberships"), Memberships);
@@ -124,6 +126,7 @@ function StaffNav({ a, signOut }: { a: Access; signOut: () => void }) {
       <ul>
         {link(show("bookings"), "/courts", t("ui.nav_day_schedule"), on("/courts") ?? (path === "/" && home === Courts ? "page" : undefined))}
         {link(coach, "/schedule", t("ui.nav_schedule"), on("/schedule", "/roster", "/students") ?? (path === "/" && home === Schedule ? "page" : undefined))}
+        {link(show("bookings"), "/bookings", t("ui.nav_bookings"))}
       </ul>
       <ul>
         {link(show("members"), "/people", t("ui.nav_people"))}
@@ -255,6 +258,7 @@ export function App() {
         <Route path="/roles" component={only("settings", Roles)} />
         <Route path="/vault" component={only("settings", Vault)} />
         <Route path="/courts" component={only("bookings", Courts)} />
+        <Route path="/bookings" component={only("bookings", Bookings)} />
         <Route path="/reports" component={coachSide ? Reports : only("money", Reports)} />
         <Route path="/memberships" component={only("memberships", Memberships)} />
         <Route path="/scores" component={only("levels", Scores)} />
