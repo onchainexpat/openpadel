@@ -353,7 +353,8 @@ test("the courts day: what members paid is for whoever sees or takes the money, 
   for (const who of ["Kim", "Rue"]) {
     const { money, it } = await item(who);
     assert.equal(money, false, who);
-    assert.ok(it, who); assert.equal(it.who, "Ann", who); assert.ok(it.start && it.end, who);
+    // Kim's own lesson keeps its player's name; a role covering bookings and not members reads no one's (staff_lists.test.ts).
+    assert.ok(it, who); assert.equal(it.who, who === "Kim" ? "Ann" : "", who); assert.ok(it.start && it.end, who);
     for (const k of GRID_MONEY) assert.ok(!(k in it), `${who} ${k}`);
   }
   for (const who of ["Fay", "Tia"]) {

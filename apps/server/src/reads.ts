@@ -399,21 +399,25 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // may take a booking's payment or give it back here (as the person page and a program's page decide); everyone
     // else (a coach on their own lesson, a role the club made covering bookings only) runs the court without it.
     const money = await seesMoney(db, viewer, { assistant: opts.assistant }) || await mayAnyOf(viewer, GRID_MONEY, { ownerIds: [], locationId: loc.id });
-    // Who booked and plays in each Playtomic copy: for those who read people, never a coach on their own.
-    const names = await seesPeople(viewer) ? await playtomicNames(items.filter((x) => x.kind === "mirror").map((x) => x.id)) : new Map<string, { who: string | null; players: string[] }>();
+    // Names (who booked, who plays, who's late, whose place is empty) only for those who read people (seesPeople, as the
+    // Bookings list decides), and a coach on their own lesson: a role the club made covering bookings and not members
+    // runs the court without them. Who booked and plays in each Playtomic copy, the same.
+    const people = await seesPeople(viewer);
+    const names = people ? await playtomicNames(items.filter((x) => x.kind === "mirror").map((x) => x.id)) : new Map<string, { who: string | null; players: string[] }>();
     const paidPart = (b: (typeof bookings)[number] | undefined) => money ? { price_cents: b?.price_cents ?? 0, paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0),
       off_cents: Number(b?.off_cents ?? 0), pt_cents: Number(b?.pt_cents ?? 0), balance_cents: b?.balance_cents ?? 0 } : {};
-    return c.json({ date, time_zone: loc.time_zone, open, now: now.toISOString(), today: localDate(now, loc.time_zone), money, courts: courts.map((ct) => ({ ...ct, open: hours.get(ct.id) ?? null, items: items.filter((x) => x.court_id === ct.id).map((x) => {
+    return c.json({ date, time_zone: loc.time_zone, open, now: now.toISOString(), today: localDate(now, loc.time_zone), money, people, courts: courts.map((ct) => ({ ...ct, open: hours.get(ct.id) ?? null, items: items.filter((x) => x.court_id === ct.id).map((x) => {
       const base = { start: x.start, end: x.end, kind: x.kind };
       if (x.booking_id && coachView && bookings.find((y) => y.id === x.booking_id)?.coach_id !== viewer) return { ...base, label: t(l, "grid.booked") };
-      if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", ...paidPart(b),
+      if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id), named = people || (Boolean(b) && b!.coach_id === viewer), nm = (n: string) => named ? n : "";
+        return { ...base, booking_id: x.booking_id, code: b?.code, who: nm(b?.display_name ?? b?.guest ?? ""), ...paidPart(b),
         booking_kind: b?.kind ?? "court", open_match: matches.has(x.booking_id), coach: b?.coach ?? null, status: b?.status,
-        players: players.filter((p) => p.booking_id === x.booking_id).map((p) => p.display_name ?? p.guest_name ?? ""), late: lateFor(x.booking_id),
+        players: named ? players.filter((p) => p.booking_id === x.booking_id).map((p) => p.display_name ?? p.guest_name ?? "") : [], late: lateFor(x.booking_id).map((w) => ({ ...w, name: nm(w.name) })),
         // A member's court paid in full: the desk can name its players (booking_players.ts), and take them off.
         whole: b?.kind === "court" && b.pay_mode === "whole" && Boolean(b.organiser_id) && b.status === "confirmed",
         invite_code: b?.kind === "court" && b.pay_mode === "whole" && b.status === "confirmed" ? b.invite_code : null,
-        seats: players.filter((p) => p.booking_id === x.booking_id && p.person_id).map((p) => ({ id: p.id, name: p.display_name ?? "", booker: p.person_id === b?.organiser_id })),
-        empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: e.name, open: e.fill_refund_percent !== null })) }; }
+        seats: players.filter((p) => p.booking_id === x.booking_id && p.person_id).map((p) => ({ id: p.id, name: nm(p.display_name ?? ""), booker: p.person_id === b?.organiser_id })),
+        empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: nm(e.name), open: e.fill_refund_percent !== null })) }; }
       if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, series: Boolean(k?.series_id), label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
       if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, program_kind: s?.kind ?? null, label: s?.name ?? "" }; }
       // A Playtomic copy: its kind, and who booked it and plays in it (from the club's archive) for those who read people.
@@ -636,6 +640,11 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     if (!found) return c.json({ total: 0, page: 1, pages: 1, per_page: CUSTOMERS_PAGE, levels: false, rows: [] });
     const total = Number((await found.select((eb) => eb.fn.countAll<string>().as("n")).executeTakeFirstOrThrow()).n), pages = Math.max(1, Math.ceil(total / CUSTOMERS_PAGE)), at = Math.min(page, pages);
     const reach = await reachOf(me(c)!.id), levels = reach.all || reach.areas.includes("levels");
+    // Phone numbers in full for the front desk and up (owner, manager, front desk; support access reads as a manager),
+    // who ring members back; everyone else reading the list (the accountant, a coach, a role the club made covering
+    // members) sees the last two digits, as the assistant door shortens them (mcp.ts), enough to tell two people apart.
+    // No role the club makes reads more contact detail than a member's page gives it, and that page shows no phone.
+    const fullPhone = !opts.assistant && deskUp(await rolesOf(me(c)!.id));
     const rows = await found.select(["id", "display_name", "email", "phone", "junior"]).select((eb) => [rolesOfRow(eb).as("roles"), tagsOfRow(eb).as("tags")])
       .orderBy("display_name").orderBy("id").limit(CUSTOMERS_PAGE).offset((at - 1) * CUSTOMERS_PAGE).execute();
     const ids = rows.map((r) => r.id).concat(["00000000-0000-0000-0000-000000000000"]), now = new Date(), tz = await clubTz();
@@ -650,10 +659,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const level = levels ? await db.selectFrom("rating").select(["person_id", "level"]).where("person_id", "in", ids).where("sport", "=", "padel").execute() : [];
     return c.json({ total, page: at, pages, per_page: CUSTOMERS_PAGE, levels, rows: rows.map((r) => {
       const m = own.find((x) => x.person_id === r.id) ?? covered.find((x) => x.person_id === r.id), n = news.find((x) => x.person_id === r.id);
-      // No staff page shows a person's phone number in full (their page shows their email only): here it's shortened to
-      // its last two digits, as the assistant door shortens it (mcp.ts), enough to tell two people apart. A search by
-      // phone still finds them.
-      return { ...r, phone: shortContact("phone", r.phone) as string | null, membership: m ? { name: m.name, ends_on: m.current_period_end ? endDay({ current_period_end: m.current_period_end, source: m.source }, tz) : null } : null,
+      // The phone in full or to its last two digits (fullPhone); a search by phone finds them either way.
+      return { ...r, phone: fullPhone ? r.phone : shortContact("phone", r.phone) as string | null, membership: m ? { name: m.name, ends_on: m.current_period_end ? endDay({ current_period_end: m.current_period_end, source: m.source }, tz) : null } : null,
         // A junior isn't asked about club news (their family is).
         club_news: r.junior || !n ? null : n.granted, ...(levels ? { level: level.find((x) => x.person_id === r.id)?.level ?? null } : {}) };
     }) });
@@ -925,7 +932,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const viewer = me(c)!.id;
     if (!(await widerIn(viewer, "bookings"))) throw new KumiError("error.staff_only", {}, 403);
     // A role the club made covering bookings but not money: no price, payment, or Playtomic's owner of a booking.
-    const money = await seesMoney(db, viewer, { assistant: opts.assistant });
+    const money = await seesMoney(db, viewer, { assistant: opts.assistant }), people = await seesPeople(viewer);
     const l = lang(c);
     const status = await db.selectFrom("connector_status").selectAll().where("system", "=", PLAYTOMIC).executeTakeFirst();
     const refs = await db.selectFrom("external_ref").select(["external_id", "entity_id"]).where("system", "=", PLAYTOMIC).where("entity", "=", "court").execute();
@@ -944,7 +951,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       // Moving from Playtomic (playtomic_archive.ts): the two side by side, a week ahead; and upcoming player
       // bookings that can be taken over.
       compare: status ? await comparison(db, new Date(), 7).then((x) => ({ days: x.days, diffs: x.diffs.filter((d) => money || d.kind !== "paid").map((d) => ({ ...d, kind_label: kind(d.type) })) })) : null,
-      take_over: status ? (await takeOverCandidates(db, new Date())).map(({ price, payment_status, owner, ...x }) => ({ ...x, ...(money ? { price, payment_status, owner } : {}), kind: kind(x.type) })) : [],
+      // Playtomic's owner of each by name only for those who read people (seesPeople), as on the Schedule.
+      take_over: status ? (await takeOverCandidates(db, new Date())).map(({ price, payment_status, owner, ...x }) => ({ ...x, ...(money ? { price, payment_status, ...(people ? { owner } : {}) } : {}), kind: kind(x.type) })) : [],
     });
   });
   // ---- Members' questions and the club's facts (front desk and up) ----

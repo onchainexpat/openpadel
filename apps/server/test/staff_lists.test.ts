@@ -43,7 +43,7 @@ before(async () => {
   // Clerk: a role the club made covering bookings only. Keeper: one covering memberships only.
   const clerk = ((await run(db, "role.create", { name: "Bookings clerk", grants: [{ action: "booking.move", scope: "any" }] }, owner)).result as any).key;
   const keeper = ((await run(db, "role.create", { name: "Membership keeper", grants: ["membership.pause", "membership.unpause"].map((action) => ({ action, scope: "any" })) }, owner)).result as any).key;
-  for (const [name, role] of [["Ann", null], ["Ben", null], ["Pia", null], ["Cora", "coach"], ["Dana", "front_desk"], ["Acc", "accountant"], ["Cleo", clerk], ["Kip", keeper]] as const) {
+  for (const [name, role] of [["Ann", null], ["Ben", null], ["Pia", null], ["Cora", "coach"], ["Dana", "front_desk"], ["Mia", "manager"], ["Acc", "accountant"], ["Cleo", clerk], ["Kip", keeper]] as const) {
     people[name] = ((await run(db, "person.create", { display_name: name, email: `${name.toLowerCase()}@example.test` }, owner)).result as any).person_id;
     if (role) { await run(db, "role.assign", { person_id: people[name], role }, owner); await signIn(`${name.toLowerCase()}@example.test`); }
   }
@@ -140,12 +140,12 @@ test("weekly courts: who and the price for the desk", async () => {
   assert.deepEqual([r.json.rows[0].who, r.json.rows[0].court, r.json.rows[0].starts, r.json.rows[0].status, r.json.rows[0].price_cents], ["Ann", "Court 1", "19:00", "active", 3200]);
 });
 
-test("customers: a page of people with their email, a shortened phone, membership, club news and level for the desk", async () => {
+test("customers: a page of people with their email, phone, membership, club news and level for the desk", async () => {
   const r = await get("/staff/customers?q=ann", "dana@example.test");
   assert.equal(r.status, 200);
   assert.equal(r.json.total, 1);
   const ann = r.json.rows[0];
-  assert.deepEqual([ann.display_name, ann.email, ann.phone, ann.club_news, ann.level, ann.membership], ["Ann", "ann@example.test", "...42", true, "3.40", null]);
+  assert.deepEqual([ann.display_name, ann.email, ann.phone, ann.club_news, ann.level, ann.membership], ["Ann", "ann@example.test", "+14155550142", true, "3.40", null]);
   const all = await get("/staff/customers", "dana@example.test");
   assert.ok(all.json.total >= 8 && all.json.rows.length === all.json.total);
   assert.ok(!all.json.rows.some((x: any) => x.display_name === "Pia"), "a deleted account isn't listed by name");
@@ -167,4 +167,52 @@ test("a booking moved to another day and then cancelled is listed on the day it 
   assert.ok(!(await list("dana")).json.rows.some((x: any) => x.key === id), "not on the day it left");
   const there = await get(`/staff/bookings?location_id=${loc}&from=${later}`, "dana@example.test");
   assert.equal(there.json.rows.find((x: any) => x.key === id)?.status, "cancelled");
+});
+
+test("customers: the phone in full for the owner, a manager and the front desk; its last two digits for anyone else reading the list", async () => {
+  const fay = "fay@example.test"; // the members-only role the club made (above)
+  if (!cookies[fay]) {
+    const reader = ((await run(db, "role.create", { name: "Front of house 2", grants: [{ action: "person.tag", scope: "any" }] }, owner)).result as any).key;
+    const id = ((await run(db, "person.create", { display_name: "Fay", email: fay }, owner)).result as any).person_id;
+    await run(db, "role.assign", { person_id: id, role: reader }, owner);
+    await signIn(fay);
+  }
+  const phone = async (who: string) => { const r = await get("/staff/customers?q=ann", who); return r.status === 200 ? r.json.rows.find((x: any) => x.display_name === "Ann")?.phone : r.status; };
+  for (const who of ["robin", "mia", "dana"]) assert.equal(await phone(`${who}@example.test`), "+14155550142", who);
+  assert.equal(await phone("acc@example.test"), "...42", "the accountant");
+  assert.equal(await phone(fay), "...42", "a role the club made covering members");
+  // A coach, a bookings-only role and a memberships-only role don't read the list at all.
+  for (const who of ["cora", "cleo", "kip"]) assert.equal(await phone(`${who}@example.test`), 403, who);
+  // Searching by phone finds them whoever reads the list.
+  for (const who of ["dana", "acc"]) assert.equal((await get("/staff/customers?q=555-0142", `${who}@example.test`)).json.total, 1, who);
+  assert.equal((await get("/staff/customers?q=5550142", fay)).json.total, 1);
+});
+
+test("the Schedule names players only for those who read people: a bookings-only role sees no names; a coach their own lesson's", async () => {
+  const items = async (who: string) => { const r = await get(`/staff/grid?location_id=${loc}&date=${day}`, `${who}@example.test`); return { r, all: r.json.courts?.flatMap((c: any) => c.items) ?? [] }; };
+  for (const who of ["robin", "mia", "dana", "acc"]) {
+    const { r, all } = await items(who);
+    assert.equal(r.json.people, true, who);
+    const court = all.find((x: any) => x.booking_id === ids.court), lesson = all.find((x: any) => x.booking_id === ids.lesson);
+    assert.deepEqual([court.who, court.players, lesson.who, lesson.players], ["Ann", ["Ann"], "Ann", ["Ann"]], who);
+    assert.ok(all.some((x: any) => x.who === "Xavi Outside"), who);
+  }
+  {
+    const { r, all } = await items("cleo");
+    assert.equal(r.status, 200); assert.equal(r.json.people, false);
+    const court = all.find((x: any) => x.booking_id === ids.court), lesson = all.find((x: any) => x.booking_id === ids.lesson);
+    assert.deepEqual([court.who, court.players, court.seats.map((x: any) => x.name), lesson.who, lesson.players], ["", [], [""], "", []]);
+    const text = JSON.stringify(r.json);
+    assert.ok(!text.includes("Ann") && !text.includes("Xavi") && !text.includes("Yara"), "no member's or Playtomic player's name anywhere");
+  }
+  {
+    const { r, all } = await items("cora");
+    assert.equal(r.json.people, false);
+    const lesson = all.find((x: any) => x.booking_id === ids.lesson);
+    assert.deepEqual([lesson.who, lesson.players], ["Ann", ["Ann"]], "a coach's own lesson keeps its player's name");
+    assert.ok(!all.some((x: any) => x.booking_id === ids.court), "someone else's booking is only 'booked'");
+  }
+  // A members-only role and a memberships-only role don't read the Schedule.
+  assert.equal((await get(`/staff/grid?location_id=${loc}&date=${day}`, "fay@example.test")).status, 403);
+  assert.equal((await get(`/staff/grid?location_id=${loc}&date=${day}`, "kip@example.test")).status, 403);
 });

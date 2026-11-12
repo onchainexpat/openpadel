@@ -29,7 +29,7 @@ export type Court = { id: string; name: string; kind: string; open: { opens: str
 /** `money` false: a reader who doesn't see what members paid (a coach on their own lesson, a role the club made covering
  *  bookings only): the server leaves out each booking's price, paid, promo, Playtomic and balance, and the page shows
  *  no payment line, no Pay and no refund choices (the club's rule applies). */
-export type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; money?: boolean; courts: Court[] };
+export type Grid = { date: string; time_zone: string; open: { opens: string; closes: string } | null; now: string; today: string; money?: boolean; people?: boolean; courts: Court[] };
 type Loc = { id: string; name: string; time_zone: string };
 /** can_handle: false for one at another location than a desk kept to one (the server says so for each). */
 type Alert = { event_id: string; kind: string; subject: string; body: string; link: string | null; at: string; can_handle?: boolean };
@@ -327,7 +327,7 @@ function NowNext({ g, clock }: { g: Grid; clock: (s: string) => string }) {
           <li><strong>{c.name}</strong>
             <div>{cur ? t("ui.now_on", { who: labelOf(cur), until: clock(cur.end) }) : t("ui.now_free")}
               {cur && isBooking(cur) && g.money !== false && unpaid(cur) > 0 && <span class="badge warn">{t("ui.unpaid_amount", { amount: dollars(unpaid(cur), lang.value) })}</span>}</div>
-            {[cur, next].flatMap((it) => it?.late ?? []).map((l) => <div class="note">{t("ui.late_note", { name: l.name, minutes: l.minutes })}</div>)}
+            {[cur, next].flatMap((it) => it?.late ?? []).map((l) => <div class="note">{t("ui.late_note", { name: l.name || t("ui.player"), minutes: l.minutes })}</div>)}
             <div class="meta">{next ? t("ui.next_on", { who: labelOf(next), at: clock(next.start) }) : t("ui.next_none")}</div>
           </li>
         );
@@ -422,7 +422,7 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
                     {tag && <span class="tg-kind">{tag}</span>}
                     {/* Owed money is for those who see what members paid (the server sends none to anyone else). */}
                     {g.money !== false && isBooking(it) && unpaid(it) > 0 && <span class="pill-unpaid">{t("ui.unpaid_pill")} · {dollars(unpaid(it), lang.value)}</span>}
-                    {(it.late?.length ?? 0) > 0 && <span class="badge">{t("ui.late_note", { name: it.late![0]!.name, minutes: it.late![0]!.minutes })}</span>}
+                    {(it.late?.length ?? 0) > 0 && <span class="badge">{t("ui.late_note", { name: it.late![0]!.name || t("ui.player"), minutes: it.late![0]!.minutes })}</span>}
                   </button>
                   {canMove(it) && <span class="tg-grip" aria-hidden="true" title={t("ui.drag_handle")} onPointerDown={(e) => begin(e, it, c, "move")} onPointerMove={follow} onPointerUp={finish} onPointerCancel={() => setDrag(null)}>⠿</span>}
                   {canResize(it) && <span class="tg-resize" aria-hidden="true" onPointerDown={(e) => begin(e, it, c, "resize")} onPointerMove={follow} onPointerUp={finish} onPointerCancel={() => setDrag(null)} />}
@@ -456,7 +456,7 @@ export function Details({ it, court, g, clock, slots, preview, canMove, canResiz
       {isBooking(it) && g.money !== false && <p class="meta">{pt ? pt.map((x) => t(x.key, { amount: dollars(x.cents, lang.value) })).join(" · ")
         : unpaid(it) > 0 ? t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) }) : (it.off_cents ?? 0) > 0 ? t("ui.paid_off", { amount: dollars(it.paid_cents ?? 0, lang.value), off: dollars(it.off_cents ?? 0, lang.value) })
         : t("ui.today_paid", { amount: dollars(it.paid_cents ?? 0, lang.value) })}</p>}
-      {it.late?.map((l) => <p class="note">{t("ui.late_note", { name: l.name, minutes: l.minutes })} · {clock(l.at)}</p>)}
+      {it.late?.map((l) => <p class="note">{t("ui.late_note", { name: l.name || t("ui.player"), minutes: l.minutes })} · {clock(l.at)}</p>)}
       <div class="chips">
         {isBooking(it) && g.money !== false && unpaid(it) > 0 && mayHere("booking.record_payment") && <button class="small" onClick={() => setPaying(!paying)}>{t("ui.record_payment")}</button>}
         {(canMove || canResize) && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.move_or_resize")}</button>}
@@ -493,7 +493,7 @@ function Players({ it, preview }: { it: Item; preview: Preview }) {
   return (
     <div class="card-form">
       <h3>{t("ui.players_title")}</h3>
-      <ul class="plain">{(it.seats ?? []).map((p) => <li class="row"><span>{p.name}{p.booker ? ` · ${t("ui.booker")}` : ""}</span>
+      <ul class="plain">{(it.seats ?? []).map((p) => <li class="row"><span>{p.name || t("ui.player")}{p.booker ? ` · ${t("ui.booker")}` : ""}</span>
         {!p.booker && mayHere("booking.remove_player") && <button type="button" class="small" onClick={() => preview("booking.remove_player", { booking_player_id: p.id })}>{t("ui.remove")}</button>}</li>)}</ul>
       {it.invite_code && (it.seats?.length ?? 0) < 4 && <p><button type="button" class="small" onClick={copy}>{copied ? t("ui.link_copied") : t("ui.copy_players_link")}</button></p>}
       {(it.seats?.length ?? 0) < 4 && <>
@@ -588,8 +588,8 @@ function EmptyPlace({ e, preview, money }: { e: Empty; preview: Preview; money: 
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
   return (
     <div class="note">
-      <p>{t(e.open ? "ui.empty_place_open" : "ui.empty_place", { name: e.name })}</p>
-      {money && <label>{t("ui.refund_choice", { name: e.name })}<select value={refund} onChange={(x) => setRefund(x.currentTarget.value)}>
+      <p>{t(e.open ? "ui.empty_place_open" : "ui.empty_place", { name: e.name || t("ui.player") })}</p>
+      {money && <label>{t("ui.refund_choice", { name: e.name || t("ui.player") })}<select value={refund} onChange={(x) => setRefund(x.currentTarget.value)}>
         <option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_all")}</option><option value="none">{t("ui.refund_nothing_more")}</option></select></label>}
       <p>{!e.open && <><button class="small" onClick={() => preview("booking.reopen_place", { booking_player_id: e.id, refund })}>{t("ui.open_in_app")}</button>{" "}</>}
         <button class="small" onClick={() => setGiving(!giving)}>{t("ui.give_free")}</button></p>

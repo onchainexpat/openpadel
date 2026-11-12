@@ -171,9 +171,12 @@ desk" until someone hands it over and taps "Given back", and only then leaves th
 bookings, lessons, open matches, program dates and Playtomic copies over a day or a range of days, filtered by type,
 state (upcoming, in progress, done, cancelled, unpaid) and where each was made (the members' app, the desk,
 Playtomic), a page at a time. A row opens the side panel the Schedule has, with the same changes. Its "Weekly courts"
-tab lists each member's weekly court. As on the Schedule, names show only to staff who read people, what's owed only
+tab lists each member's weekly court. On both, names show only to staff who read people (a role the club made covering
+bookings but not members sees none, on the Schedule or its side panel), what's owed only
 to those who see money, and a coach on their own sees their own lessons. **Customers** is the club's people as a
-table (name, email, the phone's last two digits, membership and when it ends, club news by email, level), and each person's page is in
+table (name, email, phone, membership and when it ends, club news by email, level): the owner, managers and the front desk
+see each phone in full, anyone else reading the list (the accountant, a role the club made covering members) its last two
+digits. Each person's page is in
 tabs: Profile, Bookings, Memberships, Wallet, Family, Agreements, Levels and In Playtomic.
 
 **Weekly courts.** The desk books a member the same court every week from the Schedule (+ Create, Weekly court, or tap free time): pick the member,

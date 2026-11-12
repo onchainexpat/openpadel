@@ -75,9 +75,10 @@ up right there.
   on the Schedule, and no weekly courts. New reads: `GET /staff/bookings` and `GET /staff/weekly-courts`.
 - Customers is a table, a page at a time: each person's name, phone and email, membership and the day it ends, their
   answer about club news by email, and their level (for those who read levels), with the search, the filters, "Import
-  from a spreadsheet" and "Add a customer" as before. It's for the staff who read people, as the list was. No staff
-  page shows a phone number in full, so the phone shows only its last two digits (a search by phone still finds
-  them). New read: `GET /staff/customers`.
+  from a spreadsheet" and "Add a customer" as before. It's for the staff who read people, as the list was. The owner,
+  managers and the front desk see each phone number in full, to ring a member back; anyone else reading the list (the
+  accountant, a role the club made covering members) sees its last two digits. A search by phone finds them either
+  way. New read: `GET /staff/customers`.
 - A person's page in the staff app is in tabs: Profile, Bookings, Memberships, Wallet (club credit, money to give back,
   passes, gift cards, receipts), Family, Agreements (the waiver and what they agreed to hear), Levels and In Playtomic.
   Every section shows to the same staff as before, and a tab with nothing for the reader isn't shown. A link to a tab
@@ -85,6 +86,10 @@ up right there.
 - The Schedule names who booked a Playtomic copy, and the side panel who plays in it, from the club's archive of
   Playtomic bookings, for staff who read people (never a coach on their own). A member whose account was deleted here
   never shows by name.
+- A role the club made covering bookings but not members sees no one's name on the Schedule either: not who booked a
+  court or lesson, who plays in it, who is running late or whose place is empty in the side panel, nor who booked or
+  plays in a Playtomic copy (the Playtomic page leaves out who owns a booking to take over, too). The same rule as the
+  Bookings list. The front desk and up, and a coach on their own lesson, see names as before.
 
 ### Fixed
 - The sign-in page said "We emailed a 6-digit code" on a server with no email service, where the code only goes to
