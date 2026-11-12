@@ -39,7 +39,8 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   support_now?: { name: string; level: "view" | "manager"; ends_at: string }[];
   /** An account made for support access, whose access has ended. */
   support_ended?: boolean };
-export type Club = { name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; players_chat?: boolean; gift_cards?: boolean; passes?: boolean; promos?: boolean; gift_card_min_cents?: number; gift_card_max_cents?: number; memberships?: boolean; lessons?: boolean; competitions?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
+export type Club = { /** Where a sign-in code emailed goes: "log" with no email service set up, "practice" to test addresses only. */
+  mail?: "sent" | "log" | "practice"; name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; players_chat?: boolean; gift_cards?: boolean; passes?: boolean; promos?: boolean; gift_card_min_cents?: number; gift_card_max_cents?: number; memberships?: boolean; lessons?: boolean; competitions?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
   /** The club's host made it read-only (read_only.ts): both apps say so at the top. */
   read_only?: boolean;
   /** The club's Kumi moved to another server (club_exit.ts): this one says where, and sends nothing. */
@@ -104,6 +105,9 @@ const followLanguage = () => { if (!following) { following = true; effect(() => 
  *  tried twice. Still missing, the page never draws without its words: if the server now runs another release
  *  (this page's files have gone with the old one), the app reloads once for it; otherwise (offline, a network
  *  blip) it says the page didn't load, with a button that tries again, no reload. */
+/** What to say when a code has been emailed: that it was, or, on a server that doesn't send email yet (or only to its
+ *  test addresses), the truth: it's in the server's log, and whoever runs the server has it. */
+export const emailedNote = (sent: string): string => club.value?.mail === "log" ? t("ui.code_in_log") : club.value?.mail === "practice" ? t("ui.code_practice") : sent;
 export const lazyPage = <T extends ComponentType<any>>(load: () => Promise<T>) =>
   lazy(() => loadPage(load).catch(async () => (await newRelease() && reloadOnce() ? new Promise<never>(() => {}) : unloaded(load)) as Promise<T> | T));
 const twice = <R>(f: () => Promise<R>) => f().catch(() => f());

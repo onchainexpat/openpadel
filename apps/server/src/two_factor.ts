@@ -3,7 +3,7 @@
 // shows its key as a QR code and as text, and ends with ten recovery codes, shown once.
 import { Hono, type Context } from "hono";
 import { both, t, type Lang } from "@kumi/i18n";
-import { activeFactor, KumiError, makeRecoveryCodes, needsTwoFactor, newSecret, otpauthUri, qrSvg, recoveryLeft, run, sealText, SETUP_MINUTES, useAuthenticatorCode, useRecoveryCode, uuidv7, type Actor, type Db } from "@kumi/core";
+import { activeFactor, KumiError, makeRecoveryCodes, needsTwoFactor, newSecret, secondStepForChanges, otpauthUri, qrSvg, recoveryLeft, run, sealText, SETUP_MINUTES, useAuthenticatorCode, useRecoveryCode, uuidv7, type Actor, type Db } from "@kumi/core";
 import { mayAddSecondStep } from "./passkeys.ts";
 import { RateLimiter } from "./limits.ts";
 import type { Mailer } from "./mailer.ts";
@@ -78,7 +78,8 @@ export function twoFactorRoutes(deps: TwoFactorDeps) {
   app.get("/my/two-factor", async (c) => {
     const me = signedIn(c);
     const passkeys = (await db.selectFrom("passkey").select("credential_id").where("person_id", "=", me.id).where("revoked_at", "is", null).execute()).length;
-    return c.json({ required: await needsTwoFactor(db, me.id), authenticator: Boolean(await activeFactor(db, me.id)), passkeys,
+    // required: at every sign-in; for_changes: for the club's most sensitive changes (actions.ts, requireStrongAuth).
+    return c.json({ required: await needsTwoFactor(db, me.id), for_changes: await secondStepForChanges(db, me.id), authenticator: Boolean(await activeFactor(db, me.id)), passkeys,
       recovery_left: await recoveryLeft(db, me.id), two_step_now: me.method !== "email_code" && me.method !== "phone_code" });
   });
 

@@ -7,6 +7,40 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## Unreleased
+
+Owners and managers no longer have to set up a passkey or an authenticator app before they can sign in: the emailed
+(or texted) code is enough. The club's most sensitive changes still ask them for a second step, and offer to set one
+up right there.
+
+### Changed
+- Signing in: staff sign in with the emailed or texted code alone. Whoever has set up a passkey or an authenticator
+  app still gives it at every sign-in. A new owner's setting in Settings, "Sign-in and roles", "Staff must use a
+  second step at sign-in", asks owners, managers and the club's own roles (or every staff role, as the club's rule
+  says) for it at every sign-in and sets it up at the first, as before; `staff_second_step: true` under `club:` in
+  club.yaml turns it on too. Only the owner can change it.
+- Sensitive changes (the club's settings, roles, the payments account, the vault, "Download everything", deleting an
+  account, a support grant, the usage cap) ask the roles the club's rule names for a second step whether or not it's
+  asked at sign-in. Someone with none yet is offered to set one up in the staff app there and then (right after a
+  sign-in, or after a fresh code by email), and the change goes on. A member with a passkey of their own is asked
+  for it the same way, rather than stopped with an error. Changing their own email address, and opening the vault,
+  ask owners and managers for it too.
+- An assistant connected without a second step still works as a member's for owners and managers, as before; nothing
+  an assistant reaches is wider. With none set up, an owner can now allow a device sign-in, connected as a member's.
+
+### Fixed
+- The sign-in page said "We emailed a 6-digit code" on a server with no email service, where the code only goes to
+  the server's log. It says so now, and to ask whoever runs the server; a practice server says the code goes only to
+  its test addresses.
+
+### When updating
+- Existing clubs change behaviour: the second step at sign-in is off after the update, for every club. Staff who
+  already set up a passkey or an authenticator still give it at every sign-in; staff who join later aren't asked
+  until a sensitive change needs it. To keep asking every owner and manager at every sign-in, the owner turns on
+  "Staff must use a second step at sign-in" in Settings, "Sign-in and roles" (or adds `staff_second_step: true`
+  under `club:` in club.yaml and runs `openpadel setup apply club.yaml`).
+- The database change (migration 112) applies by itself when the server starts.
+
 ## 0.6.3 (2026-11-10)
 
 Coaches see what coaching needs and no more. Another coach's session is a plain no, and a coach sees the players and

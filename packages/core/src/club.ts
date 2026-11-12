@@ -5,6 +5,7 @@ import * as z from "zod/mini";
 import { both, capFor, currencyProblem, en, money, setClubFormat, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { KumiError } from "./errors.ts";
+import { holdsRole } from "./permissions.ts";
 import type { Db, Trx } from "./db.ts";
 import { mergeTranslations, translationsInput } from "./club_text.ts";
 import { withManagers } from "./households.ts";
@@ -144,11 +145,16 @@ export const clubUpdate = defineAction({
     // A level a player brings from another app above this waits for staff (level_import.ts); at or below it, it starts.
     level_import_line: z.optional(z.number().check(z.minimum(0), z.maximum(7), z.describe("A level a player brings from another app above this waits for staff to check."))),
     // Who signs in with two steps. It can't be switched off here ('off' is for practice and test databases).
-    two_factor: z.optional(z.enum(["owner_manager", "all_staff"]).check(z.describe("Who signs in with two steps: owners, managers and the club's own roles (owner_manager), or every staff role (all_staff)."))),
+    two_factor: z.optional(z.enum(["owner_manager", "all_staff"]).check(z.describe("Who gives a second step (a passkey or an authenticator app) for the club's most sensitive changes, and at sign-in when second_step_sign_in is on: owners, managers and the club's own roles (owner_manager), or every staff role (all_staff)."))),
+    // Whether those roles give it at every sign-in too (off: the emailed or texted code is enough to sign in). The owner's.
+    second_step_sign_in: z.optional(z.boolean().check(z.describe("Staff in the roles two_factor names must give a second step at every sign-in, not only for sensitive changes. The owner's to change."))),
   }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "club", "singleton");
     const fields = changed(row, i);
+    // How staff sign in is the owner's to say: a manager can't turn the second step at sign-in off (or on), or ask to.
+    if (i.second_step_sign_in !== undefined && i.second_step_sign_in !== row.second_step_sign_in && ctx.actor.personId && !(await holdsRole(ctx.db, ctx.actor, ["owner"])))
+      throw new KumiError("error.owner_only_setting", { field: both("field.second_step_sign_in") }, 403);
     const langs = i.languages ?? row.languages;
     if (!langs.includes(i.default_language ?? row.default_language)) throw new KumiError("error.invalid_input", { details: "The default language must be one of the club's languages." }, 400);
     // Weekly bookings (or court bookings) switched off pause the members' weekly courts (booking_series.ts): say how many.

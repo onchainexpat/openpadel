@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, ApiError, lang, loadMe, t, clubTime, useBackCloses } from "@kumi/ui";
+import { api, ApiError, lang, loadMe, needsStep, t, clubTime, useBackCloses, useStepUp } from "@kumi/ui";
 
 type Change = { id: string; action: string; status: string; ended?: string | null; by: string; via: string; summary: string | null; at: string;
   can_answer: boolean; can_undo: boolean; approved_by: string | null; declined_by: string | null; reason: string | null };
@@ -25,6 +25,7 @@ export function Changes() {
     catch (e) { setError((e as ApiError).message); }
   };
   const answer = (kind: "approve" | "decline", row: Change) => { setError(null); setReason(""); setOpen({ kind, row }); };
+  const step = useStepUp();
   const confirm = async () => {
     if (!open) return;
     setBusy(true);
@@ -39,7 +40,11 @@ export function Changes() {
       else if (open.kind === "approve") await api(`/runs/${open.row.id}/approve`, {});
       else await api(`/runs/${open.row.id}/decline`, { reason: reason.trim() || undefined });
       setOpen(null); await loadMe(); load();
-    } catch (e) { setError((e as ApiError).message); setOpen(null); }
+    } catch (e) {
+      // Saying yes to (or undoing) a sensitive change needs a second step: give it (or set one up), then the same again.
+      if (needsStep(e)) step.ask(() => void confirm());
+      else { setError((e as ApiError).message); setOpen(null); }
+    }
     finally { setBusy(false); }
   };
   const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
@@ -64,7 +69,8 @@ export function Changes() {
       {error && <p class="error" role="alert">{error}</p>}
       {note && <p class="note" role="status">{note}</p>}
       {/* Docked at the bottom of the screen, as every preview is: the button that opened it may be far down the list. */}
-      {open && <div class="dock">
+      {step.sheet && <div class="dock">{step.sheet}</div>}
+      {open && !step.sheet && <div class="dock">
         <div class="card sheet" role="dialog" aria-modal="true">
           {open.kind === "undo" && <p>{open.summary}</p>}
           {open.kind === "undo" && open.askFor && <p class="meta">{t("ui.would_ask")}</p>}

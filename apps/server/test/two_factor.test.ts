@@ -67,7 +67,7 @@ test("setting up an authenticator: a QR code and the key, the first code, then t
   const me = await req("/me", mia);
   assert.deepEqual([me.json.gate, me.json.signed_in_with], [null, "two_factor"]);
   assert.equal((await req("/staff/people", mia)).status, 200);
-  assert.deepEqual((await req("/my/two-factor", mia)).json, { required: true, authenticator: true, passkeys: 0, recovery_left: 10, two_step_now: true });
+  assert.deepEqual((await req("/my/two-factor", mia)).json, { required: true, for_changes: true, authenticator: true, passkeys: 0, recovery_left: 10, two_step_now: true });
 });
 
 test("next time: the emailed code, then the app's code (a wrong one counts, five of them wait)", async () => {

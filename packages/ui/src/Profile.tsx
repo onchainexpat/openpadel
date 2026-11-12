@@ -1,8 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
 import { startRegistration } from "@simplewebauthn/browser";
 import { money, type Key, type Lang } from "@kumi/i18n";
-import { api, ApiError, club, farewell, lang, lazyPage, loadMe, me, t } from "./state.ts";
+import { api, ApiError, club, emailedNote, farewell, lang, lazyPage, loadMe, me, t } from "./state.ts";
 import { AccountData } from "./AccountData.tsx";
+import { needsStep, useStepUp } from "./Preview.tsx";
 import { PolicyLinks } from "./Policies.tsx";
 import { RunsOn } from "./RunsOn.tsx";
 import { canSavePasskey, passkeyWords } from "./passkeys.ts";
@@ -137,7 +138,12 @@ function Email({ current }: { current: string | null }) {
   const [open, setOpen] = useState(!current), [email, setEmail] = useState(""), [code, setCode] = useState(""), [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const run = (f: () => Promise<void>) => async (e: Event) => { e.preventDefault(); setBusy(true); setError(null); try { await f(); } catch (x) { setError(x instanceof ApiError ? x.message : (x as Error).message); } finally { setBusy(false); } };
-  const send = run(async () => { await api("/my/email/start", { email }); setSent(true); });
+  // Changing it is a sensitive change for someone with a second step, and for owners and managers: give it first.
+  const step = useStepUp();
+  const send = run(async () => {
+    try { await api("/my/email/start", { email }); setSent(true); }
+    catch (x) { if (needsStep(x)) step.ask(() => void api("/my/email/start", { email }).then(() => setSent(true)).catch((y) => setError(y instanceof ApiError ? y.message : (y as Error).message))); else throw x; }
+  });
   const confirm = run(async () => { await api("/my/email/verify", { code }); setSent(false); setEmail(""); setCode(""); setOpen(false); await loadMe(); });
   return (
     <section class="card" id="email">
@@ -151,10 +157,11 @@ function Email({ current }: { current: string | null }) {
         {current && <> <button type="button" onClick={() => setOpen(false)}>{t("ui.cancel")}</button></>}
       </form>}
       {open && sent && <form onSubmit={confirm}>
-        <p>{t("ui.email_code_sent", { email })}</p>
+        <p>{emailedNote(t("ui.email_code_sent", { email }))}</p>
         <label>{t("ui.code")}<input inputMode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code" value={code} onInput={(e) => setCode(e.currentTarget.value)} /></label>
         <button class="primary" disabled={busy}>{t("ui.confirm")}</button>
       </form>}
+      {step.sheet}
       {error && <p class="error" role="alert">{error}</p>}
     </section>
   );

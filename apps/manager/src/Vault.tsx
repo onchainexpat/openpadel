@@ -1,7 +1,7 @@
 // The club vault: keys and small documents only the owner sees, sealed with the server's key. A value or file
 // goes to the server first, then the usual preview and confirm. A secret is never shown again, only its end.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, lang, t, usePreview, clubTime } from "@kumi/ui";
+import { api, ApiError, lang, needsStep, t, usePreview, useStepUp, clubTime } from "@kumi/ui";
 
 type Item = { id: string; kind: "secret" | "document"; name: string; note: string | null; last4: string | null; filename: string | null; size_bytes: number;
   created_at: string; updated_at: string; by: string | null; downloads: { at: string; by: string | null }[] };
@@ -20,10 +20,13 @@ function readFile(f: File): Promise<string> {
 
 export function Vault() {
   const [d, setD] = useState<D | null>(null), [failed, setFailed] = useState<string | null>(null), [error, setError] = useState<string | null>(null), [n, setN] = useState(0);
-  const load = () => api<D>("/staff/vault").then(setD).catch((e) => setFailed(e instanceof ApiError ? e.message : String(e)));
+  // The vault opens only with a second step (vault.ts): without one, the sheet to give it (or set it up), then again.
+  const step = useStepUp();
+  const load = (): Promise<void> => api<D>("/staff/vault").then(setD).catch((e) => { if (needsStep(e)) step.ask(() => void load()); else setFailed(e instanceof ApiError ? e.message : String(e)); });
   useEffect(() => { void load(); }, [lang.value]);
   const { preview, sheet } = usePreview(() => { setError(null); setN((x) => x + 1); void load(); });
   if (failed) return <main class="card"><p class="error">{failed}</p></main>;
+  if (step.sheet) return <main>{step.sheet}</main>;
   if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const day = (iso: string) => clubTime(iso, { dateStyle: "medium" });
   const secrets = d.items.filter((x) => x.kind === "secret"), docs = d.items.filter((x) => x.kind === "document");

@@ -2,7 +2,7 @@
 // is made and its passphrase shown, once, beside the download. The passphrase isn't kept anywhere. Beside it, the
 // owner's "we're moving" (club.moved): turned on before the download, only the new server talks to members.
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, ApiError, club, t, type Club, useBackCloses } from "@kumi/ui";
+import { api, ApiError, club, needsStep, t, type Club, useBackCloses, useStepUp } from "@kumi/ui";
 
 type Made = { passphrase: string; name: string; bytes: number; download: string; minutes: number };
 
@@ -11,7 +11,9 @@ export function ClubExport() {
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false), [making, setMaking] = useState(false), [error, setError] = useState<string | null>(null);
   useBackCloses(Boolean(pending), () => setPending(null));
-  const guard = async (f: () => Promise<void>) => { setBusy(true); setError(null); try { await f(); } catch (e) { setError(e instanceof ApiError ? e.message : (e as Error).message); } finally { setBusy(false); } };
+  // Both are sensitive changes: without a second step, the sheet to give one (or set it up), then the same again.
+  const step = useStepUp();
+  const guard = async (f: () => Promise<void>): Promise<void> => { setBusy(true); setError(null); try { await f(); } catch (e) { if (needsStep(e)) step.ask(() => void guard(f)); else setError(e instanceof ApiError ? e.message : (e as Error).message); } finally { setBusy(false); } };
   const [moving, setMoving] = useState(false), [to, setTo] = useState("");
   const ask = () => guard(async () => {
     setMade(null); setMoving(false);
@@ -54,6 +56,7 @@ export function ClubExport() {
       {pending && <div class="sheet" role="dialog" aria-modal="true"><p>{pending.summary}</p>
         {pending.ask && <p class="meta">{t("ui.would_ask")}</p>}
         <button class="primary" disabled={busy} onClick={confirm}>{t(pending.ask ? "ui.ask_for_yes" : "ui.confirm")}</button> <button disabled={busy} onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
+      {step.sheet}
       {note && <p class="note" role="status">{note}</p>}
       {making && <p class="meta" role="status">{t("ui.export_making")}</p>}
       {made && <div class="sheet" role="status">

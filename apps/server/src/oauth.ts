@@ -10,7 +10,7 @@ import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setSession } from "./session_cookie.ts";
 import { money, t, type Lang } from "@kumi/i18n";
-import { activeFactor, KumiError, needsTwoFactor, powersOf, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
+import { activeFactor, hasSecondFactor, KumiError, powersOf, secondStepForReach, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 import { networkOf, RateLimiter } from "./limits.ts";
@@ -110,7 +110,9 @@ export interface OAuthDeps { db: Db; mailer: Mailer; publicUrl: string; secureCo
   /** The club's texts, when it sends them: then the sign-in can be by a texted code too. */
   texter?: Texter | null; memberUrl?: string;
   /** Wrong second-step codes per person: the same count as the apps' sign-in (two_factor.ts). */
-  secondStepTries?: RateLimiter }
+  secondStepTries?: RateLimiter
+  /** Where an emailed code goes (app.ts, AppDeps.mailReach): the page says so when it isn't really emailed. */
+  mailReach?: "sent" | "log" | "practice" }
 
 /** The club's own /mcp addresses: the staff app's (where the sign-in server lives) and the members' app's.
  *  Both are this one server, so a token for either works at both; each address names itself as the resource
@@ -212,6 +214,7 @@ export function oauthRoutes(deps: OAuthDeps) {
 <form method="post" action="/oauth/sign-in"><input type="hidden" name="back" value="${back}">
 ${byPhone ? html`<label>${t(lang, "consent.phone_label")}<input name="phone" type="tel" required autocomplete="tel" value="${c.req.query("phone") ?? ""}"></label>`
   : html`<label>${t(lang, "consent.email_label")}<input name="email" type="email" required autocomplete="email" value="${c.req.query("email") ?? ""}"></label>`}
+${sent && !byPhone && deps.mailReach && deps.mailReach !== "sent" ? html`<p>${t(lang, deps.mailReach === "log" ? "ui.code_in_log" : "ui.code_practice")}</p>` : ""}
 ${sent ? code : html`<button class="primary">${t(lang, byPhone ? "consent.send_text" : "consent.send_code")}</button>`}</form>
 ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPhone ? "consent.use_email" : "consent.use_phone")}</a></p>` : ""}`));
     }
@@ -346,12 +349,15 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     return k ? { key: k, d: devices.get(k)! } : null;
   };
   const shownCode = (u: string) => `${u.slice(0, 4)}-${u.slice(4)}`;
-  /** Owners and managers (anyone who signs in with two steps) give a fresh second step to allow a device: their
-   *  authenticator's code at Allow, or, with only a passkey, a passkey sign-in in the last 10 minutes. A link someone
-   *  else sent can't then be allowed by one click in a browser that's been signed in all day. */
+  /** Owners and managers (the roles the club's rule names, and anyone with an authenticator) give a fresh second step
+   *  to allow a device: their authenticator's code at Allow, or, with only a passkey, a passkey sign-in in the last 10
+   *  minutes. A link someone else sent can't then be allowed by one click in a browser that's been signed in all day.
+   *  With nothing set up yet there's nothing to give: the connection is made without a second step, so it works as a
+   *  member's (assistant_reach.ts) until they connect it again with one. */
   const deviceStep = async (me: NonNullable<ReturnType<OAuthDeps["me"]>>): Promise<"none" | "code" | "fresh" | "stale"> => {
-    if (!(await needsTwoFactor(deps.db, me.id))) return "none";
+    if (!(await secondStepForReach(deps.db, me.id))) return "none";
     if (await activeFactor(deps.db, me.id)) return "code";
+    if (!(await hasSecondFactor(deps.db, me.id))) return "none";
     const fresh = me.method === "passkey" && me.created_at && deps.now().getTime() - new Date(me.created_at).getTime() < DEVICE_FRESH_SECONDS * 1000;
     return fresh ? "fresh" : "stale";
   };

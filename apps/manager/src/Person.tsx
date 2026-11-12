@@ -2,7 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
-import { AccountData, api, club, dollars, lang, coversLocation, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
+import { AccountData, api, club, dollars, emailedNote, lang, coversLocation, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
 import { WeeklyCourts, type WeeklyCourt } from "@kumi/ui/weekly";
 import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
 import { amountStep, capFor, fromMajor, plainAmount, toMajor } from "@kumi/i18n/format";
@@ -309,7 +309,7 @@ function ChangeEmail({ personId, name, onDone }: { personId: string; name: strin
         <label>{t("ui.staff_new_email")}<input type="email" required value={email} onInput={(e) => setEmail(e.currentTarget.value)} /></label>
         <button>{t("ui.staff_send_code")}</button> <button type="button" class="secondary" onClick={() => setOpen(false)}>{t("ui.cancel")}</button>
       </form> : <form class="card-form" onSubmit={check}>
-        <p class="meta">{t("ui.staff_email_code_sent", { name, email })}</p>
+        <p class="meta">{emailedNote(t("ui.staff_email_code_sent", { name, email }))}</p>
         <label>{t("ui.code")}<input inputMode="numeric" autoComplete="one-time-code" required maxLength={8} value={code} onInput={(e) => setCode(e.currentTarget.value)} /></label>
         <button>{t("ui.confirm")}</button>
       </form>}

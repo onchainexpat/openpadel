@@ -44,12 +44,12 @@ Use the staff app's address or the members' app's: both work. A browser opens on
 the person:
 
 1. gets a code by email (or a text, when the club texts);
-2. gives their second step, if they sign in with two;
+2. gives their second step, if they have one set up (or the club asks it at every sign-in);
 3. chooses how much the connection may spend for them each week: nothing to start, which is right for staff work,
    since money a member pays for isn't counted against the staff member's limit.
 
 They can disconnect it any time in the app, under Profile, Assistants. A connection never reaches further than they
-held when they allowed it: given a role later, or asked by the club for a second step they didn't give then, it works
+held when they allowed it: given a role later, or an owner or manager who didn't give a second step then, it works
 as a member's until they connect it again (they're told once, and `openpadel whoami --json` says `limited`). It's listed there as `openpadel (<this computer's
 name>)`.
 
@@ -62,8 +62,8 @@ openpadel login https://staff.yourclub.com --device
 It prints the club's page and a code such as `TKBW-VMFJ`. The person opens the page on their phone, signs in, types
 the code, and allows it. The link never carries the code: a code someone else started and sent can't be allowed by
 following a link. The consent says when and from which address the code was started, beside the name the device
-gave itself. An owner or a manager (anyone who signs in with two steps) gives a fresh second step to allow it: their
-authenticator's code there, or with only a passkey, a passkey sign-in in the last 10 minutes. The command waits up
+gave itself. An owner or a manager gives a fresh second step to allow it: their authenticator's code there, or with only a
+passkey, a passkey sign-in in the last 10 minutes (with none set up, it's connected as a member's). The command waits up
 to 10 minutes and finishes by itself.
 
 **For an agent**, which shouldn't sit on one command for minutes, there's a two-step version:

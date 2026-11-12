@@ -67,13 +67,19 @@ Show the owner the plan before applying. Running it again only adds what's new; 
 removing things is done in the staff app, where the preview shows what each change affects.
 
 The owner then signs in to the staff app with their email address. A code arrives by email (or,
-before email is set up, appears in the server log: `journalctl -u kumi | grep '\[mail'`).
+before email is set up, appears in the server log: `journalctl -u kumi | grep '\[mail'`; the sign-in
+page says so then, rather than that it was emailed).
 
-Owners and managers sign in with two steps. The first time, the staff app asks the owner to set up a
-second step: a passkey on their phone or computer (both steps at once), or an authenticator app (Google
-Authenticator, Microsoft Authenticator, 1Password and the like) with ten recovery codes to keep
-somewhere safe. If the owner ever loses all of them, an agent on the server runs
-`openpadel reset-sign-in owner@yourclub.com`, and the owner sets it up again at the next sign-in.
+The emailed code is enough to sign in. A second step is the owner's to add, and the staff app offers
+it the first time it's needed: the club's most sensitive changes (its settings, roles, the payments
+account, the vault, "Download everything") ask owners and managers for one, and show how to set it up
+right there. It's a passkey on their phone or computer (both steps at once), or an authenticator app
+(Google Authenticator, Microsoft Authenticator, 1Password and the like) with ten recovery codes to keep
+somewhere safe; Profile has it too. Once set up, it's asked at every sign-in. To have staff give a
+second step at every sign-in from the start, the owner turns on "Staff must use a second step at
+sign-in" in Settings, "Sign-in and roles" (or `staff_second_step: true` under `club:` in club.yaml).
+If the owner ever loses theirs, an agent on the server runs `openpadel reset-sign-in owner@yourclub.com`,
+and the owner sets it up again when it's next asked.
 
 ### Step 5b: members
 
@@ -578,10 +584,13 @@ Not done yet, and each needs a decision before a club outside the US goes live:
 
 ### Signing in, roles and bots
 
-- **Two steps for staff.** Settings, "Sign-in and roles": owners, managers and the club's own roles (the
-  default), or every staff role. Each person sets up a passkey or an authenticator app the first time
-  they sign in after it applies to them; members can turn an authenticator on in Profile if they like.
-  The owner can start someone's second step over from their page in the staff app.
+- **A second step for staff.** Settings, "Sign-in and roles": which roles need a second step (a passkey,
+  or an authenticator app) for sensitive changes, owners, managers and the club's own roles (the default),
+  or every staff role; the staff app offers to set it up when one of those changes asks. "Staff must use
+  a second step at sign-in" (the owner's, off unless turned on) asks those roles for it at every sign-in
+  too, and sets it up at the first. Whoever has set one up gives it at sign-in either way. Members can
+  turn an authenticator on in Profile if they like. The owner can start someone's second step over from
+  their page in the staff app.
 - **The club's own roles.** Settings, then Roles: make one from nothing or copy a built-in one, and pick
   what it can do, area by area. Give it to someone on their page. It holds only what a manager can do
   without asking, and the people who have it see only those areas in the staff app.

@@ -11,12 +11,15 @@ you'd like it.
 ## What openPadel does
 
 - **No passwords.** People sign in with a code sent to their email or, when the club texts, their phone
-  (hashed, valid 10 minutes, 5 tries), or a passkey. Staff who have a passkey must use it (or two steps) for sensitive changes, such as roles
-  and the club's payment account.
-- **Two steps for staff.** Owners, managers and the club's own roles (or every staff role, if the club
-  chooses) sign in with a passkey, or with the emailed code and then an authenticator app's code (TOTP,
-  RFC 6238, each code good once) or a one-time recovery code. Until the second step is given, the
-  session can do nothing but finish signing in. Recovery codes are kept as salted scrypt hashes. The
+  (hashed, valid 10 minutes, 5 tries), or a passkey.
+- **A second step for staff.** Sensitive changes (the club's settings, roles, the payment account, the vault,
+  a club export, deleting an account) need a passkey sign-in, or the emailed code and then an authenticator
+  app's code (TOTP, RFC 6238, each code good once) or a one-time recovery code: from owners, managers and the
+  club's own roles (or every staff role, if the club chooses), and from anyone who has set one up. Someone
+  with none yet sets one up there, right after a fresh sign-in. An assistant connected without a second step
+  works as a member's for those roles. The owner can also ask those roles for it at every sign-in (a club
+  setting, off by default); whoever has set one up gives it at every sign-in regardless. Until it's given,
+  such a session can do nothing but finish signing in. Recovery codes are kept as salted scrypt hashes. The
   authenticator's secret is sealed (below) and kept out of the change log.
 - **Secrets sealed with the server's own key.** Authenticator secrets, the push signing key and
   everything in the owner's vault are sealed with AES-256-GCM under `KUMI_SECRET_KEY` (32 random bytes made

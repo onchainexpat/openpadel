@@ -6,7 +6,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { base32Decode, run, runAsSystem, totp, type Actor, type Db } from "@kumi/core";
+import { base32Decode, connectionReach, run, runAsSystem, totp, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 import { deviceStartAllowed, DEVICE_GRANT, DEVICE_PER_ADDRESS, DEVICE_WAITING, DEVICE_WAITING_MAX } from "../src/oauth.ts";
@@ -159,7 +159,7 @@ test("allow clicked five times at once: one connection", async () => {
 });
 
 test("an owner who still owes the second step gets no device consent, and can't post one", async () => {
-  await db.updateTable("club").set({ two_factor: "owner_manager" } as any).execute();
+  await db.updateTable("club").set({ two_factor: "owner_manager", second_step_sign_in: true } as any).execute();
   try {
     const d = await startDevice("kumi (laptop)");
     const emailed = await session(owner.personId!, "email_code");
@@ -167,6 +167,25 @@ test("an owner who still owes the second step gets no device consent, and can't 
     assert.equal(c.id, undefined, "no consent screen on half a sign-in");
     const r = await req("/oauth/device/decide", form({ code: d.user_code, req: "x", decision: "allow", cap: "0" }, emailed));
     assert.ok([400, 401, 403].includes(r.status));
+  } finally { await db.updateTable("club").set({ two_factor: "off", second_step_sign_in: false } as any).execute(); }
+});
+
+test("with no second step asked at sign-in, an owner with none set up may allow a device, which works as a member's", async () => {
+  await db.updateTable("club").set({ two_factor: "owner_manager" } as any).execute();
+  const before = await db.selectFrom("staff_factor").select("person_id").where("person_id", "=", owner.personId!).where("removed_at", "is", null).executeTakeFirst();
+  const pk = await db.selectFrom("passkey").select("credential_id").where("person_id", "=", owner.personId!).where("revoked_at", "is", null).executeTakeFirst();
+  try {
+    assert.deepEqual([before, pk], [undefined, undefined], "the owner has nothing set up (the tests above took theirs off)");
+    from = "192.0.2.61";   // its own address: the earlier tests left this file's usual one near its cap
+    const d = await startDevice("kumi (laptop)");
+    from = "203.0.113.7";
+    const emailed = await session(owner.personId!, "email_code");
+    const c = await consent(d.user_code, emailed);
+    assert.ok(c.id, "a consent screen: the sign-in is whole");
+    await req("/oauth/device/decide", form({ code: c.code!, req: c.id!, decision: "allow", cap: "0" }, emailed));
+    const g = await db.selectFrom("oauth_grant").select(["id", "second_step"]).where("client_id", "=", d.client_id).orderBy("id", "desc").executeTakeFirstOrThrow();
+    assert.equal(g.second_step, false);
+    assert.equal(await connectionReach(db, g.id, owner.personId!, new Date()), "second_step", "held to a member's reach");
   } finally { await db.updateTable("club").set({ two_factor: "off" } as any).execute(); }
 });
 

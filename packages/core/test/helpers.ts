@@ -23,7 +23,7 @@ function hookExit() {
 
 /** `twoFactor`: test databases leave two-step sign-in off (the database default, which no action can set),
  *  so tests sign staff in with an emailed code; the tests of two-step sign-in turn it on. */
-export async function freshDb(o: { twoFactor?: boolean } = {}): Promise<{ db: Db; drop: () => Promise<void> }> {
+export async function freshDb(o: { twoFactor?: boolean; secondStepOff?: boolean } = {}): Promise<{ db: Db; drop: () => Promise<void> }> {
   hookExit();
   const name = `kumi_test_${randomBytes(6).toString("hex")}`;
   const adminPool = new pg.Pool({ connectionString: ADMIN, max: 1 });
@@ -42,6 +42,8 @@ export async function freshDb(o: { twoFactor?: boolean } = {}): Promise<{ db: Db
   try {
     await migrate(db);
     if (!o.twoFactor) await sql`ALTER TABLE club ALTER COLUMN two_factor SET DEFAULT 'off'`.execute(db);
+    // The tests of two-step sign-in read today's rule at its strictest: asked at every sign-in (the owner's setting).
+    else if (o.secondStepOff !== true) await sql`ALTER TABLE club ALTER COLUMN second_step_sign_in SET DEFAULT true`.execute(db);
   } catch (e) { await drop().catch(() => undefined); throw e; }   // a migration that fails leaves nothing behind
   return { db, drop };
 }

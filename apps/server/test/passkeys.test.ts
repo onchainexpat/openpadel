@@ -57,7 +57,7 @@ test("sign in with the passkey; settings now need it, and an emailed code isn't 
   assert.equal((await call("/actions/club.update/plan", { body: { brand_colour: "#222222" }, cookie: pk.cookie })).status, 200);
   const email = await emailSignIn();
   const r = await call("/actions/club.update/plan", { body: { brand_colour: "#333333" }, cookie: email });
-  assert.equal(r.status, 403); assert.equal(r.json.message, "Sign in with your passkey to make changes like this.");
+  assert.equal(r.status, 403); assert.equal(r.json.message, "A change like this needs your second step: sign in with your passkey, or give your authenticator app's code.");
   assert.equal((await call("/actions/person.update_profile/plan", { body: { person_id: (await call("/me", { cookie: email })).json.person.id, display_name: "Robin H." }, cookie: email })).status, 200, "everyday changes still work with an emailed code");
 });
 

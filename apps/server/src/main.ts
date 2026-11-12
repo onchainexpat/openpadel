@@ -91,6 +91,7 @@ const registerWallets = async () => {
 // Email: with a Resend key, from the club's own domain (KUMI_MAIL_FROM, like "Kestrel Padel <hello@kestrelpadel.com>").
 // Outside production, or with KUMI_PRACTICE=1, it only reaches KUMI_MAIL_TEST_TO (comma-separated); without a key it stays in the log.
 let mailer: Mailer = new MemoryMailer(true);
+let mailReach: "sent" | "log" | "practice" = "log";
 if (process.env.KUMI_RESEND_API_KEY) {
   const from = process.env.KUMI_MAIL_FROM;
   if (!from) { console.error("KUMI_RESEND_API_KEY needs KUMI_MAIL_FROM, the address on the club's own domain"); process.exit(1); }
@@ -100,6 +101,7 @@ if (process.env.KUMI_RESEND_API_KEY) {
   // A trial server runs in production mode (HTTPS cookies) but still in practice until the club switches over.
   const practice = !production || process.env.KUMI_PRACTICE === "1";
   mailer = practice ? new PracticeMailer(resend, testTo) : resend;
+  mailReach = practice ? "practice" : "sent";
   console.log(`email: resend from ${from}${practice ? `, practice: only to ${testTo.filter(Boolean).length} test addresses` : ""}`);
 }
 // Texts: through the club's own Twilio account when it's set up (twilio.ts). In practice, like email, only the
@@ -140,7 +142,7 @@ const botCheck = process.env.KUMI_BOT_CHECK !== "0";
 if (!botCheck && production) { console.error("KUMI_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
 // The session cookie's old name, still read (and moved) over HTTPS for one release (session_cookie.ts).
 const legacySessionCookie = process.env.KUMI_LEGACY_SESSION_COOKIE !== "0";
-const server = await listen(makeApp({ db, mailer, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
+const server = await listen(makeApp({ db, mailer, mailReach, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
   emailEvents: { secret: process.env.KUMI_RESEND_WEBHOOK_SECRET || null, from: process.env.KUMI_MAIL_FROM || null },
   ...(texter && twilio ? { texts: { texter, authToken: twilio.authToken } } : {}) }).fetch, listenAt);
 console.log(`kumi server on ${describeListen(listenAt, server)}`);

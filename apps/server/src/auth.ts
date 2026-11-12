@@ -7,7 +7,7 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { sql } from "kysely";
 import { t, type Lang } from "@kumi/i18n";
-import { countText, KumiError, markRejoined, runAsSystem, segments, textAllowed, textingOn, textWords, TextError, UNSUBSCRIBED, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
+import { hasSecondFactor, secondStepForChanges, countText, KumiError, markRejoined, runAsSystem, segments, textAllowed, textingOn, textWords, TextError, UNSUBSCRIBED, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import type { Mailer } from "./mailer.ts";
 import { countCodes, lockCodes, PER_CLUB, PER_NUMBER } from "./texts.ts";
 
@@ -187,16 +187,18 @@ export async function verifyPhoneCode(db: Db, phone: string, code: string, userA
 
 // ---- Their email: added (an account that joined by phone) or changed ----
 export const UNDO_DAYS = 14;
-/** A code to the address they typed. With an address already on the account it's a change: someone with a
- *  passkey makes it signed in with the passkey or two steps, like other sensitive changes. An address another
+/** A code to the address they typed. With an address already on the account it's a change: whoever a sensitive change
+ *  asks a second step of (someone with a passkey or an authenticator, and the roles the club's rule names: second_step.ts)
+ *  makes it signed in with it, like other sensitive changes. Otherwise an old, code-only session could move the account
+ *  to an address of its own, sign in fresh there and set up a second step of its own. An address another
  *  account uses gets the same answer as a free one (so addresses can't be probed); that address hears someone
  *  tried, and no code that could work is made. */
 export async function startEmailAdd(db: Db, mailer: Mailer, personId: string, email: string, lang: Lang, now = new Date(), auth?: string): Promise<void> {
   const target = email.trim().toLowerCase();
   const p = await db.selectFrom("person").select(["email"]).where("id", "=", personId).executeTakeFirstOrThrow();
   if (p.email?.toLowerCase() === target) throw new KumiError("error.email_same", {}, 409);
-  if (p.email && auth !== "passkey" && auth !== "two_factor"
-    && await db.selectFrom("passkey").select("credential_id").where("person_id", "=", personId).where("revoked_at", "is", null).executeTakeFirst()) throw new KumiError("error.need_passkey", {}, 403);
+  if (p.email && auth !== "passkey" && auth !== "two_factor" && await secondStepForChanges(db, personId))
+    throw new KumiError((await hasSecondFactor(db, personId)) ? "error.need_passkey" : "error.second_step_to_change", {}, 403);
   const recent = await db.selectFrom("auth_challenge").select((eb) => eb.fn.countAll<string>().as("n")).where("kind", "=", "email_add")
     .where((eb) => eb.or([eb(sql`lower(target)`, "=", target), eb("person_id", "=", personId)])).where("created_at", ">", new Date(now.getTime() - 3600_000)).executeTakeFirstOrThrow();
   if (Number(recent.n) >= MAX_CODES_PER_HOUR) throw new KumiError("error.too_many_codes", {}, 429);

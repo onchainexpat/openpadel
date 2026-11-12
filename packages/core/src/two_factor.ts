@@ -1,6 +1,7 @@
 // Two-step sign-in. A passkey is both steps by itself; otherwise the emailed code is followed by a code from
-// an authenticator app, or a recovery code. Who must: owners, managers and anyone holding a role the club
-// made (the default), or every staff role; and anyone who chose to set an authenticator up.
+// an authenticator app, or a recovery code. Who: owners, managers and anyone holding a role the club made (the
+// default), or every staff role, for sensitive changes always and at sign-in when the club asks it (or once they
+// have set one up); and anyone who chose to set an authenticator up.
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import * as z from "zod/mini";
 import { both } from "@kumi/i18n";
@@ -10,38 +11,21 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { matchStep, newRecoveryCode, RECOVERY_CODES } from "./totp.ts";
 import { openText } from "./sealed.ts";
-
-export type TwoFactorRule = "owner_manager" | "all_staff" | "off";
+import { activeFactor, hasSecondFactor, secondStepAtSignIn, secondStepByRole, type TwoFactorRule } from "./second_step.ts";
+export * from "./second_step.ts";
+export type { TwoFactorRule };
 export const SETUP_MINUTES = 15;
 
-/** The roles a person holds, by key, with whether each is one the club made. */
-async function rolesOf(db: Db | Trx, personId: string) {
-  return db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(["role.key", "role.system"])
-    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true).execute();
-}
-
-export async function activeFactor(db: Db | Trx, personId: string) {
-  return (await db.selectFrom("staff_factor").selectAll().where("person_id", "=", personId).where("removed_at", "is", null).executeTakeFirst()) ?? null;
-}
-
 /** Whether this person has to give a second step at sign-in. `support: false`: leaving out support access's own
- *  need (for an assistant, which support access never reaches). */
+ *  need. Someone who set up an authenticator gives it; so does support access, always; and so do the roles the
+ *  club's rule names, when the club asks it at sign-in or when they have set up a passkey (they chose a second step,
+ *  so they use it). Otherwise the emailed or texted code is enough to sign in. */
 export async function needsTwoFactor(db: Db | Trx, personId: string, opts: { support?: boolean } = {}): Promise<boolean> {
   if (await activeFactor(db, personId)) return true;   // they chose it: an authenticator always counts
   // Support access (support.ts) always needs two steps, whatever the club's rule for its own staff.
   if (opts.support !== false && await db.selectFrom("support_grant").select("id").where("person_id", "=", personId).where("ended_at", "is", null).where("ends_at", ">", new Date()).executeTakeFirst()) return true;
-  const club = await db.selectFrom("club").select("two_factor").executeTakeFirst();
-  const rule = (club?.two_factor ?? "owner_manager") as TwoFactorRule;
-  if (rule === "off") return false;
-  const roles = await rolesOf(db, personId);
-  if (rule === "all_staff") return roles.some((r) => r.key !== "member");
-  return roles.some((r) => r.key === "owner" || r.key === "manager" || !r.system);
-}
-
-/** Whether they have something to give as the second step: a passkey or an authenticator. */
-export async function hasSecondFactor(db: Db | Trx, personId: string): Promise<boolean> {
-  if (await activeFactor(db, personId)) return true;
-  return Boolean(await db.selectFrom("passkey").select("credential_id").where("person_id", "=", personId).where("revoked_at", "is", null).executeTakeFirst());
+  if (!(await secondStepByRole(db, personId))) return false;
+  return (await secondStepAtSignIn(db)) || await hasSecondFactor(db, personId);
 }
 
 /** The authenticator code given at sign-in: checked, and its time step kept so it can't be used again. */
@@ -125,7 +109,7 @@ export const factorCodes = defineAction({
   async apply(ctx, i) { await ctx.emit("person.factor_codes", { person_id: i.person_id }); return null; },
 });
 
-/** Taking your own authenticator off. Someone who has to use two steps keeps a passkey first. */
+/** Taking your own authenticator off. Someone the club asks for a second step at sign-in keeps a passkey first. */
 export const factorRemove = defineAction({
   name: "person.factor_remove", version: 1, strongAuth: true,
   input: z.object({ person_id: z.uuid() }),
@@ -135,7 +119,7 @@ export const factorRemove = defineAction({
     if (!f) throw new KumiError("error.not_found", { thing: both("thing.authenticator") }, 404);
     // Without it, would they still have to use two steps, and have nothing to give?
     const passkey = await ctx.db.selectFrom("passkey").select("credential_id").where("person_id", "=", i.person_id).where("revoked_at", "is", null).executeTakeFirst();
-    if (!passkey && await mustByRole(ctx.db, i.person_id)) throw new KumiError("error.factor_needed");
+    if (!passkey && await secondStepAtSignIn(ctx.db) && await secondStepByRole(ctx.db, i.person_id)) throw new KumiError("error.factor_needed");
     return { title: both("action.person.factor_remove"), summary: both("plan.person.factor_remove"), reads: [{ entity: "staff_factor", id: i.person_id, version: f.version }], ownerIds: [i.person_id], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
@@ -144,14 +128,6 @@ export const factorRemove = defineAction({
     return null;
   },
 });
-async function mustByRole(db: Db | Trx, personId: string): Promise<boolean> {
-  const club = await db.selectFrom("club").select("two_factor").executeTakeFirst();
-  const rule = (club?.two_factor ?? "owner_manager") as TwoFactorRule;
-  if (rule === "off") return false;
-  const roles = await rolesOf(db, personId);
-  return rule === "all_staff" ? roles.some((r) => r.key !== "member") : roles.some((r) => r.key === "owner" || r.key === "manager" || !r.system);
-}
-
 /** "This wasn't me" on an email change: whoever changed it may have given themselves a way back in first, so
  *  every passkey, the authenticator and the recovery codes stop working, and a sign-in number confirmed from
  *  `since` on is taken off (sessions and assistants are signed out by the caller). Kumi runs it; nobody else. */

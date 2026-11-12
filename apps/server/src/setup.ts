@@ -34,7 +34,10 @@ export const TextingDetails = z.object({
 export type TextingDetails = z.infer<typeof TextingDetails>;
 export const ClubFile = z.object({
   // The club's own terms and privacy policy for members, on its website (docs/templates): the app links them.
-  club: z.object({ name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])), terms_url: z.optional(pageUrl), privacy_policy_url: z.optional(pageUrl) }),
+  // staff_second_step: owners, managers and the club's own roles give a second step at every sign-in (Settings, "Sign-in
+  // and roles"); left out, the club's setting stays as it is (off for a new club).
+  club: z.object({ name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])), terms_url: z.optional(pageUrl), privacy_policy_url: z.optional(pageUrl),
+    staff_second_step: z.optional(z.boolean()) }),
   owner: z.object({ name, email: z.email() }),
   locations: z.optional(z.array(z.object({ name, address: z.optional(z.string()), time_zone: z.optional(name), courts: z.optional(z.array(court)) }))),
   staff: z.optional(z.array(z.object({ name, email: z.email(), role: z.enum(["owner", "manager", "front_desk", "coach", "accountant"]), location: z.optional(name) }))),
@@ -108,6 +111,11 @@ export async function setupClub(db: Db, file: ClubFile, opts: { apply: boolean; 
   }
   if (links.terms_url || links.privacy_policy_url) await step("club.update", both("cli.step.club_policies", { links: [links.terms_url, links.privacy_policy_url].filter(Boolean).join(", ") }),
     async () => ok(await run(db, "club.update", links, owner)));
+  // The second step at sign-in, when the file says and the club differs (a new club starts with it off).
+  const secondStep = file.club.staff_second_step;
+  const hadSecondStep = club ? (await db.selectFrom("club").select("second_step_sign_in").executeTakeFirstOrThrow()).second_step_sign_in : false;
+  if (secondStep !== undefined && secondStep !== hadSecondStep) await step("club.update", both(secondStep ? "cli.step.second_step_on" : "cli.step.second_step_off"),
+    async () => ok(await run(db, "club.update", { second_step_sign_in: secondStep }, owner)));
 
   const locations = club ? await db.selectFrom("location").select(["id", "name"]).where("archived_at", "is", null).execute() : [];
   const locationIds = new Map<string, string | null>();

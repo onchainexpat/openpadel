@@ -33,9 +33,9 @@ The door's OAuth (oauth.ts), unchanged in what it grants:
     one click from a signed-in owner): there's no `verification_uri_complete`, and a link with `?code=` opens the
     empty form, so the code is always typed (posted, and the session cookie is SameSite=Lax, so no other site can
     post it). The consent shows when and from which address the code was started, and says the device's name is its
-    own choice. Anyone who signs in with two steps (owners and managers by default) gives a fresh second step at
-    Allow: their authenticator's code, or with only a passkey, a passkey sign-in in the last 10 minutes (the page has
-    no script, so it can't ask for the passkey itself).
+    own choice. Owners and managers (the roles the club's rule names) give a fresh second step at Allow: their
+    authenticator's code, or with only a passkey, a passkey sign-in in the last 10 minutes (the page has no script, so
+    it can't ask for the passkey itself). With none set up yet, the device is connected without one, as a member's.
   - **Filling it up:** a code waits 10 minutes and is never pushed out early. At most 5 wait from one network (an
     IPv4 address, or an IPv6 /64, which one home or server holds whole; the rate limits count a /64 once too). Past
     20,000 in all, only a network holding none may start one, up to 25,000. Filling the first takes 4,000 networks

@@ -92,7 +92,7 @@ test("staff change a member's email for them: signed in strongly, a code the mem
   await run(db, "role.assign", { person_id: lee, role: "front_desk" }, owner);
   const bo = ((await run(db, "person.create", { display_name: "Bo Park", email: "bo@example.test", locale: "es" }, owner)).result as { person_id: string }).person_id;
   const weak = await signIn("lee@example.test");
-  assert.equal((await post(`/staff/people/${bo}/email/start`, { email: "bo.park@example.test" }, weak)).json.error, "error.need_passkey");
+  assert.equal((await post(`/staff/people/${bo}/email/start`, { email: "bo.park@example.test" }, weak)).json.error, "error.second_step_to_change");   // none set up yet: set one up
   const desk = await strong("lee@example.test");
   assert.deepEqual((await post(`/staff/people/${bo}/email/start`, { email: "bo.park@example.test" }, desk)).json, { sent: true });
   assert.match(mailer.last("bo.park@example.test")!.subject, /Kestrel Padel/);   // in Bo's language

@@ -1,13 +1,14 @@
 // How far an assistant connection reaches: never further than its person allowed when they connected it. With each
 // connection is kept what they held then (their roles and grants) and whether they had given a second step. At each
 // use, if they now hold more (a staff role given, a removal undone, the server's `owner add`, a role the club made
-// widened) or the club now asks a second step they hadn't given, the connection works as a member's until they
+// widened) or their roles ask a second step the connecting sign-in didn't give (second_step.ts: whether or not the
+// club asks one at sign-in), the connection works as a member's until they
 // connect it again, and they hear it once. Less than they held (a role taken away) is checked as always: the person's
 // own permissions still decide every preview and confirm.
 import type { Db } from "./db.ts";
 import { actions } from "./actions.ts";
 import { grantsFor, specificity, type GrantRow } from "./permissions.ts";
-import { needsTwoFactor } from "./two_factor.ts";
+import { secondStepForReach } from "./second_step.ts";
 
 export interface Powers { roles: { key: string; system: boolean; location_id: string | null }[]; grants: GrantRow[] }
 export type Limited = "widened" | "second_step";
@@ -55,7 +56,7 @@ export async function connectionReach(db: Db, grantId: string, personId: string,
     g.powers = current;
   }
   if (!current.roles.some((r) => r.key !== "member")) return null;   // a member's reach is all they have
-  const why: Limited | null = widens(current, g.powers as Powers) ? "widened" : !g.second_step && await needsTwoFactor(db, personId, { support: false }) ? "second_step" : null;
+  const why: Limited | null = widens(current, g.powers as Powers) ? "widened" : !g.second_step && await secondStepForReach(db, personId) ? "second_step" : null;
   if (why && !g.limited_told_at) {
     const told = await db.updateTable("oauth_grant").set({ limited_told_at: now }).where("id", "=", grantId).where("limited_told_at", "is", null).returning("id").executeTakeFirst();
     if (told) await db.insertInto("event_outbox").values({ action_run_id: null, topic: "assistant.limited", payload: JSON.stringify({ grant_id: grantId, why }) }).execute();

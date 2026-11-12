@@ -61,7 +61,11 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   emailEvents?: { secret: string | null; from: string | null }
   /** Over HTTPS, a session under the cookie's old name is still read and moved to the new one, for a release (on unless
    *  KUMI_LEGACY_SESSION_COOKIE=0: session_cookie.ts). */
-  legacySessionCookie?: boolean }
+  legacySessionCookie?: boolean
+  /** Where a sign-in code emailed goes (main.ts): "sent" by the email service; "log", with no email service set up, only
+   *  to the server's log; "practice", only to the server's test addresses (the rest are held in its log). The sign-in
+   *  page then says so, rather than that it was emailed. */
+  mailReach?: "sent" | "log" | "practice" }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
 type Me = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
@@ -148,8 +152,8 @@ export function makeApp(deps: AppDeps) {
     c.set("lang", me && isLang(me.locale) ? me.locale : pickLang(c.req.header("accept-language")));
     await next();
   });
-  // Someone who must sign in with two steps and hasn't given the second yet can only finish signing in (or
-  // set the second step up): nothing else answers, so no staff page or action works on half a sign-in. Who
+  // Someone who must sign in with two steps (needsTwoFactor: the club asks it at sign-in, or they set one up) and
+  // hasn't given the second yet can only finish signing in (or set the second step up): nothing else answers, so no staff page or action works on half a sign-in. Who
   // already has a second step can only give it: adding another passkey or authenticator on half a sign-in would
   // let whoever has the mailbox (or the phone) make their own second step.
   app.use("*", async (c, next) => {
@@ -245,18 +249,19 @@ export function makeApp(deps: AppDeps) {
     // The members' address, for the staff app's links members open (the public page, a booking's players link).
     // Whether the staff forms offer a draft in the club's other language (translate.ts).
     // Read-only (read_only.ts): both apps say so at the top.
+    // Whether a sign-in code really goes by email (mail): with no email service it's only in the server's log.
     // Moved to another server (club_exit.ts): both apps say where, instead of read-only.
     // The club's own terms and privacy policy: linked where people join, beside the yes to texts and on the profile.
     // Hosted by Kumi (KUMI_HOSTED=1): staff read "Kumi" for the product, and the apps show "Runs on Kumi".
     const { read_only_since, moved_at, moved_to, ...shown } = club;
     return c.json({ ...shown, read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), competitions: Boolean(competing), passes: Boolean(passes), promos, phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
-      member_url: deps.memberUrl ?? memberUrl(publicUrl, {}), hosted: isHosted() });
+      member_url: deps.memberUrl ?? memberUrl(publicUrl, {}), hosted: isHosted(), mail: deps.mailReach ?? "sent" });
   });
 
   // ---- The MCP door: OAuth, then tools generated from the registry ----
   const publicUrl = (deps.publicUrl ?? "http://127.0.0.1:8790").replace(/\/$/, "");
   app.route("/", oauthRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, fetchMetadata: deps.fetchMetadata ?? defaultFetchMetadata, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"),
-    texter: deps.texts?.texter ?? null, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}), secondStepTries: secondStep, ip: ipOf }));
+    texter: deps.texts?.texter ?? null, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}), secondStepTries: secondStep, ip: ipOf, mailReach: deps.mailReach }));
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"), tries: secondStep }));
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
@@ -355,7 +360,7 @@ export function makeApp(deps: AppDeps) {
   // role the club made covering members). A staff member's own email is theirs or the owner's to change.
   const deskForEmail = async (c: Context<Env>, personId: string) => {
     const a = actor(c);
-    if (a.auth !== "passkey" && a.auth !== "two_factor") throw new KumiError("error.need_passkey", {}, 403);
+    if (a.auth !== "passkey" && a.auth !== "two_factor") throw new KumiError((await hasSecondFactor(db, a.personId!)) ? "error.need_passkey" : "error.second_step_to_change", {}, 403);
     const keys = async (id: string) => (await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
       .where("person_role.person_id", "=", id).where("person_role.active", "=", true).where("role.active", "=", true).execute()).map((r) => r.key);
     const mine = await keys(a.personId!), areas = await customAreas(db, a.personId!);

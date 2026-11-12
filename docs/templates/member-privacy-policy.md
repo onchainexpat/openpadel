@@ -170,7 +170,7 @@ EMAIL] and we'll delete it.
 
 ## Keeping it safe
 
-Staff in the club's chosen roles sign in with two steps. Sign-ins use emailed or texted codes or passkeys, with
+Staff in the club's chosen roles give a second step for sensitive changes. Sign-ins use emailed or texted codes or passkeys, with
 limits on how often anyone can try. The app only works over HTTPS. Backups are sealed with the club's own key.
 No system is perfectly safe; if something goes wrong that affects your information, we tell you as the law
 requires.

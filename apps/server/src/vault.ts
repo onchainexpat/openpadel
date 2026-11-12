@@ -3,15 +3,19 @@
 // value in it; a document comes back only to the owner, as a download that's kept on record.
 import { Hono, type Context } from "hono";
 import { both } from "@kumi/i18n";
-import { KumiError, safeFilename, stageVaultUpload, vaultDocument, vaultList, VAULT_DOC_MAX_BYTES, VAULT_SECRET_MAX, type Db } from "@kumi/core";
+import { hasSecondFactor, KumiError, safeFilename, secondStepForChanges, stageVaultUpload, vaultDocument, vaultList, VAULT_DOC_MAX_BYTES, VAULT_SECRET_MAX, type Db } from "@kumi/core";
 
-type Me = { id: string } | null;
+type Me = { id: string; method?: string } | null;
 
+/** The owner, signed in with a second step: its changes are sensitive (strongAuth), and so is reading what it keeps,
+ *  whether or not the club asks a second step at sign-in. */
 async function ownerOnly(db: Db, me: Me) {
   if (!me) throw new KumiError("error.signed_out", {}, 401);
   const owner = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
     .where("person_role.person_id", "=", me.id).where("person_role.active", "=", true).where("role.key", "=", "owner").executeTakeFirst();
   if (!owner) throw new KumiError("error.vault_owner_only", {}, 403);
+  if (me.method !== "passkey" && me.method !== "two_factor" && await secondStepForChanges(db, me.id))
+    throw new KumiError((await hasSecondFactor(db, me.id)) ? "error.need_passkey" : "error.second_step_to_change", {}, 403);
   return me;
 }
 

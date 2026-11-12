@@ -14,7 +14,7 @@ type Price = { id: string; name: string; translations?: unknown; court_ids: stri
 type Loc = { id: string; name: string; address: string | null; postal_code?: string | null; region?: string | null; country?: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; country: string; prices_include_tax: boolean; tax_label: string | null; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; level_import_line: number; two_factor: "owner_manager" | "all_staff" | "off" };
+type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; country: string; prices_include_tax: boolean; tax_label: string | null; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; level_import_line: number; two_factor: "owner_manager" | "all_staff" | "off"; second_step_sign_in: boolean };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
 type Usage = { cents_per_segment: number; paused: boolean; resets: string; current: Month; history: Month[] };
@@ -52,7 +52,7 @@ export function Settings() {
       <BookingRules key={JSON.stringify(s.policy)} p={s.policy} send={send} />
       <WaiverForm key={JSON.stringify(s.waiver)} w={s.waiver} send={send} />
       <TextingCard x={s.texting} tz={s.club.time_zone} />
-      <SignInCard key={s.club.two_factor} rule={s.club.two_factor} send={send} />
+      <SignInCard key={`${s.club.two_factor}:${s.club.second_step_sign_in}`} rule={s.club.two_factor} atSignIn={s.club.second_step_sign_in} send={send} />
       {mayDo("pass_product.set") && <PassProducts preview={preview} />}
       {mayDo("promo_code.set") && <PromoCodes preview={preview} />}
       {me.value?.roles.some((r) => r.key === "owner") && <ClubExport />}
@@ -92,9 +92,10 @@ function TextingCard({ x, tz }: { x: Texting; tz: string }) {
   );
 }
 
-/** Who signs in with two steps, and the roles the club makes. */
-function SignInCard({ rule, send }: { rule: ClubRow["two_factor"]; send: Preview }) {
-  const [v, setV] = useState(rule);
+/** Who gives a second step (for sensitive changes, and at every sign-in when the owner asks it), and the roles the club makes. */
+function SignInCard({ rule, atSignIn, send }: { rule: ClubRow["two_factor"]; atSignIn: boolean; send: Preview }) {
+  const [v, setV] = useState(rule), [on, setOn] = useState(atSignIn);
+  const owner = Boolean(me.value?.roles.some((r) => r.key === "owner"));
   return (
     <section class="card card-form">
       <h2>{t("ui.sign_in_settings")}</h2>
@@ -104,7 +105,10 @@ function SignInCard({ rule, send }: { rule: ClubRow["two_factor"]; send: Preview
         {rule === "off" && <option value="off" disabled>{t("ui.two_factor_off")}</option>}
       </select></label>
       <p class="meta">{t("ui.two_factor_hint")}</p>
-      <button class="primary" disabled={v === rule || v === "off"} onClick={() => send("club.update", { two_factor: v })}>{t("ui.preview")}</button>
+      {/* The owner's alone: whether those roles give it at every sign-in too (off: the emailed code is enough). */}
+      {owner && <label class="check"><input type="checkbox" checked={on} onChange={(e) => setOn(e.currentTarget.checked)} /> {t("ui.second_step_sign_in")}</label>}
+      {owner && <p class="meta">{t("ui.second_step_sign_in_hint")}</p>}
+      <button class="primary" disabled={(v === rule || v === "off") && on === atSignIn} onClick={() => send("club.update", { ...(v !== rule && v !== "off" ? { two_factor: v } : {}), ...(on !== atSignIn ? { second_step_sign_in: on } : {}) })}>{t("ui.preview")}</button>
       <p><a href="/roles">{t("ui.roles_link")}</a></p>
       {me.value?.roles.some((r) => r.key === "owner") && <p><a href="/vault">{t("ui.vault_link")}</a></p>}
       {!me.value?.support && me.value?.roles.some((r) => r.key === "owner" || r.key === "manager") && <p><a href="/support">{t("ui.support_link")}</a></p>}

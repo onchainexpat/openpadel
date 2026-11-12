@@ -9,8 +9,9 @@ import { KumiError } from "./errors.ts";
 import { plainIssues } from "./plain_issues.ts";
 import { checkAssistantSpend } from "./assistant_spend.ts";
 import { uuidv7 } from "./ids.ts";
-import { CHAT_ACTIONS, CREDIT_MONEY, decide, DESK_MONEY, type Decision } from "./permissions.ts";
+import { CHAT_ACTIONS, CREDIT_MONEY, decide, DESK_MONEY, holdsRole, type Decision } from "./permissions.ts";
 import { readOnlyGate } from "./read_only.ts";
+import { hasSecondFactor, secondStepForChanges } from "./second_step.ts";
 
 /** How the person proved who they are: the strong-sign-in rule reads it. */
 /** "two_factor": an emailed code and then an authenticator or recovery code. */
@@ -298,12 +299,15 @@ export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
  *  needs a strong sign-in (support access reaches neither). */
 const how = (def: ActionDef<any>, actor: Actor) => ({ assistant: actor.auth === "oauth" || Boolean(actor.grantId), strongAuth: Boolean(def.strongAuth), clubWide: Boolean(def.clubWide), wholeClub: def.wholeClub, memberOnly: Boolean(actor.memberOnly) });
 
-/** Sensitive changes: a person with a passkey makes them signed in with it, or with two steps. */
+/** Sensitive changes: made signed in with a passkey, or with two steps, by anyone who has either and by the roles the
+ *  club's rule names (second_step.ts), whether or not the club asks a second step at sign-in. Someone with none yet
+ *  hears so (error.second_step_to_change), and the apps offer to set one up there and then. */
 async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor, input: unknown): Promise<void> {
   if (actor.auth === "oauth" && appOnly(def, input)) throw new KumiError("error.assistant_in_app", {}, 403);
   if (!def.strongAuth || !actor.personId || actor.auth === "passkey" || actor.auth === "two_factor" || actor.auth === "system") return;
-  const has = await db.selectFrom("passkey").select("credential_id").where("person_id", "=", actor.personId).where("revoked_at", "is", null).executeTakeFirst();
-  if (has) throw new KumiError("error.need_passkey", {}, 403);
+  // Any other way in (an emailed or texted code, anything new) is one step.
+  if (!(await secondStepForChanges(db, actor.personId))) return;
+  throw new KumiError((await hasSecondFactor(db, actor.personId)) ? "error.need_passkey" : "error.second_step_to_change", {}, 403);
 }
 
 /** An undo is judged as the change it undoes: that change's permission, strong sign-in and app-only rules, with that
@@ -391,6 +395,9 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
   const input = validate(def, raw);
   const judged = await judgedAs(db, def, input);
   if (judged) await requireStrongAuth(db, judged.def, actor, judged.input);
+  // Undoing the owner's own setting for how staff sign in (club.ts) is the owner's too, never something to ask for.
+  if (judged?.def.name === "club.update" && (judged.input as Record<string, unknown> | null)?.second_step_sign_in !== undefined && actor.personId
+    && !(await holdsRole(db, actor, ["owner"]))) throw new KumiError("error.owner_only_setting", { field: both("field.second_step_sign_in") }, 403);
   const now = opts.now ?? new Date();
   if (def.selfOnly) {
     const self = await def.selfOnly(db, input);

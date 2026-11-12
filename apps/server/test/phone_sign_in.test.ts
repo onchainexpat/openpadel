@@ -107,13 +107,13 @@ test("a junior's number signs them in only once their parents have given them a 
   // The owner, with a confirmed number, at a club where owners and managers sign in with two steps.
   await db.updateTable("person").set({ phone: "+15035550176" }).where("id", "=", owner.personId!).execute();
   await db.insertInto("auth_identity").values({ id: "00000000-0000-7000-8000-0000000000a2", person_id: owner.personId!, kind: "phone", value: "+15035550176", verified_at: new Date() }).execute();
-  await db.updateTable("club").set({ two_factor: "owner_manager" }).execute();
+  await db.updateTable("club").set({ two_factor: "owner_manager", second_step_sign_in: true }).execute();
   await post("/auth/phone/start", { phone: "503 555 0176" });
   const v = await post("/auth/phone/verify", { phone: "503 555 0176", code: lastCode("+15035550176") });
   const me = (await get("/me", v.cookie)).json;
   assert.deepEqual([me.signed_in_with, me.gate], ["phone_code", "setup"]);
   assert.equal((await get("/staff/changes", v.cookie)).json.error, "error.two_step_needed");
-  await db.updateTable("club").set({ two_factor: "off" }).execute();
+  await db.updateTable("club").set({ two_factor: "off", second_step_sign_in: false }).execute();
 });
 
 test("an account that joined by phone adds an email with a code; an address someone else uses gets the same answer", async () => {

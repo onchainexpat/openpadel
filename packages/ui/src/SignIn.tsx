@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { startAuthentication } from "@simplewebauthn/browser";
 import type { Lang } from "@kumi/i18n";
-import { api, ApiError, club, farewell, lang, loadMe, passkeyFailure, t, type Club } from "./state.ts";
+import { api, ApiError, club, emailedNote, farewell, lang, loadMe, passkeyFailure, t, type Club } from "./state.ts";
 import { protectedPost } from "./pow.ts";
 import { PolicyLinks, shownPolicies } from "./Policies.tsx";
 
@@ -81,7 +81,7 @@ export function SignIn() {
         </form>
       ) : (
         <form onSubmit={verify}>
-          <p>{by === "phone" ? t("ui.code_texted", { phone }) : t("ui.code_sent", { email })}</p>
+          <p>{by === "phone" ? t("ui.code_texted", { phone }) : emailedNote(t("ui.code_sent", { email }))}</p>
           <label>{t("ui.code")}<input inputMode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code" value={code} onInput={(e) => setCode(e.currentTarget.value)} /></label>
           <button class="primary" disabled={busy}>{t("ui.verify")}</button>
           <button type="button" class="link" onClick={() => { setSent(false); setCode(""); }}>{t(by === "phone" ? "ui.other_phone" : "ui.other_email")}</button>

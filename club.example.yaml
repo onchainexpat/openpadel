@@ -12,6 +12,9 @@ club:
   # links them where members join, beside the yes to texts and on the profile; joining agrees to them.
   # terms_url: https://kestrelpadel.example/terms
   # privacy_policy_url: https://kestrelpadel.example/privacy
+  # Owners and managers sign in with the emailed code; a passkey or authenticator app is their choice (Profile), and
+  # the most sensitive changes ask for one. true: they give one at every sign-in too (also in Settings).
+  # staff_second_step: true
 
 owner:                               # signs in by a code sent to this address
   name: Robin Hale

@@ -3,6 +3,7 @@
 import { useState } from "preact/hooks";
 import { useBackCloses } from "./back.ts";
 import { api, ApiError, t } from "./state.ts";
+import { needsStep, useStepUp } from "./Preview.tsx";
 
 type Check = { blockers: { kind: string; text: string; how: string }[]; juniors: string[]; ends: string[] };
 type Pending = { kind: "export" | "erase"; runId: string; summary: string; ask?: boolean };
@@ -11,7 +12,9 @@ export function AccountData({ personId, self, kid = false, onDeleted }: { person
   const [pending, setPending] = useState<Pending | null>(null), [blocked, setBlocked] = useState<Check["blockers"] | null>(null);
   const [note, setNote] = useState<string | null>(null), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
   useBackCloses(Boolean(pending), () => setPending(null));
-  const guard = async (f: () => Promise<void>) => { setBusy(true); setError(null); setNote(null); try { await f(); } catch (e) { setError(e instanceof ApiError ? e.message : (e as Error).message); } finally { setBusy(false); } };
+  // Deleting an account is a sensitive change: without a second step (someone who has one, or staff), the sheet to give it.
+  const step = useStepUp();
+  const guard = async (f: () => Promise<void>): Promise<void> => { setBusy(true); setError(null); setNote(null); try { await f(); } catch (e) { if (needsStep(e)) step.ask(() => void guard(f)); else setError(e instanceof ApiError ? e.message : (e as Error).message); } finally { setBusy(false); } };
 
   const ask = (kind: Pending["kind"]) => guard(async () => {
     setBlocked(null); setPending(null);
@@ -49,6 +52,7 @@ export function AccountData({ personId, self, kid = false, onDeleted }: { person
       {pending && <div class="sheet" role="dialog" aria-modal="true"><p>{pending.summary}</p>
         {pending.ask && <p class="meta">{t("ui.would_ask")}</p>}
         <button class={pending.kind === "erase" ? "danger" : "primary"} disabled={busy} onClick={confirm}>{t(pending.ask ? "ui.ask_for_yes" : "ui.confirm")}</button> <button disabled={busy} onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
+      {step.sheet}
       {note && <p class="note" role="status">{note}</p>}
       {error && <p class="error" role="alert">{error}</p>}
     </section>
