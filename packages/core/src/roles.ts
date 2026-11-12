@@ -249,6 +249,14 @@ export async function customAreas(db: Db | Trx, personId: string): Promise<strin
 
 /** Of `actions`, the ones the roles the club made, or the coach role, give this person (for their buttons; the member
  *  role's own-scope grants, such as cancelling one's own booking, aren't staff work). */
+/** Which of these actions any of a person's roles allow, built-in ones included (place and shift aside: the server
+ *  checks those when the change is asked for). */
+export async function rolesCan(db: Db | Trx, personId: string, actions: string[]): Promise<string[]> {
+  const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.id")
+    .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true).execute();
+  const grants = await Promise.all(roles.map((r) => grantsOfRole(db, r.id)));
+  return actions.filter((a) => grants.some((g) => roleAllows(g, a)));
+}
 export async function customCan(db: Db | Trx, personId: string, actions: string[]): Promise<string[]> {
   const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.id")
     .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true)

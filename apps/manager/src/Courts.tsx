@@ -6,9 +6,11 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { amountPattern, parseDollars, formatLocale, weekOrder } from "@kumi/i18n/format";
-import { api, club, coversLocation, dollars, lang, lazyPage, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
+import { api, club, coversLocation, dollars, lang, lazyPage, mayCreate, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
 import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
 import { playtomicParts } from "./paid_line.ts";
+import { dayStats, kindOf, type Kind } from "./day_stats.ts";
+import { NARROW, useDrawer, useMedia } from "./drawer.ts";
 
 // The desk's payment form comes when someone taps Record payment, so the first screen doesn't carry it.
 const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
@@ -17,7 +19,8 @@ type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
 type Seat = { id: string; name: string; booker: boolean };
 type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; off_cents?: number; pt_cents?: number; balance_cents?: number; booking_kind?: string;
-  coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; invite_code?: string | null; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string; program_id?: string; label?: string; empty_places?: Empty[] };
+  open_match?: boolean; coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; invite_code?: string | null; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string;
+  program_id?: string; program_kind?: string | null; label?: string; empty_places?: Empty[] };
 // `open`: that court's own hours that day (they can differ from the location's); null when it's closed all day.
 type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
 /** `money` false: a reader who doesn't see what members paid (a coach on their own lesson, a role the club made covering
@@ -45,16 +48,24 @@ const mayHere = (action: string) => mayDo(action) && coversLocation(shown);
 
 export function Courts() {
   const [locs, setLocs] = useState<Loc[]>([]), [loc, setLoc] = useState(""), [date, setDate] = useState(""), [g, setG] = useState<Grid | null>(null);
-  const [form, setForm] = useState<{ court: Court; starts: string[]; until: string } | null>(null), [blocking, setBlocking] = useState(false);
+  const [form, setForm] = useState<{ court: Court; starts: string[]; until: string; weekly: boolean } | null>(null), [blocking, setBlocking] = useState(false);
   const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null), [done, setDone] = useState(0);
-  // The phone's back button closes what was picked, not the page (the same entry while another is picked).
-  useBackCloses(Boolean(picked), () => setPicked(null));
+  // Create's panel, and choosing a court and a free time for a booking made from it (once, or every week).
+  const [creating, setCreating] = useState(false), [choosing, setChoosing] = useState<"once" | "weekly" | null>(null);
+  const narrow = useMedia(NARROW);
+  // The side panel holds one thing at a time: what was picked on the grid, a booking or a block being made.
+  const panel = Boolean(picked || form || blocking || choosing);
+  const closePanel = () => { setPicked(null); setForm(null); setBlocking(false); setChoosing(null); };
+  // The phone's back button closes what's open (the side panel or Create), not the page: one entry while anything is.
+  useBackCloses(panel || creating, () => { setCreating(false); closePanel(); });
   shown = loc;
   const load = () => loc && api<Grid>(`/staff/grid?location_id=${loc}${date ? `&date=${date}` : ""}`).then((x) => { setG(x); if (!date) setDate(x.date); });
   const loadAlerts = () => api<Alerts>("/staff/alerts").then(setAlerts).catch(() => setAlerts(null));
-  const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); setDone((n) => n + 1); });
+  const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); setChoosing(null); setDone((n) => n + 1); });
   useEffect(() => { api<Loc[]>("/staff/locations").then((l) => { setLocs(l); setLoc((l.find((x) => coversLocation(x.id)) ?? l[0])?.id ?? ""); }); void loadAlerts(); }, []);
   useEffect(() => { load(); }, [loc, date]);
+  // What was picked is gone (cancelled, unblocked, another day): the side panel closes rather than stay empty.
+  useEffect(() => { if (picked && g && !g.courts.some((c) => c.items.some((it) => keyOf(it, c.id) === picked))) setPicked(null); }, [g, picked]);
   // Today, what's on now moves on its own: look again every minute.
   useEffect(() => {
     if (!g || g.date !== g.today) return;
@@ -95,45 +106,147 @@ export function Courts() {
     if (it.session_id) return preview("series.edit", { session_id: it.session_id, scope: "this", ...(to.minutes !== minutes ? { minutes: to.minutes } : { starts_at: startsAt }),
       ...(to.court !== from.id ? { court_ids: [to.court] } : {}) });
   };
-  // Tapping free time books it at the desk, from that half hour.
-  const book = (c: Court, at: number) => {
+  // Tapping free time books it at the desk, from that half hour (in the side panel, the day still in view).
+  const book = (c: Court, at: number, weekly = false) => {
     if (!mayHere("booking.create")) return;
     const gap = gaps(c).find((x) => ms(x.from) <= at && at < ms(x.to));
     if (!gap) return;
     const starts = slots.filter((s) => ms(s) >= Math.max(at, ms(gap.from)) && ms(s) + HALF <= ms(gap.to) && new Date(s) > new Date(serverNow()));
-    if (starts.length) setForm({ court: c, starts, until: gap.to });
+    if (starts.length) { closePanel(); setForm({ court: c, starts, until: gap.to, weekly }); }
   };
+  const pick = (k: string) => { const again = k === picked; closePanel(); if (!again) setPicked(k); };
   const sel = g.courts.flatMap((c) => c.items.map((it) => ({ it, c }))).find((x) => keyOf(x.it, x.c.id) === picked) ?? null;
+  const stats = dayStats(g.courts);
+  // What + Create offers this person: each choice their roles allow, opening the flow that already makes it.
+  const choices = createChoices(Boolean(g.open), (once) => { setCreating(false); closePanel(); setChoosing(once ? "once" : "weekly"); },
+    () => { setCreating(false); closePanel(); setBlocking(true); });
+  const playtomic = Boolean(me.value?.playtomic) || g.courts.some((c) => c.items.some((it) => it.kind === "mirror"));
 
   return (
     <main class="today">
-      <h1>{t("ui.courts")}</h1>
-      <section class="card card-form">
-        {locs.length > 1 && <label>{t("ui.location")}<select value={loc} onChange={(e) => { setLoc(e.currentTarget.value); setDate(""); }}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>}
-        <div class="court-row">
-          <button type="button" class="small" onClick={() => shift(-1)} aria-label={t("ui.day_before")}>‹</button>
-          <input type="date" aria-label={t("ui.day")} value={date} onInput={(e) => setDate(e.currentTarget.value)} />
-          {date && <span class="meta">{new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`))}</span>}
-          <button type="button" class="small" onClick={() => shift(1)} aria-label={t("ui.day_after")}>›</button>
-          {!today && <button type="button" class="small" onClick={() => setDate(g.today)}>{t("ui.today_button")}</button>}
+      <div class="sched-bar">
+        <h1>{t("ui.nav_day_schedule")}</h1>
+        {locs.length > 1 && <select class="sched-loc" aria-label={t("ui.location")} value={loc} onChange={(e) => { setLoc(e.currentTarget.value); setDate(""); }}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select>}
+        <div class="day-nav">
+          <button type="button" onClick={() => shift(-1)} aria-label={t("ui.day_before")}>‹</button>
+          <button type="button" onClick={() => setDate(g.today)} aria-current={today ? "date" : undefined}>{t("ui.today_button")}</button>
+          <button type="button" onClick={() => shift(1)} aria-label={t("ui.day_after")}>›</button>
         </div>
-        {!g.open && <p class="meta">{t("ui.closed_this_day")}</p>}
-        {g.open && <p class="meta">{t("ui.open_from_to", { from: clock(g.open.opens), to: clock(g.open.closes) })}</p>}
-      </section>
+        <input type="date" class="sched-date" aria-label={t("ui.day")} value={date} onInput={(e) => setDate(e.currentTarget.value)} />
+        {date && <span class="sched-day">{new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`))}</span>}
+        <span class="occ-chip" role="status">{t("ui.occupancy_day", { percent: stats.percent })} · {t("count.bookings", { count: stats.bookings })}</span>
+        {choices.some((x) => x.items.some((i) => !i.soon)) && <button type="button" class="primary sched-create" aria-haspopup="dialog" onClick={() => { closePanel(); setCreating(true); }}>
+          <span aria-hidden="true">+</span> {t("ui.create")}</button>}
+      </div>
+      <p class="meta">{g.open ? t("ui.open_from_to", { from: clock(g.open.opens), to: clock(g.open.closes) }) : t("ui.closed_this_day")}</p>
+      <Legend playtomic={playtomic} />
 
-      {today && alerts && (alerts.open.length > 0 || alerts.handled.length > 0 || mayDo("alert.handle")) && <AlertList a={alerts} clock={clock} preview={preview} />}
-      {today && <NowNext g={g} clock={clock} />}
-      <TimeGrid g={g} clock={clock} picked={picked} onPick={(k) => setPicked(k === picked ? null : k)} canMove={canMove} canResize={canResize}
-        courtFixed={(it) => courtsOf(it) > 1} onDrop={drop} onFree={book} />
-      <p class="meta">{t("ui.today_hint")}</p>
-      {sel && <Details key={`${picked}|${sel.c.id}|${sel.it.start}|${sel.it.end}`} it={sel.it} court={sel.c} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove(sel.it)} canResize={canResize(sel.it)}
-        courtFixed={courtsOf(sel.it) > 1} onClose={() => setPicked(null)} />}
-      {g.open && mayHere("court.block") && <button onClick={() => setBlocking(!blocking)}>{t("ui.block_courts")}</button>}
-      {form && <DeskBooking court={form.court} starts={form.starts} until={form.until} clock={clock} preview={preview} onClose={() => setForm(null)} />}
-      {blocking && <BlockForm courts={g.courts} g={g} slots={slots} clock={clock} preview={preview} />}
+      <div class="sched-layout">
+        <div class="sched-grid">
+          <TimeGrid g={g} clock={clock} picked={picked} onPick={pick} canMove={canMove} canResize={canResize}
+            courtFixed={(it) => courtsOf(it) > 1} onDrop={drop} onFree={(c, at) => book(c, at)} />
+          <p class="meta">{t("ui.today_hint")}</p>
+        </div>
+        <div class="sched-side">
+          {panel && <SidePanel narrow={narrow} onClose={closePanel}>
+            {sel && <Details key={`${picked}|${sel.c.id}|${sel.it.start}|${sel.it.end}`} it={sel.it} court={sel.c} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove(sel.it)} canResize={canResize(sel.it)}
+              courtFixed={courtsOf(sel.it) > 1} />}
+            {choosing && <CourtPicker courts={g.courts} gaps={gaps} clock={clock} onPick={(c, at) => book(c, at, choosing === "weekly")} />}
+            {form && <DeskBooking key={`${form.court.id}|${form.starts[0]}|${form.weekly}`} court={form.court} starts={form.starts} until={form.until} weekly={form.weekly} clock={clock} preview={preview} onClose={closePanel} />}
+            {blocking && <BlockForm courts={g.courts} g={g} slots={slots} clock={clock} preview={preview} />}
+          </SidePanel>}
+          {today && alerts && (alerts.open.length > 0 || alerts.handled.length > 0 || mayDo("alert.handle")) && <AlertList a={alerts} clock={clock} preview={preview} />}
+          {today && <NowNext g={g} clock={clock} />}
+        </div>
+      </div>
       {(mayHere("court.block_repeat_edit") || mayHere("court.block_repeat_end")) && <SeriesList loc={loc} courts={g.courts} stamp={done} preview={preview} />}
+      {creating && <CreatePanel choices={choices} where={[locs.find((l) => l.id === loc)?.name, date && new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`))].filter(Boolean).join(" · ")}
+        onClose={() => setCreating(false)} />}
       {sheet}
     </main>
+  );
+}
+
+type Choice = { key: string; href?: string; go?: () => void; soon?: boolean };
+/** + Create's choices, grouped as staff from other club software know them. Each is shown only to someone whose roles
+ *  allow it here, and opens the flow that already makes it: a program's form (clinics, courses, events, leagues), the
+ *  desk's booking (once, or every week for a member), and the block form. A kind with no staff flow yet is shown as
+ *  coming soon to those who book courts. */
+function createChoices(open: boolean, booking: (once: boolean) => void, block: () => void): { group: string; items: Choice[] }[] {
+  const here = coversLocation(shown);
+  const programs = mayCreate("program.create"), desk = here && mayCreate("booking.create"), courts = open && desk;
+  const groups: { group: string; items: (Choice | false)[] }[] = [
+    { group: "learning", items: [
+      desk && { key: "lesson", soon: true },
+      programs && { key: "clinic", href: "/programs?new=clinic" },
+      programs && { key: "course", href: "/programs?new=course" }] },
+    { group: "play", items: [
+      desk && { key: "open_match", soon: true },
+      programs && { key: "event", href: "/programs?new=social" },
+      programs && { key: "league", href: "/programs?new=league" }] },
+    { group: "courts", items: [
+      courts && { key: "booking", go: () => booking(true) },
+      courts && mayCreate("booking.repeat") && { key: "weekly", go: () => booking(false) }] },
+    { group: "closures", items: [
+      open && here && mayCreate("court.block") && { key: "block", go: block }] },
+  ];
+  return groups.map((x) => ({ group: x.group, items: x.items.filter((i): i is Choice => Boolean(i)) })).filter((x) => x.items.length > 0);
+}
+
+/** The panel + Create opens over the page: what can be added, by group. Nothing is made here: each choice opens its
+ *  own form, which previews before anything changes. */
+function CreatePanel({ choices, where, onClose }: { choices: { group: string; items: Choice[] }[]; where: string; onClose: () => void }) {
+  const ref = useDrawer<HTMLElement>(true, onClose, true);
+  return <>
+    <div class="scrim" onClick={onClose} />
+    <section ref={ref} class="drawer create-panel" role="dialog" aria-modal="true" aria-labelledby="create-title" aria-describedby="create-help">
+      <div class="drawer-head">
+        <div><h2 id="create-title">{t("ui.create_title")}</h2><p id="create-help" class="meta">{where ? `${where}. ` : ""}{t("ui.create_help")}</p></div>
+        <button type="button" class="icon" onClick={onClose} aria-label={t("ui.close")}>×</button>
+      </div>
+      {choices.map((x) => <div class="create-group">
+        <h3>{t(`ui.create_${x.group}` as Key)}</h3>
+        <ul class="create-list">{x.items.map((i) => <li>
+          {i.soon ? <div class="create-item off" aria-disabled="true"><span><strong>{t(`ui.create_${i.key}` as Key)}</strong><span class="meta">{t(`ui.create_${i.key}_help` as Key)}</span></span><span class="badge muted">{t("ui.coming_soon")}</span></div>
+            : i.href ? <a class="create-item" href={i.href} onClick={onClose}><span><strong>{t(`ui.create_${i.key}` as Key)}</strong><span class="meta">{t(`ui.create_${i.key}_help` as Key)}</span></span><span aria-hidden="true">›</span></a>
+            : <button type="button" class="create-item" onClick={i.go}><span><strong>{t(`ui.create_${i.key}` as Key)}</strong><span class="meta">{t(`ui.create_${i.key}_help` as Key)}</span></span><span aria-hidden="true">›</span></button>}
+        </li>)}</ul>
+      </div>)}
+    </section>
+  </>;
+}
+
+/** The side panel: what was picked on the grid, or a booking or block being made, beside the day on a wide screen and
+ *  over it on a phone. */
+function SidePanel({ narrow, onClose, children }: { narrow: boolean; onClose: () => void; children: any }) {
+  const ref = useDrawer<HTMLDivElement>(true, onClose, narrow);
+  return <>
+    {narrow && <div class="scrim" onClick={onClose} />}
+    <div ref={ref} class={`side-panel${narrow ? " drawer" : ""}`} role={narrow ? "dialog" : "region"} aria-modal={narrow ? "true" : undefined} aria-label={t("ui.side_panel")} tabIndex={-1}>
+      <div class="side-close"><button type="button" class="icon" onClick={onClose} aria-label={t("ui.close")}>×</button></div>
+      {children}
+    </div>
+  </>;
+}
+
+/** The legend: what each colour on the grid is, in words. */
+const kindWords = (k: Kind) => t(`ui.kind_${k}` as Key);
+function Legend({ playtomic }: { playtomic: boolean }) {
+  const kinds: Kind[] = ["booking", "open_match", "learning", "event", "blocked", ...(playtomic ? ["playtomic" as const] : [])];
+  return <ul class="legend" aria-label={t("ui.legend")}>{kinds.map((k) => <li><span class={`swatch k-${k}`} aria-hidden="true" />{kindWords(k)}</li>)}</ul>;
+}
+
+/** Making a booking from + Create: each court's free time that day, to choose from. */
+function CourtPicker({ courts, gaps, clock, onPick }: { courts: Court[]; gaps: (c: Court) => { from: string; to: string }[]; clock: (s: string) => string; onPick: (c: Court, at: number) => void }) {
+  return (
+    <section>
+      <h2>{t("ui.pick_court_time")}</h2>
+      <ul class="plain">{courts.map((c) => { const free = gaps(c); return (
+        <li><strong>{c.name}</strong>
+          {free.length ? <div class="chips">{free.map((x) => <button type="button" class="chip" onClick={() => onPick(c, ms(x.from))}>{t("ui.free_from_to", { from: clock(x.from), to: clock(x.to) })}</button>)}</div>
+            : <p class="meta">{t("ui.no_free_time")}</p>}
+        </li>); })}</ul>
+    </section>
   );
 }
 
@@ -166,6 +279,16 @@ const labelOf = (it: Item) => it.booking_id ? (it.kind === "hold" ? t("ui.being_
 const clubTime = (iso: string, tz: string, end = false) => {
   const s = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
   return end && s === "00:00" ? "24:00" : s;
+};
+/** The kind of anything but a plain court booking, in words on the block, so colour is never the only sign. */
+const tagOf = (it: Item) => {
+  const k = kindOf(it);
+  if (k === "booking" || k === "hold") return "";
+  if (it.kind === "session") return it.program_kind ? t(`kind.${it.program_kind}` as Key) : "";
+  if (k === "learning") return t("ui.kind_lesson");
+  if (k === "open_match") return t("ui.kind_open_match");
+  if (k === "playtomic") return "";   // its label already says Playtomic
+  return t("ui.kind_blocked");
 };
 const dayName = (w: number) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
 
@@ -244,7 +367,8 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
     const cur = drag && !drag.pointer && drag.it === it ? drag : { it, from: c, mode: "move" as const, y0: 0, orig, to: orig, pointer: false };
     const at = g.courts.findIndex((x) => x.id === cur.to.court);
     let to = cur.to, mode: "move" | "resize" = cur.mode;
-    if (e.key === "Escape") { setDrag(null); return; }
+    // Esc puts back an item being moved by keys, and only that: the side panel stays open.
+    if (e.key === "Escape") { if (drag) { e.preventDefault(); setDrag(null); } return; }
     if (e.key === "Enter" && drag && !drag.pointer) { e.preventDefault(); finish(); return; }
     if (e.shiftKey && resize && (e.key === "ArrowUp" || e.key === "ArrowDown")) { mode = "resize"; to = { ...cur.orig, minutes: Math.max(30, to.minutes + (e.key === "ArrowDown" ? 30 : -30)) }; }
     else if (move && (e.key === "ArrowUp" || e.key === "ArrowDown")) { mode = "move"; to = { ...to, minutes: cur.orig.minutes, start: clampStart(to.start + (e.key === "ArrowDown" ? HALF : -HALF), cur.orig.minutes) }; }
@@ -274,13 +398,15 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
             {closedBands(c, from, from + rows * HALF).map((b) => <div class="tg-closed" aria-hidden="true" style={`top:${y(b.from)}px;height:${y(b.to) - y(b.from)}px`} />)}
             {c.items.map((it) => {
               const k = keyOf(it, c.id), top = y(ms(it.start)), h = Math.max(SLOT / 2, y(ms(it.end)) - top - 2);
-              const kind = it.booking_id ? (it.kind === "hold" ? "hold" : it.booking_kind === "lesson" ? "lesson" : "booking") : it.kind;
+              const kind = kindOf(it), tag = tagOf(it);
               return (
                 <div class={`tg-item k-${kind}${picked === k ? " sel" : ""}${drag?.it === it ? " dragging" : ""}`} style={`top:${top}px;height:${h}px`}>
                   <button type="button" class="tg-face" aria-pressed={picked === k} onClick={() => onPick(k)} onKeyDown={(e) => keys(e, it, c)}>
                     <span class="tg-time">{clock(it.start)} - {clock(it.end)}</span>
                     <span class="tg-who">{labelOf(it)}</span>
-                    {isBooking(it) && unpaid(it) > 0 && <span class="badge warn">{dollars(unpaid(it), lang.value)}</span>}
+                    {tag && <span class="tg-kind">{tag}</span>}
+                    {/* Owed money is for those who see what members paid (the server sends none to anyone else). */}
+                    {g.money !== false && isBooking(it) && unpaid(it) > 0 && <span class="pill-unpaid">{t("ui.unpaid_pill")} · {dollars(unpaid(it), lang.value)}</span>}
                     {(it.late?.length ?? 0) > 0 && <span class="badge">{t("ui.late_note", { name: it.late![0]!.name, minutes: it.late![0]!.minutes })}</span>}
                   </button>
                   {canMove(it) && <span class="tg-grip" aria-hidden="true" title={t("ui.drag_handle")} onPointerDown={(e) => begin(e, it, c, "move")} onPointerMove={follow} onPointerUp={finish} onPointerCancel={() => setDrag(null)}>⠿</span>}
@@ -300,16 +426,16 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
 /** The front desk and up choose what goes back when they cancel a paid booking (booking.cancel's refund). */
 const deskUp = () => (me.value?.roles ?? []).some((r) => ["owner", "manager", "front_desk"].includes(r.key));
 /** The item picked: who's playing, what's paid, and every change for it on buttons. */
-function Details({ it, court, g, clock, slots, preview, canMove, canResize, courtFixed, onClose }: { it: Item; court: Court; g: Grid; clock: (s: string | number) => string; slots: string[];
-  preview: Preview; canMove: boolean; canResize: boolean; courtFixed: boolean; onClose: () => void }) {
-  const [changing, setChanging] = useState(false), [paying, setPaying] = useState(false), [cancelling, setCancelling] = useState(false), card = useRef<HTMLElement>(null);
-  // On a phone the grid is long: bring what was picked into view.
-  useEffect(() => { card.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, []);
+function Details({ it, court, g, clock, slots, preview, canMove, canResize, courtFixed }: { it: Item; court: Court; g: Grid; clock: (s: string | number) => string; slots: string[];
+  preview: Preview; canMove: boolean; canResize: boolean; courtFixed: boolean }) {
+  const [changing, setChanging] = useState(false), [paying, setPaying] = useState(false), [cancelling, setCancelling] = useState(false);
   // Paid in Playtomic: said, with what's still owed here (time added here) beside it.
   const pt = playtomicParts({ paid: it.paid_cents ?? 0, pt: it.pt_cents ?? 0, owed: unpaid(it) });
+  const kind = kindOf(it);
   return (
-    <section class="card" ref={card}>
-      <div class="row"><h2>{clock(it.start)} - {clock(it.end)} · {court.name}</h2><button class="small" onClick={onClose}>{t("ui.close")}</button></div>
+    <section>
+      <span class={`kind-tag k-${kind}`}>{tagOf(it) || kindWords(kind)}</span>
+      <h2>{clock(it.start)} - {clock(it.end)} · {court.name}</h2>
       <p>{labelOf(it)}{it.code ? ` · ${it.code}` : ""}</p>
       {(it.players?.length ?? 0) > 0 && <p class="meta">{t("ui.today_players", { names: it.players!.join(", ") })}</p>}
       {isBooking(it) && g.money !== false && <p class="meta">{pt ? pt.map((x) => t(x.key, { amount: dollars(x.cents, lang.value) })).join(" · ")
@@ -396,12 +522,13 @@ function ChangeForm({ it, court, g, clock, slots, preview, canMove, canResize, c
   );
 }
 
-function DeskBooking({ court, starts, until, clock, preview, onClose }: { court: Court; starts: string[]; until: string; clock: (s: string) => string; preview: Preview; onClose: () => void }) {
+function DeskBooking({ court, starts, until, weekly, clock, preview, onClose }: { court: Court; starts: string[]; until: string; weekly: boolean; clock: (s: string) => string; preview: Preview; onClose: () => void }) {
   // The lengths that fit before the court closes (or the next thing on it), from the start chosen.
   const fits = (start: string) => lengthsFitting(start, until);
   // Listed shortest first; the one chosen is 90 minutes when it fits, else the longest that does (as before).
   const usual = (start: string) => { const l = fits(start); return l.includes(90) ? 90 : l.filter((m) => m < 90).at(-1) ?? l[0] ?? 30; };
-  const [f, setF] = useState({ start: starts[0] ?? "", minutes: usual(starts[0] ?? ""), guest: "", price: "", weekly: false, weeks: 8 }), [person, setPerson] = useState<{ id: string; display_name: string } | null>(null);
+  // A weekly court from + Create starts with Every week ticked: it shows once a member is chosen.
+  const [f, setF] = useState({ start: starts[0] ?? "", minutes: usual(starts[0] ?? ""), guest: "", price: "", weekly, weeks: 8 }), [person, setPerson] = useState<{ id: string; display_name: string } | null>(null);
   const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string; email: string | null }[]>([]);
   const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
   // What the club's prices say it costs, as the start and length change; the desk can type another price.
@@ -429,6 +556,7 @@ function DeskBooking({ court, starts, until, clock, preview, onClose }: { court:
       </>}
       {quoted && <p class="meta">{quoted.priced ? t("ui.quoted_price", { amount: dollars(quoted.total_cents, lang.value) }) : t("ui.no_price_then")}{quoted.member ? ` · ${t("ui.member_price", { plan: quoted.member })}` : ""}</p>}
       <label>{t("ui.price_override")}<input inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={f.price} placeholder={quoted ? dollars(quoted.total_cents, lang.value) : ""} onInput={(e) => setF({ ...f, price: e.currentTarget.value })} /></label>
+      {!person && weekly && <p class="meta">{t("ui.weekly_needs_member")}</p>}
       {person && <label class="check"><input type="checkbox" checked={f.weekly} onChange={(e) => setF({ ...f, weekly: e.currentTarget.checked })} /> {t("ui.every_week")}</label>}
       {person && f.weekly && <label>{t("ui.how_many_weeks")}<input type="number" min="2" max="26" step="1" value={String(f.weeks)} onChange={(e) => setF({ ...f, weeks: Math.max(2, Math.min(26, Math.round(Number(e.currentTarget.value) || 8))) })} /></label>}
       <button class="primary" disabled={!f.start || (!person && !f.guest.trim())}>{t("ui.preview")}</button>

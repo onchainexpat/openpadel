@@ -78,7 +78,7 @@ export const READS: DoorRead[] = [
   { name: "program_page", staff: true, title: { en: "A program", es: "Un programa" }, input: { program_id: z.uuid() }, path: (a) => `/staff/programs/${encodeURIComponent(a.program_id)}`,
     description: "One program: its dates (with their ids, courts and coach), roster and waitlist." },
   { name: "day", staff: true, title: { en: "The day at a location", es: "El día en una sede" }, input: { location_id: z.uuid(), date: z.optional(ymd) }, path: (a) => `/staff/grid?${qs({ location_id: a.location_id, date: a.date })}`,
-    description: "A location's courts for a day (today unless a date is given): each booking, block and program date, who's playing and what's owed, as the desk's Courts page shows it." },
+    description: "A location's courts for a day (today unless a date is given): each booking, block and program date, who's playing and what's owed, as the staff app's Schedule shows it." },
   { name: "alerts", staff: true, title: { en: "Alerts", es: "Avisos" }, input: {}, path: () => "/staff/alerts",
     description: "What needs someone at the club now: places left empty at the last minute, questions waiting, money owed, programs short of their minimum, refunds that failed." },
   { name: "reports", staff: true, title: { en: "Reports", es: "Informes" }, input: { location_id: z.uuid(), from: ymd, to: ymd }, path: (a) => `/staff/reports?${qs({ location_id: a.location_id, from: a.from, to: a.to })}`,

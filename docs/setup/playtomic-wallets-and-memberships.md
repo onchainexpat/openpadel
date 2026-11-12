@@ -20,7 +20,7 @@ The move-in only reads what the server read itself, never rows sent to it:
   keeps only its hash and how many rows it had, never the people in it. The columns it reads are listed below.
 
 Each player is matched to a member here by their Playtomic id (the member import keeps it), else their email. Import
-the members first (People, Import, or `openpadel import members`): a player who isn't a member here yet is counted and
+the members first (Customers, Import, or `openpadel import members`): a player who isn't a member here yet is counted and
 left out (not named, as they aren't the club's members). Someone whose account was deleted here isn't read again, from
 Playtomic or an upload, and the preview says how many were left out; if they join again, they're read from then on.
 

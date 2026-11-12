@@ -66,7 +66,7 @@ export async function courtOpeningsOn(db: Db | Trx, locationId: string, courtIds
 export async function courtOpening(db: Db | Trx, court: { id: string; location_id: string }, day: string): Promise<Open | null> {
   return (await courtOpenings(db, court.location_id, [court.id], day)).get(court.id) ?? null;
 }
-/** From the earliest opening to the latest closing among these: the location's day on the Courts page. */
+/** From the earliest opening to the latest closing among these: the location's day on the Schedule. */
 export function spanOf(opens: (Open | null)[]): Open | null {
   const o = opens.filter((x): x is Open => Boolean(x));
   return o.length ? { opens: new Date(Math.min(...o.map((x) => x.opens.getTime()))), closes: new Date(Math.max(...o.map((x) => x.closes.getTime()))) } : null;

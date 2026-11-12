@@ -297,7 +297,7 @@ openpadel program-page --program "Tuesday drills"
 
 ### openpadel day
 
-The day at a location. A location's courts for a day (today unless a date is given): each booking, block and program date, who's playing and what's owed, as the desk's Courts page shows it.
+The day at a location. A location's courts for a day (today unless a date is given): each booking, block and program date, who's playing and what's owed, as the staff app's Schedule shows it.
 
 Who may: staff (each sees what their staff screens show).
 

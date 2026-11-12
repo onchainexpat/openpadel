@@ -96,7 +96,7 @@ openpadel import members members.csv --apply   # add them
 ```
 
 People already in openPadel keep their name and email, and nobody is emailed: telling members about the
-app is the club's own announcement. Staff can do the same from People in the staff app.
+app is the club's own announcement. Staff can do the same from Customers in the staff app.
 
 **From Playtomic** (the customer export in Playtomic Manager), these columns come in too when the file
 has them. Column names are matched in English or Spanish, ignoring case, spaces and accents:
@@ -141,16 +141,19 @@ on; leave it off while the club books courts in Playtomic. Paying for whole cour
 several the same day in one card payment (each counts toward "how many at once"); each is still its
 own booking, cancelled on its own. Whoever books a whole court names the other players (or shares the booking's
 players link): nobody added pays, and with four on it the score can be entered and, if the booker says
-so, count for levels. The front desk can name players on a member's court from the Courts page.
+so, count for levels. The front desk can name players on a member's court from the Schedule.
 
 Before the deadline, a player who can't make a match gets their money back straight away. After it,
 what they get back is the club's choice, set in the same place: a percent for when their own sub takes
 the place, one for when the club fills it with a paying player, and one for when nobody takes it (or
 staff give it away free). The defaults are 100, 100 and 0. The front desk is told when a place is left
-empty after the deadline, and fills it from the Courts page; staff can choose a different refund there,
+empty after the deadline, and fills it from the Schedule; staff can choose a different refund there,
 case by case.
 
-The Courts page is the desk's day: a column per court with the time down the side, what's on now and
+The Schedule is the staff app's first page and the desk's day: a column per court with the time down the side, each
+kind (court booking, open match, clinic, course or lesson, event or league, blocked, Playtomic copy) in its own colour
+with a legend, the day's occupancy and bookings at the top, a + Create button for everything that can be added
+(each choice opens its own form, which previews first), and a side panel with what was picked. Beside it: what's on now and
 next on each court (who's playing, what's owed, who said they're running late), and the alerts that need
 someone (a place left empty at the last minute, a question waiting, money owed, a program short of its
 minimum, a refund that failed). An alert stays until one of the staff marks it handled, and then it's gone
@@ -164,7 +167,7 @@ desk is given back at the desk: what's owed back waits on the person's page unde
 desk" until someone hands it over and taps "Given back", and only then leaves the cash drawer in the books
 (with a refund receipt, as for a card's).
 
-**Weekly courts.** The desk books a member the same court every week from the Courts page: pick the member,
+**Weekly courts.** The desk books a member the same court every week from the Schedule (+ Create, Weekly court, or tap free time): pick the member,
 tick "Every week" and say how many weeks (at most 26). The preview lists every week and its price, and leaves out
 (by name) any week something is already on, the court is closed, or it can't be booked; nothing is moved. Each
 week is an ordinary booking with its own code, paid at the desk, and cancelled on its own under the club's rules,
@@ -182,7 +185,7 @@ places shows each weekly court with its weeks, and "Cancel this and the rest". T
 once (the weeks already booked staying, or going too), use "Stop every weekly court members booked" under the
 weekly setting in Settings; you see what happens before anything changes, and each member is told once.
 
-Staff block courts from the Courts page, once or every week: "Courts 1 and 2 every Tuesday 18:00 to
+Staff block courts from the Schedule (+ Create, Block a court), once or every week: "Courts 1 and 2 every Tuesday 18:00 to
 20:00" from a date, until a date or with no end (its dates are made a year ahead, and on as the year
 moves). A booking already in the way stays, and the block leaves that court free that day, or staff
 cancel it: its players are told, and what they get back is chosen on its own (all of it by default,
@@ -252,7 +255,7 @@ its month or year is up, at the price the member joined at. If the card is decli
 carries on while openPadel tries again two days later and three days after that, and the member can pay
 with another card meanwhile; after the third try it ends. The owner and managers hear of the first
 declined try (by email and in the staff app, once, not at every try), with the bank's
-reason when it gives one and a link to the member, and it stays on the Courts page's alerts until
+reason when it gives one and a link to the member, and it stays on the Schedule's alerts until
 someone marks it handled. Paid after all, the alert closes by itself and they hear so; ended after the
 last try, they hear that instead, and it takes the alert's place. Members cancel in the app, and it
 runs to the end of what they've paid. A plan with "join in the app" off is only given at the desk.

@@ -127,7 +127,7 @@ test("backing out after the deadline: the club's quarter now, the desk hears onc
   assert.equal((await playerRecord(db, [people.Eve!])).get(people.Eve!)!.late_leaves, 1);
   await processOutbox(db, messageHandlers);
   assert.deepEqual(await email("Robin", "match_late_cancel_staff"), { subject: "Late cancellation: Court 1, Wed, Dec 2, 6:00 PM",
-    body: "Eve can't make the match on Court 1, Wed, Dec 2, 6:00 PM, after the deadline, so a place is empty. Open it in the app or give it to someone on the Courts page." });
+    body: "Eve can't make the match on Court 1, Wed, Dec 2, 6:00 PM, after the deadline, so a place is empty. Open it in the app or give it to someone on the Schedule." });
   const eve = (await seat("Eve")).id;
   await rejects(plan(db, "booking.join", { booking_id: match, person_id: people.Ivy }, as("Ivy"), { now: LATE }), "error.invite_settled");
   await rejects(plan(db, "booking.reopen_place", { booking_player_id: eve }, as("Hal"), { now: LATE }), "error.forbidden_reason");   // staff only

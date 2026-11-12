@@ -139,6 +139,7 @@ test("taking over a place: the take link, the sub's own view, and a late leaver'
   const grid = (await get(`/staff/grid?location_id=${loc}&date=${day}`, "robin@example.test")).json;
   const item = grid.courts.flatMap((c: any) => c.items).find((x: any) => x.booking_id === r.booking_id);
   assert.deepEqual(item.empty_places.map((e: any) => [e.name, e.open]), [["Eli", false]]);
+  assert.equal(item.open_match, true);   // coloured as an open match on the Schedule
   assert.ok(!(await get("/open-matches", "ben@example.test")).json.some((m: any) => m.id === r.booking_id));
   await run(db, "booking.reopen_place", { booking_player_id: item.empty_places[0].id }, owner);
   const listed = (await get("/open-matches", "ben@example.test")).json.find((m: any) => m.id === r.booking_id);

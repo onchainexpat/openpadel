@@ -1,8 +1,9 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle } from "@kumi/ui";
+import { api, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts } from "./Courts.tsx";
+import { NARROW, useDrawer, useMedia } from "./drawer.ts";
 import { formatLocale } from "@kumi/i18n/format";
 
 // Pages loaded when first opened (Courts and a coach's schedule are in the first screen: they're where most staff start).
@@ -64,7 +65,10 @@ function access(m: Me) {
   // and their own earnings stay theirs, whatever the other role covers (the server's areas include the coach's).
   const coachSide = coach && (coachOnly || Boolean(areas));
   const areaHome: Record<string, any> = { bookings: Courts, courts: Courts, programs: Programs, members: People, memberships: Memberships, levels: Levels, messages: Messages, money: Reports, coaches: Coaches, settings: Settings };
-  const home = areas ? (coach ? Schedule : areaHome[areas[0] ?? ""] ?? Profile) : desk ? Courts : coach ? Schedule : roles.includes("accountant") ? Reports : Programs;
+  // The Schedule (the courts' day) is home for anyone who reads bookings, as staff coming from other club software
+  // expect; a coach keeps their own schedule, and the accountant the reports.
+  const home = areas ? (coach ? Schedule : areas.includes("bookings") ? Courts : areaHome[areas[0] ?? ""] ?? Profile)
+    : desk ? Courts : coach ? Schedule : roles.includes("accountant") ? Reports : show("bookings") ? Courts : Programs;
   // The pages in someone's menu, fetched while they look at their first one so opening them later doesn't wait.
   const later: { preload?: () => unknown }[] = [home, Profile];
   const add = (yes: boolean, ...pages: { preload?: () => unknown }[]) => { if (yes) later.push(...pages); };
@@ -92,7 +96,7 @@ function supportNotices(m: Me) {
 function NotForRole() { return <main class="card"><p>{t("ui.not_for_your_role")}</p></main>; }
 
 /** The Questions link, with how many wait for an answer. */
-function QuestionsLink() {
+function QuestionsLink({ current }: { current?: "page" }) {
   const [n, setN] = useState(0), { path } = useLocation();
   // Again on each page change, so answering one shows straight away.
   useEffect(() => {
@@ -101,7 +105,83 @@ function QuestionsLink() {
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
   }, [path]);
-  return <a href="/questions">{t("ui.nav_questions")}{n > 0 && <span class="badge warn">{n}</span>}</a>;
+  return <a href="/questions" aria-current={current}>{t("ui.nav_questions")}{n > 0 && <span class="badge warn">{n}</span>}</a>;
+}
+
+type Access = ReturnType<typeof access>;
+/** The staff menu: the Schedule first, then the club's people and what they sign up for, levels, messages, the
+ *  club's own pages, and the person's own. Each link only for those whose roles read that area (the server refuses
+ *  the rest either way). */
+function StaffNav({ a, signOut }: { a: Access; signOut: () => void }) {
+  const { path } = useLocation();
+  const { coach, desk, changes, areas, coachSide, show, home } = a;
+  // The page open now: its own address or one under it ("/" is the Schedule for those who start there).
+  const on = (...roots: string[]) => (roots.some((r) => path === r || path.startsWith(`${r}/`)) ? "page" as const : undefined);
+  const link = (yes: unknown, href: string, words: string, current = on(href)) => (yes ? <li><a href={href} aria-current={current}>{words}</a></li> : null);
+  const messages = desk || Boolean(areas?.includes("messages"));
+  return (
+    <nav class="staff-nav" aria-label={t("ui.nav_main")}>
+      <ul>
+        {link(show("bookings"), "/courts", t("ui.nav_day_schedule"), on("/courts") ?? (path === "/" && home === Courts ? "page" : undefined))}
+        {link(coach, "/schedule", t("ui.nav_schedule"), on("/schedule", "/roster", "/students") ?? (path === "/" && home === Schedule ? "page" : undefined))}
+      </ul>
+      <ul>
+        {link(show("members"), "/people", t("ui.nav_people"))}
+        {link(show("programs"), "/programs", t("ui.nav_programs"), on("/programs", "/sessions"))}
+        {link(show("money"), "/payments", t("ui.nav_payments"))}
+        {link(show("memberships"), "/memberships", t("ui.nav_memberships"))}
+        {link(coach || desk || areas?.includes("coaches"), "/coaches", t("ui.nav_coaches"))}
+      </ul>
+      <ul>
+        {link(show("levels"), "/levels", t("ui.nav_levels"))}
+        {link(show("levels"), "/scores", t("ui.nav_scores"))}
+      </ul>
+      <ul>
+        {messages && <li><QuestionsLink current={on("/questions", "/facts")} /></li>}
+        {link(messages, "/messages", t("ui.nav_messages"), on("/messages", "/groups", "/templates"))}
+        {link(show("members") && club.value?.players_chat, "/chats", t("ui.nav_chats"))}
+      </ul>
+      <ul>
+        {link(me.value?.playtomic, "/playtomic", t("ui.nav_playtomic"))}
+        {link(show("money") || coachSide, "/reports", t("ui.nav_reports"))}
+        {link(changes, "/usage", t("ui.nav_usage"))}
+        {link(changes, "/changes", t("ui.nav_changes"))}
+        {link(show("settings"), "/settings", t("ui.nav_settings"), on("/settings", "/roles", "/vault"))}
+      </ul>
+      <ul>
+        <li><InboxLink current={on("/inbox")} /></li>
+        {link(true, "/profile", t("ui.nav_profile"))}
+        <li><button type="button" class="link" onClick={signOut}>{t("ui.sign_out")}</button></li>
+      </ul>
+    </nav>
+  );
+}
+
+/** The page's frame: the menu down the left on a wide screen; on a phone a bar with a Menu button that opens it over
+ *  the page (Escape, the back button or a link closes it). */
+function Frame({ a, signOut, children }: { a: Access; signOut: () => void; children: any }) {
+  const [open, setOpen] = useState(false), { path } = useLocation(), narrow = useMedia(NARROW);
+  const shown = open && narrow, close = () => setOpen(false);
+  useEffect(close, [path, narrow]);
+  useBackCloses(shown, close);
+  const rail = useDrawer<HTMLDivElement>(shown, close, true);
+  return (
+    <div class="shell">
+      <header class="topbar">
+        <button type="button" class="menu-button" aria-expanded={shown} aria-controls="staff-menu" onClick={() => setOpen(!open)}>
+          <span aria-hidden="true">☰</span> {t("ui.menu")}</button>
+        <strong>{club.value?.name}</strong>
+      </header>
+      {shown && <div class="scrim" onClick={close} />}
+      <div id="staff-menu" ref={rail} class={`rail${shown ? " open" : ""}`} role={shown ? "dialog" : undefined} aria-modal={shown ? "true" : undefined}
+        aria-label={shown ? t("ui.nav_main") : undefined}>
+        <div class="rail-head"><strong>{club.value?.name}</strong>
+          {shown && <button type="button" class="small" onClick={close}>{t("ui.close")}</button>}</div>
+        <StaffNav a={a} signOut={signOut} />
+      </div>
+      <div class="shell-main">{children}</div>
+    </div>
+  );
 }
 
 /** The day the club's Kumi ends (leaving.ts), for the owner and managers: the owner's link goes to Download everything. */
@@ -141,15 +221,12 @@ export function App() {
   if (!me.value.support && !me.value.roles.some((r) => r.key !== "member")) return (
     <main class="card"><p>{t(me.value.support_ended ? "ui.support_ended_you" : "ui.no_staff_role")}</p><button onClick={signOut}>{t("ui.sign_out")}</button></main>
   );
-  const { coach, desk, changes, areas, coachSide, show, home } = access(me.value);
+  const a = access(me.value), { changes, coachSide, show, home } = a;
   // A page outside those areas says so, rather than failing to load.
   const only = (area: string, page: any) => (show(area) ? page : NotForRole);
   return (
     <LocationProvider>
-      <header>
-        <strong>{club.value?.name}</strong>
-        <nav>{coach && <a href="/schedule">{t("ui.nav_schedule")}</a>}{show("programs") && <a href="/programs">{t("ui.nav_programs")}</a>}{show("members") && <a href="/people">{t("ui.nav_people")}</a>}{show("members") && club.value?.players_chat && <a href="/chats">{t("ui.nav_chats")}</a>}{show("memberships") && <a href="/memberships">{t("ui.nav_memberships")}</a>}{(coach || desk || areas?.includes("coaches")) && <a href="/coaches">{t("ui.nav_coaches")}</a>}{show("bookings") && <a href="/courts">{t("ui.courts")}</a>}{show("levels") && <a href="/scores">{t("ui.nav_scores")}</a>}{show("levels") && <a href="/levels">{t("ui.nav_levels")}</a>}{(desk || areas?.includes("messages")) && <QuestionsLink />}{(desk || areas?.includes("messages")) && <a href="/messages">{t("ui.nav_messages")}</a>}{me.value?.playtomic && <a href="/playtomic">{t("ui.nav_playtomic")}</a>}{show("money") && <a href="/payments">{t("ui.nav_payments")}</a>}{(show("money") || coachSide) && <a href="/reports">{t("ui.nav_reports")}</a>}{show("settings") && <a href="/settings">{t("ui.nav_settings")}</a>}{changes && <a href="/usage">{t("ui.nav_usage")}</a>}<InboxLink />{changes && <a href="/changes">{t("ui.nav_changes")}</a>}<a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
-      </header>
+      <Frame a={a} signOut={signOut}>
       <Notices items={[
         club.value?.moved ? <>{t("ui.moved_banner_staff")} {club.value.moved_to && <a href={club.value.moved_to}>{club.value.moved_to}</a>}</>
           : club.value?.read_only && t("ui.read_only_banner_staff"),
@@ -196,6 +273,7 @@ export function App() {
         <Route path="/groups" component={only("messages", Groups)} />
         <Route path="/templates" component={only("messages", Templates)} />
       </Router>
+      </Frame>
     </LocationProvider>
   );
 }

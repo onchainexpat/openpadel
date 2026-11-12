@@ -131,12 +131,12 @@ test("the owner hears when it's first used and when it ends; the list and the ac
   const list = (await supportGrants(db)).find((x) => x.id === g.grant_id)!;
   assert.deepEqual([list.reads, list.changes, list.active], [1, 1, false]);
   const a = await supportActivity(db, g.grant_id, "es");
-  assert.deepEqual([a.reads[0]!.path, a.reads[0]!.what], ["/staff/people?q=a", "Abrió Personas"]);   // the owner reads words, not addresses
+  assert.deepEqual([a.reads[0]!.path, a.reads[0]!.what], ["/staff/people?q=a", "Abrió Clientes"]);   // the owner reads words, not addresses
   assert.equal(a.changes.find((c) => c.action === "tag.create")?.status, "applied");
 });
 
 test("the record of support access is in the staff app's words: pages, previews and confirms, never a bare address", () => {
-  assert.equal(pageWords("GET", "/staff/grid?location_id=x&date=2026-11-03", "en"), "Opened Courts");
+  assert.equal(pageWords("GET", "/staff/grid?location_id=x&date=2026-11-03", "en"), "Opened Schedule");
   assert.equal(pageWords("POST", "/actions/person.create/plan", "en"), "Previewed: Add a person");
   assert.equal(pageWords("POST", "/actions/club.nothing/plan", "en"), "Opened other staff data");
   assert.equal(pageWords("POST", "/runs/01a1/apply", "es"), "Confirmó un cambio (en la lista de arriba)");

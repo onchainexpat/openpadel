@@ -48,7 +48,7 @@ test("the Today view's day: who's playing, what's paid net of refunds, running-l
   const g = (await get("Lee", `/staff/grid?location_id=${loc}&date=${day()}`)).json;
   assert.equal(g.date, day()); assert.ok(g.now && g.today);
   const it = g.courts.find((c: any) => c.id === c1).items[0];
-  assert.deepEqual([it.booking_kind, it.status, it.players, it.price_cents, it.paid_cents], ["court", "confirmed", ["Ann"], 6000, 2000]);
+  assert.deepEqual([it.booking_kind, it.open_match, it.status, it.players, it.price_cents, it.paid_cents], ["court", false, "confirmed", ["Ann"], 6000, 2000]);
   assert.deepEqual(it.late.map((l: any) => [l.name, l.minutes]), [["Ann", 10]]);
 
   // Moved to Court 2 through the same preview and confirm as every change.
@@ -59,6 +59,14 @@ test("the Today view's day: who's playing, what's paid net of refunds, running-l
   const moved = (await get("Lee", `/staff/grid?location_id=${loc}&date=${day()}`)).json;
   assert.equal(moved.courts.find((c: any) => c.id === c1).items.length, 0);
   assert.equal(moved.courts.find((c: any) => c.id === c2).items[0].booking_id, b);
+});
+
+test("a program date on the day says its program's kind, so the Schedule colours a clinic apart from a league", async () => {
+  const league = ((await run(db, "program.create", { location_id: loc, kind: "league", name: "Monday League", capacity: 8, price_cents: 0 }, owner)).result as any).program_id;
+  await run(db, "session.add", { program_id: league, starts_at: at("18:00"), ends_at: at("19:30"), court_ids: [c2] }, owner);
+  const g = (await get("Lee", `/staff/grid?location_id=${loc}&date=${day()}`)).json;
+  const it = g.courts.find((c: any) => c.id === c2).items.find((x: any) => x.session_id);
+  assert.deepEqual([it.label, it.program_kind, it.program_id], ["Monday League", "league", league]);
 });
 
 test("alerts: the staff messages that need someone, until one of them marks it handled", async () => {
@@ -80,4 +88,9 @@ test("someone with only the club's own role: told which changes their role allow
   assert.equal((await get("Fran", `/staff/grid?location_id=${loc}&date=${day()}`)).status, 403);
   assert.equal((await get("Fran", "/staff/alerts")).status, 403);
   assert.equal((await get("Lee", "/me")).json.can, null);   // a built-in role: what it always had
+  // + Create on the Schedule offers what any role allows, built-in ones included: the desk books and blocks courts but
+  // doesn't make programs; the owner makes everything; the club's own tagging role makes nothing.
+  assert.deepEqual((await get("Lee", "/me")).json.creates, ["booking.create", "booking.repeat", "court.block"]);
+  assert.deepEqual((await get("Robin", "/me")).json.creates, ["program.create", "booking.create", "booking.repeat", "court.block"]);
+  assert.deepEqual(fran.creates, []);
 });

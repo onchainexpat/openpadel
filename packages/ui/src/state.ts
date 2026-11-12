@@ -28,6 +28,8 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   playtomic?: boolean;
   /** For a staff role kept to one location: the whole club's changes it can't make, whose buttons stay hidden. */
   cannot?: string[];
+  /** Which of the changes the Schedule's + Create starts any of their roles allows, built-in roles included. */
+  creates?: string[];
   /** A junior with a login of their own: their parents' rules apply, and payments go on the family card. */
   kid?: { friends: boolean } | null;
   /** The day the club's Kumi ends (leaving.ts), for owners and managers: the staff app says so at the top. */
@@ -62,6 +64,9 @@ export const me = signal<Me | null | undefined>(undefined);      // undefined: n
 /** Whether to offer a button for a change: a role the club made may not allow it, and a role kept to one location
  *  doesn't make the whole club's changes (the server decides either way). */
 export const mayDo = (action: string) => (!me.value?.can || me.value.can.includes(action)) && !me.value?.cannot?.includes(action);
+/** Whether to offer a way to make something new (+ Create, New program): mayDo, and one of their roles allows it at all
+ *  (a built-in role too: a front desk doesn't make programs). */
+export const mayCreate = (action: string) => mayDo(action) && (me.value?.creates?.includes(action) ?? true);
 /** Whether the signed-in person's staff roles reach a location: a role kept to none reaches every one. Only to hide
  *  what the server would refuse ("your role doesn't cover this location"); the server still decides. */
 export const coversLocation = (locationId: string | null | undefined) =>

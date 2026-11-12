@@ -314,7 +314,7 @@ carry_gone() {
       chgrp kumi "$list" 2>/dev/null || :
       n=$(grep -c . "$list" 2>/dev/null || echo 0)
       if [ "${n:-0}" -gt 0 ] 2>/dev/null; then
-        say "$n account(s) deleted since the snapshot are back in it, and this release can't delete them again by itself: delete them again in the staff app (People). They are (id, name, who deleted it), also in $list:"
+        say "$n account(s) deleted since the snapshot are back in it, and this release can't delete them again by itself: delete them again in the staff app (Customers). They are (id, name, who deleted it), also in $list:"
         while read -r line; do say "  $line"; done < "$list"
       else rm -f "$list"; fi
     fi

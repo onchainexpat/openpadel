@@ -32,8 +32,8 @@ export function Inbox() {
 }
 
 /** The nav link, with how many are unread. */
-export function InboxLink() {
-  return <a href="/inbox" aria-label={unread.value ? `${t("ui.nav_inbox")}, ${t("count.unread", { count: unread.value })}` : undefined}>
+export function InboxLink({ current }: { current?: "page" } = {}) {
+  return <a href="/inbox" aria-current={current} aria-label={unread.value ? `${t("ui.nav_inbox")}, ${t("count.unread", { count: unread.value })}` : undefined}>
     {t("ui.nav_inbox")}{unread.value > 0 && <span class="badge">{unread.value}</span>}
   </a>;
 }

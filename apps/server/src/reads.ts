@@ -381,7 +381,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const lateFor = (bookingId: string) => late.filter((e) => (e.payload as any).booking_id === bookingId).map((e) => ({ name: players.find((p) => p.person_id === (e.payload as any).person_id)?.display_name ?? "",
       minutes: Number((e.payload as any).minutes), at: e.created_at }));
     const blocks = ids("block_id").length ? await db.selectFrom("court_block").select(["id", "reason", "note", "series_id"]).where("id", "in", ids("block_id")).execute() : [];
-    const sessions = ids("session_id").length ? await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.id", "program.id as program_id", "program.name"]).where("session.id", "in", ids("session_id")).execute() : [];
+    // A program date's kind (a clinic, a league...), so the grid colours it; and which bookings are open matches.
+    const sessions = ids("session_id").length ? await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.id", "program.id as program_id", "program.name", "program.kind"]).where("session.id", "in", ids("session_id")).execute() : [];
+    const matches = new Set(ids("booking_id").length ? (await db.selectFrom("open_match").select("booking_id").where("booking_id", "in", ids("booking_id")).execute()).map((m) => m.booking_id) : []);
     const mirror = await db.selectFrom("mirror_booking").select(["court_time_id", "booking_type"]).where("court_time_id", "in", items.filter((t) => t.kind === "mirror").map((t) => t.id).concat(["00000000-0000-0000-0000-000000000000"])).execute();
     // Places players gave up after the deadline, still empty: staff can open them in the app or give them away.
     const empty = ids("booking_id").length ? await db.selectFrom("booking_player").innerJoin("person", "person.id", "booking_player.person_id")
@@ -402,7 +404,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       const base = { start: x.start, end: x.end, kind: x.kind };
       if (x.booking_id && coachView && bookings.find((y) => y.id === x.booking_id)?.coach_id !== viewer) return { ...base, label: t(l, "grid.booked") };
       if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id); return { ...base, booking_id: x.booking_id, code: b?.code, who: b?.display_name ?? b?.guest ?? "", ...paidPart(b),
-        booking_kind: b?.kind ?? "court", coach: b?.coach ?? null, status: b?.status,
+        booking_kind: b?.kind ?? "court", open_match: matches.has(x.booking_id), coach: b?.coach ?? null, status: b?.status,
         players: players.filter((p) => p.booking_id === x.booking_id).map((p) => p.display_name ?? p.guest_name ?? ""), late: lateFor(x.booking_id),
         // A member's court paid in full: the desk can name its players (booking_players.ts), and take them off.
         whole: b?.kind === "court" && b.pay_mode === "whole" && Boolean(b.organiser_id) && b.status === "confirmed",
@@ -410,7 +412,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         seats: players.filter((p) => p.booking_id === x.booking_id && p.person_id).map((p) => ({ id: p.id, name: p.display_name ?? "", booker: p.person_id === b?.organiser_id })),
         empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: e.name, open: e.fill_refund_percent !== null })) }; }
       if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, series: Boolean(k?.series_id), label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
-      if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, label: s?.name ?? "" }; }
+      if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, program_kind: s?.kind ?? null, label: s?.name ?? "" }; }
       return { ...base, label: `Playtomic: ${t(l, typeKey(mirror.find((m) => m.court_time_id === x.id)?.booking_type))}` };
     }) })) });
   });

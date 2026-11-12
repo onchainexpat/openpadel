@@ -187,7 +187,7 @@ export async function supportActivity(db: Db | Trx, grantId: string, lang: Lang)
 /** The staff app's areas, by the address the data came from: what the owner reads in the record of support access,
  *  in the words of the staff app's menu (support_access_log keeps the exact address). */
 const AREAS: [RegExp, Key][] = [
-  [/^(people|person|tags|segments|students|households?)$/, "ui.nav_people"], [/^(grid|block-series|locations|courts|alerts|quote)$/, "ui.courts"],
+  [/^(people|person|tags|segments|students|households?)$/, "ui.nav_people"], [/^(grid|block-series|locations|courts|alerts|quote)$/, "ui.nav_day_schedule"],
   [/^(programs|sessions|roster)$/, "ui.nav_programs"], [/^memberships$/, "ui.nav_memberships"], [/^(coaches|coach-earnings|my-schedule|calendar-link)$/, "ui.nav_coaches"],
   [/^scores$/, "ui.nav_scores"], [/^levels$/, "ui.nav_levels"], [/^(questions|facts)$/, "ui.nav_questions"], [/^(broadcasts|broadcast-options|templates|translate)$/, "ui.nav_messages"],
   [/^mirror$/, "ui.nav_playtomic"], [/^(payments|receipts|club-receipts)$/, "ui.nav_payments"], [/^reports$/, "ui.nav_reports"],

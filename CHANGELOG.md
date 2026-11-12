@@ -37,6 +37,17 @@ up right there.
   ask owners and managers for it too.
 - An assistant connected without a second step still works as a member's for owners and managers, as before; nothing
   an assistant reaches is wider. With none set up, an owner can now allow a device sign-in, connected as a member's.
+- The staff app, laid out as staff coming from Playtomic Manager expect (in openPadel's own look): the menu runs down
+  the left (a Menu button opens it on a phone), with the same pages for each role as before. The Courts page is now
+  the Schedule and the first page for everyone who reads bookings (a coach still starts on their own schedule, the
+  accountant on the reports): the day and a + Create button on top, the day's occupancy and number of bookings, and
+  each kind on the grid in its own colour with a legend (court booking, open match, clinic, course or lesson, event or
+  league, blocked, Playtomic copy) and a red "Unpaid" for money owed (only for those who see money). Picking something
+  opens it in a side panel beside the day (over it on a phone), with the same changes as before; "Needs someone" and
+  "On now and next" sit beside the grid. + Create offers clinics, courses, events and leagues (the program form, on
+  that kind), a court booking or a weekly court (choose a court and a free time), and blocking a court; a private
+  lesson and an open match made by staff are shown as coming soon. "People" is now "Customers", and "Programs" is now
+  "Clinics, courses and events". The addresses stay the same.
 
 ### Fixed
 - The sign-in page said "We emailed a 6-digit code" on a server with no email service, where the code only goes to

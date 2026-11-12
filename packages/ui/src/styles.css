@@ -107,7 +107,7 @@ body:has(main.today) #app { max-width: 1200px; }
 body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
 .tgrid { display: flex; overflow-x: auto; margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
 .tg-times { flex: none; width: 64px; position: sticky; left: 0; z-index: 3; background: var(--card); border-right: 1px solid var(--line); }
-.tg-col { flex: 1 0 150px; min-width: 150px; border-right: 1px solid var(--line); }
+.tg-col { flex: 1 0 128px; min-width: 128px; border-right: 1px solid var(--line); }
 .tg-col:last-child { border-right: 0; }
 .tg-head { height: 34px; line-height: 34px; padding: 0 8px; font-weight: 600; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tg-body { position: relative; }
@@ -120,9 +120,27 @@ body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
   font-size: 13px; line-height: 1.25; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-left: 4px solid var(--brand-ink); border-radius: 6px; cursor: pointer; }
 .tg-face .badge { margin-left: 0; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .tg-time { font-weight: 600; } .tg-who { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.k-lesson .tg-face { border-left-color: #7a4fb3; } .k-session .tg-face { border-left-color: #b07a12; }
-.k-block .tg-face { border-left-color: var(--muted); background: repeating-linear-gradient(135deg, var(--bg) 0 8px, var(--line) 8px 10px); }
-.k-mirror .tg-face { border-left-color: var(--muted); border-style: dashed; } .k-hold .tg-face { opacity: .7; border-left-style: dotted; }
+/* Each kind on the Schedule: its own fill (lighter to darker, so they differ without colour), an edge and its name in
+   words in a darker shade of it (4.5:1 or more on the fill), and the legend saying which is which. */
+:root { --k-booking: #f6f7f2; --k-booking-ink: #5f6b67; --k-open: #b2cff1; --k-open-ink: #0052a8; --k-learning: #f9d7b0; --k-learning-ink: #8b5100;
+  --k-event: #c2b5e4; --k-event-ink: #3a34b3; --k-playtomic: #d5eee4; --k-playtomic-ink: #22725b; --k-blocked-ink: #5f6b67; --unpaid: #a4262c; }
+@media (prefers-color-scheme: dark) { :root { --k-booking: #2a2d2b; --k-booking-ink: #a9b2ad; --k-open: #32506d; --k-open-ink: #9fdcff; --k-learning: #533e27; --k-learning-ink: #f0bd7e;
+  --k-event: #5c547a; --k-event-ink: #ece0ff; --k-playtomic: #2a3a35; --k-playtomic-ink: #8fc3b3; --k-blocked-ink: #a9b2ad; --unpaid: #c4363d; } }
+.k-booking, .k-hold { --k-fill: var(--k-booking); --k-ink: var(--k-booking-ink); } .k-open_match { --k-fill: var(--k-open); --k-ink: var(--k-open-ink); }
+.k-learning { --k-fill: var(--k-learning); --k-ink: var(--k-learning-ink); } .k-event { --k-fill: var(--k-event); --k-ink: var(--k-event-ink); }
+.k-playtomic { --k-fill: var(--k-playtomic); --k-ink: var(--k-playtomic-ink); } .k-blocked { --k-fill: var(--bg); --k-ink: var(--k-blocked-ink); }
+.tg-item .tg-face { background: var(--k-fill); border-color: color-mix(in srgb, var(--k-ink) 35%, transparent); border-left-color: var(--k-ink); }
+.k-blocked .tg-face, .swatch.k-blocked { background: repeating-linear-gradient(135deg, var(--bg) 0 6px, var(--line) 6px 9px); }
+.k-playtomic .tg-face { border-style: dashed; border-left-style: solid; } .k-hold .tg-face { border-left-style: dotted; }
+.tg-kind { display: block; font-size: 12px; font-weight: 600; color: var(--k-ink); } .tg-kind::first-letter { text-transform: uppercase; }
+.pill-unpaid { display: inline-block; padding: 0 8px; border-radius: 999px; background: var(--unpaid); color: #fff; font-size: 12px; font-weight: 700; line-height: 18px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.kind-tag { display: inline-block; margin-bottom: 6px; padding: 2px 10px; border-radius: 999px; background: var(--k-fill); color: var(--k-ink); border: 1px solid var(--k-ink); font-size: 13px; font-weight: 600; }
+.kind-tag::first-letter { text-transform: uppercase; }
+.k-blocked.kind-tag { background: var(--bg); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; margin: 0 0 8px; padding: 0; font-size: 13px; color: var(--ink); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.swatch { width: 16px; height: 16px; border-radius: 4px; background: var(--k-fill); border: 1px solid var(--k-ink); border-left-width: 4px; flex: none; }
+.k-playtomic.swatch { border-style: dashed; border-left-style: solid; }
 .tg-item.sel .tg-face { outline: 2px solid var(--brand-ink); outline-offset: 1px; }
 .tg-item.dragging { opacity: .45; }
 /* The handles take a finger without scrolling the page: the grip moves, the bottom edge changes the length. */
@@ -135,6 +153,69 @@ body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
 .tg-ghost { position: absolute; left: 3px; right: 3px; z-index: 4; padding: 4px 6px; font-size: 13px; font-weight: 600; color: var(--brand-ink); border: 2px dashed var(--brand-ink); border-radius: 6px;
   background: color-mix(in srgb, var(--brand) 10%, transparent); pointer-events: none; }
 .alerts li strong { display: block; }
+/* The staff app's frame: the menu down the left on a wide screen, the page beside it. On a phone a bar on top with a
+   Menu button opens the same menu over the page. */
+body:has(div.shell) #app { max-width: none; padding: 0; }
+.shell { display: flex; align-items: flex-start; min-height: 100vh; }
+.shell-main { flex: 1; min-width: 0; padding: 16px 24px; }
+.shell-main > * { max-width: 640px; margin-left: auto; margin-right: auto; }
+.shell-main > main.today { max-width: 1400px; }
+.topbar { display: none; }
+.rail { position: sticky; top: 0; flex: none; width: 232px; height: 100vh; overflow-y: auto; padding: 16px 12px; background: var(--card); border-right: 1px solid var(--line); }
+.rail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 12px; }
+.rail-head button { margin: 0; }
+.staff-nav { display: block; }
+.staff-nav ul { list-style: none; margin: 0; padding: 0 0 8px; } .staff-nav ul + ul { border-top: 1px solid var(--line); padding-top: 8px; }
+.staff-nav ul:empty { display: none; }
+.staff-nav a, .staff-nav button.link { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 44px; padding: 0 12px; border-radius: 8px;
+  color: var(--ink); font-weight: 500; text-decoration: none; white-space: normal; text-align: left; }
+.staff-nav a:hover, .staff-nav button.link:hover { background: var(--bg); }
+.staff-nav a[aria-current="page"] { background: var(--brand); color: var(--on-brand); font-weight: 600; }
+.staff-nav a[aria-current="page"] .badge { background: var(--on-brand); color: var(--brand); }
+.staff-nav a:focus-visible, .staff-nav button:focus-visible { outline: 2px solid var(--brand-ink); outline-offset: 2px; }
+.scrim { position: fixed; inset: 0; z-index: 8; background: rgba(17, 20, 24, .45); }
+/* Room for the menu: the preview docked at the bottom sits beside it, not under it. */
+@media (min-width: 900px) { body:has(.shell) .dock:not(:empty) { left: 232px; } }
+@media (max-width: 899px) {
+  .shell { display: block; }
+  .shell-main { padding: 12px 16px; }
+  .topbar { display: flex; align-items: center; gap: 12px; margin: 0; padding: 8px 16px; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 7; }
+  .menu-button { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
+  .rail { display: none; }
+  .rail.open { display: block; position: fixed; top: 0; left: 0; bottom: 0; z-index: 9; width: min(300px, 86vw); height: auto; box-shadow: 8px 0 24px rgba(0, 0, 0, .2); }
+}
+/* The Schedule: a bar with the day and + Create, the legend, then the grid with a side column beside it on a wide
+   screen (what was picked, what needs someone, what's on now) and below it on a phone. */
+.sched-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 4px 0 8px; }
+.sched-bar h1 { margin: 0 8px 0 0; }
+.sched-bar button, .sched-bar select, .sched-bar input { min-height: 44px; margin: 0; }
+.sched-bar .sched-loc, .sched-bar .sched-date { width: auto; }
+.day-nav { display: flex; gap: 4px; } .day-nav button { min-width: 44px; padding: 0 12px; }
+.day-nav button[aria-current="date"] { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.sched-day { font-weight: 600; }
+.occ-chip { padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--brand) 12%, var(--card)); color: var(--ink); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.sched-bar .sched-create { margin-left: auto; }
+.sched-layout { display: flex; flex-wrap: wrap; gap: 0 16px; align-items: flex-start; }
+.sched-grid { flex: 1 1 560px; min-width: 0; } .sched-grid .tgrid { margin-top: 0; }
+.sched-side { flex: 0 1 340px; min-width: 0; max-width: 100%; align-self: stretch; } .sched-side:empty { display: none; }
+@media (max-width: 899px) { .sched-side { flex: 1 1 100%; } }
+.sched-side > .card:first-child { margin-top: 0; }
+.side-panel { background: var(--card); border: 1px solid var(--brand-ink); border-radius: 12px; padding: 12px 16px 16px; margin: 0 0 12px; }
+.side-panel:not(.drawer) { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow-y: auto; }
+.side-panel:focus { outline: none; }
+.side-panel .card { border: 0; padding: 0; margin: 8px 0; background: none; }
+.side-close { display: flex; justify-content: flex-end; margin: -4px -8px 0 0; float: right; }
+button.icon { min-width: 44px; min-height: 44px; padding: 0; font-size: 22px; line-height: 1; margin: 0; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 9; width: min(460px, 100%); margin: 0; overflow-y: auto; border-radius: 0; border: 0;
+  background: var(--card); box-shadow: -8px 0 24px rgba(0, 0, 0, .2); padding: 16px 20px 28px; }
+.drawer-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px; } .drawer-head > div { flex: 1; } .drawer-head h2 { font-size: 20px; margin: 0 0 4px; }
+.create-group h3 { margin: 16px 0 8px; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.create-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.create-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 64px; padding: 12px 14px; margin: 0; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--card); color: var(--ink); text-align: left; text-decoration: none; font: inherit; }
+.create-item > span:first-child { display: flex; flex-direction: column; gap: 2px; } .create-item .meta { font-weight: 400; }
+a.create-item:hover, button.create-item:hover { border-color: var(--brand-ink); }
+.create-item.off { color: var(--muted); border-style: dashed; } .create-item .badge { white-space: nowrap; flex: none; } .create-item.off strong { color: var(--muted); }
 /* A receipt: amounts to the right; printing shows only the receipt. */
 .receipt td.num { text-align: right; white-space: nowrap; }
 @media print { header, nav, .no-print, .notices, .banner, .dock { display: none !important; } .card.receipt { border: 0; padding: 0; } }

@@ -430,7 +430,7 @@ test("a program's dates say which of their pages the reader may open: a coach th
 
 test("a coach isn't offered a program's or a person's changes their role refuses; front desk and up are offered everything as before", async () => {
   const can: string[] = (await req("/me", "Kim")).json.can;
-  for (const a of ["program.set_name", "program.set_prices", "program.set_minimum", "program.cancel", "session.set_coach", "session.add", "series.edit", "series.cancel",
+  for (const a of ["program.create", "booking.repeat", "program.set_name", "program.set_prices", "program.set_minimum", "program.cancel", "session.set_coach", "session.add", "series.edit", "series.cancel",
     "membership.pause", "membership.end", "household.add_junior", "person.tag"]) assert.ok(!can.includes(a), a);
   for (const who of ["Fay", "Robin"]) assert.equal((await req("/me", who)).json.can, null, who);
 });

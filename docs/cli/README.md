@@ -214,7 +214,7 @@ openpadel day --location Main --json
 openpadel day --location Main --date 2026-11-20 --json
 ```
 
-Each court's bookings, blocks and program dates, who's playing and what's owed, as the desk's Courts page shows them.
+Each court's bookings, blocks and program dates, who's playing and what's owed, as the staff app's Schedule shows them.
 
 **What needs someone?**
 
