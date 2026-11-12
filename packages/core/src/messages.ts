@@ -959,7 +959,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "waitlist.offered"({ db, tz }, p: { enrolment_id: string; offer_id: string }) {
     const e = await place(db, p.enrolment_id);
     const o = await db.selectFrom("waitlist_offer").select("expires_at").where("id", "=", p.offer_id).executeTakeFirstOrThrow();
-    return [{ to: e.person_id, kind: "offered", params: { name: e.name, when: when(e.start, tz), until: when(o.expires_at, tz) }, purpose: "account", essential: false, email: true, link: "/", staleAt: o.expires_at }];
+    return [{ to: e.person_id, kind: "offered", params: { name: e.name, when: when(e.start, tz), until: when(o.expires_at, tz) }, purpose: "account", essential: false, email: true, link: "/places", staleAt: o.expires_at }];
   },
   async "waitlist.offer_expired"({ db }, p: { enrolment_id: string }) {
     const e = await place(db, p.enrolment_id);
@@ -1019,7 +1019,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   async "program.place_open"({ tz }, p: { program_id: string; name: string | Text; starts_at: string | null; people: string[] }) {
     const start = p.starts_at ? new Date(p.starts_at) : null;
-    return p.people.map((to) => ({ to, kind: "place_open", params: { name: p.name, when: when(start, tz) }, purpose: "account" as const, essential: false, email: true, link: "/", staleAt: start }));
+    return p.people.map((to) => ({ to, kind: "place_open", params: { name: p.name, when: when(start, tz) }, purpose: "account" as const, essential: false, email: true, link: "/events", staleAt: start }));
   },
   // An edit to a program's dates undone: the people told about it hear it's back as it was.
   async "action.undone"({ db }, p: { run_id: string }) {

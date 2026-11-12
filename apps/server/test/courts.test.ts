@@ -233,3 +233,18 @@ test("a court paid after a promo code reads as paid in full, for the member and 
   assert.equal(theirs.off_cents, it.off_cents, "what the code took off Dee's payment");
   assert.equal(theirs.paid_cents + theirs.off_cents, it.price_cents);
 });
+
+test("the members' Home reads the club's courts, hours and address, and only when signed in", async () => {
+  await run(db, "location.update", { location_id: loc, address: "1 Court Lane, Eastside" }, owner);
+  assert.equal((await app.request("/my/club")).status, 401);
+  const c = (await get("/my/club")).json;
+  assert.equal(c.time_zone, TZ);
+  const here = c.locations.find((l: any) => l.id === loc);
+  assert.equal(here.address, "1 Court Lane, Eastside");
+  assert.ok(here.courts >= 2); assert.ok(here.kinds.length >= 1);
+  assert.equal(here.hours.length, 7);
+  assert.deepEqual(here.hours.find((h: any) => h.weekday === 1), { weekday: 1, opens: "08:00", closes: "22:00" });
+  assert.ok(Array.isArray(here.special));
+  // Facts about the club only: nothing about a person.
+  assert.doesNotMatch(JSON.stringify(c), /@|robin|Robin/);
+});

@@ -14,6 +14,16 @@ Owners and managers no longer have to set up a passkey or an authenticator app b
 up right there.
 
 ### Changed
+- The members' app has tabs at the bottom of every page: Home, Book, Play, Learn and Me. Home shows the club (its
+  name, the member's plan, today's hours), what the member has coming up, shortcuts, how many open matches, events,
+  clinics and courses there are in the next 14 days, asking the club, and the club's courts, opening hours and
+  directions. Book shows a week of days, the club's lengths, every start time (the taken ones struck through) and each
+  free court with its price, with the Book button kept at the bottom; it opens the same preview as before, and paying
+  works as before. Me holds the member's level, club credit, membership (or the plans to join), how the card on file
+  is used, family, and every other page, with signing out. Play shows open matches and events; Learn shows clinics,
+  courses and private lessons. Every old address still opens its page: "What's on" is now at /events, and Me at
+  /account. The emails about a place opening up link to the events and to My places, rather than to Home.
+- A member's read of the club's public facts (courts, opening hours, address), for Home: `GET /my/club`.
 - Signing in: staff sign in with the emailed or texted code alone. Whoever has set up a passkey or an authenticator
   app still gives it at every sign-in. A new owner's setting in Settings, "Sign-in and roles", "Staff must use a
   second step at sign-in", asks owners, managers and the club's own roles (or every staff role, as the club's rule

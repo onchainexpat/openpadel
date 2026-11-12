@@ -123,6 +123,26 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     return c.json({ locations, lengths: p.lengths, days_ahead: await daysAhead(db, pid), split_deadline_hours: p.split_deadline_hours, same_day_cutoff_hours: p.same_day_cutoff_hours,
       free_cancel_hours: p.free_cancel_hours, late_refund_percent: p.late_refund_percent, ...await weeklyOptions() });
   });
+  // The club as the members' Home shows it: each place's address, how many courts and of which kinds, and its opening
+  // hours (the week's, and the special days of the next two weeks, club-wide ones). Nothing about a person: it's what
+  // the club's public page shows (public.ts), for members whether or not that page is on.
+  app.get("/my/club", async (c) => {
+    who(c);
+    const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone, at = now();
+    const today = localDate(at, tz), until = localDate(new Date(at.getTime() + 14 * 86_400_000), tz);
+    const locations = await db.selectFrom("location").select(["id", "name", "address"]).where("archived_at", "is", null).orderBy("name").execute();
+    const courts = await db.selectFrom("court").select(["location_id", "kind"]).where("archived_at", "is", null).where("bookable", "=", true).execute();
+    const hours = await db.selectFrom("opening_hours").select(["location_id", "weekday", "opens", "closes"]).execute();
+    const special = await db.selectFrom("hours_exception").select(["location_id", "on_date", "opens", "closes"]).where("active", "=", true).where("court_id", "is", null)
+      .where("on_date", ">=", today).where("on_date", "<=", until).orderBy("on_date").execute();
+    const hm = (x: string | null) => (x ? String(x).slice(0, 5) : null);
+    return c.json({ time_zone: tz, locations: locations.map((l) => {
+      const mine = courts.filter((x) => x.location_id === l.id);
+      return { id: l.id, name: l.name, address: l.address, courts: mine.length, kinds: [...new Set(mine.map((x) => x.kind))],
+        hours: hours.filter((x) => x.location_id === l.id).map((x) => ({ weekday: x.weekday, opens: hm(x.opens), closes: hm(x.closes) })),
+        special: special.filter((x) => x.location_id === l.id).map((x) => ({ on_date: String(x.on_date).slice(0, 10), opens: hm(x.opens), closes: hm(x.closes) })) };
+    }) });
+  });
   // Booking the same court every week (booking_series.ts): whether the club allows it, and for how many weeks.
   const weeklyOptions = async () => {
     const club = await db.selectFrom("club").select(["weekly_bookings", "weekly_max_weeks"]).executeTakeFirstOrThrow();

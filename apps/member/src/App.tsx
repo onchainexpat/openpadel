@@ -1,7 +1,9 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, chatsUnread, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand, applyTitle } from "@kumi/ui";
-import { WhatsOn } from "./WhatsOn.tsx";
+import { api, chatsUnread, club, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand, applyTitle } from "@kumi/ui";
+import { Events, Learn } from "./WhatsOn.tsx";
+import { Home } from "./Home.tsx";
+import { TabBar } from "./TabBar.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
 import { MyLevel } from "./MyLevel.tsx";
 import { Book } from "./Book.tsx";
@@ -23,6 +25,8 @@ const Ask = lazyPage(() => import("./Ask.tsx").then((m) => m.Ask));
 const AskThread = lazyPage(() => import("./Ask.tsx").then((m) => m.AskThread));
 const Receipts = lazyPage(() => import("./Receipts.tsx").then((m) => m.Receipts));
 const ReceiptPage = lazyPage(() => import("./Receipts.tsx").then((m) => m.ReceiptPage));
+// Me: the member's own pages. At /account, since /me is the server's (who is signed in).
+const Me = lazyPage(() => import("./Me.tsx").then((m) => m.Me));
 const Chats = lazyPage(() => import("./Chats.tsx").then((m) => m.Chats));
 const ChatThread = lazyPage(() => import("./Chats.tsx").then((m) => m.ChatThread));
 
@@ -65,12 +69,11 @@ export function App() {
   if (me.value === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
   if (me.value === null) return <SignIn />;
   if (me.value.gate) return <ErrorBoundary><TwoFactor /></ErrorBoundary>;
-  const signOut = () => signOutHere();
   return (
     <LocationProvider>
       <header>
-        <strong>{club.value?.name}</strong>
-        <nav><a href="/">{t("ui.nav_whats_on")}</a>{club.value?.court_bookings && <><a href="/play">{t("ui.nav_play")}</a><a href="/book">{t("ui.nav_book")}</a></>}{club.value?.lessons && <a href="/lessons">{t("ui.nav_lessons")}</a>}<a href="/places">{t("ui.nav_my")}</a>{club.value?.competitions && <a href="/competitions">{t("ui.nav_competitions")}</a>}{club.value?.memberships && <a href="/membership">{t("ui.nav_membership")}</a>}<a href="/level">{t("ui.nav_level")}</a><a href="/family">{t("ui.nav_family")}</a><a href="/ask">{t("ui.nav_ask")}</a><ChatsLink /><InboxLink /><a href="/profile">{t("ui.nav_profile")}</a><button class="link" onClick={signOut}>{t("ui.sign_out")}</button></nav>
+        <a class="club-name" href="/">{club.value?.name}</a>
+        <nav aria-label={t("ui.header_label")}><ChatsLink /><InboxLink /></nav>
       </header>
       <Notices items={[
         club.value?.moved ? <>{t("ui.moved_banner")} {club.value.moved_to && <a href={club.value.moved_to}>{club.value.moved_to}</a>}</>
@@ -79,7 +82,10 @@ export function App() {
         emailNotice,
       ]} />
       <Router>
-        <Route path="/" component={WhatsOn} />
+        <Route path="/" component={Home} />
+        <Route path="/events" component={Events} />
+        <Route path="/learn" component={Learn} />
+        <Route path="/account" component={Me} />
         <Route path="/places" component={MyPlaces} />
         <Route path="/competitions" component={Competitions} />
         <Route path="/gift-cards" component={GiftCards} />
@@ -110,6 +116,7 @@ export function App() {
         <Route path="/leagues" component={ToCompetitions} />
         <Route default component={ToHome} />
       </Router>
+      <TabBar />
     </LocationProvider>
   );
 }

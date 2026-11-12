@@ -1,0 +1,109 @@
+/* The members' app's own look: the tab bar, Home, Me and Book. The colours are @kumi/ui's tokens (styles.css), with
+   the club's colour through applyBrand: --brand fills carry --on-brand text, and --brand-ink is the brand as text. */
+:root { --tabbar: 64px; }
+body { padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom)); }
+#app > header .club-name { color: var(--ink); font-weight: 700; font-size: 17px; text-decoration: none; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* The tabs, at the bottom of every page, clear of the phone's home bar. */
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; justify-content: center; gap: 0; flex-wrap: nowrap;
+  padding: 4px max(8px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  background: var(--card); border-top: 1px solid var(--line); }
+.tabbar a { flex: 1 1 0; max-width: 128px; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  color: var(--muted); font-size: 12px; font-weight: 500; text-decoration: none; border-radius: 12px; white-space: nowrap; }
+.tabbar a.on { color: var(--brand-ink); font-weight: 700; }
+.tabbar a:focus-visible { outline: 2px solid var(--brand-ink); outline-offset: -2px; }
+/* The preview and its messages sit above the tabs, and over Book's bar. */
+.dock:not(:empty) { bottom: calc(var(--tabbar) + env(safe-area-inset-bottom)); padding-bottom: 12px; z-index: 30; }
+/* Lifted above the tabs, the sheet is that much shorter, so its top (the words to read before Confirm) stays on screen. */
+.dock .sheet { max-height: calc(88vh - var(--tabbar) - env(safe-area-inset-bottom)); }
+
+/* Things side by side to scroll: what's coming up, the plans to join. */
+.rail { list-style: none; margin: 0; padding: 0 0 6px; display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; }
+.rail > li, .rail > section { flex: 0 0 min(82%, 300px); scroll-snap-align: start; }
+.rail > section.card { margin: 0; }
+.section-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 18px 0 8px; }
+.section-head h2 { margin: 0; }
+.pill { display: inline-flex; align-items: center; min-height: 28px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--brand-ink); color: var(--brand-ink);
+  background: var(--card); font-size: 13px; font-weight: 600; text-decoration: none; }
+.monogram { flex: none; width: 56px; height: 56px; border-radius: 16px; background: var(--brand); color: var(--on-brand); display: inline-flex; align-items: center;
+  justify-content: center; font-size: 22px; font-weight: 700; }
+
+/* Home */
+.club-head, .me-head { display: flex; align-items: center; gap: 14px; margin: 8px 0 12px; }
+.club-head > div, .me-head > div { flex: 1; min-width: 0; }
+.club-head h1, .me-head h1 { margin: 0 0 4px; overflow-wrap: anywhere; }
+.club-head .meta { margin: 6px 0 0; }
+.activity { display: flex; gap: 12px; height: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
+.when-block { flex: none; width: 48px; align-self: flex-start; padding: 6px 0; border-radius: 12px; background: var(--brand); color: var(--on-brand);
+  display: flex; flex-direction: column; align-items: center; font-size: 12px; text-transform: uppercase; }
+.when-block strong { font-size: 20px; line-height: 1.1; }
+.activity-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.activity .kind { font-size: 13px; font-weight: 700; color: var(--brand-ink); }
+.activity .title { font-weight: 600; }
+.activity a.button { align-self: flex-start; margin-top: 6px; }
+.shortcuts { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); align-items: start; gap: 8px; margin: 18px 0; }
+/* On Home the club's name is the page's heading, so the bar above doesn't say it twice. */
+body:has(main.home) #app > header .club-name { visibility: hidden; }
+.shortcuts a { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; min-height: 44px; padding: 4px 2px; border-radius: 12px;
+  color: var(--ink); font-size: 13px; font-weight: 600; text-align: center; text-decoration: none; white-space: normal; }
+.shortcut-icon { width: 52px; height: 52px; border-radius: 50%; background: var(--brand); color: var(--on-brand); display: inline-flex; align-items: center; justify-content: center; }
+.shortcuts a:focus-visible, .tile:focus-visible, .tiles a:focus-visible, .row-link:focus-visible { outline: 2px solid var(--brand-ink); outline-offset: 2px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.tiles a { display: flex; align-items: center; min-height: 56px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
+  color: var(--ink); font-weight: 600; text-decoration: none; }
+.ask-box label { margin-bottom: 4px; }
+.ask-row { display: flex; gap: 8px; align-items: stretch; }
+.ask-row input { flex: 1; min-width: 0; margin: 0; }
+.ask-row button { flex: none; }
+.place + .place { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 4px; }
+.place h3 { font-size: 16px; margin: 8px 0 4px; }
+.small-head { font-size: 15px; margin: 12px 0 6px; }
+dl.hours { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0 0 12px; }
+dl.hours dt { color: var(--muted); } dl.hours dd { margin: 0; }
+
+/* Play: open matches or events. */
+.seg { display: flex; gap: 3px; padding: 3px; margin: 0 0 12px; border-radius: 12px; background: var(--line); }
+.seg a { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 10px; color: var(--ink); font-weight: 500; text-decoration: none; }
+.seg a[aria-current] { background: var(--card); font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, .14); }
+
+/* Book */
+.book .lede { margin: -6px 0 8px; }
+.days { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 0 6px; margin: 8px 0; }
+.day { flex: 0 0 calc((100% - 36px) / 7); min-width: 44px; min-height: 64px; margin: 0; padding: 4px 0; border-radius: 12px; border: 1px solid var(--line); background: var(--card);
+  color: var(--ink); display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 12px; line-height: 1.25; }
+.day strong { font-size: 17px; }
+.day.on, .time.on { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.seg-buttons { display: flex; flex-wrap: wrap; gap: 3px; padding: 3px; margin: 8px 0 12px; border-radius: 12px; background: var(--line); }
+.seg-buttons button { flex: 1 1 auto; margin: 0; min-height: 44px; padding: 8px 6px; white-space: nowrap; border: 0; border-radius: 10px; background: transparent; color: var(--ink); font-weight: 500; }
+.seg-buttons button.on { background: var(--brand); color: var(--on-brand); font-weight: 700; }
+.times { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin: 8px 0 16px; }
+.time { margin: 0; min-height: 44px; padding: 8px 4px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-weight: 600; }
+.time.taken, .time.taken:disabled { background: var(--bg); color: var(--muted); opacity: 1; cursor: not-allowed; }
+.courts { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 12px; }
+.court { margin: 0; min-height: 56px; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; text-align: left;
+  border-radius: 14px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.court.on { border: 2px solid var(--brand-ink); padding: 11px 13px; }
+.court-name, .court-price { display: flex; flex-direction: column; min-width: 0; }
+.court-price { align-items: flex-end; text-align: right; flex: none; }
+main.has-bar { padding-bottom: 96px; }
+.book-bar { position: fixed; left: 0; right: 0; bottom: calc(var(--tabbar) + env(safe-area-inset-bottom)); z-index: 15; max-width: 640px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--card); border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, .08); }
+.book-bar-what { display: flex; flex-direction: column; min-width: 0; font-size: 14px; }
+.book-bar button { flex: none; min-width: 112px; }
+/* While the preview is open, it is the one way on. */
+body:has(.dock:not(:empty)) .book-bar { display: none; }
+
+/* Me */
+.me-head .button { flex: none; }
+.me-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 16px; }
+.tile { display: flex; flex-direction: column; gap: 2px; padding: 14px; border-radius: 16px; border: 1px solid var(--line); background: var(--card); color: var(--ink); text-decoration: none; }
+.tile-label { font-size: 13px; color: var(--muted); }
+.tile-value::first-letter { text-transform: uppercase; }
+.tile-value { font-size: 24px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tile-more { margin-top: 6px; color: var(--brand-ink); font-weight: 600; font-size: 14px; }
+.list-card ul.plain li { padding: 0; }
+.row-link { display: flex; align-items: center; min-height: 48px; color: var(--ink); font-weight: 500; text-decoration: none; }
+.row-link::after { content: ""; flex: none; width: 8px; height: 8px; margin: 0 6px 0 auto; border-top: 2px solid var(--muted); border-right: 2px solid var(--muted); transform: rotate(45deg); }
+@media (max-width: 380px) { .me-head { flex-wrap: wrap; } }

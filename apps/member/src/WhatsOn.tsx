@@ -1,15 +1,21 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, club, lang, me, NewOnly, t, shortTime, usePreview, ProgramCard, placesLeft, whyNothingNew, type ProgramCardData, clubTime } from "@kumi/ui";
 import { ForWhom } from "./ForWhom.tsx";
+import { LEARN_KINDS } from "./home_data.ts";
+import { PlaySwitch } from "./TabBar.tsx";
 
 type Day = { id: string; starts_at: string; capacity: number; booked: number; offered: number; my_status: string | null; my_offer_until: string | null; my_watch: string | null };
-type P = ProgramCardData & { my_status: string | null; my_offer_until: string | null; my_watch: string | null; dates?: Day[] };
+type P = ProgramCardData & { kind: string; my_status: string | null; my_offer_until: string | null; my_watch: string | null; dates?: Day[] };
 
-export function WhatsOn() {
+/** Events (/events: everything the club runs) and Learn (/learn: its clinics and courses, and private lessons). */
+export const Events = () => <WhatsOn />;
+export const Learn = () => <WhatsOn learn />;
+
+export function WhatsOn({ learn = false }: { learn?: boolean }) {
   const [rows, setRows] = useState<P[] | null>(null), [who, setWho] = useState(me.value!.person.id);
   const [picked, setPicked] = useState<Record<string, string[]>>({});   // signed up per date: the dates ticked, by program
   // For a parent: the programs as one of their juniors would take them (their price, whether they're in).
-  const load = () => api<P[]>(who === me.value!.person.id ? "/open-programs" : `/open-programs?for=${who}`).then(setRows);
+  const load = () => api<P[]>(who === me.value!.person.id ? "/open-programs" : `/open-programs?for=${who}`).then((r) => setRows(learn ? r.filter((p) => LEARN_KINDS.includes(p.kind)) : r));
   const { preview, sheet } = usePreview(() => { setPicked({}); load(); });
   const day = (iso: string) => clubTime(iso, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
   const tick = (p: string, d: string, on: boolean) => setPicked({ ...picked, [p]: on ? [...(picked[p] ?? []), d] : (picked[p] ?? []).filter((x) => x !== d) });
@@ -18,10 +24,12 @@ export function WhatsOn() {
   const closed = Boolean(whyNothingNew(club.value));
   return (
     <main>
-      <h1>{t("ui.nav_whats_on")}</h1>
+      <h1>{t(learn ? "ui.tab_learn" : "ui.nav_whats_on")}</h1>
+      {!learn && <PlaySwitch here="events" />}
+      {learn && club.value?.lessons && <p class="card"><a class="tap" href="/lessons">{t("ui.learn_lessons_link")}</a></p>}
       {sheet}
       <ForWhom value={who} onChange={setWho} />
-      {rows?.length === 0 && <p>{t("ui.nothing_on")}</p>}
+      {rows?.length === 0 && <p>{t(learn ? "ui.learn_nothing" : "ui.nothing_on")}</p>}
       <ul class="changes">{(rows ?? []).map((p) => (
         <ProgramCard key={p.id} p={p}>
           {p.dates ? <>

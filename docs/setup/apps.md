@@ -15,6 +15,20 @@ app installs as "<the club> Staff". Neither says "openPadel" or "Kumi" on the ho
   and iPadOS 16.4 and later), not in a Safari tab.
 - **Computers:** Chrome and Edge install it too; any browser opens it.
 
+Members find their way around the members' app by the tabs at the bottom of every page, where members coming from
+other padel apps expect them:
+
+- **Home:** the club, what the member has coming up, shortcuts, what's on in the next 14 days, asking the club, and
+  the club's courts, opening hours and directions (the address of each location, from Settings).
+- **Book:** a court, by day, length and start time, then the court; the preview shows the price before anything is
+  booked.
+- **Play:** open matches, and the club's events (tournaments, leagues, socials).
+- **Learn:** clinics, courses and private lessons with a coach.
+- **Me:** level, club credit and receipts, membership, the card on file, family, profile and settings, the member's
+  data, and signing out.
+
+Links the club already sent (in emails, texts and the inbox) still open the page they named.
+
 Why this is the way today:
 
 - **Free.** No developer accounts, store fees or reviews.

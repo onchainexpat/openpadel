@@ -5,6 +5,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, club, dollars, lang, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
 import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
+import { PlaySwitch } from "./TabBar.tsx";
 
 export type Match = {
   id: string; court: string; location: string; time_zone: string; start: string; end: string; host: string | null; host_is_me: boolean; open: boolean; cancelled: boolean; rated: boolean; listed: boolean;
@@ -52,6 +53,7 @@ export function Play() {
   return (
     <main>
       <h1>{t("ui.nav_play")}</h1>
+      <PlaySwitch here="matches" />
       {rows.length > 0 && <p class="meta">{t("ui.your_level_is", { level: lv(level ?? null) })}</p>}
       {rows.length === 0 && <p class="card">{t("ui.no_open_matches")}</p>}
       {rows.map((m) => (

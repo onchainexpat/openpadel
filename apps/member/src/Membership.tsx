@@ -50,7 +50,14 @@ function FamilyCover({ m, send }: { m: Mine; send: (action: string, input: unkno
   );
 }
 
+/** The membership page: the member's own plan, or the plans to join. */
 export function Membership() {
+  return <main><h1>{t("ui.nav_membership")}</h1><MembershipBody /></main>;
+}
+
+/** Mine, or the plans to join, with every change through the usual preview. `embedded`: inside Me, the plans side by
+ *  side to scroll; `onPlan` hears the name of the member's plan (null without one) each time it's read. */
+export function MembershipBody({ embedded = false, onPlan }: { embedded?: boolean; onPlan?: (name: string | null) => void }) {
   const [mine, setMine] = useState<Mine | null | undefined>(undefined), [offers, setOffers] = useState<Offer[]>([]), [provider, setProvider] = useState("test");
   const [chosen, setChosen] = useState<Offer | null>(null), [welcome, setWelcome] = useState(false);
   const [paying, setPaying] = useState<{ id: string; cents: number; name: string; card?: boolean } | null>(null);
@@ -58,7 +65,7 @@ export function Membership() {
   const [next, setNext] = useState<{ cents: number; name: string } | null>(null);
   const load = async () => {
     const r = await api<{ membership: Mine | null }>("/my/membership");
-    setMine(r.membership);
+    setMine(r.membership); onPlan?.(r.membership?.name ?? null);
     if (!r.membership) setOffers(await api<Offer[]>("/membership-plans"));
   };
   const { preview, sheet } = usePreview((r?: { payment_id?: string; membership_id?: string; save_card?: boolean }) => {
@@ -75,11 +82,10 @@ export function Membership() {
   }, [lang.value]);
   const paid = async () => { setPaying(null); setWelcome(!mine); setChosen(null); await load(); };
   useConfirming([mine?.pay_now?.payment_id], load);
-  if (mine === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (mine === undefined) return <p class="card">{t("ui.loading")}</p>;
 
   return (
-    <main>
-      <h1>{t("ui.nav_membership")}</h1>
+    <div class="membership">
       {sheet}
       {paying && <PaySheet {...(paying.card ? { cardFor: paying.id } : { paymentId: paying.id })} amountCents={paying.cents} name={paying.name} onClose={() => setPaying(null)} onPaid={paid} />}
       {paying && provider === "test" && import.meta.env.DEV && <p><button class="primary" onClick={async () => {
@@ -126,7 +132,7 @@ export function Membership() {
         </section>
       ) : null}
       {mine?.family && <FamilyCover m={mine} send={preview} />}
-      {mine ? null : me.value?.kid ? <p class="card">{t("ui.kid_membership_parents")}</p> : offers.length === 0 ? <p class="card">{t("ui.no_plans_in_app")}</p> : offers.map((o) => (
+      {mine ? null : me.value?.kid ? <p class="card">{t("ui.kid_membership_parents")}</p> : offers.length === 0 ? <p class="card">{t("ui.no_plans_in_app")}</p> : <div class={embedded ? "rail plans" : undefined}>{offers.map((o) => (
         <section class="card">
           <h2>{o.name} <span class="meta">{price(o)}</span></h2>
           {o.description && <p>{o.description}</p>}
@@ -138,7 +144,7 @@ export function Membership() {
             : <NewOnly><button class="primary" onClick={() => { setChosen(o); void preview("membership.join", { plan_id: o.id, person_id: me.value!.person.id }); }}>
               {o.starts_on ? t("ui.join_presale") : t("ui.join_plan", { amount: dollars(o.price_cents, lang.value) })}</button></NewOnly>}
         </section>
-      ))}
-    </main>
+      ))}</div>}
+    </div>
   );
 }

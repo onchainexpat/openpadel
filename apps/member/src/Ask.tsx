@@ -20,7 +20,8 @@ function FactList({ facts }: { facts: Fact[] }) {
 
 export function Ask() {
   const { route } = useLocation();
-  const [search, setSearch] = useState(""), [facts, setFacts] = useState<Fact[] | null>(null), [text, setText] = useState(""), [matches, setMatches] = useState<Fact[]>([]);
+  // Asked from Home (?q=): the question is already written, and the club's answers that match it show first.
+  const [search, setSearch] = useState(""), [facts, setFacts] = useState<Fact[] | null>(null), [text, setText] = useState(() => new URLSearchParams(location.search).get("q") ?? ""), [matches, setMatches] = useState<Fact[]>([]);
   const [mine, setMine] = useState<Mine[] | null>(null), [forId, setFor] = useState(me.value!.person.id);
   const loadMine = () => api<Mine[]>("/my/questions").then(setMine);
   const { preview, sheet } = usePreview((r?: { question_id?: string }) => { if (r?.question_id) route(`/ask/${r.question_id}`); else void loadMine(); });
