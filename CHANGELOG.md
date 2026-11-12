@@ -36,7 +36,8 @@ up right there.
   same preview as before, and paying, leaving, running late and the score work as before. Home's counts for the next
   14 days now follow the same split, from a light read, `GET /my/whats-on/counts` (counts only, of what any member
   can see), instead of loading every open match and program. /events, /learn, /lessons, /play and /match/... open as
-  before.
+  before. The "a place is open" message now links to the program's own page (a clinic or course opens under Learn),
+  and Events says where clinics and courses went, for the links sent before.
 - `GET /open-programs` also gives each program's coach (the next date's: name and photo, never contact details), the
   length of its next date, how many dates it has, its last date and its next date's id (for the players' chat).
 - Signing in: staff sign in with the emailed or texted code alone. Whoever has set up a passkey or an authenticator

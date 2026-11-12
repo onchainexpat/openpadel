@@ -772,6 +772,8 @@ export const en = {
   "ui.me_more_title": "More",
   // Play and Learn: the events, clinics and courses, their cards and pages.
   "ui.any_day": "Any day",
+  "ui.dates_to_come": "Dates to come",
+  "ui.learn_is_where": "Clinics and courses are under Learn",
   "ui.nothing_that_day": "nothing on",
   "ui.only_with_places": "Only ones with places left",
   "ui.none_this_day": "Nothing for that choice. Try another day, or any day.",

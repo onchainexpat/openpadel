@@ -70,7 +70,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const out = new Map<string, { coach: { name: string; photo: string | null } | null; minutes: number | null; sessions: number; last_start: Date | null; next_session_id: string | null }>();
     if (!programIds.length) return out;
     const rows = await db.selectFrom("session").leftJoin("person as cp", "cp.id", "session.coach_id").leftJoin("coach as cc", "cc.person_id", "session.coach_id")
-      .select(["session.id", "session.program_id", "session.starts_at", "session.ends_at", "cp.display_name as coach_name", "cc.photo_id"])
+      // A coach no longer active (or archived) isn't named, as on the private lessons page; their photo isn't served then either.
+      .select(["session.id", "session.program_id", "session.starts_at", "session.ends_at",
+        sql<string | null>`CASE WHEN coalesce(cc.active, true) AND cp.status <> 'archived' THEN cp.display_name END`.as("coach_name"), sql<string | null>`CASE WHEN cc.active THEN cc.photo_id END`.as("photo_id")])
       .where("session.program_id", "in", programIds).where("session.status", "!=", "cancelled").orderBy("session.starts_at").execute();
     for (const id of programIds) {
       const all = rows.filter((r) => r.program_id === id), next = all.find((r) => new Date(r.starts_at) > now) ?? all[0];
@@ -98,7 +100,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .select((x) => x.fn.countAll<string>().as("n"))
       .where("open_match.listed", "=", true).where("booking.status", "=", "confirmed").where("court_time.active", "=", true)
       .where((eb) => eb.or([eb("booking.settled_at", "is", null), eb.exists(eb.selectFrom("booking_player").select("booking_player.id").whereRef("booking_player.booking_id", "=", "booking.id")
-        .where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is not", null).where("booking_player.fill_refund_percent", "is not", null))]))
+        .where("booking_player.removed_at", "is", null).where("booking_player.replaces", "is", null).where("booking_player.leaving_at", "is not", null).where("booking_player.fill_refund_percent", "is not", null))]))
       // A place left: fewer players than places (a sub still paying to take over a place isn't one; a leaver's place is free).
       .where(sql<boolean>`booking.players > (SELECT count(*) FROM booking_player bp WHERE bp.booking_id = booking.id AND bp.removed_at IS NULL AND bp.replaces IS NULL AND bp.leaving_at IS NULL)`)
       .where(sql<boolean>`lower(court_time.during) > ${from}`).where(sql<boolean>`lower(court_time.during) <= ${to}`).executeTakeFirstOrThrow();

@@ -107,6 +107,9 @@ test("a full date can be watched; it's told only when that date has a place nobo
   assert.equal(w.session_id, d[1]);
   await deliver();
   assert.match((await inbox("Eve")).find((m) => m.kind === "place_open")!.body, /Tue, Dec 8, 6:00 PM/);
+  // It links to the program's own page (the members' app moves a clinic or course on to Learn).
+  const link = (await db.selectFrom("outbound_message").select("link").where("person_id", "=", people.Eve!).where("kind", "=", "place_open").executeTakeFirstOrThrow()).link;
+  assert.match(link ?? "", /^\/events\/[0-9a-f-]{36}$/);
 });
 
 test("staff give a free place on one date, and more places on a date go to its waitlist first", async () => {

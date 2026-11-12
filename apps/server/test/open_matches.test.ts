@@ -187,6 +187,11 @@ test("Play and Learn: a program's coach, length and dates, and Home's 14-day cou
   // Four weeks: the last date three weeks after the first (give or take a clock change).
   assert.ok(Math.abs(new Date(c.last_start).getTime() - new Date(c.first_start).getTime() - 21 * 86400_000) <= 3600_000);
   assert.ok(c.next_session_id);
+  // A coach no longer active isn't named (as on the private lessons page).
+  await db.insertInto("coach").values({ person_id: people.Kim!, active: false }).onConflict((oc) => oc.column("person_id").doUpdateSet({ active: false })).execute();
+  assert.equal((await get("/open-programs", "ann@example.test")).json.find((p: any) => p.id === course).coach, null);
+  await db.updateTable("coach").set({ active: true }).where("person_id", "=", people.Kim!).execute();
+  assert.equal((await get("/open-programs", "ann@example.test")).json.find((p: any) => p.id === course).coach.name, "Kim Coach");
   assert.equal(progs.find((p: any) => p.name === "Friday Americano").coach, null);
   assert.ok(!progs.some((p: any) => p.name === "Draft league"));
   // The coach is a name (and a photo, if any): never their email or phone.

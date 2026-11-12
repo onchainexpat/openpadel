@@ -44,4 +44,5 @@ export function weeksOf(first: string | null, last: string | null): number {
   return Math.max(1, Math.round((new Date(last).getTime() - new Date(first).getTime()) / (7 * 86_400_000)) + 1);
 }
 
+/** Home's 14-day counts (GET /my/whats-on/counts). */
 export type SoonCounts = { matches: number; events: number; clinics: number; courses: number };

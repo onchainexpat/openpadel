@@ -53,6 +53,8 @@ export function Events() {
       <ForWhom value={who} onChange={setWho} />
       {!rows ? <p class="meta">{t("ui.loading")}</p> : all.length === 0 ? <p class="card">{t("ui.events_nothing")}</p> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
       <ul class="items">{shown.map((p) => <li key={p.id}><ProgramItem p={p} href={`/events/${p.id}${forQuery(who)}`} /></li>)}</ul>
+      {/* Links sent before Learn had its own tab named this page for clinics and courses too. */}
+      <p><a href="/learn">{t("ui.learn_is_where")}</a></p>
     </main>
   );
 }
@@ -93,7 +95,7 @@ const canJoin = (p: Program) => !p.dates && !p.my_status && !p.my_offer_until &&
 /** A program's card: kind, name, when (and how long), level, coach or club, places taken, and this person's price. */
 function ProgramItem({ p, href, join }: { p: Program; href: string; join?: () => void }) {
   const left = placesLeft(p), full = !p.dates && left <= 0, weeks = weeksOf(p.first_start, p.last_start);
-  const when = p.first_start ? clubTime(p.first_start, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "";
+  const when = p.first_start ? clubTime(p.first_start, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : t("ui.dates_to_come");
   return (
     <div class={p.my_status === "booked" ? "item mine" : "item"}>
       <span class="item-top">
@@ -115,12 +117,14 @@ function ProgramItem({ p, href, join }: { p: Program; href: string; join?: () =>
 
 /** One program's page: the facts, who runs it, the places, the dates (signed up per date), the chat once in, and Join. */
 export function ProgramPage({ id }: { id: string }) {
-  const { path, query } = useLocation();
+  const { path, query, route } = useLocation();
   const [who, setWho] = useState(query.for && query.for !== me.value!.person.id ? query.for : me.value!.person.id), { rows, load } = usePrograms(who);
   const [picked, setPicked] = useState<string[]>([]);
   const { preview, sheet } = usePreview(() => { setPicked([]); void load(); });
   const learn = path.startsWith("/learn");
   const p = rows?.find((x) => x.id === id);
+  // Under the tab it belongs to: a clinic or course linked as /events/... (the place-open email) moves on to /learn/..., and back.
+  useEffect(() => { if (p && learn === isEvent(p.kind)) route(`${learn ? "/events" : "/learn"}/${id}${forQuery(who)}`, true); }, [p?.id, learn]);
   const back = learn ? (p?.kind === "course" ? "/learn?show=courses" : "/learn") : "/events";
   if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;
   if (!p) return <main><p class="card">{t("ui.program_gone")} <a href={back}>{t(learn ? "ui.tab_learn" : "ui.home_events")}</a></p></main>;
@@ -136,7 +140,7 @@ export function ProgramPage({ id }: { id: string }) {
       {sheet}
       <p class="item-kind">{kindLabel(p)}</p>
       <h1>{p.name}</h1>
-      <p><strong>{p.dates ? t("ui.per_date_note") : p.first_start ? long(p.first_start) : ""}</strong>
+      <p><strong>{p.dates ? t("ui.per_date_note") : p.first_start ? long(p.first_start) : t("ui.dates_to_come")}</strong>
         {!p.dates && p.sessions > 1 && <><br /><span class="meta">{t("ui.sessions_weeks", { sessions: t("count.dates", { count: p.sessions }), weeks: t("count.weeks", { count: weeks }) })}{p.last_start ? `, ${t("ui.last_date", { when: day(p.last_start) })}` : ""}</span></>}</p>
       <ForWhom value={who} onChange={(x) => { setWho(x); setPicked([]); }} />
       <section class="card">
@@ -160,7 +164,8 @@ export function ProgramPage({ id }: { id: string }) {
           <li>{t(p.rated ? "ui.rated_label" : "ui.friendly_label")}</li>
           <li>{t("ui.refund_rule", { hours: p.refund_window_hours })}</li>
         </ul>
-        {p.my_status === "booked" && club.value?.players_chat && p.next_session_id && <p><a class="button" href={`/chats/session/${p.next_session_id}`}>{t("ui.chat_open")}</a></p>}
+        {/* The chat is the member's own: not offered on a junior's page (juniors have no chats). */}
+        {p.my_status === "booked" && who === me.value!.person.id && club.value?.players_chat && p.next_session_id && <p><a class="button" href={`/chats/session/${p.next_session_id}`}>{t("ui.chat_open")}</a></p>}
       </section>
 
       {p.dates ? <section class="card">

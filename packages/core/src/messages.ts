@@ -1019,7 +1019,7 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   },
   async "program.place_open"({ tz }, p: { program_id: string; name: string | Text; starts_at: string | null; people: string[] }) {
     const start = p.starts_at ? new Date(p.starts_at) : null;
-    return p.people.map((to) => ({ to, kind: "place_open", params: { name: p.name, when: when(start, tz) }, purpose: "account" as const, essential: false, email: true, link: "/events", staleAt: start }));
+    return p.people.map((to) => ({ to, kind: "place_open", params: { name: p.name, when: when(start, tz) }, purpose: "account" as const, essential: false, email: true, link: `/events/${p.program_id}`, staleAt: start }));   // its own page (a clinic or course moves on to Learn)
   },
   // An edit to a program's dates undone: the people told about it hear it's back as it was.
   async "action.undone"({ db }, p: { run_id: string }) {
