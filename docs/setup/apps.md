@@ -22,8 +22,16 @@ other padel apps expect them:
   the club's courts, opening hours and directions (the address of each location, from Settings).
 - **Book:** a court, by day, length and start time, then the court; the preview shows the price before anything is
   booked.
-- **Play:** open matches, and the club's events (tournaments, leagues, socials).
-- **Learn:** clinics, courses and private lessons with a coach.
+- **Play:** open matches, and the club's events: open play (socials and Americanos), tournaments and leagues, with
+  chips for each kind. Both lists have a week of days to pick from and "Only ones with places left". A card shows
+  when, the level range, the price, the places taken (an open match also shows its players' initials, as its page
+  names them) and who runs it: the host, the coach of its next date, or the club. Each event has its own page with
+  the level, price and places, the coach, the length and refund rule, its dates to choose from when it's signed up
+  for per date, the players' chat once the member is in, and Join kept at the bottom of the screen.
+- **Learn:** clinics (with the same week of days), courses (with the price for the whole course and how many weeks it
+  runs) and private lessons with a coach. Clinics and courses never show under Play's events. A clinic or course
+  taken as a whole can be joined from its card; every Join opens the usual preview, with the member's own price
+  (member price, included session or pack) shown before anything is paid.
 - **Me:** level, club credit and receipts, membership, the card on file, family, profile and settings, the member's
   data, and signing out.
 

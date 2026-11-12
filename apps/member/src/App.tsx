@@ -1,7 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
 import { api, chatsUnread, club, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand, applyTitle } from "@kumi/ui";
-import { Events, Learn } from "./WhatsOn.tsx";
 import { Home } from "./Home.tsx";
 import { TabBar } from "./TabBar.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
@@ -14,7 +13,11 @@ import { TakePlace } from "./Take.tsx";
 import { loadFamily, waiverDue } from "./ForWhom.tsx";
 // Pages few members open, loaded when they do.
 const Membership = lazyPage(() => import("./Membership.tsx").then((m) => m.Membership));
-const Lessons = lazyPage(() => import("./Lessons.tsx").then((m) => m.Lessons));
+// Events (under Play) and Learn: the club's programs, each with its own page; and the private lessons, under Learn.
+const Events = lazyPage(() => import("./Programs.tsx").then((m) => m.Events));
+const Learn = lazyPage(() => import("./Programs.tsx").then((m) => m.Learn));
+const ProgramPage = lazyPage(() => import("./Programs.tsx").then((m) => m.ProgramPage));
+const Lessons = lazyPage(() => import("./Programs.tsx").then((m) => m.LessonsPage));
 const Competitions = lazyPage(() => import("./Competitions.tsx").then((m) => m.Competitions));
 const GiftCards = lazyPage(() => import("./GiftCards.tsx").then((m) => m.GiftCards));
 const Passes = lazyPage(() => import("./Passes.tsx").then((m) => m.Passes));
@@ -84,7 +87,9 @@ export function App() {
       <Router>
         <Route path="/" component={Home} />
         <Route path="/events" component={Events} />
+        <Route path="/events/:id" component={ProgramPage} />
         <Route path="/learn" component={Learn} />
+        <Route path="/learn/:id" component={ProgramPage} />
         <Route path="/account" component={Me} />
         <Route path="/places" component={MyPlaces} />
         <Route path="/competitions" component={Competitions} />

@@ -24,6 +24,21 @@ up right there.
   courses and private lessons. Every old address still opens its page: "What's on" is now at /events, and Me at
   /account. The emails about a place opening up link to the events and to My places, rather than to Home.
 - A member's read of the club's public facts (courts, opening hours, address), for Home: `GET /my/club`.
+- Play and Learn in the members' app. Play has Open matches and Events side by side; Events shows only open play
+  (socials and Americanos), tournaments and leagues, with a chip for each. Learn has Clinics, Courses and Private
+  lessons; clinics and courses are only there. Each list has a week of days (or any day) and "Only ones with places
+  left", and cards with the kind, name, date and time, length, level range, price, places taken and who runs it (an
+  open match's host, with its players' initials, as its page already names them; a program's coach, or the club).
+  A course shows its price for the whole course and how many weeks it runs. Events, clinics and courses each have a
+  page (/events/... and /learn/...) with the level, price and places, the coach, the minimum to run, the length and
+  refund rule, the dates to choose from, a link to the players' chat once in, and Join at the bottom of the screen; a
+  match's page shows the same facts, its players and a progress bar, and keeps Join at the bottom. Join opens the
+  same preview as before, and paying, leaving, running late and the score work as before. Home's counts for the next
+  14 days now follow the same split, from a light read, `GET /my/whats-on/counts` (counts only, of what any member
+  can see), instead of loading every open match and program. /events, /learn, /lessons, /play and /match/... open as
+  before.
+- `GET /open-programs` also gives each program's coach (the next date's: name and photo, never contact details), the
+  length of its next date, how many dates it has, its last date and its next date's id (for the players' chat).
 - Signing in: staff sign in with the emailed or texted code alone. Whoever has set up a passkey or an authenticator
   app still gives it at every sign-in. A new owner's setting in Settings, "Sign-in and roles", "Staff must use a
   second step at sign-in", asks owners, managers and the club's own roles (or every staff role, as the club's rule

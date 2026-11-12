@@ -7,7 +7,8 @@ import { useLocation } from "preact-iso";
 import { api, club, clubTime, lang, serverNow, t } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 import { hoursOn, weekLines, clock, type Hours, type Special } from "./hours.ts";
-import { comingUp, soonCounts, type Upcoming } from "./home_data.ts";
+import { comingUp, type Upcoming } from "./home_data.ts";
+import type { SoonCounts } from "./whats_on.ts";
 
 type Place = { id: string; name: string; address: string | null; courts: number; kinds: string[]; hours: Hours[]; special: Special[] };
 type ClubInfo = { time_zone: string; locations: Place[] };
@@ -18,15 +19,15 @@ const mapLink = (address: string) => `https://www.google.com/maps/search/?api=1&
 
 export function Home() {
   const [info, setInfo] = useState<ClubInfo | null>(null), [plan, setPlan] = useState<string | null>(null);
-  const [next, setNext] = useState<Upcoming[] | null>(null), [soon, setSoon] = useState<ReturnType<typeof soonCounts> | null>(null);
+  const [next, setNext] = useState<Upcoming[] | null>(null), [soon, setSoon] = useState<SoonCounts | null>(null);
   const courts = Boolean(club.value?.court_bookings);
   useEffect(() => {
     api<ClubInfo>("/my/club").then(setInfo).catch(() => {});
     api<{ membership: { name: string } | null }>("/my/membership").then((r) => setPlan(r.membership?.name ?? null)).catch(() => {});
     Promise.all([api<Parameters<typeof comingUp>[0]>("/my/bookings").catch(() => []), api<Parameters<typeof comingUp>[1]>("/my/places").catch(() => [])])
       .then(([b, p]) => setNext(comingUp(b, p, serverNow()))).catch(() => setNext([]));
-    Promise.all([api<Parameters<typeof soonCounts>[0]>("/open-programs").catch(() => []), courts ? api<Parameters<typeof soonCounts>[1]>("/open-matches").catch(() => []) : Promise.resolve([])])
-      .then(([p, m]) => setSoon(soonCounts(p, m, serverNow()))).catch(() => {});
+    // Counts only (the server's): events under Play, clinics and courses under Learn, open matches with a place left.
+    api<SoonCounts>("/my/whats-on/counts").then(setSoon).catch(() => {});
   }, [lang.value, courts]);
   const loc = info?.locations[0], locale = formatLocale(lang.value);
   const today = loc && info && info.locations.length === 1 ? hoursOn(clubToday(info.time_zone), loc.hours, loc.special) : null;
@@ -64,7 +65,7 @@ export function Home() {
           {courts && soon.matches > 0 && <a href="/play">{t("count.open_matches", { count: soon.matches })}</a>}
           {soon.events > 0 && <a href="/events">{t("count.events", { count: soon.events })}</a>}
           {soon.clinics > 0 && <a href="/learn">{t("count.clinics", { count: soon.clinics })}</a>}
-          {soon.courses > 0 && <a href="/learn">{t("count.courses_starting", { count: soon.courses })}</a>}
+          {soon.courses > 0 && <a href="/learn?show=courses">{t("count.courses_starting", { count: soon.courses })}</a>}
         </div>}
       </section>}
 

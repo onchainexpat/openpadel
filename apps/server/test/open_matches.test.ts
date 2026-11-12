@@ -162,3 +162,42 @@ test("a court booked in full has its own page for its players: the booker names 
   assert.deepEqual([ann.me.added, ann.players_link, ann.can_name], [true, null, false]);
   assert.deepEqual((await get("/my/players/find?q=an", "hal@example.test")).json, [{ id: people.Ann, display_name: "Ann", friend: false }]);   // they've played together
 });
+
+test("Play and Learn: a program's coach, length and dates, and Home's 14-day counts, only of what members can see", async () => {
+  const loc = (await db.selectFrom("location").select("id").executeTakeFirstOrThrow()).id;
+  people.Kim = ((await run(db, "person.create", { display_name: "Kim Coach", email: "kim@example.test", phone: "+15555550123" }, owner)).result as any).person_id;
+  await run(db, "role.assign", { person_id: people.Kim, role: "coach" }, owner);
+  const day = (n: number) => { const d = new Date(Date.now() + n * 86400_000); d.setUTCHours(12, 0, 0, 0); return d; };   // morning at the club, clear of the matches above
+  const program = async (kind: string, name: string, n: number, more: { coach?: boolean; weeks?: number; publish?: boolean } = {}) => {
+    const id = ((await run(db, "program.create", { location_id: loc, kind, name, capacity: 8, price_cents: 2000 }, owner)).result as any).program_id;
+    await run(db, "session.add", { program_id: id, starts_at: day(n).toISOString(), ends_at: new Date(day(n).getTime() + 90 * 60_000).toISOString(), court_ids: [court],
+      ...(more.coach ? { coach_id: people.Kim } : {}), ...(more.weeks ? { weeks: more.weeks } : {}) }, owner);
+    if (more.publish !== false) await run(db, "program.publish", { program_id: id }, owner);
+    return id;
+  };
+  const before = (await get("/my/whats-on/counts", "ann@example.test")).json;
+  await program("clinic", "Volley drills", 2, { coach: true });
+  const course = await program("course", "Smash course", 5, { coach: true, weeks: 4 });
+  await program("social", "Friday Americano", 3);
+  await program("tournament", "Winter Cup", 20);                 // past the 14 days
+  await program("league", "Draft league", 4, { publish: false }); // not published: no member sees it
+  const progs = (await get("/open-programs", "ann@example.test")).json;
+  const c = progs.find((p: any) => p.id === course);
+  assert.deepEqual([c.coach.name, c.coach.photo, c.minutes, c.sessions, c.kind], ["Kim Coach", null, 90, 4, "course"]);
+  // Four weeks: the last date three weeks after the first (give or take a clock change).
+  assert.ok(Math.abs(new Date(c.last_start).getTime() - new Date(c.first_start).getTime() - 21 * 86400_000) <= 3600_000);
+  assert.ok(c.next_session_id);
+  assert.equal(progs.find((p: any) => p.name === "Friday Americano").coach, null);
+  assert.ok(!progs.some((p: any) => p.name === "Draft league"));
+  // The coach is a name (and a photo, if any): never their email or phone.
+  assert.doesNotMatch(JSON.stringify(progs), /kim@example|5555550123/);
+
+  assert.equal((await app.request("/my/whats-on/counts")).status, 401);
+  const after = (await get("/my/whats-on/counts", "ann@example.test")).json;
+  assert.deepEqual([after.events - before.events, after.clinics - before.clinics, after.courses - before.courses], [1, 1, 1]);
+  // The matches counted are the listed ones on Play with a place left, starting in the next 14 days.
+  const soon = (await get("/open-matches", "ann@example.test")).json.filter((m: any) => m.open && m.spots_left > 0 && new Date(m.start).getTime() <= Date.now() + 14 * 86400_000);
+  assert.ok(soon.length >= 1);
+  assert.equal(after.matches, soon.length);
+  assert.deepEqual(Object.keys(after).sort(), ["clinics", "courses", "events", "matches"]);
+});

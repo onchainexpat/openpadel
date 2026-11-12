@@ -6,6 +6,9 @@ import { api, ApiError, club, dollars, lang, me, NewOnly, shortTime, t, usePrevi
 import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 import { PlaySwitch } from "./TabBar.tsx";
+import { DayStrip, PlacesToggle } from "./DayStrip.tsx";
+import { Taken } from "./cards.tsx";
+import { initials, matchHasPlace, matchOn } from "./whats_on.ts";
 
 export type Match = {
   id: string; court: string; location: string; time_zone: string; start: string; end: string; host: string | null; host_is_me: boolean; open: boolean; cancelled: boolean; rated: boolean; listed: boolean;
@@ -30,41 +33,69 @@ const band = (m: Match) => `${Number(m.level_min).toFixed(2)}-${Number(m.level_m
 const lv = (n: number | null) => (n === null ? t("ui.no_level_yet") : n.toFixed(2));
 const when = (m: Match, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: m.time_zone, ...opts }).format(new Date(m.start));
 
-/** The facts of a match, the same on the list and on its page. */
+/** The facts of a match on its page: when and where, the level, a place's price and the places taken, then who's in
+ *  (each with their level, as before) and the open places. */
 function Facts({ m }: { m: Match }) {
+  const { taken, total } = placeCount(m);
   return <>
     <p><strong>{when(m, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</strong> · {m.court}, {m.location}</p>
-    {m.is_match ? <p class="meta">{t("ui.levels_band", { band: band(m) })} · {t(m.rated ? "ui.match_rated" : "ui.match_friendly")} · {t("ui.place_price", { amount: dollars(m.share_cents, lang.value) })}</p>
-      : <p class="meta">{t(m.rated ? "ui.match_rated" : "ui.match_friendly")}</p>}
-    <ul class="plain">{m.players.map((p) => <li>{p.name}{p.level !== null ? ` · ${p.level.toFixed(2)}` : ""}{p.host ? ` · ${t("ui.host")}` : ""}{p.paying ? ` · ${t("ui.paying")}` : ""}
+    {m.is_match && <dl class="facts">
+      <div><dt>{t("ui.fact_level")}</dt><dd>{band(m)}</dd></div>
+      <div><dt>{t("ui.fact_price")}</dt><dd>{dollars(m.share_cents, lang.value)} <small>{t("ui.each")}</small></dd></div>
+      <div><dt>{t("ui.fact_places")}</dt><dd>{taken}/{total}</dd></div>
+    </dl>}
+    <p class="meta">{t(m.rated ? "ui.rated_label" : "ui.friendly_label")}</p>
+    {m.is_match && !m.cancelled && <progress class="fill" max={total} value={taken} aria-label={t("ui.n_places_taken", { taken, total })} />}
+    <h2 class="small-head">{t("ui.players")}</h2>
+    <ul class="plain people">{m.players.map((p) => <li><span class="avatar" aria-hidden="true">{initials(p.name)}</span><span>{p.name}{p.level !== null ? ` · ${p.level.toFixed(2)}` : ""}{p.host ? ` · ${t("ui.host")}` : ""}{p.paying ? ` · ${t("ui.paying")}` : ""}
       {p.saved ? ` · ${t("ui.place_saved_for")}` : ""}{p.leaving ? ` · ${t("ui.cant_make_it_tag")}` : ""}{p.no_show ? ` · ${t("ui.didnt_come")}` : ""}
-      {recText(p.record) && <span class="meta"> · {recText(p.record)}</span>}</li>)}
-      {Array.from({ length: m.spots_left }, () => <li class="meta">{t(m.is_match ? "ui.open_place" : "ui.player_not_named")}</li>)}</ul>
+      {recText(p.record) && <span class="meta"> · {recText(p.record)}</span>}</span></li>)}
+      {Array.from({ length: m.spots_left }, () => <li class="meta"><span class="avatar open" aria-hidden="true" /><span>{t(m.is_match ? "ui.open_place" : "ui.player_not_named")}</span></li>)}</ul>
     {m.open && !m.cancelled && m.spots_left > 0 && new Date(m.full_by) > new Date(serverNow()) && <p class="meta">{t("ui.match_cutoff", { time: new Intl.DateTimeFormat(formatLocale(lang.value),
       { timeZone: m.time_zone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(m.full_by)) })}</p>}
   </>;
 }
 
+/** Taken places and all of them: whoever is leaving has given theirs up. */
+const placeCount = (m: Match) => { const taken = m.players.filter((p) => !p.leaving).length; return { taken, total: taken + m.spots_left }; };
+
 export function Play() {
-  const [rows, setRows] = useState<Match[] | null>(null);
+  const [rows, setRows] = useState<Match[] | null>(null), [day, setDay] = useState(""), [places, setPlaces] = useState(false);
   useEffect(() => { api<Match[]>("/open-matches").then(setRows); }, [lang.value]);
   if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;
-  const level = rows[0]?.my_level;
+  const level = rows[0]?.my_level, tz = rows[0]?.time_zone ?? club.value?.time_zone ?? "UTC";
+  const shown = rows.filter((m) => matchOn(m, day) && (!places || matchHasPlace(m)));
   return (
     <main>
       <h1>{t("ui.nav_play")}</h1>
       <PlaySwitch here="matches" />
+      <DayStrip value={day} onChange={setDay} tz={tz} has={(d) => rows.some((m) => matchOn(m, d))} />
+      <PlacesToggle value={places} onChange={setPlaces} />
       {rows.length > 0 && <p class="meta">{t("ui.your_level_is", { level: lv(level ?? null) })}</p>}
-      {rows.length === 0 && <p class="card">{t("ui.no_open_matches")}</p>}
-      {rows.map((m) => (
-        <section class="card">
-          <Facts m={m} />
-          <a href={`/match/${m.id}`}>{m.can === "join" ? t("ui.see_and_join") : m.can === "ask" ? t("ui.see_and_ask") : t("ui.see_match")}</a>
-        </section>
-      ))}
+      {rows.length === 0 ? <p class="card">{t("ui.no_open_matches")}</p> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
+      <ul class="items">{shown.map((m) => <li key={m.id}><MatchCard m={m} /></li>)}</ul>
       <p class="meta">{t("ui.open_your_own")}</p>
       <p><a href="/friends">{t("ui.see_friends")}</a></p>
     </main>
+  );
+}
+
+/** An open match on Play: when, where, the levels, a place's price, who's in (their initials, as the list names
+ *  them to every member anyway) and who opened it. The whole card opens the match. */
+function MatchCard({ m }: { m: Match }) {
+  const { taken, total } = placeCount(m), full = m.spots_left <= 0;
+  const end = new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: m.time_zone, hour: "numeric", minute: "2-digit" }).format(new Date(m.end));
+  return (
+    <a class={m.me ? "item mine" : "item"} href={`/match/${m.id}`}>
+      <span class="item-top">
+        <span class="item-kind">{t("ui.open_match_label")}{m.me && <span class="tag on">{t("ui.youre_in")}</span>}</span>
+        <span class="item-price">{full ? t("ui.full") : <>{dollars(m.share_cents, lang.value)} <small>{t("ui.each")}</small></>}</span>
+      </span>
+      <span class="item-title">{when(m, { weekday: "short", day: "numeric", month: "short" })}, {t("ui.time_range", { from: when(m, { hour: "numeric", minute: "2-digit" }), to: end })}</span>
+      <span class="item-when">{m.court}, {m.location}</span>
+      <span class="tags"><span class="tag">{t("ui.level_band", { min: Number(m.level_min).toFixed(2), max: Number(m.level_max).toFixed(2) })}</span><span class="tag">{t(m.rated ? "ui.rated_short" : "ui.friendly_short")}</span></span>
+      <span class="item-foot"><Taken taken={taken} total={total} names={m.players.filter((p) => !p.leaving).map((p) => p.name)} />{m.host && <span class="item-org">{t("ui.by_name", { name: m.host })}</span>}</span>
+    </a>
   );
 }
 
@@ -87,7 +118,9 @@ export function MatchPage({ id }: { id: string }) {
   const share = async () => { await navigator.clipboard?.writeText(`${location.origin}/join/${m.invite_code}`).catch(() => {}); setCopied(true); };
   const copyTake = async () => { await navigator.clipboard?.writeText(`${location.origin}/take/${m.me!.offer!.code}`).catch(() => {}); setTakeCopied(true); };
   return (
-    <main>
+    <main class={m.can === "join" ? "has-bar" : undefined}>
+      {m.is_match && <p><a href="/play">{t("ui.back_to", { page: t("ui.play_matches") })}</a></p>}
+      <p class="item-kind">{t(m.is_match ? "ui.open_match_label" : "ui.court_booking")}</p>
       <h1>{m.is_match ? (m.host_is_me ? t("ui.your_match") : t("ui.match_by", { host: m.host ?? "" })) : m.host_is_me ? t("ui.your_booking") : t("ui.booking_by", { host: m.host ?? "" })}</h1>
       {sheet}
       {(m.host_is_me || m.me) && club.value?.players_chat && !m.cancelled && <p><a href={`/chats/booking/${m.id}`}>{t("ui.chat_open")}</a></p>}
@@ -95,12 +128,11 @@ export function MatchPage({ id }: { id: string }) {
       {paying && provider === "test" && import.meta.env.DEV && <p><button class="primary" onClick={async () => { await api(`/dev/payments/${paying}/settle`, {}); setPaying(null); void load(); }}>{t("ui.pay_test")}</button></p>}
       <section class="card">
         <Facts m={m} />
-        {m.note && <p>{m.note}</p>}
+        {m.note && <><h2 class="small-head">{t("ui.about")}</h2><p>{m.note}</p></>}
         {payNow && isConfirming(payNow) && <p class="note" role="status">{t("ui.paid_confirming")}</p>}
         {payNow && !isConfirming(payNow) && <div class="note"><p>{m.me!.held_until ? t("ui.pay_to_keep", { amount: dollars(m.share_cents, lang.value), time: shortTime(m.me!.held_until) })
           : t("ui.place_saved_for_you", { host: m.host ?? "", amount: dollars(m.share_cents, lang.value) })}</p>
           <button class="primary" onClick={() => setPaying(payNow)}>{t("ui.pay_now", { amount: dollars(m.share_cents, lang.value) })}</button></div>}
-        {m.can === "join" && <NewOnly><button class="primary" onClick={() => preview("booking.join", { booking_id: m.id, person_id: pid })}>{t("ui.join_and_pay", { amount: dollars(m.share_cents, lang.value) })}</button></NewOnly>}
         {m.can === "ask" && (m.request?.status === "requested"
           ? <p class="meta">{t("ui.asked_waiting", { host: m.host ?? "" })} <button class="link" onClick={() => preview("booking.withdraw_ask", { request_id: m.request!.id })}>{t("ui.take_back")}</button></p>
           : <>
@@ -153,6 +185,11 @@ export function MatchPage({ id }: { id: string }) {
         <ul class="plain">{m.players.filter((p) => !p.host && p.id).map((p) => <li class="row"><span>{p.name}</span>
           {p.no_show ? <span class="meta">{t("ui.didnt_come")}</span> : <button class="small" onClick={() => preview("booking.mark_no_show", { booking_player_id: p.id })}>{t("ui.mark_didnt_come")}</button>}</li>)}</ul>
       </section>}
+      {/* Join, kept at the bottom of the screen above the tabs: the same preview as before, nothing changes before Confirm. */}
+      {m.can === "join" && <div class="book-bar">
+        <span class="book-bar-what"><strong>{when(m, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</strong><span>{t("ui.place_price", { amount: dollars(m.share_cents, lang.value) })}</span></span>
+        <NewOnly><button class="primary" onClick={() => preview("booking.join", { booking_id: m.id, person_id: pid })}>{t("ui.join_and_pay", { amount: dollars(m.share_cents, lang.value) })}</button></NewOnly>
+      </div>}
     </main>
   );
 }

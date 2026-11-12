@@ -7,6 +7,8 @@ import { chatRoutes } from "./chats.ts";
 import { clubFileStem } from "./file_names.ts";
 
 type Me = { id: string } | null;
+/** Learning, under the members' Learn tab; every other kind of program (socials, tournaments, leagues) is an event, under Play. */
+const LEARN_KINDS = ["clinic", "course"];
 export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { production: boolean; now?: () => Date }) {
   const app = new Hono();
   const now = opts.now ?? (() => new Date());
@@ -42,21 +44,66 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     // My own price for each (a member price, or an included session); without a membership, what members pay.
     const now = new Date(), mine = await programPrices(db, rows, pid, now), members = await membersFrom(db, rows);
     const byDate = await datesOpen(rows.filter((r) => r.sign_up === "per_session").map((r) => r.id), pid, now);
+    const shape = await programShape(rows.map((r) => r.id), now);
     return c.json(rows.filter((r) => r.sign_up === "per_session" ? (byDate.get(r.id) ?? []).length > 0 : !r.first_start || new Date(r.first_start as any) > now).map(({ member_price_cents, my_place_price, sign_up, ...r }) => {
+      const more = shape.get(r.id) ?? { coach: null, minutes: null, sessions: 0, last_start: null, next_session_id: null };
       // Signed up per date: each date still to come with its own places, and where this person stands on it.
       if (sign_up === "per_session") {
         const dates = byDate.get(r.id)!, pr = mine.get(r.id)!;
-        return { ...r, first_start: dates[0]!.starts_at, booked: 0, offered: 0, my_status: null, my_offer_until: null, my_watch: null, per_date: true, dates,
+        return { ...r, ...more, first_start: dates[0]!.starts_at, booked: 0, offered: 0, my_status: null, my_offer_until: null, my_watch: null, per_date: true, dates,
           my_price_cents: pr.cents, my_basis: pr.basis, included: pr.included ? { n: pr.included.n, of: pr.included.of } : null, members_cents: pr.basis === "full" ? members.get(r.id) ?? null : null };
       }
       // With a place already: the price it was taken at, not today's.
       const [cents, basis] = my_place_price ? (my_place_price as string).split(":") : [];
       const pr = my_place_price ? { cents: Number(cents), basis: basis as "full", included: null } : mine.get(r.id)!;
-      return { ...r, booked: Number(r.booked ?? 0), offered: Number(r.offered ?? 0), my_price_cents: pr.cents, my_basis: pr.basis, included: pr.included ? { n: pr.included.n, of: pr.included.of } : null,
+      return { ...r, ...more, booked: Number(r.booked ?? 0), offered: Number(r.offered ?? 0), my_price_cents: pr.cents, my_basis: pr.basis, included: pr.included ? { n: pr.included.n, of: pr.included.of } : null,
         members_cents: pr.basis === "full" ? members.get(r.id) ?? null : null };
     })
       // Soonest first, by the actual time (not the date's text, which starts with the weekday); undated ones last.
       .sort((a, b) => (a.first_start ? new Date(a.first_start as any).getTime() : Infinity) - (b.first_start ? new Date(b.first_start as any).getTime() : Infinity)));
+  });
+
+  /** What a program's card and page show about its dates: the coach who runs the next one (name and photo, as on
+   *  the private lessons page, never contact details), how long that one is, how many dates there are and the last,
+   *  and the next one's id (its players' chat). Nothing about who else has signed up. */
+  async function programShape(programIds: string[], now: Date) {
+    const out = new Map<string, { coach: { name: string; photo: string | null } | null; minutes: number | null; sessions: number; last_start: Date | null; next_session_id: string | null }>();
+    if (!programIds.length) return out;
+    const rows = await db.selectFrom("session").leftJoin("person as cp", "cp.id", "session.coach_id").leftJoin("coach as cc", "cc.person_id", "session.coach_id")
+      .select(["session.id", "session.program_id", "session.starts_at", "session.ends_at", "cp.display_name as coach_name", "cc.photo_id"])
+      .where("session.program_id", "in", programIds).where("session.status", "!=", "cancelled").orderBy("session.starts_at").execute();
+    for (const id of programIds) {
+      const all = rows.filter((r) => r.program_id === id), next = all.find((r) => new Date(r.starts_at) > now) ?? all[0];
+      out.set(id, { coach: next?.coach_name ? { name: next.coach_name, photo: next.photo_id ? `/public/photos/${next.photo_id}` : null } : null,
+        minutes: next ? Math.round((new Date(next.ends_at).getTime() - new Date(next.starts_at).getTime()) / 60_000) : null,
+        sessions: all.length, last_start: all.at(-1)?.starts_at ?? null, next_session_id: next?.id ?? null });
+    }
+    return out;
+  }
+
+  // Home's "next 14 days at the club": how many open matches with a place left, events (socials, tournaments,
+  // leagues), clinics and courses start then. Counts only, of what any signed-in member can see on Play and Learn.
+  app.get("/my/whats-on/counts", async (c) => {
+    who(c);
+    const from = now(), to = new Date(from.getTime() + 14 * 86_400_000);
+    const progs = await db.selectFrom("program").select(["kind", "sign_up"])
+      .select((eb) => [
+        eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first_start"),
+        eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled")
+          .where("session.starts_at", ">", from).as("next_start"),
+      ]).where("status", "=", "published").where("visibility", "in", ["public", "members"]).execute();
+    // Signed up per date: its next date; otherwise the program has to start in the window (as on Play and Learn).
+    const soon = progs.filter((p) => { const s = p.sign_up === "per_session" ? p.next_start : p.first_start; if (!s) return false; const at = new Date(s as any).getTime(); return at > from.getTime() && at <= to.getTime(); });
+    const m = await db.selectFrom("open_match").innerJoin("booking", "booking.id", "open_match.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
+      .select((x) => x.fn.countAll<string>().as("n"))
+      .where("open_match.listed", "=", true).where("booking.status", "=", "confirmed").where("court_time.active", "=", true)
+      .where((eb) => eb.or([eb("booking.settled_at", "is", null), eb.exists(eb.selectFrom("booking_player").select("booking_player.id").whereRef("booking_player.booking_id", "=", "booking.id")
+        .where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is not", null).where("booking_player.fill_refund_percent", "is not", null))]))
+      // A place left: fewer players than places (a sub still paying to take over a place isn't one; a leaver's place is free).
+      .where(sql<boolean>`booking.players > (SELECT count(*) FROM booking_player bp WHERE bp.booking_id = booking.id AND bp.removed_at IS NULL AND bp.replaces IS NULL AND bp.leaving_at IS NULL)`)
+      .where(sql<boolean>`lower(court_time.during) > ${from}`).where(sql<boolean>`lower(court_time.during) <= ${to}`).executeTakeFirstOrThrow();
+    return c.json({ matches: Number(m.n), events: soon.filter((p) => !LEARN_KINDS.includes(p.kind)).length,
+      clinics: soon.filter((p) => p.kind === "clinic").length, courses: soon.filter((p) => p.kind === "course").length });
   });
 
   /** The dates still to come of programs signed up per date: each one's places, and this person's place, offer or watch on it. */

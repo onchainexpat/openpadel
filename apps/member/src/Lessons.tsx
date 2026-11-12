@@ -2,6 +2,7 @@
 // and who pays (all of it, or each player their part), and pay. Times are the club's; a time is only offered
 // when the coach gives lessons then and a court is free. Loaded only when opened, to keep the app small.
 import { useEffect, useState } from "preact/hooks";
+import type { ComponentChildren } from "preact";
 import { api, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { ForWhom } from "./ForWhom.tsx";
@@ -16,7 +17,8 @@ function Face({ c }: { c: Coach }) {
   return c.photo ? <img class="face" src={c.photo} alt="" loading="lazy" /> : <span class="face" aria-hidden="true">{initials(c.name)}</span>;
 }
 
-export function Lessons() {
+/** `head`: what goes above the coaches (Learn's title and its switch), in place of the page's own title. */
+export function Lessons({ head }: { head?: ComponentChildren }) {
   const [d, setD] = useState<Data | null>(null), [coach, setCoach] = useState<Coach | null>(null), [minutes, setMinutes] = useState(60), [day, setDay] = useState("");
   const [times, setTimes] = useState<Time[] | null>(null), [daysAhead, setDaysAhead] = useState(14), [pick, setPick] = useState<Time | null>(null);
   const [players, setPlayers] = useState(1), [pay, setPay] = useState<"whole" | "split">("whole"), [who, setWho] = useState(me.value!.person.id);
@@ -39,7 +41,7 @@ export function Lessons() {
 
   if (!coach) return (
     <main>
-      <h1>{t("ui.lessons_title")}</h1>
+      {head ?? <h1>{t("ui.lessons_title")}</h1>}
       {!d.coaches.length && <p class="card">{t("ui.lessons_none")}</p>}
       <ul class="changes">{d.coaches.map((c) => (
         <li class="card coach-card" key={c.id}>

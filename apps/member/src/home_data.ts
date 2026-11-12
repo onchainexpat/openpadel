@@ -1,5 +1,6 @@
 // What Home makes of the reads it already has (Home.tsx): the member's own coming bookings and places, soonest
-// first, and how many of each kind of thing is on at the club in the next two weeks. No Preact here: the tests read it.
+// first. (How many of each kind of thing is on in the next two weeks is the server's count, /my/whats-on/counts.)
+// No Preact here: the tests read it.
 
 type Booking = { id: string; kind: string; status: string; pay_mode: string; players: number; start: string; end: string; court: string; time_zone: string; coach: string | null;
   open_match_id: string | null; joined: number; for_name: string | null };
@@ -23,22 +24,4 @@ export function comingUp(bookings: Booking[], places: Place[], now: number): Upc
     state: x.offer_expires_at ? "offer" : x.status === "waitlisted" ? "waitlist" : "in", position: x.waitlist_position, joined: null, for_name: x.for_name, href: "/places",
   }));
   return [...b, ...p].sort((x, y) => new Date(x.start).getTime() - new Date(y.start).getTime()).slice(0, LIMIT);
-}
-
-type Program = { kind: string; first_start: string | null };
-type Match = { start: string; open: boolean; cancelled: boolean; listed: boolean; spots_left: number; is_match: boolean };
-/** Learning is clinics and courses; tournaments, leagues and socials are events. */
-export const LEARN_KINDS = ["clinic", "course"];
-const DAYS = 14;
-
-/** What's on in the next 14 days, by kind: open matches with a place left, events, clinics, and courses starting. */
-export function soonCounts(programs: Program[], matches: Match[], now: number) {
-  const soon = (iso: string | null) => { if (!iso) return false; const t = new Date(iso).getTime(); return t > now && t <= now + DAYS * 86_400_000; };
-  const next = programs.filter((p) => soon(p.first_start));
-  return {
-    matches: matches.filter((m) => m.is_match && m.open && m.listed && !m.cancelled && m.spots_left > 0 && soon(m.start)).length,
-    events: next.filter((p) => !LEARN_KINDS.includes(p.kind)).length,
-    clinics: next.filter((p) => p.kind === "clinic").length,
-    courses: next.filter((p) => p.kind === "course").length,
-  };
 }

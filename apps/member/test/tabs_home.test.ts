@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tabOf, tabsFor } from "../src/tabs.ts";
-import { comingUp, soonCounts } from "../src/home_data.ts";
+import { comingUp } from "../src/home_data.ts";
+import { initials, isEvent, LEARN_KINDS, matchHasPlace, matchOn, nextDays, onChip, programHasPlace, programOn, weeksOf } from "../src/whats_on.ts";
 import { hoursOn, weekLines } from "../src/hours.ts";
 import { startTimes } from "../src/book_times.ts";
 
@@ -20,6 +21,7 @@ test("every page the app has is under a tab", () => {
   const cases: [string, string][] = [["/", "home"], ["/ask", "home"], ["/ask/abc", "home"], ["/inbox", "home"], ["/nowhere", "home"],
     ["/book", "book"], ["/join/AB12", "book"], ["/play", "play"], ["/match/1", "play"], ["/events", "play"], ["/competitions", "play"], ["/tournaments", "play"],
     ["/take/x", "play"], ["/chats/booking/1", "play"], ["/friends", "play"], ["/friend/x", "play"], ["/learn", "learn"], ["/lessons", "learn"],
+    ["/events/abc", "play"], ["/learn/abc", "learn"], ["/learn?show=courses", "learn"],
     ["/account", "me"], ["/profile", "me"], ["/membership", "me"], ["/level", "me"], ["/family", "me"], ["/family/join/x", "me"], ["/waiver", "me"],
     ["/receipts/1", "me"], ["/gift-cards", "me"], ["/passes", "me"], ["/places?paid=1", "me"]];
   for (const [path, tab] of cases) assert.equal(tabOf(path), tab, path);
@@ -31,7 +33,7 @@ test("every old address still has its page, and the new ones are routed", () => 
   const app = readFileSync(join(import.meta.dirname, "../src/App.tsx"), "utf8");
   for (const p of ["/", "/events", "/learn", "/account", "/places", "/competitions", "/gift-cards", "/passes", "/level", "/inbox", "/book", "/join/:code", "/membership",
     "/play", "/match/:id", "/friends", "/friend/:code", "/take/:code", "/lessons", "/family", "/family/join/:code", "/waiver", "/ask", "/ask/:id", "/receipts", "/receipts/:id",
-    "/chats", "/chats/:kind/:id", "/profile"]) assert.ok(app.includes(`<Route path="${p}" `), p);
+    "/chats", "/chats/:kind/:id", "/profile", "/events/:id", "/learn/:id"]) assert.ok(app.includes(`<Route path="${p}" `), p);
   assert.match(app, /<TabBar \/>/);
 });
 
@@ -52,14 +54,39 @@ test("Home lists my coming bookings and places, soonest first, each with where t
   assert.equal(list[3]!.state, "held"); assert.equal(list[3]!.kind, "lesson");
 });
 
-test("Home counts the next 14 days: matches with a place left, events, clinics and courses", () => {
-  const now = Date.parse("2026-11-11T12:00:00Z"), day = (n: number) => new Date(now + n * 86_400_000).toISOString();
-  const m = (start: string, more: object = {}) => ({ start, open: true, cancelled: false, listed: true, spots_left: 1, is_match: true, ...more });
-  const c = soonCounts(
-    [{ kind: "clinic", first_start: day(1) }, { kind: "clinic", first_start: day(20) }, { kind: "course", first_start: day(3) }, { kind: "social", first_start: day(2) },
-      { kind: "tournament", first_start: day(13) }, { kind: "league", first_start: null }],
-    [m(day(1)), m(day(2), { spots_left: 0 }), m(day(3), { cancelled: true }), m(day(15)), m(day(4), { is_match: false })], now);
-  assert.deepEqual(c, { matches: 1, events: 2, clinics: 1, courses: 1 });
+test("Home's 14-day counts are the server's light read, not the open matches and programs themselves", () => {
+  const home = readFileSync(join(import.meta.dirname, "../src/Home.tsx"), "utf8");
+  assert.match(home, /\/my\/whats-on\/counts/);
+  assert.doesNotMatch(home, /"\/open-matches"|"\/open-programs"/);
+  // Events go to Play's events; clinics and courses to their own places under Learn.
+  assert.match(home, /href="\/events">\{t\("count\.events"/);
+  assert.match(home, /href="\/learn\?show=courses">\{t\("count\.courses_starting"/);
+});
+
+test("Play's events are socials, tournaments and leagues; clinics and courses are Learn's", () => {
+  assert.deepEqual(["social", "tournament", "league", "clinic", "course"].filter(isEvent), ["social", "tournament", "league"]);
+  assert.deepEqual(LEARN_KINDS, ["clinic", "course"]);
+  assert.ok(onChip("social", "social") && onChip("league", "all") && !onChip("league", "tournament"));
+});
+
+test("the week of days, what's on a day in the club's time, and what still has a place", () => {
+  assert.deepEqual(nextDays("2026-12-29", 5), ["2026-12-29", "2026-12-30", "2026-12-31", "2027-01-01", "2027-01-02"]);
+  const tz = "America/Los_Angeles";
+  // 03:00 UTC on the 13th is the evening of the 12th at the club.
+  const p = { first_start: "2026-11-13T03:00:00Z", capacity: 8, booked: 7, offered: 1 };
+  assert.ok(programOn(p, "2026-11-12", tz)); assert.ok(!programOn(p, "2026-11-13", tz)); assert.ok(programOn(p, "", tz));
+  assert.equal(programHasPlace(p), false, "an offered place is held");
+  const perDate = { ...p, first_start: null, dates: [{ starts_at: "2026-11-14T18:00:00Z", capacity: 4, booked: 4, offered: 0 }, { starts_at: "2026-11-15T18:00:00Z", capacity: 4, booked: 1, offered: 0 }] };
+  assert.ok(programOn(perDate, "2026-11-15", tz)); assert.ok(programHasPlace(perDate));
+  const m = { start: "2026-11-13T03:00:00Z", time_zone: tz, open: true, cancelled: false, spots_left: 1 };
+  assert.ok(matchOn(m, "2026-11-12")); assert.ok(matchHasPlace(m)); assert.ok(!matchHasPlace({ ...m, spots_left: 0 })); assert.ok(!matchHasPlace({ ...m, open: false }));
+});
+
+test("cards: a name's initials, and a course's weeks first date to last", () => {
+  assert.deepEqual([initials("Maria Soto"), initials("ana"), initials(null), initials("Jean Luc Picard")], ["MS", "A", "?", "JL"]);
+  assert.equal(weeksOf("2026-11-03T03:00:00Z", "2026-11-24T03:00:00Z"), 4);
+  assert.equal(weeksOf("2026-10-27T02:00:00Z", "2026-11-17T03:00:00Z"), 4, "across the clock change");
+  assert.equal(weeksOf("2026-11-03T03:00:00Z", null), 1);
 });
 
 test("the club's week reads in lines, and today's hours take a special day first", () => {

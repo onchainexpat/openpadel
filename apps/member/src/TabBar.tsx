@@ -25,6 +25,17 @@ export function PlaySwitch({ here }: { here: "matches" | "events" }) {
   );
 }
 
+/** Under Learn: clinics, courses, and private lessons when the club gives them in the app. Links, so each has its address. */
+export function LearnSwitch({ here }: { here: "clinics" | "courses" | "lessons" }) {
+  return (
+    <nav class="seg" aria-label={t("ui.tab_learn")}>
+      <a href="/learn" aria-current={here === "clinics" ? "page" : undefined}>{t("ui.learn_clinics")}</a>
+      <a href="/learn?show=courses" aria-current={here === "courses" ? "page" : undefined}>{t("ui.learn_courses")}</a>
+      {club.value?.lessons && <a href="/lessons" aria-current={here === "lessons" ? "page" : undefined}>{t("ui.lessons_title")}</a>}
+    </nav>
+  );
+}
+
 export function TabBar() {
   const { path } = useLocation();
   const here = tabOf(path);
