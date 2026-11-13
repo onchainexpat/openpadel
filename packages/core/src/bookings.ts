@@ -6,13 +6,15 @@ import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, dateTime, money, t, type Key, type Lang, type Text, formatLocale } from "@kumi/i18n";
-import { defineAction, readRow, type ApplyCtx, type PlanCtx } from "./actions.ts";
+import { defineAction, mayAlso, readRow, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localParts, onDate, weekdayOf } from "./clock.ts";
 import { currentPolicy, quote } from "./prices.ts";
 
+/** "in cash", "on the club's card reader", "another way" (desk_pay.ts paidHow). */
+const paidHowOf = (method: string): Text => both(`paid_by.${method}` as Key);
 const clockTime = z.string().check(z.regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/));
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 /** Bookings are in steps of half an hour, from half an hour to eight. Members choose 60, 90 or 120. */
@@ -324,37 +326,120 @@ async function checkSlot(ctx: PlanCtx, courtId: string, start: Date, minutes: nu
   return { court: court!, end, tz };
 }
 
+/** One place on a court booked at the desk: a member (found by name, phone or email), a guest's name, or left open
+ *  (the organiser shares the booking's link). `paid`: its part was paid at the desk just now. */
+const deskPlace = z.object({ person_id: z.optional(z.uuid()), guest_name: z.optional(z.string().check(z.minLength(1), z.maxLength(80))), paid: z.optional(z.boolean()) });
+type DeskPlace = z.infer<typeof deskPlace>;
+/** How the desk was paid for the places marked paid (desk_pay.ts DESK_METHODS, written out: it's read as this file loads). */
+const deskMethod = z.enum(["cash", "terminal", "other"]);
+
+/** Each place's part of the court. The whole court: the organiser's place carries the price, the others nothing. Each
+ *  pays their part: four equal parts, the organiser taking the odd cents (booking_pay.ts shares, as in the app). */
+export function deskParts(price: number, pay: "whole" | "split", places: number): number[] {
+  if (pay === "whole") return Array.from({ length: places }, (_, n) => (n === 0 ? price : 0));
+  const each = Math.floor(price / 4), first = price - each * 3;
+  return Array.from({ length: places }, (_, n) => (n === 0 ? first : each));
+}
+
+/** The places as the desk gave them (the first is the organiser's), or, from an older caller, the organiser alone. */
+function placesOf(i: { person_id?: string; guest_name?: string; places?: DeskPlace[] }): DeskPlace[] {
+  if (i.places) {
+    if (i.person_id || i.guest_name) throw new KumiError("error.booking_who");
+    return i.places;
+  }
+  return [i.person_id ? { person_id: i.person_id } : i.guest_name ? { guest_name: i.guest_name } : {}];
+}
+const filled = (p: DeskPlace) => Boolean(p.person_id || p.guest_name);
+
 export const bookingCreate = defineAction({
   name: "booking.create", version: 1,
   input: z.object({
     court_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), minutes: z.number().check(z.int()),
     person_id: z.optional(z.uuid()), guest_name: z.optional(z.string().check(z.minLength(1), z.maxLength(80))),
     price_cents: z.optional(z.number().check(z.int(), z.minimum(0))), note: z.optional(z.string().check(z.maxLength(200))),
+    // The desk's full form (Schedule, + Create): whole court or each their part, up to four places, places paid now,
+    // and a note the players see beside the staff's own.
+    pay: z.optional(z.enum(["whole", "split"])), places: z.optional(z.array(deskPlace).check(z.minLength(1), z.maxLength(4))),
+    paid_method: z.optional(deskMethod), player_note: z.optional(z.string().check(z.maxLength(200))),
   }),
   async plan(ctx, i) {
-    if (Boolean(i.person_id) === Boolean(i.guest_name)) throw new KumiError("error.booking_who");
+    const places = placesOf(i), org = places[0]!, pay = i.pay ?? "whole";
+    if (places.some((p) => p.person_id && p.guest_name) || !filled(org)) throw new KumiError("error.booking_who");
+    const ids = places.flatMap((p) => (p.person_id ? [p.person_id] : []));
+    if (new Set(ids).size !== ids.length) throw new KumiError("error.player_twice");
+    if (places.some((p) => p.paid && !filled(p))) throw new KumiError("error.paid_place_empty");
+    // Each their part: the organiser is a member (what's unpaid at the deadline is theirs), and there's still time.
+    if (pay === "split" && !org.person_id) throw new KumiError("error.split_needs_member");
     const start = new Date(i.starts_at), { court, tz } = await checkSlot(ctx, i.court_id, start, i.minutes);
-    const who = i.person_id ? (await readRow(ctx.db, "person", i.person_id, "thing.person")).row.display_name : i.guest_name!;
+    const policy = await currentPolicy(ctx.db);
+    if (pay === "split" && start.getTime() - ctx.now.getTime() <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
+    // Another price, and places marked paid, are the desk's money: whoever takes payments at the desk here.
+    const mayMoney = (wanted: boolean) => wanted ? mayAlso(ctx.db, ctx.actor, "booking.record_payment", { locationId: court.location_id, at: ctx.now }) : Promise.resolve(true);
+    if (!(await mayMoney(i.price_cents !== undefined))) throw new KumiError("error.price_not_yours");
+    if (!(await mayMoney(places.some((p) => p.paid)))) throw new KumiError("error.paid_not_yours");
+    const names = new Map<string, string>();
+    for (const id of ids) {
+      const { row } = await readRow(ctx.db, "person", id, "thing.person");
+      if (row.status !== "active" || row.redacted_at) throw new KumiError("error.not_found", { thing: both("thing.person") }, 404);
+      names.set(id, row.display_name as string);
+    }
+    const nameOf = (p: DeskPlace) => (p.person_id ? names.get(p.person_id)! : p.guest_name ?? "");
+    const who = nameOf(org);
     // The quote's price unless the desk says otherwise (a promotion, a regular's rate).
-    const q = await quote(ctx.db, { courtId: i.court_id, start, minutes: i.minutes, personId: i.person_id, at: ctx.now }), price = i.price_cents ?? q.total_cents;
-    const amount = { en: money(price, "en"), es: money(price, "es") };
-    return { title: both("action.booking.create"), summary: both("plan.booking.create_priced", { court: court.name, when: when(start, tz), minutes: i.minutes, who, amount }),
-      reads: [], locationId: court.location_id, ownerIds: i.person_id ? [i.person_id] : [], moneyCents: price, undo: { kind: "reversible" } };
+    const q = await quote(ctx.db, { courtId: i.court_id, start, minutes: i.minutes, personId: org.person_id, at: ctx.now }), price = i.price_cents ?? q.total_cents;
+    const usd = (c: number): Text => ({ en: money(c, "en"), es: money(c, "es") });
+    const p = { court: court.name, when: when(start, tz), minutes: i.minutes, who, amount: usd(price) };
+    const parts: Text[] = [];
+    if (pay === "whole") parts.push(both("plan.booking.create_priced", p));
+    else {
+      const s = deskParts(price, "split", 4);
+      parts.push(both("plan.booking.create_split", { ...p, first: usd(s[0]!), each: usd(s[1]!) }));
+      parts.push(both("plan.booking.desk_deadline", { who, when: when(new Date(start.getTime() - policy.split_deadline_hours * 3600_000), tz) }));
+    }
+    const others = places.slice(1).filter(filled).map(nameOf);
+    if (others.length) parts.push(both("plan.booking.desk_players", { names: others.join(", ") }));
+    const share = deskParts(price, pay, places.length);
+    const paid = places.map((x, n) => ({ x, cents: share[n]! })).filter((y) => y.x.paid && y.cents > 0);
+    if (paid.length) parts.push(both("plan.booking.desk_paid", { names: paid.map((y) => nameOf(y.x)).join(", "), amount: usd(paid.reduce((n, y) => n + y.cents, 0)), how: paidHowOf(i.paid_method ?? "cash") }));
+    const owed = price - paid.reduce((n, y) => n + y.cents, 0);
+    // The desk's full form says what's left to pay at the desk (an older caller's preview stays as it was).
+    if (i.places && pay === "whole" && owed > 0) parts.push(both("plan.booking.desk_owed", { amount: usd(owed) }));
+    const open = (pay === "split" ? 4 : places.length) - places.filter(filled).length;
+    if (open > 0 && org.person_id) parts.push(both(pay === "split" ? "plan.booking.desk_open_split" : "plan.booking.desk_open_whole", { count: open }));
+    if (i.player_note?.trim()) parts.push(both("plan.booking.desk_player_note", { note: i.player_note.trim() }));
+    const summary: Text = { en: parts.map((x) => x.en).join(" "), es: parts.map((x) => x.es).join(" ") };
+    return { title: both("action.booking.create"), summary, reads: [], locationId: court.location_id, ownerIds: org.person_id ? [org.person_id] : [], moneyCents: price, undo: { kind: "reversible" } };
   },
   async apply(ctx, i) {
+    const places = placesOf(i), org = places[0]!, pay = i.pay ?? "whole";
     const start = new Date(i.starts_at), end = new Date(start.getTime() + i.minutes * 60_000);
     await lockCourts(ctx, [i.court_id]);
     const court = await ctx.trx.selectFrom("court").select("location_id").where("id", "=", i.court_id).executeTakeFirstOrThrow();
     const club = await ctx.trx.selectFrom("club").select("name").executeTakeFirstOrThrow();
-    const q = await quote(ctx.trx, { courtId: i.court_id, start, minutes: i.minutes, personId: i.person_id, at: ctx.now }), policy = await currentPolicy(ctx.trx);
+    const q = await quote(ctx.trx, { courtId: i.court_id, start, minutes: i.minutes, personId: org.person_id, at: ctx.now }), policy = await currentPolicy(ctx.trx);
     const price = i.price_cents ?? q.total_cents, tax = i.price_cents === undefined ? q.tax_cents : Math.round(price * q.tax_bp / (10_000 + q.tax_bp));
     const id = uuidv7(), code = await newCode(ctx.trx, club.name);
-    // Booked for a member: the court is theirs in full, and it gets the players link (booking_players.ts) like one they
-    // book in the app. A walk-in under a guest name has none: no member owns it, and a guest can't be in a scored game.
-    await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id ?? null, status: "confirmed", source: "desk", price_cents: price, tax_cents: tax,
-      quote: JSON.stringify(q), policy_id: policy.id, note: i.note ?? null, invite_code: i.person_id ? randomBytes(9).toString("base64url") : null });
-    await ctx.insert("booking_player", { id: uuidv7(), booking_id: id, person_id: i.person_id ?? null, guest_name: i.person_id ? null : i.guest_name!, share_cents: price });
+    // Booked for a member: the court is theirs, and it gets the players link (booking_players.ts) like one they book in
+    // the app; each their part, the same link lets others take an open place and pay for it (booking.join). A walk-in
+    // under a guest name has none: no member owns it, and a guest can't be in a scored game.
+    await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: org.person_id ?? null, status: "confirmed", source: "desk", price_cents: price, tax_cents: tax,
+      quote: JSON.stringify(q), policy_id: policy.id, note: i.note?.trim() || null, player_note: i.player_note?.trim() || null, pay_mode: pay, ...(pay === "split" ? { players: 4 } : {}),
+      invite_code: org.person_id ? randomBytes(9).toString("base64url") : null });
+    const share = deskParts(price, pay, places.length);
+    const seats: { id: string; place: DeskPlace; cents: number }[] = [];
+    for (const [n, p] of places.entries()) {
+      if (!filled(p)) continue;
+      const seat = uuidv7();
+      await ctx.insert("booking_player", { id: seat, booking_id: id, person_id: p.person_id ?? null, guest_name: p.person_id ? null : p.guest_name!, share_cents: share[n]!,
+        ...(n > 0 ? { added_by: ctx.actor.personId } : {}) });
+      seats.push({ id: seat, place: p, cents: share[n]! });
+    }
     await insertTime(ctx, [{ id: uuidv7(), court_id: i.court_id, during: range(start, end), kind: "booking", booking_id: id }]);
+    // Places paid at the desk now: each its own payment, on its own place, as booking.record_payment records one.
+    const { recordAtDesk } = await import("./desk_pay.ts");
+    for (const s of seats.filter((x) => x.place.paid && x.cents > 0))
+      await recordAtDesk(ctx, { personId: s.place.person_id ?? org.person_id ?? ctx.actor.personId!, cents: s.cents, method: i.paid_method ?? "cash", revenue: "courts", memo: "court booking",
+        link: { booking_player_id: s.id } });
     await ctx.emit("booking.created", { booking_id: id });
     return { booking_id: id, code };
   },

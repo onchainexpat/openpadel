@@ -41,6 +41,8 @@ export const filtersInput = z.object({
   age: z.optional(z.enum(["adult", "junior"])),
   lang: z.optional(z.enum(["en", "es"])),
   program_id: z.optional(z.uuid()),
+  // One date of a program: whoever has a place on it (the whole program's, or that date's): the Schedule's "Message players".
+  session_id: z.optional(z.uuid()),
   on_date: z.optional(day),
   joined_from: z.optional(day),
   joined_to: z.optional(day),
@@ -96,6 +98,8 @@ export async function segmentMembers(db: Db | Trx, filters: Filters, now: Date):
   if (f.age) q = q.where("person.junior", "=", f.age === "junior");
   if (f.lang) q = q.where("person.locale", "=", f.lang);
   if (f.program_id) q = q.where(sql<boolean>`EXISTS (SELECT 1 FROM enrolment e WHERE e.person_id = person.id AND e.program_id = ${f.program_id} AND e.status = 'booked')`);
+  if (f.session_id) q = q.where(sql<boolean>`EXISTS (SELECT 1 FROM enrolment e JOIN session s ON s.program_id = e.program_id AND (e.session_id IS NULL OR e.session_id = s.id)
+    WHERE e.person_id = person.id AND e.status = 'booked' AND s.id = ${f.session_id})`);
   if (f.on_date) q = q.where(placeBetween(onDate(f.on_date, "00:00", tz), onDate(f.on_date, "24:00", tz), ["booked"]));
   if (f.joined_from) q = q.where("person.created_at", ">=", onDate(f.joined_from, "00:00", tz));
   if (f.joined_to) q = q.where("person.created_at", "<", onDate(f.joined_to, "24:00", tz));
@@ -147,6 +151,7 @@ export async function audience(db: Db | Trx, filters: Filters, purpose: Purpose,
 
 /** When the thing a service notice is about starts: the date's first moment, or the program's next date. */
 async function aboutStart(db: Db | Trx, f: Filters, tz: string, now: Date): Promise<Date | null> {
+  if (f.session_id) return (await db.selectFrom("session").select("starts_at").where("id", "=", f.session_id).executeTakeFirst())?.starts_at ?? null;
   if (f.on_date) return onDate(f.on_date, "00:00", tz);
   if (f.program_id) {
     const s = await db.selectFrom("session").select((eb) => eb.fn.min("starts_at").as("s")).where("program_id", "=", f.program_id).where("status", "!=", "cancelled")
@@ -218,6 +223,11 @@ export async function describeFilters(db: Db | Trx, filters: Filters): Promise<T
   if (f.age) parts.push(both(`seg.age_${f.age}`));
   if (f.lang) parts.push(both("seg.lang", { lang: both(`lang.word_${f.lang}`) }));
   if (f.program_id) { const n = await named("program", [f.program_id]); parts.push(both("seg.program", { program: n[0] ?? "" })); }
+  if (f.session_id) {
+    const d = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["program.name", "session.starts_at"]).where("session.id", "=", f.session_id).executeTakeFirst();
+    const tz = (await clubOf(db)).time_zone;
+    parts.push(both("seg.session", { program: d?.name ?? "", when: d ? { en: dateTime(d.starts_at, "en", tz), es: dateTime(d.starts_at, "es", tz) } : "" }));
+  }
   if (f.on_date) parts.push(both("seg.on_date", { date: dayText(f.on_date) }));
   if (f.joined_from && f.joined_to) parts.push(both("seg.joined_between", { from: dayText(f.joined_from), to: dayText(f.joined_to) }));
   else if (f.joined_from) parts.push(both("seg.joined_from", { from: dayText(f.joined_from) }));
@@ -410,7 +420,7 @@ async function groupOf(db: Db | Trx, i: { segment_id?: string; filters?: Filters
 }
 /** A service notice is only for people with a place on a date, or in a program: what it's about. */
 function checkService(f: Filters) {
-  if (!f.on_date && !f.program_id) throw new KumiError("error.service_needs_place");
+  if (!f.on_date && !f.program_id && !f.session_id) throw new KumiError("error.service_needs_place");
 }
 
 /** What a broadcast would do now, in numbers: for the preview and the sender's copy. */

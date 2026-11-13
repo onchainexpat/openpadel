@@ -15,6 +15,7 @@ const COLUMNS: Record<string, string[]> = {
   "/staff/coach-earnings.csv": ["coach", "kind", "when", "minutes", "what", "status", "paid", "refunded", "net"],
   "/staff/club-receipts.csv": ["receipt", "kind", "date", "paid by", "for", "what (en)", "what (es)", "subtotal", "tax", "total", "method", "card"],
   "/staff/desk.csv": ["date", "time", "kind", "method", "amount", "person", "what", "recorded by"],
+  "/staff/bookings.csv": ["date", "starts", "ends", "minutes", "court", "kind", "what", "made in", "status", "organiser", "players", "code", "owed"],
 };
 let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, loc: string, cookie: string;
 const mailer = new MemoryMailer(), TZ = "Europe/Madrid", DAY = localDate(new Date(), TZ);
@@ -41,7 +42,7 @@ test("every .csv route the server has is one listed here", () => {
 
 test("a Spanish reader's downloads name their columns in English", async () => {
   for (const [route, columns] of Object.entries(COLUMNS)) {
-    const q = route === "/staff/reports.csv" ? `?location_id=${loc}&from=${DAY}&to=${DAY}` : `?from=${DAY}&to=${DAY}`;
+    const q = route === "/staff/reports.csv" || route === "/staff/bookings.csv" ? `?location_id=${loc}&from=${DAY}&to=${DAY}` : `?from=${DAY}&to=${DAY}`;
     const r = await app.request(route + q, { headers: { cookie, "accept-language": "es" } });
     assert.equal(r.status, 200, route);
     assert.match(r.headers.get("content-type") ?? "", /^text\/csv/, route);

@@ -24,6 +24,20 @@ up right there.
 - Members who moved in from Playtomic see a welcome once, at their first sign-in: their upcoming bookings, level,
   club credit and membership as they came across (or that none did), a yes to texts they tick themselves, a word
   about adding a card before a membership renews, and a way to tell the club something is missing.
+- The staff app's court booking (Schedule: tap free time, or + Create) is one form: the court, the start and end, the
+  whole court or each player their part, up to four players in two teams (a member found by name, phone or email, or a
+  guest's name), each player's price and "Mark paid" (or "Mark all paid") for money taken at the desk then, a private
+  note for the staff and a note the players see in the app. Each their part works as in the members' app: equal parts,
+  no card held, and what's unpaid at the club's deadline goes to the organiser once (owed at the desk when no card was
+  saved for the booking); inside the deadline only the whole court is offered. Another price and "Mark paid" are for
+  staff who take payments at the desk; a role that can't read people books by a guest's name.
+- Picking a clinic, course or event date on the Schedule shows who's on it and how each place stands (paid, a pass,
+  club credit, a membership, a free place, not paid, or waiting), with "Check in all", "Message players" (a service
+  message to that date's players, previewed first) and "Edit the series". A coach sees their own dates' players without
+  what they paid; a role the club made for bookings only sees none of it.
+- The Schedule has a Week view beside the Day, and says under each court's name whether it's indoor, covered or
+  outdoor. The Bookings list has Export (the filtered list as a spreadsheet, with only what the reader sees on screen)
+  and Create (the Schedule's + Create).
 - The members' app has tabs at the bottom of every page: Home, Book, Play, Learn and Me. Home shows the club (its
   name, the member's plan, today's hours), what the member has coming up, shortcuts, how many open matches, events,
   clinics and courses there are in the next 14 days, asking the club, and the club's courts, opening hours and

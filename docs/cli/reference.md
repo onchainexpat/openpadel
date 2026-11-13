@@ -506,6 +506,10 @@ Its preview reads: "Book {court}, {when}, for {minutes} minutes, for {who}."
 | `--guest-name` | text |  |  |
 | `--price-cents` | whole number (cents) |  |  |
 | `--note` | text |  |  |
+| `--pay` | whole \| split |  |  |
+| `--places` | JSON list |  |  |
+| `--paid-method` | cash \| terminal \| other |  |  |
+| `--player-note` | text |  |  |
 
 ```
 openpadel booking create --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90

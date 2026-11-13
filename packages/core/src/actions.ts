@@ -334,6 +334,16 @@ async function allowedAsJudged(db: Db | Trx, def: ActionDef<any>, input: unknown
   if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
 }
 
+/** Whether the person may also do another action here, judged as that action's own check judges it, assistant and
+ *  app-only rules included: a change that does two things at once (a court booked with places marked paid at the desk
+ *  takes desk money too, booking.record_payment) asks both. Kumi's own jobs (no person) always may. */
+export async function mayAlso(db: Db | Trx, actor: Actor, name: string, o: { locationId: string | null; ownerIds?: string[]; at: Date }): Promise<boolean> {
+  if (!actor.personId) return true;
+  const def = getAction(name);
+  if ((actor.auth === "oauth" || Boolean(actor.grantId)) && appOnly(def)) return false;
+  return (await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: o.locationId, ownerIds: o.ownerIds ?? [], at: o.at, ...how(def, actor) })).mode === "allow";
+}
+
 export interface Planned { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; plan: Plan; expiresAt: Date }
 export interface PlanOpts { now?: Date; internal?: boolean; /** A parent approved it: a kid's rules don't stop it again. */ parentApproved?: boolean;
   /** The staff app's first look: a change that needs someone else's yes is shown, not yet asked for, until the person

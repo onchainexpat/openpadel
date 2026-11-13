@@ -287,7 +287,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id").leftJoin("person", "person.id", "booking.organiser_id")
       .leftJoin("booking_policy", "booking_policy.id", "booking.policy_id")
       .select(["booking.id", "booking.status", "booking.players", "booking.price_cents", "booking.settled_at", "booking.organiser_id", "booking.invite_code", "booking.pay_mode", "open_match.level_min", "open_match.level_max",
-        "open_match.outside_band", "open_match.listed", "open_match.note", "court.name as court", "location.name as location", "location.time_zone", "person.display_name as host",
+        "open_match.outside_band", "open_match.listed", "court.name as court", "location.name as location", "location.time_zone", "person.display_name as host",
+        // An open match's note from its host, or the note the desk wrote for a court's players (Schedule, + Create).
+        sql<string | null>`coalesce(open_match.note, booking.player_note)`.as("note"),
         sql<boolean>`open_match.booking_id IS NOT NULL`.as("is_match"), sql<boolean>`coalesce(open_match.rated, booking.rated)`.as("rated"),
         sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end"),
         // When it has to be full: a same-day match's own cutoff, otherwise the club's deadline.

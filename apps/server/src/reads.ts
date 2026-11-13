@@ -343,7 +343,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const start = new Date(c.req.query("starts_at") ?? ""), minutes = Number(c.req.query("minutes") ?? 0), personId = c.req.query("person_id");
     if (isNaN(start.getTime()) || !Number.isInteger(minutes) || minutes < 30 || minutes > 480) throw new KumiError("error.invalid_input", { details: "court_id, starts_at and minutes" }, 400);
     if (personId && !/^[0-9a-f-]{36}$/.test(personId)) throw new KumiError("error.invalid_input", { details: "person_id" }, 400);
-    return c.json(await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes, personId: personId || null }));
+    // With the club's "pay my part" deadline, so the desk's form offers each their part only while there's time.
+    return c.json({ ...await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes, personId: personId || null }), split_deadline_hours: (await currentPolicy(db)).split_deadline_hours });
   });
 
   // One location's courts on one day: what holds each court, in order, and when it's open.
@@ -359,7 +360,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const items = (await occupied(db, courts.map((x) => x.id), dayStart, dayEnd, now)).filter((t) => localDate(new Date(t.start), loc.time_zone) === date || localDate(new Date(t.end), loc.time_zone) === date);
     const ids = (k: "booking_id" | "block_id" | "session_id") => [...new Set(items.map((t) => t[k]).filter((x): x is string => Boolean(x)))];
     const bookings = ids("booking_id").length ? await db.selectFrom("booking").leftJoin("person", "person.id", "booking.organiser_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
-      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.organiser_id", "booking.coach_id", "booking.price_cents", "booking.balance_cents", "booking.invite_code", "person.display_name", "coach.display_name as coach"])
+      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.organiser_id", "booking.coach_id", "booking.price_cents", "booking.balance_cents", "booking.invite_code", "booking.note", "booking.player_note", "person.display_name", "coach.display_name as coach"])
       .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select((x) => x.fn.sum<string>("payment.amount_cents").as("c"))
         .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("paid_cents"))
       // What promo codes took off: covered, not owed, so the desk isn't shown a discount to take as money.
@@ -412,6 +413,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       if (x.booking_id) { const b = bookings.find((y) => y.id === x.booking_id), named = people || (Boolean(b) && b!.coach_id === viewer), nm = (n: string) => named ? n : "";
         return { ...base, booking_id: x.booking_id, code: b?.code, who: nm(b?.display_name ?? b?.guest ?? ""), ...paidPart(b),
         booking_kind: b?.kind ?? "court", open_match: matches.has(x.booking_id), coach: b?.coach ?? null, status: b?.status,
+        // The staff's own note and the one players see, with the names (a role that runs courts without people sees neither).
+        ...(named && b?.note ? { note: b.note } : {}), ...(named && b?.player_note ? { player_note: b.player_note } : {}), split: b?.pay_mode === "split",
         players: named ? players.filter((p) => p.booking_id === x.booking_id).map((p) => p.display_name ?? p.guest_name ?? "") : [], late: lateFor(x.booking_id).map((w) => ({ ...w, name: nm(w.name) })),
         // A member's court paid in full: the desk can name its players (booking_players.ts), and take them off.
         whole: b?.kind === "court" && b.pay_mode === "whole" && Boolean(b.organiser_id) && b.status === "confirmed",
@@ -464,7 +467,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   const BOOKING_STATES = ["upcoming", "in_progress", "done", "cancelled", "unpaid"] as const;
   const MADE_IN = ["app", "desk", "playtomic"] as const;
   const PER_PAGE = 25;
-  app.get("/staff/bookings", async (c) => {
+  /** Every booking the list's filters find (not a page of them), and what this reader may see of them. */
+  const bookingsFound = async (c: Context<any>) => {
     const q = (k: string) => c.req.query(k) ?? "", now = new Date(), l = lang(c);
     const loc = isUuid(q("location_id")) ? await db.selectFrom("location").select(["id", "time_zone"]).where("id", "=", q("location_id")).executeTakeFirst() : undefined;
     if (!loc) throw new KumiError("error.not_found", { thing: { en: "location", es: "la sede" } }, 404);
@@ -544,10 +548,27 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     }
     const shown = rows.filter((r) => (!type || r.type === type) && (!madeIn || r.made_in === madeIn) && (!status || (status === "unpaid" ? (r.owed_cents ?? 0) > 0 : r.status === status)))
       .sort((a, b) => a.starts_at.getTime() - b.starts_at.getTime() || a.court.localeCompare(b.court));
+    return { fromDay, toDay, today, loc, money, people, page, shown: shown.map((r) => ({ ...r, date: localDate(r.starts_at, loc.time_zone),
+      minutes: Math.round((r.ends_at.getTime() - r.starts_at.getTime()) / 60_000) })) };
+  };
+  app.get("/staff/bookings", async (c) => {
+    const { fromDay, toDay, today, loc, money, people, page, shown } = await bookingsFound(c);
     const pages = Math.max(1, Math.ceil(shown.length / PER_PAGE));
     return c.json({ from: fromDay, to: toDay, today, time_zone: loc.time_zone, money, people, total: shown.length, page: Math.min(page, pages), pages, per_page: PER_PAGE,
-      rows: shown.slice((Math.min(page, pages) - 1) * PER_PAGE, Math.min(page, pages) * PER_PAGE).map((r) => ({ ...r, date: localDate(r.starts_at, loc.time_zone),
-        minutes: Math.round((r.ends_at.getTime() - r.starts_at.getTime()) / 60_000) })) });
+      rows: shown.slice((Math.min(page, pages) - 1) * PER_PAGE, Math.min(page, pages) * PER_PAGE) });
+  });
+  // The same list as a spreadsheet: every booking the filters find, with what the reader sees on screen and nothing
+  // more (an organiser's name only for those who read people, what's owed only for money readers). Column names and
+  // kind and status words are English for every reader, as in every download; times are the location's.
+  app.get("/staff/bookings.csv", async (c) => {
+    const { fromDay, toDay, loc, money, people, shown } = await bookingsFound(c), l = "en" as const;
+    const at = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: loc.time_zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
+    const head = ["date", "starts", "ends", "minutes", "court", "kind", "what", "made_in", "status", ...(people ? ["organiser"] : []), "players", "code", ...(money ? ["owed"] : [])].map((k) => t(l, `csv.${k}` as Key));
+    const lines = shown.map((r) => [r.date, at(r.starts_at), at(r.ends_at), r.minutes, r.court,
+      r.type === "program" && r.program_kind ? t(l, `kind.${r.program_kind}` as Key) : t(l, `ui.list_type_${r.type}` as Key), r.label ?? "", t(l, `ui.made_in_${r.made_in}` as Key), t(l, `ui.booking_state_${r.status}` as Key),
+      ...(people ? [r.type === "program" ? "" : r.who ?? ""] : []), r.type === "program" ? r.more : r.more + 1, r.code ?? "", ...(money ? [r.owed_cents ? plainAmount(r.owed_cents) : ""] : [])].map(csvCell).join(","));
+    c.header("content-type", "text/csv; charset=utf-8"); c.header("content-disposition", `attachment; filename="${await clubFileStem(db)}-bookings-${fromDay}-to-${toDay}.csv"`);
+    return c.body([head.join(","), ...lines].join("\r\n") + "\r\n");
   });
 
   // A location's weekly courts (booking_series.ts): each member's court every week, with who, when it started and runs
@@ -861,6 +882,46 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const next = draw && draw.format !== "americano" && last && last.round < draw.rounds && last.games.every((g) => g.status === "confirmed") ? last.round + 1 : null;
     const prog = await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select("program.format").where("session.id", "=", id).executeTakeFirst();
     return c.json({ draw: draw ?? null, format: prog?.format ?? null, rounds: list, standings: table, next_round: next });
+  });
+
+  // A program date as the Schedule's side panel shows it: its places, level and price, the dates of its series, and who's
+  // on it with how each place stands (paid, a pass, club credit, a membership, a free place, not paid, or waiting).
+  // Names for those who read people, and a coach on their own date (as its roster); a role the club made covering
+  // bookings and not programs never gets here (the programs area). How each place was paid only for the program's
+  // money readers; a coach sees who's coming and who's waiting, not what they paid.
+  app.get("/staff/sessions/:id/panel", async (c) => {
+    const id = c.req.param("id"), viewer = me(c)!.id, now = new Date();
+    if (!isUuid(id)) throw new KumiError("error.not_found", { thing: both("thing.session") }, 404);
+    if (!(await seesPeople(viewer))) await coachRuns(c, "session", id, ["attendance.mark"]);
+    const item = await coachItem(db, "session", id), r = await rosterOf(db, "session", id, now);
+    const p = await db.selectFrom("program").select(["id", "kind", "capacity", "level_min", "level_max", "price_cents", "member_price_cents", "location_id"]).where("id", "=", item.program_id!).executeTakeFirstOrThrow();
+    const s = await db.selectFrom("session").select("capacity_override").where("id", "=", id).executeTakeFirstOrThrow();
+    const dates = await db.selectFrom("session").select([(eb) => eb.fn.min("starts_at").as("first"), (eb) => eb.fn.max("starts_at").as("last"), (eb) => eb.fn.countAll<string>().as("n")])
+      .where("program_id", "=", p.id).where("status", "!=", "cancelled").executeTakeFirstOrThrow();
+    const places = await db.selectFrom("enrolment").innerJoin("person", "person.id", "enrolment.person_id")
+      .select(["enrolment.id", "enrolment.person_id", "enrolment.status", "enrolment.waitlist_position", "enrolment.paid_by", "enrolment.price_cents", "enrolment.price_basis", "person.display_name"])
+      .where("enrolment.program_id", "=", p.id).where("enrolment.status", "in", ["booked", "attended", "waitlisted"])
+      .where((w) => w.or([w("enrolment.session_id", "=", id), w("enrolment.session_id", "is", null)])).orderBy("enrolment.waitlist_position").orderBy("enrolment.created_at").execute();
+    const money = await seesProgramMoney(c, p.location_id);
+    const how = async (e: (typeof places)[number]) => {
+      if (e.paid_by === "comp") return "free";
+      if (e.price_basis === "included") return "membership";
+      const ways = (await db.selectFrom("payment").select("method").where("enrolment_id", "=", e.id).where("status", "=", "succeeded").execute()).map((x) => x.method);
+      if (ways.includes("pass")) return "pass";
+      if (await coveredFor(db, e.id) >= e.price_cents) return ways.length && ways.every((m) => m === "credit") ? "credit" : "paid";
+      return "unpaid";
+    };
+    const players = [];
+    for (const x of r.players) {
+      const e = places.find((y) => y.person_id === x.person_id && y.status !== "waitlisted");
+      players.push({ person_id: x.person_id, name: x.name, came: x.came, ...(money && e ? { pay: await how(e) } : {}) });
+    }
+    const waiting = places.filter((y) => y.status === "waitlisted");
+    return c.json({ time_zone: await clubTz(), money, session: { id, program_id: p.id, kind: p.kind, name: item.name, start: item.start, end: item.end, courts: item.courts, coach: item.coach,
+      cancelled: item.cancelled }, places: s.capacity_override ?? p.capacity, booked: r.players.length, waiting: waiting.length,
+      level_min: p.level_min, level_max: p.level_max, ...(money ? { price_cents: p.price_cents, member_price_cents: p.member_price_cents } : {}),
+      series: { first: dates.first, last: dates.last, dates: Number(dates.n) }, marking: r.marking,
+      players: [...players, ...waiting.map((w, n) => ({ person_id: w.person_id, name: w.display_name, came: null, waitlist: w.waitlist_position ?? n + 1 }))] });
   });
 
   // The level review queue: reviews players asked for, and levels that moved a lot.
