@@ -44,7 +44,7 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   /** Moved in from Playtomic and not welcomed yet: the members' app shows its welcome once (Welcome.tsx). */
   welcome?: boolean };
 export type Club = { /** Where a sign-in code emailed goes: "log" with no email service set up, "practice" to test addresses only. */
-  mail?: "sent" | "log" | "practice"; name: string; brand_colour: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; players_chat?: boolean; gift_cards?: boolean; passes?: boolean; promos?: boolean; gift_card_min_cents?: number; gift_card_max_cents?: number; memberships?: boolean; lessons?: boolean; competitions?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
+  mail?: "sent" | "log" | "practice"; name: string; brand_colour: string; /** The software staff used before (presets.ts in the staff app): its words and order. */ coming_from?: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; players_chat?: boolean; gift_cards?: boolean; passes?: boolean; promos?: boolean; gift_card_min_cents?: number; gift_card_max_cents?: number; memberships?: boolean; lessons?: boolean; competitions?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
   /** The club's host made it read-only (read_only.ts): both apps say so at the top. */
   read_only?: boolean;
   /** The club's Kumi moved to another server (club_exit.ts): this one says where, and sends nothing. */
@@ -174,7 +174,8 @@ export function applyTitle(name: string | null | undefined, app: AppKind) { if (
 
 export function applyBrand(colour: string) {
   const st = document.documentElement.style, b = brandColours(colour);
-  st.setProperty("--brand", colour);
+  // The fill is the club's colour, darkened only where neither white nor near-black text would read on it.
+  st.setProperty("--brand", b?.fill ?? colour);
   if (!b) return;
   st.setProperty("--brand-ink-light", b.inkLight); st.setProperty("--brand-ink-dark", b.inkDark); st.setProperty("--on-brand", b.onBrand);
 }

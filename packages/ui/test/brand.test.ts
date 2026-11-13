@@ -20,3 +20,20 @@ test("a colour that already reads stays as it is; Kumi's green gets lighter only
   assert.equal(brandColours("#0B5A55")!.onBrand, "#ffffff");
   assert.equal(brandColours("teal"), null, "a named colour is used as it is, without tints");
 });
+
+test("the fill and the text on it read at 4.5:1 for any colour; only a mid-tone neither reads on is darkened", () => {
+  // A grid of colours (red and green in steps of 51, blue in steps of 17): very light, very dark, greys, saturated, mid-tones.
+  for (let r = 0; r < 256; r += 51) for (let g = 0; g < 256; g += 51) for (let b = 0; b < 256; b += 17) {
+    const colour = `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`, x = brandColours(colour)!;
+    assert.ok(contrastOf(x.onBrand, x.fill) >= 4.5, `${colour}: ${x.onBrand} on ${x.fill} reads ${contrastOf(x.onBrand, x.fill)}`);
+    if (x.fill !== colour) assert.ok(contrastOf("#ffffff", colour) < 4.5 && contrastOf("#111111", colour) < 4.5, `${colour} darkened only when it had to be`);
+  }
+  // Kept as they are: the default green (white text), a very light one and yellow (dark text), a very dark one.
+  for (const [colour, on] of [["#0b5a55", "#ffffff"], ["#fdfdf0", "#111111"], ["#f5c518", "#111111"], ["#050a08", "#ffffff"]] as const)
+    assert.deepEqual([brandColours(colour)!.fill, brandColours(colour)!.onBrand], [colour, on]);
+  // A mid-tone grey neither white nor near-black reads on at 4.5:1: darkened until white does, and no further than needed.
+  const mid = brandColours("#777777")!;
+  assert.ok(contrastOf("#ffffff", "#777777") < 4.5 && contrastOf("#111111", "#777777") < 4.5);
+  assert.notEqual(mid.fill, "#777777"); assert.equal(mid.onBrand, "#ffffff");
+  assert.ok(contrastOf("#ffffff", mid.fill) < 5.2, `not darker than it has to be: ${mid.fill}`);
+});

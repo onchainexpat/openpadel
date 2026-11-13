@@ -11,11 +11,25 @@ function readable(c: number[], on: number[][], toward: number[]) {
   }
   return `rgb(${toward.join(" ")})`;
 }
-/** The tints for a club colour (#rrggbb): text and outlines on the light theme and on the dark one, and text on the colour. */
-export function brandColours(colour: string): { inkLight: string; inkDark: string; onBrand: string } | null {
+/** The fill for buttons, the active menu item and badges, and the text on it: white or near-black, whichever reads at
+ *  4.5:1 (white first). A mid-tone colour neither reads on is darkened, a step at a time, until white does. */
+function fillOf(c: number[]): { fill: number[]; on: string } {
+  const white = [255, 255, 255], dark = rgb("#111111");
+  if (contrast(white, c) >= 4.5) return { fill: c, on: "#ffffff" };
+  if (contrast(dark, c) >= 4.5) return { fill: c, on: "#111111" };
+  for (let t = 0.02; t <= 1; t += 0.02) {
+    const m = c.map((v) => Math.round(v * (1 - t)));
+    if (contrast(white, m) >= 4.5) return { fill: m, on: "#ffffff" };
+  }
+  return { fill: [0, 0, 0], on: "#ffffff" };
+}
+const hex = (c: number[]) => `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+/** The tints for a club colour (#rrggbb): the fill and the text on it, and text and outlines on the light theme and on
+ *  the dark one. */
+export function brandColours(colour: string): { fill: string; inkLight: string; inkDark: string; onBrand: string } | null {
   if (!/^#[0-9a-f]{6}$/i.test(colour)) return null;
-  const c = rgb(colour), white = [255, 255, 255], black = [0, 0, 0];
-  return { inkLight: readable(c, [rgb("#f6f6f2"), white], black), inkDark: readable(c, [rgb("#121715"), rgb("#1b2220")], white), onBrand: contrast(white, c) >= 4.5 ? "#ffffff" : "#111111" };
+  const c = rgb(colour), white = [255, 255, 255], black = [0, 0, 0], f = fillOf(c);
+  return { fill: hex(f.fill), inkLight: readable(c, [rgb("#f6f6f2"), white], black), inkDark: readable(c, [rgb("#121715"), rgb("#1b2220")], white), onBrand: f.on };
 }
 /** For tests: how far apart two colours read (WCAG's contrast ratio). */
 export const contrastOf = (a: string, b: string) => contrast(a.startsWith("#") ? rgb(a) : a.match(/\d+/g)!.map(Number), b.startsWith("#") ? rgb(b) : b.match(/\d+/g)!.map(Number));
