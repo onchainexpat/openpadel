@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses } from "@kumi/ui";
+import { api, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts } from "./Courts.tsx";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
@@ -240,6 +240,7 @@ export function App() {
         me.value.leaving && leavingNotice(me.value.leaving, me.value.roles.some((r) => r.key === "owner")),
         ...supportNotices(me.value),
       ]} />
+      <Greeting app="staff" />
       <Router>
         <Route path="/" component={home} />
         <Route path="/changes" component={changes ? Changes : NotForRole} />

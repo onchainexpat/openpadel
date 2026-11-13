@@ -25,6 +25,12 @@ up right there.
 - The staff app's colour follows the club's brand colour with text that always reads at 4.5:1: a mid-tone that
   neither white nor near-black text reads on is darkened just enough (in the members' app too), and very light or
   very dark colours keep a visible edge on the main buttons and the page open in the menu.
+- The apps open on the club's own start screen: its colour with its mark (its initials, drawn by the server) on
+  Android, on iPhone (start images for the common sizes) and inside the app while it loads, with no wait added. A slow
+  or missing connection says so and offers Try again, rather than showing the sign-in page. Icons are now plain and
+  maskable, and new ones are drawn when the club's name or colour changes ([the phone apps](docs/setup/apps.md)).
+- A short welcome (about a second, ended by a tap, only a fade with "reduce motion" on) the first time someone signs
+  in to each app, once per person; the welcome for members who moved in now comes in part by part.
 
 ### Changed
 - Before a member pays for anything in the app (a court, whole or split, an open match, a clinic, course or lesson, a
@@ -134,6 +140,7 @@ up right there.
   its test addresses.
 
 ### When updating
+- The short welcome: nothing to do. Everyone who has signed in before is counted as welcomed, so only new people see it.
 - Existing clubs change behaviour: the second step at sign-in is off after the update, for every club. Staff who
   already set up a passkey or an authenticator still give it at every sign-in; staff who join later aren't asked
   until a sensitive change needs it. To keep asking every owner and manager at every sign-in, the owner turns on

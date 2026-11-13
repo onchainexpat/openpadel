@@ -42,7 +42,9 @@ export type Me = { person: { id: string; display_name: string; locale: string };
   /** An account made for support access, whose access has ended. */
   support_ended?: boolean;
   /** Moved in from Playtomic and not welcomed yet: the members' app shows its welcome once (Welcome.tsx). */
-  welcome?: boolean };
+  welcome?: boolean;
+  /** Their first sign-in in that app: it plays its short welcome once (Greeting.tsx). The staff app's is only for staff. */
+  greet_member?: boolean; greet_staff?: boolean };
 export type Club = { /** Where a sign-in code emailed goes: "log" with no email service set up, "practice" to test addresses only. */
   mail?: "sent" | "log" | "practice"; name: string; brand_colour: string; /** The software staff used before (presets.ts in the staff app): its words and order. */ coming_from?: string; languages: string[]; default_language: Lang; drafts?: boolean; court_bookings?: boolean; players_chat?: boolean; gift_cards?: boolean; passes?: boolean; promos?: boolean; gift_card_min_cents?: number; gift_card_max_cents?: number; memberships?: boolean; lessons?: boolean; competitions?: boolean; public_page?: boolean; phone_sign_in?: boolean; member_url?: string;
   /** The club's host made it read-only (read_only.ts): both apps say so at the top. */
@@ -176,6 +178,10 @@ export function applyBrand(colour: string) {
   const st = document.documentElement.style, b = brandColours(colour);
   // The fill is the club's colour, darkened only where neither white nor near-black text would read on it.
   st.setProperty("--brand", b?.fill ?? colour);
+  // The phone's status bar in the same colour, as the installed app's manifest has it.
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) { meta = document.createElement("meta"); meta.name = "theme-color"; document.head.appendChild(meta); }
+  meta.content = b?.fill ?? colour;
   if (!b) return;
   st.setProperty("--brand-ink-light", b.inkLight); st.setProperty("--brand-ink-dark", b.inkDark); st.setProperty("--on-brand", b.onBrand);
 }
@@ -239,8 +245,15 @@ export async function signOutHere(): Promise<void> {
   me.value = null;
 }
 
+/** The app couldn't reach the club while it started (no connection, or the server not answering): the start screen
+ *  says so and tries again when the phone is back online (boot.ts), rather than showing sign-in to someone signed in. */
+export const unreachable = signal(false);
 export async function loadMe(): Promise<void> {
-  try { const m = await api<Me>("/me"); await firstWording(m.lang).catch(() => undefined); me.value = m; lang.value = m.lang; }
-  catch { me.value = null; }
+  try { const m = await api<Me>("/me"); await firstWording(m.lang).catch(() => undefined); unreachable.value = false; me.value = m; lang.value = m.lang; }
+  catch (e) {
+    // Only while starting: a signed-out answer (401) is sign-in; no answer, or the server failing, is "can't reach".
+    if (me.peek() === undefined && !(e instanceof ApiError && e.status < 500)) unreachable.value = true;
+    else me.value = null;
+  }
   followLanguage();
 }

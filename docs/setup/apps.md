@@ -15,6 +15,31 @@ app installs as "<the club> Staff". Neither says "openPadel" or "Kumi" on the ho
   and iPadOS 16.4 and later), not in a Safari tab.
 - **Computers:** Chrome and Edge install it too; any browser opens it.
 
+### The icon and the start screen, from the club's name and colour
+
+Both apps take their look on the phone from two settings the club already has: its **name** and its **brand colour**
+(staff app, Settings, or `brand_colour` in the club's setup file). Nothing else to upload or set.
+
+- **The icon** is the club's mark on its colour: the first letters of its name, past words every club has ("Padel",
+  "Club", "de"...), so "Harbor Lights Padel" is HL. A name with no letters A to Z (accents are fine) gets a white ball.
+  The letters are white, or near-black on a light colour, whichever reads.
+- **Android** draws its own start screen from the app's manifest: the club's colour with the icon in the middle and
+  the name under it. It also colours the status bar.
+- **iPhone** shows a start image the server draws for each common iPhone size, in the same colour with the same mark,
+  and the club's icon on the Home Screen.
+- **Inside the app**, while it loads, the same mark on the same colour, so there's no jump when the phone hands over.
+  It goes as soon as the first screen is ready. On a slow connection it shows a quiet loading line, then a note to
+  check the connection and Try again; with no connection it says so, and tries again when the phone is back online.
+- **A first sign-in** plays a short welcome (about a second; a tap ends it) once per person in each app, and the
+  welcome for members who moved in from another system comes in part by part. With "reduce motion" on in the phone's
+  settings, both only fade.
+
+Changing the name or colour draws new icons and start screens straight away, and phones pick them up: the app's own
+start screen the next time it opens (or the one after, at most a day later), and Android's icon when Chrome next
+checks the app (it does on its own, about once a day). An iPhone keeps the icon it was added with until the app is
+removed and added to the Home Screen again: that's Apple's rule, not openPadel's. A club logo isn't used yet: the
+mark is drawn from the name.
+
 Members find their way around the members' app by the tabs at the bottom of every page, where members coming from
 other padel apps expect them:
 

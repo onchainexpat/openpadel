@@ -3,12 +3,56 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0B5A55" />
     <link rel="manifest" href="/manifest/member.webmanifest" />
+    <link rel="icon" href="/manifest/icon-192.png" />
     <link rel="apple-touch-icon" href="/manifest/icon-180.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/manifest/startup/1320x2868.png" />
+    <link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/manifest/startup/1290x2796.png" />
+    <link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/manifest/startup/1206x2622.png" />
+    <link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/manifest/startup/1179x2556.png" />
+    <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/manifest/startup/1284x2778.png" />
+    <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/manifest/startup/1170x2532.png" />
+    <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/manifest/startup/1242x2688.png" />
+    <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/manifest/startup/1125x2436.png" />
+    <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/manifest/startup/828x1792.png" />
+    <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/manifest/startup/750x1334.png" />
+    <link rel="apple-touch-startup-image" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/manifest/startup/640x1136.png" />
+    <!-- The start screen (#boot, boot.ts), styled here so it's there before anything else loads; its colour and words
+         come from /manifest/boot.css, in the club's brand. It matches the phone's own start screen (manifest.ts). -->
+    <style>
+      .boot { position: fixed; inset: 0; z-index: 999; display: flex; align-items: center; justify-content: center; background: var(--boot-bg, #0B5A55);
+        color: var(--boot-ink, #fff); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; text-align: center; }
+      .boot-mark { display: block; width: 192px; height: 192px; }
+      .boot-under { position: absolute; left: 16px; right: 16px; top: calc(50% + 96px); }
+      .boot-name { margin: 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; opacity: 0; animation: boot-in 200ms 150ms ease-out forwards; }
+      .boot-dots { display: flex; justify-content: center; gap: 6px; margin-top: 20px; opacity: 0; animation: boot-in 300ms 1200ms forwards; }
+      .boot-dots i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: boot-pulse 1.2s ease-in-out infinite; }
+      .boot-dots i:nth-child(2) { animation-delay: .2s; } .boot-dots i:nth-child(3) { animation-delay: .4s; }
+      .boot-late { margin: 16px auto 0; max-width: 320px; font-size: 15px; line-height: 1.4; visibility: hidden; opacity: 0; animation: boot-show 300ms 9s forwards; }
+      .boot-offline .boot-late { animation: boot-show 200ms forwards; }
+      .boot-offline .boot-dots { display: none; }
+      .boot-retry { color: inherit; font-weight: 700; text-decoration: underline; }
+      @keyframes boot-in { to { opacity: 1; } }
+      @keyframes boot-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+      @keyframes boot-show { to { visibility: visible; opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { .boot-dots i { animation: none; opacity: .7; } }
+      @media (orientation: landscape) and (max-height: 500px) { .boot-mark { width: 120px; height: 120px; } .boot-under { top: calc(50% + 60px); } }
+    </style>
+    <link rel="stylesheet" href="/manifest/boot.css" />
     <title>Padel club</title>
   </head>
   <body>
+    <div id="boot" class="boot">
+      <img class="boot-mark" src="/manifest/mark.svg" alt="" width="192" height="192" />
+      <div class="boot-under">
+        <p class="boot-name"></p>
+        <div class="boot-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+        <p class="boot-late" role="status"><span class="boot-late-text"></span> <a class="boot-retry" href=""></a></p>
+      </div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

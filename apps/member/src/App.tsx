@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, chatsUnread, club, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand, applyTitle } from "@kumi/ui";
+import { api, chatsUnread, club, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, Greeting, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand, applyTitle } from "@kumi/ui";
 import { Home } from "./Home.tsx";
 import { TabBar } from "./TabBar.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
@@ -87,6 +87,7 @@ export function App() {
         emailNotice,
       ]} />
       {me.value.welcome && <ToWelcome />}
+      <Greeting app="member" />
       <Router>
         <Route path="/" component={Home} />
         <Route path="/welcome" component={Welcome} />

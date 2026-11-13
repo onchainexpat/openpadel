@@ -15,7 +15,7 @@ import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, productName, type Key, type Lang } from "@kumi/i18n";
 import { comingFrom } from "@kumi/i18n/presets";
-import { welcomeDue, ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { welcomeDue, greetDue, greeted, ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -457,7 +457,19 @@ export function makeApp(deps: AppDeps) {
       // An account made for support access whose access has ended: the staff app says so, rather than showing empty pages.
       support_ended: !support && row?.created_via === "support",
       // Moved in from Playtomic and not welcomed yet: the members' app shows its welcome once (welcome.ts).
-      welcome: !me.gate && !support ? await welcomeDue(db, me.id) : false });
+      welcome: !me.gate && !support ? await welcomeDue(db, me.id) : false,
+      // The short welcome each app plays at a first sign-in there (Greeting.tsx): the staff app's only for staff.
+      ...await greetings(me.id, Boolean(me.gate || support), roles.some((r) => r.key !== "member")) });
+  });
+  const greetings = async (id: string, skip: boolean, staff: boolean) => {
+    if (skip) return { greet_member: false, greet_staff: false };
+    const g = await greetDue(db, id);
+    return { greet_member: g.member, greet_staff: g.staff && staff };
+  };
+  // Played: noted on the person, so it never plays again in that app, on this phone or any other.
+  app.post("/me/greeted", async (c) => {
+    const a = actor(c), { app: which } = await body(c, z.object({ app: z.enum(["member", "staff"]) }));
+    return c.json({ first: await greeted(db, a.personId!, which, now()) });
   });
 
   // ---- Actions: one description each, the same one the MCP tools and forms use ----

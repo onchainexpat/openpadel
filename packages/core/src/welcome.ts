@@ -57,3 +57,18 @@ export async function welcomeFacts(db: Db | Trx, personId: string, now: Date) {
     date: m.current_period_end ? (renews ? localDate(m.current_period_end, tz) : endDay({ current_period_end: m.current_period_end, source: m.source }, tz)) : null } : null;
   return { time_zone: tz, bookings: bookings.map((b) => ({ id: b.id, court: b.court, start: new Date(b.start).toISOString() })), level: rating?.level ?? null, credit_cents: credit, membership };
 }
+
+/** The short welcome each app plays once, at someone's first sign-in there (the apps' Greeting): whether it's still to
+ *  play in the members' app and in the staff app. Like welcomed_at, it's the app's own note, not a change to the club. */
+export async function greetDue(db: Db | Trx, personId: string): Promise<{ member: boolean; staff: boolean }> {
+  const p = await db.selectFrom("person").select(["member_greeted_at", "staff_greeted_at"]).where("id", "=", personId).executeTakeFirst();
+  return { member: Boolean(p && !p.member_greeted_at), staff: Boolean(p && !p.staff_greeted_at) };
+}
+
+/** Played: never again in that app. True the first time only. */
+export async function greeted(db: Db | Trx, personId: string, app: "member" | "staff", now: Date): Promise<boolean> {
+  const r = app === "member"
+    ? await db.updateTable("person").set({ member_greeted_at: now }).where("id", "=", personId).where("member_greeted_at", "is", null).executeTakeFirst()
+    : await db.updateTable("person").set({ staff_greeted_at: now }).where("id", "=", personId).where("staff_greeted_at", "is", null).executeTakeFirst();
+  return Number(r.numUpdatedRows) > 0;
+}

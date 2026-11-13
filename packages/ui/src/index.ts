@@ -12,6 +12,10 @@ export { protectedPost, botProof } from "./pow.ts";
 export { ReceiptSheet, type ReceiptView } from "./Receipt.tsx";
 export { OtherLang, otherLang, savedIn, translationsOf } from "./OtherLang.tsx";
 export { RunsOn } from "./RunsOn.tsx";
+// The start screen while an app starts, and the short welcome at a first sign-in.
+export { startBoot, bootDone } from "./boot.ts";
+export { Greeting } from "./Greeting.tsx";
+export { greetFor, lessMotion } from "./greet.ts";
 export { pageTitle, type AppKind } from "./title.ts";
 export { Notices, NewOnly } from "./Notices.tsx";
 // Kept from the first screen: Chrome makes its install offer once, early (install.ts).

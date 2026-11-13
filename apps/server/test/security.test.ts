@@ -96,7 +96,7 @@ test("the apps can be installed: a manifest in the club's name and color, and ic
   assert.equal(m.headers.get("content-type"), "application/manifest+json");
   const j = await m.json() as any;
   assert.equal(j.name, "Kestrel Padel Staff"); assert.equal(j.display, "standalone"); assert.match(j.theme_color, /^#[0-9A-Fa-f]{6}$/);
-  assert.deepEqual(j.icons.map((i: any) => i.sizes), ["192x192", "512x512"]);
+  assert.deepEqual(j.icons.map((i: any) => i.sizes), ["192x192", "512x512", "192x192", "512x512"]);   // plain and maskable (launch.test.ts)
   const png = Buffer.from(await (await app.request("/manifest/icon-192.png")).arrayBuffer());
   assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.equal(png.readUInt32BE(16), 192); assert.equal(png.readUInt32BE(20), 192);
