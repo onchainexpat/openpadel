@@ -177,12 +177,12 @@ function Frame({ a, signOut, children }: { a: Access; signOut: () => void; child
       <header class="topbar">
         <button type="button" class="menu-button" aria-expanded={shown} aria-controls="staff-menu" onClick={() => setOpen(!open)}>
           <span aria-hidden="true">☰</span> {t("ui.menu")}</button>
-        <strong>{club.value?.name}</strong>
+        <strong>{club.value?.logo && <img class="club-logo" src={club.value.logo} alt="" width={28} height={28} />}{club.value?.name}</strong>
       </header>
       {shown && <div class="scrim" onClick={close} />}
       <div id="staff-menu" ref={rail} class={`rail${shown ? " open" : ""}`} role={shown ? "dialog" : undefined} aria-modal={shown ? "true" : undefined}
         aria-label={shown ? t("ui.nav_main") : undefined}>
-        <div class="rail-head"><strong>{club.value?.name}</strong>
+        <div class="rail-head"><strong>{club.value?.logo && <img class="club-logo" src={club.value.logo} alt="" width={28} height={28} />}{club.value?.name}</strong>
           {shown && <button type="button" class="small" onClick={close}>{t("ui.close")}</button>}</div>
         <StaffNav a={a} signOut={signOut} />
       </div>

@@ -9,7 +9,7 @@ import { REVISION, VERSION } from "./version.ts";
 import { deepHealth, mayReadDeepHealth } from "./health.ts";
 import { vaultRoutes } from "./vault.ts";
 import { exportRoutes } from "./export_routes.ts";
-import { manifestRoutes } from "./manifest.ts";
+import { brandTag, manifestRoutes } from "./manifest.ts";
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
@@ -236,7 +236,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "brand_colour", "coming_from", "languages", "default_language", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "gift_cards", "gift_card_min_cents", "gift_card_max_cents", "public_page", "terms_url", "privacy_policy_url", "time_zone", "currency", "format_locale", "country", "tax_label", "prices_include_tax", "read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
+    const club = await db.selectFrom("club").select(["name", "brand_colour", "coming_from", "languages", "default_language", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "gift_cards", "gift_card_min_cents", "gift_card_max_cents", "public_page", "terms_url", "privacy_policy_url", "time_zone", "currency", "format_locale", "country", "tax_label", "prices_include_tax", "read_only_since", "moved_at", "moved_to", "logo_id", "logo_for"]).executeTakeFirst();
     // Not set up yet (kumi setup apply): nothing to show, which isn't the server failing.
     if (!club) throw new KumiError("error.club_not_set_up", {}, 404);
     // Whether there's a membership to join in the app.
@@ -258,8 +258,12 @@ export function makeApp(deps: AppDeps) {
     // The club's own terms and privacy policy: linked where people join, beside the yes to texts and on the profile.
     // Hosted by Kumi (KUMI_HOSTED=1): staff read "Kumi" for the product, and the apps show "Runs on Kumi".
     // The software staff used before (coming_from), always one the staff app knows: words and order only.
-    const { read_only_since, moved_at, moved_to, ...shown } = club;
-    return c.json({ ...shown, coming_from: comingFrom(club.coming_from), read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), competitions: Boolean(competing), passes: Boolean(passes), promos, phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
+    // The club's logo, as its icon (the logo on what it sits on), for the apps' headers: named by the brand's tag.
+    const { read_only_since, moved_at, moved_to, logo_id, logo_for, ...shown } = club;
+    // And the start screen's mark (the logo or the drawn one) under the same tag, so the welcome shows a new one at once.
+    const v = brandTag(club.name, club.brand_colour, logo_id && `${logo_id}:${logo_for ?? ""}`);
+    const logo = logo_id ? `/manifest/icon-192.png?v=${v}` : null, mark = `/manifest/mark.png?v=${v}`;
+    return c.json({ ...shown, logo, mark, coming_from: comingFrom(club.coming_from), read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), competitions: Boolean(competing), passes: Boolean(passes), promos, phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
       member_url: deps.memberUrl ?? memberUrl(publicUrl, {}), hosted: isHosted(), mail: deps.mailReach ?? "sent" });
   });
 
@@ -485,7 +489,7 @@ export function makeApp(deps: AppDeps) {
     // to the member whose change it is (or a parent of theirs): staff at the desk see the summary, as before.
     const who = actor(c).personId, ch = who && p.plan.ownerIds?.includes(who) ? p.plan.charge : undefined;
     const charge = ch ? { lines: ch.lines.map((l) => ({ kind: l.kind, label: l.label[lang], cents: l.cents })), due_cents: ch.due_cents, how: ch.how[lang], when: ch.when?.[lang] ?? null } : undefined;
-    return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt, ...(charge ? { charge } : {}) });
+    return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt, ...(charge ? { charge } : {}), ...(p.plan.image ? { image: p.plan.image } : {}) });
   });
   app.post("/runs/:id/apply", async (c) => {
     const a = actor(c), id = c.req.param("id");

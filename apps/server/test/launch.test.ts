@@ -128,7 +128,7 @@ test("both apps ask for every iPhone start screen drawn, and have the start scre
     const links = [...html.matchAll(/rel="apple-touch-startup-image" media="([^"]+)" href="([^"]+)"/g)].map((m) => `${m[1]}" href="${m[2]}"`);
     assert.deepEqual(links.sort(), [...want].sort(), `${a}: the startup images`);
     for (const tag of ['rel="apple-touch-icon" href="/manifest/icon-180.png"', 'name="apple-mobile-web-app-status-bar-style"', 'name="apple-mobile-web-app-capable"',
-      'href="/manifest/boot.css"', 'id="boot"', 'src="/manifest/mark.svg"', 'class="boot-retry"']) assert.ok(html.includes(tag), `${a}: ${tag}`);
+      'href="/manifest/boot.css"', 'id="boot"', 'src="/manifest/mark.png"', 'class="boot-retry"']) assert.ok(html.includes(tag), `${a}: ${tag}`);
     assert.ok(!/<script(?![^>]*type="module")/.test(html), `${a}: no inline script (the apps' security policy allows none)`);
     assert.equal([...html.matchAll(/<script/g)].length, 1, `${a}: one script, the app's own`);
     assert.ok(!/name="theme-color"/.test(html), `${a}: no fixed status bar colour (the manifest's, then applyBrand's)`);

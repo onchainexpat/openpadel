@@ -22,6 +22,11 @@ Owners and managers no longer have to set up a passkey or an authenticator app b
 up right there.
 
 ### Added
+- The club's logo (Settings, next to the colour, or `logo:` in club.yaml): an SVG, PNG or JPEG in place of the mark
+  drawn from the club's name, on the app icons, the iPhone start images, the apps' start screen and welcome, and both
+  apps' headers. It sits on the club's colour where it stands out, and on a dark or white tile where it wouldn't; the
+  owner can say which background it's made for. An SVG must be shapes only and is drawn as a PNG on the server: the
+  file itself is never served. Previewed, in Changes, and can be undone or removed (docs/setup/apps.md).
 - "Staff are coming from" (Settings, or `coming_from:` in club.yaml): one staff app that feels familiar to staff moving
   from other software. `playtomic`, the default, keeps today's words and order (Schedule, Bookings, Customers, "Clinics,
   courses and events"), so nothing changes for a club until it picks another; `none` uses openPadel's own plain words

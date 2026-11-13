@@ -33,6 +33,9 @@ export interface Plan {
   moneyCents?: number;
   tells?: Text[];
   details?: unknown;
+  /** A picture of what the change makes (a data: URL of a PNG drawn on the server, the club's logo on its colour), for
+   *  the preview only: never stored with the run. */
+  image?: string;
   /** What a member's change charges, line by line (charge.ts): the members' app shows it before the yes. */
   charge?: Charge;
 }
@@ -255,6 +258,8 @@ function validate<S extends z.ZodMiniObject>(def: ActionDef<S>, raw: unknown): z
   return parsed.data;
 }
 
+/** The preview as it's stored: without its picture (Plan.image), which is for the person looking at it now. */
+const planJson = (p: Partial<Plan>) => JSON.stringify({ ...p, image: undefined });
 /** The input as it's kept: without what the action forgets. */
 const kept = (def: ActionDef<any>, input: unknown) => without(stored(def, input), def.forget);
 /** The input as it's stored with a preview: without what only the preview reads (planOnly). */
@@ -266,7 +271,7 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
   // Every "no" is logged (permissions.md), with the support access it was tried under (and nothing the action forgets).
   await db.insertInto("action_run").values({ support_grant_id: d.support ?? null,
     id: uuidv7(), action: def.name, action_version: def.version, actor_person_id: actor.personId, agent_id: actor.agentId ?? null,
-    via: actor.via, location_id: plan?.locationId ?? null, input: JSON.stringify(kept(def, input)), plan: JSON.stringify(plan ?? {}), status: "failed",
+    via: actor.via, location_id: plan?.locationId ?? null, input: JSON.stringify(kept(def, input)), plan: planJson(plan ?? {}), status: "failed",
     undo_kind: "none", read_versions: JSON.stringify({}), plan_expires_at: new Date(), error: JSON.stringify({ code: "error.forbidden_reason", reason: d.reason }),
   }).execute();
   throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
@@ -441,7 +446,7 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
   const runId = uuidv7(now.getTime());
   const row = {
     id: runId, action: name, action_version: def.version, actor_person_id: actor.personId, agent_id: actor.agentId ?? null, via: actor.via,
-    location_id: p.locationId ?? null, input: JSON.stringify(stored(def, input)), plan: JSON.stringify(p), status, undo_kind: p.undo.kind,
+    location_id: p.locationId ?? null, input: JSON.stringify(stored(def, input)), plan: planJson(p), status, undo_kind: p.undo.kind,
     undo_note: p.undo.note ? JSON.stringify(p.undo.note) : null, read_versions: JSON.stringify(Object.fromEntries(p.reads.map((r) => [keyOf(r.entity, r.id), r.version]))),
     plan_expires_at: expiresAt, money_cents: String(p.moneyCents ?? 0), undo_of: (input as any)?.run_id && name === "action.undo" ? (input as any).run_id : null,
     oauth_grant_id: actor.grantId ?? null, support_grant_id: d.support ?? null,
@@ -633,7 +638,7 @@ export async function runAsSystem(db: Db, name: string, raw: unknown, via: strin
   const runId = uuidv7(now.getTime());
   await db.insertInto("action_run").values({
     id: runId, action: name, action_version: def.version, actor_person_id: null, agent_id: null, via, location_id: p.locationId ?? null,
-    input: JSON.stringify(input), plan: JSON.stringify(p), status: "planned", undo_kind: p.undo.kind, undo_note: p.undo.note ? JSON.stringify(p.undo.note) : null,
+    input: JSON.stringify(input), plan: planJson(p), status: "planned", undo_kind: p.undo.kind, undo_note: p.undo.note ? JSON.stringify(p.undo.note) : null,
     read_versions: JSON.stringify(Object.fromEntries(p.reads.map((r) => [keyOf(r.entity, r.id), r.version]))), plan_expires_at: new Date(now.getTime() + PLAN_MINUTES * 60_000),
   }).execute();
   return { runId, plan: p, result: await apply(db, runId, actor, { now, system: true }) };

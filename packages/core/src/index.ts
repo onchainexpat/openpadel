@@ -75,6 +75,7 @@ export * from "./ops.ts";
 export * from "./receipts.ts";
 export * from "./charge.ts";
 export * from "./welcome.ts";
+export * from "./logo.ts";
 export * from "./assistant_spend.ts";
 export * from "./assistants.ts";
 export * from "./assistant_reach.ts";

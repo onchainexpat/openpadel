@@ -38,7 +38,8 @@ export function Home() {
       <section class="club-head" aria-labelledby="club-name">
         {/* The club has no photo of its own yet: a court drawing, faint, behind its name. */}
         <Illustration name="court" tone="faint" class="club-head-art" />
-        <span class="monogram" aria-hidden="true">{name.trim().charAt(0).toUpperCase()}</span>
+        {club.value?.logo ? <img class="monogram monogram-logo" src={club.value.logo} alt="" width={56} height={56} />
+          : <span class="monogram" aria-hidden="true">{name.trim().charAt(0).toUpperCase()}</span>}
         <div>
           <h1 id="club-name">{name}</h1>
           {plan && <a class="pill" href="/membership">{t("ui.home_member_pill", { plan })}</a>}

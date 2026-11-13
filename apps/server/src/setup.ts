@@ -2,11 +2,13 @@
 // would change and changes nothing; `apply` makes the changes through the same actions the apps use, so
 // each one is checked, audited and can be undone. Running it again only adds what's new: nothing in the
 // file removes or renames anything (that's done in the staff app, where the preview shows what it affects).
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import * as z from "zod/mini";
 import { parse } from "yaml";
 import { both, type Key, type Lang, type Text } from "@kumi/i18n";
-import { pageUrl, run, runAsSystem, type Actor, type Db } from "@kumi/core";
+import { pageUrl, readLogo, run, runAsSystem, type Actor, type Db } from "@kumi/core";
 import { COMING_FROM, DEFAULT_COMING_FROM } from "@kumi/i18n/presets";
 
 const name = z.string().check(z.minLength(1));
@@ -38,8 +40,10 @@ export const ClubFile = z.object({
   // staff_second_step: owners, managers and the club's own roles give a second step at every sign-in (Settings, "Sign-in
   // and roles"); left out, the club's setting stays as it is (off for a new club).
   // coming_from: the software staff used before (none or playtomic), for the staff app's words, menu order and first
-  // page; brand_colour: the club's colour (#rrggbb) in both apps. Left out, each stays as it is.
-  club: z.object({ name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])), terms_url: z.optional(pageUrl), privacy_policy_url: z.optional(pageUrl),
+  // page; brand_colour: the club's colour (#rrggbb) in both apps. Left out, each stays as it is. logo: a path to the
+  // club's logo (SVG, PNG or JPEG, from the file's own folder when it's relative) and logo_for: the background it's
+  // made for (light or dark; left out, read from the logo). Left out, the logo stays as it is.
+  club: z.object({ logo: z.optional(name), logo_for: z.optional(z.enum(["light", "dark"])), name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])), terms_url: z.optional(pageUrl), privacy_policy_url: z.optional(pageUrl),
     staff_second_step: z.optional(z.boolean()), coming_from: z.optional(z.enum(COMING_FROM)), brand_colour: z.optional(z.string().check(z.regex(/^#[0-9A-Fa-f]{6}$/, "a colour like #0B5A55"))) }),
   owner: z.object({ name, email: z.email() }),
   locations: z.optional(z.array(z.object({ name, address: z.optional(z.string()), time_zone: z.optional(name), courts: z.optional(z.array(court)) }))),
@@ -62,6 +66,12 @@ export function readClubFile(path: string): ClubFile {
   const tzs = [r.data.club.time_zone, ...(r.data.locations ?? []).map((l) => l.time_zone).filter((t): t is string => Boolean(t))];
   const bad = tzs.filter((tz) => { try { new Intl.DateTimeFormat("en", { timeZone: tz }); return false; } catch { return true; } });
   if (bad.length) throw new ClubFileError(bad.map((tz) => `time_zone: "${tz}" isn't a time zone (use a name like America/Los_Angeles)`));
+  // The logo's path, from the file's own folder.
+  if (r.data.club.logo) {
+    const at = resolve(dirname(path), r.data.club.logo);
+    if (!existsSync(at)) throw new ClubFileError([`club.logo: there's no file at ${at}`]);
+    r.data.club.logo = at;
+  }
   return r.data;
 }
 
@@ -128,6 +138,20 @@ export async function setupClub(db: Db, file: ClubFile, opts: { apply: boolean; 
   const colour = file.club.brand_colour;
   if (colour !== undefined && colour.toLowerCase() !== look.brand_colour.toLowerCase()) await step("club.update", both("cli.step.brand_colour", { colour }),
     async () => ok(await run(db, "club.update", { brand_colour: colour }, owner)));
+
+  // The logo, when the file names one that isn't the club's logo already (the same file, and made for the same
+  // background). It's checked in the plan too, so a logo that can't be used says why before anything is applied.
+  if (file.club.logo) {
+    const bytes = readFileSync(file.club.logo), sha = createHash("sha256").update(bytes).digest("hex");
+    const now = club?.logo_id ? await db.selectFrom("club_logo").select("source_sha256").where("id", "=", club.logo_id).executeTakeFirst() : undefined;
+    // logo_for left out of the file leaves the club's choice (Settings) as it is.
+    const forWhat = file.club.logo_for;
+    if (now?.source_sha256 !== sha || (forWhat !== undefined && forWhat !== (club?.logo_for ?? null))) {
+      if (!opts.apply) await readLogo(bytes);
+      await step("club.set_logo", both("cli.step.logo", { file: basename(file.club.logo) }),
+        async () => ok(await run(db, "club.set_logo", { logo: bytes.toString("base64"), ...(forWhat ? { logo_for: forWhat } : {}) }, owner)));
+    }
+  }
 
   const locations = club ? await db.selectFrom("location").select(["id", "name"]).where("archived_at", "is", null).execute() : [];
   const locationIds = new Map<string, string | null>();

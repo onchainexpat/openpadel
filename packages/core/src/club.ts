@@ -19,6 +19,8 @@ import { SELF_ADJUST_GAMES } from "./level_tools.ts";
 import { dayText } from "./memberships.ts";
 import { loadRating } from "./ratings.ts";
 import { COMING_FROM, comingFrom } from "@kumi/i18n/presets";
+import { brandColours } from "@kumi/ui/brand";
+import { DARK_TILE, drawLogo, LOGO_MAX_BYTES, logoTile, readLogo } from "./logo.ts";
 
 const isTimeZone = (v: string) => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } };
 const timeZone = z.string().check(z.refine(isTimeZone, { message: "Not a time zone (use an IANA name such as America/Los_Angeles)" }));
@@ -198,6 +200,61 @@ export const clubUpdate = defineAction({
     await ctx.update("club", "singleton", patch); await ctx.emit("club.updated", {});
     if (patch.currency || patch.format_locale || patch.country) setClubFormat({ currency: patch.currency as string | undefined, locale: patch.format_locale as string | undefined, country: patch.country as string | undefined });
     return null;
+  },
+});
+
+/** Where a logo shows, in words for its preview: on the club's colour, on a tile, or on its own background. */
+const logoWhere = (tile: string | null, backed: string | null): Text =>
+  both(backed ? "plan.club.logo_on_own" : tile === null ? "plan.club.logo_on_colour" : tile === DARK_TILE ? "plan.club.logo_on_dark" : "plan.club.logo_on_light");
+/** The preview's picture: the logo as a start screen shows it, on the club's colour (or its tile). */
+const logoPicture = async (logo: { png: Buffer }, fill: string, tile: string | null) =>
+  `data:image/png;base64,${(await drawLogo(logo, { w: 640, h: 400, bg: fill, tile, box: { size: 256, cx: 320, cy: 200 }, fit: 0.84 })).toString("base64")}`;
+
+export const clubSetLogo = defineAction({
+  name: "club.set_logo", version: 1, strongAuth: true,
+  // The file as base64 (SVG, PNG or JPEG, at most 1 MB), or null to take the logo off. It's checked and drawn as a PNG
+  // here (logo.ts); the file itself is never served, and it's taken out of the change's input once applied. logo_for:
+  // the background the logo is made for (a light logo is for dark ones); null: as read from the logo; left out: as
+  // the club has it now.
+  input: z.object({
+    logo: z.optional(z.nullable(z.string().check(z.maxLength(Math.ceil(LOGO_MAX_BYTES / 3) * 4 + 4), z.describe("The logo file as base64: SVG (shapes only, text turned into outlines), PNG or JPEG, at most 1 MB. null takes the logo off.")))),
+    logo_for: z.optional(z.nullable(z.enum(["light", "dark"]).check(z.describe("The background the logo is made for: dark for a light logo, light for a dark one. null: read from the logo.")))),
+  }),
+  forget: ["logo"],
+  async plan(ctx, i) {
+    if (i.logo === undefined && i.logo_for === undefined) throw new KumiError("error.nothing_changed", {}, 400);
+    const { row, read } = await readRow(ctx.db, "club", "singleton");
+    const fill = brandColours(row.brand_colour)?.fill ?? row.brand_colour;
+    const undo = { kind: "reversible" as const };
+    if (i.logo === null) {
+      if (!row.logo_id) throw new KumiError("error.nothing_changed", {}, 400);
+      return { title: both("action.club.set_logo"), summary: both("plan.club.logo_off"), reads: [read], undo };
+    }
+    if (i.logo !== undefined) {
+      const logo = await readLogo(Buffer.from(i.logo, "base64")), tile = logoTile(fill, logo, i.logo_for === undefined ? row.logo_for : i.logo_for);
+      return { title: both("action.club.set_logo"), summary: both("plan.club.logo", { width: logo.width, height: logo.height, where: logoWhere(tile, logo.backed) }),
+        reads: [read], undo, image: await logoPicture(logo, fill, tile), details: { width: logo.width, height: logo.height, seems_for: logo.seems_for, tile } };
+    }
+    // Only which background it's for.
+    const logo = row.logo_id ? await ctx.db.selectFrom("club_logo").selectAll().where("id", "=", row.logo_id).executeTakeFirst() : undefined;
+    if (!logo) throw new KumiError("error.logo_none", {}, 400);
+    if ((i.logo_for ?? null) === row.logo_for) throw new KumiError("error.nothing_changed", {}, 400);
+    const tile = logoTile(fill, logo, i.logo_for ?? null);
+    return { title: both("action.club.set_logo"), summary: both(i.logo_for === "dark" ? "plan.club.logo_for_dark" : i.logo_for === "light" ? "plan.club.logo_for_light" : "plan.club.logo_for_read", { where: logoWhere(tile, logo.backed) }),
+      reads: [read], undo, image: await logoPicture(logo, fill, tile) };
+  },
+  async apply(ctx, i) {
+    if (i.logo === null) { await ctx.update("club", "singleton", { logo_id: null, logo_for: null }); await ctx.emit("club.updated", {}); return { logo_id: null }; }
+    let patch: Record<string, unknown> = i.logo_for === undefined ? {} : { logo_for: i.logo_for };
+    if (i.logo !== undefined) {
+      // Straight into its table, not through the change log: the bytes would swamp it. The club's change is logged.
+      const logo = await readLogo(Buffer.from(i.logo, "base64")), id = uuidv7();
+      await ctx.trx.insertInto("club_logo").values({ id, png: logo.png, width: logo.width, height: logo.height, ink: logo.ink, backed: logo.backed,
+        seems_for: logo.seems_for, source_sha256: logo.source_sha256, created_by: ctx.actor.personId }).execute();
+      patch = { ...patch, logo_id: id };
+    }
+    await ctx.update("club", "singleton", patch); await ctx.emit("club.updated", {});
+    return { logo_id: patch.logo_id ?? null };
   },
 });
 

@@ -1,2 +1,2 @@
 { "name": "@kumi/core", "private": true, "type": "module", "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@kumi/i18n": "*", "libphonenumber-js": "1.13.15" } }
+  "dependencies": { "@kumi/i18n": "*", "@kumi/ui": "*", "@resvg/resvg-wasm": "2.6.2", "libphonenumber-js": "1.13.15" } }

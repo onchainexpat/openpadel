@@ -44,7 +44,8 @@ export function Welcome() {
     <main class="welcome">
       <section class="club-head">
         <Illustration name="welcome" class="welcome-art" />
-        <span class="monogram" aria-hidden="true">{(club.value?.name ?? "").trim().charAt(0).toUpperCase()}</span>
+        {club.value?.logo ? <img class="monogram monogram-logo" src={club.value.logo} alt="" width={56} height={56} />
+          : <span class="monogram" aria-hidden="true">{(club.value?.name ?? "").trim().charAt(0).toUpperCase()}</span>}
         <div><p class="meta">{club.value?.name}</p><h1>{t("ui.welcome_title", { name })}</h1></div>
       </section>
       <p>{t("ui.welcome_lead")}</p>

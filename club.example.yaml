@@ -22,6 +22,11 @@ club:
   # coming_from: playtomic
   # The club's colour in both apps (buttons, the page open in the menu, links). Also in Settings.
   # brand_colour: "#0B5A55"
+  # The club's logo, in place of the mark drawn from its name: an SVG, PNG or JPEG under 1 MB, from this file's
+  # folder (docs/setup/apps.md). In an SVG, turn text into outlines. logo_for: the background it's made for (dark for
+  # a light logo, light for a dark one); left out, it's read from the logo. Also in Settings, next to the colour.
+  # logo: logo.svg
+  # logo_for: dark
 
 owner:                               # signs in by a code sent to this address
   name: Robin Hale

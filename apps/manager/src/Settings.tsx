@@ -15,7 +15,7 @@ type Price = { id: string; name: string; translations?: unknown; court_ids: stri
 type Loc = { id: string; name: string; address: string | null; postal_code?: string | null; region?: string | null; country?: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; country: string; prices_include_tax: boolean; tax_label: string | null; languages: string[]; default_language: string; brand_colour: string; coming_from: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; level_import_line: number; two_factor: "owner_manager" | "all_staff" | "off"; second_step_sign_in: boolean };
+type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; country: string; prices_include_tax: boolean; tax_label: string | null; languages: string[]; default_language: string; brand_colour: string; coming_from: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; level_import_line: number; two_factor: "owner_manager" | "all_staff" | "off"; second_step_sign_in: boolean; logo_id: string | null; logo_for: "light" | "dark" | null };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
 type Usage = { cents_per_segment: number; paused: boolean; resets: string; current: Month; history: Month[] };
@@ -133,11 +133,46 @@ function WaiverForm({ w, send }: { w: S["waiver"]; send: Preview }) {
   );
 }
 
+/** A file as base64, as actions take it. */
+const base64 = (file: File) => new Promise<string>((ok, no) => {
+  const r = new FileReader();
+  r.onload = () => ok(String(r.result).replace(/^data:[^,]*,/, "")); r.onerror = () => no(r.error);
+  r.readAsDataURL(file);
+});
+
+/** The club's logo, next to its colour: chosen here, previewed on the club's colour (the server draws it), then
+ *  confirmed; removable, which brings the drawn mark back. Its own changes, apart from the form's Save. */
+function LogoField({ has, madeFor, send }: { has: boolean; madeFor: "light" | "dark" | null; send: Preview }) {
+  const [forWhat, setFor] = useState<"" | "light" | "dark">(madeFor ?? ""), [error, setError] = useState<string | null>(null);
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 1_000_000) { setError(t("error.logo_too_big", { kb: 1000 })); return; }
+    setError(null);
+    try { await send("club.set_logo", { logo: await base64(file), logo_for: forWhat || null }); } catch { setError(t("error.logo_unreadable")); }
+  };
+  return (
+    <fieldset class="logo-field">
+      <legend>{t("ui.logo")}</legend>
+      {has && clubSignal.value?.logo ? <img class="logo-now" src={clubSignal.value.logo} alt="" width={64} height={64} /> : <p class="meta">{t("ui.logo_none")}</p>}
+      <p class="meta" id="logo-help">{t("ui.logo_hint")}</p>
+      <label>{t("ui.logo_choose")}<input type="file" accept=".svg,.png,.jpg,.jpeg,image/svg+xml,image/png,image/jpeg" aria-describedby="logo-help"
+        onChange={(e) => { const f = e.currentTarget.files?.[0]; e.currentTarget.value = ""; void pick(f); }} /></label>
+      <label>{t("ui.logo_for")}<select value={forWhat} aria-describedby="logo-for-help" onChange={(e) => setFor(e.currentTarget.value as "" | "light" | "dark")}>
+        <option value="">{t("ui.logo_for_read")}</option><option value="light">{t("ui.logo_for_light")}</option><option value="dark">{t("ui.logo_for_dark")}</option></select></label>
+      <p class="meta" id="logo-for-help">{t("ui.logo_for_hint")}</p>
+      {has && <p>
+        <button type="button" disabled={(madeFor ?? "") === forWhat} onClick={() => send("club.set_logo", { logo_for: forWhat || null })}>{t("ui.preview")}</button>{" "}
+        <button type="button" onClick={() => send("club.set_logo", { logo: null })}>{t("ui.logo_remove")}</button></p>}
+      {error && <p class="error" role="alert">{error}</p>}
+    </fieldset>
+  );
+}
+
 /** Locales a club might pick (any BCP 47 tag works): the reader's language is their own, these set the formats. */
 const LOCALES = ["en-US", "en-CA", "es-US", "es-MX", "en-GB", "en-IE", "en-AU", "en-NZ", "es-ES", "ca-ES", "pt-PT", "fr-FR", "it-IT", "de-DE", "nl-NL", "sv-SE", "en-AE", "ar-AE", "en-ZA", "es-AR", "pt-BR", "ja-JP"];
 
 function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: Preview }) {
-  const { translations, ...rest } = c, aboutTr0 = savedIn(translations, "about");
+  const { translations, logo_id, logo_for, ...rest } = c, aboutTr0 = savedIn(translations, "about");
   const start = { ...rest, legal_name: c.legal_name ?? "", about: c.about ?? "", terms_url: c.terms_url ?? "", privacy_policy_url: c.privacy_policy_url ?? "" };
   const [f, setF] = useState(start), [aboutTr, setAboutTr] = useState(aboutTr0);
   const set = (k: keyof ClubRow, v: unknown) => setF({ ...f, [k]: v });
@@ -150,6 +185,7 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       <label>{t("ui.name")}<input required value={f.name} onInput={(e) => set("name", e.currentTarget.value)} /></label>
       <label>{t("ui.legal_name")}<input value={f.legal_name} onInput={(e) => set("legal_name", e.currentTarget.value)} /></label>
       <label>{t("ui.brand_color")}<input type="color" value={f.brand_colour} onInput={(e) => set("brand_colour", e.currentTarget.value)} /></label>
+      <LogoField has={Boolean(logo_id)} madeFor={logo_for} send={send} />
       <label>{t("ui.coming_from")}<select value={comingFrom(f.coming_from)} aria-describedby="coming-from-help" onChange={(e) => set("coming_from", e.currentTarget.value)}>
         {COMING_FROM.map((p) => <option value={p}>{t(`preset.name_${p}`)}</option>)}</select></label>
       <p class="meta" id="coming-from-help">{t("ui.coming_from_help")}</p>

@@ -103,8 +103,9 @@ both apps: in the staff app, the main buttons, the page open in the menu, links 
 colour is white or near-black, whichever reads at 4.5:1 (WCAG AA); a mid-tone that neither reads on is darkened just
 enough for white to. Links and outlines use a tint of it that reads at 4.5:1 on the light and dark themes, and very
 light or very dark colours keep a visible edge. The colours for unpaid, warnings and errors, and for each kind of
-booking on the Schedule, stay the same for every club. A club logo isn't stored yet, so the staff app's
-header shows the club's name.
+booking on the Schedule, stay the same for every club. The club's logo (Settings, next to the colour, or `logo:` in
+club.yaml) shows before its name in both apps' headers, and on the icons and start screens
+([apps.md](apps.md#the-clubs-logo)).
 
 ### Step 5b: members
 

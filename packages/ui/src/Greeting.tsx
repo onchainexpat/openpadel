@@ -31,7 +31,7 @@ export function Greeting({ app: which }: { app: "member" | "staff" }) {
   return (
     <div class={`greet${ending ? " greet-skip" : ""}`} onClick={() => setEnding(true)}
       onAnimationEnd={(e) => { if (e.target === e.currentTarget) setOn(false); }}>
-      <img class="greet-mark" src="/manifest/mark.svg" alt="" width={192} height={192} />
+      <img class="greet-mark" src={club.value?.mark ?? "/manifest/mark.png"} alt="" width={192} height={192} />
       <Illustration name="welcome" tone="on-brand" class="greet-art" />
       <div role="status">{said && <>
         <p class="greet-title">{t(which === "staff" ? "ui.greet_staff" : "ui.greet_member", { name })}</p>

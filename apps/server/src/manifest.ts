@@ -2,10 +2,12 @@
 // a web app manifest for each app (Android draws its start screen from its colours and icons), icons with the club's
 // mark (launch_art.ts: its initials, or a ball), iPhone start screens for the common sizes, the mark as SVG, and a
 // small stylesheet with the club's colour and name for the start screen each app shows while it loads (index.html).
-// Images are drawn once per brand and kept: a new name or colour gives new ones, under new addresses in the manifest.
+// Images are drawn once per brand and kept: a new name, colour or logo gives new ones, under new addresses in the manifest.
+// With a logo (core logo.ts) every image is drawn from the PNG kept for it, on the club's colour or the tile it needs;
+// the file the owner gave is never served.
 import { createHash } from "node:crypto";
 import { Hono, type Context } from "hono";
-import type { Db } from "@kumi/core";
+import { drawLogo, logoTile, svgToPng, type Db } from "@kumi/core";
 import { t, type Lang } from "@kumi/i18n";
 import { brandColours } from "@kumi/ui/brand";
 import { drawPng, markSvg } from "./launch_art.ts";
@@ -25,29 +27,47 @@ export const STARTUP: readonly { w: number; h: number; dpr: number; bar: number 
 ];
 /** How wide the mark is on a start screen, in points (CSS pixels): the same in the apps' start screen. */
 export const MARK_PT = 192;
+/** The mark in the apps' own start screen and welcome, in pixels (MARK_PT at three pixels a point). */
+export const MARK_PX = MARK_PT * 3;
+/** How much of its box a logo takes: an icon's padding, the safe circle a phone crops a maskable icon to (80% wide, so a
+ *  square in it is 56%), and a start screen's mark box. */
+const LOGO_FIT = { any: 0.8, maskable: 0.56, mark: 0.84 } as const;
 const ICONS = { "icon-180": { size: 180, fit: "any" }, "icon-192": { size: 192, fit: "any" }, "icon-512": { size: 512, fit: "any" },
   "icon-maskable-192": { size: 192, fit: "maskable" }, "icon-maskable-512": { size: 512, fit: "maskable" } } as const;
 
-type Brand = { name: string; colour: string; lang: Lang; v: string };
-/** A name and colour's own tag: it names the images drawn for them, so a change gives new ones. */
-export const brandTag = (name: string, colour: string) => createHash("sha256").update(`${name}\n${colour.toLowerCase()}`).digest("hex").slice(0, 12);
+type Brand = { name: string; colour: string; lang: Lang; v: string; logoId: string | null; logoFor: "light" | "dark" | null };
+/** A name and colour's own tag (and its logo's, and which background that's for): it names the images drawn for them,
+ *  so a change gives new ones. */
+export const brandTag = (name: string, colour: string, logo?: string | null) =>
+  createHash("sha256").update(`${name}\n${colour.toLowerCase()}${logo ? `\n${logo}` : ""}`).digest("hex").slice(0, 12);
 
 export function manifestRoutes(db: Db) {
   const app = new Hono();
   const brand = async (): Promise<Brand> => {
-    const k = await db.selectFrom("club").select(["name", "brand_colour", "default_language"]).executeTakeFirstOrThrow();
-    return { name: k.name, colour: k.brand_colour, lang: (k.default_language === "es" ? "es" : "en"), v: brandTag(k.name, k.brand_colour) };
+    const k = await db.selectFrom("club").select(["name", "brand_colour", "default_language", "logo_id", "logo_for"]).executeTakeFirstOrThrow();
+    return { name: k.name, colour: k.brand_colour, lang: (k.default_language === "es" ? "es" : "en"), logoId: k.logo_id, logoFor: k.logo_for,
+      v: brandTag(k.name, k.brand_colour, k.logo_id && `${k.logo_id}:${k.logo_for ?? ""}`) };
+  };
+  /** The club's logo as kept, and what it sits on with this colour (null: on the colour itself). Read only to draw. */
+  const logoOf = async (b: Brand) => {
+    const l = b.logoId ? await db.selectFrom("club_logo").select(["png", "ink", "backed", "seems_for"]).where("id", "=", b.logoId).executeTakeFirst() : undefined;
+    return l ? { logo: l, tile: logoTile(fillOf(b.colour), l, b.logoFor) } : null;
   };
   // Drawn images for the last two brands (a request that read the brand just before a change can still be finishing),
   // at most 16 images each, a few MB in all.
-  const drawn = new Map<string, Buffer>(), tags: string[] = [];
-  const image = (b: Brand, key: string, make: () => Buffer) => {
+  // Kept as promises, so requests that come together (a restart, a new brand) wait on one drawing, not one each.
+  const drawn = new Map<string, Promise<Buffer>>(), tags: string[] = [];
+  const image = (b: Brand, key: string, make: () => Buffer | Promise<Buffer>): Promise<Buffer> => {
     if (!tags.includes(b.v)) {
       tags.push(b.v);
       while (tags.length > 2) { const old = tags.shift()!; for (const k of drawn.keys()) if (k.startsWith(`${old}/`)) drawn.delete(k); }
     }
-    let png = drawn.get(`${b.v}/${key}`);
-    if (!png) { png = make(); if (tags.includes(b.v)) drawn.set(`${b.v}/${key}`, png); }
+    const k = `${b.v}/${key}`;
+    let png = drawn.get(k);
+    if (!png) {
+      png = Promise.resolve().then(make);
+      if (tags.includes(b.v)) { drawn.set(k, png); png.catch(() => { if (drawn.get(k) === png) drawn.delete(k); }); }
+    }
     return png;
   };
   /** Answers with what's drawn for this brand, or "not changed" to a phone that already has it. */
@@ -55,6 +75,7 @@ export function manifestRoutes(db: Db) {
     const etag = `"${b.v}-${createHash("sha256").update(body).digest("hex").slice(0, 8)}"`;
     // A day fresh, and up to a month while a newer one is fetched behind it: a slow connection never waits on these.
     c.header("cache-control", `public, max-age=${maxAge}, stale-while-revalidate=2592000`); c.header("etag", etag);
+    c.header("x-content-type-options", "nosniff");
     if (sameTag(c.req.header("if-none-match"), etag)) return c.body(null, 304);
     c.header("content-type", type);
     return c.body(typeof body === "string" ? body : new Uint8Array(body));
@@ -68,7 +89,12 @@ export function manifestRoutes(db: Db) {
   for (const [file, { size, fit }] of Object.entries(ICONS)) {
     app.get(`/manifest/${file}.png`, async (c) => {
       const b = await brand();
-      return send(c, b, "image/png", image(b, file, () => drawPng(size, size, fillOf(b.colour), inkOn(b.colour), b.name, { size, cx: size / 2, cy: size / 2, fit })));
+      return send(c, b, "image/png", await image(b, file, async () => {
+        // A logo fills the icon with what it sits on: the club's colour, or its tile.
+        const l = await logoOf(b);
+        return l ? drawLogo(l.logo, { w: size, h: size, bg: l.tile ?? fillOf(b.colour), tile: null, box: { size, cx: size / 2, cy: size / 2 }, fit: LOGO_FIT[fit] })
+          : drawPng(size, size, fillOf(b.colour), inkOn(b.colour), b.name, { size, cx: size / 2, cy: size / 2, fit });
+      }));
     });
   }
   app.get("/manifest/startup/:file{[0-9]+x[0-9]+\\.png}", async (c) => {
@@ -76,10 +102,30 @@ export function manifestRoutes(db: Db) {
     const s = STARTUP.find((x) => x.w * x.dpr === w && x.h * x.dpr === h);
     if (!s) return c.json({ error: "error.not_found" }, 404);
     const b = await brand(), d = s.dpr;
-    return send(c, b, "image/png", image(b, `startup-${w}x${h}`, () =>
-      drawPng(w, h, fillOf(b.colour), inkOn(b.colour), b.name, { size: MARK_PT * d, cx: w / 2, cy: ((s.h + s.bar) / 2) * d, fit: "maskable" })));
+    const box = { size: MARK_PT * d, cx: w / 2, cy: ((s.h + s.bar) / 2) * d };
+    return send(c, b, "image/png", await image(b, `startup-${w}x${h}`, async () => {
+      const l = await logoOf(b);
+      return l ? drawLogo(l.logo, { w, h, bg: fillOf(b.colour), tile: l.tile, box, fit: LOGO_FIT.mark })
+        : drawPng(w, h, fillOf(b.colour), inkOn(b.colour), b.name, { ...box, fit: "maskable" });
+    }));
   });
-  app.get("/manifest/mark.svg", async (c) => { const b = await brand(); return send(c, b, "image/svg+xml", markSvg(b.name, inkOn(b.colour))); });
+  // The mark the apps' own start screen and welcome show, on a transparent square (the page gives the colour): the logo
+  // (on its tile when it needs one), or the drawn mark.
+  app.get("/manifest/mark.png", async (c) => {
+    const b = await brand();
+    return send(c, b, "image/png", await image(b, "mark", async () => {
+      const l = await logoOf(b);
+      return l ? drawLogo(l.logo, { w: MARK_PX, h: MARK_PX, bg: null, tile: l.tile, box: { size: MARK_PX, cx: MARK_PX / 2, cy: MARK_PX / 2 }, fit: LOGO_FIT.mark })
+        : svgToPng(markSvg(b.name, inkOn(b.colour)), MARK_PX);
+    }));
+  });
+  // The drawn mark as SVG (what the apps showed before mark.png). With a logo, the PNG instead: an SVG of the club's own
+  // is never served.
+  app.get("/manifest/mark.svg", async (c) => {
+    const b = await brand();
+    if (b.logoId) { c.header("cache-control", "no-cache"); return c.redirect(`/manifest/mark.png?v=${b.v}`, 302); }
+    return send(c, b, "image/svg+xml", markSvg(b.name, inkOn(b.colour)));
+  });
   // The start screen's colour and words, read before the app's first paint (index.html), so it opens in the club's colour.
   app.get("/manifest/boot.css", async (c) => { const b = await brand(); return send(c, b, "text/css; charset=utf-8", bootCss(b), 3600); });
   return app;

@@ -18,7 +18,8 @@ app installs as "<the club> Staff". Neither says "openPadel" or "Kumi" on the ho
 ### The icon and the start screen, from the club's name and colour
 
 Both apps take their look on the phone from two settings the club already has: its **name** and its **brand colour**
-(staff app, Settings, or `brand_colour` in the club's setup file). Nothing else to upload or set.
+(staff app, Settings, or `brand_colour` in the club's setup file). A logo is optional: without one, the server draws a
+mark from the name.
 
 - **The icon** is the club's mark on its colour: the first letters of its name, past words every club has ("Padel",
   "Club", "de"...), so "Harbor Lights Padel" is HL. A name with no letters A to Z (accents are fine) gets a white ball.
@@ -37,8 +38,35 @@ Both apps take their look on the phone from two settings the club already has: i
 Changing the name or colour draws new icons and start screens straight away, and phones pick them up: the app's own
 start screen the next time it opens (or the one after, at most a day later), and Android's icon when Chrome next
 checks the app (it does on its own, about once a day). An iPhone keeps the icon it was added with until the app is
-removed and added to the Home Screen again: that's Apple's rule, not openPadel's. A club logo isn't used yet: the
-mark is drawn from the name.
+removed and added to the Home Screen again: that's Apple's rule, not openPadel's.
+
+### The club's logo
+
+A club with a logo can use it in place of the drawn mark: on the app icons (plain and maskable), the iPhone icon and
+start images, the start screen inside the apps, the first-sign-in welcome, both apps' headers and the members' Home.
+
+- **Adding it:** the owner (or a manager) opens Settings in the staff app, Club details, Logo, and chooses the file.
+  The preview shows it on the club's colour as a start screen will; Confirm sets it, and it's in Changes like any
+  other setting, with Undo. Remove the logo brings the drawn mark back. On the server, `logo: logo.svg` under `club:`
+  in club.yaml (a path from the file's own folder) does the same through `openpadel setup plan` and `apply`; it's set
+  again only when the file or `logo_for` changes.
+- **Files:** SVG, PNG or JPEG, under 1 MB. A PNG or JPEG is 32 to 2048 pixels a side; square or wide both work (a
+  square one fills the icon best). WebP isn't taken. Empty margins round the logo are trimmed.
+- **SVGs** must be shapes only. Text has to be turned into outlines (in Illustrator, Create Outlines; in Inkscape,
+  Object to Path), since the server has no fonts. An SVG with scripts, embedded HTML, event handlers, links to other
+  files or pages, CSS imports, XML entities or an embedded picture over 2048 pixels is refused with the reason. The
+  file itself is never served: the server draws it as a PNG, keeps that, and makes every image anyone gets from it.
+  The file waits with the preview until it's confirmed (or, for a change waiting for the owner's yes, until it's
+  answered) and is taken out once it's applied or the preview runs out.
+- **Light and dark logos:** a logo is made for a dark background (a light logo) or a light one (a dark logo). The
+  server reads which from the logo, and the owner can say otherwise (Settings, "The logo is made for", or
+  `logo_for: dark` or `light` in club.yaml; left out of club.yaml, the choice made in Settings stays). The logo sits straight on the club's colour when it stands out there (at
+  least 3:1, and on the side of light or dark it's made for); otherwise it sits on a near-black tile (a light logo) or
+  a white one (a dark logo). A logo with its own background, like most JPEGs, keeps it as its tile. The icons are
+  then that tile colour all over.
+
+A new logo, or a new choice of background, draws new icons and start screens at once, and phones pick them up as for
+a new name or colour (above).
 
 Members find their way around the members' app by the tabs at the bottom of every page, where members coming from
 other padel apps expect them:

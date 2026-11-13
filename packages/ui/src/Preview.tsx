@@ -22,7 +22,7 @@ export function useStepUp() {
 /** What a change that charges money comes to, line by line, as the server's preview built it (core charge.ts): the
  *  same numbers apply charges, only formatted here. Older servers and changes that charge nothing send none. */
 export type Charge = { lines: { kind: string; label: string; cents: number | null }[]; due_cents: number; how: string; when: string | null };
-export type Pending = { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; summary: string; action?: string; input?: unknown; charge?: Charge };
+export type Pending = { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; summary: string; action?: string; input?: unknown; charge?: Charge; image?: string };
 
 /** The "Check before you confirm" lines: each price, money off it, tax, the total; then how it's paid and when. */
 export function ChargeLines({ charge }: { charge: Charge }) {
@@ -47,9 +47,9 @@ export function usePreview(onDone: (result?: any) => void) {
     setError(null); setNote(null);
     try {
       // First a look: a change that needs someone else's yes is asked for only when the person says so (ask below).
-      const p = await api<{ run_id: string; status: Pending["status"]; summary: string; charge?: Charge }>(`/actions/${action}/plan?ask=hold`, input);
+      const p = await api<{ run_id: string; status: Pending["status"]; summary: string; charge?: Charge; image?: string }>(`/actions/${action}/plan?ask=hold`, input);
       if (p.status === "awaiting_approval") { setNote(`${p.summary} ${t("ui.sent_for_approval")}`); onDone(); return; }
-      setPending({ runId: p.run_id, status: p.status, summary: p.summary, action, input, charge: p.charge });
+      setPending({ runId: p.run_id, status: p.status, summary: p.summary, action, input, charge: p.charge, image: p.image });
     } catch (e) {
       if (needsStep(e)) { step.ask(() => void preview(action, input)); return; }
       setError(e instanceof ApiError ? e.message : String(e));
@@ -91,6 +91,8 @@ export function usePreview(onDone: (result?: any) => void) {
         {/* A change that charges money: what it comes to, line by line, before the yes (the server's own numbers). */}
         {pending.charge && <h2>{t("ui.check_before")}</h2>}
         <p class={pending.charge ? "meta" : undefined}>{pending.summary}</p>
+        {/* A picture the server drew of what the change makes (the club's logo on its colour): only ever a data: PNG. */}
+        {pending.image?.startsWith("data:image/png;base64,") && <img class="preview-picture" src={pending.image} alt={t("ui.preview_picture")} />}
         {pending.charge && <ChargeLines charge={pending.charge} />}
         {pending.status === "would_ask" && <p class="meta">{t("ui.would_ask")}</p>}
         <button class="primary" onClick={confirm}>{t(pending.status === "would_ask" ? "ui.ask_for_yes" : "ui.confirm")}</button> <button onClick={() => setPending(null)}>{t(pending.charge ? "ui.change" : "ui.back")}</button></div>}

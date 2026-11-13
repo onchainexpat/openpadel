@@ -77,7 +77,7 @@ export function App() {
   return (
     <LocationProvider>
       <header>
-        <a class="club-name" href="/">{club.value?.name}</a>
+        <a class="club-name" href="/">{club.value?.logo && <img class="club-logo" src={club.value.logo} alt="" width={28} height={28} />}{club.value?.name}</a>
         <nav aria-label={t("ui.header_label")}><ChatsLink /><InboxLink /></nav>
       </header>
       <Notices items={[

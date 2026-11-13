@@ -30,6 +30,8 @@ body { padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom)); }
   justify-content: center; font-size: 22px; font-weight: 700; }
 
 /* Home */
+/* The club's logo in place of its letter: its icon, already on the colour or tile it reads on. */
+.monogram-logo { background: none; object-fit: cover; }
 .club-head, .me-head { display: flex; align-items: center; gap: 14px; margin: 8px 0 12px; }
 .club-head > div, .me-head > div { flex: 1; min-width: 0; }
 .club-head h1, .me-head h1 { margin: 0 0 4px; overflow-wrap: anywhere; }

@@ -51,6 +51,10 @@ export type Club = { /** Where a sign-in code emailed goes: "log" with no email 
   read_only?: boolean;
   /** The club's Kumi moved to another server (club_exit.ts): this one says where, and sends nothing. */
   moved?: boolean; moved_to?: string | null;
+  /** The club's logo as its icon (the logo on the colour or tile it reads on), for the apps' headers; null: none. */
+  logo?: string | null;
+  /** The start screen's mark (the logo, or the one drawn from the name), named for the brand so a change shows at once. */
+  mark?: string;
   /** The club's own terms and privacy policy for members (Policies.tsx), when it has set them. */
   terms_url?: string | null; privacy_policy_url?: string | null;
   /** The club's own clock (IANA zone): every time the apps show is on it, wherever the reader's phone is set. */

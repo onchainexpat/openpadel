@@ -135,7 +135,14 @@ async function main(): Promise<number> {
     const db = await clubDb();
     try {
       await migrate(db);
-      const r = await setupClub(db, file, { apply: sub === "apply", lang });
+      let r;
+      // A step the club can't take (a logo that's refused) says why, like a problem in the file.
+      try { r = await setupClub(db, file, { apply: sub === "apply", lang }); }
+      catch (e) {
+        if (!(e instanceof KumiError)) throw e;
+        if (json) out({ ok: false, file: path, problems: [say(e.text)] }); else console.error(say(e.text));
+        return 2;
+      }
       if (json) { out({ ok: true, applied: r.applied, steps: r.steps.map((s) => ({ action: s.action, text: say(s.text) })), notes: r.notes.map(say) }); return 0; }
       for (const n of r.notes) console.log(`! ${say(n)}`);
       if (!r.steps.length) { console.log(t(lang, "cli.nothing_to_do", { file: path })); return 0; }
