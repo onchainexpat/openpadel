@@ -129,7 +129,7 @@ function PlaceRow({ n, p, people, price, paidOk, taken, onChange }: { n: number;
   const [found, setFound] = useState<Person[]>([]);
   const id = `nb-place-${n}`;
   const find = async (v: string) => {
-    onChange({ text: v });
+    onChange(v.trim() ? { text: v } : { text: v, paid: false });
     if (!people) return;
     setFound(v.trim().length > 1 ? (await api<Person[]>(`/staff/people?q=${encodeURIComponent(v.trim())}`).catch(() => [])).filter((x) => !taken.includes(x.id)) : []);
   };

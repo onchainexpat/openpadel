@@ -168,7 +168,7 @@ export function Courts() {
       <p class="meta">{g.open ? t("ui.open_from_to", { from: clock(g.open.opens), to: clock(g.open.closes) }) : t("ui.closed_this_day")}</p>
       <Legend playtomic={playtomic} />
 
-      {view === "week" && <WeekView loc={loc} date={date} courts={g.courts} clock={clock} onDay={openDay} />}
+      {view === "week" && <WeekView loc={loc} date={date} courts={g.courts} clock={clock} stamp={done} onDay={openDay} />}
       {view === "day" && <div class="sched-layout">
         <div class="sched-grid">
           <TimeGrid g={g} clock={clock} picked={picked} onPick={pick} canMove={canMove} canResize={canResize}
@@ -459,7 +459,7 @@ const courtKind = (k: string) => (["indoor", "covered_outdoor", "outdoor"].inclu
 /** The week the day is in, from the club's first weekday: each court a row, each day a column, what's on in each in
  *  order. Read a day at a time, as the day view reads it (the same rules for names and money). Tapping something opens
  *  that day with it picked; tapping a day opens the day. */
-function WeekView({ loc, date, courts, clock, onDay }: { loc: string; date: string; courts: Court[]; clock: (s: string | number) => string; onDay: (day: string, key?: string) => void }) {
+function WeekView({ loc, date, courts, clock, stamp, onDay }: { loc: string; date: string; courts: Court[]; clock: (s: string | number) => string; stamp: number; onDay: (day: string, key?: string) => void }) {
   const first = (() => { const d = new Date(`${date}T12:00:00Z`), back = (d.getUTCDay() - weekOrder()[0]! + 7) % 7; d.setUTCDate(d.getUTCDate() - back); return d; })();
   const days = Array.from({ length: 7 }, (_, n) => { const d = new Date(first); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); });
   const [grids, setGrids] = useState<Record<string, Grid | null>>({});
@@ -469,7 +469,7 @@ function WeekView({ loc, date, courts, clock, onDay }: { loc: string; date: stri
     for (const day of days) api<Grid>(`/staff/grid?location_id=${loc}&date=${day}`).then((x) => { if (live) setGrids((was) => ({ ...was, [day]: x })); })
       .catch(() => { if (live) setGrids((was) => ({ ...was, [day]: null })); });
     return () => { live = false; };
-  }, [loc, days[0]]);
+  }, [loc, days[0], stamp]);
   const head = (day: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${day}T12:00:00Z`));
   return (
     <div class="table-scroll table-box week">

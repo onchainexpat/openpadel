@@ -14,7 +14,7 @@ import { uuidv7 } from "./ids.ts";
 import { decide } from "./permissions.ts";
 import { messageInLang, readerLang } from "./messages.ts";
 
-export const ALERT_KINDS = ["match_late_cancel_staff", "question_unanswered_staff", "booking_balance_due_staff", "program_min_short", "program_min_cancelled_staff", "refund_failed", "ops_failed_staff", "ops_restore_staff",
+export const ALERT_KINDS = ["match_late_cancel_staff", "question_unanswered_staff", "booking_balance_due_staff", "booking_parts_owed_staff", "program_min_short", "program_min_cancelled_staff", "refund_failed", "ops_failed_staff", "ops_restore_staff",
   "membership_payment_failed_staff", "membership_ended_unpaid_staff", "usage_reached_staff", "usage_paused_staff", "chat_reported_staff", "playtomic_refund_staff", "playtomic_wallets_staff"] as const;
 /** Alerts that stay however old they are, until handled: what a restore left for staff, and the Playtomic wallets to
  *  set to zero after their credit came over (brought_in.ts; the owner marks that done on the Playtomic page). */

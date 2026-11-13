@@ -54,7 +54,7 @@ const MAX_ATTEMPTS = 5;
  *  you. Staff alerts always do. The rest goes at normal urgency. */
 const URGENT = new Set(["offered", "place_open", "match_place_offered", "passed_to_you", "match_ask", "match_running_late", "match_not_filled", "match_place_given",
   "match_seat_released", "booked", "booked_to_pay", "booking_lost", "booking_player_added", "booking_courts", "booking_reminder", "lesson_reminder", "dates_changed",
-  "removed", "payment_failed", "membership_payment_failed", "membership_payment_unfinished", "kid_pay_needed", "kid_asked", "booking_balance_due", "unpaid_reminder",
+  "removed", "payment_failed", "membership_payment_failed", "membership_payment_unfinished", "kid_pay_needed", "kid_asked", "booking_balance_due", "booking_parts_owed", "unpaid_reminder",
   "sign_in_reset"]);
 const DAY = 24 * 3600, MAX_TTL = 28 * DAY;
 /** How urgent a push is, and how long the push service keeps it for a phone that's off: until the message goes stale

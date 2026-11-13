@@ -23,7 +23,8 @@ export function SessionPanel({ sessionId, tz, preview, stamp }: { sessionId: str
   if (!d) return <p class="meta">{t("ui.loading")}</p>;
   const day = (iso: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: tz, day: "numeric", month: "short" }).format(new Date(iso));
   const coming = d.players.filter((p) => p.waitlist === undefined);
-  const notIn = coming.filter((p) => p.came !== true);
+  // Everyone not marked yet: someone already marked as not having come keeps that mark.
+  const notIn = coming.filter((p) => p.came === null);
   const status = (p: Panel["players"][number]) => p.waitlist !== undefined ? <span class="meta">{t("ui.pay_waitlist", { n: p.waitlist })}</span>
     : p.pay ? <span class={p.pay === "unpaid" ? "pay-no" : "pay-ok"}>{t(`ui.pay_${p.pay}` as Key)}</span> : null;
   return (

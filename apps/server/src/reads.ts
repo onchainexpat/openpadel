@@ -468,8 +468,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   const MADE_IN = ["app", "desk", "playtomic"] as const;
   const PER_PAGE = 25;
   /** Every booking the list's filters find (not a page of them), and what this reader may see of them. */
-  const bookingsFound = async (c: Context<any>) => {
-    const q = (k: string) => c.req.query(k) ?? "", now = new Date(), l = lang(c);
+  const bookingsFound = async (c: Context<any>, l: Lang = lang(c)) => {
+    const q = (k: string) => c.req.query(k) ?? "", now = new Date();
     const loc = isUuid(q("location_id")) ? await db.selectFrom("location").select(["id", "time_zone"]).where("id", "=", q("location_id")).executeTakeFirst() : undefined;
     if (!loc) throw new KumiError("error.not_found", { thing: { en: "location", es: "la sede" } }, 404);
     const ymd = /^\d{4}-\d{2}-\d{2}$/, today = localDate(now, loc.time_zone);
@@ -561,7 +561,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // more (an organiser's name only for those who read people, what's owed only for money readers). Column names and
   // kind and status words are English for every reader, as in every download; times are the location's.
   app.get("/staff/bookings.csv", async (c) => {
-    const { fromDay, toDay, loc, money, people, shown } = await bookingsFound(c), l = "en" as const;
+    const l = "en" as const, { fromDay, toDay, loc, money, people, shown } = await bookingsFound(c, l);
     const at = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: loc.time_zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
     const head = ["date", "starts", "ends", "minutes", "court", "kind", "what", "made_in", "status", ...(people ? ["organiser"] : []), "players", "code", ...(money ? ["owed"] : [])].map((k) => t(l, `csv.${k}` as Key));
     const lines = shown.map((r) => [r.date, at(r.starts_at), at(r.ends_at), r.minutes, r.court,

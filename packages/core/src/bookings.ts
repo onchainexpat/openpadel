@@ -347,6 +347,7 @@ function placesOf(i: { person_id?: string; guest_name?: string; places?: DeskPla
     if (i.person_id || i.guest_name) throw new KumiError("error.booking_who");
     return i.places;
   }
+  if (i.person_id && i.guest_name) throw new KumiError("error.booking_who");
   return [i.person_id ? { person_id: i.person_id } : i.guest_name ? { guest_name: i.guest_name } : {}];
 }
 const filled = (p: DeskPlace) => Boolean(p.person_id || p.guest_name);
@@ -399,7 +400,9 @@ export const bookingCreate = defineAction({
     const others = places.slice(1).filter(filled).map(nameOf);
     if (others.length) parts.push(both("plan.booking.desk_players", { names: others.join(", ") }));
     const share = deskParts(price, pay, places.length);
-    const paid = places.map((x, n) => ({ x, cents: share[n]! })).filter((y) => y.x.paid && y.cents > 0);
+    // A place with nothing to pay (another player on a whole court, a free court) can't be marked paid.
+    if (places.some((x, n) => x.paid && share[n]! <= 0)) throw new KumiError("error.paid_place_nothing");
+    const paid = places.map((x, n) => ({ x, cents: share[n]! })).filter((y) => y.x.paid);
     if (paid.length) parts.push(both("plan.booking.desk_paid", { names: paid.map((y) => nameOf(y.x)).join(", "), amount: usd(paid.reduce((n, y) => n + y.cents, 0)), how: paidHowOf(i.paid_method ?? "cash") }));
     const owed = price - paid.reduce((n, y) => n + y.cents, 0);
     // The desk's full form says what's left to pay at the desk (an older caller's preview stays as it was).

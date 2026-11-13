@@ -342,9 +342,12 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const params = { ...b.base, amount: amount(p.cents), reason: declineReason(p.failure), name };
     // A week of a weekly booking: its own words (it isn't unpaid places).
     const week = Boolean((await db.selectFrom("booking").select("series_id").where("id", "=", p.booking_id).executeTakeFirstOrThrow()).series_id);
+    // No card was ever saved for it (a court the desk booked with each their part): nothing was tried, so nobody is
+    // told a card was declined; the places are simply owed at the desk.
+    const noCard = p.failure === "no saved card" && !week;
     return [
-      ...(b.organiser_id ? [{ to: b.organiser_id, kind: week ? "booking_week_due" : "booking_balance_due", params, purpose: "account" as const, essential: true, email: true, link: "/places" }] : []),
-      ...(await managers(db)).map((to) => ({ to, kind: "booking_balance_due_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/courts" })),
+      ...(b.organiser_id ? [{ to: b.organiser_id, kind: week ? "booking_week_due" : noCard ? "booking_parts_owed" : "booking_balance_due", params, purpose: "account" as const, essential: true, email: true, link: "/places" }] : []),
+      ...(await managers(db)).map((to) => ({ to, kind: noCard ? "booking_parts_owed_staff" : "booking_balance_due_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/courts" })),
     ];
   },
   async "booking.week_charged"({ db }, p: { booking_id: string; cents: number }) {
@@ -1186,7 +1189,7 @@ async function roleParams(db: Db, p: { role: string; location_id?: string | null
 /** A junior has no login: what's said to them goes to each adult who manages them, in that adult's language,
  *  saying whom it's about. An adult who'd get the same message anyway gets it once. A kid with a login of
  *  their own hears it themselves; their parents also hear what goes on their card at the deadline. */
-const PARENTS_TOO = new Set(["booking_shares_charged", "booking_balance_due"]);
+const PARENTS_TOO = new Set(["booking_shares_charged", "booking_balance_due", "booking_parts_owed"]);
 async function forJuniors(db: Db, drafts: Draft[]): Promise<(Draft & { junior?: string })[]> {
   const out: (Draft & { junior?: string })[] = [];
   for (const d of drafts) {

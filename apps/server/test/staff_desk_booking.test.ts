@@ -6,7 +6,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { localDate, onDate, run, runAsSystem, settleShares, type Actor, type Db } from "@kumi/core";
+import { localDate, messageHandlers, onDate, processOutbox, run, runAsSystem, settleShares, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
@@ -112,6 +112,16 @@ test("each their part: four equal parts, the deadline said, no card held, and wh
   const settled = await db.selectFrom("booking").select(["settled_at", "balance_cents"]).where("id", "=", id).executeTakeFirstOrThrow();
   assert.ok(settled.settled_at);
   assert.equal(settled.balance_cents, 4500);
+  // Nobody is told a card was declined: none was ever tried. Dee hears the places are owed at the desk; managers too.
+  const told = await db.selectFrom("event_outbox").select(["topic", "payload"]).where("topic", "=", "booking.balance_due").execute();
+  assert.equal(told.filter((e) => (e.payload as any).booking_id === id).length, 1, "said once");
+  await processOutbox(db, messageHandlers);
+  const kinds = (await db.selectFrom("outbound_message").select(["kind", "person_id", "body"]).where("channel", "=", "inbox").where("kind", "like", "booking_%").execute());
+  const dee = kinds.find((k) => k.person_id === people.Dee);
+  assert.equal(dee?.kind, "booking_parts_owed");
+  assert.match(dee!.body, /\$45\.00 .* yours to pay at the desk .* nothing was charged/);
+  assert.ok(kinds.some((k) => k.person_id === people.Mia && k.kind === "booking_parts_owed_staff"), "managers hear it, as an alert");
+  assert.ok(!kinds.some((k) => /balance_due/.test(k.kind)), "nobody is told a card was declined");
   assert.equal((await db.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id").where("booking_player.booking_id", "=", id).execute()).length, 1);
 });
 
@@ -124,6 +134,8 @@ test("what the desk can't do: each their part too late or for a guest, a place p
   assert.match(JSON.stringify((await plan("Dana", book(11, { pay: "split", places: [{ guest_name: "Walk-in" }] }))).json), /needs a member as the organiser/);
   assert.match(JSON.stringify((await plan("Dana", book(11, { places: [{ person_id: people.Ann }, { paid: true }] }))).json), /empty place can't be marked paid/);
   assert.match(JSON.stringify((await plan("Dana", book(11, { places: [{ person_id: people.Ann }, { person_id: people.Ann }] }))).json), /listed twice/);
+  assert.match(JSON.stringify((await plan("Dana", book(11, { places: [{ person_id: people.Ann }, { person_id: people.Ben, paid: true }] }))).json), /nothing to pay/, "the whole court: only the organiser's place pays");
+  assert.match(JSON.stringify((await plan("Dana", book(11, { person_id: people.Ann, guest_name: "Both" }))).json), /Say who the booking is for/);
   assert.match(JSON.stringify((await plan("Dana", book(11, { person_id: people.Ann, places: [{ person_id: people.Ann }] }))).json), /Say who the booking is for/);
 });
 
