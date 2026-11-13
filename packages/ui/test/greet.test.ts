@@ -38,7 +38,7 @@ test("with less motion the welcome only fades, the start screen's dots keep stil
   assert.match(r, /\.greet-mark, \.greet-title, \.greet-sub \{ animation: none; \}/);
   assert.match(r, new RegExp(`\\.greet \\{ animation-duration: ${GREET_MS.still}ms; \\}`), "the fade's length matches GREET_MS.still");
   assert.match(ui, new RegExp(`\\.greet \\{[^}]*animation: greet-show ${GREET_MS.motion}ms`), "the full welcome's length matches GREET_MS.motion");
-  assert.ok(GREET_MS.motion <= 1200, "about a second at most");
+  assert.ok(GREET_MS.motion >= 2400 && GREET_MS.motion <= 3000, "long enough to read, short enough not to wait on");
   assert.match(reduced(member), /\.welcome > \*, \.welcome \.club-head \.monogram \{ animation: welcome-fade/);
   for (const a of ["member", "manager"]) assert.match(read(`apps/${a}/index.html`), /@media \(prefers-reduced-motion: reduce\) \{ \.boot-dots i \{ animation: none;/);
 });

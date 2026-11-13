@@ -16,4 +16,5 @@ export function greetFor(which: "member" | "staff", m: Who): { play: boolean; no
 }
 
 /** How long it plays, in ms, with motion and with less of it (only a fade): styles.css's .greet keeps to the same. */
-export const GREET_MS = { motion: 1100, still: 900 } as const;
+/** Long enough to read the greeting (about 1.1 s was gone before people saw it), with a tap to skip it. */
+export const GREET_MS = { motion: 2800, still: 2200 } as const;

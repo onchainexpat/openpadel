@@ -330,18 +330,18 @@ a.button.primary { background: var(--brand); color: var(--on-brand); border-colo
 .boot-gone { opacity: 0; transition: opacity 160ms ease-out; pointer-events: none; }
 /* The short welcome at a first sign-in (Greeting.tsx): about a second, transform and opacity only, ended by a tap. */
 .greet { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;
-  background: var(--brand); color: var(--on-brand); text-align: center; cursor: pointer; animation: greet-show 1100ms ease both; will-change: opacity; }
-.greet-mark { width: 192px; height: 192px; animation: greet-grow 520ms cubic-bezier(.2, .9, .3, 1.15) both; will-change: transform, opacity; }
-.greet-title { margin: -24px 0 0; font-size: 26px; font-weight: 700; line-height: 1.2; animation: greet-rise 420ms 160ms cubic-bezier(.2, .8, .2, 1) both; will-change: transform, opacity; }
-.greet-sub { margin: 6px 0 0; font-size: 15px; font-weight: 500; animation: greet-rise 420ms 240ms cubic-bezier(.2, .8, .2, 1) both; will-change: transform, opacity; }
+  background: var(--brand); color: var(--on-brand); text-align: center; cursor: pointer; animation: greet-show 2800ms ease both; will-change: opacity; }
+.greet-mark { width: 192px; height: 192px; animation: greet-grow 700ms cubic-bezier(.2, .9, .3, 1.15) both; will-change: transform, opacity; }
+.greet-title { margin: -24px 0 0; font-size: 26px; font-weight: 700; line-height: 1.2; animation: greet-rise 600ms 450ms cubic-bezier(.2, .8, .2, 1) both; will-change: transform, opacity; }
+.greet-sub { margin: 6px 0 0; font-size: 15px; font-weight: 500; animation: greet-rise 600ms 600ms cubic-bezier(.2, .8, .2, 1) both; will-change: transform, opacity; }
 .greet.greet-skip { animation: greet-skip 160ms ease-out forwards; }
-@keyframes greet-show { 0% { opacity: 0; } 10% { opacity: 1; } 74% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes greet-show { 0% { opacity: 0; } 8% { opacity: 1; } 86% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes greet-grow { from { opacity: 0; transform: scale(.8); } to { opacity: 1; transform: none; } }
 @keyframes greet-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes greet-skip { to { opacity: 0; } }
 /* Less motion: it only fades in and out (GREET_MS.still), nothing moves. */
 @media (prefers-reduced-motion: reduce) {
-  .greet { animation-duration: 900ms; }
+  .greet { animation-duration: 2200ms; }
   .greet-mark, .greet-title, .greet-sub { animation: none; }
 }
 
@@ -370,6 +370,6 @@ a.button.primary { background: var(--brand); color: var(--on-brand); border-colo
 .card.empty { text-align: center; }
 .card.empty p { margin: 12px 0 0; }
 /* The first sign-in's welcome: the drawing between the club's mark and the greeting, rising in with them. */
-.greet .greet-art { width: 156px; margin: -20px auto 28px; animation: greet-rise 420ms 80ms cubic-bezier(.2, .8, .2, 1) both; }
+.greet .greet-art { width: 156px; margin: -20px auto 28px; animation: greet-rise 600ms 250ms cubic-bezier(.2, .8, .2, 1) both; }
 @media (prefers-reduced-motion: reduce) { .greet .greet-art { animation: none; } }
 @media (max-height: 560px) { .greet .greet-art { display: none; } }
