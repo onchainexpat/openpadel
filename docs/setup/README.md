@@ -81,6 +81,31 @@ sign-in" in Settings, "Sign-in and roles" (or `staff_second_step: true` under `c
 If the owner ever loses theirs, an agent on the server runs `openpadel reset-sign-in owner@yourclub.com`,
 and the owner sets it up again when it's next asked.
 
+**How the staff app looks: "Coming from" and the club's colour.** There is one staff app for every club. To make it
+feel familiar to staff moving from the software they used before, the club picks where they're coming from, in
+Settings ("Staff are coming from", previewed and confirmed like any setting, and listed in Changes) or with
+`coming_from:` under `club:` in club.yaml (like `staff_second_step`, a value in club.yaml is set again each time
+`openpadel setup apply` runs, so once the owner changes it in Settings, take it out of the file or change it there too):
+
+| `coming_from` | What staff see |
+|---|---|
+| `playtomic` (the default) | The words and order of Playtomic's club manager: Schedule first (and the first page), Bookings, Customers, "Clinics, courses and events". Every club from before the setting existed has this, so nothing changes for it. |
+| `none` | openPadel's own plain words: Courts, People and Programs, with Programs before People in the menu, and the Bookings and Customers tables' columns in a plainer order (when, court and type first; name and membership first). |
+
+A choice changes only words (in English and Spanish), the menu's order, the first page for staff who read the courts'
+day, and the order of the Bookings and Customers tables' columns. It never changes who can see or do what, what
+anything costs, or that every change is previewed before it's confirmed. When a club on `none` links its first
+Playtomic court or uploads its Playtomic export, the preview suggests Playtomic's words; it never switches them by
+itself.
+
+The club's brand colour (Settings, "Brand color", or `brand_colour: "#0B5A55"` under `club:` in club.yaml) colours
+both apps: in the staff app, the main buttons, the page open in the menu, links and focus outlines. Text on the
+colour is white or near-black, whichever reads at 4.5:1 (WCAG AA); a mid-tone that neither reads on is darkened just
+enough for white to. Links and outlines use a tint of it that reads at 4.5:1 on the light and dark themes, and very
+light or very dark colours keep a visible edge. The colours for unpaid, warnings and errors, and for each kind of
+booking on the Schedule, stay the same for every club. A club logo isn't stored yet, so the staff app's
+header shows the club's name.
+
 ### Step 5b: members
 
 Members can join by themselves: they enter their email in the members' app, get a code, and give

@@ -4,6 +4,7 @@ import { amountPattern, amountStep, fromMajor, parseDollars } from "@kumi/i18n/f
 import { useLocation } from "preact-iso";
 import { api, lang, mayCreate, OtherLang, t, translationsOf, clubTime } from "@kumi/ui";
 import { usePreview, dollars } from "@kumi/ui";
+import { label } from "./words.ts";
 
 type Row = { id: string; name: string; kind: string; status: string; capacity: number; price_cents: number; member_price_cents: number | null; booked: number; waitlisted: number; first_start: string | null };
 type Location = { id: string; name: string };
@@ -28,7 +29,7 @@ export function Programs() {
 
   return (
     <main>
-      <h1>{t("ui.nav_programs")}</h1>
+      <h1>{label("ui.nav_programs")}</h1>
       {mayCreate("program.create") && <button onClick={() => setOpen(!open)} aria-expanded={open}>{t("ui.new_program")}</button>}
       {open && (
         <form class="card" onSubmit={create}>

@@ -7,6 +7,12 @@ import type { Key, Lang } from "@kumi/i18n";
 import { formatLocale } from "@kumi/i18n/format";
 import { api, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 import { initials, Pager } from "./lists.tsx";
+import { CUSTOMER_COLUMNS, ordered, type CustomerColumn } from "./presets.ts";
+import { label, preset } from "./words.ts";
+
+/** Each column's heading. */
+const HEAD: Record<CustomerColumn, "ui.name" | "ui.phone" | "ui.email" | "ui.membership" | "ui.membership_ends" | "ui.club_news_col" | "ui.level"> = {
+  name: "ui.name", phone: "ui.phone", email: "ui.email", membership: "ui.membership", membership_ends: "ui.membership_ends", club_news: "ui.club_news_col", level: "ui.level" };
 
 type Row = { id: string; display_name: string; email: string | null; phone: string | null; roles: string[] | null; junior?: boolean; tags?: string[] | null;
   membership: { name: string; ends_on: string | null } | null; club_news: boolean | null; level?: string | null };
@@ -49,10 +55,12 @@ export function People() {
   const go = (p: number) => { setPage(p); void load(p); };
   const ends = (d: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${d}T12:00:00Z`));
 
+  // The columns in the club's "Coming from" order (presets.ts); a level only for those who read levels, as before.
+  const cols = ordered(preset().customerColumns, CUSTOMER_COLUMNS.filter((c) => c !== "level" || list?.levels));
   return (
     <main class="wide">
       <div class="page-head">
-        <h1>{t("ui.people_title")}</h1>
+        <h1>{label("ui.people_title")}</h1>
         {list && <span class="count-chip" role="status">{t("count.customers", { count: list.total })}</span>}
         <span class="grow" />
         {mayDo("person.import") && <button type="button" aria-expanded={importing} onClick={() => setImporting(!importing)}>{t("ui.import_people")}</button>}
@@ -88,22 +96,21 @@ export function People() {
       {list === null ? <p>{t("ui.loading")}</p> : list.rows.length === 0 ? <p class="card meta">{t("ui.no_people")}</p> : <>
         <div class="table-scroll table-box">
           <table class="data">
-            <caption class="sr-only">{t("ui.people_title")}</caption>
-            <thead><tr><th scope="col">{t("ui.name")}</th><th scope="col">{t("ui.phone")}</th><th scope="col">{t("ui.email")}</th><th scope="col">{t("ui.membership")}</th>
-              <th scope="col">{t("ui.membership_ends")}</th><th scope="col">{t("ui.club_news_col")}</th>{list.levels && <th scope="col">{t("ui.level")}</th>}</tr></thead>
+            <caption class="sr-only">{label("ui.people_title")}</caption>
+            <thead><tr>{cols.map((c) => <th scope="col">{t(HEAD[c])}</th>)}</tr></thead>
             <tbody>{list.rows.map((r) => {
               const also = [r.junior ? t("ui.junior_tag") : roleNames(r.roles), ...(r.tags ?? [])].filter((x) => x && x !== t("role.member")).join(" · ");
-              return (
-                <tr>
-                  <td class="wrap"><a class="person-cell" href={`/people/${r.id}`}><span class="avatar" aria-hidden="true">{initials(r.display_name)}</span>
-                    <span><strong>{r.display_name}</strong>{also && <span class="meta block">{also}</span>}</span></a></td>
-                  <td>{r.phone ?? <span class="meta">{t("ui.none_dash")}</span>}</td>
-                  <td>{r.email ?? <span class="meta">{t("ui.none_dash")}</span>}</td>
-                  <td>{r.membership?.name ?? <span class="meta">{t("ui.not_a_member")}</span>}</td>
-                  <td>{r.membership?.ends_on ? ends(r.membership.ends_on) : <span class="meta">{t("ui.none_dash")}</span>}</td>
-                  <td>{r.club_news === null ? <span class="meta">{t("ui.consent_unknown")}</span> : <span class={`pill ${r.club_news ? "pill-yes" : "pill-no"}`}>{t(r.club_news ? "ui.yes" : "ui.no")}</span>}</td>
-                  {list.levels && <td>{r.level ?? <span class="meta">{t("ui.none_dash")}</span>}</td>}
-                </tr>);
+              const cell: Record<CustomerColumn, any> = {
+                name: <td class="wrap"><a class="person-cell" href={`/people/${r.id}`}><span class="avatar" aria-hidden="true">{initials(r.display_name)}</span>
+                  <span><strong>{r.display_name}</strong>{also && <span class="meta block">{also}</span>}</span></a></td>,
+                phone: <td>{r.phone ?? <span class="meta">{t("ui.none_dash")}</span>}</td>,
+                email: <td>{r.email ?? <span class="meta">{t("ui.none_dash")}</span>}</td>,
+                membership: <td>{r.membership?.name ?? <span class="meta">{t("ui.not_a_member")}</span>}</td>,
+                membership_ends: <td>{r.membership?.ends_on ? ends(r.membership.ends_on) : <span class="meta">{t("ui.none_dash")}</span>}</td>,
+                club_news: <td>{r.club_news === null ? <span class="meta">{t("ui.consent_unknown")}</span> : <span class={`pill ${r.club_news ? "pill-yes" : "pill-no"}`}>{t(r.club_news ? "ui.yes" : "ui.no")}</span>}</td>,
+                level: <td>{r.level ?? <span class="meta">{t("ui.none_dash")}</span>}</td>,
+              };
+              return <tr>{cols.map((c) => cell[c])}</tr>;
             })}</tbody>
           </table>
         </div>

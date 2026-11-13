@@ -15,6 +15,13 @@ club:
   # Owners and managers sign in with the emailed code; a passkey or authenticator app is their choice (Profile), and
   # the most sensitive changes ask for one. true: they give one at every sign-in too (also in Settings).
   # staff_second_step: true
+  # The software your staff used before, so the staff app uses the words, menu order and first page they know:
+  # playtomic (the default: Schedule, Bookings, Customers) or none (openPadel's own words: Courts, People, Programs).
+  # It never changes what anyone can see or do. Also in Settings: each apply sets the file's value again, so once you
+  # change it there, change it here too or take the line out (the same goes for brand_colour).
+  # coming_from: playtomic
+  # The club's colour in both apps (buttons, the page open in the menu, links). Also in Settings.
+  # brand_colour: "#0B5A55"
 
 owner:                               # signs in by a code sent to this address
   name: Robin Hale

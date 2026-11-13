@@ -5129,4 +5129,16 @@ export const en = {
   "ui.no_credit_held": "No club credit, and nothing waiting to go back to them.",
   "count.rated_games": { one: "{count} rated game", other: "{count} rated games" },
   "ui.person_no_level": "No level yet.",
+  // "Coming from" (presets.ts): the software staff used before, and the words each choice puts in the staff app.
+  "field.coming_from": "the software staff used before",
+  "preset.name_none": "none (openPadel's own words)",
+  "preset.name_playtomic": "Playtomic",
+  "preset.plain_schedule": "Courts",
+  "preset.plain_people": "People",
+  "preset.plain_programs": "Programs",
+  "ui.coming_from": "Staff are coming from",
+  "ui.coming_from_help": "The staff app uses the words, menu order and first page staff know from the software they used before. It never changes what anyone can see or do.",
+  "plan.suggest_coming_from": "Staff used to Playtomic can have its words in the staff app too: Settings, Staff are coming from, Playtomic.",
+  "cli.step.coming_from": "Set the software staff used before to {name}, for the staff app's words and menu.",
+  "cli.step.brand_colour": "Set the club's brand color to {colour}.",
 } as const;

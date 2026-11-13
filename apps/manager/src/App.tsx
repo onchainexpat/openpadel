@@ -5,6 +5,8 @@ import { Schedule } from "./Schedule.tsx";
 import { Courts } from "./Courts.tsx";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
 import { formatLocale } from "@kumi/i18n/format";
+import { homeFor, type MenuItem } from "./presets.ts";
+import { label, preset } from "./words.ts";
 
 // Pages loaded when first opened (Courts and a coach's schedule are in the first screen: they're where most staff start).
 const Changes = lazyPage(() => import("./Changes.tsx").then((m) => m.Changes));
@@ -68,8 +70,13 @@ function access(m: Me) {
   const areaHome: Record<string, any> = { bookings: Courts, courts: Courts, programs: Programs, members: People, memberships: Memberships, levels: Levels, messages: Messages, money: Reports, coaches: Coaches, settings: Settings };
   // The Schedule (the courts' day) is home for anyone who reads bookings, as staff coming from other club software
   // expect; a coach keeps their own schedule, and the accountant the reports.
-  const home = areas ? (coach ? Schedule : areas.includes("bookings") ? Courts : areaHome[areas[0] ?? ""] ?? Profile)
+  const base = areas ? (coach ? Schedule : areas.includes("bookings") ? Courts : areaHome[areas[0] ?? ""] ?? Profile)
     : desk ? Courts : coach ? Schedule : roles.includes("accountant") ? Reports : show("bookings") ? Courts : Programs;
+  // The club's "Coming from" preset may start those on the courts' day somewhere else, only on a page their roles open.
+  const homePages = { day: { page: Courts, open: show("bookings") }, bookings: { page: Bookings, open: show("bookings") },
+    people: { page: People, open: show("members") }, programs: { page: Programs, open: show("programs") } };
+  const home = homeFor(preset(), base, Courts, homePages);
+  const homeItem: MenuItem | null = home === Schedule ? "schedule" : (Object.keys(homePages) as (keyof typeof homePages)[]).find((k) => homePages[k].page === home) ?? null;
   // The pages in someone's menu, fetched while they look at their first one so opening them later doesn't wait.
   const later: { preload?: () => unknown }[] = [home, Profile];
   const add = (yes: boolean, ...pages: { preload?: () => unknown }[]) => { if (yes) later.push(...pages); };
@@ -83,7 +90,7 @@ function access(m: Me) {
   add(coach || desk || Boolean(areas?.includes("coaches")), Coaches);
   add(show("settings"), Settings);
   add(changes, Changes, Usage);
-  return { coach, desk, changes, areas, coachSide, show, home, later };
+  return { coach, desk, changes, areas, coachSide, show, home, homeItem, later };
 }
 
 /** Support access under way: the person who has it, and the owner and managers, are told at the top of every page. */
@@ -107,55 +114,52 @@ function QuestionsLink({ current }: { current?: "page" }) {
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
   }, [path]);
-  return <a href="/questions" aria-current={current}>{t("ui.nav_questions")}{n > 0 && <span class="badge warn">{n}</span>}</a>;
+  return <a href="/questions" aria-current={current}>{label("ui.nav_questions")}{n > 0 && <span class="badge warn">{n}</span>}</a>;
 }
 
 type Access = ReturnType<typeof access>;
 /** The staff menu: the Schedule first, then the club's people and what they sign up for, levels, messages, the
- *  club's own pages, and the person's own. Each link only for those whose roles read that area (the server refuses
- *  the rest either way). */
+ *  club's own pages, and the person's own, in the order and words of the club's "Coming from" preset (presets.ts).
+ *  Each link only for those whose roles read that area (the server refuses the rest either way): the preset orders
+ *  and names the links, never who gets one. */
 function StaffNav({ a, signOut }: { a: Access; signOut: () => void }) {
   const { path } = useLocation();
-  const { coach, desk, changes, areas, coachSide, show, home } = a;
-  // The page open now: its own address or one under it ("/" is the Schedule for those who start there).
+  const { coach, desk, changes, areas, coachSide, show, homeItem } = a;
+  // The page open now: its own address or one under it ("/" is whichever page is home).
   const on = (...roots: string[]) => (roots.some((r) => path === r || path.startsWith(`${r}/`)) ? "page" as const : undefined);
+  const home = (item: MenuItem) => (path === "/" && homeItem === item ? "page" as const : undefined);
   const link = (yes: unknown, href: string, words: string, current = on(href)) => (yes ? <li><a href={href} aria-current={current}>{words}</a></li> : null);
   const messages = desk || Boolean(areas?.includes("messages"));
+  const items: Record<MenuItem, any> = {
+    day: link(show("bookings"), "/courts", label("ui.nav_day_schedule"), on("/courts") ?? home("day")),
+    schedule: link(coach, "/schedule", label("ui.nav_schedule"), on("/schedule", "/roster", "/students") ?? home("schedule")),
+    bookings: link(show("bookings"), "/bookings", label("ui.nav_bookings"), on("/bookings") ?? home("bookings")),
+    people: link(show("members"), "/people", label("ui.nav_people"), on("/people") ?? home("people")),
+    programs: link(show("programs"), "/programs", label("ui.nav_programs"), on("/programs", "/sessions") ?? home("programs")),
+    payments: link(show("money"), "/payments", label("ui.nav_payments")),
+    memberships: link(show("memberships"), "/memberships", label("ui.nav_memberships")),
+    coaches: link(coach || desk || areas?.includes("coaches"), "/coaches", label("ui.nav_coaches")),
+    levels: link(show("levels"), "/levels", label("ui.nav_levels")),
+    scores: link(show("levels"), "/scores", label("ui.nav_scores")),
+    questions: messages && <li><QuestionsLink current={on("/questions", "/facts")} /></li>,
+    messages: link(messages, "/messages", label("ui.nav_messages"), on("/messages", "/groups", "/templates")),
+    chats: link(show("members") && club.value?.players_chat, "/chats", label("ui.nav_chats")),
+    playtomic: link(me.value?.playtomic, "/playtomic", label("ui.nav_playtomic")),
+    reports: link(show("money") || coachSide, "/reports", label("ui.nav_reports")),
+    usage: link(changes, "/usage", label("ui.nav_usage")),
+    changes: link(changes, "/changes", label("ui.nav_changes")),
+    settings: link(show("settings"), "/settings", label("ui.nav_settings"), on("/settings", "/roles", "/vault")),
+    inbox: <li><InboxLink current={on("/inbox")} /></li>,
+    profile: link(true, "/profile", label("ui.nav_profile")),
+  };
+  const groups = preset().menu;
   return (
     <nav class="staff-nav" aria-label={t("ui.nav_main")}>
-      <ul>
-        {link(show("bookings"), "/courts", t("ui.nav_day_schedule"), on("/courts") ?? (path === "/" && home === Courts ? "page" : undefined))}
-        {link(coach, "/schedule", t("ui.nav_schedule"), on("/schedule", "/roster", "/students") ?? (path === "/" && home === Schedule ? "page" : undefined))}
-        {link(show("bookings"), "/bookings", t("ui.nav_bookings"))}
-      </ul>
-      <ul>
-        {link(show("members"), "/people", t("ui.nav_people"))}
-        {link(show("programs"), "/programs", t("ui.nav_programs"), on("/programs", "/sessions"))}
-        {link(show("money"), "/payments", t("ui.nav_payments"))}
-        {link(show("memberships"), "/memberships", t("ui.nav_memberships"))}
-        {link(coach || desk || areas?.includes("coaches"), "/coaches", t("ui.nav_coaches"))}
-      </ul>
-      <ul>
-        {link(show("levels"), "/levels", t("ui.nav_levels"))}
-        {link(show("levels"), "/scores", t("ui.nav_scores"))}
-      </ul>
-      <ul>
-        {messages && <li><QuestionsLink current={on("/questions", "/facts")} /></li>}
-        {link(messages, "/messages", t("ui.nav_messages"), on("/messages", "/groups", "/templates"))}
-        {link(show("members") && club.value?.players_chat, "/chats", t("ui.nav_chats"))}
-      </ul>
-      <ul>
-        {link(me.value?.playtomic, "/playtomic", t("ui.nav_playtomic"))}
-        {link(show("money") || coachSide, "/reports", t("ui.nav_reports"))}
-        {link(changes, "/usage", t("ui.nav_usage"))}
-        {link(changes, "/changes", t("ui.nav_changes"))}
-        {link(show("settings"), "/settings", t("ui.nav_settings"), on("/settings", "/roles", "/vault"))}
-      </ul>
-      <ul>
-        <li><InboxLink current={on("/inbox")} /></li>
-        {link(true, "/profile", t("ui.nav_profile"))}
-        <li><button type="button" class="link" onClick={signOut}>{t("ui.sign_out")}</button></li>
-      </ul>
+      {groups.map((g, i) => (
+        <ul>
+          {g.map((item) => items[item])}
+          {i === groups.length - 1 && <li><button type="button" class="link" onClick={signOut}>{t("ui.sign_out")}</button></li>}
+        </ul>))}
     </nav>
   );
 }

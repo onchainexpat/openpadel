@@ -14,6 +14,7 @@ import { dayStats, kindOf, type Kind } from "./day_stats.ts";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
 import { NewBooking } from "./NewBooking.tsx";
 import { SessionPanel } from "./SessionPanel.tsx";
+import { label } from "./words.ts";
 
 // The desk's payment form comes when someone taps Record payment, so the first screen doesn't carry it.
 const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
@@ -148,7 +149,7 @@ export function Courts() {
   return (
     <main class="today">
       <div class="sched-bar">
-        <h1>{t("ui.nav_day_schedule")}</h1>
+        <h1>{label("ui.nav_day_schedule")}</h1>
         {locs.length > 1 && <select class="sched-loc" aria-label={t("ui.location")} value={loc} onChange={(e) => { setLoc(e.currentTarget.value); setDate(""); }}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select>}
         <div class="day-nav">
           <button type="button" onClick={() => shift(-1)} aria-label={t(view === "week" ? "ui.week_before" : "ui.day_before")}>‹</button>

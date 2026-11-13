@@ -14,6 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, productName, type Key, type Lang } from "@kumi/i18n";
+import { comingFrom } from "@kumi/i18n/presets";
 import { welcomeDue, ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
@@ -235,7 +236,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "brand_colour", "languages", "default_language", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "gift_cards", "gift_card_min_cents", "gift_card_max_cents", "public_page", "terms_url", "privacy_policy_url", "time_zone", "currency", "format_locale", "country", "tax_label", "prices_include_tax", "read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
+    const club = await db.selectFrom("club").select(["name", "brand_colour", "coming_from", "languages", "default_language", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "gift_cards", "gift_card_min_cents", "gift_card_max_cents", "public_page", "terms_url", "privacy_policy_url", "time_zone", "currency", "format_locale", "country", "tax_label", "prices_include_tax", "read_only_since", "moved_at", "moved_to"]).executeTakeFirst();
     // Not set up yet (kumi setup apply): nothing to show, which isn't the server failing.
     if (!club) throw new KumiError("error.club_not_set_up", {}, 404);
     // Whether there's a membership to join in the app.
@@ -256,8 +257,9 @@ export function makeApp(deps: AppDeps) {
     // Moved to another server (club_exit.ts): both apps say where, instead of read-only.
     // The club's own terms and privacy policy: linked where people join, beside the yes to texts and on the profile.
     // Hosted by Kumi (KUMI_HOSTED=1): staff read "Kumi" for the product, and the apps show "Runs on Kumi".
+    // The software staff used before (coming_from), always one the staff app knows: words and order only.
     const { read_only_since, moved_at, moved_to, ...shown } = club;
-    return c.json({ ...shown, read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), competitions: Boolean(competing), passes: Boolean(passes), promos, phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
+    return c.json({ ...shown, coming_from: comingFrom(club.coming_from), read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), competitions: Boolean(competing), passes: Boolean(passes), promos, phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
       member_url: deps.memberUrl ?? memberUrl(publicUrl, {}), hosted: isHosted(), mail: deps.mailReach ?? "sent" });
   });
 

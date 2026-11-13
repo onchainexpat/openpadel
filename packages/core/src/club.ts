@@ -18,6 +18,7 @@ import { activeImports, startSigma, writeImport } from "./level_import.ts";
 import { SELF_ADJUST_GAMES } from "./level_tools.ts";
 import { dayText } from "./memberships.ts";
 import { loadRating } from "./ratings.ts";
+import { COMING_FROM, comingFrom } from "@kumi/i18n/presets";
 
 const isTimeZone = (v: string) => { try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; } };
 const timeZone = z.string().check(z.refine(isTimeZone, { message: "Not a time zone (use an IANA name such as America/Los_Angeles)" }));
@@ -53,6 +54,7 @@ const endOnce = (t: Text): Text => ({ en: t.en.replace(/\.\.$/, "."), es: t.es.r
 function shownValue(field: string, v: unknown, currency: string): Text | string | null {
   if (v === undefined || ["about", "translations", "two_factor"].includes(field)) return null;
   if (v === null || v === "") return both("plan.value_none");
+  if (field === "coming_from" && typeof v === "string") return both(`preset.name_${comingFrom(v)}` as Key);
   if (field === "tax_rate_bp" && typeof v === "number") return `${(v / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
   if (field.endsWith("_cents") && typeof v === "number") return { en: money(v, "en", currency), es: money(v, "es", currency) };
   if (Array.isArray(v)) return v.join(", ");
@@ -114,6 +116,9 @@ export const clubUpdate = defineAction({
     name: z.optional(z.string().check(z.minLength(1))), legal_name: z.optional(z.string()), time_zone: z.optional(timeZone),
     languages: z.optional(z.array(lang).check(z.minLength(1))), default_language: z.optional(lang),
     brand_colour: z.optional(z.string().check(z.regex(/^#[0-9A-Fa-f]{6}$/))), sign_up_open: z.optional(z.boolean()),
+    // The software the club's staff used before (presets.ts): the staff app's words, menu order, first page and table
+    // columns follow it. Words and order only, never what a role may see or do.
+    coming_from: z.optional(z.enum(COMING_FROM).check(z.describe("The software the club's staff used before: the staff app uses its words, menu order, first page and table column order. none: openPadel's own plain words. Never changes what anyone may see or do."))),
     court_bookings: z.optional(z.boolean()),
     // Members book the same court every week in the app (booking_series.ts), for at most this many weeks.
     weekly_bookings: z.optional(z.boolean()), weekly_max_weeks: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(26))),

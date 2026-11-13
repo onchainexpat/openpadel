@@ -13,6 +13,19 @@ Owners and managers no longer have to set up a passkey or an authenticator app b
 (or texted) code is enough. The club's most sensitive changes still ask them for a second step, and offer to set one
 up right there.
 
+### Added
+- "Staff are coming from" (Settings, or `coming_from:` in club.yaml): one staff app that feels familiar to staff moving
+  from other software. `playtomic`, the default, keeps today's words and order (Schedule, Bookings, Customers, "Clinics,
+  courses and events"), so nothing changes for a club until it picks another; `none` uses openPadel's own plain words
+  (Courts, People, Programs) and a plainer menu and column order. A choice can set words, menu order, the first page
+  (both start on the Schedule today) and the order of the Bookings and Customers columns, in English and Spanish;
+  never who can see or do what. Linking the first
+  Playtomic court, or uploading the Playtomic export, suggests Playtomic's words in the preview. club.yaml also takes
+  `brand_colour:`.
+- The staff app's colour follows the club's brand colour with text that always reads at 4.5:1: a mid-tone that
+  neither white nor near-black text reads on is darkened just enough (in the members' app too), and very light or
+  very dark colours keep a visible edge on the main buttons and the page open in the menu.
+
 ### Changed
 - Before a member pays for anything in the app (a court, whole or split, an open match, a clinic, course or lesson, a
   weekly court, a membership or a pass), the preview is a "Check before you confirm" sheet: each price, a member

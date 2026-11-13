@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { amountInput, amountPattern, capFor, fromMajor, money, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
+import { COMING_FROM, comingFrom } from "@kumi/i18n/presets";
 import { api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, RunsOn, savedIn, t, translationsOf, usePreview, type Club, applyBrand, applyTitle } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
@@ -14,7 +15,7 @@ type Price = { id: string; name: string; translations?: unknown; court_ids: stri
 type Loc = { id: string; name: string; address: string | null; postal_code?: string | null; region?: string | null; country?: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; country: string; prices_include_tax: boolean; tax_label: string | null; languages: string[]; default_language: string; brand_colour: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; level_import_line: number; two_factor: "owner_manager" | "all_staff" | "off"; second_step_sign_in: boolean };
+type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; country: string; prices_include_tax: boolean; tax_label: string | null; languages: string[]; default_language: string; brand_colour: string; coming_from: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; level_import_line: number; two_factor: "owner_manager" | "all_staff" | "off"; second_step_sign_in: boolean };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
 type Usage = { cents_per_segment: number; paused: boolean; resets: string; current: Month; history: Month[] };
@@ -149,6 +150,9 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
       <label>{t("ui.name")}<input required value={f.name} onInput={(e) => set("name", e.currentTarget.value)} /></label>
       <label>{t("ui.legal_name")}<input value={f.legal_name} onInput={(e) => set("legal_name", e.currentTarget.value)} /></label>
       <label>{t("ui.brand_color")}<input type="color" value={f.brand_colour} onInput={(e) => set("brand_colour", e.currentTarget.value)} /></label>
+      <label>{t("ui.coming_from")}<select value={comingFrom(f.coming_from)} aria-describedby="coming-from-help" onChange={(e) => set("coming_from", e.currentTarget.value)}>
+        {COMING_FROM.map((p) => <option value={p}>{t(`preset.name_${p}`)}</option>)}</select></label>
+      <p class="meta" id="coming-from-help">{t("ui.coming_from_help")}</p>
       <label>{t("ui.time_zone")}<input list="zones" required value={f.time_zone} onInput={(e) => set("time_zone", e.currentTarget.value)} /></label>
       <datalist id="zones">{ZONES.map((z) => <option value={z} />)}</datalist>
       <label>{t("ui.currency")}<input required maxLength={3} pattern="[A-Za-z]{3}" autocapitalize="characters" value={f.currency} onInput={(e) => set("currency", e.currentTarget.value.toUpperCase())} /></label>

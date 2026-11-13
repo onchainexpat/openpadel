@@ -17,9 +17,9 @@ test("each menu link is shown only to the roles that read its area, as before", 
     ["messages", "/messages"], ['show("members") && club.value?.players_chat', "/chats"], ["me.value?.playtomic", "/playtomic"], ['show("money") || coachSide', "/reports"],
     ["changes", "/usage"], ["changes", "/changes"], ['show("settings")', "/settings"], ["true", "/profile"],
   ];
-  for (const [gate, href] of gates) assert.ok(app.includes(`{link(${gate}, "${href}"`), `${href} behind ${gate}`);
+  for (const [gate, href] of gates) assert.ok(app.includes(`: link(${gate}, "${href}"`), `${href} behind ${gate}`);
   assert.match(app, /const messages = desk \|\| Boolean\(areas\?\.includes\("messages"\)\);/);
-  assert.match(app, /\{messages && <li><QuestionsLink /, "Questions, with its badge, for the desk and message roles only");
+  assert.match(app, /questions: messages && <li><QuestionsLink /, "Questions, with its badge, for the desk and message roles only");
   assert.match(app, /<li><InboxLink current=/);
   // The old top row of links is gone: one menu, not two.
   assert.doesNotMatch(app, /<nav>\{coach && <a href="\/schedule">/);
@@ -27,7 +27,7 @@ test("each menu link is shown only to the roles that read its area, as before", 
 
 test("the Schedule is home for those who read bookings; a coach keeps their own schedule and the accountant the reports", () => {
   const app = src("App.tsx");
-  assert.match(app, /const home = areas \? \(coach \? Schedule : areas\.includes\("bookings"\) \? Courts : areaHome\[areas\[0\] \?\? ""\] \?\? Profile\)\n\s+: desk \? Courts : coach \? Schedule : roles\.includes\("accountant"\) \? Reports : show\("bookings"\) \? Courts : Programs;/);
+  assert.match(app, /const base = areas \? \(coach \? Schedule : areas\.includes\("bookings"\) \? Courts : areaHome\[areas\[0\] \?\? ""\] \?\? Profile\)\n\s+: desk \? Courts : coach \? Schedule : roles\.includes\("accountant"\) \? Reports : show\("bookings"\) \? Courts : Programs;/);
   // Old addresses still open what they did.
   for (const path of ["/courts", "/people", "/programs", "/schedule"]) assert.ok(app.includes(`<Route path="${path}"`), path);
 });

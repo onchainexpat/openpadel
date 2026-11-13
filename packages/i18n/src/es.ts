@@ -5129,4 +5129,16 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.no_credit_held": "Sin crédito del club, y nada pendiente de devolverle.",
   "count.rated_games": { one: "{count} partido con nivel", other: "{count} partidos con nivel", many: "{count} partidos con nivel" },
   "ui.person_no_level": "Todavía no tiene nivel.",
+  // "Coming from" (presets.ts): the software staff used before, and the words each choice puts in the staff app.
+  "field.coming_from": "el programa que usaba el personal",
+  "preset.name_none": "ninguno (las palabras propias de openPadel)",
+  "preset.name_playtomic": "Playtomic",
+  "preset.plain_schedule": "Canchas",
+  "preset.plain_people": "Personas",
+  "preset.plain_programs": "Programas",
+  "ui.coming_from": "El personal viene de",
+  "ui.coming_from_help": "La app del personal usa las palabras, el orden del menú y la primera página que el personal conoce del programa que usaba. Nunca cambia lo que alguien puede ver o hacer.",
+  "plan.suggest_coming_from": "Si el personal está acostumbrado a Playtomic, la app del personal también puede usar sus palabras: Configuración, El personal viene de, Playtomic.",
+  "cli.step.coming_from": "Poner el programa que usaba el personal en {name}, para las palabras y el menú de la app del personal.",
+  "cli.step.brand_colour": "Poner el color de la marca del club en {colour}.",
 };

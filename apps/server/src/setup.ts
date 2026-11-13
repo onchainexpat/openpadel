@@ -7,6 +7,7 @@ import * as z from "zod/mini";
 import { parse } from "yaml";
 import { both, type Key, type Lang, type Text } from "@kumi/i18n";
 import { pageUrl, run, runAsSystem, type Actor, type Db } from "@kumi/core";
+import { COMING_FROM, DEFAULT_COMING_FROM } from "@kumi/i18n/presets";
 
 const name = z.string().check(z.minLength(1));
 const court = z.union([name, z.object({ name, kind: z.optional(z.enum(["indoor", "covered_outdoor", "outdoor"])) })]);
@@ -36,8 +37,10 @@ export const ClubFile = z.object({
   // The club's own terms and privacy policy for members, on its website (docs/templates): the app links them.
   // staff_second_step: owners, managers and the club's own roles give a second step at every sign-in (Settings, "Sign-in
   // and roles"); left out, the club's setting stays as it is (off for a new club).
+  // coming_from: the software staff used before (none or playtomic), for the staff app's words, menu order and first
+  // page; brand_colour: the club's colour (#rrggbb) in both apps. Left out, each stays as it is.
   club: z.object({ name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])), terms_url: z.optional(pageUrl), privacy_policy_url: z.optional(pageUrl),
-    staff_second_step: z.optional(z.boolean()) }),
+    staff_second_step: z.optional(z.boolean()), coming_from: z.optional(z.enum(COMING_FROM)), brand_colour: z.optional(z.string().check(z.regex(/^#[0-9A-Fa-f]{6}$/, "a colour like #0B5A55"))) }),
   owner: z.object({ name, email: z.email() }),
   locations: z.optional(z.array(z.object({ name, address: z.optional(z.string()), time_zone: z.optional(name), courts: z.optional(z.array(court)) }))),
   staff: z.optional(z.array(z.object({ name, email: z.email(), role: z.enum(["owner", "manager", "front_desk", "coach", "accountant"]), location: z.optional(name) }))),
@@ -116,6 +119,15 @@ export async function setupClub(db: Db, file: ClubFile, opts: { apply: boolean; 
   const hadSecondStep = club ? (await db.selectFrom("club").select("second_step_sign_in").executeTakeFirstOrThrow()).second_step_sign_in : false;
   if (secondStep !== undefined && secondStep !== hadSecondStep) await step("club.update", both(secondStep ? "cli.step.second_step_on" : "cli.step.second_step_off"),
     async () => ok(await run(db, "club.update", { second_step_sign_in: secondStep }, owner)));
+  // The software staff used before and the brand colour, each when the file names one that differs from the club's
+  // (so, like staff_second_step, the file wins again over a later change in Settings: the plan shows it first).
+  const look = club ? await db.selectFrom("club").select(["coming_from", "brand_colour"]).executeTakeFirstOrThrow() : { coming_from: DEFAULT_COMING_FROM, brand_colour: "#0B5A55" };
+  const from = file.club.coming_from;
+  if (from !== undefined && from !== look.coming_from) await step("club.update", both("cli.step.coming_from", { name: both(`preset.name_${from}`) }),
+    async () => ok(await run(db, "club.update", { coming_from: from }, owner)));
+  const colour = file.club.brand_colour;
+  if (colour !== undefined && colour.toLowerCase() !== look.brand_colour.toLowerCase()) await step("club.update", both("cli.step.brand_colour", { colour }),
+    async () => ok(await run(db, "club.update", { brand_colour: colour }, owner)));
 
   const locations = club ? await db.selectFrom("location").select(["id", "name"]).where("archived_at", "is", null).execute() : [];
   const locationIds = new Map<string, string | null>();

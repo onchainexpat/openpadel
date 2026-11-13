@@ -9,6 +9,8 @@ import { formatLocale } from "@kumi/i18n/format";
 import { api, coversLocation, dollars, lang, mayCreate, me, t, useBackCloses, usePreview } from "@kumi/ui";
 import { Details, SidePanel, canMove, canResize, clockIn, courtsOf, daySlots, keyOf, showLocation, type Court, type Grid, type Item } from "./Courts.tsx";
 import { Pager, Tabs } from "./lists.tsx";
+import { BOOKING_COLUMNS, ordered, type BookingColumn } from "./presets.ts";
+import { label, preset } from "./words.ts";
 
 type Loc = { id: string; name: string; time_zone: string };
 type Row = { key: string; date: string; starts_at: string; ends_at: string; minutes: number; court_id: string; court: string; type: "court" | "lesson" | "open_match" | "program" | "playtomic";
@@ -71,7 +73,7 @@ export function Bookings() {
   return (
     <main class="wide">
       <div class="page-head">
-        <h1>{t("ui.nav_bookings")}</h1>
+        <h1>{label("ui.nav_bookings")}</h1>
         {tab === "all" && list && <span class="count-chip" role="status">{t("count.bookings", { count: list.total })}</span>}
         {tab === "weekly" && weekly && <span class="count-chip" role="status">{t("count.weekly_courts", { count: weekly.total })}</span>}
         {locs.length > 1 && <select class="sched-loc" aria-label={t("ui.location")} value={loc} onChange={(e) => { setLoc(e.currentTarget.value); close(); }}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select>}
@@ -123,7 +125,11 @@ export function Bookings() {
 }
 
 const pillOf = (s: Row["status"]) => <span class={`pill pill-${s}`}>{t(`ui.booking_state_${s}` as Key)}</span>;
+/** Each column's heading; their order is the club's "Coming from" preset's (presets.ts). */
+const HEAD: Record<BookingColumn, "ui.date_and_time" | "ui.length" | "ui.players_col" | "ui.court_label" | "ui.filter_type" | "ui.filter_made_in" | "ui.filter_status"> = {
+  when: "ui.date_and_time", length: "ui.length", players: "ui.players_col", court: "ui.court_label", type: "ui.filter_type", made_in: "ui.filter_made_in", status: "ui.filter_status" };
 function BookingTable({ list, onOpen }: { list: List; onOpen: (r: Row) => void }) {
+  const cols = ordered(preset().bookingColumns, BOOKING_COLUMNS);
   const when = (iso: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: list.time_zone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
   const kind = (r: Row) => r.type === "program" && r.program_kind ? t(`kind.${r.program_kind}` as Key) : t(`ui.list_type_${r.type}` as Key);
   // Who: the organiser and how many more (for those who read people), a program's name and its places, a Playtomic
@@ -135,18 +141,19 @@ function BookingTable({ list, onOpen }: { list: List; onOpen: (r: Row) => void }
     <div class="table-scroll table-box">
       <table class="data">
         <caption class="sr-only">{t("ui.bookings_all")}</caption>
-        <thead><tr><th scope="col">{t("ui.date_and_time")}</th><th scope="col">{t("ui.length")}</th><th scope="col">{t("ui.players_col")}</th><th scope="col">{t("ui.court_label")}</th>
-          <th scope="col">{t("ui.filter_type")}</th><th scope="col">{t("ui.filter_made_in")}</th><th scope="col">{t("ui.filter_status")}</th></tr></thead>
-        <tbody>{list.rows.map((r) => (
-          <tr class="clickable" onClick={() => onOpen(r)}>
-            <td><button type="button" class="link row-open" onClick={(e) => { e.stopPropagation(); onOpen(r); }} aria-haspopup="dialog">{when(r.starts_at)}</button></td>
-            <td>{t("ui.minutes", { count: r.minutes })}</td>
-            <td class="wrap">{who(r)}</td>
-            <td>{r.court}</td>
-            <td><span class={`kind-dot k-${r.type === "program" ? (r.program_kind === "clinic" || r.program_kind === "course" ? "learning" : "event") : r.type === "lesson" ? "learning" : r.type === "court" ? "booking" : r.type}`} aria-hidden="true" /><span class="cap">{kind(r)}</span></td>
-            <td>{t(`ui.made_in_${r.made_in}` as Key)}</td>
-            <td>{pillOf(r.status)}{(r.owed_cents ?? 0) > 0 && <> <span class="pill-unpaid">{t("ui.unpaid_pill")} · {dollars(r.owed_cents!, lang.value)}</span></>}</td>
-          </tr>))}</tbody>
+        <thead><tr>{cols.map((c) => <th scope="col">{t(HEAD[c])}</th>)}</tr></thead>
+        <tbody>{list.rows.map((r) => {
+          const cell: Record<BookingColumn, any> = {
+            when: <td><button type="button" class="link row-open" onClick={(e) => { e.stopPropagation(); onOpen(r); }} aria-haspopup="dialog">{when(r.starts_at)}</button></td>,
+            length: <td>{t("ui.minutes", { count: r.minutes })}</td>,
+            players: <td class="wrap">{who(r)}</td>,
+            court: <td>{r.court}</td>,
+            type: <td><span class={`kind-dot k-${r.type === "program" ? (r.program_kind === "clinic" || r.program_kind === "course" ? "learning" : "event") : r.type === "lesson" ? "learning" : r.type === "court" ? "booking" : r.type}`} aria-hidden="true" /><span class="cap">{kind(r)}</span></td>,
+            made_in: <td>{t(`ui.made_in_${r.made_in}` as Key)}</td>,
+            status: <td>{pillOf(r.status)}{(r.owed_cents ?? 0) > 0 && <> <span class="pill-unpaid">{t("ui.unpaid_pill")} · {dollars(r.owed_cents!, lang.value)}</span></>}</td>,
+          };
+          return <tr class="clickable" onClick={() => onOpen(r)}>{cols.map((c) => cell[c])}</tr>;
+        })}</tbody>
       </table>
     </div>
   );

@@ -22,7 +22,7 @@ import { account, creditBalance, post } from "./money.ts";
 import { lockCredit, playtomicLeft } from "./credit.ts";
 import { dayText, holds, planPrice } from "./memberships.ts";
 import { textOf } from "./club_text.ts";
-import { PLAYTOMIC, type PlaytomicClient } from "./playtomic.ts";
+import { comingFromHint, PLAYTOMIC, type PlaytomicClient } from "./playtomic.ts";
 import { readMoveInCsv } from "./csv_read.ts";
 import { erasedMatcher, learnErasedIds, type ErasedMatcher } from "./playtomic_erased.ts";
 
@@ -117,6 +117,8 @@ export const playtomicUpload = defineAction({
       r.walletColumns.length ? both("plan.playtomic.upload_wallets", { columns: r.walletColumns.map((c) => c.name).join(", ") }) : both("plan.playtomic.upload_no_wallets")];
     if (r.erased) lines.push(both("plan.movein_erased", { count: r.erased }));
     if (r.problems.length) lines.push(both("count.lines_skipped", { count: r.problems.length }));
+    const hint = await comingFromHint(ctx.db);
+    if (hint) lines.push(hint);
     return { title: both("action.playtomic.upload"), summary: joinLines(lines), reads: [], undo: { kind: "none" },
       details: { sha256: r.sha256, rows: r.rows.length, wallet_columns: r.walletColumns, problems: r.problems.slice(0, 50) } };
   },

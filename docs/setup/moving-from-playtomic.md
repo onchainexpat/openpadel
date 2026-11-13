@@ -21,6 +21,11 @@ There are four stages. Keep the second one short: weeks, not months.
 
 ## Stage 1: shadow
 
+Staff moving from Playtomic find its words in the staff app (Schedule, Bookings, Customers): that is the default
+"Staff are coming from" setting, `playtomic` (Settings, or `coming_from:` in club.yaml; see
+[the setup guide](README.md#step-4-the-club-itself)). A club that chose openPadel's own words is reminded of it in the
+preview when it links its first Playtomic court.
+
 **What openPadel does:**
 
 - **Holds every Playtomic booking on a linked court**, so it never puts anything there itself

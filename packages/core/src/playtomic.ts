@@ -3,7 +3,8 @@
 // Kumi, so Kumi never puts an event on a court Playtomic has sold. It never writes to Playtomic.
 import * as z from "zod/mini";
 import { sql } from "kysely";
-import { both, type Key } from "@kumi/i18n";
+import { both, type Key, type Text } from "@kumi/i18n";
+import { comingFrom } from "@kumi/i18n/presets";
 import { defineAction, readRow, runAsSystem } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -189,6 +190,13 @@ export async function diffMirror(db: Db | Trx, fetched: Booking[], from: Date, t
   return { changes, unmapped: [...unmapped].map(([courtRef, u]) => ({ courtRef, ...u })) };
 }
 
+/** A club bringing Playtomic in whose staff app uses other words (Settings, "Staff are coming from"): the first
+ *  previews of the mirror and the move-in suggest Playtomic's words. A suggestion only: nothing here changes it. */
+export async function comingFromHint(db: Db | Trx): Promise<Text | null> {
+  const c = await db.selectFrom("club").select("coming_from").executeTakeFirst();
+  return c && comingFrom(c.coming_from) !== "playtomic" ? both("plan.suggest_coming_from") : null;
+}
+
 export const mapCourt = defineAction({
   name: "connector.map_court", version: 1,
   input: z.object({ resource_id: z.string().check(z.minLength(1)), resource_name: z.optional(z.string()), court_id: z.uuid() }),
@@ -197,7 +205,11 @@ export const mapCourt = defineAction({
     const taken = await ctx.db.selectFrom("external_ref").select("entity_id").where("system", "=", PLAYTOMIC).where("entity", "=", "court")
       .where((eb) => eb.or([eb("external_id", "=", i.resource_id), eb("entity_id", "=", i.court_id)])).executeTakeFirst();
     if (taken) throw new KumiError("error.already_mapped");
-    return { title: both("action.connector.map_court"), summary: both("plan.connector.map_court", { resource: i.resource_name ?? i.resource_id, court: row.name }), reads: [read], locationId: row.location_id, undo: { kind: "none", note: both("reason.no_way_back") } };
+    const summary = both("plan.connector.map_court", { resource: i.resource_name ?? i.resource_id, court: row.name });
+    // The club's first linked court is where it connects Playtomic: the preview suggests Playtomic's words then.
+    const first = !(await ctx.db.selectFrom("external_ref").select("entity_id").where("system", "=", PLAYTOMIC).where("entity", "=", "court").executeTakeFirst());
+    const hint = first ? await comingFromHint(ctx.db) : null;
+    return { title: both("action.connector.map_court"), summary: hint ? { en: `${summary.en} ${hint.en}`, es: `${summary.es} ${hint.es}` } : summary, reads: [read], locationId: row.location_id, undo: { kind: "none", note: both("reason.no_way_back") } };
   },
   async apply(ctx, i) {
     await ctx.trx.insertInto("external_ref").values({ entity: "court", entity_id: i.court_id, system: PLAYTOMIC, external_id: i.resource_id }).execute();
