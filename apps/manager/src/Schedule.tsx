@@ -2,7 +2,7 @@
 // with its list of players (and who came). A lesson can be called off from here; its players get all their
 // money back. Their calendar link sits on top: a phone's calendar subscribes to it.
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, usePreview, serverNow } from "@kumi/ui";
+import { api, EmptyState, lang, t, usePreview, serverNow } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 
 type Item = { kind: "lesson" | "session"; id: string; start: string; end: string; court?: string; players_names?: string | null; code?: string; name?: string; program_id?: string; booked?: number };
@@ -42,7 +42,7 @@ export function Schedule() {
       <p><a href="/students">{t("ui.my_students")}</a></p>
       {sheet}
       <CalendarLink />
-      {!d.items.length && <p class="card">{t("ui.schedule_empty")}</p>}
+      {!d.items.length && <EmptyState art="court" size="s">{t("ui.schedule_empty")}</EmptyState>}
       {days.map((day) => <section class="card">
         <h2>{day}</h2>
         <ul class="plain">{d.items.filter((x) => fmt(x.start, { weekday: "long", day: "numeric", month: "long" }) === day).map((x) => (

@@ -163,6 +163,9 @@ body:has(.dock:not(:empty)) .book-bar { display: none; }
 .welcome > * { animation: welcome-rise 420ms cubic-bezier(.2, .8, .2, 1) both; }
 .welcome > :nth-child(2) { animation-delay: 60ms; } .welcome > :nth-child(3) { animation-delay: 120ms; } .welcome > :nth-child(4) { animation-delay: 180ms; }
 .welcome > :nth-child(5) { animation-delay: 240ms; } .welcome > :nth-child(6) { animation-delay: 300ms; } .welcome > :nth-child(n+7) { animation-delay: 360ms; }
+/* The drawing above the greeting comes in with it (inside .club-head, so the parts' timings stay as they were). */
+.welcome .club-head { flex-wrap: wrap; }
+.welcome .club-head .welcome-art { flex-basis: 100%; width: auto; height: clamp(96px, 28vw, 136px); margin-bottom: 4px; }
 .welcome .club-head .monogram { animation: welcome-grow 480ms cubic-bezier(.2, .9, .3, 1.15) both; }
 @keyframes welcome-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes welcome-grow { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: none; } }
@@ -170,3 +173,10 @@ body:has(.dock:not(:empty)) .book-bar { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .welcome > *, .welcome .club-head .monogram { animation: welcome-fade 300ms ease both; animation-delay: 0s !important; }
 }
+/* Home's header: with no photo of the club's own, a faint court drawing behind its name, kept to the side so the
+   words stay on the plain background. */
+.club-head { position: relative; isolation: isolate; }
+.club-head > .club-head-art { position: absolute; z-index: -1; right: 0; top: 0; height: 100%; width: auto; max-width: 60%; margin: 0; pointer-events: none; }
+/* Done (booked, joined): a small drawing over the words. */
+main.card.done { text-align: center; }
+.lessons-art { margin: 4px auto 12px; }

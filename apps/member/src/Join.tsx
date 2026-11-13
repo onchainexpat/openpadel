@@ -1,6 +1,6 @@
 // Joining a booking from its link: what it is, what your part costs, then pay it.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
+import { api, ApiError, dollars, Illustration, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 
@@ -20,7 +20,7 @@ export function Join({ code }: { code: string }) {
   if (error) return <main class="card"><p class="error">{error}</p></main>;
   if (!inv) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const when = new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: inv.time_zone, weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }).format(new Date(inv.start));
-  if (done) return <main class="card"><h1>{t("ui.joined_booking")}</h1><p>{inv.court} · {when}</p><p><a href="/places">{t("ui.see_my_bookings")}</a></p></main>;
+  if (done) return <main class="card done"><Illustration name="youre-in" size="s" /><h1>{t("ui.joined_booking")}</h1><p>{inv.court} · {when}</p><p><a href="/places">{t("ui.see_my_bookings")}</a></p></main>;
   return (
     <main>
       {sheet}

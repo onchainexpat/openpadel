@@ -2,7 +2,7 @@
 // host, pay a held place, say you can't make it or are running late, or (for the host) answer requests,
 // save places for friends (each has added the other), share the link and mark who didn't come.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, club, dollars, lang, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
+import { api, ApiError, club, dollars, EmptyState, lang, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
 import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 import { PlaySwitch } from "./TabBar.tsx";
@@ -72,7 +72,7 @@ export function Play() {
       <DayStrip value={day} onChange={setDay} tz={tz} has={(d) => rows.some((m) => matchOn(m, d))} />
       <PlacesToggle value={places} onChange={setPlaces} />
       {rows.length > 0 && <p class="meta">{t("ui.your_level_is", { level: lv(level ?? null) })}</p>}
-      {rows.length === 0 ? <p class="card">{t("ui.no_open_matches")}</p> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
+      {rows.length === 0 ? <EmptyState art="no-matches">{t("ui.no_open_matches")}</EmptyState> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
       <ul class="items">{shown.map((m) => <li key={m.id}><MatchCard m={m} /></li>)}</ul>
       <p class="meta">{t("ui.open_your_own")}</p>
       <p><a href="/friends">{t("ui.see_friends")}</a></p>

@@ -5,7 +5,7 @@
 // Confirm. Only the program's own facts and counts are shown, never who else signed up. Loaded when first opened.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
-import { api, club, clubTime, dollars, lang, me, NewOnly, placesLeft, shortTime, t, usePreview, whyNothingNew, type ProgramCardData } from "@kumi/ui";
+import { api, club, clubTime, dollars, EmptyState, lang, me, NewOnly, placesLeft, shortTime, t, usePreview, whyNothingNew, type ProgramCardData } from "@kumi/ui";
 import { ForWhom } from "./ForWhom.tsx";
 import { LearnSwitch, PlaySwitch } from "./TabBar.tsx";
 import { DayStrip, PlacesToggle } from "./DayStrip.tsx";
@@ -76,7 +76,7 @@ export function Learn() {
       {show === "clinic" && <DayStrip value={day} onChange={setDay} tz={tz} has={(d) => all.some((p) => programOn(p, d, tz))} />}
       <PlacesToggle value={places} onChange={setPlaces} />
       <ForWhom value={who} onChange={setWho} />
-      {!rows ? <p class="meta">{t("ui.loading")}</p> : all.length === 0 ? <p class="card">{t(show === "course" ? "ui.courses_nothing" : "ui.clinics_nothing")}</p>
+      {!rows ? <p class="meta">{t("ui.loading")}</p> : all.length === 0 ? <EmptyState art="no-classes">{t(show === "course" ? "ui.courses_nothing" : "ui.clinics_nothing")}</EmptyState>
         : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
       <ul class="items">{shown.map((p) => <li key={p.id}><ProgramItem p={p} href={`/learn/${p.id}${forQuery(who)}`}
         join={canJoin(p) ? () => preview("enrolment.join", { program_id: p.id, person_id: who }) : undefined} /></li>)}</ul>

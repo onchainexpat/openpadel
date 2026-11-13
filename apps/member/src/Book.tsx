@@ -4,7 +4,7 @@
 // stays at the bottom of the screen and opens the usual preview; nothing changes before Confirm. Times are the
 // club's, whatever the phone's clock says.
 import { useEffect, useState } from "preact/hooks";
-import { api, club, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
+import { api, club, dollars, Illustration, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { weeklyLaterLine, type WeeklyLater } from "./weekly_later.ts";
 import { formatLocale } from "@kumi/i18n/format";
@@ -96,7 +96,7 @@ export function Book() {
   const ready = Boolean(pick && court && q?.priced && !cart.length);
   const sameDayOn = sameDay && pay === "split";
 
-  if (done) return <main class="card"><h1>{t("ui.booked")}</h1><p>{matchId ? <a href={`/match/${matchId}`}>{t("ui.see_your_match")}</a> : <a href="/places">{t("ui.see_my_bookings")}</a>}</p></main>;
+  if (done) return <main class="card done"><Illustration name="youre-in" size="s" /><h1>{t("ui.booked")}</h1><p>{matchId ? <a href={`/match/${matchId}`}>{t("ui.see_your_match")}</a> : <a href="/places">{t("ui.see_my_bookings")}</a>}</p></main>;
   return (
     <main class={ready ? "book has-bar" : "book"}>
       <h1>{t("ui.book_title")}</h1>

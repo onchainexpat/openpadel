@@ -4,7 +4,7 @@
 // club's public facts). Nothing about another member is shown.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
-import { api, club, clubTime, lang, serverNow, t } from "@kumi/ui";
+import { api, club, clubTime, EmptyState, Illustration, lang, serverNow, t } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 import { hoursOn, weekLines, clock, type Hours, type Special } from "./hours.ts";
 import { comingUp, type Upcoming } from "./home_data.ts";
@@ -36,6 +36,8 @@ export function Home() {
   return (
     <main class="home">
       <section class="club-head" aria-labelledby="club-name">
+        {/* The club has no photo of its own yet: a court drawing, faint, behind its name. */}
+        <Illustration name="court" tone="faint" class="club-head-art" />
         <span class="monogram" aria-hidden="true">{name.trim().charAt(0).toUpperCase()}</span>
         <div>
           <h1 id="club-name">{name}</h1>
@@ -47,7 +49,7 @@ export function Home() {
 
       <section aria-labelledby="next-title">
         <div class="section-head"><h2 id="next-title">{t("ui.home_next_title")}</h2>{next && next.length > 0 && <a class="tap" href="/places">{t("ui.home_see_all")}</a>}</div>
-        {!next ? <p class="meta">{t("ui.loading")}</p> : !next.length ? <p class="card">{t("ui.home_next_none")} {courts && <a href="/book">{t("ui.nav_book")}</a>}</p> : (
+        {!next ? <p class="meta">{t("ui.loading")}</p> : !next.length ? <EmptyState art="no-bookings" size="s">{t("ui.home_next_none")} {courts && <a href="/book">{t("ui.nav_book")}</a>}</EmptyState> : (
           <ul class="rail" aria-labelledby="next-title">{next.map((x) => <li key={x.key}><ActivityCard x={x} /></li>)}</ul>
         )}
       </section>

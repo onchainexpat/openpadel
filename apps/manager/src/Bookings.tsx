@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { formatLocale } from "@kumi/i18n/format";
-import { api, coversLocation, dollars, lang, mayCreate, me, t, useBackCloses, usePreview } from "@kumi/ui";
+import { api, coversLocation, dollars, EmptyState, lang, mayCreate, me, t, useBackCloses, usePreview } from "@kumi/ui";
 import { Details, SidePanel, canMove, canResize, clockIn, courtsOf, daySlots, keyOf, showLocation, type Court, type Grid, type Item } from "./Courts.tsx";
 import { Pager, Tabs } from "./lists.tsx";
 import { BOOKING_COLUMNS, ordered, type BookingColumn } from "./presets.ts";
@@ -105,7 +105,7 @@ export function Bookings() {
           {filter(t("ui.filter_made_in"), made, setMade, MADE.map((x) => [x, t(`ui.made_in_${x}` as Key)]))}
         </div>
         {error && <p class="error" role="alert">{error}</p>}
-        {!list ? <p>{t("ui.loading")}</p> : list.rows.length === 0 ? <p class="card meta">{t("ui.bookings_none")}</p> : <>
+        {!list ? <p>{t("ui.loading")}</p> : list.rows.length === 0 ? <EmptyState art="no-bookings" size="s" class="meta">{t("ui.bookings_none")}</EmptyState> : <>
           <BookingTable list={list} onOpen={open} />
           <Pager page={list.page} pages={list.pages} go={setPage} shown={list.rows.length} total={list.total} per={25} />
           {list.rows.some((r) => r.type === "playtomic") && <p class="meta">{t("ui.playtomic_copies_note")}</p>}

@@ -1,11 +1,12 @@
 // The short welcome each app plays once, at someone's first sign-in there: the club's mark grows in on its colour,
-// "Welcome, Ana" rises under it, and it all fades to the app, in about a second. A tap or any key ends it at once.
+// a drawing and "Welcome, Ana" rise under it, and it all fades to the app, in about a second. A tap or any key ends it at once.
 // It's only CSS (transform and opacity, so a phone's compositor keeps it smooth); with less motion asked for it only
 // fades. It never takes focus, and the page under it stays in reach of a screen reader, which hears the welcome once.
 // Played is noted on the person (POST /me/greeted) as it starts, so it never plays again, on any phone.
 import { useEffect, useState } from "preact/hooks";
 import { api, club, me, t } from "./state.ts";
 import { GREET_MS, greetFor, lessMotion } from "./greet.ts";
+import { Illustration } from "./Illustration.tsx";
 
 export function Greeting({ app: which }: { app: "member" | "staff" }) {
   const [{ play, note }] = useState(() => greetFor(which, me.value));
@@ -31,6 +32,7 @@ export function Greeting({ app: which }: { app: "member" | "staff" }) {
     <div class={`greet${ending ? " greet-skip" : ""}`} onClick={() => setEnding(true)}
       onAnimationEnd={(e) => { if (e.target === e.currentTarget) setOn(false); }}>
       <img class="greet-mark" src="/manifest/mark.svg" alt="" width={192} height={192} />
+      <Illustration name="welcome" tone="on-brand" class="greet-art" />
       <div role="status">{said && <>
         <p class="greet-title">{t(which === "staff" ? "ui.greet_staff" : "ui.greet_member", { name })}</p>
         <p class="greet-sub">{club.value?.name}</p>

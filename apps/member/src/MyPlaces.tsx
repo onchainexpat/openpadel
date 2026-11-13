@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, t, shortTime, usePreview, clubTime } from "@kumi/ui";
+import { api, dollars, EmptyState, lang, t, shortTime, usePreview, clubTime } from "@kumi/ui";
 import { confirmPaid, isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { weeklyLaterLine, type WeeklyLater } from "./weekly_later.ts";
 import { formatLocale } from "@kumi/i18n/format";
@@ -11,6 +11,7 @@ const paidOf = (paid: number, price: number) => paid < price ? t("ui.paid_of", {
 
 export function MyPlaces() {
   const [rows, setRows] = useState<Place[] | null>(null);
+  const [bookings, setBookings] = useState<number | null>(null), [weekly, setWeekly] = useState<number | null>(null);
   const [provider, setProvider] = useState<string | null>(null), [ready, setReady] = useState(true), [paying, setPaying] = useState<Place | null>(null), [paid, setPaid] = useState(false);
   const load = () => api<Place[]>("/my/places").then(setRows);
   const { preview, sheet } = usePreview(load);
@@ -31,9 +32,9 @@ export function MyPlaces() {
       {paid && <p class="note" role="status">{t("ui.pay_done")}</p>}
       {paying && <PaySheet paymentId={paying.pending_payment_id!} amountCents={paying.pending_cents ?? paying.price_cents} name={paying.name} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); setPaid(true); load(); }} />}
       <MyMembership />
-      <MyBookings provider={provider} ready={ready} onPaid={() => setPaid(true)} />
-      <MyWeekly />
-      {rows?.length === 0 && <p>{t("ui.no_places")}</p>}
+      <MyBookings provider={provider} ready={ready} onPaid={() => setPaid(true)} onLoaded={setBookings} />
+      <MyWeekly onLoaded={setWeekly} />
+      {rows?.length === 0 && (bookings === 0 && weekly === 0 ? <EmptyState art="no-bookings">{t("ui.no_places")}</EmptyState> : <p>{t("ui.no_places")}</p>)}
       <ul class="changes">{(rows ?? []).map((p) => (
         <li class="card" key={p.id}>
           <div class="summary">{p.name}{p.for_name ? <span class="meta"> · {t("ui.for_name", { name: p.for_name })}</span> : null}</div>
@@ -55,11 +56,12 @@ type Booking = { id: string; code: string; status: string; kind: string; coach: 
   group_cents: number | null; for_name: string | null; weekly_later: WeeklyLater | null };
 
 /** My court bookings: when and where, what I paid or still owe, the link for the others, and cancelling. */
-function MyBookings({ provider, ready, onPaid }: { provider: string | null; ready: boolean; onPaid: () => void }) {
+/** onLoaded: how many court bookings there are, once known (the page shows its empty drawing only when there are none). */
+function MyBookings({ provider, ready, onPaid, onLoaded }: { provider: string | null; ready: boolean; onPaid: () => void; onLoaded: (n: number) => void }) {
   const [rows, setRows] = useState<Booking[]>([]), [paying, setPaying] = useState<Booking | null>(null), [copied, setCopied] = useState<string | null>(null);
   // Just paid: shown as paid while the list catches up, so it doesn't flash "Being paid for" and a Pay button again.
   const [paid, setPaid] = useState<Set<string>>(new Set());
-  const load = () => api<Booking[]>("/my/bookings").then(setRows).catch(() => {});
+  const load = () => api<Booking[]>("/my/bookings").then((r) => { setRows(r); onLoaded(r.length); }).catch(() => {});
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
   // Taken by the card form and not recorded yet (confirming.ts): "Paid, thank you: confirming", and no Pay button.
@@ -100,11 +102,11 @@ function MyBookings({ provider, ready, onPaid }: { provider: string | null; read
 }
 
 /** My weekly courts (the same court every week): each week from today, and cancelling this week and the rest. */
-function MyWeekly() {
+function MyWeekly({ onLoaded }: { onLoaded: (n: number) => void }) {
   type Weekly = typeof import("@kumi/ui/weekly");
   const [series, setSeries] = useState<import("@kumi/ui/weekly").WeeklyCourt[]>([]), [ui, setUi] = useState<Weekly | null>(null);
   // Its screen is fetched only for someone who has one, so the first screen doesn't carry it.
-  const load = () => api<import("@kumi/ui/weekly").WeeklyCourt[]>("/my/series").then(async (s) => { setSeries(s); if (s.length && !ui) setUi(await import("@kumi/ui/weekly")); }).catch(() => {});
+  const load = () => api<import("@kumi/ui/weekly").WeeklyCourt[]>("/my/series").then(async (s) => { setSeries(s); onLoaded(s.length); if (s.length && !ui) setUi(await import("@kumi/ui/weekly")); }).catch(() => {});
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
   return ui ? <>{sheet}<ui.WeeklyCourts series={series} preview={preview} /></> : null;

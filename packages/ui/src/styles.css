@@ -339,3 +339,32 @@ a.button.primary { background: var(--brand); color: var(--on-brand); border-colo
   .greet { animation-duration: 900ms; }
   .greet-mark, .greet-title, .greet-sub { animation: none; }
 }
+
+/* The line drawings (Illustration.tsx): each file is an alpha mask, painted here in a colour that reads, so one file
+   suits every club and both themes. Loaded only when one is on the page; a file that fails to load masks everything
+   out, so nothing shows. A short fade in, none with less motion. In forced colours (high contrast) they
+   don't show, which is fine for a decoration. */
+.illus { display: block; flex: none; margin: 0 auto; width: clamp(120px, 40vw, 184px); background: var(--brand-ink);
+  -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; animation: illus-in 320ms ease-out both; }
+.illus-s { width: clamp(84px, 26vw, 120px); }
+.illus-on-brand { background: var(--on-brand); }
+/* Faint: for behind words. Light enough that the muted text over a drawn line still reads at 4.5:1 on both themes
+   (the light theme's muted grey has the least room, whatever the club's colour). */
+.illus-faint { background: var(--brand-ink); opacity: .05; animation: none; }
+@media (prefers-color-scheme: dark) { .illus-faint { opacity: .12; } }
+.illus-welcome { aspect-ratio: 480 / 356; -webkit-mask-image: url("../assets/illustrations/welcome.webp"); mask-image: url("../assets/illustrations/welcome.webp"); }
+.illus-no-matches { aspect-ratio: 480 / 275; -webkit-mask-image: url("../assets/illustrations/no-matches.webp"); mask-image: url("../assets/illustrations/no-matches.webp"); }
+.illus-no-bookings { aspect-ratio: 480 / 353; -webkit-mask-image: url("../assets/illustrations/no-bookings.webp"); mask-image: url("../assets/illustrations/no-bookings.webp"); }
+.illus-no-classes { aspect-ratio: 480 / 425; -webkit-mask-image: url("../assets/illustrations/no-classes.webp"); mask-image: url("../assets/illustrations/no-classes.webp"); }
+.illus-coach { aspect-ratio: 480 / 400; -webkit-mask-image: url("../assets/illustrations/coach.webp"); mask-image: url("../assets/illustrations/coach.webp"); }
+.illus-youre-in { aspect-ratio: 421 / 480; -webkit-mask-image: url("../assets/illustrations/youre-in.webp"); mask-image: url("../assets/illustrations/youre-in.webp"); }
+.illus-court { aspect-ratio: 960 / 448; -webkit-mask-image: url("../assets/illustrations/court.webp"); mask-image: url("../assets/illustrations/court.webp"); }
+@keyframes illus-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .illus { animation: none; } }
+/* An empty list (EmptyState): the drawing over its words. */
+.card.empty { text-align: center; }
+.card.empty p { margin: 12px 0 0; }
+/* The first sign-in's welcome: the drawing between the club's mark and the greeting, rising in with them. */
+.greet .greet-art { width: 156px; margin: -20px auto 28px; animation: greet-rise 420ms 80ms cubic-bezier(.2, .8, .2, 1) both; }
+@media (prefers-reduced-motion: reduce) { .greet .greet-art { animation: none; } }
+@media (max-height: 560px) { .greet .greet-art { display: none; } }

@@ -12,6 +12,7 @@ export { protectedPost, botProof } from "./pow.ts";
 export { ReceiptSheet, type ReceiptView } from "./Receipt.tsx";
 export { OtherLang, otherLang, savedIn, translationsOf } from "./OtherLang.tsx";
 export { RunsOn } from "./RunsOn.tsx";
+export { Illustration, EmptyState, type IllustrationName } from "./Illustration.tsx";
 // The start screen while an app starts, and the short welcome at a first sign-in.
 export { startBoot, bootDone } from "./boot.ts";
 export { Greeting } from "./Greeting.tsx";

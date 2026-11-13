@@ -9,6 +9,14 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+Both apps have line drawings, painted in the club's own colour (or the text colour on it) so they suit every club and
+dark mode: over the first sign-in's welcome and the welcome for members who moved in, on empty lists (no open
+matches, nothing booked, no clinics or courses, no coaches, the staff app's empty Bookings and Schedule), small over
+"You're in" after booking or joining, by Learn's private lessons, and faintly behind the club's name on Home. "Can't
+reach the club" and a slow start show one too, carried inside the page so it shows with no connection. They are
+decorative (screen readers skip them), load only when shown, keep still with less motion, and show nothing if one
+can't load.
+
 Owners and managers no longer have to set up a passkey or an authenticator app before they can sign in: the emailed
 (or texted) code is enough. The club's most sensitive changes still ask them for a second step, and offer to set one
 up right there.

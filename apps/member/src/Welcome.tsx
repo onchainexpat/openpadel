@@ -5,7 +5,7 @@
 // something's wrong. Continue goes to Home. Asking the server for it notes it as seen, so it never shows again.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
-import { api, ApiError, club, clubTime, dollars, lang, me, protectedPost, t, usePreview } from "@kumi/ui";
+import { api, ApiError, club, clubTime, dollars, Illustration, lang, me, protectedPost, t, usePreview } from "@kumi/ui";
 import { offerTexts as offered, textsConsent, type TextsState as Texts } from "./welcome_texts.ts";
 
 type Facts = { moved_in: boolean; first?: boolean; time_zone?: string; bookings?: { id: string; court: string; start: string }[]; level?: string | null; credit_cents?: number;
@@ -43,6 +43,7 @@ export function Welcome() {
   return (
     <main class="welcome">
       <section class="club-head">
+        <Illustration name="welcome" class="welcome-art" />
         <span class="monogram" aria-hidden="true">{(club.value?.name ?? "").trim().charAt(0).toUpperCase()}</span>
         <div><p class="meta">{club.value?.name}</p><h1>{t("ui.welcome_title", { name })}</h1></div>
       </section>

@@ -3,7 +3,7 @@
 // when the coach gives lessons then and a court is free. Loaded only when opened, to keep the app small.
 import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import { api, dollars, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
+import { api, dollars, EmptyState, Illustration, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { ForWhom } from "./ForWhom.tsx";
 import { formatLocale } from "@kumi/i18n/format";
@@ -37,12 +37,12 @@ export function Lessons({ head }: { head?: ComponentChildren }) {
   const money = (c: number) => dollars(c, lang.value);
   const rateList = (c: Coach) => Object.entries(c.rates).sort((a, b) => Number(a[0]) - Number(b[0])).map(([m, cents]) => t("ui.lesson_rate", { minutes: t("ui.minutes", { count: Number(m) }), price: money(cents) })).join(" · ");
   const langs = (c: Coach) => c.languages.map((x) => t(x === "es" ? "ui.lang_es" : "ui.lang_en")).join(", ");
-  if (done) return <main class="card"><h1>{t("ui.lesson_booked")}</h1><p><a href="/places">{t("ui.see_my_bookings")}</a></p></main>;
+  if (done) return <main class="card done"><Illustration name="youre-in" size="s" /><h1>{t("ui.lesson_booked")}</h1><p><a href="/places">{t("ui.see_my_bookings")}</a></p></main>;
 
   if (!coach) return (
     <main>
       {head ?? <h1>{t("ui.lessons_title")}</h1>}
-      {!d.coaches.length && <p class="card">{t("ui.lessons_none")}</p>}
+      {d.coaches.length ? <Illustration name="coach" size="s" class="lessons-art" /> : <EmptyState art="coach">{t("ui.lessons_none")}</EmptyState>}
       <ul class="changes">{d.coaches.map((c) => (
         <li class="card coach-card" key={c.id}>
           <Face c={c} />
