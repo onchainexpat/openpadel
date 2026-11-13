@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { formatLocale } from "@kumi/i18n/format";
-import { api, coversLocation, dollars, lang, me, t, useBackCloses, usePreview } from "@kumi/ui";
+import { api, coversLocation, dollars, lang, mayCreate, me, t, useBackCloses, usePreview } from "@kumi/ui";
 import { Details, SidePanel, canMove, canResize, clockIn, courtsOf, daySlots, keyOf, showLocation, type Court, type Grid, type Item } from "./Courts.tsx";
 import { Pager, Tabs } from "./lists.tsx";
 
@@ -32,6 +32,7 @@ export function Bookings() {
   const [picked, setPicked] = useState<Row | null>(null), [g, setG] = useState<Grid | null>(null);
   // Only the latest answer is shown: a quick change of filter or page doesn't let an older one land after it.
   const seq = useRef(0);
+  const exportQuery = () => new URLSearchParams({ location_id: loc, ...(from ? { from, to: to || from } : {}), ...(type ? { type } : {}), ...(status ? { status } : {}), ...(made ? { made_in: made } : {}) }).toString();
   const load = () => {
     if (!loc) return;
     const q = new URLSearchParams({ location_id: loc, ...(from ? { from, to: to || from } : {}), ...(type ? { type } : {}), ...(status ? { status } : {}), ...(made ? { made_in: made } : {}), page: String(page) });
@@ -74,6 +75,12 @@ export function Bookings() {
         {tab === "all" && list && <span class="count-chip" role="status">{t("count.bookings", { count: list.total })}</span>}
         {tab === "weekly" && weekly && <span class="count-chip" role="status">{t("count.weekly_courts", { count: weekly.total })}</span>}
         {locs.length > 1 && <select class="sched-loc" aria-label={t("ui.location")} value={loc} onChange={(e) => { setLoc(e.currentTarget.value); close(); }}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select>}
+        <span class="grow" />
+        {/* The list as it's filtered now, as a spreadsheet: the server leaves out what this reader doesn't see on screen. */}
+        {tab === "all" && list && list.total > 0 && <a class="button" href={`/staff/bookings.csv?${exportQuery()}`} download>{t("ui.export")}</a>}
+        {/* The Schedule's + Create, over the first day shown. */}
+        {loc && (mayCreate("booking.create") || mayCreate("program.create") || mayCreate("court.block")) && coversLocation(loc) &&
+          <a class="button primary" href={`/courts?location=${loc}&create=1${from ? `&date=${from}` : ""}`}><span aria-hidden="true">+</span> {t("ui.create")}</a>}
       </div>
       {weekly !== false && <Tabs label={t("ui.bookings_lists")} tabs={[["all", t("ui.bookings_all")], ["weekly", t("ui.bookings_weekly")]]} on={tab} pick={(x) => { setTab(x as "all" | "weekly"); close(); }} id="bookings" />}
 

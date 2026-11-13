@@ -6,12 +6,14 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
 import type { Key } from "@kumi/i18n";
-import { amountPattern, parseDollars, formatLocale, weekOrder } from "@kumi/i18n/format";
+import { formatLocale, weekOrder } from "@kumi/i18n/format";
 import { api, club, coversLocation, dollars, lang, lazyPage, mayCreate, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
-import { courtSlots, lengthsFitting, spanOfCourts } from "./open_times.ts";
+import { courtSlots, spanOfCourts } from "./open_times.ts";
 import { playtomicParts } from "./paid_line.ts";
 import { dayStats, kindOf, type Kind } from "./day_stats.ts";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
+import { NewBooking } from "./NewBooking.tsx";
+import { SessionPanel } from "./SessionPanel.tsx";
 
 // The desk's payment form comes when someone taps Record payment, so the first screen doesn't carry it.
 const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
@@ -23,7 +25,7 @@ type Seat = { id: string; name: string; booker: boolean };
  *  read people (never a coach on their own, never a member whose account was deleted here). */
 export type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; off_cents?: number; pt_cents?: number; balance_cents?: number; booking_kind?: string;
   open_match?: boolean; coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; invite_code?: string | null; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string;
-  program_id?: string; program_kind?: string | null; label?: string; empty_places?: Empty[] };
+  program_id?: string; program_kind?: string | null; label?: string; empty_places?: Empty[]; note?: string; player_note?: string; split?: boolean };
 // `open`: that court's own hours that day (they can differ from the location's); null when it's closed all day.
 export type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
 /** `money` false: a reader who doesn't see what members paid (a coach on their own lesson, a role the club made covering
@@ -72,10 +74,13 @@ export function Courts() {
   const { query } = useLocation();
   // Opened at a day (and a location) from elsewhere: the Bookings list's "See the day".
   const [locs, setLocs] = useState<Loc[]>([]), [loc, setLoc] = useState(""), [date, setDate] = useState(/^\d{4}-\d{2}-\d{2}$/.test(String(query.date ?? "")) ? String(query.date) : ""), [g, setG] = useState<Grid | null>(null);
-  const [form, setForm] = useState<{ court: Court; starts: string[]; until: string; weekly: boolean } | null>(null), [blocking, setBlocking] = useState(false);
+  const [form, setForm] = useState<{ court: Court; start: string; weekly: boolean } | null>(null), [blocking, setBlocking] = useState(false);
   const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null), [done, setDone] = useState(0);
   // Create's panel, and choosing a court and a free time for a booking made from it (once, or every week).
-  const [creating, setCreating] = useState(false), [choosing, setChoosing] = useState<"once" | "weekly" | null>(null);
+  // Opened from the Bookings list's + Create: the same Create panel, over this day.
+  const [creating, setCreating] = useState(query.create === "1"), [choosing, setChoosing] = useState<"once" | "weekly" | null>(null);
+  // The day (courts across, time down), or the week it's in (each court's days side by side).
+  const [view, setView] = useState<"day" | "week">(query.view === "week" ? "week" : "day"), [pending, setPending] = useState<string | null>(null);
   const narrow = useMedia(NARROW);
   // The side panel holds one thing at a time: what was picked on the grid, a booking or a block being made.
   const panel = Boolean(picked || form || blocking || choosing);
@@ -90,6 +95,8 @@ export function Courts() {
   useEffect(() => { load(); }, [loc, date]);
   // What was picked is gone (cancelled, unblocked, another day): the side panel closes rather than stay empty.
   useEffect(() => { if (picked && g && !g.courts.some((c) => c.items.some((it) => keyOf(it, c.id) === picked))) setPicked(null); }, [g, picked]);
+  // Something tapped in the week: picked once its day has loaded.
+  useEffect(() => { if (pending && g?.date === date) { setPicked(pending); setPending(null); } }, [g, pending]);
   // Today, what's on now moves on its own: look again every minute.
   useEffect(() => {
     if (!g || g.date !== g.today) return;
@@ -112,7 +119,9 @@ export function Courts() {
     if (cursor < ms(c.open.closes)) out.push({ from: new Date(cursor).toISOString(), to: c.open.closes });
     return out.filter((x) => ms(x.to) - ms(x.from) >= HALF && new Date(x.to) > new Date(serverNow()));
   };
-  const shift = (days: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days); setDate(d.toISOString().slice(0, 10)); };
+  const shift = (days: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days * (view === "week" ? 7 : 1)); setDate(d.toISOString().slice(0, 10)); };
+  // From the week: that day, with what was tapped picked.
+  const openDay = (day: string, key?: string) => { closePanel(); setView("day"); setDate(day); setPending(key ?? null); };
   const drop = (it: Item, from: Court, to: Target) => {
     const minutes = length(it), startsAt = new Date(to.start).toISOString();
     if (it.booking_id) return to.minutes !== minutes ? preview("booking.extend", { booking_id: it.booking_id, minutes: to.minutes })
@@ -126,7 +135,7 @@ export function Courts() {
     const gap = gaps(c).find((x) => ms(x.from) <= at && at < ms(x.to));
     if (!gap) return;
     const starts = slots.filter((s) => ms(s) >= Math.max(at, ms(gap.from)) && ms(s) + HALF <= ms(gap.to) && new Date(s) > new Date(serverNow()));
-    if (starts.length) { closePanel(); setForm({ court: c, starts, until: gap.to, weekly }); }
+    if (starts.length) { closePanel(); setForm({ court: c, start: starts[0]!, weekly }); }
   };
   const pick = (k: string) => { const again = k === picked; closePanel(); if (!again) setPicked(k); };
   const sel = g.courts.flatMap((c) => c.items.map((it) => ({ it, c }))).find((x) => keyOf(x.it, x.c.id) === picked) ?? null;
@@ -142,20 +151,25 @@ export function Courts() {
         <h1>{t("ui.nav_day_schedule")}</h1>
         {locs.length > 1 && <select class="sched-loc" aria-label={t("ui.location")} value={loc} onChange={(e) => { setLoc(e.currentTarget.value); setDate(""); }}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select>}
         <div class="day-nav">
-          <button type="button" onClick={() => shift(-1)} aria-label={t("ui.day_before")}>‹</button>
+          <button type="button" onClick={() => shift(-1)} aria-label={t(view === "week" ? "ui.week_before" : "ui.day_before")}>‹</button>
           <button type="button" onClick={() => setDate(g.today)} aria-current={today ? "date" : undefined}>{t("ui.today_button")}</button>
-          <button type="button" onClick={() => shift(1)} aria-label={t("ui.day_after")}>›</button>
+          <button type="button" onClick={() => shift(1)} aria-label={t(view === "week" ? "ui.week_after" : "ui.day_after")}>›</button>
         </div>
         <input type="date" class="sched-date" aria-label={t("ui.day")} value={date} onInput={(e) => setDate(e.currentTarget.value)} />
         {date && <span class="sched-day">{new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`))}</span>}
-        <span class="occ-chip" role="status">{t("ui.occupancy_day", { percent: stats.percent })} · {t("count.bookings", { count: stats.bookings })}</span>
+        <div class="seg-toggle view-toggle" role="group" aria-label={t("ui.sched_view")}>
+          <button type="button" aria-pressed={view === "day"} onClick={() => setView("day")}>{t("ui.view_day")}</button>
+          <button type="button" aria-pressed={view === "week"} onClick={() => { closePanel(); setView("week"); }}>{t("ui.view_week")}</button>
+        </div>
+        {view === "day" && <span class="occ-chip" role="status">{t("ui.occupancy_day", { percent: stats.percent })} · {t("count.bookings", { count: stats.bookings })}</span>}
         {choices.some((x) => x.items.some((i) => !i.soon)) && <button type="button" class="primary sched-create" aria-haspopup="dialog" onClick={() => { closePanel(); setCreating(true); }}>
           <span aria-hidden="true">+</span> {t("ui.create")}</button>}
       </div>
       <p class="meta">{g.open ? t("ui.open_from_to", { from: clock(g.open.opens), to: clock(g.open.closes) }) : t("ui.closed_this_day")}</p>
       <Legend playtomic={playtomic} />
 
-      <div class="sched-layout">
+      {view === "week" && <WeekView loc={loc} date={date} courts={g.courts} clock={clock} onDay={openDay} />}
+      {view === "day" && <div class="sched-layout">
         <div class="sched-grid">
           <TimeGrid g={g} clock={clock} picked={picked} onPick={pick} canMove={canMove} canResize={canResize}
             courtFixed={(it) => courtsOf(g, it) > 1} onDrop={drop} onFree={(c, at) => book(c, at)} />
@@ -166,13 +180,14 @@ export function Courts() {
             {sel && <Details key={`${picked}|${sel.c.id}|${sel.it.start}|${sel.it.end}`} it={sel.it} court={sel.c} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove(sel.it)} canResize={canResize(sel.it)}
               courtFixed={courtsOf(g, sel.it) > 1} />}
             {choosing && <CourtPicker courts={g.courts} gaps={gaps} clock={clock} onPick={(c, at) => book(c, at, choosing === "weekly")} />}
-            {form && <DeskBooking key={`${form.court.id}|${form.starts[0]}|${form.weekly}`} court={form.court} starts={form.starts} until={form.until} weekly={form.weekly} clock={clock} preview={preview} onClose={closePanel} />}
+            {form && <NewBooking key={`${form.court.id}|${form.start}|${form.weekly}`} courts={g.courts} court={form.court} start={form.start} weekly={form.weekly} clock={clock} tz={g.time_zone}
+              money={g.money !== false} people={g.people !== false} may={mayHere} preview={preview} onClose={closePanel} />}
             {blocking && <BlockForm courts={g.courts} g={g} slots={slots} clock={clock} preview={preview} />}
           </SidePanel>}
           {today && alerts && (alerts.open.length > 0 || alerts.handled.length > 0 || mayDo("alert.handle")) && <AlertList a={alerts} clock={clock} preview={preview} />}
           {today && <NowNext g={g} clock={clock} />}
         </div>
-      </div>
+      </div>}
       {(mayHere("court.block_repeat_edit") || mayHere("court.block_repeat_end")) && <SeriesList loc={loc} courts={g.courts} stamp={done} preview={preview} />}
       {creating && <CreatePanel choices={choices} where={[locs.find((l) => l.id === loc)?.name, date && new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`))].filter(Boolean).join(" · ")}
         onClose={() => setCreating(false)} />}
@@ -405,7 +420,7 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
       </div>
       {g.courts.map((c, ci) => (
         <div class="tg-col">
-          <div class="tg-head">{c.name}</div>
+          <div class="tg-head">{c.name}<span class="tg-sub">{courtKind(c.kind)}</span></div>
           <div class="tg-body tg-lines" ref={(el) => { cols.current[ci] = el; }} style={`height:${rows * SLOT}px`}
             onClick={(e) => { if (e.target !== e.currentTarget) return; const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); onFree(c, from + Math.floor((e.clientY - r.top) / SLOT) * HALF); }}>
             {nowLine !== null && nowLine >= from && nowLine <= from + rows * HALF && <div class="tg-now" style={`top:${y(nowLine)}px`} />}
@@ -434,6 +449,43 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** A court's kind under its name: indoor, covered or outdoor. */
+const courtKind = (k: string) => (["indoor", "covered_outdoor", "outdoor"].includes(k) ? t(`ui.kind_${k}` as Key) : "");
+
+/** The week the day is in, from the club's first weekday: each court a row, each day a column, what's on in each in
+ *  order. Read a day at a time, as the day view reads it (the same rules for names and money). Tapping something opens
+ *  that day with it picked; tapping a day opens the day. */
+function WeekView({ loc, date, courts, clock, onDay }: { loc: string; date: string; courts: Court[]; clock: (s: string | number) => string; onDay: (day: string, key?: string) => void }) {
+  const first = (() => { const d = new Date(`${date}T12:00:00Z`), back = (d.getUTCDay() - weekOrder()[0]! + 7) % 7; d.setUTCDate(d.getUTCDate() - back); return d; })();
+  const days = Array.from({ length: 7 }, (_, n) => { const d = new Date(first); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); });
+  const [grids, setGrids] = useState<Record<string, Grid | null>>({});
+  useEffect(() => {
+    let live = true;
+    setGrids({});
+    for (const day of days) api<Grid>(`/staff/grid?location_id=${loc}&date=${day}`).then((x) => { if (live) setGrids((was) => ({ ...was, [day]: x })); })
+      .catch(() => { if (live) setGrids((was) => ({ ...was, [day]: null })); });
+    return () => { live = false; };
+  }, [loc, days[0]]);
+  const head = (day: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${day}T12:00:00Z`));
+  return (
+    <div class="table-scroll table-box week">
+      <table class="data week-grid">
+        <caption class="sr-only">{t("ui.view_week")}</caption>
+        <thead><tr><th scope="col">{t("ui.court_label")}</th>{days.map((day) => <th scope="col"><button type="button" class="link" aria-current={day === date ? "date" : undefined} onClick={() => onDay(day)}>{head(day)}</button></th>)}</tr></thead>
+        <tbody>{courts.map((c) => <tr>
+          <th scope="row">{c.name}<span class="tg-sub">{courtKind(c.kind)}</span></th>
+          {days.map((day) => { const g = grids[day], ct = g?.courts.find((x) => x.id === c.id);
+            return <td>{g === undefined ? <span class="meta">{t("ui.loading")}</span> : !ct ? null : !ct.open && !ct.items.length ? <span class="meta">{t("ui.closed")}</span>
+              : <ul class="plain week-items">{ct.items.filter((it) => it.kind !== "hold").map((it) => { const k = kindOf(it), tag = tagOf(it);
+                return <li><button type="button" class={`week-item k-${k}`} onClick={() => onDay(day, keyOf(it, c.id))}>
+                  <span class="tg-time">{clock(it.start)} - {clock(it.end)}</span> <span>{labelOf(it) || tag || kindWords(k)}</span>
+                  {g!.money !== false && isBooking(it) && unpaid(it) > 0 && <span class="pill-unpaid">{t("ui.unpaid_pill")}</span>}</button></li>; })}</ul>}</td>; })}
+        </tr>)}</tbody>
+      </table>
     </div>
   );
 }
@@ -470,6 +522,9 @@ export function Details({ it, court, g, clock, slots, preview, canMove, canResiz
         {it.block_id && it.series && mayHere("court.block_repeat_edit") && ms(it.start) > serverNow() && <button class="small" onClick={() => setChanging(!changing)}>{t("ui.change_series")}</button>}
         {it.program_id && <a href={`/programs/${it.program_id}`}>{t("ui.open")}</a>}
       </div>
+      {it.session_id && <SessionPanel sessionId={it.session_id} tz={g.time_zone} preview={preview} stamp={g.now} />}
+      {it.note && <p class="note"><strong>{t("ui.nb_staff_note")}</strong>: {it.note}</p>}
+      {it.player_note && <p class="meta"><strong>{t("ui.nb_player_note_short")}</strong>: {it.player_note}</p>}
       {cancelling && <form class="card card-form" onSubmit={(e) => { e.preventDefault(); preview("booking.cancel", { booking_id: it.booking_id, refund: ((e.currentTarget as HTMLFormElement).elements.namedItem("refund") as HTMLSelectElement).value }); }}>
         <label>{t("ui.refund")}<select name="refund"><option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_everything")}</option><option value="none">{t("ui.refund_nothing")}</option><option value="credit">{t("ui.refund_as_credit")}</option></select></label>
         <button class="small primary">{t("ui.cancel_booking")}</button></form>}
@@ -533,49 +588,6 @@ function ChangeForm({ it, court, g, clock, slots, preview, canMove, canResize, c
         <option value="rule">{t("ui.refund_by_rule")}</option><option value="full">{t("ui.refund_all")}</option><option value="none">{t("ui.refund_nothing_more")}</option></select></label>}
       {error && <p class="error" role="alert">{error}</p>}
       <button class="primary" disabled={!moved && !resized}>{t("ui.preview")}</button>
-    </form>
-  );
-}
-
-function DeskBooking({ court, starts, until, weekly, clock, preview, onClose }: { court: Court; starts: string[]; until: string; weekly: boolean; clock: (s: string) => string; preview: Preview; onClose: () => void }) {
-  // The lengths that fit before the court closes (or the next thing on it), from the start chosen.
-  const fits = (start: string) => lengthsFitting(start, until);
-  // Listed shortest first; the one chosen is 90 minutes when it fits, else the longest that does (as before).
-  const usual = (start: string) => { const l = fits(start); return l.includes(90) ? 90 : l.filter((m) => m < 90).at(-1) ?? l[0] ?? 30; };
-  // A weekly court from + Create starts with Every week ticked: it shows once a member is chosen.
-  const [f, setF] = useState({ start: starts[0] ?? "", minutes: usual(starts[0] ?? ""), guest: "", price: "", weekly, weeks: 8 }), [person, setPerson] = useState<{ id: string; display_name: string } | null>(null);
-  const [q, setQ] = useState(""), [found, setFound] = useState<{ id: string; display_name: string; email: string | null }[]>([]);
-  const find = async (v: string) => { setQ(v); setFound(v.length > 1 ? await api(`/staff/people?q=${encodeURIComponent(v)}`) : []); };
-  // What the club's prices say it costs, as the start and length change; the desk can type another price.
-  // A member's price when it's for a member.
-  type Quoted = { total_cents: number; tax_cents: number; priced: boolean; member: string | null };
-  const [quoted, setQuoted] = useState<Quoted | null>(null);
-  useEffect(() => { if (f.start) api<Quoted>(`/staff/quote?court_id=${court.id}&starts_at=${encodeURIComponent(f.start)}&minutes=${f.minutes}${person ? `&person_id=${person.id}` : ""}`).then(setQuoted).catch(() => setQuoted(null)); }, [f.start, f.minutes, person?.id]);
-  const submit = (e: Event) => {
-    e.preventDefault();
-    const price = f.price ? { price_cents: parseDollars(f.price) ?? NaN } : {};
-    // The same court every week for a member (booking_series.ts): each week its own booking, owed at the desk.
-    if (person && f.weekly) return void preview("booking.repeat", { court_id: court.id, starts_at: f.start, minutes: Number(f.minutes), person_id: person.id, weeks: f.weeks, ...price });
-    preview("booking.create", { court_id: court.id, starts_at: f.start, minutes: Number(f.minutes), ...(person ? { person_id: person.id } : { guest_name: f.guest }), ...price });
-  };
-  return (
-    <form class="card card-form" onSubmit={submit}>
-      <h2>{t("ui.book_court", { court: court.name })}</h2>
-      <label>{t("ui.starts")}<select value={f.start} onChange={(e) => { const start = e.currentTarget.value; setF({ ...f, start, minutes: fits(start).includes(f.minutes) ? f.minutes : usual(start) }); }}>
-        {starts.filter((s) => fits(s).length).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
-      <label>{t("ui.length")}<select value={f.minutes} onChange={(e) => setF({ ...f, minutes: Number(e.currentTarget.value) })}>{fits(f.start).map((m) => <option value={m}>{t("ui.minutes", { count: m })}</option>)}</select></label>
-      {person ? <p>{person.display_name} <button type="button" class="link" onClick={() => setPerson(null)}>{t("ui.change")}</button></p> : <>
-        <label>{t("ui.search_person")}<input type="search" value={q} onInput={(e) => find(e.currentTarget.value)} /></label>
-        {found.length > 0 && <ul class="plain">{found.slice(0, 6).map((p) => <li class="row"><span>{p.display_name}</span><button type="button" class="small" onClick={() => { setPerson(p); setFound([]); setQ(""); }}>{t("ui.choose")}</button></li>)}</ul>}
-        <label>{t("ui.or_guest_name")}<input value={f.guest} onInput={(e) => setF({ ...f, guest: e.currentTarget.value })} /></label>
-      </>}
-      {quoted && <p class="meta">{quoted.priced ? t("ui.quoted_price", { amount: dollars(quoted.total_cents, lang.value) }) : t("ui.no_price_then")}{quoted.member ? ` · ${t("ui.member_price", { plan: quoted.member })}` : ""}</p>}
-      <label>{t("ui.price_override")}<input inputMode="decimal" pattern={amountPattern()} title={t("ui.amount_format")} value={f.price} placeholder={quoted ? dollars(quoted.total_cents, lang.value) : ""} onInput={(e) => setF({ ...f, price: e.currentTarget.value })} /></label>
-      {!person && weekly && <p class="meta">{t("ui.weekly_needs_member")}</p>}
-      {person && <label class="check"><input type="checkbox" checked={f.weekly} onChange={(e) => setF({ ...f, weekly: e.currentTarget.checked })} /> {t("ui.every_week")}</label>}
-      {person && f.weekly && <label>{t("ui.how_many_weeks")}<input type="number" min="2" max="26" step="1" value={String(f.weeks)} onChange={(e) => setF({ ...f, weeks: Math.max(2, Math.min(26, Math.round(Number(e.currentTarget.value) || 8))) })} /></label>}
-      <button class="primary" disabled={!f.start || (!person && !f.guest.trim())}>{t("ui.preview")}</button>
-      <button type="button" class="link" onClick={onClose}>{t("ui.cancel")}</button>
     </form>
   );
 }
