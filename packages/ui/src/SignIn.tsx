@@ -49,6 +49,7 @@ export function SignIn() {
   // Keyed, so Preact builds the join form fresh: reusing the code box would carry its digits-only pattern into the name.
   if (ticket) return (
     <main class="card" key="join">
+      <SignInMark />
       <h1>{t("ui.join_title", { club: clubName })}</h1>
       <form onSubmit={join}>
         <label>{t("ui.your_name")}<input required maxLength={80} autocomplete="name" value={name} onInput={(e) => setName(e.currentTarget.value)} /></label>
@@ -68,6 +69,7 @@ export function SignIn() {
   );
   return (
     <main class="card" key="sign-in">
+      <SignInMark />
       <h1>{t("ui.sign_in_title", { club: clubName })}</h1>
       {farewell.value && <p class="note" role="status">{t("ui.account_deleted")}</p>}
       {club.value?.public_page && <p class="meta"><a href="/public">{t("ui.about_the_club")}</a></p>}
@@ -93,4 +95,11 @@ export function SignIn() {
       {error && <p class="error" role="alert">{error}</p>}
     </main>
   );
+}
+
+/** The club's logo over the sign-in card, growing in once (only a fade with less motion). Without a logo, the start
+ *  screen's mark (drawn from the name) on the club's colour. */
+function SignInMark() {
+  const src = club.value?.logo ?? club.value?.mark;
+  return src ? <img class="signin-mark" src={src} alt="" width={72} height={72} /> : null;
 }
