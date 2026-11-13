@@ -20,6 +20,7 @@ import { callOff, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.t
 import { declineReason } from "./declines.ts";
 import { isReadOnly, refuseWhenReadOnly } from "./read_only.ts";
 import { deskOrUp } from "./booking_pay.ts";
+import { charge, chargeLine, howPaid } from "./charge.ts";
 
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 const LIVE = ["active", "past_due"] as const;
@@ -348,8 +349,14 @@ export const membershipJoin = defineAction({
     // A family plan: whom else it can cover, added afterwards from the Membership page.
     const fam = plan.family_size ? both(plan.extra_person_cents != null ? "plan.membership.join_family_extra" : "plan.membership.join_family",
       { count: plan.family_size - 1, amount: { en: money(plan.extra_person_cents ?? 0, "en"), es: money(plan.extra_person_cents ?? 0, "es") }, period: both(`ui.period_${plan.period}` as Key) }) : null;
+    // Line by line (charge.ts): the plan's price, charged now, or (before the plan starts) on its first day.
+    const due = presale ? 0 : plan.price_cents;
+    const lines = [chargeLine("item", "charge.membership", { name: p.name, price: p.price }, plan.price_cents), chargeLine("total", presale ? "charge.total_later" : "charge.total", {}, plan.price_cents)];
+    const chargeOf = !plan.price_cents ? charge(lines, 0, both("charge.how_nothing"), null)
+      : presale ? { lines, due_cents: 0, how: both("charge.how_card_saved"), when: both("charge.when_presale", { date: p.date }) }
+      : charge(lines, due, await howPaid(ctx.db, i.person_id, due, { cardOnly: true }), both("charge.when_membership", { period: p.period }));
     return { title: both("action.membership.join"), summary: fam ? { en: `${base.en} ${fam.en}`, es: `${base.es} ${fam.es}` } : base,
-      reads: [read], ownerIds: [i.person_id], moneyCents: presale ? 0 : plan.price_cents, undo: { kind: "compensating" } };
+      reads: [read], ownerIds: [i.person_id], moneyCents: due, charge: chargeOf, undo: { kind: "compensating" } };
   },
   async apply(ctx, i) {
     const plan = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "translations", "price_cents", "period", "max_members", "starts_on", "family_size", "extra_person_cents"]).where("id", "=", i.plan_id).forUpdate().executeTakeFirstOrThrow();
@@ -934,8 +941,11 @@ export const membershipPayNext = defineAction({
     if (!p.join_in_app || m.price_cents == null) throw new KumiError("error.pay_next_at_desk", { name });
     if (m.balance_cents > 0) throw new KumiError("error.membership_owed_desk", { amount: usdText(m.balance_cents) });
     const due = await dueAtDesk(ctx.db, m, plan.price_cents, ctx.now);
-    return { title: both("action.membership.pay_next"), summary: both("plan.membership.pay_next_card", { name, amount: usdText(due.cents), until: await nextUntil(ctx.db, m, plan) }),
-      reads: [read], ownerIds: await withManagers(ctx.db, [m.person_id]), moneyCents: due.cents, undo: { kind: "compensating" }, details: due };
+    const until = await nextUntil(ctx.db, m, plan);
+    const chargeOf = charge([chargeLine("item", "charge.membership_next", { name, until }, due.cents), chargeLine("total", "charge.total", {}, due.cents)], due.cents,
+      await howPaid(ctx.db, m.person_id, due.cents, { cardOnly: true }), both("charge.when_now_once"));
+    return { title: both("action.membership.pay_next"), summary: both("plan.membership.pay_next_card", { name, amount: usdText(due.cents), until }),
+      reads: [read], ownerIds: await withManagers(ctx.db, [m.person_id]), moneyCents: due.cents, charge: chargeOf, undo: { kind: "compensating" }, details: due };
   },
   async apply(ctx, i, plan) {
     const m = await ctx.trx.selectFrom("membership").selectAll().where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();

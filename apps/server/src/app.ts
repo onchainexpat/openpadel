@@ -14,7 +14,7 @@ import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, productName, type Key, type Lang } from "@kumi/i18n";
-import { ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { welcomeDue, ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -453,7 +453,9 @@ export function makeApp(deps: AppDeps) {
     return c.json({ person: { id: me.id, display_name: me.display_name, locale: me.locale }, signed_in_with: me.method, lang: c.get("lang"), roles, kid: kid ? { friends: kid.friends } : null, gate: me.gate, areas, can, cannot, creates, playtomic,
       has_email: Boolean(email), email, email_problem: email ? await personEmailProblem(db, me.id) : null, leaving, support: support ? { name: support.name, level: support.level, ends_at: support.ends_at } : null, support_now: supportNow,
       // An account made for support access whose access has ended: the staff app says so, rather than showing empty pages.
-      support_ended: !support && row?.created_via === "support" });
+      support_ended: !support && row?.created_via === "support",
+      // Moved in from Playtomic and not welcomed yet: the members' app shows its welcome once (welcome.ts).
+      welcome: !me.gate && !support ? await welcomeDue(db, me.id) : false });
   });
 
   // ---- Actions: one description each, the same one the MCP tools and forms use ----
@@ -465,7 +467,10 @@ export function makeApp(deps: AppDeps) {
     // ?ask=hold: a change that needs someone else's yes is only shown, until the person says to ask (Preview.tsx).
     const p = await plan(db, c.req.param("name"), await c.req.json().catch(() => ({})), actor(c), { now: now(), holdAsk: c.req.query("ask") === "hold" });
     const lang = c.get("lang");
-    return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt });
+    // A change that charges money says it line by line too (charge.ts): the members' app shows it before the yes.
+    const ch = p.plan.charge;
+    const charge = ch ? { lines: ch.lines.map((l) => ({ kind: l.kind, label: l.label[lang], cents: l.cents })), due_cents: ch.due_cents, how: ch.how[lang], when: ch.when?.[lang] ?? null } : undefined;
+    return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt, ...(charge ? { charge } : {}) });
   });
   app.post("/runs/:id/apply", async (c) => {
     const a = actor(c), id = c.req.param("id");

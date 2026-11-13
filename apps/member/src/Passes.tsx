@@ -1,7 +1,7 @@
 // Passes (passes.ts): the ones the club sells, to buy by card in the sheet, and yours, with the uses left. A pass is
 // spent in the pay sheet ("Pay with ..."), before the card form opens.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, clubTime, dollars, lang, me, t } from "@kumi/ui";
+import { api, clubTime, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { clearConfirming } from "./confirming.ts";
 import { confirmPaid, isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 
@@ -12,7 +12,7 @@ const covers = (x: { covers: "programs" | "courts" | "lessons"; max_minutes: num
   x.covers === "programs" ? t("ui.pass_covers_programs") : `${t(x.covers === "lessons" ? "ui.pass_covers_lessons" : "ui.pass_covers_courts")}${x.max_minutes ? `, ${t("ui.pass_up_to", { minutes: String(x.max_minutes) })}` : ""}`;
 
 export function Passes() {
-  const [data, setData] = useState<{ mine: Mine[]; on_sale: Product[] } | null>(null), [paying, setPaying] = useState<{ id: string; cents: number; name: string } | null>(null), [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<{ mine: Mine[]; on_sale: Product[] } | null>(null), [paying, setPaying] = useState<{ id: string; cents: number; name: string } | null>(null);
   const load = async () => setData(await api<{ mine: Mine[]; on_sale: Product[] }>("/my/passes").catch(() => ({ mine: [], on_sale: [] })));
   // Just paid: "confirming" until the pass is recorded and listed (a pass waiting for its payment isn't listed).
   const [justPaid, setJustPaid] = useState<{ id: string; had: number } | null>(null);
@@ -25,14 +25,10 @@ export function Passes() {
   const listed = Boolean(justPaid && data && data.mine.length > justPaid.had);
   useEffect(() => { if (listed && justPaid) clearConfirming(justPaid.id); }, [listed]);
   useConfirming([justPaid && !listed ? justPaid.id : null], load);
-  const buy = async (p: Product) => {
-    setError(null);
-    try {
-      const plan = await api<{ run_id: string }>("/actions/pass.buy/plan", { person_id: me.value?.person.id, product_id: p.id });
-      const r = await api<{ result?: { payment_id: string } }>(`/runs/${plan.run_id}/apply`, {}, { "idempotency-key": plan.run_id });
-      if (r.result) setPaying({ id: r.result.payment_id, cents: p.price_cents, name: p.name });
-    } catch (x) { setError(x instanceof ApiError ? x.message : String(x)); }
-  };
+  // Previewed first, line by line (Preview.tsx), then the card form for what the server asked.
+  const [buying, setBuying] = useState<Product | null>(null);
+  const { preview, sheet } = usePreview((r?: { payment_id?: string }) => { if (r?.payment_id && buying) setPaying({ id: r.payment_id, cents: buying.price_cents, name: buying.name }); });
+  const buy = (p: Product) => { setBuying(p); void preview("pass.buy", { person_id: me.value?.person.id, product_id: p.id }); };
   return (
     <main>
       <h1>{t("ui.passes_title")}</h1>
@@ -50,8 +46,8 @@ export function Passes() {
           <span><strong>{p.name}</strong> · {t("ui.pass_uses_left", { left: String(p.uses), uses: String(p.uses) })} · {covers(p)}</span>
           <button class="primary" onClick={() => void buy(p)}>{t("ui.pass_buy", { price: dollars(p.price_cents, lang.value) })}</button>
         </li>)}</ul>
-        {error && <p class="error" role="alert">{error}</p>}
       </section>
+      {sheet}
       {paying && <PaySheet paymentId={paying.id} cardOnly back={`/passes?paid=${paying.id}`} amountCents={paying.cents} name={paying.name} onClose={() => { setPaying(null); void load(); }}
         onPaid={() => { setJustPaid({ id: paying.id, had: data?.mine.length ?? 0 }); setPaying(null); void load(); }} />}
     </main>

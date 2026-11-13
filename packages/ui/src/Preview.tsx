@@ -19,7 +19,23 @@ export function useStepUp() {
   return { ask, sheet };
 }
 
-export type Pending = { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; summary: string; action?: string; input?: unknown };
+/** What a change that charges money comes to, line by line, as the server's preview built it (core charge.ts): the
+ *  same numbers apply charges, only formatted here. Older servers and changes that charge nothing send none. */
+export type Charge = { lines: { kind: string; label: string; cents: number | null }[]; due_cents: number; how: string; when: string | null };
+export type Pending = { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; summary: string; action?: string; input?: unknown; charge?: Charge };
+
+/** The "Check before you confirm" lines: each price, money off it, tax, the total; then how it's paid and when. */
+export function ChargeLines({ charge }: { charge: Charge }) {
+  return <>
+    <table class="charge-lines">
+      <tbody>{charge.lines.map((l) => (
+        <tr class={`charge-${l.kind}`}><th scope="row">{l.label}</th><td>{l.cents === null ? "" : dollars(l.cents, lang.value)}</td></tr>
+      ))}</tbody>
+    </table>
+    <p class="meta"><strong>{t("ui.charge_how")}:</strong> {charge.how}</p>
+    {charge.when && <p class="meta"><strong>{t("ui.charge_when")}:</strong> {charge.when}</p>}
+  </>;
+}
 
 export function usePreview(onDone: (result?: any) => void) {
   const [pending, setPending] = useState<Pending | null>(null), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
@@ -31,9 +47,9 @@ export function usePreview(onDone: (result?: any) => void) {
     setError(null); setNote(null);
     try {
       // First a look: a change that needs someone else's yes is asked for only when the person says so (ask below).
-      const p = await api<{ run_id: string; status: Pending["status"]; summary: string }>(`/actions/${action}/plan?ask=hold`, input);
+      const p = await api<{ run_id: string; status: Pending["status"]; summary: string; charge?: Charge }>(`/actions/${action}/plan?ask=hold`, input);
       if (p.status === "awaiting_approval") { setNote(`${p.summary} ${t("ui.sent_for_approval")}`); onDone(); return; }
-      setPending({ runId: p.run_id, status: p.status, summary: p.summary, action, input });
+      setPending({ runId: p.run_id, status: p.status, summary: p.summary, action, input, charge: p.charge });
     } catch (e) {
       if (needsStep(e)) { step.ask(() => void preview(action, input)); return; }
       setError(e instanceof ApiError ? e.message : String(e));
@@ -42,11 +58,11 @@ export function usePreview(onDone: (result?: any) => void) {
   const ask = async () => {
     if (!pending?.action) return;
     try {
-      const p = await api<{ run_id: string; status: Pending["status"]; summary: string }>(`/actions/${pending.action}/plan`, pending.input);
+      const p = await api<{ run_id: string; status: Pending["status"]; summary: string; charge?: Charge }>(`/actions/${pending.action}/plan`, pending.input);
       // Asked: it waits for a yes. If it no longer needs one (something changed since the first look), nothing has
       // happened yet: it's shown again, to confirm, rather than said to be done.
       if (p.status === "awaiting_approval") { setPending(null); setNote(t("ui.sent_for_approval")); onDone(); return; }
-      setPending({ runId: p.run_id, status: p.status, summary: p.summary });
+      setPending({ runId: p.run_id, status: p.status, summary: p.summary, charge: p.charge });
     } catch (e) { setError(e instanceof ApiError ? e.message : String(e)); setPending(null); }
   };
   const confirm = async () => {
@@ -71,9 +87,13 @@ export function usePreview(onDone: (result?: any) => void) {
   const sheet = (
     <div class="dock">
       {step.sheet}
-      {pending && !step.sheet && <div class="card sheet" role="dialog" aria-modal="true"><p>{pending.summary}</p>
+      {pending && !step.sheet && <div class="card sheet" role="dialog" aria-modal="true" aria-label={pending.charge ? t("ui.check_before") : undefined}>
+        {/* A change that charges money: what it comes to, line by line, before the yes (the server's own numbers). */}
+        {pending.charge && <h2>{t("ui.check_before")}</h2>}
+        <p class={pending.charge ? "meta" : undefined}>{pending.summary}</p>
+        {pending.charge && <ChargeLines charge={pending.charge} />}
         {pending.status === "would_ask" && <p class="meta">{t("ui.would_ask")}</p>}
-        <button class="primary" onClick={confirm}>{t(pending.status === "would_ask" ? "ui.ask_for_yes" : "ui.confirm")}</button> <button onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
+        <button class="primary" onClick={confirm}>{t(pending.status === "would_ask" ? "ui.ask_for_yes" : "ui.confirm")}</button> <button onClick={() => setPending(null)}>{t(pending.charge ? "ui.change" : "ui.back")}</button></div>}
       {note && <p class="note" role="status" onClick={() => setNote(null)}>{note}</p>}
       {error && <p class="error" role="alert" onClick={() => setError(null)}>{error}</p>}
     </div>

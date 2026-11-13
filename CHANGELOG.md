@@ -14,6 +14,16 @@ Owners and managers no longer have to set up a passkey or an authenticator app b
 up right there.
 
 ### Changed
+- Before a member pays for anything in the app (a court, whole or split, an open match, a clinic, course or lesson, a
+  weekly court, a membership or a pass), the preview is a "Check before you confirm" sheet: each price, a member
+  price or included session as money off, tax, the total, the member's part of a shared court, how it's paid and
+  when it's charged (for a shared court, that anything unpaid at the deadline goes once on the organiser's card, with
+  nothing held before then; for an open match, that it's cancelled and everyone paid back if it isn't full). The
+  numbers are the server's, from the same code that charges. A pass bought in the app now shows its preview first,
+  like everything else. The plan endpoint adds `charge` to its answer for these changes; everything else is as before.
+- Members who moved in from Playtomic see a welcome once, at their first sign-in: their upcoming bookings, level,
+  club credit and membership as they came across (or that none did), a yes to texts they tick themselves, a word
+  about adding a card before a membership renews, and a way to tell the club something is missing.
 - The members' app has tabs at the bottom of every page: Home, Book, Play, Learn and Me. Home shows the club (its
   name, the member's plan, today's hours), what the member has coming up, shortcuts, how many open matches, events,
   clinics and courses there are in the next 14 days, asking the club, and the club's courts, opening hours and

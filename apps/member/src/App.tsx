@@ -31,6 +31,8 @@ const ReceiptPage = lazyPage(() => import("./Receipts.tsx").then((m) => m.Receip
 // Me: the member's own pages. At /account, since /me is the server's (who is signed in).
 const Me = lazyPage(() => import("./Me.tsx").then((m) => m.Me));
 const Chats = lazyPage(() => import("./Chats.tsx").then((m) => m.Chats));
+// Once, for a member who moved in from Playtomic (Welcome.tsx).
+const Welcome = lazyPage(() => import("./Welcome.tsx").then((m) => m.Welcome));
 const ChatThread = lazyPage(() => import("./Chats.tsx").then((m) => m.ChatThread));
 
 /** The Chats link, with how many messages wait unread in the member's games (none when the club turned chat off). */
@@ -84,8 +86,10 @@ export function App() {
         waiverDue.value && <>{t("ui.waiver_banner")} <a href="/waiver">{t("ui.waiver_read")}</a></>,
         emailNotice,
       ]} />
+      {me.value.welcome && <ToWelcome />}
       <Router>
         <Route path="/" component={Home} />
+        <Route path="/welcome" component={Welcome} />
         <Route path="/events" component={Events} />
         <Route path="/events/:id" component={ProgramPage} />
         <Route path="/learn" component={Learn} />
@@ -134,3 +138,9 @@ function Go({ to }: { to: string }) {
 }
 const ToCompetitions = () => <Go to="/competitions" />;
 const ToHome = () => <Go to="/" />;
+/** A member who moved in from Playtomic, at their first sign-in: Home opens on the welcome instead, once (the page
+ *  notes it seen). A link they followed in (a match, a place) opens as it is; the welcome waits for Home. */
+function ToWelcome() {
+  const { path } = useLocation();
+  return path === "/" ? <Go to="/welcome" /> : null;
+}

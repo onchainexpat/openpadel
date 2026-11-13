@@ -21,6 +21,7 @@ import { priceFor, programPerks, programPrice, priceWords, type ProgramPrice } f
 import { manages, requireWaiver, withManagers } from "./households.ts";
 import { paymentsWhat, paymentWhat } from "./kids.ts";
 import { isReadOnly, refuseWhenReadOnly } from "./read_only.ts";
+import { charge, chargeLine, howPaid, programLines, type ChargeLine } from "./charge.ts";
 import { backSql, callOff, deskPaid, paidHow, recordAtDesk, refundAcross, refundDue, refundTo, revenueType } from "./desk_pay.ts";
 
 /** How long a place offered from the waitlist is held. With texts it would be 2 hours; while email is
@@ -410,7 +411,10 @@ export const enrolmentJoin = defineAction({
       const pos = await nextPosition(ctx.db, i.program_id, sid);
       return { title: both("action.enrolment.join"), summary: join2(both("plan.enrolment.waitlist", { person, name: textOf(p.name, p.translations, "name"), position: pos }), onDate), reads: [read], locationId: p.location_id, ownerIds: owners, undo: { kind: "compensating" }, details: { status: "waitlisted", position: pos, price } };
     }
-    return { title: both("action.enrolment.join"), summary: join2(both("plan.enrolment.join", { person, name: textOf(p.name, p.translations, "name"), price: priceWords(price) }), onDate), reads: [read], locationId: p.location_id, ownerIds: owners, undo: { kind: "compensating" }, moneyCents: price.cents, details: { status: "booked", price } };
+    // Line by line from the same price apply records and charges (charge.ts).
+    const chargeOf = charge([...programLines(textOf(p.name, p.translations, "name"), price), chargeLine("total", "charge.total", {}, price.cents)], price.cents,
+      await howPaid(ctx.db, i.person_id, price.cents), both("charge.when_now"));
+    return { title: both("action.enrolment.join"), summary: join2(both("plan.enrolment.join", { person, name: textOf(p.name, p.translations, "name"), price: priceWords(price) }), onDate), reads: [read], locationId: p.location_id, ownerIds: owners, undo: { kind: "compensating" }, moneyCents: price.cents, charge: chargeOf, details: { status: "booked", price } };
   },
   async apply(ctx, i, plan) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();   // one join at a time per program
@@ -469,8 +473,19 @@ export const enrolmentJoinDates = defineAction({
       ? both("plan.enrolment.date_line", { when: when(new Date(dates[k]!.starts_at), tz), price: priceWords(x.price) })
       : both("plan.enrolment.date_line_waitlist", { when: when(new Date(dates[k]!.starts_at), tz), position: x.position! }));
     if (total > 0) summary = join2(summary, both("plan.enrolment.dates_total", { amount: usd(total) }));
+    // Each date at its own price (a member price or an included session as money off it); a full date waits, unpaid.
+    const lines: ChargeLine[] = [];
+    for (const [k, x] of each.entries()) {
+      const date = when(new Date(dates[k]!.starts_at), tz);
+      if (x.status === "booked") lines.push(...programLines(date, x.price));
+      else lines.push(chargeLine("note", "charge.date_waitlist", { when: date }, null));
+    }
+    lines.push(chargeLine("total", "charge.total", {}, total));
+    // Several dates are one card payment together, so by card; one date can be paid with credit too.
+    const paid = each.filter((x) => x.status === "booked" && x.price.cents > 0).length;
+    const chargeOf = charge(lines, total, await howPaid(ctx.db, i.person_id, total, { cardOnly: paid > 1 }), both("charge.when_now"));
     return { title: both("action.enrolment.join_dates"), summary, reads: [read], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "compensating" },
-      moneyCents: total, details: { dates: each } };
+      moneyCents: total, charge: chargeOf, details: { dates: each } };
   },
   async apply(ctx, i, plan) {
     const p = await ctx.trx.selectFrom("program").selectAll().where("id", "=", i.program_id).forUpdate().executeTakeFirstOrThrow();   // one join at a time per program
@@ -749,7 +764,9 @@ export const enrolmentAcceptOffer = defineAction({
     const now = await programPrice(ctx.db, e.program_id, e.person_id, ctx.now);
     const price: ProgramPrice = now.basis === "included" ? now : { cents: e.price_cents, full: p.price_cents, basis: e.price_basis, included: null };
     return { title: both("action.enrolment.accept_offer"), summary: both("plan.enrolment.accept_offer", { person: await personName(ctx.db, e.person_id), name: textOf(p.name, p.translations, "name"), price: priceWords(price) }),
-      reads: [read, { entity: "waitlist_offer", id: offer.id, version: offer.version }], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [e.person_id]), moneyCents: price.cents, undo: { kind: "compensating" }, details: { offer_id: offer.id, price } };
+      reads: [read, { entity: "waitlist_offer", id: offer.id, version: offer.version }], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [e.person_id]), moneyCents: price.cents, undo: { kind: "compensating" }, details: { offer_id: offer.id, price },
+      charge: charge([...programLines(textOf(p.name, p.translations, "name"), price), chargeLine("total", "charge.total", {}, price.cents)], price.cents,
+        await howPaid(ctx.db, e.person_id, price.cents), both("charge.when_now")) };
   },
   async apply(ctx, i, plan) {
     const planned = (plan.details as { offer_id: string; price: ProgramPrice }).price;

@@ -19,6 +19,7 @@ import { currentPolicy, taxSplit } from "./prices.ts";
 import { paymentProvider } from "./money.ts";
 import { checkSlot, courtAndPlace, courtLocation, HOLD_MINUTES, newCode, notOwing, shares } from "./booking_pay.ts";
 import { requireWaiver, withManagers } from "./households.ts";
+import { charge, chargeAt, chargeLine, howPaid, taxLine, type ChargeLine } from "./charge.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const when = (d: Date, tz: string): Text => ({ en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) });
@@ -331,9 +332,18 @@ export const lessonRequest = defineAction({
     const p = { coach: c.name, court: court.name, when: when(start, tz), minutes: i.minutes, total: usd(total) };
     const summary = i.pay === "whole" ? both("plan.lesson.request_whole", { ...p, players: both("count.players", { count: players }) })
       : both("plan.lesson.request_split", { ...p, share: usd(s.organiser), players: both("count.players", { count: players }), others: usd(s.each), hours: both("count.hours", { count: policy.split_deadline_hours }) });
+    // Line by line, from the same rate, tax and shares apply charges (charge.ts).
+    const due = i.pay === "whole" ? total : s.organiser;
+    const lines: (ChargeLine | null)[] = [chargeLine("item", "charge.lesson", { coach: c.name, minutes: i.minutes }, club.prices_include_tax ? total : total - tax),
+      await taxLine(ctx.db, { tax_cents: tax, tax_bp: club.tax_rate_bp, tax_included: club.prices_include_tax }), chargeLine("total", "charge.total", {}, total)];
+    if (i.pay === "split") lines.push(chargeLine("your_part", "charge.your_part", { players: both("count.players", { count: players }) }, s.organiser),
+      chargeLine("others", "charge.others_each", { count: players - 1 }, s.each));
+    const whenText = i.pay === "whole" ? both("charge.when_now_court", { minutes: HOLD_MINUTES })
+      : both("charge.when_split", { deadline: chargeAt(new Date(start.getTime() - policy.split_deadline_hours * 3600_000), tz) });
+    const chargeOf = charge(lines, due, await howPaid(ctx.db, i.person_id, due, { cardOnly: i.pay === "split" }), whenText);
     // A parent books their junior's lesson: the lesson is the junior's, the parent pays and manages it.
     return { title: both("action.lesson.request"), summary, reads: [], locationId: court.location_id, ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "compensating" },
-      moneyCents: i.pay === "whole" ? total : s.organiser, details: { court_id: courtId, rate, tax, tax_bp: club.tax_rate_bp, tax_included: club.prices_include_tax, total, players, policy_id: policy.id } };
+      moneyCents: due, charge: chargeOf, details: { court_id: courtId, rate, tax, tax_bp: club.tax_rate_bp, tax_included: club.prices_include_tax, total, players, policy_id: policy.id } };
   },
   async apply(ctx, i, plan) {
     const d = plan.details as { court_id: string; rate: number; tax: number; tax_bp: number; tax_included?: boolean; total: number; players: number; policy_id: string };

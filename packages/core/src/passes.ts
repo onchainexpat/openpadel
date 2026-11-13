@@ -20,6 +20,7 @@ import { account, paymentProvider, post } from "./money.ts";
 import { callOff, deskPaid, paidHow, recordAtDesk, refundTo, revenueType, stillUnpaid } from "./desk_pay.ts";
 import { kidOf, paymentWhat } from "./kids.ts";
 import { paidNow } from "./programs.ts";
+import { charge, chargeLine, howPaid } from "./charge.ts";
 
 const usd = (cents: number): Text => ({ en: money(cents, "en"), es: money(cents, "es") });
 const PROGRAM_KINDS = ["clinic", "course", "league", "tournament", "social"] as const;
@@ -165,7 +166,9 @@ export const passBuy = defineAction({
     // One bought before and never paid is called off, as gift_card.buy does: unless its card went through or is
     // still being processed, asked of the provider now.
     const callOffIds = await stillUnpaid(await waitingPasses(ctx.db, i.person_id));
-    return { title: both("action.pass.buy"), reads: [read], ownerIds: [i.person_id], moneyCents: p.price_cents, undo: { kind: "none", note: both("reason.refund_sent") },
+    const chargeOf = charge([chargeLine("item", "charge.pass", { name: p.name, uses: String(p.uses) }, p.price_cents), chargeLine("total", "charge.total", {}, p.price_cents)],
+      p.price_cents, await howPaid(ctx.db, i.person_id, p.price_cents, { cardOnly: true }), both("charge.when_now"));
+    return { title: both("action.pass.buy"), reads: [read], ownerIds: [i.person_id], moneyCents: p.price_cents, charge: chargeOf, undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both("plan.pass.buy", { name: p.name, uses: String(p.uses), price: usd(p.price_cents) }), details: { call_off: callOffIds } };
   },
   async apply(ctx, i, plan) {

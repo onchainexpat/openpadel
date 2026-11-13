@@ -5,7 +5,7 @@ export * from "./state.ts";
 export { SignIn } from "./SignIn.tsx";
 export { AccountData } from "./AccountData.tsx";
 export { Inbox, InboxLink } from "./Inbox.tsx";
-export { usePreview, useStepUp, needsStep, dollars } from "./Preview.tsx";
+export { usePreview, useStepUp, needsStep, dollars, ChargeLines, type Charge } from "./Preview.tsx";
 export { useBackCloses } from "./back.ts";
 export { ProgramCard, placesLeft, type ProgramCardData } from "./ProgramCard.tsx";
 export { protectedPost, botProof } from "./pow.ts";

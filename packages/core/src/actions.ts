@@ -6,6 +6,7 @@ import { sql } from "kysely";
 import { both, en, es, money, type Key, type Lang, type Params, type Text, formatLocale } from "@kumi/i18n";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
+import type { Charge } from "./charge.ts";
 import { plainIssues } from "./plain_issues.ts";
 import { checkAssistantSpend } from "./assistant_spend.ts";
 import { uuidv7 } from "./ids.ts";
@@ -32,6 +33,8 @@ export interface Plan {
   moneyCents?: number;
   tells?: Text[];
   details?: unknown;
+  /** What a member's change charges, line by line (charge.ts): the members' app shows it before the yes. */
+  charge?: Charge;
 }
 export interface PlanCtx { db: Db | Trx; actor: Actor; now: Date }
 /** Whose a change is and where, before its preview (ActionDef.owners). `locationId` left out: the row it names isn't

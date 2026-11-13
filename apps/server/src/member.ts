@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff } from "@kumi/core";
+import { itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf } from "@kumi/core";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
 import { clubFileStem } from "./file_names.ts";
@@ -641,6 +641,16 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   const planPerks = async (planId: string) => Boolean(await db.selectFrom("price_rule").select("id").where("active", "=", true).where(sql<boolean>`${planId} = ANY(plan_ids)`).executeTakeFirst());
 
   // Their own level, or (?for=) a junior's they manage: a parent brings a junior's level from another app (Family).
+  // ---- The welcome for members who moved in from Playtomic (welcome.ts) ----
+  // What came across with them. Asking for it is seeing it (a POST: it notes that): shown once, and never again.
+  app.post("/my/welcome", async (c) => {
+    const pid = who(c), l = lang(c);
+    if (!(await movedIn(db, pid))) return c.json({ moved_in: false });
+    const f = await welcomeFacts(db, pid, now());
+    const first = await welcomeSeen(db, pid, now());
+    return c.json({ moved_in: true, first, ...f, membership: f.membership ? { ...f.membership, name: textOf(f.membership.name, f.membership.translations, "name")[l], translations: undefined } : null });
+  });
+
   app.get("/my/level", async (c) => {
     const pid = await forWhom(c), l = lang(c);
     const rating = await db.selectFrom("rating").select(["level", "provisional", "floor", "rated_games"]).where("person_id", "=", pid).where("sport", "=", "padel").executeTakeFirst();

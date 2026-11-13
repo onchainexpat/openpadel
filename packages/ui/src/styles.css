@@ -28,6 +28,14 @@ form.inline { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: cent
 .card.unread { border-left: 4px solid var(--brand-ink); }
 .changes { list-style: none; padding: 0; margin: 0; }
 .sheet { border-color: var(--brand-ink); }
+/* "Check before you confirm" (Preview.tsx): a change's charge, line by line, amounts to the right. */
+.sheet h2 { font-size: 18px; margin: 0 0 4px; }
+table.charge-lines { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 15px; }
+table.charge-lines th { text-align: left; font-weight: 400; padding: 6px 8px 6px 0; } table.charge-lines td { text-align: right; white-space: nowrap; padding: 6px 0; font-variant-numeric: tabular-nums; }
+table.charge-lines tr { border-bottom: 1px solid var(--line); }
+table.charge-lines tr.charge-total th, table.charge-lines tr.charge-total td, table.charge-lines tr.charge-your_part th, table.charge-lines tr.charge-your_part td { font-weight: 700; }
+table.charge-lines tr.charge-member td, table.charge-lines tr.charge-included td { color: var(--brand-ink); }
+table.charge-lines tr.charge-tax_included, table.charge-lines tr.charge-others, table.charge-lines tr.charge-later, table.charge-lines tr.charge-note { color: var(--muted); font-size: 14px; }
 /* Room below the page, so its last buttons can always scroll above a message docked at the bottom. */
 body:has(.dock:not(:empty)) main { padding-bottom: 45vh; }
 .dock:not(:empty) { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; max-width: 640px; margin: 0 auto; padding: 0 16px calc(12px + env(safe-area-inset-bottom)); }
