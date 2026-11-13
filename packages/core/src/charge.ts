@@ -56,13 +56,14 @@ export function programLines(item: Text, price: ProgramPrice): ChargeLine[] {
 }
 
 /** What pays it, said for this person: their family's card (a kid with a login), a card alone (a membership, a pass,
- *  a card saved for later charges, several paid together), or a card or their club credit when they have some. */
-export async function howPaid(db: Db | Trx, personId: string, due: number, o: { cardOnly?: boolean } = {}): Promise<Text> {
+ *  a card saved for later charges, several paid together), or a card or their club credit when the credit can pay it
+ *  (payment.use_credit): the member's own, all of it, or (a program place, `creditPart`) part with the card for the rest. */
+export async function howPaid(ctx: { db: Db | Trx; actor: { personId: string | null } }, personId: string, due: number, o: { cardOnly?: boolean; creditPart?: boolean } = {}): Promise<Text> {
   if (due <= 0) return both("charge.how_nothing");
-  if (await kidOf(db, personId)) return both("charge.how_family");
-  if (o.cardOnly) return both("charge.how_card");
-  const credit = await creditBalance(db, personId);
-  return credit > 0 ? both("charge.how_card_or_credit", { credit: usd(credit) }) : both("charge.how_card_more");
+  if (await kidOf(ctx.db, personId)) return both("charge.how_family");
+  if (o.cardOnly || ctx.actor.personId !== personId) return both("charge.how_card");
+  const credit = await creditBalance(ctx.db, personId);
+  return credit > 0 && (credit >= due || o.creditPart) ? both("charge.how_card_or_credit", { credit: usd(credit) }) : both("charge.how_card");
 }
 
 /** A charge from its parts: lines left out (null) are dropped, and nothing to pay has no "when". */

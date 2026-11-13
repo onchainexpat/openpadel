@@ -172,7 +172,7 @@ export const bookingRequest = defineAction({
     const deadline = chargeAt(cutoffAt ?? new Date(start.getTime() - policy.split_deadline_hours * 3600_000), court.time_zone);
     const whenText = i.pay === "whole" ? both("charge.when_now_court", { minutes: HOLD_MINUTES }) : both(i.open ? "charge.when_open_host" : "charge.when_split", { deadline });
     // A split court saves the card it's paid with (the deadline's charge), so only a card pays it.
-    const chargeOf = charge(lines, due, await howPaid(ctx.db, i.person_id, due, { cardOnly: i.pay === "split" && !i.open }), whenText);
+    const chargeOf = charge(lines, due, await howPaid(ctx, i.person_id, due, { cardOnly: i.pay === "split" && !i.open }), whenText);
     return { title: both("action.booking.request"), reads: [], locationId: court.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" },
       moneyCents: due, charge: chargeOf, details: { quote: q, policy_id: policy.id, cutoff_at: cutoffAt?.toISOString() ?? null },
       summary: openText ? { en: `${summary.en} ${openText.en}`, es: `${summary.es} ${openText.es}` } : summary };
@@ -245,7 +245,7 @@ export const bookingRequestCourts = defineAction({
     if (taxed) lines.push(chargeLine("tax_included", "charge.tax_inside", {}, taxed));
     lines.push(chargeLine("total", "charge.total", {}, total));
     // Paid together, so by card alone (credit pays one payment at a time).
-    const chargeOf = charge(lines, total, await howPaid(ctx.db, i.person_id, total, { cardOnly: true }), both("charge.when_now_court", { minutes: HOLD_MINUTES }));
+    const chargeOf = charge(lines, total, await howPaid(ctx, i.person_id, total, { cardOnly: true }), both("charge.when_now_court", { minutes: HOLD_MINUTES }));
     return { title: both("action.booking.request_courts"), reads: [], locationId: priced[0]!.court.location_id, ownerIds: [i.person_id], undo: { kind: "compensating" }, moneyCents: total, charge: chargeOf,
       summary: both("plan.booking.request_courts", { count: priced.length, list: { en: items.map((x) => x.en).join("; "), es: items.map((x) => x.es).join("; ") }, total: usd(total) }),
       details: { policy_id: policy.id, quotes: priced.map((s) => s.q) } };
@@ -310,8 +310,8 @@ export const bookingJoin = defineAction({
     const dl = om ? await ctx.db.selectFrom("booking").innerJoin("booking_policy", "booking_policy.id", "booking.policy_id").innerJoin("court_time", "court_time.booking_id", "booking.id")
       .leftJoin("open_match", "open_match.booking_id", "booking.id").select(deadlineSql.as("at")).where("booking.id", "=", b.id).where("court_time.active", "=", true).executeTakeFirst() : null;
     const chargeOf = charge([chargeLine("item", b.kind === "lesson" ? "charge.lesson_place" : "charge.court_place", { players: both("count.players", { count: b.players }) }, s.each),
-      chargeLine("total", "charge.total", {}, s.each)], s.each, await howPaid(ctx.db, i.person_id, s.each),
-      dl?.at ? both("charge.when_open_join", { deadline: chargeAt(new Date(dl.at), t.time_zone) }) : both("charge.when_now"));
+      chargeLine("total", "charge.total", {}, s.each)], s.each, await howPaid(ctx, i.person_id, s.each),
+      dl?.at && new Date(dl.at) > ctx.now ? both("charge.when_open_join", { deadline: chargeAt(new Date(dl.at), t.time_zone) }) : both("charge.when_now"));
     return { title: both("action.booking.join"), charge: chargeOf, summary: both(om ? "plan.booking.join_match" : b.kind === "lesson" ? "plan.lesson.join" : "plan.booking.join", { organiser, coach, court: t.name, when: when(new Date(t.start), t.time_zone), share: usd(s.each) }),
       reads: [], locationId: b.location_id, ownerIds: [i.person_id], moneyCents: s.each, undo: { kind: "compensating" }, details: { booking_id: b.id, share: s.each } };
   },

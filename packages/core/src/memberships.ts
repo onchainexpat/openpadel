@@ -354,7 +354,7 @@ export const membershipJoin = defineAction({
     const lines = [chargeLine("item", "charge.membership", { name: p.name, price: p.price }, plan.price_cents), chargeLine("total", presale ? "charge.total_later" : "charge.total", {}, plan.price_cents)];
     const chargeOf = !plan.price_cents ? charge(lines, 0, both("charge.how_nothing"), null)
       : presale ? { lines, due_cents: 0, how: both("charge.how_card_saved"), when: both("charge.when_presale", { date: p.date }) }
-      : charge(lines, due, await howPaid(ctx.db, i.person_id, due, { cardOnly: true }), both("charge.when_membership", { period: p.period }));
+      : charge(lines, due, await howPaid(ctx, i.person_id, due, { cardOnly: true }), both("charge.when_membership", { period: p.period }));
     return { title: both("action.membership.join"), summary: fam ? { en: `${base.en} ${fam.en}`, es: `${base.es} ${fam.es}` } : base,
       reads: [read], ownerIds: [i.person_id], moneyCents: due, charge: chargeOf, undo: { kind: "compensating" } };
   },
@@ -943,7 +943,7 @@ export const membershipPayNext = defineAction({
     const due = await dueAtDesk(ctx.db, m, plan.price_cents, ctx.now);
     const until = await nextUntil(ctx.db, m, plan);
     const chargeOf = charge([chargeLine("item", "charge.membership_next", { name, until }, due.cents), chargeLine("total", "charge.total", {}, due.cents)], due.cents,
-      await howPaid(ctx.db, m.person_id, due.cents, { cardOnly: true }), both("charge.when_now_once"));
+      await howPaid(ctx, m.person_id, due.cents, { cardOnly: true }), both("charge.when_now_once"));
     return { title: both("action.membership.pay_next"), summary: both("plan.membership.pay_next_card", { name, amount: usdText(due.cents), until }),
       reads: [read], ownerIds: await withManagers(ctx.db, [m.person_id]), moneyCents: due.cents, charge: chargeOf, undo: { kind: "compensating" }, details: due };
   },

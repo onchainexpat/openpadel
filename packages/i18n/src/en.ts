@@ -1970,7 +1970,6 @@ export const en = {
   "charge.how_card": "By card, in the next step.",
   "charge.how_card_saved": "By card: you add it in the next step, and it's saved for the first charge.",
   "charge.how_card_or_credit": "By card or from your club credit ({credit} to use), in the next step.",
-  "charge.how_card_more": "By card, in the next step. A pass or a promo code that covers it can be used there too.",
   "charge.when_now": "Charged now, in the next step.",
   "charge.when_now_once": "Charged now, in the next step. Nothing renews from this card.",
   "charge.when_now_court": "Charged now, in the next step. The court is held for {minutes} minutes while you pay.",

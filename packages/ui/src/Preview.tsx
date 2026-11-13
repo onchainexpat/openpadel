@@ -28,8 +28,8 @@ export type Pending = { runId: string; status: "planned" | "awaiting_approval" |
 export function ChargeLines({ charge }: { charge: Charge }) {
   return <>
     <table class="charge-lines">
-      <tbody>{charge.lines.map((l) => (
-        <tr class={`charge-${l.kind}`}><th scope="row">{l.label}</th><td>{l.cents === null ? "" : dollars(l.cents, lang.value)}</td></tr>
+      <tbody>{charge.lines.map((l, k) => (
+        <tr key={k} class={`charge-${l.kind}`}><th scope="row">{l.label}</th><td>{l.cents === null ? "" : dollars(l.cents, lang.value)}</td></tr>
       ))}</tbody>
     </table>
     <p class="meta"><strong>{t("ui.charge_how")}:</strong> {charge.how}</p>

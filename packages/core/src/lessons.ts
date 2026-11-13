@@ -340,7 +340,7 @@ export const lessonRequest = defineAction({
       chargeLine("others", "charge.others_each", { count: players - 1 }, s.each));
     const whenText = i.pay === "whole" ? both("charge.when_now_court", { minutes: HOLD_MINUTES })
       : both("charge.when_split", { deadline: chargeAt(new Date(start.getTime() - policy.split_deadline_hours * 3600_000), tz) });
-    const chargeOf = charge(lines, due, await howPaid(ctx.db, i.person_id, due, { cardOnly: i.pay === "split" }), whenText);
+    const chargeOf = charge(lines, due, await howPaid(ctx, i.person_id, due, { cardOnly: i.pay === "split" }), whenText);
     // A parent books their junior's lesson: the lesson is the junior's, the parent pays and manages it.
     return { title: both("action.lesson.request"), summary, reads: [], locationId: court.location_id, ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "compensating" },
       moneyCents: due, charge: chargeOf, details: { court_id: courtId, rate, tax, tax_bp: club.tax_rate_bp, tax_included: club.prices_include_tax, total, players, policy_id: policy.id } };

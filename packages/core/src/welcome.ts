@@ -48,7 +48,9 @@ export async function welcomeFacts(db: Db | Trx, personId: string, now: Date) {
   const credit = await creditBalance(db, personId);
   const m = await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
     .select(["membership.status", "membership.source", "membership.current_period_end", "membership.cancel_at_period_end", "membership.saved_method", "membership_plan.name", "membership_plan.translations"])
-    .where("membership.person_id", "=", personId).where("membership.status", "in", ["active", "past_due", "upcoming"]).orderBy("membership.started_at", "desc").executeTakeFirst();
+    // One that runs now (one not started yet came from the app, not across): the one brought from Playtomic first.
+    .where("membership.person_id", "=", personId).where("membership.status", "in", ["active", "past_due"])
+    .orderBy(sql`membership.brought_from IS NULL`).orderBy("membership.started_at", "desc").executeTakeFirst();
   // Renewing here (from the card they add in the app), or paid through a date and then over unless renewed at the desk.
   const renews = Boolean(m && m.source === "app" && !m.cancel_at_period_end);
   const membership = m ? { name: m.name, translations: m.translations, renews, needs_card: renews && !m.saved_method,

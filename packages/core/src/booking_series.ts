@@ -183,11 +183,12 @@ export const bookingRepeatRequest = defineAction({
     // The first week now (its own price, tax inside it as quoted), the later weeks on the saved card, each nearer its day.
     const first = kept[0]!, later = kept.slice(1), laterCents = later.reduce((n, w) => n + w.price_cents, 0);
     const chargeOf = charge([
-      chargeLine("item", "charge.first_week", { date: dayOf(first.date) }, first.price_cents),
-      first.quote?.tax_cents ? await taxLine(ctx.db, { tax_cents: first.quote.tax_cents, tax_bp: first.quote.tax_bp, tax_included: true }) : null,
+      // Tax on top: the price before it, then the tax line; tax inside the price: the price, and what of it is tax.
+      chargeLine("item", "charge.first_week", { date: dayOf(first.date) }, first.quote?.tax_cents && !first.quote.tax_included ? first.price_cents - first.quote.tax_cents : first.price_cents),
+      first.quote?.tax_cents ? await taxLine(ctx.db, { tax_cents: first.quote.tax_cents, tax_bp: first.quote.tax_bp, tax_included: first.quote.tax_included }) : null,
       chargeLine("total", "charge.now_total", {}, first.price_cents),
       later.length ? chargeLine("later", "charge.later_weeks", { count: later.length }, laterCents) : null,
-    ], first.price_cents, await howPaid(ctx.db, i.person_id, first.price_cents, { cardOnly: true }),
+    ], first.price_cents, await howPaid(ctx, i.person_id, first.price_cents, { cardOnly: true }),
       both("charge.when_weekly", { hours: both("count.hours", { count: policy.split_deadline_hours }) }));
     return { title: both("action.booking.repeat_request"), summary, reads: [], locationId: court.location_id, ownerIds: [i.person_id], moneyCents: kept[0]!.price_cents, charge: chargeOf,
       undo: { kind: "compensating" }, details: { weeks, time: hhmm(start, tz), policy_id: policy.id } };

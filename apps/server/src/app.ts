@@ -467,8 +467,9 @@ export function makeApp(deps: AppDeps) {
     // ?ask=hold: a change that needs someone else's yes is only shown, until the person says to ask (Preview.tsx).
     const p = await plan(db, c.req.param("name"), await c.req.json().catch(() => ({})), actor(c), { now: now(), holdAsk: c.req.query("ask") === "hold" });
     const lang = c.get("lang");
-    // A change that charges money says it line by line too (charge.ts): the members' app shows it before the yes.
-    const ch = p.plan.charge;
+    // A change that charges money says it line by line too (charge.ts): the members' app shows it before the yes. Only
+    // to the member whose change it is (or a parent of theirs): staff at the desk see the summary, as before.
+    const who = actor(c).personId, ch = who && p.plan.ownerIds?.includes(who) ? p.plan.charge : undefined;
     const charge = ch ? { lines: ch.lines.map((l) => ({ kind: l.kind, label: l.label[lang], cents: l.cents })), due_cents: ch.due_cents, how: ch.how[lang], when: ch.when?.[lang] ?? null } : undefined;
     return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt, ...(charge ? { charge } : {}) });
   });

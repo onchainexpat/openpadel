@@ -413,7 +413,7 @@ export const enrolmentJoin = defineAction({
     }
     // Line by line from the same price apply records and charges (charge.ts).
     const chargeOf = charge([...programLines(textOf(p.name, p.translations, "name"), price), chargeLine("total", "charge.total", {}, price.cents)], price.cents,
-      await howPaid(ctx.db, i.person_id, price.cents), both("charge.when_now"));
+      await howPaid(ctx, i.person_id, price.cents, { creditPart: true }), both("charge.when_now"));
     return { title: both("action.enrolment.join"), summary: join2(both("plan.enrolment.join", { person, name: textOf(p.name, p.translations, "name"), price: priceWords(price) }), onDate), reads: [read], locationId: p.location_id, ownerIds: owners, undo: { kind: "compensating" }, moneyCents: price.cents, charge: chargeOf, details: { status: "booked", price } };
   },
   async apply(ctx, i, plan) {
@@ -483,7 +483,7 @@ export const enrolmentJoinDates = defineAction({
     lines.push(chargeLine("total", "charge.total", {}, total));
     // Several dates are one card payment together, so by card; one date can be paid with credit too.
     const paid = each.filter((x) => x.status === "booked" && x.price.cents > 0).length;
-    const chargeOf = charge(lines, total, await howPaid(ctx.db, i.person_id, total, { cardOnly: paid > 1 }), both("charge.when_now"));
+    const chargeOf = charge(lines, total, await howPaid(ctx, i.person_id, total, { cardOnly: paid > 1, creditPart: true }), both("charge.when_now"));
     return { title: both("action.enrolment.join_dates"), summary, reads: [read], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "compensating" },
       moneyCents: total, charge: chargeOf, details: { dates: each } };
   },
@@ -766,7 +766,7 @@ export const enrolmentAcceptOffer = defineAction({
     return { title: both("action.enrolment.accept_offer"), summary: both("plan.enrolment.accept_offer", { person: await personName(ctx.db, e.person_id), name: textOf(p.name, p.translations, "name"), price: priceWords(price) }),
       reads: [read, { entity: "waitlist_offer", id: offer.id, version: offer.version }], locationId: p.location_id, ownerIds: await withManagers(ctx.db, [e.person_id]), moneyCents: price.cents, undo: { kind: "compensating" }, details: { offer_id: offer.id, price },
       charge: charge([...programLines(textOf(p.name, p.translations, "name"), price), chargeLine("total", "charge.total", {}, price.cents)], price.cents,
-        await howPaid(ctx.db, e.person_id, price.cents), both("charge.when_now")) };
+        await howPaid(ctx, e.person_id, price.cents, { creditPart: true }), both("charge.when_now")) };
   },
   async apply(ctx, i, plan) {
     const planned = (plan.details as { offer_id: string; price: ProgramPrice }).price;

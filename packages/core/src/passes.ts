@@ -167,7 +167,7 @@ export const passBuy = defineAction({
     // still being processed, asked of the provider now.
     const callOffIds = await stillUnpaid(await waitingPasses(ctx.db, i.person_id));
     const chargeOf = charge([chargeLine("item", "charge.pass", { name: p.name, uses: String(p.uses) }, p.price_cents), chargeLine("total", "charge.total", {}, p.price_cents)],
-      p.price_cents, await howPaid(ctx.db, i.person_id, p.price_cents, { cardOnly: true }), both("charge.when_now"));
+      p.price_cents, await howPaid(ctx, i.person_id, p.price_cents, { cardOnly: true }), both("charge.when_now"));
     return { title: both("action.pass.buy"), reads: [read], ownerIds: [i.person_id], moneyCents: p.price_cents, charge: chargeOf, undo: { kind: "none", note: both("reason.refund_sent") },
       summary: both("plan.pass.buy", { name: p.name, uses: String(p.uses), price: usd(p.price_cents) }), details: { call_off: callOffIds } };
   },

@@ -1973,7 +1973,6 @@ export const es: { [K in keyof typeof en]: Message } = {
   "charge.how_card": "Con tarjeta, en el siguiente paso.",
   "charge.how_card_saved": "Con tarjeta: la agregas en el siguiente paso y se guarda para el primer cobro.",
   "charge.how_card_or_credit": "Con tarjeta o con tu crédito del club ({credit} disponible), en el siguiente paso.",
-  "charge.how_card_more": "Con tarjeta, en el siguiente paso. Ahí también puedes usar un pase o un código promocional que lo cubra.",
   "charge.when_now": "Se cobra ahora, en el siguiente paso.",
   "charge.when_now_once": "Se cobra ahora, en el siguiente paso. Nada se renueva con esta tarjeta.",
   "charge.when_now_court": "Se cobra ahora, en el siguiente paso. La cancha se guarda {minutes} minutos mientras pagas.",

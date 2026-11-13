@@ -57,7 +57,7 @@ test("a whole court: price, tax on top, total; the total is what the card is ask
   assert.deepEqual(kinds(c), [["item", "Court 1, 90 minutes", 6000], ["tax", "Sales tax (8.25%)", 495], ["total", "Total", 6495]]);
   assert.equal(c.due_cents, 6495);
   assert.equal(paid!.amount_cents, c.due_cents);
-  assert.equal(c.how.en, "By card, in the next step. A pass or a promo code that covers it can be used there too.");
+  assert.equal(c.how.en, "By card, in the next step.");
   assert.equal(c.when!.en, "Charged now, in the next step. The court is held for 10 minutes while you pay.");
 });
 
@@ -136,7 +136,8 @@ test("a membership and a pass: card only, the price is what's charged", async ()
 test("a weekly court: the first week now (what its payment asks), the later weeks on the saved card nearer their day", async () => {
   await run(db, "club.update", { weekly_bookings: true }, owner, opts);
   const { c, paid } = await charged("booking.repeat_request", { court_id: c1, starts_at: at("2026-12-01", "20:00"), minutes: 60, person_id: people.Ben, weeks: 3 }, "Ben");
-  assert.deepEqual(kinds(c).map((k) => k[0]), ["item", "tax_included", "total", "later"]);
+  assert.deepEqual(kinds(c).map((k) => k[0]), ["item", "tax", "total", "later"]);
+  assert.equal(c.lines[0]!.cents! + c.lines[1]!.cents!, c.lines[2]!.cents);   // tax on top adds up
   assert.equal(c.lines.find((l) => l.kind === "total")!.cents, paid!.amount_cents);
   assert.equal(c.due_cents, paid!.amount_cents);
   assert.equal(paid!.save_card, true);
@@ -151,4 +152,19 @@ test("a free place still shows its lines, and says there's nothing to pay", asyn
   assert.equal(r.plan.charge!.due_cents, 0);
   assert.equal(r.plan.charge!.how.en, "Nothing to pay.");
   assert.equal(r.plan.charge!.when, null);
+});
+
+test("club credit is offered only where it can pay: all of a court, or part of a program place", async () => {
+  // A court paid and then cancelled by the desk, all back as credit: $43.30 (an hour with tax).
+  const desk = owner;
+  const b = (await run(db, "booking.request", { court_id: c2, starts_at: at("2026-12-08", "10:00"), minutes: 60, pay: "whole", person_id: people.Kim }, as("Kim"), opts)).result as { booking_id: string; payment_id: string };
+  await pay(b.payment_id, "Kim");
+  await run(db, "booking.cancel", { booking_id: b.booking_id, refund: "credit" }, desk, opts);
+  const court = await run(db, "booking.request", { court_id: c2, starts_at: at("2026-12-08", "12:00"), minutes: 90, pay: "whole", person_id: people.Kim }, as("Kim"), opts);
+  assert.equal(court.plan.charge!.how.en, "By card, in the next step.");   // $43.30 can't pay part of a $64.95 court
+  const small = await run(db, "booking.request", { court_id: c2, starts_at: at("2026-12-08", "14:00"), minutes: 60, pay: "whole", person_id: people.Kim }, as("Kim"), opts);
+  assert.equal(small.plan.charge!.how.en, "By card or from your club credit ($43.30 to use), in the next step.");
+  // Staff (not the member) planning it: no credit offered in the member's name.
+  const forThem = await run(db, "booking.request", { court_id: c1, starts_at: at("2026-12-08", "16:00"), minutes: 60, pay: "whole", person_id: people.Kim }, owner, opts);
+  assert.equal(forThem.plan.charge!.how.en, "By card, in the next step.");
 });

@@ -89,3 +89,10 @@ test("the preview of a change that charges money carries its lines; one that cha
   const none = (await call("/actions/consent.club_news/plan", cookie, { person_id: id, granted: true })).json;
   assert.equal(none.charge, undefined);
 });
+
+test("staff previewing a member's paid change at the desk see the summary, not the member's charge sheet", async () => {
+  const cookie = await signIn("robin@example.test"), id = await personBy("jo@example.test");
+  const p = (await call("/actions/membership.join/plan", cookie, { plan_id: gold, person_id: id })).json;
+  assert.equal(typeof p.summary, "string");
+  assert.equal(p.charge, undefined);
+});

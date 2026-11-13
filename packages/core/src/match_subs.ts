@@ -124,7 +124,7 @@ export const bookingTakePlace = defineAction({
     if (joinRule(m.om, level) !== "join") throw new KumiError("error.take_outside_band", { level: levelText(level), band: band(m.om) });
     if (await subPaying(ctx.db, place.id, ctx.now)) throw new KumiError("error.offer_being_taken");
     const chargeOf = charge([chargeLine("item", "charge.their_place", { name: from }, place.share_cents), chargeLine("total", "charge.total", {}, place.share_cents)],
-      place.share_cents, await howPaid(ctx.db, i.person_id, place.share_cents), both("charge.when_take_place"));
+      place.share_cents, await howPaid(ctx, i.person_id, place.share_cents), both("charge.when_take_place"));
     return { title: both("action.booking.take_place"), summary: both("plan.booking.take_place", { name: from, court: m.court, when: m.when, share: usd(place.share_cents) }),
       reads: [], locationId: m.location_id, ownerIds: [i.person_id], moneyCents: place.share_cents, charge: chargeOf, undo: { kind: "compensating" }, details: { place: place.id, booking_id: place.booking_id, share: place.share_cents } };
   },
