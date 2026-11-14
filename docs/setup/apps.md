@@ -31,14 +31,40 @@ mark from the name.
 - **Inside the app**, while it loads, the same mark on the same colour, so there's no jump when the phone hands over.
   It goes as soon as the first screen is ready. On a slow connection it shows a quiet loading line, then a note to
   check the connection and Try again; with no connection it says so, and tries again when the phone is back online.
+  That works with no connection at all (airplane mode, a reload, opening the installed app), not only when the club's
+  server is down: see "With no connection" below.
 - **A first sign-in** plays a short welcome (about a second; a tap ends it) once per person in each app, and the
   welcome for members who moved in from another system comes in part by part. With "reduce motion" on in the phone's
   settings, both only fade.
 
 Changing the name or colour draws new icons and start screens straight away, and phones pick them up: the app's own
-start screen the next time it opens (or the one after, at most a day later), and Android's icon when Chrome next
+start screen the next time it opens with a connection, and Android's icon when Chrome next
 checks the app (it does on its own, about once a day). An iPhone keeps the icon it was added with until the app is
 removed and added to the Home Screen again: that's Apple's rule, not openPadel's.
+
+### With no connection
+
+Each app has a small service worker (`/sw.js`), for everyone who opens it, not only those who turn on notifications
+(it also shows those). It is there so a phone with no connection at all still opens the app's own start screen, in the
+club's colour with its logo, saying it can't reach the club, instead of the browser's "no internet" page. The app
+keeps trying by itself and carries on as soon as the phone is back online.
+
+- **What it keeps on the phone:** the app's page, the code and styles of its first screen, the first screen's words
+  (English and Spanish), and the start screen's colour and logo. Nothing about a person: never anything from the
+  club's API, never who's signed in, never anything behind sign-in, never another site's files.
+- **Pages always come from the club first.** The kept copy is used only when the club can't answer: no connection, no
+  answer within 4 seconds, or a server error. With a connection, every page is the club's current one.
+- **Updates can't get stuck.** Each release builds its own `/sw.js`, which names that release's files. The phone
+  fetches it on the next start with a connection, keeps the new page and its files together (all of them or none; a
+  file the server can't give fails the lot), and only then drops the old release's copy. If the new copy can't be
+  made (a weak connection), the old one stays and still starts the app offline, and the phone tries again on a later
+  start. The start screen's colour and logo are checked with the club on every start, so a new logo or colour shows
+  the next time the app opens with a connection.
+- **The first time** someone opens the app they need a connection, as always: the copy is kept once the app has
+  started.
+
+Nothing to set up: Caddy serves `/sw.js` with the app's other files (`apps/*/dist`). The code is
+`packages/ui/sw/worker.js`; each app's build writes it into its `/sw.js` (`offlineShell()` in `packages/ui/vite.ts`).
 
 ### The club's logo
 

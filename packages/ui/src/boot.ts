@@ -44,5 +44,7 @@ export function startBoot(): void {
     if (off) later();
   });
   // The first screen draws in the same frame as `me` arrives; the start screen goes on the next one.
-  effect(() => { if (me.value !== undefined) { clearTimeout(timer); requestAnimationFrame(() => bootDone()); } });
+  // Then the service worker (/sw.js, sw/worker.js), for everyone: it puts this page aside so the start screen shows,
+  // saying it can't reach the club, on a phone with no connection at all.
+  effect(() => { if (me.value !== undefined) { clearTimeout(timer); requestAnimationFrame(() => bootDone()); navigator.serviceWorker?.register("/sw.js").catch(() => {}); } });
 }

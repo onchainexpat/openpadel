@@ -17,6 +17,13 @@ reach the club" and a slow start show one too, carried inside the page so it sho
 decorative (screen readers skip them), load only when shown, keep still with less motion, and show nothing if one
 can't load.
 
+"Can't reach the club" now shows with no connection at all. Before, a phone in airplane mode (a reload, or opening
+the installed app) got the browser's own "no internet" page; now each app keeps a copy of its start screen on the
+phone (a small service worker, for everyone, which also shows notifications as before) and opens on it, in the
+club's colour with its logo, and carries on by itself once the phone is back online. Pages still come from the club
+first; only the app's page, its first screen's code and words, and the start screen's colour and logo are kept,
+never anything personal or from the club's API (docs/setup/apps.md, "With no connection").
+
 Owners and managers no longer have to set up a passkey or an authenticator app before they can sign in: the emailed
 (or texted) code is enough. The club's most sensitive changes still ask them for a second step, and offer to set one
 up right there.

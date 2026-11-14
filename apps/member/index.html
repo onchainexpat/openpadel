@@ -36,7 +36,8 @@
       .boot-offline .boot-dots { display: none; }
       .boot-retry { color: inherit; font-weight: 700; text-decoration: underline; }
       /* The drawing over "can't reach the club" and a slow start's words, in the colour that reads on the club's; it's in
-         this page (vite.ts in packages/ui), so it shows with no connection at all. */
+         this page (vite.ts in packages/ui), so it shows with no connection at all (the service worker keeps this page
+         for then: packages/ui/sw/worker.js). */
       .boot-art { display: block; width: 108px; height: 99px; margin: 0 auto 12px; background: currentColor;
         -webkit-mask: url(KUMI_OFFLINE_ART) center / contain no-repeat; mask: url(KUMI_OFFLINE_ART) center / contain no-repeat; }
       @keyframes boot-in { to { opacity: 1; } }
