@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { decide, getAction, lessonCoaches, lessonTimes, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { shortContact } from "./mcp.ts";
 import { csvCell, readPeopleCsv } from "./csv.ts";
@@ -26,7 +26,7 @@ const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
   [/^\/staff\/(people|tags|chats|customers)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
   [/^\/staff\/(reports|coach-earnings|payments|receipts|desk|move-in)/, "money"], [/^\/staff\/(settings|roles|vault|usage)/, "settings"],
-  [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|quote|mirror|alerts|block-series|bookings|weekly-courts)/, "bookings"],
+  [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|month|quote|lesson-coaches|lesson-times|mirror|alerts|block-series|bookings|weekly-courts)/, "bookings"],
   [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
 ];
 export const readArea = (path: string) => READ_AREAS.find(([re]) => re.test(path))?.[1] ?? null;
@@ -345,7 +345,65 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     if (isNaN(start.getTime()) || !Number.isInteger(minutes) || minutes < 30 || minutes > 480) throw new KumiError("error.invalid_input", { details: "court_id, starts_at and minutes" }, 400);
     if (personId && !/^[0-9a-f-]{36}$/.test(personId)) throw new KumiError("error.invalid_input", { details: "person_id" }, 400);
     // With the club's "pay my part" deadline, so the desk's form offers each their part only while there's time.
-    return c.json({ ...await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes, personId: personId || null }), split_deadline_hours: (await currentPolicy(db)).split_deadline_hours });
+    const policy = await currentPolicy(db);
+    return c.json({ ...await quote(db, { courtId: c.req.query("court_id") ?? "", start, minutes, personId: personId || null }), split_deadline_hours: policy.split_deadline_hours, same_day_cutoff_hours: policy.same_day_cutoff_hours });
+  });
+
+  // The desk's lesson form (+ Create, Private lesson): the coaches who give lessons, with their rates and how many players
+  // each takes; and when one is free for a lesson of a length on a date at a location, with a court free then.
+  app.get("/staff/lesson-coaches", async (c) => {
+    const coaches = (await lessonCoaches(db)).filter((x) => x.lessons && Object.keys(x.rates).length);
+    return c.json({ coaches: coaches.map((x) => ({ id: x.id, name: x.name, rates: x.rates, max_players: x.max_players, level_min: x.level_min, level_max: x.level_max })),
+      split_deadline_hours: (await currentPolicy(db)).split_deadline_hours });
+  });
+  app.get("/staff/lesson-times", async (c) => {
+    const coachId = c.req.query("coach_id") ?? "", date = c.req.query("date") ?? "", minutes = Number(c.req.query("minutes") ?? 0), locationId = c.req.query("location_id") ?? "";
+    if (!isUuid(coachId) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(minutes) || (locationId && !isUuid(locationId)))
+      throw new KumiError("error.invalid_input", { details: "coach_id, date, minutes and location_id" }, 400);
+    const times = await lessonTimes(db, { coachId, date, minutes, now: new Date() });
+    return c.json({ times: times.filter((x) => !locationId || x.location_id === locationId).map((x) => x.start) });
+  });
+
+  // One location's month, a day at a time, for the Schedule's Month view: how full each day's courts are (as the day
+  // view counts it: bookings, program dates and Playtomic copies inside each court's own hours, over those hours less
+  // what's blocked), how many bookings it has, and its program dates (clinics, courses, events), by name. No names of
+  // people and no money, so it reads the same for everyone who reads the Schedule.
+  app.get("/staff/month", async (c) => {
+    const locationId = c.req.query("location_id") ?? "", month = c.req.query("month") ?? "", now = new Date();
+    const loc = isUuid(locationId) ? await db.selectFrom("location").select(["id", "time_zone"]).where("id", "=", locationId).executeTakeFirst() : undefined;
+    if (!loc) throw new KumiError("error.not_found", { thing: { en: "location", es: "la sede" } }, 404);
+    const ym = /^\d{4}-\d{2}$/.test(month) ? month : localDate(now, loc.time_zone).slice(0, 7);
+    const [y, m] = ym.split("-").map(Number) as [number, number], count = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const days = Array.from({ length: count }, (_, n) => `${ym}-${String(n + 1).padStart(2, "0")}`);
+    const courts = await db.selectFrom("court").select("id").where("location_id", "=", loc.id).where("archived_at", "is", null).execute();
+    const ids = courts.map((x) => x.id), hours = await courtOpeningsOn(db, loc.id, ids, days);
+    const from = atLocal(y, m, 1, 0, loc.time_zone), to = atLocal(y, m + 1, 1, 0, loc.time_zone);
+    const items = await occupied(db, ids, from, to, now);
+    const sessionIds = [...new Set(items.map((x) => x.session_id).filter((x): x is string => Boolean(x)))];
+    const sessions = sessionIds.length ? await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id")
+      .select(["session.id", "session.starts_at", "program.name", "program.kind"]).where("session.id", "in", sessionIds).execute() : [];
+    const ms = (d: Date) => new Date(d).getTime();
+    const out = days.map((day) => {
+      let open = 0, blocked = 0, used = 0;
+      const seen = new Set<string>(), daily = items.filter((x) => localDate(new Date(x.start), loc.time_zone) === day);
+      for (const ct of ids) {
+        const o = hours.get(day)?.get(ct);
+        if (!o) continue;
+        const a = o.opens.getTime(), b = o.closes.getTime();
+        open += b - a;
+        for (const x of items) {
+          if (x.court_id !== ct) continue;
+          const part = Math.max(0, Math.min(ms(x.end), b) - Math.max(ms(x.start), a));
+          if (x.kind === "block") blocked += part;
+          else if (x.kind === "booking" || x.kind === "session" || x.kind === "mirror") used += part;
+        }
+      }
+      for (const x of daily) if (x.kind === "booking" || x.kind === "mirror") seen.add(x.booking_id ?? x.id);
+      const dates = sessions.filter((s) => daily.some((x) => x.session_id === s.id)).sort((a, b) => ms(a.starts_at) - ms(b.starts_at));
+      return { date: day, open: open > 0, percent: open - blocked > 0 ? Math.min(100, Math.round((used / (open - blocked)) * 100)) : 0, bookings: seen.size,
+        programs: dates.map((s) => ({ name: s.name, kind: s.kind, start: s.starts_at })) };
+    });
+    return c.json({ month: ym, time_zone: loc.time_zone, today: localDate(now, loc.time_zone), days: out });
   });
 
   // One location's courts on one day: what holds each court, in order, and when it's open.

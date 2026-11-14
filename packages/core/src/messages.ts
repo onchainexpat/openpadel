@@ -275,6 +275,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const kind = `${lesson ? "lesson" : "booking"}_confirmed${b.pay_mode === "split" ? "_split" : ""}`;
     return [{ to: b.organiser_id, kind, params: b.base, purpose: "account", essential: true, email: true, link: "/places" }, ...toCoach(b, "coach_lesson_booked")];
   },
+  // Booked at the desk: the players are there and were told, so nobody is sent a confirmation; a lesson's coach hears of
+  // it, as of one booked in the app (lessons.ts booking.create_lesson).
+  async "booking.created"({ db }, p: { booking_id: string }) {
+    const b = await bookingInfo(db, p.booking_id);
+    if (b.kind !== "lesson" || b.status === "cancelled") return [];
+    return toCoach(b, "coach_lesson_booked");
+  },
   // Several courts paid together: one message for them all.
   async "booking.courts_confirmed"(c, p: { person_id: string; booking_ids: string[]; cents: number }) {
     const items: Text[] = [], left: string[] = [];

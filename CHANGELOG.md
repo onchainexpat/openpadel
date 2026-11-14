@@ -38,6 +38,17 @@ up right there.
 - Approvals in the staff app: every ask waiting for your yes, with who asked, what it changes and when the ask runs
   out, approved or declined as on Changes; your own asks still waiting; and the week's answers.
 - Counts on the staff menu: Today, Approvals, Questions and disputed Scores, from one small read each minute.
+- + Create's Private lesson and Open match work at the desk, in the Schedule's side panel like a court booking. A
+  lesson: a coach who gives lessons, a length from their rates, a free time on the day, one to four players (members or,
+  for the whole lesson, a guest's name); the coach's rate is the price for everyone, taxed like a court, a free court
+  is picked by itself and named in the preview, and the coach hears of it. An open match: a court and time, a host and
+  any players already known (members), the level band, who outside it may ask, rated or a friendly, and whether it
+  shows on the Play page; others at the level join and pay in the app, and not full by the deadline it's cancelled
+  and everyone paid back. Either way no card is held: places marked paid are paid now, and the rest is owed at the
+  desk. Places the desk names in an open match count as taken at its deadline. Previewed, in Changes, and undone like
+  any booking (`openpadel booking create-lesson`; `booking.create` takes `open`).
+- The Schedule has a Month view beside Day and Week: each day's occupancy (as the Day view counts it) as a bar and a
+  number, its bookings, and its clinics, courses and events by name. Tap a day to open it.
 - The club's logo (Settings, next to the colour, or `logo:` in club.yaml): an SVG, PNG or JPEG in place of the mark
   drawn from the club's name, on the app icons, the iPhone start images, the apps' start screen and welcome, and both
   apps' headers. It sits on the club's colour where it stands out, and on a dark or white tile where it wouldn't; the

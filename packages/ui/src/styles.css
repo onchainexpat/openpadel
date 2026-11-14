@@ -399,3 +399,26 @@ a.button.primary { background: var(--brand); color: var(--on-brand); border-colo
 ul.plain li.card.ask, ul.plain li.card.need { padding: 14px 16px; border: 1px solid var(--line); }
 .need-items li:last-child { border-bottom: 0; }
 .ask .ask-what { margin: 4px 0; overflow-wrap: anywhere; } .ask p { margin: 4px 0; }
+/* The Schedule's Month view: a calendar of the location's month, each day's load as a bar and a number (never colour
+   alone), its bookings and its clinics, courses and events. On a phone the names go and the bar and count stay. */
+.month-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 18px; margin: 12px 0 8px; }
+.month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; list-style: none; margin: 0 0 8px; padding: 0; }
+.month-head { padding: 4px; font-size: 12px; font-weight: 600; color: var(--muted); text-align: center; } .month-head abbr { text-decoration: none; }
+.month-day { display: flex; flex-direction: column; align-items: stretch; gap: 3px; width: 100%; height: 100%; min-height: 96px; margin: 0; padding: 6px; text-align: left;
+  font-size: 12px; font-weight: 400; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.month-day:hover { border-color: var(--brand-ink); } .month-day[aria-current="date"] { border: 2px solid var(--brand-ink); }
+.month-num { font-size: 14px; font-weight: 700; }
+.month-load { display: flex; align-items: center; gap: 6px; font-weight: 600; } .month-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.month-bar span { display: block; height: 100%; background: var(--brand-ink); }
+.m-closed { background: repeating-linear-gradient(135deg, var(--bg) 0 6px, var(--card) 6px 12px); }
+.month-count { color: var(--muted); }
+.month-progs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.month-progs li { padding: 1px 4px; border: 0; border-left: 3px solid var(--k-ink, var(--line)); border-radius: 3px; background: var(--k-fill, transparent); color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.month-progs li.meta { background: none; border: 0; padding: 0 4px; }
+@media (max-width: 599px) {
+  .month-grid { gap: 2px; } .month-day { min-height: 64px; padding: 4px; font-size: 11px; } .month-progs, .month-count { display: none; }
+  .month-load { flex-direction: column; align-items: stretch; gap: 2px; }
+}
+.dc-label { margin: 8px 0 4px; font-weight: 600; } .nb .seg-toggle + .seg-toggle { margin-top: 8px; }
+.month-day.m-past { color: var(--muted); }

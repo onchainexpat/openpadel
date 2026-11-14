@@ -8,13 +8,14 @@ import { randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import * as z from "zod/mini";
 import { both, dateTime, money, type Lang, type Text, formatLocale } from "@kumi/i18n";
-import { defineAction, readRow, type PlanCtx } from "./actions.ts";
+import { defineAction, mayAlso, readRow, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { mergeTranslations, translationsInput } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { localDate, onDate, weekdayOf } from "./clock.ts";
-import { freeCourts, itsTimeNow, occupied } from "./bookings.ts";
+import { deskSlot, freeCourts, insertTime, itsTimeNow, lockCourts, occupied, paidHowOf, range } from "./bookings.ts";
+import { deskMethod, deskPlace, placeFilled, type DeskPlace } from "./desk_places.ts";
 import { currentPolicy, taxSplit } from "./prices.ts";
 import { paymentProvider } from "./money.ts";
 import { checkSlot, courtAndPlace, courtLocation, HOLD_MINUTES, newCode, notOwing, shares } from "./booking_pay.ts";
@@ -292,9 +293,9 @@ export const sessionSetCoach = defineAction({
 
 // ---- Booking a lesson ----
 /** A court at the coach's location free for the lesson, if the member didn't pick one. */
-async function lessonCourt(db: Db | Trx, coachId: string, start: Date, minutes: number, now: Date, tz: string) {
+async function lessonCourt(db: Db | Trx, coachId: string, start: Date, minutes: number, now: Date, tz: string, locationId?: string) {
   const day = await coachDay(db, coachId, localDate(start, tz), tz), end = start.getTime() + minutes * 60_000;
-  const where = day.stretches.find((x) => x.start.getTime() <= start.getTime() && end <= x.end.getTime());
+  const where = day.stretches.find((x) => (!locationId || x.location_id === locationId) && x.start.getTime() <= start.getTime() && end <= x.end.getTime());
   if (!where) return null;
   const courts = await db.selectFrom("court").select("id").where("location_id", "=", where.location_id).where("archived_at", "is", null).where("bookable", "=", true).orderBy("sort").orderBy("name").execute();
   const taken = new Set((await occupied(db, courts.map((c) => c.id), start, new Date(end), now)).map((x) => x.court_id));
@@ -369,6 +370,107 @@ export const lessonRequest = defineAction({
     return { booking_id: id, code, payment_id: payment, total_cents: i.pay === "whole" ? d.total : s.organiser };
   },
 });
+
+// ---- A lesson booked at the desk ----
+// The same lesson a member books (the coach's rate for its length, court included, the same for members and anyone
+// else, taxed like a court, never counted toward a member's booking limit, a court picked by itself), made by the
+// desk with no card held: the whole lesson or each player their part, places paid now marked paid, and the rest owed at
+// the desk (as a court booked at the desk is; booking.settle_shares tells the organiser at the deadline).
+export const bookingCreateLesson = defineAction({
+  name: "booking.create_lesson", version: 1,
+  input: z.object({ coach_id: z.uuid(), starts_at: z.iso.datetime({ offset: true }), minutes: z.number().check(z.int()),
+    location_id: z.optional(z.uuid()), pay: z.enum(["whole", "split"]),
+    // One place a player: the first is the organiser's (a member, or a guest's name for the whole lesson). Each their
+    // part, a place left open is taken with the lesson's link and paid in the app.
+    places: z.array(deskPlace).check(z.minLength(1), z.maxLength(4)), paid_method: z.optional(deskMethod),
+    note: z.optional(z.string().check(z.maxLength(200))), player_note: z.optional(z.string().check(z.maxLength(200))) }),
+  async plan(ctx, i) {
+    const places = i.places, org = places[0]!;
+    if (places.some((p) => p.person_id && p.guest_name) || !placeFilled(org)) throw new KumiError("error.booking_who");
+    const ids = places.flatMap((p) => (p.person_id ? [p.person_id] : []));
+    if (new Set(ids).size !== ids.length) throw new KumiError("error.player_twice");
+    if (ids.includes(i.coach_id)) throw new KumiError("error.own_lesson");
+    if (places.some((p) => p.paid && !placeFilled(p))) throw new KumiError("error.paid_place_empty");
+    const c = await lessonCoach(ctx.db, i.coach_id), rate = c.rates[String(i.minutes)], players = places.length;
+    if (rate === undefined) throw new KumiError("error.lesson_length", { coach: c.name, lengths: Object.keys(c.rates).join(", ") });
+    if (players > c.max_players) throw new KumiError("error.lesson_too_many", { coach: c.name, count: c.max_players });
+    if (i.pay === "split" && players < 2) throw new KumiError("error.lesson_split_alone");
+    if (i.pay === "split" && !org.person_id) throw new KumiError("error.split_needs_member");
+    const policy = await currentPolicy(ctx.db), tz = await clubTz(ctx.db), start = new Date(i.starts_at), end = new Date(start.getTime() + i.minutes * 60_000);
+    const day = await coachDay(ctx.db, i.coach_id, localDate(start, tz), tz);
+    const here = day.stretches.filter((x) => !i.location_id || x.location_id === i.location_id);
+    if (!here.some((x) => x.start <= start && end <= x.end) || day.off.some((x) => overlaps(x, start.getTime(), end.getTime())))
+      throw new KumiError("error.coach_not_then", { coach: c.name, when: when(start, tz) });
+    if ((await coachBusy(ctx.db, i.coach_id, start, end, ctx.now)).length) throw new KumiError("error.coach_busy", { coach: c.name, when: when(start, tz) });
+    const courtId = await lessonCourt(ctx.db, i.coach_id, start, i.minutes, ctx.now, tz, i.location_id);
+    if (!courtId) throw new KumiError("error.court_taken");
+    const { court } = await deskSlot(ctx, courtId, start, i.minutes);
+    if (i.pay === "split" && start.getTime() - ctx.now.getTime() <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
+    if (places.some((p) => p.paid) && !(await mayAlso(ctx.db, ctx.actor, "booking.record_payment", { locationId: court.location_id, at: ctx.now }))) throw new KumiError("error.paid_not_yours");
+    const names = new Map<string, string>();
+    for (const id of ids) {
+      const { row } = await readRow(ctx.db, "person", id, "thing.person");
+      if (row.status !== "active" || row.redacted_at) throw new KumiError("error.not_found", { thing: both("thing.person") }, 404);
+      names.set(id, row.display_name as string);
+    }
+    const nameOf = (p: DeskPlace) => (p.person_id ? names.get(p.person_id)! : p.guest_name ?? "");
+    const club = await ctx.db.selectFrom("club").select(["tax_rate_bp", "prices_include_tax"]).executeTakeFirstOrThrow();
+    const { tax, total } = taxSplit(rate, club.tax_rate_bp, club.prices_include_tax), part = lessonParts(total, i.pay, players);
+    if (places.some((x, n) => x.paid && part[n]! <= 0)) throw new KumiError("error.paid_place_nothing");
+    const who = nameOf(org), lines: Text[] = [both("plan.lesson.desk_create", { coach: c.name, court: court.name, when: when(start, tz), minutes: i.minutes,
+      players: both("count.players", { count: players }), total: usd(total) })];
+    if (i.pay === "whole") lines.push(both("plan.lesson.desk_whole", { who }));
+    else {
+      const s = shares(total, players);
+      lines.push(both("plan.lesson.desk_split", { who, first: usd(s.organiser), each: usd(s.each) }));
+      lines.push(both("plan.booking.desk_deadline", { who, when: when(new Date(start.getTime() - policy.split_deadline_hours * 3600_000), tz) }));
+    }
+    const others = places.slice(1).filter(placeFilled).map(nameOf);
+    if (others.length) lines.push(both("plan.booking.desk_players", { names: others.join(", ") }));
+    const paid = places.map((x, n) => ({ x, cents: part[n]! })).filter((y) => y.x.paid);
+    if (paid.length) lines.push(both("plan.booking.desk_paid", { names: paid.map((y) => nameOf(y.x)).join(", "), amount: usd(paid.reduce((n, y) => n + y.cents, 0)), how: paidHowOf(i.paid_method ?? "cash") }));
+    const owed = total - paid.reduce((n, y) => n + y.cents, 0);
+    if (i.pay === "whole" && owed > 0) lines.push(both("plan.booking.desk_owed", { amount: usd(owed) }));
+    const open = players - places.filter(placeFilled).length;
+    if (open > 0 && i.pay === "split") lines.push(both("plan.booking.desk_open_split", { count: open }));
+    if (i.player_note?.trim()) lines.push(both("plan.booking.desk_player_note", { note: i.player_note.trim() }));
+    return { title: both("action.booking.create_lesson"), summary: join(lines, " "), reads: [], locationId: court.location_id, ownerIds: org.person_id ? [org.person_id] : [], moneyCents: total,
+      undo: { kind: "reversible" }, details: { court_id: courtId, rate, tax, tax_bp: club.tax_rate_bp, tax_included: club.prices_include_tax, total, players, policy_id: policy.id } };
+  },
+  async apply(ctx, i, plan) {
+    const d = plan.details as { court_id: string; rate: number; tax: number; tax_bp: number; tax_included: boolean; total: number; players: number; policy_id: string };
+    const start = new Date(i.starts_at), end = new Date(start.getTime() + i.minutes * 60_000), org = i.places[0]!;
+    // The coach first, then the court: two people booking the same coach at once can't both get the time.
+    await ctx.trx.selectFrom("person").select("id").where("id", "=", i.coach_id).forUpdate().execute();
+    if ((await coachBusy(ctx.trx, i.coach_id, start, end, ctx.now)).length) throw new KumiError("error.changed");
+    await lockCourts(ctx, [d.court_id]);
+    const court = await courtAndPlace(ctx.trx, d.court_id), code = await newCode(ctx.trx), id = uuidv7(), part = lessonParts(d.total, i.pay, d.players);
+    const quote = { lines: [], lesson: { coach_id: i.coach_id, minutes: i.minutes, rate_cents: d.rate }, subtotal_cents: d.total - d.tax, tax_bp: d.tax_bp, tax_included: d.tax_included, tax_cents: d.tax, total_cents: d.total, priced: true, member: null };
+    await ctx.insert("booking", { id, code, location_id: court.location_id, kind: "lesson", coach_id: i.coach_id, organiser_id: org.person_id ?? null, status: "confirmed", source: "desk",
+      price_cents: d.total, tax_cents: d.tax, quote: JSON.stringify(quote), policy_id: d.policy_id, pay_mode: i.pay, players: d.players, note: i.note?.trim() || null,
+      player_note: i.player_note?.trim() || null, invite_code: org.person_id ? randomBytes(9).toString("base64url") : null });
+    const seats: { id: string; place: DeskPlace; cents: number }[] = [];
+    for (const [n, p] of i.places.entries()) {
+      if (!placeFilled(p)) continue;
+      const seat = uuidv7();
+      await ctx.insert("booking_player", { id: seat, booking_id: id, person_id: p.person_id ?? null, guest_name: p.person_id ? null : p.guest_name!, share_cents: part[n]!,
+        ...(n > 0 ? { added_by: ctx.actor.personId } : {}) });
+      seats.push({ id: seat, place: p, cents: part[n]! });
+    }
+    await insertTime(ctx, [{ id: uuidv7(), court_id: d.court_id, during: range(start, end), kind: "booking", booking_id: id }]);
+    const { recordAtDesk } = await import("./desk_pay.ts");
+    for (const s of seats.filter((x) => x.place.paid && x.cents > 0))
+      await recordAtDesk(ctx, { personId: s.place.person_id ?? org.person_id ?? ctx.actor.personId!, cents: s.cents, method: i.paid_method ?? "cash", revenue: "lessons", memo: "lesson",
+        link: { booking_player_id: s.id } });
+    await ctx.emit("booking.created", { booking_id: id });
+    return { booking_id: id, code, court_id: d.court_id };
+  },
+});
+/** Each place's part of a lesson: the whole to the organiser, or each their part as the members' app shares it. */
+export function lessonParts(total: number, pay: "whole" | "split", players: number): number[] {
+  const s = shares(total, players);
+  return Array.from({ length: players }, (_, n) => (pay === "whole" ? (n === 0 ? total : 0) : n === 0 ? s.organiser : s.each));
+}
 
 // ---- For the coach and the club: the schedule, and earnings for payroll ----
 /** A coach's lessons and the sessions they run, from `from` to `to`. */

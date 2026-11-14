@@ -12,12 +12,12 @@ import { courtSlots } from "./open_times.ts";
 
 type Open = { opens: string; closes: string } | null;
 export type NbCourt = { id: string; name: string; open: Open; items: { start: string; end: string }[] };
-type Person = { id: string; display_name: string };
-type Place = { person: Person | null; text: string; paid: boolean };
+export type Person = { id: string; display_name: string };
+export type Place = { person: Person | null; text: string; paid: boolean };
 type Quoted = { total_cents: number; tax_cents: number; priced: boolean; member: string | null; split_deadline_hours?: number };
 const HALF = 30 * 60_000, MAX_MINUTES = 480;
 const ms = (iso: string) => new Date(iso).getTime();
-const blank = (): Place => ({ person: null, text: "", paid: false });
+export const blank = (): Place => ({ person: null, text: "", paid: false });
 
 /** Each place's part of the court, as the server works it out (bookings.ts deskParts): the whole court is the
  *  organiser's; each their part is four equal parts, the organiser taking the odd cents. */
@@ -27,12 +27,12 @@ export function partsOf(price: number, split: boolean): number[] {
   return [price - each * 3, each, each, each];
 }
 /** Where a court is free from a start on: until the next thing on it, or its closing. */
-function freeUntil(c: NbCourt, start: string): number {
+export function freeUntil(c: NbCourt, start: string): number {
   const close = c.open ? ms(c.open.closes) : ms(start);
   return Math.min(close, ...c.items.filter((it) => ms(it.end) > ms(start)).map((it) => Math.max(ms(it.start), ms(start))));
 }
 /** The starts a court offers: every half hour it's open, still to come, with at least half an hour free after it. */
-function startsOn(c: NbCourt): string[] {
+export function startsOn(c: NbCourt): string[] {
   return courtSlots(c.open).filter((s) => ms(s) > serverNow() && freeUntil(c, s) - ms(s) >= HALF);
 }
 
@@ -125,7 +125,8 @@ export function NewBooking({ courts, court, start, weekly, clock, tz, money, peo
 
 /** One place: a member found by name, phone or email (for a role that reads people), or what's typed as a guest's name;
  *  its part of the price, and Mark paid. */
-function PlaceRow({ n, p, people, price, paidOk, taken, onChange }: { n: number; p: Place; people: boolean; price: number | null; paidOk: boolean; taken: string[]; onChange: (p: Partial<Place>) => void }) {
+export function PlaceRow({ n, p, people, price, paidOk, taken, onChange, membersOnly, first }: { n: number; p: Place; people: boolean; price: number | null; paidOk: boolean; taken: string[];
+  onChange: (p: Partial<Place>) => void; membersOnly?: boolean; first?: string }) {
   const [found, setFound] = useState<Person[]>([]);
   const id = `nb-place-${n}`;
   const find = async (v: string) => {
@@ -133,7 +134,7 @@ function PlaceRow({ n, p, people, price, paidOk, taken, onChange }: { n: number;
     if (!people) return;
     setFound(v.trim().length > 1 ? (await api<Person[]>(`/staff/people?q=${encodeURIComponent(v.trim())}`).catch(() => [])).filter((x) => !taken.includes(x.id)) : []);
   };
-  const label = n === 0 ? t("ui.nb_organiser") : t("ui.nb_player_n", { n: n + 1 });
+  const label = n === 0 ? first ?? t("ui.nb_organiser") : t("ui.nb_player_n", { n: n + 1 });
   return (
     <div class="nb-place">
       <div class="nb-who">
@@ -143,10 +144,10 @@ function PlaceRow({ n, p, people, price, paidOk, taken, onChange }: { n: number;
             : <input id={id} maxLength={80} autocomplete="off" placeholder={t("ui.nb_guest_name")} value={p.text} onInput={(e) => void find(e.currentTarget.value)} />}
         {!p.person && found.length > 0 && <ul class="plain nb-found">{found.slice(0, 6).map((x) => <li class="row"><span>{x.display_name}</span>
           <button type="button" class="small" onClick={() => { setFound([]); onChange({ person: x, text: "" }); }}>{t("ui.choose")}</button></li>)}</ul>}
-        {!p.person && p.text.trim() && <span class="meta">{t("ui.nb_as_guest")}</span>}
+        {!p.person && p.text.trim() && <span class="meta">{t(membersOnly ? "ui.dc_pick_member" : "ui.nb_as_guest")}</span>}
       </div>
       {price !== null && <span class="nb-price">{dollars(price, lang.value)}</span>}
-      {paidOk && price !== null && price > 0 && <button type="button" class={`small nb-paid${p.paid ? " on" : ""}`} aria-pressed={p.paid} disabled={!p.person && !p.text.trim()}
+      {paidOk && price !== null && price > 0 && <button type="button" class={`small nb-paid${p.paid ? " on" : ""}`} aria-pressed={p.paid} disabled={!p.person && (membersOnly || !p.text.trim())}
         onClick={() => onChange({ paid: !p.paid })}>{t(p.paid ? "ui.nb_paid" : "ui.nb_mark_paid")}</button>}
     </div>
   );

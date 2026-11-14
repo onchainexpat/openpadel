@@ -510,9 +510,30 @@ Its preview reads: "Book {court}, {when}, for {minutes} minutes, for {who}."
 | `--places` | JSON list |  |  |
 | `--paid-method` | cash \| terminal \| other |  |  |
 | `--player-note` | text |  |  |
+| `--open` | JSON |  |  |
 
 ```
 openpadel booking create --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90
+```
+
+#### openpadel booking create-lesson
+
+Book a private lesson at the desk. Who may: owner, manager, front desk.
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--coach` | coach: a name or an id | needed |  |
+| `--starts-at` | time: "YYYY-MM-DD HH:MM" on the club's clock, or ISO | needed |  |
+| `--minutes` | whole number | needed |  |
+| `--location` | location: a name or an id |  |  |
+| `--pay` | whole \| split | needed |  |
+| `--places` | JSON list | needed |  |
+| `--paid-method` | cash \| terminal \| other |  |  |
+| `--note` | text |  |  |
+| `--player-note` | text |  |  |
+
+```
+openpadel booking create-lesson --coach "Ana Ruiz" --starts-at "2026-11-20 18:00" --minutes 90 --pay whole --places '[...]'
 ```
 
 #### openpadel booking drop-saved-place

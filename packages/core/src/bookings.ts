@@ -12,9 +12,11 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { localParts, onDate, weekdayOf } from "./clock.ts";
 import { currentPolicy, quote } from "./prices.ts";
+import { band, joinRule, levelOf } from "./match_rules.ts";
+import { deskMethod, deskPlace, placeFilled, type DeskPlace } from "./desk_places.ts";
 
 /** "in cash", "on the club's card reader", "another way" (desk_pay.ts paidHow). */
-const paidHowOf = (method: string): Text => both(`paid_by.${method}` as Key);
+export const paidHowOf = (method: string): Text => both(`paid_by.${method}` as Key);
 const clockTime = z.string().check(z.regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/));
 const clubDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 /** Bookings are in steps of half an hour, from half an hour to eight. Members choose 60, 90 or 120. */
@@ -312,7 +314,9 @@ async function newCode(trx: Trx, clubName: string): Promise<string> {
   }
 }
 
-/** A booking's court and time are possible: the court can be booked, the club is open then, it isn't over, and it's free. */
+/** A booking's court and time are possible: the court can be booked, the club is open then, it isn't over, and it's free.
+ *  The desk's rules, not a member's: no days-ahead limit, no lengths list (lessons.ts booking.create_lesson too). */
+export async function deskSlot(ctx: PlanCtx, courtId: string, start: Date, minutes: number) { return checkSlot(ctx, courtId, start, minutes); }
 async function checkSlot(ctx: PlanCtx, courtId: string, start: Date, minutes: number) {
   if (minutes % STEP_MINUTES || minutes < STEP_MINUTES || minutes > MAX_MINUTES) throw new KumiError("error.bad_length");
   const [court] = await courtsAt(ctx.db, [courtId]);
@@ -326,12 +330,16 @@ async function checkSlot(ctx: PlanCtx, courtId: string, start: Date, minutes: nu
   return { court: court!, end, tz };
 }
 
-/** One place on a court booked at the desk: a member (found by name, phone or email), a guest's name, or left open
- *  (the organiser shares the booking's link). `paid`: its part was paid at the desk just now. */
-const deskPlace = z.object({ person_id: z.optional(z.uuid()), guest_name: z.optional(z.string().check(z.minLength(1), z.maxLength(80))), paid: z.optional(z.boolean()) });
-type DeskPlace = z.infer<typeof deskPlace>;
-/** How the desk was paid for the places marked paid (desk_pay.ts DESK_METHODS, written out: it's read as this file loads). */
-const deskMethod = z.enum(["cash", "terminal", "other"]);
+/** A same-day open match's own cutoff, as the members' app sets it (booking_pay.ts booking.request): opened after the
+ *  club's "pay my part" deadline, it must fill by `same_day_cutoff_hours` before the start. Null for any other booking. */
+function matchCutoff(open: unknown, start: Date, now: Date, policy: { split_deadline_hours: number; same_day_cutoff_hours: number }): Date | null {
+  const ahead = start.getTime() - now.getTime();
+  if (!open || ahead > policy.split_deadline_hours * 3600_000) return null;
+  if (ahead <= policy.same_day_cutoff_hours * 3600_000) throw new KumiError("error.too_late_for_match", { count: policy.same_day_cutoff_hours });
+  return new Date(start.getTime() - policy.same_day_cutoff_hours * 3600_000);
+}
+
+
 
 /** Each place's part of the court. The whole court: the organiser's place carries the price, the others nothing. Each
  *  pays their part: four equal parts, the organiser taking the odd cents (booking_pay.ts shares, as in the app). */
@@ -350,7 +358,11 @@ function placesOf(i: { person_id?: string; guest_name?: string; places?: DeskPla
   if (i.person_id && i.guest_name) throw new KumiError("error.booking_who");
   return [i.person_id ? { person_id: i.person_id } : i.guest_name ? { guest_name: i.guest_name } : {}];
 }
-const filled = (p: DeskPlace) => Boolean(p.person_id || p.guest_name);
+const filled = placeFilled;
+/** An open match made at the desk (+ Create, Open match): the level band and who may join, as in the members' app. */
+const levelIn = z.number().check(z.minimum(0.5), z.maximum(7));
+const deskOpen = z.object({ level_min: levelIn, level_max: levelIn, outside_band: z.optional(z.enum(["ask", "closed"])), rated: z.optional(z.boolean()),
+  listed: z.optional(z.boolean()), note: z.optional(z.string().check(z.maxLength(200))) });
 
 export const bookingCreate = defineAction({
   name: "booking.create", version: 1,
@@ -362,9 +374,16 @@ export const bookingCreate = defineAction({
     // and a note the players see beside the staff's own.
     pay: z.optional(z.enum(["whole", "split"])), places: z.optional(z.array(deskPlace).check(z.minLength(1), z.maxLength(4))),
     paid_method: z.optional(deskMethod), player_note: z.optional(z.string().check(z.maxLength(200))),
+    // An open match (each their part, four places): others at the level join and pay in the app; not full by the
+    // deadline, it's cancelled and everyone paid back (booking.settle_shares). Places the desk names are owed at the desk.
+    open: z.optional(deskOpen),
   }),
   async plan(ctx, i) {
     const places = placesOf(i), org = places[0]!, pay = i.pay ?? "whole";
+    if (i.open && pay !== "split") throw new KumiError("error.open_match_split");
+    if (i.open && i.open.level_max < i.open.level_min) throw new KumiError("error.bad_band");
+    // Everyone in an open match is a member: a guest can't be in a game that counts for levels, or be found to join.
+    if (i.open && places.some((p) => p.guest_name)) throw new KumiError("error.open_match_members");
     if (places.some((p) => p.person_id && p.guest_name) || !filled(org)) throw new KumiError("error.booking_who");
     const ids = places.flatMap((p) => (p.person_id ? [p.person_id] : []));
     if (new Set(ids).size !== ids.length) throw new KumiError("error.player_twice");
@@ -372,8 +391,8 @@ export const bookingCreate = defineAction({
     // Each their part: the organiser is a member (what's unpaid at the deadline is theirs), and there's still time.
     if (pay === "split" && !org.person_id) throw new KumiError("error.split_needs_member");
     const start = new Date(i.starts_at), { court, tz } = await checkSlot(ctx, i.court_id, start, i.minutes);
-    const policy = await currentPolicy(ctx.db);
-    if (pay === "split" && start.getTime() - ctx.now.getTime() <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
+    const policy = await currentPolicy(ctx.db), cutoff = matchCutoff(i.open, start, ctx.now, policy);
+    if (pay === "split" && !cutoff && start.getTime() - ctx.now.getTime() <= policy.split_deadline_hours * 3600_000) throw new KumiError("error.too_late_to_split", { count: policy.split_deadline_hours });
     // Another price, and places marked paid, are the desk's money: whoever takes payments at the desk here.
     const mayMoney = (wanted: boolean) => wanted ? mayAlso(ctx.db, ctx.actor, "booking.record_payment", { locationId: court.location_id, at: ctx.now }) : Promise.resolve(true);
     if (!(await mayMoney(i.price_cents !== undefined))) throw new KumiError("error.price_not_yours");
@@ -392,7 +411,18 @@ export const bookingCreate = defineAction({
     const p = { court: court.name, when: when(start, tz), minutes: i.minutes, who, amount: usd(price) };
     const parts: Text[] = [];
     if (pay === "whole") parts.push(both("plan.booking.create_priced", p));
-    else {
+    else if (i.open) {
+      const s = deskParts(price, "split", 4), o = i.open, hours = both("count.hours", { count: cutoff ? policy.same_day_cutoff_hours : policy.split_deadline_hours });
+      parts.push(both("plan.booking.create_open", { ...p, first: usd(s[0]!), each: usd(s[1]!) }));
+      parts.push(both(o.rated === false ? "plan.booking.open_friendly" : "plan.booking.open_rated", { band: band(o), hours,
+        outside: both(o.outside_band === "closed" ? "plan.booking.outside_closed" : "plan.booking.outside_ask_host") }));
+      parts.push(both("plan.booking.desk_match_owed"));
+      if (cutoff) parts.push(both("plan.booking.same_day_note"));
+      // Named here whatever their level, as the desk knows them; said, so nobody is put out of their band unawares.
+      const outside: string[] = [];
+      for (const x of places) if (x.person_id && joinRule({ ...o, outside_band: "closed" }, await levelOf(ctx.db, x.person_id)) !== "join") outside.push(names.get(x.person_id)!);
+      if (outside.length) parts.push(both("plan.booking.desk_outside_band", { names: outside.join(", ") }));
+    } else {
       const s = deskParts(price, "split", 4);
       parts.push(both("plan.booking.create_split", { ...p, first: usd(s[0]!), each: usd(s[1]!) }));
       parts.push(both("plan.booking.desk_deadline", { who, when: when(new Date(start.getTime() - policy.split_deadline_hours * 3600_000), tz) }));
@@ -408,14 +438,17 @@ export const bookingCreate = defineAction({
     // The desk's full form says what's left to pay at the desk (an older caller's preview stays as it was).
     if (i.places && pay === "whole" && owed > 0) parts.push(both("plan.booking.desk_owed", { amount: usd(owed) }));
     const open = (pay === "split" ? 4 : places.length) - places.filter(filled).length;
-    if (open > 0 && org.person_id) parts.push(both(pay === "split" ? "plan.booking.desk_open_split" : "plan.booking.desk_open_whole", { count: open }));
+    if (open > 0 && org.person_id) parts.push(i.open ? both("plan.booking.desk_open_match", { count: open })
+      : both(pay === "split" ? "plan.booking.desk_open_split" : "plan.booking.desk_open_whole", { count: open }));
     if (i.player_note?.trim()) parts.push(both("plan.booking.desk_player_note", { note: i.player_note.trim() }));
     const summary: Text = { en: parts.map((x) => x.en).join(" "), es: parts.map((x) => x.es).join(" ") };
-    return { title: both("action.booking.create"), summary, reads: [], locationId: court.location_id, ownerIds: org.person_id ? [org.person_id] : [], moneyCents: price, undo: { kind: "reversible" } };
+    return { title: both("action.booking.create"), summary, reads: [], locationId: court.location_id, ownerIds: org.person_id ? [org.person_id] : [], moneyCents: price, undo: { kind: "reversible" },
+      ...(cutoff ? { details: { cutoff_at: cutoff.toISOString() } } : {}) };
   },
-  async apply(ctx, i) {
+  async apply(ctx, i, plan) {
     const places = placesOf(i), org = places[0]!, pay = i.pay ?? "whole";
     const start = new Date(i.starts_at), end = new Date(start.getTime() + i.minutes * 60_000);
+    const cutoffAt = (plan.details as { cutoff_at?: string } | undefined)?.cutoff_at;
     await lockCourts(ctx, [i.court_id]);
     const court = await ctx.trx.selectFrom("court").select("location_id").where("id", "=", i.court_id).executeTakeFirstOrThrow();
     const club = await ctx.trx.selectFrom("club").select("name").executeTakeFirstOrThrow();
@@ -428,6 +461,8 @@ export const bookingCreate = defineAction({
     await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: org.person_id ?? null, status: "confirmed", source: "desk", price_cents: price, tax_cents: tax,
       quote: JSON.stringify(q), policy_id: policy.id, note: i.note?.trim() || null, player_note: i.player_note?.trim() || null, pay_mode: pay, ...(pay === "split" ? { players: 4 } : {}),
       invite_code: org.person_id ? randomBytes(9).toString("base64url") : null });
+    if (i.open) await ctx.insert("open_match", { booking_id: id, level_min: i.open.level_min.toFixed(2), level_max: i.open.level_max.toFixed(2), outside_band: i.open.outside_band ?? "ask",
+      rated: i.open.rated ?? true, listed: i.open.listed ?? true, note: i.open.note?.trim() || null, cutoff_at: cutoffAt ? new Date(cutoffAt) : null });
     const share = deskParts(price, pay, places.length);
     const seats: { id: string; place: DeskPlace; cents: number }[] = [];
     for (const [n, p] of places.entries()) {

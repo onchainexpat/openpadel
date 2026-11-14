@@ -16,10 +16,14 @@ import { label } from "./words.ts";
 
 // The desk's payment form comes when someone taps Record payment, so the first screen doesn't carry it.
 const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
-// The desk's booking form and a program date's panel open from the grid, so they load when first opened (fetched while
-// the person looks at the day, App.tsx), keeping the first screen small.
+// The desk's booking form, a program date's panel, what + Create opens and the Month view load when first opened
+// (fetched while the person looks at the day, App.tsx), keeping the first screen small.
 export const NewBooking = lazyPage(() => import("./NewBooking.tsx").then((m) => m.NewBooking));
 export const SessionPanel = lazyPage(() => import("./SessionPanel.tsx").then((m) => m.SessionPanel));
+const CreatePanel = lazyPage(() => import("./CreatePanel.tsx").then((m) => m.CreatePanel));
+const DeskLesson = lazyPage(() => import("./DeskCreate.tsx").then((m) => m.DeskLesson));
+const DeskMatch = lazyPage(() => import("./DeskCreate.tsx").then((m) => m.DeskMatch));
+const MonthView = lazyPage(() => import("./Month.tsx").then((m) => m.MonthView));
 
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
@@ -81,19 +85,22 @@ export function Courts() {
   const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null), [done, setDone] = useState(0);
   // Create's panel, and choosing a court and a free time for a booking made from it (once, or every week).
   // Opened from the Bookings list's + Create: the same Create panel, over this day.
-  const [creating, setCreating] = useState(query.create === "1"), [choosing, setChoosing] = useState<"once" | "weekly" | null>(null);
+  const [creating, setCreating] = useState(query.create === "1"), [choosing, setChoosing] = useState<"once" | "weekly" | "match" | null>(null);
+  // A private lesson or an open match being made from + Create (an open match on the court and time chosen first).
+  const [lesson, setLesson] = useState(false), [match, setMatch] = useState<{ court: Court; start: string } | null>(null);
   // The day (courts across, time down), or the week it's in (each court's days side by side).
-  const [view, setView] = useState<"day" | "week">(query.view === "week" ? "week" : "day"), [pending, setPending] = useState<string | null>(null);
+  type View = "day" | "week" | "month";
+  const [view, setView] = useState<View>(query.view === "week" || query.view === "month" ? query.view : "day"), [pending, setPending] = useState<string | null>(null);
   const narrow = useMedia(NARROW);
   // The side panel holds one thing at a time: what was picked on the grid, a booking or a block being made.
-  const panel = Boolean(picked || form || blocking || choosing);
-  const closePanel = () => { setPicked(null); setForm(null); setBlocking(false); setChoosing(null); };
+  const panel = Boolean(picked || form || blocking || choosing || lesson || match);
+  const closePanel = () => { setPicked(null); setForm(null); setBlocking(false); setChoosing(null); setLesson(false); setMatch(null); };
   // The phone's back button closes what's open (the side panel or Create), not the page: one entry while anything is.
   useBackCloses(panel || creating, () => { setCreating(false); closePanel(); });
   shown = loc;
   const load = () => loc && api<Grid>(`/staff/grid?location_id=${loc}${date ? `&date=${date}` : ""}`).then((x) => { setG(x); if (!date) setDate(x.date); });
   const loadAlerts = () => api<Alerts>("/staff/alerts").then(setAlerts).catch(() => setAlerts(null));
-  const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); setChoosing(null); setDone((n) => n + 1); });
+  const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); setChoosing(null); setLesson(false); setMatch(null); setDone((n) => n + 1); });
   useEffect(() => { api<Loc[]>("/staff/locations").then((l) => { setLocs(l); setLoc((l.find((x) => x.id === query.location) ?? l.find((x) => coversLocation(x.id)) ?? l[0])?.id ?? ""); }); void loadAlerts(); }, []);
   useEffect(() => { load(); }, [loc, date]);
   // What was picked is gone (cancelled, unblocked, another day): the side panel closes rather than stay empty.
@@ -122,7 +129,9 @@ export function Courts() {
     if (cursor < ms(c.open.closes)) out.push({ from: new Date(cursor).toISOString(), to: c.open.closes });
     return out.filter((x) => ms(x.to) - ms(x.from) >= HALF && new Date(x.to) > new Date(serverNow()));
   };
-  const shift = (days: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days * (view === "week" ? 7 : 1)); setDate(d.toISOString().slice(0, 10)); };
+  const shift = (days: number) => { const d = new Date(`${date}T12:00:00Z`);
+    if (view === "month") { d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + days); } else d.setUTCDate(d.getUTCDate() + days * (view === "week" ? 7 : 1));
+    setDate(d.toISOString().slice(0, 10)); };
   // From the week: that day, with what was tapped picked.
   const openDay = (day: string, key?: string) => { closePanel(); setView("day"); setDate(day); setPending(key ?? null); };
   const drop = (it: Item, from: Court, to: Target) => {
@@ -133,19 +142,20 @@ export function Courts() {
       ...(to.court !== from.id ? { court_ids: [to.court] } : {}) });
   };
   // Tapping free time books it at the desk, from that half hour (in the side panel, the day still in view).
-  const book = (c: Court, at: number, weekly = false) => {
+  const book = (c: Court, at: number, weekly = false, open = false) => {
     if (!mayHere("booking.create")) return;
     const gap = gaps(c).find((x) => ms(x.from) <= at && at < ms(x.to));
     if (!gap) return;
     const starts = slots.filter((s) => ms(s) >= Math.max(at, ms(gap.from)) && ms(s) + HALF <= ms(gap.to) && new Date(s) > new Date(serverNow()));
-    if (starts.length) { closePanel(); setForm({ court: c, start: starts[0]!, weekly }); }
+    if (starts.length) { closePanel(); if (open) setMatch({ court: c, start: starts[0]! }); else setForm({ court: c, start: starts[0]!, weekly }); }
   };
   const pick = (k: string) => { const again = k === picked; closePanel(); if (!again) setPicked(k); };
   const sel = g.courts.flatMap((c) => c.items.map((it) => ({ it, c }))).find((x) => keyOf(x.it, x.c.id) === picked) ?? null;
   const stats = dayStats(g.courts);
   // What + Create offers this person: each choice their roles allow, opening the flow that already makes it.
-  const choices = createChoices(Boolean(g.open), (once) => { setCreating(false); closePanel(); setChoosing(once ? "once" : "weekly"); },
-    () => { setCreating(false); closePanel(); setBlocking(true); });
+  const go = (f: () => void) => () => { setCreating(false); closePanel(); setView("day"); f(); };
+  const choices = createChoices(Boolean(g.open), (once) => go(() => setChoosing(once ? "once" : "weekly"))(), go(() => setBlocking(true)),
+    go(() => setLesson(true)), go(() => setChoosing("match")));
   const playtomic = Boolean(me.value?.playtomic) || g.courts.some((c) => c.items.some((it) => it.kind === "mirror"));
 
   return (
@@ -154,24 +164,26 @@ export function Courts() {
         <h1>{label("ui.nav_day_schedule")}</h1>
         {locs.length > 1 && <select class="sched-loc" aria-label={t("ui.location")} value={loc} onChange={(e) => { setLoc(e.currentTarget.value); setDate(""); }}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select>}
         <div class="day-nav">
-          <button type="button" onClick={() => shift(-1)} aria-label={t(view === "week" ? "ui.week_before" : "ui.day_before")}>‹</button>
+          <button type="button" onClick={() => shift(-1)} aria-label={t(view === "month" ? "ui.month_before" : view === "week" ? "ui.week_before" : "ui.day_before")}>‹</button>
           <button type="button" onClick={() => setDate(g.today)} aria-current={today ? "date" : undefined}>{t("ui.today_button")}</button>
-          <button type="button" onClick={() => shift(1)} aria-label={t(view === "week" ? "ui.week_after" : "ui.day_after")}>›</button>
+          <button type="button" onClick={() => shift(1)} aria-label={t(view === "month" ? "ui.month_after" : view === "week" ? "ui.week_after" : "ui.day_after")}>›</button>
         </div>
         <input type="date" class="sched-date" aria-label={t("ui.day")} value={date} onInput={(e) => setDate(e.currentTarget.value)} />
         {date && <span class="sched-day">{new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "long", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`))}</span>}
         <div class="seg-toggle view-toggle" role="group" aria-label={t("ui.sched_view")}>
           <button type="button" aria-pressed={view === "day"} onClick={() => setView("day")}>{t("ui.view_day")}</button>
           <button type="button" aria-pressed={view === "week"} onClick={() => { closePanel(); setView("week"); }}>{t("ui.view_week")}</button>
+          <button type="button" aria-pressed={view === "month"} onClick={() => { closePanel(); setView("month"); }}>{t("ui.view_month")}</button>
         </div>
         {view === "day" && <span class="occ-chip" role="status">{t("ui.occupancy_day", { percent: stats.percent })} · {t("count.bookings", { count: stats.bookings })}</span>}
-        {choices.some((x) => x.items.some((i) => !i.soon)) && <button type="button" class="primary sched-create" aria-haspopup="dialog" onClick={() => { closePanel(); setCreating(true); }}>
+        {choices.length > 0 && <button type="button" class="primary sched-create" aria-haspopup="dialog" onClick={() => { closePanel(); setCreating(true); }}>
           <span aria-hidden="true">+</span> {t("ui.create")}</button>}
       </div>
       <p class="meta">{g.open ? t("ui.open_from_to", { from: clock(g.open.opens), to: clock(g.open.closes) }) : t("ui.closed_this_day")}</p>
       <Legend playtomic={playtomic} />
 
       {view === "week" && <WeekView loc={loc} date={date} courts={g.courts} clock={clock} stamp={done} onDay={openDay} />}
+      {view === "month" && <MonthView loc={loc} date={date} stamp={done} onDay={(day) => openDay(day)} />}
       {view === "day" && <div class="sched-layout">
         <div class="sched-grid">
           <TimeGrid g={g} clock={clock} picked={picked} onPick={pick} canMove={canMove} canResize={canResize}
@@ -182,10 +194,13 @@ export function Courts() {
           {panel && <SidePanel narrow={narrow} onClose={closePanel}>
             {sel && <Details key={`${picked}|${sel.c.id}|${sel.it.start}|${sel.it.end}`} it={sel.it} court={sel.c} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove(sel.it)} canResize={canResize(sel.it)}
               courtFixed={courtsOf(g, sel.it) > 1} />}
-            {choosing && <CourtPicker courts={g.courts} gaps={gaps} clock={clock} onPick={(c, at) => book(c, at, choosing === "weekly")} />}
+            {choosing && <CourtPicker courts={g.courts} gaps={gaps} clock={clock} onPick={(c, at) => book(c, at, choosing === "weekly", choosing === "match")} />}
             {form && <NewBooking key={`${form.court.id}|${form.start}|${form.weekly}`} courts={g.courts} court={form.court} start={form.start} weekly={form.weekly} clock={clock} tz={g.time_zone}
               money={g.money !== false} people={g.people !== false} may={mayHere} preview={preview} onClose={closePanel} />}
             {blocking && <BlockForm courts={g.courts} g={g} slots={slots} clock={clock} preview={preview} />}
+            {lesson && <DeskLesson loc={loc} date={date} tz={g.time_zone} clock={clock} money={g.money !== false} people={g.people !== false} may={mayHere} preview={preview} onClose={closePanel} />}
+            {match && <DeskMatch key={`${match.court.id}|${match.start}`} courts={g.courts} court={match.court} start={match.start} tz={g.time_zone} clock={clock}
+              money={g.money !== false} people={g.people !== false} may={mayHere} preview={preview} onClose={closePanel} />}
           </SidePanel>}
           {today && alerts && (alerts.open.length > 0 || alerts.handled.length > 0 || mayDo("alert.handle")) && <AlertList a={alerts} clock={clock} preview={preview} />}
           {today && <NowNext g={g} clock={clock} />}
@@ -199,21 +214,21 @@ export function Courts() {
   );
 }
 
-type Choice = { key: string; href?: string; go?: () => void; soon?: boolean };
+export type Choice = { key: string; href?: string; go?: () => void };
 /** + Create's choices, grouped as staff from other club software know them. Each is shown only to someone whose roles
- *  allow it here, and opens the flow that already makes it: a program's form (clinics, courses, events, leagues), the
- *  desk's booking (once, or every week for a member), and the block form. A kind with no staff flow yet is shown as
- *  coming soon to those who book courts. */
-function createChoices(open: boolean, booking: (once: boolean) => void, block: () => void): { group: string; items: Choice[] }[] {
+ *  allow it here, and opens the flow that makes it: a program's form (clinics, courses, events, leagues), the desk's
+ *  booking (once, or every week for a member), a private lesson, an open match (on a court and time chosen first), and
+ *  the block form. */
+function createChoices(open: boolean, booking: (once: boolean) => void, block: () => void, lesson: () => void, match: () => void): { group: string; items: Choice[] }[] {
   const here = coversLocation(shown);
   const programs = mayCreate("program.create"), desk = here && mayCreate("booking.create"), courts = open && desk;
   const groups: { group: string; items: (Choice | false)[] }[] = [
     { group: "learning", items: [
-      desk && { key: "lesson", soon: true },
+      here && mayCreate("booking.create_lesson") && { key: "lesson", go: lesson },
       programs && { key: "clinic", href: "/programs?new=clinic" },
       programs && { key: "course", href: "/programs?new=course" }] },
     { group: "play", items: [
-      desk && { key: "open_match", soon: true },
+      courts && { key: "open_match", go: match },
       programs && { key: "event", href: "/programs?new=social" },
       programs && { key: "league", href: "/programs?new=league" }] },
     { group: "courts", items: [
@@ -223,29 +238,6 @@ function createChoices(open: boolean, booking: (once: boolean) => void, block: (
       open && here && mayCreate("court.block") && { key: "block", go: block }] },
   ];
   return groups.map((x) => ({ group: x.group, items: x.items.filter((i): i is Choice => Boolean(i)) })).filter((x) => x.items.length > 0);
-}
-
-/** The panel + Create opens over the page: what can be added, by group. Nothing is made here: each choice opens its
- *  own form, which previews before anything changes. */
-function CreatePanel({ choices, where, onClose }: { choices: { group: string; items: Choice[] }[]; where: string; onClose: () => void }) {
-  const ref = useDrawer<HTMLElement>(true, onClose, true);
-  return <>
-    <div class="scrim" onClick={onClose} />
-    <section ref={ref} class="drawer create-panel" role="dialog" aria-modal="true" aria-labelledby="create-title" aria-describedby="create-help">
-      <div class="drawer-head">
-        <div><h2 id="create-title">{t("ui.create_title")}</h2><p id="create-help" class="meta">{where ? `${where}. ` : ""}{t("ui.create_help")}</p></div>
-        <button type="button" class="icon" onClick={onClose} aria-label={t("ui.close")}>×</button>
-      </div>
-      {choices.map((x) => <div class="create-group">
-        <h3>{t(`ui.create_${x.group}` as Key)}</h3>
-        <ul class="create-list">{x.items.map((i) => <li>
-          {i.soon ? <div class="create-item off" aria-disabled="true"><span><strong>{t(`ui.create_${i.key}` as Key)}</strong><span class="meta">{t(`ui.create_${i.key}_help` as Key)}</span></span><span class="badge muted">{t("ui.coming_soon")}</span></div>
-            : i.href ? <a class="create-item" href={i.href} onClick={onClose}><span><strong>{t(`ui.create_${i.key}` as Key)}</strong><span class="meta">{t(`ui.create_${i.key}_help` as Key)}</span></span><span aria-hidden="true">›</span></a>
-            : <button type="button" class="create-item" onClick={i.go}><span><strong>{t(`ui.create_${i.key}` as Key)}</strong><span class="meta">{t(`ui.create_${i.key}_help` as Key)}</span></span><span aria-hidden="true">›</span></button>}
-        </li>)}</ul>
-      </div>)}
-    </section>
-  </>;
 }
 
 /** The side panel: what was picked on the grid, or a booking or block being made, beside the day on a wide screen and

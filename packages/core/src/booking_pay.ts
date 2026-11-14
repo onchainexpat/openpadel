@@ -849,10 +849,17 @@ async function cardStillFailed(trx: Trx, seriesId: string, bookingId: string): P
   return Boolean(await trx.selectFrom("booking").select("id").where("series_id", "=", seriesId).where("id", "!=", bookingId).where("balance_cents", ">", 0).where("status", "!=", "cancelled").executeTakeFirst());
 }
 
-/** Places paid for by players still coming (a player who can't make it doesn't fill one). */
+/** Places paid for by players still coming (a player who can't make it doesn't fill one). An open match the desk made
+ *  also counts the places the desk named (no card was held for them: what they haven't paid is owed at the desk), but
+ *  not a seat someone took in the app and hasn't paid for, nor a friend's saved place. */
 async function paidPlaces(trx: Trx, bookingId: string): Promise<number> {
+  const desk = (await trx.selectFrom("booking").select("source").where("id", "=", bookingId).executeTakeFirstOrThrow()).source === "desk";
   const r = await trx.selectFrom("booking_player").select(sql<string>`count(*)`.as("n")).where("booking_id", "=", bookingId).where("removed_at", "is", null).where("leaving_at", "is", null)
-    .where((eb) => eb.exists(eb.selectFrom("payment").select("payment.id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded")))
+    .where((eb) => eb.or([
+      eb.exists(eb.selectFrom("payment").select("payment.id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "succeeded")),
+      ...(desk ? [eb.and([eb("booking_player.held_until", "is", null), eb("booking_player.saved_by", "is", null), eb("booking_player.replaces", "is", null),
+        eb.not(eb.exists(eb.selectFrom("payment").select("payment.id").whereRef("payment.booking_player_id", "=", "booking_player.id").where("payment.status", "=", "pending")))])] : []),
+    ]))
     .executeTakeFirstOrThrow();
   return Number(r.n);
 }

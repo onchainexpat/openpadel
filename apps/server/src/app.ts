@@ -40,7 +40,7 @@ import type { Mailer } from "./mailer.ts";
 /** The changes a staff screen offers a button for, which /me reports for people with only the club's own roles. */
 /** Every change a staff or members' app button asks mayDo about (client_actions.test.ts checks the apps' sources): /me
  *  says which of them the roles of a coach, or of a role the club made, allow. One left out reads as "not allowed". */
-export const CLIENT_ACTIONS = ["person.create", "person.import", "person.email_unsuppress", "booking.create", "booking.repeat", "program.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "booking.refund",
+export const CLIENT_ACTIONS = ["person.create", "person.import", "person.email_unsuppress", "booking.create", "booking.create_lesson", "booking.repeat", "program.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "booking.refund",
   "booking.add_player", "booking.remove_player", "booking.paid_in_playtomic", "court.block", "court.unblock", "court.block_repeat", "court.block_repeat_end", "court.block_repeat_edit", "alert.handle",
   "series.edit", "weekly.end_all", "membership.sell", "membership.record_payment", "membership.bring_in", "enrolment.record_payment", "enrolment.remove", "enrolment.comp", "enrolment.join_dates",
   "refund.give_back", "refund.resend", "credit.bring_in", "credit.pay_out", "gift_card.sell", "gift_card.resend", "gift_card.void", "pass.sell", "pass.refund", "pass_product.set", "promo_code.set",
@@ -50,7 +50,7 @@ export const CLIENT_ACTIONS = ["person.create", "person.import", "person.email_u
   "household.add_junior", "person.tag", "person.untag", "attendance.mark"];
 
 /** The changes the Schedule's + Create starts, for /me's `creates`. */
-export const CREATE_ACTIONS = ["program.create", "booking.create", "booking.repeat", "court.block"];
+export const CREATE_ACTIONS = ["program.create", "booking.create", "booking.create_lesson", "booking.repeat", "court.block"];
 
 export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string;
   /** The members' app's address (addresses.ts), for the public page's own links; from publicUrl when not given. */
