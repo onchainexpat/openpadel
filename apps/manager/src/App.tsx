@@ -2,7 +2,7 @@ import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "pre
 import { useEffect, useState } from "preact/hooks";
 import { api, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
-import { Courts } from "./Courts.tsx";
+import { Courts, NewBooking, SessionPanel } from "./Courts.tsx";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
 import { formatLocale } from "@kumi/i18n/format";
 import { homeFor, type MenuItem } from "./presets.ts";
@@ -21,6 +21,9 @@ const Memberships = lazyPage(() => import("./Memberships.tsx").then((m) => m.Mem
 const Scores = lazyPage(() => import("./Scores.tsx").then((m) => m.Scores));
 const Levels = lazyPage(() => import("./Levels.tsx").then((m) => m.Levels));
 const SessionLevels = lazyPage(() => import("./SessionLevels.tsx").then((m) => m.SessionLevels));
+// What needs a person today, and every ask waiting for a yes (today.ts on the server).
+const Today = lazyPage(() => import("./Today.tsx").then((m) => m.Today));
+const Approvals = lazyPage(() => import("./Approvals.tsx").then((m) => m.Approvals));
 
 // What a coach with no other staff role sees (the server's COACH_READS): their schedule, programs, courts and levels.
 const COACH_SEES = ["bookings", "programs", "levels", "coaches"];
@@ -74,13 +77,14 @@ function access(m: Me) {
     : desk ? Courts : coach ? Schedule : roles.includes("accountant") ? Reports : show("bookings") ? Courts : Programs;
   // The club's "Coming from" preset may start those on the courts' day somewhere else, only on a page their roles open.
   const homePages = { day: { page: Courts, open: show("bookings") }, bookings: { page: Bookings, open: show("bookings") },
-    people: { page: People, open: show("members") }, programs: { page: Programs, open: show("programs") } };
+    people: { page: People, open: show("members") }, programs: { page: Programs, open: show("programs") }, today: { page: Today, open: !coachOnly } };
   const home = homeFor(preset(), base, Courts, homePages);
   const homeItem: MenuItem | null = home === Schedule ? "schedule" : (Object.keys(homePages) as (keyof typeof homePages)[]).find((k) => homePages[k].page === home) ?? null;
   // The pages in someone's menu, fetched while they look at their first one so opening them later doesn't wait.
   const later: { preload?: () => unknown }[] = [home, Profile];
   const add = (yes: boolean, ...pages: { preload?: () => unknown }[]) => { if (yes) later.push(...pages); };
-  add(show("bookings"), Bookings);
+  add(!coachOnly, Today, Approvals);
+  add(show("bookings"), Bookings, NewBooking, SessionPanel);
   add(show("programs"), Programs, Program, Night);
   add(show("members") || coachSide, People, Person);
   add(show("memberships"), Memberships);
@@ -90,7 +94,7 @@ function access(m: Me) {
   add(coach || desk || Boolean(areas?.includes("coaches")), Coaches);
   add(show("settings"), Settings);
   add(changes, Changes, Usage);
-  return { coach, desk, changes, areas, coachSide, show, home, homeItem, later };
+  return { coach, coachOnly, desk, changes, areas, coachSide, show, home, homeItem, later };
 }
 
 /** Support access under way: the person who has it, and the owner and managers, are told at the top of every page. */
@@ -104,17 +108,26 @@ function supportNotices(m: Me) {
 /** For someone whose role (one the club made) doesn't cover a page. */
 function NotForRole() { return <main class="card"><p>{t("ui.not_for_your_role")}</p></main>; }
 
-/** The Questions link, with how many wait for an answer. */
-function QuestionsLink({ current }: { current?: "page" }) {
-  const [n, setN] = useState(0), { path } = useLocation();
-  // Again on each page change, so answering one shows straight away.
+/** The menu's counts (today.ts): asks waiting for this person's yes, questions waiting, what needs someone on Today, and
+ *  disputed scores, each only as far as the person's roles read it. One small read, every minute and again on each page
+ *  change, so answering one shows straight away. None for a coach on their own: their menu has none of these. */
+type Counts = { approvals: number; questions: number; today: number; disputes: number };
+function useCounts(on: boolean): Counts {
+  const [n, setN] = useState<Counts>({ approvals: 0, questions: 0, today: 0, disputes: 0 }), { path } = useLocation();
   useEffect(() => {
-    const load = () => api<{ waiting: number }>("/staff/questions/count").then((r) => setN(r.waiting)).catch(() => {});
+    if (!on) return;
+    const load = () => api<Counts>("/staff/counts").then(setN).catch(() => {});
     void load();
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
-  }, [path]);
-  return <a href="/questions" aria-current={current}>{label("ui.nav_questions")}{n > 0 && <span class="badge warn">{n}</span>}</a>;
+  }, [path, on]);
+  return n;
+}
+const badge = (n: number) => n > 0 && <span class="badge warn">{n}</span>;
+
+/** The Questions link, with how many wait for an answer. */
+function QuestionsLink({ n, current }: { n: number; current?: "page" }) {
+  return <a href="/questions" aria-current={current}>{label("ui.nav_questions")}{badge(n)}</a>;
 }
 
 type Access = ReturnType<typeof access>;
@@ -124,14 +137,16 @@ type Access = ReturnType<typeof access>;
  *  and names the links, never who gets one. */
 function StaffNav({ a, signOut }: { a: Access; signOut: () => void }) {
   const { path } = useLocation();
-  const { coach, desk, changes, areas, coachSide, show, homeItem } = a;
+  const { coach, coachOnly, desk, changes, areas, coachSide, show, homeItem } = a;
+  const n = useCounts(!coachOnly);
   // The page open now: its own address or one under it ("/" is whichever page is home).
   const on = (...roots: string[]) => (roots.some((r) => path === r || path.startsWith(`${r}/`)) ? "page" as const : undefined);
   const home = (item: MenuItem) => (path === "/" && homeItem === item ? "page" as const : undefined);
-  const link = (yes: unknown, href: string, words: string, current = on(href)) => (yes ? <li><a href={href} aria-current={current}>{words}</a></li> : null);
+  const link = (yes: unknown, href: string, words: string, current = on(href), count = 0) => (yes ? <li><a href={href} aria-current={current}>{words}{badge(count)}</a></li> : null);
   const messages = desk || Boolean(areas?.includes("messages"));
   const items: Record<MenuItem, any> = {
     day: link(show("bookings"), "/courts", label("ui.nav_day_schedule"), on("/courts") ?? home("day")),
+    today: link(!coachOnly, "/today", label("ui.nav_today"), on("/today") ?? home("today"), n.today),
     schedule: link(coach, "/schedule", label("ui.nav_schedule"), on("/schedule", "/roster", "/students") ?? home("schedule")),
     bookings: link(show("bookings"), "/bookings", label("ui.nav_bookings"), on("/bookings") ?? home("bookings")),
     people: link(show("members"), "/people", label("ui.nav_people"), on("/people") ?? home("people")),
@@ -140,12 +155,14 @@ function StaffNav({ a, signOut }: { a: Access; signOut: () => void }) {
     memberships: link(show("memberships"), "/memberships", label("ui.nav_memberships")),
     coaches: link(coach || desk || areas?.includes("coaches"), "/coaches", label("ui.nav_coaches")),
     levels: link(show("levels"), "/levels", label("ui.nav_levels")),
-    scores: link(show("levels"), "/scores", label("ui.nav_scores")),
-    questions: messages && <li><QuestionsLink current={on("/questions", "/facts")} /></li>,
+    scores: link(show("levels"), "/scores", label("ui.nav_scores"), on("/scores"), n.disputes),
+    questions: messages && <li><QuestionsLink n={n.questions} current={on("/questions", "/facts")} /></li>,
     messages: link(messages, "/messages", label("ui.nav_messages"), on("/messages", "/groups", "/templates")),
     chats: link(show("members") && club.value?.players_chat, "/chats", label("ui.nav_chats")),
     playtomic: link(me.value?.playtomic, "/playtomic", label("ui.nav_playtomic")),
     reports: link(show("money") || coachSide, "/reports", label("ui.nav_reports")),
+    // Approvals for everyone but a coach on their own (their own asks wait there too), and for anyone with one to answer.
+    approvals: link(!coachOnly || n.approvals > 0, "/approvals", label("ui.nav_approvals"), on("/approvals"), n.approvals),
     usage: link(changes, "/usage", label("ui.nav_usage")),
     changes: link(changes, "/changes", label("ui.nav_changes")),
     settings: link(show("settings"), "/settings", label("ui.nav_settings"), on("/settings", "/roles", "/vault")),
@@ -244,6 +261,8 @@ export function App() {
       <Router>
         <Route path="/" component={home} />
         <Route path="/changes" component={changes ? Changes : NotForRole} />
+        <Route path="/today" component={Today} />
+        <Route path="/approvals" component={Approvals} />
         <Route path="/profile" component={() => <Profile app="staff" />} />
         <Route path="/programs" component={only("programs", Programs)} />
         <Route path="/programs/:id" component={only("programs", Program)} />

@@ -29,6 +29,15 @@ Owners and managers no longer have to set up a passkey or an authenticator app b
 up right there.
 
 ### Added
+- Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed
+  scores, levels to review, members' questions for staff, sessions whose coach is off this week, card charges that
+  failed, alerts on the Schedule), today's takings so far against the same time last week, and what happened since the
+  person last looked. Each part only for those whose roles read it, and no names for a role that doesn't read people;
+  each row opens the page where it's handled. Clubs on openPadel's own words start on Today; clubs coming from
+  Playtomic keep starting on the Schedule.
+- Approvals in the staff app: every ask waiting for your yes, with who asked, what it changes and when the ask runs
+  out, approved or declined as on Changes; your own asks still waiting; and the week's answers.
+- Counts on the staff menu: Today, Approvals, Questions and disputed Scores, from one small read each minute.
 - The club's logo (Settings, next to the colour, or `logo:` in club.yaml): an SVG, PNG or JPEG in place of the mark
   drawn from the club's name, on the app icons, the iPhone start images, the apps' start screen and welcome, and both
   apps' headers. It sits on the club's colour where it stands out, and on a dark or white tile where it wouldn't; the

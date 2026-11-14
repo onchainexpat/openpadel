@@ -12,12 +12,14 @@ import { courtSlots, spanOfCourts } from "./open_times.ts";
 import { playtomicParts } from "./paid_line.ts";
 import { dayStats, kindOf, type Kind } from "./day_stats.ts";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
-import { NewBooking } from "./NewBooking.tsx";
-import { SessionPanel } from "./SessionPanel.tsx";
 import { label } from "./words.ts";
 
 // The desk's payment form comes when someone taps Record payment, so the first screen doesn't carry it.
 const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
+// The desk's booking form and a program date's panel open from the grid, so they load when first opened (fetched while
+// the person looks at the day, App.tsx), keeping the first screen small.
+export const NewBooking = lazyPage(() => import("./NewBooking.tsx").then((m) => m.NewBooking));
+export const SessionPanel = lazyPage(() => import("./SessionPanel.tsx").then((m) => m.SessionPanel));
 
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };

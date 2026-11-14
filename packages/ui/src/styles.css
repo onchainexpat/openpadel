@@ -380,3 +380,22 @@ a.button.primary { background: var(--brand); color: var(--on-brand); border-colo
 .signin-mark ~ * { animation: greet-rise 500ms 250ms cubic-bezier(.2, .8, .2, 1) both; }
 @media (prefers-reduced-motion: reduce) { .signin-mark, .signin-mark ~ * { animation: greet-show-fade 300ms ease both; } }
 @keyframes greet-show-fade { from { opacity: 0; } }
+/* Today and Approvals (staff app): what needs a person, the takings so far, what happened since the last look. */
+.today-grid { display: grid; gap: 0 20px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .today-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } .today-needs { grid-row: span 2; } }
+.today h2 { font-size: 17px; margin: 16px 0 4px; }
+.need-list .need { display: flex; gap: 12px; align-items: flex-start; margin: 8px 0; }
+.need-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.need-icon { flex: none; width: 32px; height: 32px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700;
+  background: color-mix(in srgb, var(--brand) 14%, var(--card)); color: var(--brand-ink); }
+.need-icon.need-failed, .need-icon.need-disputes, .need-icon.need-alerts { background: color-mix(in srgb, var(--error) 14%, var(--card)); color: var(--error); }
+.need-items { margin: 4px 0 0; font-size: 14px; } .need-items li { margin: 2px 0; }
+.num { font-variant-numeric: tabular-nums; }
+.today-total { font-size: 32px; font-weight: 700; margin: 4px 0 0; }
+.take-rows li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 10px 0; }
+.take-bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.take-bar span { display: block; height: 100%; background: var(--brand); }
+.since-list li { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; } .since-list li > .meta { flex: none; min-width: 64px; }
+ul.plain li.card.ask, ul.plain li.card.need { padding: 14px 16px; border: 1px solid var(--line); }
+.need-items li:last-child { border-bottom: 0; }
+.ask .ask-what { margin: 4px 0; overflow-wrap: anywhere; } .ask p { margin: 4px 0; }

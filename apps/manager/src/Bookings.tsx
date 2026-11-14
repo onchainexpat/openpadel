@@ -29,7 +29,7 @@ const dayWords = (d: string, o: Intl.DateTimeFormatOptions = { weekday: "short",
 
 export function Bookings() {
   const [locs, setLocs] = useState<Loc[]>([]), [loc, setLoc] = useState(""), [tab, setTab] = useState<"all" | "weekly">("all");
-  const [from, setFrom] = useState(""), [to, setTo] = useState(""), [type, setType] = useState(""), [status, setStatus] = useState(""), [made, setMade] = useState(""), [page, setPage] = useState(1);
+  const [from, setFrom] = useState(""), [to, setTo] = useState(""), [type, setType] = useState(""), [status, setStatus] = useState(() => new URLSearchParams(location.search).get("status") ?? ""), [made, setMade] = useState(""), [page, setPage] = useState(1);
   const [list, setList] = useState<List | null>(null), [error, setError] = useState(""), [weekly, setWeekly] = useState<Weekly | null | false>(null);
   const [picked, setPicked] = useState<Row | null>(null), [g, setG] = useState<Grid | null>(null);
   // Only the latest answer is shown: a quick change of filter or page doesn't let an older one land after it.

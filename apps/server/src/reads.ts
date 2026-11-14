@@ -11,6 +11,7 @@ import { csvCell, readPeopleCsv } from "./csv.ts";
 import { seesMoney } from "./receipts.ts";
 import { translatorOn } from "./translate.ts";
 import { clubFileStem } from "./file_names.ts";
+import { todayRoutes } from "./today.ts";
 
 type Me = { id: string; locale: string } | null;
 /** Which area a staff page's data belongs to (roles.ts AREAS), for roles the club made. Lists every area uses
@@ -1069,5 +1070,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.get("/staff/roles/catalogue", async (c) => c.json(await roleCatalogue(db, lang(c))));
   app.get("/staff/roles/:key/grants", async (c) => c.json(await roleGrantsView(db, c.req.param("key"))));
 
+  // The staff app's Today, Approvals and menu counts (today.ts), judged by the same reach as every read here. Not
+  // through the assistant door: they're the staff app's own screens.
+  if (!opts.assistant) app.route("/", todayRoutes(db, me, lang, { reach: reachOf, roles: rolesOf, mayAnyOf }));
   return app;
 }
