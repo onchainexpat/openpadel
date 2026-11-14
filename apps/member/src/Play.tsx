@@ -2,13 +2,15 @@
 // host, pay a held place, say you can't make it or are running late, or (for the host) answer requests,
 // save places for friends (each has added the other), share the link and mark who didn't come.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, club, dollars, EmptyState, lang, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
+import type { Key } from "@kumi/i18n";
+import { api, ApiError, club, dollars, EmptyState, lang, lazyPage, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
 import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 import { PlaySwitch } from "./TabBar.tsx";
 import { DayStrip, PlacesToggle } from "./DayStrip.tsx";
 import { Taken } from "./cards.tsx";
 import { initials, matchHasPlace, matchOn } from "./whats_on.ts";
+import { fitOf } from "./fit.ts";
 
 export type Match = {
   id: string; court: string; location: string; time_zone: string; start: string; end: string; host: string | null; host_is_me: boolean; open: boolean; cancelled: boolean; rated: boolean; listed: boolean;
@@ -24,9 +26,17 @@ export type Match = {
   requests: { id: string; display_name: string; level: number | null; note: string | null; record: Rec }[]; invite_code: string | null;
   result: { id: string; status: string; sets: { a: number; b: number }[]; a: string[]; b: string[]; confirm_by: string | null; rated: boolean; my_side: "a" | "b" | null; can_confirm: boolean; can_dispute: boolean } | null;
   teams: { a: { name: string }[]; b: { name: string }[]; odds: string } | null; can_score: boolean; four: { person_id: string; name: string }[];
+  // The teams card: the fair teams and as joined, each side's chance, the organiser's choice (null: a suggestion).
+  match_teams: { pick: "fair" | "joined" | null; fair: Side; joined: Side; same: boolean; together: boolean; if_join: boolean; can_pick: boolean } | null;
+  // What comes back to someone who can't make it after the deadline, in percent (About this match).
+  late: { sub: number; filled: number; empty: number } | null;
   stakes: { now: number; win: number; lose: number } | null; full_by: string; same_day: boolean;
 };
 type Rec = { no_shows: number; late_leaves: number };
+// The teams card and About this match (MatchMore.tsx): loaded with a match's page, not with the first screen.
+const Teams = lazyPage(() => import("./MatchMore.tsx").then((x) => x.Teams));
+const AboutMatch = lazyPage(() => import("./MatchMore.tsx").then((x) => x.AboutMatch));
+export type Side = { a: { person_id: string; name: string; level: number | null }[]; b: { person_id: string; name: string; level: number | null }[]; a_chance: number; b_chance: number };
 /** "1 no-show, 2 late cancellations (90 days)", or nothing for a clean record. */
 const recText = (r?: Rec) => (r && (r.no_shows || r.late_leaves) ? t("ui.player_record", { no_shows: r.no_shows, late: r.late_leaves }) : "");
 const band = (m: Match) => `${Number(m.level_min).toFixed(2)}-${Number(m.level_max).toFixed(2)}`;
@@ -69,9 +79,11 @@ export function Play() {
     <main>
       <h1>{t("ui.nav_play")}</h1>
       <PlaySwitch here="matches" />
+      {/* Start a match: straight into booking a court, paying my part and opening it to others (Book's own flow). */}
+      {club.value?.court_bookings && <p class="start-match"><a class="button primary" href="/book?start=match">{t("ui.start_match")}</a> <span class="meta">{t("ui.start_match_hint")}</span></p>}
       <DayStrip value={day} onChange={setDay} tz={tz} has={(d) => rows.some((m) => matchOn(m, d))} />
       <PlacesToggle value={places} onChange={setPlaces} />
-      {rows.length > 0 && <p class="meta">{t("ui.your_level_is", { level: lv(level ?? null) })}</p>}
+      {rows.length > 0 && <p class="meta">{t("ui.your_level_is", { level: lv(level ?? null) })}{level == null && <> <a href="/level">{t("ui.set_level")}</a></>}</p>}
       {rows.length === 0 ? <EmptyState art="no-matches">{t("ui.no_open_matches")}</EmptyState> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
       <ul class="items">{shown.map((m) => <li key={m.id}><MatchCard m={m} /></li>)}</ul>
       <p class="meta">{t("ui.open_your_own")}</p>
@@ -88,7 +100,7 @@ function MatchCard({ m }: { m: Match }) {
   return (
     <a class={m.me ? "item mine" : "item"} href={`/match/${m.id}`}>
       <span class="item-top">
-        <span class="item-kind">{t("ui.open_match_label")}{m.me && <span class="tag on">{t("ui.youre_in")}</span>}</span>
+        <span class="item-kind">{t("ui.open_match_label")}{m.me ? <span class="tag on">{t("ui.youre_in")}</span> : <FitTag level={m.my_level} min={m.level_min} max={m.level_max} />}</span>
         <span class="item-price">{full ? t("ui.full") : <>{dollars(m.share_cents, lang.value)} <small>{t("ui.each")}</small></>}</span>
       </span>
       <span class="item-title">{when(m, { weekday: "short", day: "numeric", month: "short" })}, {t("ui.time_range", { from: when(m, { hour: "numeric", minute: "2-digit" }), to: end })}</span>
@@ -161,7 +173,9 @@ export function MatchPage({ id }: { id: string }) {
         <p><button onClick={() => preview("booking.leave", { booking_id: m.id, person_id: pid })}>{t("ui.cant_make_it")}</button></p>
       </section>}
       {!m.is_match && !m.cancelled && <Players m={m} preview={preview} />}
+      {m.match_teams && <Teams m={m} preview={preview} />}
       <Result m={m} preview={preview} />
+      {m.is_match && !m.cancelled && !m.started && <AboutMatch m={m} />}
       {m.is_match && m.host_is_me && !m.cancelled && <section class="card">
         <h2>{t("ui.requests")}</h2>
         {m.requests.length === 0 ? <p class="meta">{t("ui.no_requests")}</p> : <ul class="plain">{m.requests.map((r) => (
@@ -238,7 +252,7 @@ function Result({ m, preview }: { m: Match; preview: (a: string, i: unknown) => 
   return (
     <section class="card card-form">
       <h2>{t("ui.score")}</h2>
-      {!r && m.teams && <p class="meta">{t("ui.fair_teams", { a: pair(m.teams.a.map((p) => p.name)), b: pair(m.teams.b.map((p) => p.name)), odds: m.teams.odds })}</p>}
+      {!r && m.teams && !m.match_teams && <p class="meta">{t("ui.fair_teams", { a: pair(m.teams.a.map((p) => p.name)), b: pair(m.teams.b.map((p) => p.name)), odds: m.teams.odds })}</p>}
       {!r && m.stakes && <p class="meta">{t("ui.level_stakes", { now: m.stakes.now.toFixed(2), win: m.stakes.win.toFixed(2), lose: m.stakes.lose.toFixed(2) })}</p>}
       {r && <>
         <p><strong>{pair(r.a)} {r.sets.map((s) => `${s.a}-${s.b}`).join(" ")} {pair(r.b)}</strong></p>
@@ -262,4 +276,10 @@ function Result({ m, preview }: { m: Match; preview: (a: string, i: unknown) => 
       </>}
     </section>
   );
+}
+
+/** "Great fit", "Good fit", "A step up" or "Below your level", from my level and the band: nothing without a level. */
+export function FitTag({ level, min, max }: { level: number | null | undefined; min: string | null | undefined; max: string | null | undefined }) {
+  const f = fitOf(level, min, max);
+  return f ? <span class={`tag fit-${f}`}>{t(`ui.fit_${f}` as Key)}</span> : null;
 }

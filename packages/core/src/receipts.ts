@@ -253,7 +253,7 @@ function methodText(method: string, card: Card | null, refund: boolean): Text {
   return both(method === "cash" ? "receipt.method_cash" : method === "terminal" ? "receipt.method_terminal" : "receipt.method_other");
 }
 const BRANDS: Record<string, string> = { visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover", diners: "Diners Club", jcb: "JCB", unionpay: "UnionPay" };
-const brandName = (b: string) => BRANDS[b.toLowerCase()] ?? b.charAt(0).toUpperCase() + b.slice(1);
+export const brandName = (b: string) => BRANDS[b.toLowerCase()] ?? b.charAt(0).toUpperCase() + b.slice(1);
 
 /** A receipt as it's shown and sent, in both languages: everything on it, worked out from the stored row. */
 export async function receiptView(db: Db | Trx, receiptId: string) {

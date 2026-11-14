@@ -39,7 +39,12 @@ export interface PaymentProvider {
   refundsOf?(paymentRef: string, account?: string | null): Promise<{ refunds: FoundRefund[]; disputed: boolean }>;
   /** The card a payment was made with, for its receipt: the brand and the last four digits, never more. */
   cardOf?(ref: string, account?: string | null): Promise<{ brand: string; last4: string } | null>;
+  /** A saved card as the person sees it on file: its brand, last four digits and expiry, never more. Optional. */
+  methodOf?(method: string, account?: string | null): Promise<CardFacts | null>;
+  /** Take a saved card off its customer, so it can't be charged again. Optional; never throws for one already gone. */
+  detachMethod?(method: string, account?: string | null): Promise<void>;
 }
+export interface CardFacts { brand: string; last4: string; expMonth: number | null; expYear: number | null }
 
 /** A stand-in for Stripe: records what was asked, and can be told to fail. */
 export interface FoundIntent { ref: string; status: IntentStatus; amountCents: number; created: Date; kumiPaymentId: string | null; kumiChargeId?: string | null; email: string | null; description: string | null;
@@ -132,6 +137,10 @@ export class TestProvider implements PaymentProvider {
   }
   /** Every card the stand-in takes is Stripe's test Visa. */
   async cardOf(ref: string) { return this.intents.has(ref) || this.charges.some((c) => c.ref === ref) ? { brand: "visa", last4: "4242" } : null; }
+  /** Cards taken off their customer (detachMethod). */
+  detached = new Set<string>();
+  async methodOf(method: string) { return method.startsWith("pm_test_") && !this.detached.has(method) ? { brand: "visa", last4: "4242", expMonth: 12, expYear: 2030 } : null; }
+  async detachMethod(method: string) { this.detached.add(method); }
   async refund(i: { paymentRef: string; amountCents: number; idempotencyKey: string }) {
     const seen = this.refunds.get(i.idempotencyKey);
     if (seen) return { ref: seen.ref, ok: true };

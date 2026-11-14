@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf } from "@kumi/core";
+import { openCardOnFile, checkCardOnFile, itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, bookingTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf } from "@kumi/core";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
 import { clubFileStem } from "./file_names.ts";
@@ -293,7 +293,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
         sql<boolean>`open_match.booking_id IS NOT NULL`.as("is_match"), sql<boolean>`coalesce(open_match.rated, booking.rated)`.as("rated"),
         sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end"),
         // When it has to be full: a same-day match's own cutoff, otherwise the club's deadline.
-        deadlineSql.as("full_by"), sql<boolean>`open_match.cutoff_at IS NOT NULL`.as("same_day")])
+        deadlineSql.as("full_by"), sql<boolean>`open_match.cutoff_at IS NOT NULL`.as("same_day"),
+        // For "About this match": what comes back to someone who can't make it after the deadline (booking_pay.ts).
+        "booking_policy.late_sub_refund_percent", "booking_policy.late_filled_refund_percent", "booking_policy.late_empty_refund_percent"])
       // An open match, or any other court booking (its players see who's on it, and enter the score).
       .where("booking.id", "=", bookingId).where((eb) => eb.or([eb("open_match.booking_id", "is not", null), eb("booking.kind", "=", "court")]))
       .orderBy(sql`court_time.active`, "desc").orderBy("court_time.id", "desc").executeTakeFirst();   // a cancelled one still shows, as cancelled, where it last was
@@ -328,6 +330,11 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       can_dispute: Boolean(side) && (g.status === "awaiting_confirmation" || (g.status === "confirmed" && Boolean(g.editable_until && g.editable_until > new Date()))) } : null;
     const four = places.filter((x) => !x.leaving_at && x.person_id);
     const teams = !g && !cancelled && four.length === 4 ? await suggestTeams(db, b.id) : null;
+    // The teams card: fair teams and as joined, each side's chance, and the organiser's choice. With three in and a
+    // place for me, the teams if I join.
+    const ifJoin = !g && !cancelled && !mine && open && b.players === 4 && taken === 3;
+    const bt = !g && !cancelled && (four.length === 4 || ifJoin) && now < start ? await bookingTeams(db, b.id, ifJoin ? pid : undefined) : null;
+    const match_teams = bt ? { pick: bt.pick, fair: bt.fair, joined: bt.joined, same: bt.same, together: bt.together, if_join: ifJoin && four.length === 3, can_pick: host && four.length === 4 } : null;
     // A rated match not played yet: what it could do to my level, once the four are known (or I'd make the fourth).
     const playing = mine && !mine.leaving_at && !mine.replaces;
     const stakes = b.rated && !g && !cancelled && now < start && (playing || (!mine && open && taken === b.players - 1)) ? await levelStakes(db, b.id, pid) : null;
@@ -335,7 +342,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const back = cancelled && mine ? Object.fromEntries((await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id")
       .select(["refund.destination", (eb) => eb.fn.sum<string>("refund.amount_cents").as("c")]).where("payment.booking_player_id", "=", mine.id).where("refund.status", "!=", "failed")
       .groupBy("refund.destination").execute()).map((r) => [r.destination, Number(r.c)])) as Record<string, number> : null;
-    const { organiser_id, invite_code, settled_at, ...rest } = b;
+    const { organiser_id, invite_code, settled_at, late_sub_refund_percent, late_filled_refund_percent, late_empty_refund_percent, ...rest } = b;
+    const late = b.is_match && late_sub_refund_percent !== null ? { sub: late_sub_refund_percent, filled: Math.max(late_filled_refund_percent ?? 0, late_empty_refund_percent ?? 0), empty: late_empty_refund_percent ?? 0 } : null;
     return { ...rest, host_is_me: host, open, cancelled, share_cents: shares(b.price_cents, b.players).each, spots_left: cancelled ? 0 : Math.max(0, b.players - taken), my_level: level,
       started: now >= start, late_window: !cancelled && now >= start - 3 * 3600_000 && now <= start + 30 * 60_000, no_show_window: !cancelled && now >= start && now <= start + 48 * 3600_000,
       players: places.map((x) => ({ id: host ? x.id : undefined, name: x.display_name, level: x.level === null ? null : Number(x.level), host: x.person_id === organiser_id, ...(b.is_match ? {} : { added: Boolean(x.added_by) }),
@@ -349,7 +357,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       me: mine ? { seat_id: mine.id, added: Boolean(mine.added_by) && !g && !cancelled, pending_payment_id: mine.pending_payment_id, held_until: mine.held_until, leaving: Boolean(mine.leaving_at), saved: Boolean(mine.saved_by && !mine.paid_id), paid: Boolean(mine.paid_id),
         sub: Boolean(mine.replaces), offer: offer ? { id: offer.id, code: offer.code, to_name: offer.to_name } : null } : null, request: request ?? null,
       requests: requests.map(({ person_id, ...r }) => ({ ...r, level: r.level === null ? null : Number(r.level), record: asking.get(person_id) ?? { no_shows: 0, late_leaves: 0 } })),
-      invite_code: host ? invite_code : null, result, teams, stakes,
+      invite_code: host ? invite_code : null, result, teams, match_teams, late, stakes,
       can_score: Boolean(mine && !cancelled && !mine.leaving_at && !mine.replaces && !g && four.length === 4 && now >= start && now <= start + ENTER_DAYS * 86400_000),
       four: mine ? four.map((x) => ({ person_id: x.person_id, name: x.display_name })) : [] };
   }
@@ -587,7 +595,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .select(["membership.id", "membership.person_id", "payer.display_name as payer", trSql("membership_plan", "name", l).as("name"), trSql("membership_plan", "description", l).as("description"), "membership_plan.price_cents as plan_price_cents", "membership_plan.period as plan_period",
         "membership_plan.days_ahead", "membership.plan_id", "membership.status", "membership.source", "membership.started_at", "membership.current_period_end", "membership.cancel_at_period_end", "membership.price_cents",
         "membership.period", "membership.next_attempt_at", "membership.saved_method", "membership.paused_until", "membership.family_size", "membership.extra_person_cents",
-        "membership.balance_cents", "membership_plan.join_in_app", "membership.brought_from"])
+        "membership.balance_cents", "membership_plan.join_in_app", "membership.brought_from", "membership.switch_to"])
       .where("membership.status", "in", ["upcoming", "active", "past_due"]);
     // Mine, or a family plan someone else pays that covers me.
     const m = await q().where("membership.person_id", "=", pid).executeTakeFirst() ?? await q().where((eb) => eb.exists(eb.selectFrom("membership_member").select("membership_member.id")
@@ -610,8 +618,12 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       can_add: candidates.map((x) => ({ id: x.id, display_name: x.display_name })) } : null;
     // From the desk, paid for one period: the next one can be paid here by card when the plan is one joined in the app.
     const due = mine && m.source === "desk" && m.price_cents !== null && m.join_in_app && !m.balance_cents ? await membershipDue(db, m.id, now) : null;
-    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, saved_method, paused_until, person_id, payer, family_size, extra_person_cents, join_in_app, ...rest } = m;
-    return c.json({ membership: { ...rest, mine, covered_by: mine ? null : payer, family,
+    // Switching plans (membership.switch): the plan it moves to when this period ends; and whether it can switch now.
+    const nextPlan = m.switch_to ? await db.selectFrom("membership_plan").select(["id", trSql("membership_plan", "name", l).as("name"), "price_cents", "period"]).where("id", "=", m.switch_to).executeTakeFirst() : null;
+    const { plan_id, plan_price_cents, plan_period, current_period_end, next_attempt_at, saved_method, paused_until, person_id, payer, family_size, extra_person_cents, join_in_app, switch_to, ...rest } = m;
+    return c.json({ membership: { ...rest, plan_id, mine, covered_by: mine ? null : payer, family,
+      switch: nextPlan && current_period_end ? { plan_id: nextPlan.id, name: nextPlan.name, price_cents: nextPlan.price_cents, period: nextPlan.period, starts_on: endDay({ current_period_end, source: m.source }, tz) } : null,
+      can_switch: mine && m.status === "active" && m.source === "app" && Boolean(current_period_end),
       // What a period costs: with a family plan, each person beyond its number too.
       price_cents: await periodCents(db, m, plan_price_cents, now), period: m.period ?? plan_period, member_prices: prices, ...programTerms(perks ?? (await planTerms(m.plan_id))),
       included_used: perks?.included_sessions ? perks.used : null,
@@ -698,6 +710,14 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const m = await db.selectFrom("membership").select("provider_ref").where("id", "=", c.req.param("id")).executeTakeFirstOrThrow();
     pv.settleSetup(m.provider_ref!);
     return c.json({ status: await checkCardSetup(db, c.req.param("id"), "dev") });
+  });
+  // Development only: save a stand-in card on file, as the card form would.
+  if (!opts.production) app.post("/dev/card", async (c) => {
+    const pid = who(c), pv = paymentProvider();
+    if (!(pv instanceof TestProvider)) throw new KumiError("error.forbidden", {}, 403);
+    const r = await openCardOnFile(db, pid);
+    pv.settleSetup((await db.selectFrom("person_card").select("provider_ref").where("id", "=", r.cardId).executeTakeFirstOrThrow()).provider_ref!);
+    return c.json({ status: await checkCardOnFile(db, r.cardId, "dev") });
   });
   // Development only: save a stand-in family card, as a parent's card form would.
   if (!opts.production) app.post("/dev/family/card", async (c) => {

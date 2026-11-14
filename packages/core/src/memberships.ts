@@ -15,7 +15,8 @@ import { mergeTranslations, textOf, translationsInput } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts, onDate } from "./clock.ts";
 import { account, paymentProvider, post } from "./money.ts";
-import { householdOf, withManagers } from "./households.ts";
+import { householdOf, nameList, withManagers } from "./households.ts";
+import { brandName } from "./receipts.ts";
 import { callOff, deskPaid, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 import { declineReason } from "./declines.ts";
 import { isReadOnly, refuseWhenReadOnly } from "./read_only.ts";
@@ -454,6 +455,105 @@ export const membershipResume = defineAction({
   },
 });
 
+// ---- Switching plans: the member picks another plan, which starts when the current one's period ends ----
+/** A membership the member can move to another plan from: their own, joined in the app, running and paid. */
+async function switchable(db: Db | Trx, membershipId: string) {
+  const { m, read, plan, person } = await membershipRow(db, membershipId);
+  if (m.status !== "active" || m.source !== "app" || !m.current_period_end) throw new KumiError("error.switch_not_now");
+  return { m, read, plan, person };
+}
+
+export const membershipSwitch = defineAction({
+  name: "membership.switch", version: 1, clubWide: true,
+  input: z.object({ membership_id: z.uuid(), plan_id: z.uuid() }),
+  owners: (db, i) => holderOf(db, i.membership_id),
+  async plan(ctx, i) {
+    const { m, read, plan: cur } = await switchable(ctx.db, i.membership_id);
+    const { row: next, read: nextRead } = await readRow(ctx.db, "membership_plan", i.plan_id, "thing.membership_plan");
+    const name = textOf(next.name, next.translations, "name"), curName = textOf(cur.name, cur.translations, "name");
+    if (next.id === m.plan_id) throw new KumiError("error.switch_same_plan", { name });
+    if (!next.active || !next.join_in_app) throw new KumiError("error.plan_not_in_app", { name });
+    const tz = await clubTz(ctx.db), starts = endDay(m, tz);
+    if (next.starts_on && next.starts_on > starts) throw new KumiError("error.switch_plan_later", { name, date: dayText(next.starts_on) });
+    if (!await hasRoom(ctx.db, next as { id: string; max_members: number | null })) throw new KumiError("error.plan_full", { name });
+    // Charged on the card the current plan renews from: without one, there's nothing to charge then.
+    if (next.price_cents > 0 && !m.saved_method) throw new KumiError("error.switch_needs_card");
+    // A family plan: the people covered now move over (as many as it covers, and more at its price for each extra);
+    // to a plan that isn't one, their cover ends with the current plan.
+    const covered = (await coveredBy(ctx.db, m.id, ctx.now)).filter((x) => !x.ends_at);
+    const carried = next.family_size ? (next.extra_person_cents != null ? covered : covered.slice(0, Math.max(0, next.family_size - 1))) : [];
+    const dropped = covered.filter((x) => !carried.includes(x));
+    const extras = next.family_size ? Math.max(0, carried.length + 1 - next.family_size) : 0, extraCents = extras * (next.extra_person_cents ?? 0);
+    const total = next.price_cents + extraCents, date = dayText(starts);
+    const p = { name, current: curName, date, price: planPrice(next.price_cents, next.period), period: both(next.period === "year" ? "plan.membership.every_year" : "plan.membership.every_month") };
+    const parts: Text[] = [both("plan.membership.switch", p)];
+    if (carried.length) parts.push(both("plan.membership.switch_carry", { names: nameList(carried.map((x) => x.display_name)) }));
+    if (dropped.length) parts.push(both("plan.membership.switch_drop", { names: nameList(dropped.map((x) => x.display_name)), date }));
+    if (m.cancel_at_period_end) parts.push(both("plan.membership.switch_uncancel", { current: curName }));
+    const lines = [chargeLine("item", "charge.membership", { name, price: p.price }, next.price_cents),
+      ...(extras ? [chargeLine("item", "charge.family_extra", { count: extras, amount: { en: money(next.extra_person_cents ?? 0, "en"), es: money(next.extra_person_cents ?? 0, "es") } }, extraCents)] : []),
+      chargeLine("total", "charge.total_switch", { date }, total)];
+    const chargeOf = total > 0 ? { lines, due_cents: 0, how: both("charge.how_switch_card", { card: await cardWordsFor(m.saved_method, m.provider_account) }), when: both("charge.when_switch", { date, current: curName, period: p.period }) }
+      : charge(lines, 0, both("charge.how_nothing"), null);
+    return { title: both("action.membership.switch"), summary: { en: parts.map((x) => x.en).join(" "), es: parts.map((x) => x.es).join(" ") },
+      reads: [read, nextRead], ownerIds: [m.person_id], moneyCents: 0, charge: chargeOf, undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    const m = await ctx.trx.selectFrom("membership").select(["status", "source", "plan_id"]).where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    if (m.status !== "active" || m.source !== "app" || m.plan_id === i.plan_id) throw new KumiError("error.changed");
+    await ctx.update("membership", i.membership_id, { switch_to: i.plan_id, cancel_at_period_end: false });
+    return null;
+  },
+});
+
+export const membershipSwitchCancel = defineAction({
+  name: "membership.switch_cancel", version: 1, clubWide: true,
+  input: z.object({ membership_id: z.uuid() }),
+  owners: (db, i) => holderOf(db, i.membership_id),
+  async plan(ctx, i) {
+    const { m, read, plan } = await membershipRow(ctx.db, i.membership_id);
+    if (!m.switch_to || m.status === "ended") throw new KumiError("error.no_switch");
+    const next = await ctx.db.selectFrom("membership_plan").select(["name", "translations"]).where("id", "=", m.switch_to).executeTakeFirstOrThrow();
+    const p = { name: textOf(next.name, next.translations, "name"), current: textOf(plan.name, plan.translations, "name"), date: dayText(endDay(m, await clubTz(ctx.db))),
+      price: { en: money(m.price_cents ?? plan.price_cents, "en"), es: money(m.price_cents ?? plan.price_cents, "es") } };
+    return { title: both("action.membership.switch_cancel"), summary: both("plan.membership.switch_cancel", p), reads: [read], ownerIds: [m.person_id], undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    await ctx.update("membership", i.membership_id, { switch_to: null });
+    return null;
+  },
+});
+
+/** "the Visa card ending 4242", or "your saved card" when the provider can't say. */
+async function cardWordsFor(method: string | null, account: string | null): Promise<Text> {
+  const f = method ? await paymentProvider().methodOf?.(method, account).catch(() => null) ?? null : null;
+  return f ? both("plan.card.this_card", { brand: brandName(f.brand), last4: f.last4 }) : both("plan.card.saved_card");
+}
+
+/** At the renewal of a membership switching plans: it ends, and one on the new plan starts from its last day, on the
+ *  same card, carrying the family it covers when the new plan is a family plan. The new one is charged as any first
+ *  charge is (membership.renew). The new plan gone or full meanwhile: no switch, the current plan renews. */
+async function switchNow(ctx: ApplyCtx, m: { id: string; person_id: string; switch_to: string | null; current_period_end: Date; saved_customer: string | null; saved_method: string | null; provider_account: string | null }) {
+  const next = await ctx.trx.selectFrom("membership_plan").select(["id", "name", "price_cents", "period", "max_members", "family_size", "extra_person_cents", "active"]).where("id", "=", m.switch_to!).forUpdate().executeTakeFirstOrThrow();
+  if (!next.active || !await hasRoom(ctx.trx, next)) {
+    await ctx.update("membership", m.id, { switch_to: null });
+    await ctx.emit("membership.switch_dropped", { membership_id: m.id, plan_id: next.id });
+    return null;
+  }
+  const covered = (await coveredBy(ctx.trx, m.id, ctx.now)).filter((x) => !x.ends_at);
+  for (const x of covered) await ctx.update("membership_member", x.id, { ends_at: m.current_period_end });
+  await ctx.update("membership", m.id, { status: "ended", ended_at: m.current_period_end, end_reason: "switched", next_attempt_at: null, switch_to: null });
+  await dropPayNow(ctx, m.id);
+  const id = uuidv7();
+  await ctx.insert("membership", { id, person_id: m.person_id, plan_id: next.id, status: "upcoming", source: "app", started_at: m.current_period_end, current_period_end: m.current_period_end,
+    price_cents: next.price_cents, period: next.period, family_size: next.family_size, extra_person_cents: next.extra_person_cents, saved_customer: m.saved_customer, saved_method: m.saved_method,
+    provider_account: m.provider_account, created_at: ctx.now });
+  const carried = next.family_size ? (next.extra_person_cents != null ? covered : covered.slice(0, Math.max(0, next.family_size - 1))) : [];
+  for (const x of carried) await ctx.insert("membership_member", { id: uuidv7(), membership_id: id, person_id: x.person_id, extra: carried.indexOf(x) + 2 > next.family_size!, added_by: m.person_id });
+  await ctx.emit("membership.switched", { membership_id: id, from: m.id });
+  return ctx.trx.selectFrom("membership").selectAll().where("id", "=", id).forUpdate().executeTakeFirstOrThrow();
+}
+
 /** The job: memberships joined in the app whose period is up. Each is renewed from its saved card, tried again
  *  later if that fails, or ended (cancelled, or its tries ran out). */
 export async function renewMemberships(db: Db, now = new Date()) {
@@ -478,7 +578,7 @@ export const membershipRenew = defineAction({
     return { title: both("action.membership.renew"), summary: both("action.membership.renew"), reads: [read], undo: { kind: "none" } };
   },
   async apply(ctx, i) {
-    const m = await ctx.trx.selectFrom("membership").selectAll().where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
+    let m = await ctx.trx.selectFrom("membership").selectAll().where("id", "=", i.membership_id).forUpdate().executeTakeFirstOrThrow();
     if (m.status === "ended" || m.source !== "app" || !m.current_period_end || m.current_period_end > ctx.now || (m.next_attempt_at && m.next_attempt_at > ctx.now)) return { outcome: "not_due" };
     if (m.cancel_at_period_end) {
       await ctx.update("membership", m.id, { status: "ended", ended_at: m.current_period_end, next_attempt_at: null });
@@ -494,6 +594,8 @@ export const membershipRenew = defineAction({
       await ctx.emit("membership.brought_ended", { membership_id: m.id });
       return { outcome: "ended" };
     }
+    // Switching plans at this renewal (membership.switch): the new plan's membership is charged instead.
+    if (m.switch_to) { const switched = await switchNow(ctx, m as typeof m & { current_period_end: Date }); if (switched) m = switched; }
     const plan = await ctx.trx.selectFrom("membership_plan").select(["name", "price_cents"]).where("id", "=", m.plan_id).executeTakeFirstOrThrow();
     const cents = await periodCents(ctx.trx, m, plan.price_cents, ctx.now), club = await ctx.trx.selectFrom("club").select("currency").executeTakeFirstOrThrow();
     if (cents === 0) {
@@ -504,7 +606,7 @@ export const membershipRenew = defineAction({
     // One try per period and attempt: a retry of this same change (a crash, a timeout) can't charge twice.
     const charge = m.saved_customer && m.saved_method
       ? await paymentProvider().chargeSaved({ customer: m.saved_customer, paymentMethod: m.saved_method, amountCents: cents, currency: club.currency, description: `${plan.name} membership`,
-          idempotencyKey: `renew:${m.id}:${m.current_period_end.toISOString()}:${m.failed_attempts}`, account: m.provider_account })
+          idempotencyKey: `renew:${m.id}:${m.current_period_end!.toISOString()}:${m.failed_attempts}`, account: m.provider_account })
       : { ref: "", status: "failed" as const, failure: "no saved card" };
     if (charge.status === "succeeded") {
       const id = uuidv7();

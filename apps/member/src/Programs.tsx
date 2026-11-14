@@ -4,6 +4,7 @@
 // the same preview as ever: prices, packs, credit and memberships work as before, and nothing changes before
 // Confirm. Only the program's own facts and counts are shown, never who else signed up. Loaded when first opened.
 import { useEffect, useState } from "preact/hooks";
+import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
 import { api, club, clubTime, dollars, EmptyState, lang, me, NewOnly, placesLeft, shortTime, t, usePreview, whyNothingNew, type ProgramCardData } from "@kumi/ui";
 import { ForWhom } from "./ForWhom.tsx";
@@ -12,6 +13,7 @@ import { DayStrip, PlacesToggle } from "./DayStrip.tsx";
 import { CoachFace, Taken } from "./cards.tsx";
 import { Lessons } from "./Lessons.tsx";
 import { EVENT_CHIPS, isEvent, onChip, programHasPlace, programOn, weeksOf, type EventChip } from "./whats_on.ts";
+import { fitOf } from "./fit.ts";
 
 type Day = { id: string; starts_at: string; capacity: number; booked: number; offered: number; my_status: string | null; my_offer_until: string | null; my_watch: string | null };
 export type Program = ProgramCardData & { kind: string; format: string | null; my_status: string | null; my_offer_until: string | null; my_watch: string | null; dates?: Day[];
@@ -35,6 +37,12 @@ function usePrograms(who: string) {
   return { rows, load };
 }
 const forQuery = (who: string) => (who === me.value!.person.id ? "" : `?for=${who}`);
+/** The level of whoever the list is for (me, or a junior I manage): null with none yet, undefined while it loads. */
+function useLevel(who: string) {
+  const [level, setLevel] = useState<number | null | undefined>(undefined);
+  useEffect(() => { setLevel(undefined); api<{ rating: { level: string } | null }>(`/my/level${forQuery(who)}`).then((r) => setLevel(r.rating ? Number(r.rating.level) : null)).catch(() => setLevel(null)); }, [who]);
+  return level;
+}
 
 /** Events, under Play: chips for the kinds, a week of days, and only the ones with places if asked. */
 export function Events() {
@@ -63,7 +71,7 @@ export function Events() {
 export function Learn() {
   const { query } = useLocation();
   const show = query.show === "courses" ? "course" : "clinic";
-  const [who, setWho] = useState(me.value!.person.id), { rows, load } = usePrograms(who);
+  const [who, setWho] = useState(me.value!.person.id), { rows, load } = usePrograms(who), level = useLevel(who);
   const [day, setDay] = useState(""), [places, setPlaces] = useState(false);
   const { preview, sheet } = usePreview(() => { void load(); });
   const tz = club.value?.time_zone ?? "UTC", all = (rows ?? []).filter((p) => p.kind === show);
@@ -76,9 +84,12 @@ export function Learn() {
       {show === "clinic" && <DayStrip value={day} onChange={setDay} tz={tz} has={(d) => all.some((p) => programOn(p, d, tz))} />}
       <PlacesToggle value={places} onChange={setPlaces} />
       <ForWhom value={who} onChange={setWho} />
+      {/* How each fits this person's level; without a level, no tags, and where to set one. */}
+      {level != null ? <p class="meta">{t("ui.learn_for_level", { level: level.toFixed(2) })}</p>
+        : level === null && who === me.value!.person.id && <p class="meta">{t("ui.fit_no_level")} <a href="/level">{t("ui.set_level")}</a></p>}
       {!rows ? <p class="meta">{t("ui.loading")}</p> : all.length === 0 ? <EmptyState art="no-classes">{t(show === "course" ? "ui.courses_nothing" : "ui.clinics_nothing")}</EmptyState>
         : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
-      <ul class="items">{shown.map((p) => <li key={p.id}><ProgramItem p={p} href={`/learn/${p.id}${forQuery(who)}`}
+      <ul class="items">{shown.map((p) => <li key={p.id}><ProgramItem p={p} level={level} href={`/learn/${p.id}${forQuery(who)}`}
         join={canJoin(p) ? () => preview("enrolment.join", { program_id: p.id, person_id: who }) : undefined} /></li>)}</ul>
     </main>
   );
@@ -93,7 +104,8 @@ export function LessonsPage() {
 const canJoin = (p: Program) => !p.dates && !p.my_status && !p.my_offer_until && !whyNothingNew(club.value);
 
 /** A program's card: kind, name, when (and how long), level, coach or club, places taken, and this person's price. */
-function ProgramItem({ p, href, join }: { p: Program; href: string; join?: () => void }) {
+function ProgramItem({ p, href, join, level }: { p: Program; href: string; join?: () => void; level?: number | null }) {
+  const fit = p.my_status ? null : fitOf(level, p.level_min, p.level_max);
   const left = placesLeft(p), full = !p.dates && left <= 0, weeks = weeksOf(p.first_start, p.last_start);
   const when = p.first_start ? clubTime(p.first_start, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : t("ui.dates_to_come");
   return (
@@ -105,7 +117,8 @@ function ProgramItem({ p, href, join }: { p: Program; href: string; join?: () =>
       <a class="item-title item-link" href={href}>{p.name}</a>
       <span class="item-when">{p.dates ? t("ui.dates_count", { count: p.dates.length }) : p.kind === "course" && p.sessions > 1
         ? t("ui.course_when", { weeks: t("count.weeks", { count: weeks }), first: when }) : when}{p.minutes ? ` · ${lengthText(p.minutes)}` : ""}</span>
-      {p.level_min && p.level_max && <span class="tags"><span class="tag">{t("ui.level_band", { min: p.level_min, max: p.level_max })}</span></span>}
+      {p.level_min && p.level_max && <span class="tags"><span class="tag">{t("ui.level_band", { min: p.level_min, max: p.level_max })}</span>
+        {fit && <span class={`tag fit-${fit}`}>{fit === "great" || fit === "good" ? t("ui.fit_yours", { level: level!.toFixed(2) }) : t(`ui.fit_${fit}` as Key)}</span>}</span>}
       <span class="item-foot">
         {p.dates ? <span class="count">{t("ui.per_date_short")}</span> : full ? <span class="tag warn">{t("ui.full")}</span> : <Taken taken={p.booked + p.offered} total={p.capacity} />}
         <span class="item-org">{p.coach && <CoachFace name={p.coach.name} photo={p.coach.photo} />}{p.coach ? p.coach.name : t("ui.by_name", { name: coachOrClub(p) })}</span>

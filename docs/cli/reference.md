@@ -863,6 +863,19 @@ Count a game for levels. Who may: owner, manager, front desk, member (their own)
 openpadel booking set-rated --booking-id <id> --rated
 ```
 
+#### openpadel booking set-teams
+
+Choose the teams. Who may: owner, manager, front desk, member (their own).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--booking-id` | id | needed |  |
+| `--teams` | fair \| joined | needed |  |
+
+```
+openpadel booking set-teams --booking-id <id> --teams fair
+```
+
 #### openpadel booking take-place
 
 Take someone's place in a match. Who may: owner, manager, front desk, member (their own).
@@ -2195,6 +2208,35 @@ Its preview reads: "Keep {person}'s {name} membership. It renews on {date} for {
 
 ```
 openpadel membership resume --membership-id <id>
+```
+
+#### openpadel membership switch
+
+Switch membership plan. Who may: owner, manager, member (their own).
+
+Its preview reads: "Switch to {name}, {price}, from {date}, when {current} ends. {current} and its benefits stay until then. Only one membership applies at a time, so it replaces {current}."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--membership-id` | id | needed |  |
+| `--plan` | plan: a name or an id | needed |  |
+
+```
+openpadel membership switch --membership-id <id> --plan Monthly
+```
+
+#### openpadel membership switch-cancel
+
+Keep the current plan. Who may: owner, manager, front desk, member (their own).
+
+Its preview reads: "Keep {current}: it renews on {date} for {price}, and {name} won't start."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--membership-id` | id | needed |  |
+
+```
+openpadel membership switch-cancel --membership-id <id>
 ```
 
 #### openpadel membership unpause

@@ -13,7 +13,9 @@ type Family = { size: number; extra_cents: number | null; payer: string; covered
 type Mine = Perks & { id: string; brought_from?: string | null; name: string; description: string | null; price_cents: number; period: "month" | "year"; status: string; source: string; cancel_at_period_end: boolean;
   ends_on: string | null; retry_on: string | null; pay_now: { payment_id: string; cents: number } | null; starts_on: string | null; card_saved: boolean; perks_now: boolean; paused_until: string | null;
   balance_cents: number; pay_next: { cents: number } | null;
-  mine: boolean; covered_by: string | null; family: Family | null };
+  mine: boolean; covered_by: string | null; family: Family | null;
+  // Switching plans: the plan it moves to when this period ends, and whether it can switch now.
+  plan_id: string; can_switch: boolean; switch: { plan_id: string; name: string; starts_on: string } | null };
 type Offer = Perks & { id: string; name: string; description: string | null; price_cents: number; period: "month" | "year"; places_left: number | null; starts_on: string | null;
   family_size: number | null; extra_person_cents: number | null };
 
@@ -66,7 +68,8 @@ export function MembershipBody({ embedded = false, onPlan }: { embedded?: boolea
   const load = async () => {
     const r = await api<{ membership: Mine | null }>("/my/membership");
     setMine(r.membership); onPlan?.(r.membership?.name ?? null);
-    if (!r.membership) setOffers(await api<Offer[]>("/membership-plans"));
+    // The plans to join, or (a member who can switch) to switch to.
+    if (!r.membership || r.membership.can_switch) setOffers(await api<Offer[]>("/membership-plans"));
   };
   const { preview, sheet } = usePreview((r?: { payment_id?: string; membership_id?: string; save_card?: boolean }) => {
     if (r?.payment_id && next) { setPaying({ id: r.payment_id, cents: next.cents, name: next.name }); setNext(null); }
@@ -114,7 +117,11 @@ export function MembershipBody({ embedded = false, onPlan }: { embedded?: boolea
             <p>{t("ui.brought_keep", { date: clubDay(mine.ends_on!), amount: dollars(mine.price_cents, lang.value), period: t(`ui.period_${mine.period}` as Key) })}</p>
             <button class="primary" onClick={() => setPaying({ id: mine.id, cents: mine.price_cents, name: mine.name, card: true })}>{t("ui.brought_add_card")}</button>
           </div>}
-          {mine.status === "upcoming" || !mine.mine || (mine.brought_from && mine.source === "app" && !mine.card_saved) ? null : mine.source === "app" ? <>
+          {mine.status === "upcoming" || !mine.mine || (mine.brought_from && mine.source === "app" && !mine.card_saved) ? null : mine.switch ? <div class="note">
+            {/* Switching plans when this period ends: said, with the way to keep this plan instead. */}
+            <p>{t("ui.switch_pending", { name: mine.switch.name, date: clubDay(mine.switch.starts_on) })}</p>
+            <button onClick={() => preview("membership.switch_cancel", { membership_id: mine.id })}>{t("ui.switch_keep", { name: mine.name })}</button>
+          </div> : mine.source === "app" ? <>
             <p class="meta">{mine.cancel_at_period_end ? t("ui.cancelled_runs_until", { date: clubDay(mine.ends_on!) })
               : t("ui.renews_on_for", { date: clubDay(mine.ends_on!), amount: dollars(mine.price_cents, lang.value) })}</p>
             {mine.cancel_at_period_end
@@ -132,6 +139,7 @@ export function MembershipBody({ embedded = false, onPlan }: { embedded?: boolea
         </section>
       ) : null}
       {mine?.family && <FamilyCover m={mine} send={preview} />}
+      {mine?.can_switch && offers.some((o) => o.id !== mine.plan_id) && <SwitchPlans mine={mine} offers={offers} embedded={embedded} send={preview} />}
       {mine ? null : me.value?.kid ? <p class="card">{t("ui.kid_membership_parents")}</p> : offers.length === 0 ? <p class="card">{t("ui.no_plans_in_app")}</p> : <div class={embedded ? "rail plans" : undefined}>{offers.map((o) => (
         <section class="card">
           <h2>{o.name} <span class="meta">{price(o)}</span></h2>
@@ -146,5 +154,30 @@ export function MembershipBody({ embedded = false, onPlan }: { embedded?: boolea
         </section>
       ))}</div>}
     </div>
+  );
+}
+
+/** The other plans, side by side, for a member who can switch: theirs marked as theirs, the one it's switching to with
+ *  its start date, and Choose on the rest, which opens the itemised preview (nothing is charged until this plan ends). */
+function SwitchPlans({ mine, offers, embedded, send }: { mine: Mine; offers: Offer[]; embedded: boolean; send: (action: string, input: unknown) => Promise<void> }) {
+  return (
+    <section aria-labelledby="plans-other">
+      <div class="section-head"><h2 id="plans-other">{t("ui.plans_other")}</h2><span class="meta">{t("ui.plans_one_at_a_time")}</span></div>
+      <div class={embedded ? "rail plans" : undefined}>{offers.map((o) => {
+        const yours = o.id === mine.plan_id, next = mine.switch?.plan_id === o.id;
+        return (
+          <section class={yours ? "card plan-yours" : "card"}>
+            <h2>{o.name} <span class="meta">{price(o)}</span></h2>
+            {o.description && <p>{o.description}</p>}
+            <PerkList p={o} />
+            {o.family_size && <p class="meta">{t("ui.family_size_note", { count: o.family_size })}</p>}
+            {yours ? <button disabled>{t("ui.plan_yours")}</button>
+              : next ? <button disabled>{t("ui.plan_starts_switch", { date: clubDay(mine.switch!.starts_on) })}</button>
+              : o.places_left === 0 ? <p class="meta">{t("ui.plan_full")}</p>
+              : <NewOnly><button class="primary" onClick={() => send("membership.switch", { membership_id: mine.id, plan_id: o.id })}>{t("ui.plan_choose")}<span class="visually-hidden">: {o.name}</span></button></NewOnly>}
+          </section>
+        );
+      })}</div>
+    </section>
   );
 }

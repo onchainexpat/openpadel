@@ -151,6 +151,7 @@ const ENTITIES = {
   waiver_acceptance: { table: "waiver_acceptance", key: "id", retire: null },
   kid_rule: { table: "kid_rule", key: "person_id", retire: null },
   family_card: { table: "family_card", key: "id", retire: { status: "removed" } },
+  person_card: { table: "person_card", key: "id", retire: { status: "removed" } },
   kid_request: { table: "kid_request", key: "id", retire: { status: "withdrawn" } },
   attendance: { table: "attendance", key: "id", retire: null },
   club_fact: { table: "club_fact", key: "id", retire: { active: false } },
@@ -286,7 +287,7 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
  *  holding it says so), and saying yes to texts or club news (APP_ONLY_YES): an assistant may still turn them off. */
 export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.export", "person.factor_add", "person.factor_codes", "person.factor_remove",
   "person.passkey_add", "person.passkey_remove", "waiver.accept", "level.self_adjust", "level.claim", "level.remove_import", "family_card.start", "family_card.remove", "family_card.open",
-  "family_card.saved", "membership.card_open", "membership.card_saved", "kid.give_login", "kid.remove_login", "kid.set_rules", "kid.approve_request",
+  "family_card.saved", "card.open", "card.saved", "card.remove", "membership.card_open", "membership.card_saved", "kid.give_login", "kid.remove_login", "kid.set_rules", "kid.approve_request",
   "household.invite", "household.accept_invite", "household.give_login", "household.leave", "household.remove_junior", ...DESK_MONEY, ...CHAT_ACTIONS, ...CREDIT_MONEY, "payment.use_credit", "gift_card.redeem", "payment.use_pass", "pass_product.set", "promo_code.set",
   // Taking a tournament or league result back undoes later matches too: staff in the app only.
   "fixture.reopen",

@@ -4,7 +4,7 @@
 import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { RateLimiter } from "./limits.ts";
-import { clubsAccount, includedTaxOf, noteFound, checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, supportRoleKeys, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
+import { cardUses, checkCardOnFile, currentCard, openCardOnFile, clubsAccount, includedTaxOf, noteFound, checkCardSetup, checkFamilyCard, checkPayment, connectStripe, kidOf, KumiError, supportRoleKeys, manages, openCardSetup, openFamilyCardSetup, openPayment, payWithFamilyCard, paymentProvider, refreshStripeAccount, verifyStripeSignature, StripeProvider, type Actor, type Db } from "@kumi/core";
 
 type Me = { id: string } | null;
 export interface StripeConfig { publishableKey?: string; webhookSecret?: string }
@@ -76,6 +76,25 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
     return c.json({ status: await checkFamilyCard(db, card.id) });
   });
 
+  // The card on file (Me): the card shown (brand, last four, expiry, never more), what relies on it, and its card form:
+  // a card setup, nothing charged or held.
+  app.get("/my/card", async (c) => {
+    const pid = who(c), card = await currentCard(db, pid), uses = await cardUses(db, pid, new Date()), l = (c as Context<any>).get("lang") === "es" ? "es" : "en";
+    return c.json({ card: card ? { brand: card.brand, last4: card.last4, exp_month: card.expMonth, exp_year: card.expYear } : null,
+      uses: { membership: uses.membership ? { name: uses.membership.name[l], on: uses.membership.on } : null, kids: uses.kids, deadlines: uses.deadlines.length,
+        next_deadline: uses.deadlines[0]?.at ?? null, weekly: uses.weekly } });
+  });
+  app.post("/my/card", async (c) => {
+    const r = await openCardOnFile(db, who(c));
+    return c.json({ card_id: r.cardId, provider: r.provider, client_secret: r.clientSecret, publishable_key: r.provider === "stripe" ? stripe.publishableKey ?? null : null, stripe_account: r.account });
+  });
+  app.post("/my/card/:id/check", async (c) => {
+    const card = await db.selectFrom("person_card").select(["id", "person_id"]).where("id", "=", c.req.param("id")).executeTakeFirst();
+    if (!card || card.person_id !== who(c)) throw new KumiError("error.not_found", { thing: { en: "card", es: "la tarjeta" } }, 404);
+    if (!checks.take(who(c))) throw new KumiError("error.too_many_requests", {}, 429);
+    return c.json({ status: await checkCardOnFile(db, card.id) });
+  });
+
   // Stripe's webhook: only a signed, recent message is read, and it only prompts a check with Stripe.
   app.post("/webhooks/stripe", async (c) => {
     if (!stripe.webhookSecret) return c.json({ error: "not_configured" }, 404);
@@ -112,6 +131,8 @@ export function paymentRoutes(db: Db, me: (c: Context<any>) => Me, actor: (c: Co
       if (m) await checkCardSetup(db, m.id, "webhook:stripe");
       const f = await db.selectFrom("family_card").select("id").where("provider_ref", "=", setup).executeTakeFirst();
       if (f) await checkFamilyCard(db, f.id, "webhook:stripe");
+      const pc = await db.selectFrom("person_card").select("id").where("provider_ref", "=", setup).executeTakeFirst();
+      if (pc) await checkCardOnFile(db, pc.id, "webhook:stripe");
     }
     return c.json({ received: true });
   });

@@ -53,6 +53,21 @@ up right there.
   family plan counts as its member). Member lists import from Excel (.xlsx) as well as CSV, read on the server and never
   kept. An Imports tab lists each import: the file's name, when, who, its lines, and how many people were added,
   updated and skipped, and whether it was undone.
+- Members' app, Me: a card on file. It shows the saved card (brand, last four, expiry) and what relies on it, and
+  members add or replace it with the same Stripe card form used for paying (a card setup: nothing charged or held).
+  It's the one card everything later goes on: a court's unpaid parts at the deadline, weekly courts, membership
+  renewals and the family card. Removing it says first what relied on it; a place in a plan that hasn't started yet
+  needs a card, so it can be replaced but not removed.
+- Members' app, Me: switching membership plans. A member picks another plan, sees an itemised preview (nothing charged
+  today), and it starts when the current plan's period ends, charged to the same card; the switch can be called off
+  until then. A family plan carries its covered people over. Pausing stays with the staff.
+- Open matches: a teams card with the fair teams and as joined, each side's chance to win, and "Use these teams" or
+  "Keep as joined" for the organiser. Two people who came together (a place saved for a friend) are never split. With
+  three in, a player sees the teams if they join. An "About this match" block says how places, levels, the deadline
+  and late cancellations work for that match.
+- Play: "Start a match" goes straight to booking a court with paying your part and opening it to others chosen. Match
+  and class cards on Play and Learn say how each fits your level (Great fit, Good fit, A step up, Below your level),
+  and nothing when you have no level yet.
 - The club's logo (Settings, next to the colour, or `logo:` in club.yaml): an SVG, PNG or JPEG in place of the mark
   drawn from the club's name, on the app icons, the iPhone start images, the apps' start screen and welcome, and both
   apps' headers. It sits on the club's colour where it stands out, and on a dark or white tile where it wouldn't; the

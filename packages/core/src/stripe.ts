@@ -3,7 +3,7 @@
 // Kumi) adds the account header later.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { KumiError } from "./errors.ts";
-import type { IntentStatus, PaymentProvider } from "./money.ts";
+import type { CardFacts, IntentStatus, PaymentProvider } from "./money.ts";
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 /** Pinned, so Stripe can't change an answer's shape under us; moved on deliberately. */
@@ -111,6 +111,18 @@ export class StripeProvider implements PaymentProvider {
       if (e instanceof StripeError && e.status === 400) return { status: (await this.getIntent(ref, account)).status };
       throw e;
     }
+  }
+
+  /** A saved card's brand, last four and expiry, to show it on file. */
+  async methodOf(method: string, account?: string | null): Promise<CardFacts | null> {
+    const d = await this.call("GET", `/v1/payment_methods/${encodeURIComponent(method)}`, undefined, undefined, account);
+    const c = d?.card;
+    return c?.brand && /^\d{4}$/.test(String(c.last4 ?? "")) ? { brand: String(c.brand), last4: String(c.last4), expMonth: Number(c.exp_month) || null, expYear: Number(c.exp_year) || null } : null;
+  }
+  /** Take a saved card off its customer: Stripe can't charge it for the club again. One already detached is fine. */
+  async detachMethod(method: string, account?: string | null) {
+    try { await this.call("POST", `/v1/payment_methods/${encodeURIComponent(method)}/detach`, {}, undefined, account); }
+    catch (e) { if (!(e instanceof StripeError && (e.status === 400 || e.status === 404))) throw e; }
   }
 
   async ensureCustomer(i: { key: string; email?: string | null; name?: string }) {

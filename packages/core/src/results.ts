@@ -29,7 +29,7 @@ const pair = (a: string, b: string): Text => both("result.pair", { a, b });
 async function fourOf(db: Db | Trx, bookingId: string) {
   return (await db.selectFrom("booking_player").innerJoin("person", "person.id", "booking_player.person_id")
     .leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "booking_player.person_id").on("rating.sport", "=", "padel"))
-    .select(["booking_player.person_id", "person.display_name", "rating.mu", "rating.sigma", "rating.level"])
+    .select(["booking_player.person_id", "person.display_name", "rating.mu", "rating.sigma", "rating.level", sql<string | null>`coalesce(booking_player.saved_by, booking_player.added_by)`.as("brought_by")])
     .where("booking_player.booking_id", "=", bookingId).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is", null)
     .where("booking_player.replaces", "is", null).orderBy("booking_player.id").execute())
     .map((p) => ({ ...p, person_id: p.person_id! }));   // joined to a person, so never a guest
@@ -275,13 +275,80 @@ export async function confirmScores(db: Db, now = new Date()) {
   return { confirmed: due.length - failed, ...(failed ? { failed } : {}) };
 }
 
-/** The suggested teams for a booking with four players, and the odds shown (never stronger than 80/20). */
-export async function suggestTeams(db: Db | Trx, bookingId: string) {
-  const four = await fourOf(db, bookingId);
+type Four = { person_id: string; display_name: string; mu: number | null; sigma: number | null; level: string | null; brought_by?: string | null };
+/** Who came in together: a player brought in by one other of the four (a place saved for a friend, or added by them),
+ *  when that player brought no one else in. Two people who came together are never split. Someone who brought in the
+ *  whole court (a booking paid in full, with its players named) came with all of them: nobody's pair. */
+export function pairsOf(four: Four[]): [string, string][] {
+  const ids = new Set(four.map((p) => p.person_id)), by = new Map<string, string[]>();
+  for (const p of four) if (p.brought_by && p.brought_by !== p.person_id && ids.has(p.brought_by)) by.set(p.brought_by, [...(by.get(p.brought_by) ?? []), p.person_id]);
+  return [...by.entries()].filter(([, brought]) => brought.length === 1).map(([who, brought]) => [who, brought[0]!]);
+}
+/** The four's teams two ways, keeping together whoever came together: the fairest, and as they joined (the first to
+ *  join with the next who can partner them). Each with side a's chance of winning, never stronger than 80/20 as shown. */
+export function matchTeams<T extends Four>(four: T[]) {
+  const pairs = pairsOf(four);
+  const [p, q, r, s] = four as [T, T, T, T];
+  const kept = (a: T[]) => pairs.filter(([x, y]) => a.some((z) => z.person_id === x) === a.some((z) => z.person_id === y)).length;
+  const options = ([[[p, q], [r, s]], [[p, r], [q, s]], [[p, s], [q, r]]] as [T[], T[]][]).map(([a, b]) => ({ a, b, p: winChance(a.map(skillOf), b.map(skillOf)), kept: kept(a) }));
+  const most = Math.max(...options.map((o) => o.kept)), allowed = options.filter((o) => o.kept === most);
+  const fair = [...allowed].sort((x, y) => Math.abs(x.p - 0.5) - Math.abs(y.p - 0.5))[0]!, joined = allowed[0]!;
+  return { fair, joined, together: most > 0 };
+}
+const sideOf = (t: { a: Four[]; b: Four[]; p: number }) => {
+  const odds = Math.round(shownOdds(t.p) * 100), who = (x: Four) => ({ person_id: x.person_id, name: x.display_name, level: x.level === null ? null : Number(x.level) });
+  return { a: t.a.map(who), b: t.b.map(who), a_chance: odds, b_chance: 100 - odds };
+};
+const sameTeams = (x: { a: Four[] }, y: { a: Four[] }) => x.a.map((p) => p.person_id).sort().join() === y.a.map((p) => p.person_id).sort().join();
+
+/** A court's teams as its players see them, once there are four (or `joining`, about to make the fourth): the fair
+ *  teams and as joined (with each side's chance to win), whether those are the same, which the organiser chose (null:
+ *  not chosen, the fair ones are a suggestion), and whether anyone came together (and so is kept together). */
+export async function bookingTeams(db: Db | Trx, bookingId: string, joining?: string) {
+  let four: Four[] = await fourOf(db, bookingId);
+  if (joining && four.length === 3 && !four.some((p) => p.person_id === joining)) {
+    const me = await db.selectFrom("person").leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "person.id").on("rating.sport", "=", "padel"))
+      .select(["person.id as person_id", "person.display_name", "rating.mu", "rating.sigma", "rating.level"]).where("person.id", "=", joining).executeTakeFirst();
+    if (me) four = [...four, { ...me, brought_by: null }];
+  }
   if (four.length !== 4) return null;
-  const t = fairTeams(four), odds = Math.round(shownOdds(t.p) * 100);
+  const b = await db.selectFrom("booking").select("teams").where("id", "=", bookingId).executeTakeFirstOrThrow();
+  const t = matchTeams(four);
+  return { pick: b.teams, fair: sideOf(t.fair), joined: sideOf(t.joined), same: sameTeams(t.fair, t.joined), together: t.together,
+    chosen: b.teams === "joined" ? t.joined : t.fair };
+}
+
+/** The teams for a booking with four players (the organiser's choice, else the fair ones), and the odds shown. */
+export async function suggestTeams(db: Db | Trx, bookingId: string) {
+  const bt = await bookingTeams(db, bookingId);
+  if (!bt) return null;
+  const t = bt.chosen, odds = Math.round(shownOdds(t.p) * 100);
   return { a: t.a.map((p) => ({ person_id: p.person_id, name: p.display_name })), b: t.b.map((p) => ({ person_id: p.person_id, name: p.display_name })), odds: `${odds}/${100 - odds}` };
 }
+
+/** The organiser chooses the teams of their court's four: the fair ones suggested, or as the players joined. Either
+ *  way two players who came together stay together. Before it's played, and before a score is in. */
+export const bookingSetTeams = defineAction({
+  name: "booking.set_teams", version: 1,
+  input: z.object({ booking_id: z.uuid(), teams: z.enum(["fair", "joined"]) }),
+  owners: async (db, i) => {
+    const b = await db.selectFrom("booking").select(["organiser_id", "location_id"]).where("id", "=", i.booking_id).executeTakeFirst();
+    return { ownerIds: b?.organiser_id ? [b.organiser_id] : [], locationId: b?.location_id };
+  },
+  async plan(ctx, i) {
+    const b = await bookingFacts(ctx.db, i.booking_id);
+    if (b.status === "cancelled") throw new KumiError("error.already_cancelled");
+    if (ctx.now.getTime() >= new Date(b.start).getTime()) throw new KumiError("error.teams_too_late");
+    if (await ctx.db.selectFrom("game").select("id").where("booking_id", "=", b.id).where("status", "!=", "void").executeTakeFirst()) throw new KumiError("error.players_scored");
+    const bt = await bookingTeams(ctx.db, b.id);
+    if (!bt) throw new KumiError("error.need_four");
+    const t = i.teams === "joined" ? bt.joined : bt.fair, names = (x: { name: string }[]) => pair(x[0]?.name ?? "", x[1]?.name ?? "");
+    const { row, read } = await readRow(ctx.db, "booking", b.id, "thing.booking");
+    return { title: both("action.booking.set_teams"), ownerIds: row.organiser_id ? [row.organiser_id] : [], summary: both(i.teams === "joined" ? "plan.booking.teams_joined" : "plan.booking.teams_fair",
+      { a: names(t.a), b: names(t.b), odds: `${t.a_chance}/${t.b_chance}`, court: b.court, when: b.when }), reads: [read], locationId: b.location_id, undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) { await ctx.update("booking", i.booking_id, { teams: i.teams }); return null; },
+});
 
 /** What a rated match could do to one player's level, before it's played: their shown level after a typical
  *  win (6-4 6-4) and loss, with the fairest teams. Known once the four are (the player among them, or about
@@ -293,10 +360,12 @@ export async function levelStakes(db: Db | Trx, bookingId: string, personId: str
     const me = await db.selectFrom("person").leftJoin("rating", (j) => j.onRef("rating.person_id", "=", "person.id").on("rating.sport", "=", "padel"))
       .select(["person.id as person_id", "person.display_name", "rating.mu", "rating.sigma", "rating.level"]).where("person.id", "=", personId).executeTakeFirst();
     if (!me) return null;
-    four = [...four, me];
+    four = [...four, { ...me, brought_by: null }];
   }
   if (four.length !== 4) return null;
-  const t = fairTeams(four), mine = t.a.some((p) => p.person_id === personId) ? "a" : "b";
+  // The teams it would be played in: the organiser's choice once there are four, otherwise the fair ones.
+  const pick = (await db.selectFrom("booking").select("teams").where("id", "=", bookingId).executeTakeFirst())?.teams;
+  const mt = matchTeams(four), t = pick === "joined" ? mt.joined : mt.fair, mine = t.a.some((p) => p.person_id === personId) ? "a" : "b";
   const r = await db.selectFrom("rating").select(["level", "floor"]).where("person_id", "=", personId).where("sport", "=", "padel").executeTakeFirst();
   const now = r ? Number(r.level) : MODEL.defaultLevel, floor = r?.floor === null || r?.floor === undefined ? null : Number(r.floor);
   const after = (us: number, them: number) => {

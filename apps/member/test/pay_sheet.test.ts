@@ -15,6 +15,7 @@ test("card only is a payment without credit, passes or promo codes; only saving 
   assert.deepEqual(payMode({}), { saveCard: false, extras: true });
   assert.deepEqual(payMode({ cardFor: "m1" }), { saveCard: true, extras: false });
   assert.deepEqual(payMode({ familyCard: true }), { saveCard: true, extras: false });
+  assert.deepEqual(payMode({ cardOnFile: true }), { saveCard: true, extras: false });
 });
 
 test("the sheet takes the bot check and confirms as a payment unless it's saving a card", () => {

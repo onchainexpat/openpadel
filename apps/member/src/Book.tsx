@@ -17,6 +17,8 @@ type Quote = { total_cents: number; tax_cents: number; priced: boolean; member: 
 const kindName = (k: string) => k === "indoor" ? t("ui.kind_indoor") : k === "outdoor" ? t("ui.kind_outdoor") : k === "covered_outdoor" ? t("ui.kind_covered_outdoor") : "";
 
 export function Book() {
+  // "Start a match" on Play: this same page, with paying my part and opening it to others chosen for each time picked.
+  const [startMatch] = useState(() => new URLSearchParams(location.search).get("start") === "match");
   const [o, setO] = useState<Options | null>(null), [loc, setLoc] = useState(""), [day, setDay] = useState(""), [minutes, setMinutes] = useState(90);
   const [free, setFree] = useState<Free | null>(null), [pick, setPick] = useState<{ start: string; courts: Free["courts"] } | null>(null), [court, setCourt] = useState("");
   const [q, setQ] = useState<Quote | null>(null), [pay, setPay] = useState<"whole" | "split">("whole"), [players, setPlayers] = useState(4);
@@ -26,7 +28,7 @@ export function Book() {
   const [weekly, setWeekly] = useState(false), [weeks, setWeeks] = useState(4);
   const [provider, setProvider] = useState("test"), [paying, setPaying] = useState<{ id: string; cents: number; later?: WeeklyLater | null } | null>(null), [done, setDone] = useState(false);
   // An open match: the level band (around my own level to start with), and who else may join.
-  const [open, setOpen] = useState(false), [myLevel, setMyLevel] = useState<number | null>(null), [matchId, setMatchId] = useState<string | null>(null);
+  const [open, setOpen] = useState(startMatch), [myLevel, setMyLevel] = useState<number | null>(null), [matchId, setMatchId] = useState<string | null>(null);
   const [om, setOm] = useState({ min: "3.00", max: "4.00", ask: true, rated: true, listed: true });
   // Courts added to pay together (the same day, whole courts).
   const [cart, setCart] = useState<{ court: string; name: string; start: string; minutes: number; cents: number }[]>([]);
@@ -83,7 +85,13 @@ export function Book() {
   // Past the deadline for sharing the cost, only a same-day open match can still be shared, until its cutoff.
   const ahead = pick ? new Date(pick.start).getTime() - serverNow() : 0;
   const canSplit = pick ? ahead > o.split_deadline_hours * 3600_000 : false, sameDay = pick ? !canSplit && ahead > o.same_day_cutoff_hours * 3600_000 : false;
-  const choose = (x: { start: string; courts: Free["courts"] }) => { setPick(x); setCourt(x.courts.length === 1 ? x.courts[0]!.id : ""); setQ(null); setPay("whole"); };
+  const choose = (x: { start: string; courts: Free["courts"] }) => {
+    setPick(x); setCourt(x.courts.length === 1 ? x.courts[0]!.id : ""); setQ(null); setPay("whole");
+    if (!startMatch) return;
+    // Starting a match: my part, four players, open to others; past the sharing deadline, a same-day open match if it can still be one.
+    const left = new Date(x.start).getTime() - serverNow();
+    if (left > o!.split_deadline_hours * 3600_000 || left > o!.same_day_cutoff_hours * 3600_000) { setPay("split"); setPlayers(4); setOpen(true); }
+  };
   const opened = open && pay === "split" && players === 4;
   const add = () => { setCart([...cart, { court, name: pick!.courts.find((c) => c.id === court)!.name, start: pick!.start, minutes, cents: q!.total_cents }]); setPick(null); setQ(null); };
   const bookCart = () => cart.length === 1
@@ -101,6 +109,7 @@ export function Book() {
     <main class={ready ? "book has-bar" : "book"}>
       <h1>{t("ui.book_title")}</h1>
       <p class="meta lede">{t("ui.book_lede")}</p>
+      {startMatch && <p class="note">{t("ui.start_match_book")}</p>}
       {sheet}
       {paying && <PaySheet paymentId={paying.id} amountCents={paying.cents} name={t("ui.court_booking")} detail={weeklyLaterLine(paying.later)} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); setDone(true); }} />}
       {paying && provider === "test" && import.meta.env.DEV && <p><button class="primary" onClick={async () => { await api(`/dev/payments/${paying.id}/settle`, {}); setPaying(null); setDone(true); }}>{t("ui.pay_test")}</button></p>}

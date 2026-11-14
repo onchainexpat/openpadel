@@ -21,17 +21,17 @@ export const READ_ONLY_ALLOWED = new Set([
   "person.factor_add", "person.factor_codes", "person.factor_remove", "person.passkey_add", "person.passkey_remove", "assistant.disconnect",
   // The person's own say: what reaches them, their data, their account, who they share it with.
   "consent.texts", "consent.club_news", "consent.unsubscribe", "text.stop", "text.start", "privacy.export", "privacy.erase", "privacy.erase_again", "friend.remove",
-  "household.leave", "household.remove_junior", "household.withdraw_invite", "kid.remove_login", "kid.decline_request", "kid.withdraw_request", "family_card.remove",
+  "household.leave", "household.remove_junior", "household.withdraw_invite", "kid.remove_login", "kid.decline_request", "kid.withdraw_request", "family_card.remove", "card.remove",
   // Leaving, cancelling, and the money that goes back with it (leaving and refunding stay separate decisions).
   "booking.cancel", "booking.repeat_end", "weekly.end_all", "booking.leave", "booking.remove_player", "booking.refund", "booking.withdraw_ask", "booking.withdraw_offer", "booking.drop_saved_place",
-  "enrolment.leave", "enrolment.remove", "entry.withdraw", "entry.decline", "program.cancel", "series.cancel", "program.unwatch", "membership.cancel", "membership.end", "membership.remove_person",
+  "enrolment.leave", "enrolment.remove", "entry.withdraw", "entry.decline", "program.cancel", "series.cancel", "program.unwatch", "membership.cancel", "membership.switch_cancel", "membership.end", "membership.remove_person",
   "membership.pause", "broadcast.cancel", "question.close", "alert.handle",
   // Keeping players' chats safe: a player's report, and the club hiding a message or stopping someone posting (chat.ts).
   "chat.report", "chat.hide", "chat.stop", "chat.allow",
   // Kumi's own bookkeeping: recording what already happened at Stripe or Twilio, receipts, refunds going out (handed back at the desk too),
   // holds and offers running out, reminders of what's booked, and tidying.
   "payment.settle", "refund.settle", "refund.resend", "refund.give_back", "credit.pay_out", "gift_card.void", "gift_card.resend", "pass.refund", "receipt.issue", "receipt.resend", "club.payment_account_status", "texting.registration_record",
-  "membership.card_saved", "family_card.saved", "booking.lapse", "booking.release_seat", "booking.settle_shares", "booking.remind", "waitlist.expire_offers",
+  "membership.card_saved", "family_card.saved", "card.saved", "booking.lapse", "booking.release_seat", "booking.settle_shares", "booking.remind", "waitlist.expire_offers",
   "enrolment.unpaid", "membership.lapse", "program.decide", "program.min_heads_up", "result.auto_confirm", "question.alert", "question.decide",
   "ops.report_failure", "ops.report_cleared", "club.usage_alert", "mirror.apply", "block_series.extend", "broadcast.deliver",
   // The email service's reports, and the desk letting email go to an address again (email_suppression.ts).

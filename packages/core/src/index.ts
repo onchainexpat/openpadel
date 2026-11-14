@@ -28,6 +28,7 @@ export * from "./program_prices.ts";
 export * from "./match_rules.ts";
 export * from "./friends.ts";
 export * from "./kids.ts";
+export * from "./cards.ts";
 export * from "./households.ts";
 export * from "./open_matches.ts";
 export * from "./match_subs.ts";

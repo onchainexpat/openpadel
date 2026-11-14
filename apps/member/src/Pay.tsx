@@ -50,9 +50,10 @@ export function useConfirming(paymentIds: (string | null | undefined)[], reload:
 }
 
 /** `cardFor`: save the card for that membership instead of paying (nothing is charged). `familyCard`: save the
- *  family card a parent's kids pay with. A kid's own payment never shows a card form: it goes on the family
+ *  family card a parent's kids pay with. `cardOnFile`: save the member's card on file (Me), the one everything later
+ *  goes on (`replace`: there's one already). A kid's own payment never shows a card form: it goes on the family
  *  card, or to a parent to pay. */
-export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnly, back, amountCents: firstAmount, name, detail, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; cardOnly?: boolean; back?: string; amountCents: number; name: string; detail?: string | null; onClose: () => void; onPaid: () => void }) {
+export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnFile, replace, cardOnly, back, amountCents: firstAmount, name, detail, onClose, onPaid }: { paymentId?: string; cardFor?: string; familyCard?: boolean; cardOnFile?: boolean; replace?: boolean; cardOnly?: boolean; back?: string; amountCents: number; name: string; detail?: string | null; onClose: () => void; onPaid: () => void }) {
   const box = useRef<HTMLDivElement>(null), stripe = useRef<{ stripe: any; elements: any } | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "paying" | "checking">("loading"), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
   // Prices that include tax: how much of this is tax (the server's includedTaxOf, as its receipt will say).
@@ -61,7 +62,7 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
   useBackCloses(true, onClose);
   // Saving a card charges nothing; a gift card or a pass is paid by card only (no credit, passes or promo codes),
   // but it's still a payment: the bot check, then confirmed as a payment (pay_mode.ts).
-  const { saveCard, extras } = payMode({ cardFor, familyCard, cardOnly });
+  const { saveCard, extras } = payMode({ cardFor, familyCard, cardOnFile, cardOnly });
   // Club credit first (credit.ts): asked before the card form opens, since a card form already open can't change.
   // Paid all from credit, the sheet is done; part of a place, the card is asked for the rest, a payment of its own.
   const [paymentId, setPaymentId] = useState(firstPayment), [amountCents, setAmountCents] = useState(firstAmount);
@@ -102,11 +103,12 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
     } catch (e) { setError(e instanceof ApiError ? e.message : t("ui.pay_unavailable")); setState("ready"); setUseCredit(false); }
   };
   const amount = dollars(amountCents, lang.value);
-  const urls = familyCard ? { open: "/my/family/card", check: "", back: "/family?card=1" }
+  const urls = cardOnFile ? { open: "/my/card", check: "", back: "/account" }
+    : familyCard ? { open: "/my/family/card", check: "", back: "/family?card=1" }
     : cardFor ? { open: `/my/memberships/${cardFor}/card`, check: `/my/memberships/${cardFor}/card/check`, back: `/membership?card=${cardFor}` }
     : { open: `/my/payments/${paymentId}/intent`, check: `/my/payments/${paymentId}/check`, back: back ?? `/places?paid=${paymentId}` };
-  const check = useRef(urls.check);
-  const title = familyCard ? t("ui.family_card_title") : cardFor ? t("ui.save_card_title", { name }) : t("ui.pay_title", { amount, name });
+  const check = useRef(urls.check), backTo = useRef(urls.back);
+  const title = cardOnFile ? t(replace ? "ui.card_replace_title" : "ui.card_add_title") : familyCard ? t("ui.family_card_title") : cardFor ? t("ui.save_card_title", { name }) : t("ui.pay_title", { amount, name });
 
   useEffect(() => {
     if (step !== "card") return;
@@ -119,7 +121,9 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
         // Paid already (a second tap after the card went through): nothing to pay twice.
         if (it.family === "paid" || it.paid) { onPaid(); return; }
         if (it.family === "parent") { setNote(t("ui.kid_parent_pays")); return; }
-        if (it.card_id) check.current = `/my/family/card/${it.card_id}/check`;
+        // The card setup's own check (and, back from a bank's page, the address that checks it).
+        if (it.card_id && cardOnFile) { check.current = `/my/card/${it.card_id}/check`; backTo.current = `/account?card=${it.card_id}`; }
+        else if (it.card_id) check.current = `/my/family/card/${it.card_id}/check`;
         if (it.tax_cents) setTax({ cents: it.tax_cents, label: it.tax_label ?? "", rate: it.tax_rate ?? null });
         if (!it.publishable_key) throw new Error("no publishable key");
         await loadStripeJs();
@@ -140,7 +144,7 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
     if (!stripe.current) return;
     setState("paying"); setError(null);
     // Only cards that need a bank's page leave the app.
-    const confirm = { elements: stripe.current.elements, redirect: "if_required", confirmParams: { return_url: `${location.origin}${urls.back}` } };
+    const confirm = { elements: stripe.current.elements, redirect: "if_required", confirmParams: { return_url: `${location.origin}${backTo.current}` } };
     const r = saveCard ? await stripe.current.stripe.confirmSetup(confirm) : await stripe.current.stripe.confirmPayment(confirm);
     if (r.error) { setError(r.error.message ?? t("ui.pay_failed")); setState("ready"); return; }
     // The card was taken: it reads as paid, being confirmed, everywhere until it's recorded (confirming.ts).
@@ -160,6 +164,7 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
         {tax && step === "card" && <p class="meta">{t(tax.rate ? "ui.pay_tax_included_rate" : "ui.pay_tax_included", { amount: dollars(tax.cents, lang.value), tax: tax.label, rate: tax.rate ?? "" })}</p>}
         {cardFor && <p class="meta">{t("ui.save_card_hint", { amount })}</p>}
         {familyCard && <p class="meta">{t("ui.family_card_hint")}</p>}
+        {cardOnFile && <p class="meta">{t("ui.card_save_hint")}</p>}
         {step === "credit" && passes.length > 0 && paymentId === firstPayment && <div class="pass-step">
           {passes.map((x) => <p key={x.id}><button class="primary" disabled={state === "paying"} onClick={() => void payWithPass(x.id)}>{t("ui.pass_pay_with", { name: x.name, left: String(x.uses_left) })}</button></p>)}
           {credit !== null && credit <= 0 && !club.value?.promos && <p><button onClick={() => { setError(null); setStep("card"); }}>{t("ui.pass_other_way")}</button>{" "}<button onClick={onClose}>{t("ui.cancel")}</button></p>}
@@ -186,7 +191,7 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnl
           {state === "loading" && !error && !note && <p class="meta">{t("ui.loading")}</p>}
           {state === "checking" && <p class="note" role="status">{t("ui.pay_confirming")}</p>}
           {error && <p class="error" role="alert">{error}</p>}
-          {!note && <button class="primary" disabled={state !== "ready"} onClick={pay}>{familyCard ? t("ui.family_card_save") : cardFor ? t("ui.save_card") : t("ui.pay_now", { amount })}</button>}{" "}
+          {!note && <button class="primary" disabled={state !== "ready"} onClick={pay}>{cardOnFile ? t("ui.card_save") : familyCard ? t("ui.family_card_save") : cardFor ? t("ui.save_card") : t("ui.pay_now", { amount })}</button>}{" "}
           <button onClick={onClose}>{note ? t("ui.close") : t("ui.cancel")}</button>
         </>}
       </div>
