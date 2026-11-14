@@ -113,7 +113,7 @@ Members can join by themselves: they enter their email in the members' app, get 
 their name and whether they want club news (that answer is kept as their consent). The club can
 close sign-up so only staff add people.
 
-To bring in an existing list, export it as CSV from a spreadsheet, Playtomic or the old system. It
+To bring in an existing list, export it as CSV (or save it as an Excel .xlsx) from a spreadsheet, Playtomic or the old system. It
 needs a Name column (or First name and Last name), and Email and Language if there are any:
 
 ```bash

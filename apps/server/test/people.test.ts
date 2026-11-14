@@ -46,7 +46,7 @@ test("importing leaves people already here alone, and emails nobody", async () =
   assert.equal(p.plan.summary.en, "Add 2 people as members; 1 is already here and stays as it is. Nobody is emailed.");
   const before = mailer.sent.length;
   const r = await run(db, "person.import", { rows }, owner);
-  assert.deepEqual(r.result, { added: 2 });
+  assert.deepEqual(r.result, { added: 2, skipped: 1 });
   const mia = await db.selectFrom("person").selectAll().where("email", "=", "mia@example.test").executeTakeFirstOrThrow();
   assert.equal(mia.created_via, "import");
   assert.equal((await db.selectFrom("person").select("display_name").where("email", "=", "dana@example.test").executeTakeFirstOrThrow()).display_name, "Dana Ortiz");

@@ -332,7 +332,11 @@ const importRow = z.object({ display_name: nameInput(80), email: z.optional(z.em
 type ImportRow = z.infer<typeof importRow>;
 export const personImport = defineAction({
   name: "person.import", version: 1,
-  input: z.object({ rows: z.array(importRow).check(z.minLength(1), z.maxLength(5000)) }),
+  input: z.object({ rows: z.array(importRow).check(z.minLength(1), z.maxLength(5000)),
+    // The file the rows came from, for the Customers page's Imports list: its name, its lines of people, and how many of
+    // those couldn't be read (no name, a bad email). Only these: the file itself is never kept.
+    file: z.optional(z.object({ name: z.string().check(z.minLength(1), z.maxLength(200)), lines: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100_000))),
+      unread: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100_000))) })) }),
   async plan(ctx, i) {
     const p = await importPlan(ctx.db, i.rows);
     const people = both("count.people", { count: p.add.length });
@@ -343,7 +347,7 @@ export const personImport = defineAction({
       [p.gone, "count.import_erased"]] as const)
       .filter(([n]) => n > 0).map(([n, k]) => both(k, { count: n }));
     const summary = more.length ? { en: `${base.en} ${more.map((m) => m.en).join(" ")}`, es: `${base.es} ${more.map((m) => m.es).join(" ")}` } : base;
-    return { title: both("action.person.import"), summary, reads: [], undo: { kind: "compensating" }, details: { add: p.add.length, skipped: p.skipped, updated: p.updated, levels: p.levels } };
+    return { title: both("action.person.import"), summary, reads: [], undo: { kind: "compensating" }, details: { add: p.add.length, skipped: p.skipped + p.gone, updated: p.updated, levels: p.levels } };
   },
   async apply(ctx, i) {
     const p = await importPlan(ctx.trx, i.rows);   // again, in case someone joined meanwhile
@@ -367,7 +371,7 @@ export const personImport = defineAction({
       }
     }
     await ctx.emit("person.imported", { count: p.add.length });
-    return { added: p.add.length, ...(p.updated ? { updated: p.updated } : {}), ...(p.levels ? { levels: p.levels } : {}) };
+    return { added: p.add.length, ...(p.updated ? { updated: p.updated } : {}), ...(p.levels ? { levels: p.levels } : {}), skipped: p.skipped + p.gone };
   },
 });
 /** What each line of the file does: a new person, or one already here and what they get from it. */

@@ -260,6 +260,7 @@ table.data { min-width: 760px; font-size: 14px; }
 table.data th { padding: 10px 12px; font-size: 12px; font-weight: 600; color: var(--muted); text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.data td { padding: 10px 12px; vertical-align: middle; border-bottom: 1px solid var(--line); }
 table.data tr:last-child td { border-bottom: 0; }
+table.data th.num, table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.data tr.clickable { cursor: pointer; } table.data tr.clickable:hover td { background: var(--bg); }
 .row-open { font-weight: 600; text-decoration: none; text-align: left; white-space: nowrap; color: var(--ink); }
 .kind-dot { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 3px; background: var(--k-fill); border: 1px solid var(--k-ink); vertical-align: middle; }

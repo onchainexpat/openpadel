@@ -29,7 +29,11 @@ function language(v: string): "en" | "es" | undefined {
 
 /** The people in the file, and every line that couldn't be used (with why). Nothing is changed here. */
 export function readPeopleCsv(text: string): { rows: PersonRow[]; problems: Problem[]; fatal?: Text } {
-  const all = parseCsv(text).filter((r) => r.some((c) => c.trim()));
+  return readPeopleRows(parseCsv(text));
+}
+/** The same from a spreadsheet's rows of cells (an Excel workbook's first sheet, xlsx.ts). */
+export function readPeopleRows(cells: string[][]): { rows: PersonRow[]; problems: Problem[]; fatal?: Text } {
+  const all = cells.filter((r) => r.some((c) => c.trim()));
   if (all.length < 2) return { rows: [], problems: [], fatal: both(all.length ? "csv.empty" : "csv.no_header") };
   const head = all[0]!.map(norm);
   const col = (k: keyof typeof COLUMNS) => head.findIndex((h) => COLUMNS[k].includes(h));

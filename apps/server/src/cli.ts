@@ -39,13 +39,14 @@
 //                                  "YYYY-MM-DD HH:MM" --yes` puts the database back as it was at that minute
 //   (on a one-server install, as root: kumi update <release.tar>, kumi rollback --yes, kumi releases)
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { money, t, pickLang, type Lang, type Text, formatLocale } from "@kumi/i18n";
+import { basename, join, resolve } from "node:path";
+import { both, money, t, pickLang, type Lang, type Text, formatLocale } from "@kumi/i18n";
 import { connect, loadClubFormat, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS, type Db } from "@kumi/core";
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
-import { readMoveInCsv, readPeopleCsv } from "./csv.ts";
+import { readMoveInCsv, readPeopleCsv, readPeopleRows } from "./csv.ts";
+import { looksLikeXlsx, readXlsx } from "./xlsx.ts";
 import { doctor, type Check } from "./doctor.ts";
 import { ClubFileError, ownerActor, readClubFile, setupClub } from "./setup.ts";
 import { applyTexting, refreshTexting, textingPlan, textingStatusText, twilioProblem, verificationForm, withClubLinks, type TextingDeps, type TextingPlan } from "./texting.ts";
@@ -154,7 +155,9 @@ async function main(): Promise<number> {
   }
   if (cmd === "import" && sub === "members" && rest[0]) {
     const path = resolve(process.env.KUMI_CALLER_DIR ?? ".", rest[0]);
-    const r = readPeopleCsv(readFileSync(path, "utf8"));
+    // An Excel workbook (.xlsx) reads like a CSV: its first sheet (xlsx.ts).
+    const bytes = readFileSync(path), cells = looksLikeXlsx(bytes) ? readXlsx(bytes) : undefined;
+    const r = cells === undefined ? readPeopleCsv(bytes.toString("utf8")) : cells ? readPeopleRows(cells) : { rows: [], problems: [], fatal: both("csv.not_xlsx") };
     const problems = r.problems.map((p) => say(p.text));
     if (r.fatal) { if (json) out({ ok: false, problems: [say(r.fatal), ...problems] }); else { console.error(say(r.fatal)); for (const p of problems) console.error(`  - ${p}`); } return 2; }
     const db = await clubDb();
@@ -162,7 +165,8 @@ async function main(): Promise<number> {
       const owner = await ownerActor(db, lang);
       if (!owner) { console.error(t(lang, "doctor.club.missing")); return 2; }
       const apply = args.includes("--apply");
-      const res = apply ? await run(db, "person.import", { rows: r.rows }, owner) : await plan(db, "person.import", { rows: r.rows }, owner);
+      const input = { rows: r.rows, file: { name: basename(path).slice(0, 200), lines: r.rows.length + r.problems.length, unread: r.problems.length } };
+      const res = apply ? await run(db, "person.import", input, owner) : await plan(db, "person.import", input, owner);
       if (json) { out({ ok: true, applied: apply, summary: say(res.plan.summary), problems }); return 0; }
       for (const p of problems) console.log(`! ${p}`);
       console.log(say(res.plan.summary));

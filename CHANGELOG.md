@@ -49,6 +49,10 @@ up right there.
   any booking (`openpadel booking create-lesson`; `booking.create` takes `open`).
 - The Schedule has a Month view beside Day and Week: each day's occupancy (as the Day view counts it) as a bar and a
   number, its bookings, and its clinics, courses and events by name. Tap a day to open it.
+- Customers: a Membership filter beside Group and Tag (one plan, any membership, or not a member; someone covered by a
+  family plan counts as its member). Member lists import from Excel (.xlsx) as well as CSV, read on the server and never
+  kept. An Imports tab lists each import: the file's name, when, who, its lines, and how many people were added,
+  updated and skipped, and whether it was undone.
 - The club's logo (Settings, next to the colour, or `logo:` in club.yaml): an SVG, PNG or JPEG in place of the mark
   drawn from the club's name, on the app icons, the iPhone start images, the apps' start screen and welcome, and both
   apps' headers. It sits on the club's colour where it stands out, and on a dark or white tile where it wouldn't; the

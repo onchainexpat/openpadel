@@ -7,11 +7,15 @@ import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n"
 import { decide, getAction, lessonCoaches, lessonTimes, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { shortContact } from "./mcp.ts";
-import { csvCell, readPeopleCsv } from "./csv.ts";
+import { csvCell, readPeopleCsv, readPeopleRows } from "./csv.ts";
+import { looksLikeXlsx, readXlsx } from "./xlsx.ts";
 import { seesMoney } from "./receipts.ts";
 import { translatorOn } from "./translate.ts";
 import { clubFileStem } from "./file_names.ts";
 import { todayRoutes } from "./today.ts";
+
+/** An Excel file of about 2 MB, as base64 (the server takes 3 MB a request). */
+const XLSX_MAX_BASE64 = 2_800_000;
 
 type Me = { id: string; locale: string } | null;
 /** Which area a staff page's data belongs to (roles.ts AREAS), for roles the club made. Lists every area uses
@@ -681,6 +685,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const raw = (c.req.query("q") ?? "").trim(), q = `%${raw}%`, role = c.req.query("role");
     const digits = raw.replace(/\D/g, ""), tagId = c.req.query("tag_id"), segmentId = c.req.query("segment_id");
     const uuid = (v: string | undefined) => v && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
+    const m = c.req.query("membership"), plan = m === "any" || m === "none" ? m : uuid(m);
     let within: string[] | null = null;
     if (uuid(segmentId)) {
       const seg = await db.selectFrom("segment").select("filters").where("id", "=", segmentId!).where("active", "=", true).executeTakeFirst();
@@ -697,7 +702,21 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         .where("role.key", role === "staff" ? "!=" : "=", role === "staff" ? "member" : role!))))
       .$if(Boolean(uuid(tagId)), (qb) => qb.where((eb) => eb.exists(eb.selectFrom("person_tag").select("person_tag.id").whereRef("person_tag.person_id", "=", "person.id")
         .where("person_tag.tag_id", "=", tagId!).where("person_tag.removed_at", "is", null))))
-      .$if(Boolean(within), (qb) => qb.where("id", "in", within!));
+      .$if(Boolean(within), (qb) => qb.where("id", "in", within!))
+      // membership: a plan's id (their own membership of it, or one covering them), "any" for any membership, "none" for nobody's.
+      .$if(Boolean(plan), (qb) => qb.where((eb) => {
+        const has = eb.exists(liveMembership(eb, plan === "any" || plan === "none" ? null : plan!));
+        return plan === "none" ? eb.not(has) : has;
+      }));
+  };
+  /** A live membership (coming, running or a payment late) of the person, their own or one they're covered by; of one plan when given. */
+  const liveMembership = (eb: any, planId: string | null) => {
+    const now = new Date();
+    return eb.selectFrom("membership").select("membership.id").where("membership.status", "in", ["upcoming", "active", "past_due"])
+      .$if(Boolean(planId), (q: any) => q.where("membership.plan_id", "=", planId))
+      .where((w: any) => w.or([w("membership.person_id", "=", w.ref("person.id")),
+        w.exists(w.selectFrom("membership_member").select("membership_member.id").whereRef("membership_member.membership_id", "=", "membership.id")
+          .whereRef("membership_member.person_id", "=", "person.id").where((x: any) => x.or([x("membership_member.ends_at", "is", null), x("membership_member.ends_at", ">", now)])))]));
   };
   // Built-in roles by key (the screen words them); a role the club made by its name.
   const rolesOfRow = (eb: any) => eb.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(sql<string[]>`array_agg(DISTINCT CASE WHEN role.system THEN role.key ELSE coalesce(role.name, role.key) END)`.as("r"))
@@ -717,7 +736,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   const CUSTOMERS_PAGE = 50;
   app.get("/staff/customers", async (c) => {
     const found = await peopleFound(c), page = Math.max(1, Math.floor(Number(c.req.query("page")) || 1));
-    if (!found) return c.json({ total: 0, page: 1, pages: 1, per_page: CUSTOMERS_PAGE, levels: false, rows: [] });
+    // The club's plans, for the Membership filter.
+    const plans = await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).orderBy("sort").orderBy("name").execute();
+    if (!found) return c.json({ total: 0, page: 1, pages: 1, per_page: CUSTOMERS_PAGE, levels: false, plans, rows: [] });
     const total = Number((await found.select((eb) => eb.fn.countAll<string>().as("n")).executeTakeFirstOrThrow()).n), pages = Math.max(1, Math.ceil(total / CUSTOMERS_PAGE)), at = Math.min(page, pages);
     const reach = await reachOf(me(c)!.id), levels = reach.all || reach.areas.includes("levels");
     // Phone numbers in full for the front desk and up (owner, manager, front desk; support access reads as a manager),
@@ -737,13 +758,32 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const news = await db.selectFrom("channel_consent").select(["person_id", "granted"]).distinctOn(["person_id"]).where("person_id", "in", ids)
       .where("channel", "=", "email").where("purpose", "=", "club_news").orderBy("person_id").orderBy("at", "desc").execute();
     const level = levels ? await db.selectFrom("rating").select(["person_id", "level"]).where("person_id", "in", ids).where("sport", "=", "padel").execute() : [];
-    return c.json({ total, page: at, pages, per_page: CUSTOMERS_PAGE, levels, rows: rows.map((r) => {
+    return c.json({ total, page: at, pages, per_page: CUSTOMERS_PAGE, levels, plans, rows: rows.map((r) => {
       const m = own.find((x) => x.person_id === r.id) ?? covered.find((x) => x.person_id === r.id), n = news.find((x) => x.person_id === r.id);
       // The phone in full or to its last two digits (fullPhone); a search by phone finds them either way.
       return { ...r, phone: fullPhone ? r.phone : shortContact("phone", r.phone) as string | null, membership: m ? { name: m.name, ends_on: m.current_period_end ? endDay({ current_period_end: m.current_period_end, source: m.source }, tz) : null } : null,
         // A junior isn't asked about club news (their family is).
         club_news: r.junior || !n ? null : n.granted, ...(levels ? { level: level.find((x) => x.person_id === r.id)?.level ?? null } : {}) };
     }) });
+  });
+  // Past member imports (the Customers page's Imports tab), newest first: when, who, the file's name, its lines, and what
+  // came of them. Read from the imports' own runs (person.import): nothing else is kept, and never the file.
+  app.get("/staff/people/imports", async (c) => {
+    const runs = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id")
+      .select(["action_run.id", "action_run.status", "action_run.created_at", "action_run.applied_at", "action_run.input", "action_run.plan", "action_run.result", "person.display_name as by"])
+      .where("action_run.action", "=", "person.import").where("action_run.status", "in", ["applied", "undone", "awaiting_approval"])
+      .orderBy("action_run.created_at", "desc").limit(100).execute();
+    return c.json(runs.map((r) => {
+      const input = r.input as { rows?: unknown[]; file?: { name?: string; lines?: number; unread?: number } }, details = ((r.plan as { details?: Record<string, number> }).details ?? {});
+      const result = (r.result ?? {}) as { added?: number; updated?: number; skipped?: number };
+      const rows = input.rows?.length ?? 0, unread = input.file?.unread ?? 0;
+      // What was added and updated is what the import did; skipped is what it left alone (already here, nothing new) and
+      // the file's lines it couldn't read. An import waiting for approval hasn't done anything yet: the preview's counts.
+      const done = r.status !== "awaiting_approval";
+      return { id: r.id, status: r.status, at: r.applied_at ?? r.created_at, by: r.by, file: input.file?.name ?? null, lines: input.file?.lines ?? rows + unread,
+        added: done ? result.added ?? 0 : details.add ?? 0, updated: done ? result.updated ?? 0 : details.updated ?? 0,
+        skipped: (done && result.skipped !== undefined ? result.skipped : details.skipped ?? 0) + unread };
+    }));
   });
   app.get("/staff/people/:id", async (c) => {
     const id = c.req.param("id");
@@ -836,10 +876,17 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         return (await archiveOf(db, id, { limit: 30 })).map(({ price, payment_status, ...b }) => ({ ...b, ...(money ? { price, payment_status } : {}), others: desk ? b.others : [], kind: t(lang(c), typeKey(b.type)) })); })() });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.
+  // An Excel workbook comes as base64 (`xlsx`), read on the server (xlsx.ts) and never kept: its first sheet, as a CSV's lines.
   app.post("/staff/people/import-preview", async (c) => {
-    const { csv } = await c.req.json().catch(() => ({ csv: "" })) as { csv?: string };
-    const r = readPeopleCsv(String(csv ?? "").slice(0, 2_000_000));
+    const { csv, xlsx } = await c.req.json().catch(() => ({ csv: "" })) as { csv?: string; xlsx?: string };
     const l = lang(c);
+    let r: ReturnType<typeof readPeopleCsv>;
+    if (typeof xlsx === "string") {
+      if (xlsx.length > XLSX_MAX_BASE64) throw new KumiError("error.too_big", {}, 413);
+      const bytes = Buffer.from(xlsx, "base64"), cells = looksLikeXlsx(bytes) ? readXlsx(bytes) : null;
+      if (!cells) return c.json({ rows: [], problems: [], fatal: t(l, "csv.not_xlsx") });
+      r = readPeopleRows(cells);
+    } else r = readPeopleCsv(String(csv ?? "").slice(0, 2_000_000));
     return c.json({ rows: r.rows, problems: r.problems.map((p) => ({ line: p.line, text: p.text[l] })), ...(r.fatal ? { fatal: r.fatal[l] } : {}) });
   });
 
