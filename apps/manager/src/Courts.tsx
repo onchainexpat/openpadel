@@ -85,7 +85,11 @@ export function Courts() {
   const [picked, setPicked] = useState<string | null>(null), [alerts, setAlerts] = useState<Alerts | null>(null), [done, setDone] = useState(0);
   // Create's panel, and choosing a court and a free time for a booking made from it (once, or every week).
   // Opened from the Bookings list's + Create: the same Create panel, over this day.
-  const [creating, setCreating] = useState(query.create === "1"), [choosing, setChoosing] = useState<"once" | "weekly" | "match" | null>(null);
+  // Opened from a person's page (Book for ...): their name goes in as the organiser of the booking made next, and the
+  // court picker opens on the day. The server still decides everything about it.
+  const [forWho, setForWho] = useState<{ id: string; display_name: string } | null>(() =>
+    /^[0-9a-f-]{36}$/i.test(String(query.for ?? "")) && String(query.name ?? "").trim() ? { id: String(query.for), display_name: String(query.name).trim().slice(0, 80) } : null);
+  const [creating, setCreating] = useState(query.create === "1"), [choosing, setChoosing] = useState<"once" | "weekly" | "match" | null>(forWho ? "once" : null);
   // A private lesson or an open match being made from + Create (an open match on the court and time chosen first).
   const [lesson, setLesson] = useState(false), [match, setMatch] = useState<{ court: Court; start: string } | null>(null);
   // The day (courts across, time down), or the week it's in (each court's days side by side).
@@ -100,7 +104,7 @@ export function Courts() {
   shown = loc;
   const load = () => loc && api<Grid>(`/staff/grid?location_id=${loc}${date ? `&date=${date}` : ""}`).then((x) => { setG(x); if (!date) setDate(x.date); });
   const loadAlerts = () => api<Alerts>("/staff/alerts").then(setAlerts).catch(() => setAlerts(null));
-  const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForm(null); setBlocking(false); setChoosing(null); setLesson(false); setMatch(null); setDone((n) => n + 1); });
+  const { preview, sheet } = usePreview(() => { load(); loadAlerts(); setForWho(null); setForm(null); setBlocking(false); setChoosing(null); setLesson(false); setMatch(null); setDone((n) => n + 1); });
   useEffect(() => { api<Loc[]>("/staff/locations").then((l) => { setLocs(l); setLoc((l.find((x) => x.id === query.location) ?? l.find((x) => coversLocation(x.id)) ?? l[0])?.id ?? ""); }); void loadAlerts(); }, []);
   useEffect(() => { load(); }, [loc, date]);
   // What was picked is gone (cancelled, unblocked, another day): the side panel closes rather than stay empty.
@@ -179,6 +183,7 @@ export function Courts() {
         {choices.length > 0 && <button type="button" class="primary sched-create" aria-haspopup="dialog" onClick={() => { closePanel(); setCreating(true); }}>
           <span aria-hidden="true">+</span> {t("ui.create")}</button>}
       </div>
+      {forWho && <p class="note" role="status">{t("ui.booking_for", { name: forWho.display_name })} <button type="button" class="link" onClick={() => setForWho(null)}>{t("ui.booking_for_clear")}</button></p>}
       <p class="meta">{g.open ? t("ui.open_from_to", { from: clock(g.open.opens), to: clock(g.open.closes) }) : t("ui.closed_this_day")}</p>
       <Legend playtomic={playtomic} />
 
@@ -195,7 +200,7 @@ export function Courts() {
             {sel && <Details key={`${picked}|${sel.c.id}|${sel.it.start}|${sel.it.end}`} it={sel.it} court={sel.c} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove(sel.it)} canResize={canResize(sel.it)}
               courtFixed={courtsOf(g, sel.it) > 1} />}
             {choosing && <CourtPicker courts={g.courts} gaps={gaps} clock={clock} onPick={(c, at) => book(c, at, choosing === "weekly", choosing === "match")} />}
-            {form && <NewBooking key={`${form.court.id}|${form.start}|${form.weekly}`} courts={g.courts} court={form.court} start={form.start} weekly={form.weekly} clock={clock} tz={g.time_zone}
+            {form && <NewBooking key={`${form.court.id}|${form.start}|${form.weekly}|${forWho?.id ?? ""}`} courts={g.courts} court={form.court} start={form.start} weekly={form.weekly} clock={clock} tz={g.time_zone} organiser={forWho}
               money={g.money !== false} people={g.people !== false} may={mayHere} preview={preview} onClose={closePanel} />}
             {blocking && <BlockForm courts={g.courts} g={g} slots={slots} clock={clock} preview={preview} />}
             {lesson && <DeskLesson loc={loc} date={date} tz={g.time_zone} clock={clock} money={g.money !== false} people={g.people !== false} may={mayHere} preview={preview} onClose={closePanel} />}

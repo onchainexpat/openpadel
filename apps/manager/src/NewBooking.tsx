@@ -36,11 +36,13 @@ export function startsOn(c: NbCourt): string[] {
   return courtSlots(c.open).filter((s) => ms(s) > serverNow() && freeUntil(c, s) - ms(s) >= HALF);
 }
 
-export function NewBooking({ courts, court, start, weekly, clock, tz, money, people, may, preview, onClose }: { courts: NbCourt[]; court: NbCourt; start: string; weekly: boolean;
+export function NewBooking({ courts, court, start, weekly, clock, tz, money, people, may, preview, onClose, organiser = null }: { courts: NbCourt[]; court: NbCourt; start: string; weekly: boolean;
+  /** Who it's for, when opened from their page: the organiser's place starts with them in it (and can be changed). */
+  organiser?: Person | null;
   clock: (s: string | number) => string; tz: string; money: boolean; people: boolean; may: (action: string) => boolean; preview: (action: string, input: unknown) => Promise<void>; onClose: () => void }) {
   const firstEnd = (c: NbCourt, s: string) => { const room = Math.min(freeUntil(c, s) - ms(s), MAX_MINUTES * 60_000); return new Date(ms(s) + Math.min(90 * 60_000, Math.floor(room / HALF) * HALF)).toISOString(); };
   const [f, setF] = useState({ court: court.id, start, end: firstEnd(court, start), split: false, weekly, weeks: 8, price: "", method: "cash", note: "", playerNote: "" });
-  const [places, setPlaces] = useState<Place[]>([blank(), blank(), blank(), blank()]);
+  const [places, setPlaces] = useState<Place[]>(() => [organiser ? { ...blank(), person: organiser } : blank(), blank(), blank(), blank()]);
   const [quoted, setQuoted] = useState<Quoted | null>(null);
   const c = courts.find((x) => x.id === f.court) ?? court, minutes = Math.round((ms(f.end) - ms(f.start)) / 60_000);
   const starts = startsOn(c), ends: string[] = [];
