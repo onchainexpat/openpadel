@@ -91,6 +91,7 @@ test("someone with only the club's own role: told which changes their role allow
   // + Create on the Schedule offers what any role allows, built-in ones included: the desk books courts and lessons and
   // blocks courts but doesn't make programs; the owner makes everything; the club's own tagging role makes nothing.
   assert.deepEqual((await get("Lee", "/me")).json.creates, ["booking.create", "booking.create_lesson", "booking.repeat", "court.block"]);
-  assert.deepEqual((await get("Robin", "/me")).json.creates, ["program.create", "booking.create", "booking.create_lesson", "booking.repeat", "court.block"]);
+  // The owner makes roles too (the staff menu's Roles item); the desk doesn't.
+  assert.deepEqual((await get("Robin", "/me")).json.creates, ["program.create", "booking.create", "booking.create_lesson", "booking.repeat", "court.block", "role.create"]);
   assert.deepEqual(fran.creates, []);
 });

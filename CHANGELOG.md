@@ -68,6 +68,17 @@ up right there.
 - Play: "Start a match" goes straight to booking a court with paying your part and opening it to others chosen. Match
   and class cards on Play and Learn say how each fits your level (Great fit, Good fit, A step up, Below your level),
   and nothing when you have no level yet.
+- Changes in the staff app: Who (people, assistants on /mcp, or openPadel itself and imports) and Type (the areas the
+  role editor uses) filters, and "Show more" past the first 50. Each change says how it came in (in the app, through an
+  assistant on /mcp, during setup, from the command line, on schedule, from the Playtomic copy), and one that can't be
+  undone says "Can't undo". "Details" opens it beside the list: the plan as it was shown, a line each; what it charged;
+  exactly what it changed (each field before and after, from the change log, ids and keys left out); its reference;
+  and Undo (previewed first, as before), or why it can't be undone.
+- Approvals: each ask says how it came in and how long ago, the asker's own words where the change has a field for
+  them (a note, a reason), and the plan's consequences a line each where it has several. What waits and the week's
+  answers are two tabs.
+- The staff menu has "Roles and permissions" (the Roles page Settings links to), for those who may make roles: the
+  owner, and managers, who ask the owner.
 - The club's logo (Settings, next to the colour, or `logo:` in club.yaml): an SVG, PNG or JPEG in place of the mark
   drawn from the club's name, on the app icons, the iPhone start images, the apps' start screen and welcome, and both
   apps' headers. It sits on the club's colour where it stands out, and on a dark or white tile where it wouldn't; the
