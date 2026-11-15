@@ -52,10 +52,12 @@ const playtomic: Preset = {
 };
 
 /** openPadel's own plain words, as the staff app said them before 11 Nov 2026: Courts, People, Programs; programs
- *  before people, as the old row of links had them. Today is home (14 Nov 2026): what needs a person, the takings and
+ *  before people, as the old row of links had them. Money for the page of takings, what's owed, refunds and credit
+ *  (15 Nov 2026), where Playtomic's staff look for Payments. Today is home (14 Nov 2026): what needs a person, the takings and
  *  what happened overnight, with the courts' day a link away. */
 const none: Preset = {
-  labels: { "ui.nav_day_schedule": "plain_schedule", "ui.nav_people": "plain_people", "ui.people_title": "plain_people", "ui.nav_programs": "plain_programs" },
+  labels: { "ui.nav_day_schedule": "plain_schedule", "ui.nav_people": "plain_people", "ui.people_title": "plain_people", "ui.nav_programs": "plain_programs",
+    "ui.nav_payments": "plain_money" },
   menu: [["today", "day", "schedule", "bookings"], ["programs", "people", "memberships", "coaches", "payments"], ["levels", "scores"],
     ["questions", "messages", "chats"], ["approvals", "playtomic", "reports", "usage", "changes", "settings"], ["inbox", "profile"]],
   home: "today",

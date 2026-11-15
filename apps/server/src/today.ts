@@ -1,5 +1,6 @@
-// The staff app's Today page, its Approvals page and the counts on its menu: what needs a person now, today's takings so
-// far and what happened since the reader last looked; and every ask waiting for a yes. Views only: answering an ask is
+// The staff app's Today page, its Approvals page, its Money page and the counts on its menu: what needs a person now,
+// today's takings so far and what happened since the reader last looked; every ask waiting for a yes; and the club's
+// money at a glance (takings, what's owed, refunds, credit held). Views only: answering an ask is
 // /runs/:id/approve and /decline as before (actions.ts), and each row links to the page where it's handled.
 //
 // Each part only for those whose roles read it, judged as the page it links to judges it (reads.ts): money for the
@@ -10,7 +11,7 @@
 import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { productName, t, type Key, type Lang } from "@kumi/i18n";
-import { ASK_ENDED, decide, levelQueue, localDate, mayAnswer, onDate, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
+import { ASK_ENDED, decide, KumiError, levelQueue, localDate, mayAnswer, onDate, outstandingCredit, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
 import { seesChats } from "./chats.ts";
 import { seesMoney } from "./receipts.ts";
 
@@ -31,6 +32,8 @@ const REVENUE = ["courts", "lessons", "programs", "memberships", "passes", "gift
 /** How far back "since you last looked" reaches, how far ahead a coach's time off is checked against their work, how
  *  far back a failed card charge is shown, and how many rows each part lists. */
 const SINCE_MAX_HOURS = 72, COVER_DAYS = 7, FAILED_DAYS = 7, LIST = 3, SINCE_LIST = 8;
+/** The Money page: how far back what's owed and the refunds reach, the refunds tile's days, and how many rows each lists. */
+const OWED_DAYS = 30, REFUND_DAYS = 30, REFUND_TILE_DAYS = 7, OWED_LIST = 50, REFUND_LIST = 20, CREDIT_LIST = 10;
 
 export type NeedKind = "approvals" | "owed" | "disputes" | "levels" | "questions" | "cover" | "failed" | "alerts";
 export interface Need { kind: NeedKind; count: number; href: string; items: { text: string | null; sub?: string | null; at?: string | null; cents?: number | null; href?: string | null }[] }
@@ -70,6 +73,45 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
       asked_at: x.created_at, expires_at: x.plan_expires_at, undo: p.undo?.kind ?? null, ...(o.money ? { money_cents: Number(x.money_cents) || 0 } : {}) };
   };
 
+  /** What's owed at the desk on courts and program dates that start between two times, earliest first: a booking whose
+   *  price is more than what was paid for it (less refunds and promo codes), and a place with a price and nothing paid of
+   *  any kind (a place for a whole program once, at its first date in the window). The Schedule and Bookings mark these
+   *  unpaid; Today lists today's, the Money page the last weeks'. */
+  async function owedBetween(from: Date, to: Date) {
+    const owed = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id").leftJoin("person", "person.id", "booking.organiser_id")
+      .select(["booking.id", "booking.code", "booking.price_cents", "booking.location_id", "booking.organiser_id", "court.name as court", "person.display_name", sql<Date>`lower(court_time.during)`.as("s")])
+      .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(sql<string>`coalesce(sum(payment.amount_cents), 0)`.as("c"))
+        .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("paid"))
+      .select((eb) => eb.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
+        .select(sql<string>`coalesce(sum(refund.amount_cents), 0)`.as("c")).whereRef("booking_player.booking_id", "=", "booking.id").where("refund.status", "!=", "failed").as("back"))
+      .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(sql<string>`coalesce(sum(${promoOff()}), 0)`.as("c"))
+        .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("off"))
+      .where("booking.status", "in", ["confirmed", "completed"]).where("court_time.active", "=", true)
+      .where(sql<boolean>`lower(court_time.during) >= ${from} AND lower(court_time.during) < ${to}`).orderBy(sql`lower(court_time.during)`).execute();
+    type Owed = { kind: "booking" | "place"; id: string; at: Date; who: string | null; person_id: string | null; location_id: string; cents: number;
+      code?: string; court?: string; program?: string; session_id?: string; program_id?: string };
+    const seen = new Set<string>(), rows: Owed[] = [];
+    for (const b of owed) {
+      if (seen.has(b.id)) continue;
+      seen.add(b.id);
+      const due = b.price_cents - (Number(b.paid ?? 0) - Number(b.back ?? 0)) - Number(b.off ?? 0);
+      if (due > 0) rows.push({ kind: "booking", id: b.id, at: new Date(b.s), who: b.display_name, person_id: b.organiser_id, location_id: b.location_id, cents: due, code: b.code, court: b.court });
+    }
+    const places = await db.selectFrom("enrolment").innerJoin("session", (j) => j.on((eb) => eb.or([eb("session.id", "=", eb.ref("enrolment.session_id")),
+      eb.and([eb("enrolment.session_id", "is", null), eb("session.program_id", "=", eb.ref("enrolment.program_id"))])])))
+      .innerJoin("program", "program.id", "session.program_id").innerJoin("person", "person.id", "enrolment.person_id")
+      .select(["enrolment.id", "enrolment.price_cents", "enrolment.person_id", "program.id as program_id", "program.name", "program.location_id", "person.display_name", "session.id as session_id", "session.starts_at"])
+      .where("enrolment.status", "=", "booked").where("enrolment.paid_by", "=", "none").where("enrolment.price_cents", ">", 0).where("session.status", "!=", "cancelled")
+      .where("session.starts_at", ">=", from).where("session.starts_at", "<", to).orderBy("session.starts_at").execute();
+    for (const p of places) {
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      rows.push({ kind: "place", id: p.id, at: new Date(p.starts_at), who: p.display_name, person_id: p.person_id, location_id: p.location_id, cents: p.price_cents,
+        program: p.name, session_id: p.session_id, program_id: p.program_id });
+    }
+    return rows.sort((a, b) => a.at.getTime() - b.at.getTime());
+  }
+
   /** Everything on Today that needs a person, each part only where the reader's roles read it. `full`: the page itself,
    *  with a few of each to show; the menu's count needs only how many. */
   async function needs(id: string, o: Lens, l: Lang, now: Date, full: boolean): Promise<Need[]> {
@@ -85,35 +127,10 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
 
     // Money owed at the desk on today's courts and today's program dates (what the Schedule and Bookings mark unpaid).
     if (o.owedSeen) {
-      const owed = await db.selectFrom("booking").innerJoin("court_time", "court_time.booking_id", "booking.id").innerJoin("court", "court.id", "court_time.court_id").leftJoin("person", "person.id", "booking.organiser_id")
-        .select(["booking.id", "booking.code", "booking.price_cents", "court.name as court", "person.display_name", sql<Date>`lower(court_time.during)`.as("s")])
-        .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(sql<string>`coalesce(sum(payment.amount_cents), 0)`.as("c"))
-          .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("paid"))
-        .select((eb) => eb.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id")
-          .select(sql<string>`coalesce(sum(refund.amount_cents), 0)`.as("c")).whereRef("booking_player.booking_id", "=", "booking.id").where("refund.status", "!=", "failed").as("back"))
-        .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select(sql<string>`coalesce(sum(${promoOff()}), 0)`.as("c"))
-          .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("off"))
-        .where("booking.status", "in", ["confirmed", "completed"]).where("court_time.active", "=", true)
-        .where(sql<boolean>`lower(court_time.during) >= ${from} AND lower(court_time.during) < ${to}`).orderBy(sql`lower(court_time.during)`).execute();
-      const seen = new Set<string>(), rows: { at: Date; text: string | null; sub: string; cents: number; href?: string }[] = [];
-      for (const b of owed) {
-        if (seen.has(b.id)) continue;
-        seen.add(b.id);
-        const due = b.price_cents - (Number(b.paid ?? 0) - Number(b.back ?? 0)) - Number(b.off ?? 0);
-        if (due > 0) rows.push({ at: new Date(b.s), text: o.people ? b.display_name : null, sub: `${hm(new Date(b.s))} · ${b.court} · ${b.code}`, cents: due });
-      }
-      // A place on one of today's dates with nothing paid for it yet (a price, and no payment of any kind).
-      const places = await db.selectFrom("enrolment").innerJoin("session", (j) => j.on((eb) => eb.or([eb("session.id", "=", eb.ref("enrolment.session_id")),
-        eb.and([eb("enrolment.session_id", "is", null), eb("session.program_id", "=", eb.ref("enrolment.program_id"))])])))
-        .innerJoin("program", "program.id", "session.program_id").innerJoin("person", "person.id", "enrolment.person_id")
-        .select(["enrolment.id", "enrolment.price_cents", "program.name", "person.display_name", "session.id as session_id", "session.starts_at"])
-        .where("enrolment.status", "=", "booked").where("enrolment.paid_by", "=", "none").where("enrolment.price_cents", ">", 0).where("session.status", "!=", "cancelled")
-        .where("session.starts_at", ">=", from).where("session.starts_at", "<", to).orderBy("session.starts_at").execute();
-      for (const p of places) rows.push({ at: new Date(p.starts_at), text: o.people ? p.display_name : null, sub: `${hm(new Date(p.starts_at))} · ${p.name}`, cents: p.price_cents,
-        ...(o.reads("programs") ? { href: `/sessions/${p.session_id}` } : {}) });
-      rows.sort((a, b) => a.at.getTime() - b.at.getTime());
+      const rows = await owedBetween(from, to);
       if (rows.length) out.push({ kind: "owed", count: rows.length, href: "/bookings?status=unpaid",
-        items: full ? rows.slice(0, LIST).map((x) => ({ text: x.text, sub: x.sub, cents: x.cents, at: x.at.toISOString(), href: x.href ?? null })) : [] });
+        items: full ? rows.slice(0, LIST).map((x) => ({ text: o.people ? x.who : null, sub: x.kind === "booking" ? `${hm(x.at)} · ${x.court} · ${x.code}` : `${hm(x.at)} · ${x.program}`,
+          cents: x.cents, at: x.at.toISOString(), href: x.kind === "place" && o.reads("programs") ? `/sessions/${x.session_id}` : null })) : [] });
     }
 
     // Scores the players disagree on, and level reviews (asked for, or a level that moved a lot).
@@ -236,6 +253,38 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
     const at = isNaN(asked.getTime()) ? new Date(now.getTime() - 12 * 3600_000) : asked < floor ? floor : asked > now ? now : asked;
     return c.json({ now, time_zone: await clubTz(), people: o.people, needs: o.coachOnly ? [] : await needs(id, o, l, now, true),
       takings: o.money ? await takings(now) : null, since: await since(id, o, l, at, now) });
+  });
+
+  // ---- Money: today's takings, what's owed to the club, refunds and the credit members hold, for the club's money
+  // people only (the same check as Reports' money reads). What's owed is the Today list over the last weeks, each with
+  // what the desk's record-payment actions need; names (and links to people) only for those who read people.
+  app.get("/staff/money", async (c) => {
+    const id = me(c)!.id, o = await lens(id), now = new Date();
+    if (!o.money) throw new KumiError("error.staff_only", {}, 403);
+    const tz = await clubTz(), today = localDate(now, tz), to = onDate(today, "24:00", tz);
+    const day = (n: number) => onDate(localDate(new Date(now.getTime() - n * 86400_000), tz), "00:00", tz);
+    const owed = await owedBetween(day(OWED_DAYS), to);
+    const refunds = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").innerJoin("person", "person.id", "payment.person_id")
+      .leftJoin("booking_player", "booking_player.id", "payment.booking_player_id").leftJoin("booking", "booking.id", "booking_player.booking_id")
+      .leftJoin("enrolment", (j) => j.on(sql<boolean>`enrolment.id = coalesce(refund.enrolment_id, payment.enrolment_id)`)).leftJoin("program", "program.id", "enrolment.program_id")
+      .leftJoin("membership", "membership.id", "payment.membership_id").leftJoin("membership_plan", "membership_plan.id", "membership.plan_id")
+      .select(["refund.id", "refund.amount_cents", "refund.destination", "refund.status", "refund.created_at", "payment.person_id", "person.display_name",
+        "booking.code", "program.name as program", "membership_plan.name as plan"])
+      .where("refund.created_at", ">=", day(REFUND_DAYS)).orderBy("refund.created_at", "desc").execute();
+    const week = day(REFUND_TILE_DAYS), counted = refunds.filter((r) => r.status !== "failed" && new Date(r.created_at) >= week);
+    const credit = await outstandingCredit(db);
+    const holders = o.people ? await db.selectFrom("member_credit_balance").innerJoin("person", "person.id", "member_credit_balance.person_id")
+      .select(["person.id", "person.display_name", "member_credit_balance.cents"]).where(sql<boolean>`member_credit_balance.cents > 0`)
+      .orderBy("member_credit_balance.cents", "desc").orderBy("person.display_name").limit(CREDIT_LIST).execute() : [];
+    const name = (x: string | null) => (o.people ? x : null);
+    return c.json({ now, time_zone: tz, people: o.people, takings: await takings(now),
+      owed: { days: OWED_DAYS, count: owed.length, total_cents: owed.reduce((n, x) => n + x.cents, 0),
+        rows: owed.slice(0, OWED_LIST).map((x) => ({ kind: x.kind, id: x.id, at: x.at.toISOString(), who: name(x.who), person_id: o.people ? x.person_id : null, location_id: x.location_id,
+          cents: x.cents, code: x.code ?? null, court: x.court ?? null, program: x.program ?? null, program_id: x.program_id ?? null, session_id: o.reads("programs") ? x.session_id ?? null : null })) },
+      refunds: { days: REFUND_DAYS, week_days: REFUND_TILE_DAYS, week_count: counted.length, week_cents: counted.reduce((n, r) => n + r.amount_cents, 0),
+        rows: refunds.slice(0, REFUND_LIST).map((r) => ({ id: r.id, at: new Date(r.created_at).toISOString(), who: name(r.display_name), person_id: o.people ? r.person_id : null,
+          cents: r.amount_cents, to: r.destination, status: r.status, what: r.code ? { kind: "booking", name: r.code } : r.program ? { kind: "place", name: r.program } : r.plan ? { kind: "membership", name: r.plan } : null })) },
+      credit: { cents: credit.cents, people: credit.people, top: holders.map((h) => ({ person_id: h.id, name: h.display_name, cents: Number(h.cents) })) } });
   });
 
   // ---- Approvals: every ask waiting for this person's yes (who asked, what it changes, when the ask runs out); the asks
