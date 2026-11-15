@@ -9,6 +9,15 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+The staff app's Payments page is now the club's money at a glance (Money in openPadel's own words; Playtomic clubs keep
+Payments). Four tiles: today's takings so far beside the same time last week, what's owed to the club, the club credit
+members hold and the refunds of the last 7 days. Below them: every court and program place from the last 30 days and
+today with something still to pay (who, what, when, how much), each with Record payment, the same action as on the
+Schedule and a program's roster, previewed before it's confirmed; the refunds of the last 30 days with where each went
+and how it stands; and the people holding the most credit, each a link to their page. Setting up card payments with
+Stripe is on the same page, first until the club takes them. Only the club's money people (owner, manager, front desk,
+accountant, or a role the club made covering money) open it, and names only for those who read people.
+
 Both apps have line drawings, painted in the club's own colour (or the text colour on it) so they suit every club and
 dark mode: over the first sign-in's welcome and the welcome for members who moved in, on empty lists (no open
 matches, nothing booked, no clinics or courses, no coaches, the staff app's empty Bookings and Schedule), small over

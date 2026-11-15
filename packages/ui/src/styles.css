@@ -393,6 +393,13 @@ a.button.primary { background: var(--brand); color: var(--on-brand); border-colo
 .need-items { margin: 4px 0 0; font-size: 14px; } .need-items li { margin: 2px 0; }
 .num { font-variant-numeric: tabular-nums; }
 .today-total { font-size: 32px; font-weight: 700; margin: 4px 0 0; }
+/* The Money page: four tiles, two across on a phone; the card payments' setup first until the club takes them. */
+main.money { display: flex; flex-direction: column; } main.money > * { min-width: 0; } main.money > .page-head, main.money > .page-head + .meta { order: -2; } main.money > .money-stripe.setup { order: -1; }
+.money-tiles { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 8px 0; } @media (min-width: 900px) { .money-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.money-tile { margin: 0; overflow-wrap: anywhere; } .money-tile h2 { font-size: 14px; margin: 0; color: var(--muted); } .money-tile .today-total { font-size: 26px; }
+.pill-refund-sent { --pill-bg: color-mix(in srgb, var(--brand) 14%, var(--card)); --pill-ink: var(--brand-ink); } .pill-refund-pending, .pill-refund-waiting_for_sub { --pill-bg: #fff1dc; --pill-ink: #8a4b00; }
+.pill-refund-failed { --pill-bg: color-mix(in srgb, var(--error) 14%, var(--card)); --pill-ink: var(--error); }
+@media (prefers-color-scheme: dark) { .pill-refund-pending, .pill-refund-waiting_for_sub { --pill-bg: #3d2f17; --pill-ink: #f0bd7e; } }
 .take-rows li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 10px 0; }
 .take-bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .take-bar span { display: block; height: 100%; background: var(--brand); }
