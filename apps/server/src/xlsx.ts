@@ -8,8 +8,8 @@ import { unzipSync, strFromU8 } from "fflate";
 /** The most a workbook may unpack to: a list of a few thousand members is well under a megabyte of XML. */
 export const XLSX_MAX_UNPACKED = 30_000_000;
 /** A member list's columns and cells, at most: a cell far to the right (XFD1) would otherwise make every row 16,384
- *  cells wide, and a small file could ask for gigabytes. Cells past the last column are left out; past the last cell,
- *  the sheet is refused. */
+ *  cells wide, and a small file could ask for gigabytes. Cells past the last column are left out; past the last cell (kept
+ *  or not), the sheet is refused. */
 export const XLSX_MAX_COLUMNS = 64, XLSX_MAX_CELLS = 200_000;
 
 const ENTITY: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
@@ -61,8 +61,8 @@ export function readXlsx(bytes: Uint8Array): string[][] | null {
     for (const c of (r[2] ?? "").matchAll(/<(?:\w+:)?c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:\w+:)?c>)/g)) {
       const attrs = c[1]!, body = c[2] ?? "", ref = /\br="([A-Z]+\d+)"/i.exec(attrs)?.[1], type = /\bt="(\w+)"/.exec(attrs)?.[1] ?? "n";
       const col = ref ? column(ref) : row.length;
+      if (++cells > XLSX_MAX_CELLS) return null;   // every cell counts, kept or not: dropping them is still work
       if (col < 0 || col >= XLSX_MAX_COLUMNS) continue;
-      if (++cells > XLSX_MAX_CELLS) return null;
       const v = /<(?:\w+:)?v>([\s\S]*?)<\/(?:\w+:)?v>/.exec(body)?.[1];
       const value = type === "s" ? shared[Number(v)] ?? "" : type === "inlineStr" ? textOf(/<(?:\w+:)?is>([\s\S]*?)<\/(?:\w+:)?is>/.exec(body)?.[1] ?? "")
         : type === "b" ? (v === "1" ? "TRUE" : "FALSE") : type === "e" ? "" : type === "n" ? number(v) : unescape(v ?? "");

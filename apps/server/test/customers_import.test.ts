@@ -123,7 +123,7 @@ test("a small workbook can't ask for a huge sheet: a cell far to the right is le
   const wide = readXlsx(workbook('<row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c><c r="XFD1" t="inlineStr"><is><t>far</t></is></c></row>', []))!;
   assert.deepEqual(wide, [["Name"]]);
   const many = readXlsx(workbook(Array.from({ length: 3000 }, (_, n) => `<row r="${n + 1}">${'<c t="inlineStr"><is><t>x</t></is></c>'.repeat(70)}</row>`).join(""), []));
-  assert.equal(many, null, "210,000 cells: refused");
+  assert.ok(many === null, "210,000 cells: refused");   // not assert.equal: printing a 3,000-row miss takes gigabytes
   // A character that doesn't exist is left as written, not an error; prefixed tags (some exporters write x:row) still read.
   assert.deepEqual(readXlsx(workbook('<row r="1"><c r="A1" t="inlineStr"><is><t>a&#99999999;b</t></is></c></row>', [])), [["a&#99999999;b"]]);
   const prefixed = zipSync({ "xl/workbook.xml": strToU8('<x:workbook xmlns:x="m" xmlns:r="r"><x:sheets><x:sheet name="S" sheetId="1" r:id="rId1"/></x:sheets></x:workbook>'),
