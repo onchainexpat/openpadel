@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, lessonCoaches, lessonTimes, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { decide, getAction, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { shortContact } from "./mcp.ts";
 import { csvCell, readPeopleCsv, readPeopleRows } from "./csv.ts";
@@ -357,7 +357,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // each takes; and when one is free for a lesson of a length on a date at a location, with a court free then.
   app.get("/staff/lesson-coaches", async (c) => {
     const coaches = (await lessonCoaches(db)).filter((x) => x.lessons && Object.keys(x.rates).length);
-    return c.json({ coaches: coaches.map((x) => ({ id: x.id, name: x.name, rates: x.rates, max_players: x.max_players, level_min: x.level_min, level_max: x.level_max })),
+    // Each length's price as it's charged: the rate with the club's tax (added on top, when prices don't include it).
+    const club = await db.selectFrom("club").select(["tax_rate_bp", "prices_include_tax"]).executeTakeFirstOrThrow();
+    const charged = (rates: Record<string, number>) => Object.fromEntries(Object.entries(rates).map(([m, cents]) => [m, taxSplit(cents, club.tax_rate_bp, club.prices_include_tax).total]));
+    return c.json({ coaches: coaches.map((x) => ({ id: x.id, name: x.name, rates: charged(x.rates), max_players: x.max_players, level_min: x.level_min, level_max: x.level_max })),
       split_deadline_hours: (await currentPolicy(db)).split_deadline_hours });
   });
   app.get("/staff/lesson-times", async (c) => {
@@ -376,7 +379,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const locationId = c.req.query("location_id") ?? "", month = c.req.query("month") ?? "", now = new Date();
     const loc = isUuid(locationId) ? await db.selectFrom("location").select(["id", "time_zone"]).where("id", "=", locationId).executeTakeFirst() : undefined;
     if (!loc) throw new KumiError("error.not_found", { thing: { en: "location", es: "la sede" } }, 404);
-    const ym = /^\d{4}-\d{2}$/.test(month) ? month : localDate(now, loc.time_zone).slice(0, 7);
+    const ym = /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : localDate(now, loc.time_zone).slice(0, 7);
     const [y, m] = ym.split("-").map(Number) as [number, number], count = new Date(Date.UTC(y, m, 0)).getUTCDate();
     const days = Array.from({ length: count }, (_, n) => `${ym}-${String(n + 1).padStart(2, "0")}`);
     const courts = await db.selectFrom("court").select("id").where("location_id", "=", loc.id).where("archived_at", "is", null).execute();
@@ -770,13 +773,16 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // came of them. Read from the imports' own runs (person.import): nothing else is kept, and never the file.
   app.get("/staff/people/imports", async (c) => {
     const runs = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id")
-      .select(["action_run.id", "action_run.status", "action_run.created_at", "action_run.applied_at", "action_run.input", "action_run.plan", "action_run.result", "person.display_name as by"])
+      // Only the counts and the file's name: never each import's rows (thousands of names and emails) just to count them.
+      .select(["action_run.id", "action_run.status", "action_run.created_at", "action_run.applied_at", "action_run.result", "person.display_name as by",
+        sql<unknown>`action_run.input->'file'`.as("file"), sql<number>`CASE WHEN jsonb_typeof(action_run.input->'rows') = 'array' THEN jsonb_array_length(action_run.input->'rows') ELSE 0 END`.as("rows"),
+        sql<unknown>`action_run.plan->'details'`.as("details")])
       .where("action_run.action", "=", "person.import").where("action_run.status", "in", ["applied", "undone", "awaiting_approval"])
       .orderBy("action_run.created_at", "desc").limit(100).execute();
     return c.json(runs.map((r) => {
-      const input = r.input as { rows?: unknown[]; file?: { name?: string; lines?: number; unread?: number } }, details = ((r.plan as { details?: Record<string, number> }).details ?? {});
+      const input = { file: (r.file ?? undefined) as { name?: string; lines?: number; unread?: number } | undefined }, details = (r.details ?? {}) as Record<string, number>;
       const result = (r.result ?? {}) as { added?: number; updated?: number; skipped?: number };
-      const rows = input.rows?.length ?? 0, unread = input.file?.unread ?? 0;
+      const rows = Number(r.rows ?? 0), unread = input.file?.unread ?? 0;
       // What was added and updated is what the import did; skipped is what it left alone (already here, nothing new) and
       // the file's lines it couldn't read. An import waiting for approval hasn't done anything yet: the preview's counts.
       const done = r.status !== "awaiting_approval";

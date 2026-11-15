@@ -117,3 +117,18 @@ test("the Membership filter: one plan (theirs or a family plan covering them), a
   assert.deepEqual(all.plans.map((p: any) => p.name), ["Gold", "Silver"]);
   assert.equal((await call("/staff/customers?membership=nonsense", cookie)).json.total, 4);   // not a plan: no filter
 });
+
+test("a small workbook can't ask for a huge sheet: a cell far to the right is left out, too many cells refuse it; odd input never throws", () => {
+  // XFD1 is column 16,384: read as is, every such row would be 16,384 cells wide.
+  const wide = readXlsx(workbook('<row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c><c r="XFD1" t="inlineStr"><is><t>far</t></is></c></row>', []))!;
+  assert.deepEqual(wide, [["Name"]]);
+  const many = readXlsx(workbook(Array.from({ length: 3000 }, (_, n) => `<row r="${n + 1}">${'<c t="inlineStr"><is><t>x</t></is></c>'.repeat(70)}</row>`).join(""), []));
+  assert.equal(many, null, "210,000 cells: refused");
+  // A character that doesn't exist is left as written, not an error; prefixed tags (some exporters write x:row) still read.
+  assert.deepEqual(readXlsx(workbook('<row r="1"><c r="A1" t="inlineStr"><is><t>a&#99999999;b</t></is></c></row>', [])), [["a&#99999999;b"]]);
+  const prefixed = zipSync({ "xl/workbook.xml": strToU8('<x:workbook xmlns:x="m" xmlns:r="r"><x:sheets><x:sheet name="S" sheetId="1" r:id="rId1"/></x:sheets></x:workbook>'),
+    "xl/_rels/workbook.xml.rels": strToU8('<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+    "xl/sharedStrings.xml": strToU8('<x:sst xmlns:x="m"><x:si><x:t>Name</x:t></x:si></x:sst>'),
+    "xl/worksheets/sheet1.xml": strToU8('<x:worksheet xmlns:x="m"><x:sheetData><x:row r="1"><x:c r="A1" t="s"><x:v>0</x:v></x:c></x:row></x:sheetData></x:worksheet>') });
+  assert.deepEqual(readXlsx(prefixed), [["Name"]]);
+});

@@ -88,9 +88,9 @@ test("someone with only the club's own role: told which changes their role allow
   assert.equal((await get("Fran", `/staff/grid?location_id=${loc}&date=${day()}`)).status, 403);
   assert.equal((await get("Fran", "/staff/alerts")).status, 403);
   assert.equal((await get("Lee", "/me")).json.can, null);   // a built-in role: what it always had
-  // + Create on the Schedule offers what any role allows, built-in ones included: the desk books and blocks courts but
-  // doesn't make programs; the owner makes everything; the club's own tagging role makes nothing.
-  assert.deepEqual((await get("Lee", "/me")).json.creates, ["booking.create", "booking.repeat", "court.block"]);
-  assert.deepEqual((await get("Robin", "/me")).json.creates, ["program.create", "booking.create", "booking.repeat", "court.block"]);
+  // + Create on the Schedule offers what any role allows, built-in ones included: the desk books courts and lessons and
+  // blocks courts but doesn't make programs; the owner makes everything; the club's own tagging role makes nothing.
+  assert.deepEqual((await get("Lee", "/me")).json.creates, ["booking.create", "booking.create_lesson", "booking.repeat", "court.block"]);
+  assert.deepEqual((await get("Robin", "/me")).json.creates, ["program.create", "booking.create", "booking.create_lesson", "booking.repeat", "court.block"]);
   assert.deepEqual(fran.creates, []);
 });

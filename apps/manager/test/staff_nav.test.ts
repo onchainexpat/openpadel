@@ -49,8 +49,11 @@ test("on the grid, owed money shows only to those who see what members paid, and
   assert.match(courts, /open && here && mayCreate\("court\.block"\) && \{ key: "block"/);
   // mayCreate asks /me's `creates` too, which counts built-in roles: a front desk isn't offered a program.
   assert.match(readFileSync(join(import.meta.dirname, "../../../packages/ui/src/state.ts"), "utf8"), /export const mayCreate = \(action: string\) => mayDo\(action\) && \(me\.value\?\.creates\?\.includes\(action\) \?\? true\);/);
+  // A private lesson for whoever books lessons at the desk here; an open match for whoever books its courts.
+  assert.match(courts, /here && mayCreate\("booking\.create_lesson"\) && \{ key: "lesson", go: lesson \}/);
+  assert.match(courts, /courts && \{ key: "open_match", go: match \}/);
   // The Create button is there only when at least one choice can be made.
-  assert.match(courts, /\{choices\.some\(\(x\) => x\.items\.some\(\(i\) => !i\.soon\)\) && <button type="button" class="primary sched-create"/);
+  assert.match(courts, /\{choices\.length > 0 && <button type="button" class="primary sched-create"/);
   // The Programs form opened from Create is still behind the same check.
   assert.match(src("Programs.tsx"), /KINDS\.includes\(asked\) && mayCreate\("program\.create"\) \? asked : ""/);
   assert.match(src("Programs.tsx"), /\{mayCreate\("program\.create"\) && <button onClick=\{\(\) => setOpen\(!open\)\}/);
