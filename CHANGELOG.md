@@ -68,6 +68,14 @@ up right there.
 - Play: "Start a match" goes straight to booking a court with paying your part and opening it to others chosen. Match
   and class cards on Play and Learn say how each fits your level (Great fit, Good fit, A step up, Below your level),
   and nothing when you have no level yet.
+- Members' app: a Wallet. Club credit with what came in and went out of it, each with its date (a gift card redeemed,
+  a refund to credit, a payment from credit, credit paid out by the club, credit from Playtomic); the passes a member
+  holds with the uses left, and a link to Passes; what each connected assistant has spent this week against its
+  limit, with "Change limit" opening it in Profile; and links to the membership, the card on file and receipts. Me's
+  club credit tile opens it. There's no topping up credit in the app.
+- Members' app, My level: "Settled" once a level has settled (or "Provisional: still settling"), the floor the club
+  set and when, how much each change in "Why it moved" moved the level (+0.04, a floor marked as one), and a short
+  "How levels work here".
 - The club's logo (Settings, next to the colour, or `logo:` in club.yaml): an SVG, PNG or JPEG in place of the mark
   drawn from the club's name, on the app icons, the iPhone start images, the apps' start screen and welcome, and both
   apps' headers. It sits on the club's colour where it stands out, and on a dark or white tile where it wouldn't; the

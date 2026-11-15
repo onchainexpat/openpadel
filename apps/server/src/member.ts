@@ -668,9 +668,13 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   app.get("/my/level", async (c) => {
     const pid = await forWhom(c), l = lang(c);
     const rating = await db.selectFrom("rating").select(["level", "provisional", "floor", "rated_games"]).where("person_id", "=", pid).where("sport", "=", "padel").executeTakeFirst();
-    const events = await db.selectFrom("rating_event").select(["at", "kind", "level_after", "explanation"]).where("person_id", "=", pid).orderBy("id", "desc").limit(30).execute();
+    const events = await db.selectFrom("rating_event").select(["at", "kind", "level_before", "level_after", "explanation"]).where("person_id", "=", pid).orderBy("id", "desc").limit(30).execute();
+    // When the floor they have now was set (My level's floor line): the latest floor change, however far back.
+    const floorSet = rating?.floor == null ? null : await db.selectFrom("rating_event").select("at").where("person_id", "=", pid).where("sport", "=", "padel").where("kind", "=", "floor")
+      .orderBy("id", "desc").limit(1).executeTakeFirst();
     const imports = await importOptions(db, pid);
-    return c.json({ rating: rating ?? null, events: events.map((e) => ({ at: e.at, kind: e.kind, level_after: e.level_after, explanation: (e.explanation as Record<string, string>)[l] ?? "" })),
+    return c.json({ rating: rating ? { ...rating, floor_since: floorSet?.at ?? null } : null,
+      events: events.map((e) => ({ at: e.at, kind: e.kind, level_before: e.level_before, level_after: e.level_after, explanation: (e.explanation as Record<string, string>)[l] ?? "" })),
       ...await levelOptions(db, pid, new Date()), ...imports, import: imports.import ? { ...imports.import, explanation: imports.import.explanation[l] } : null });
   });
 

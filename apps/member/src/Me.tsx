@@ -1,4 +1,4 @@
-// Me: the member's own corner. Their name and plan, their level and club credit, their membership (or the plans to
+// Me: the member's own corner. Their name and plan, their level and club credit (the tile opens the Wallet), their membership (or the plans to
 // join, or switch to, each through the usual preview), the card on file (added, replaced or removed), their family,
 // and the rest of their pages: profile and settings, bookings, friends, receipts, their data, and signing out.
 // Loaded when it's first opened.
@@ -7,6 +7,7 @@ import { api, clubTime, club, dollars, lang, me, signOutHere, t, usePreview } fr
 import { MembershipBody } from "./Membership.tsx";
 import { juniors } from "./ForWhom.tsx";
 import { confirmPaid, PaySheet } from "./Pay.tsx";
+import { brandName } from "./wallet_lines.ts";
 
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
@@ -28,6 +29,7 @@ export function Me() {
     ["/lessons", t("ui.nav_lessons"), c?.lessons],
     ["/gift-cards", t("ui.gift_cards_title"), c?.gift_cards],
     ["/passes", t("ui.passes_title"), c?.passes],
+    ["/wallet", t("ui.wallet_title")],
     ["/receipts", t("ui.receipts_title")],
     ["/ask", t("ui.ask_title")],
     ["/inbox", t("ui.nav_inbox")],
@@ -52,7 +54,7 @@ export function Me() {
           {level?.provisional && <span class="meta">{t("ui.provisional")}</span>}
           <span class="tile-more">{t("ui.me_level_more")}</span>
         </a>
-        <a class="tile" href="/receipts">
+        <a class="tile" href="/wallet">
           <span class="tile-label">{t("ui.credit_title")}</span>
           <strong class="tile-value">{credit === null ? "…" : dollars(credit, lang.value)}</strong>
           <span class="tile-more">{t("ui.me_wallet_more")}</span>
@@ -84,8 +86,6 @@ export function Me() {
 
 type CardInfo = { card: { brand: string; last4: string; exp_month: number | null; exp_year: number | null } | null;
   uses: { membership: { name: string; on: string | null } | null; kids: string[] | null; deadlines: number; next_deadline: string | null; weekly: number } };
-const BRANDS: Record<string, string> = { visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover", diners: "Diners Club", jcb: "JCB", unionpay: "UnionPay" };
-const brandName = (b: string) => BRANDS[b.toLowerCase()] ?? b.charAt(0).toUpperCase() + b.slice(1);
 const shortDay = (iso: string) => clubTime(iso, { weekday: "short", day: "numeric", month: "short" });
 
 /** The card on file: the one card everything later goes on (a court's unpaid parts at the deadline, renewals, the
@@ -103,12 +103,14 @@ function CardOnFile() {
     if (back) { history.replaceState(null, "", "/account"); confirmPaid("", 8, `/my/card/${encodeURIComponent(back)}/check`).then((ok) => { if (ok) setNote(t("ui.card_saved")); void load(); }); }
   }, [lang.value]);
   const saved = () => { setAdding(false); setNote(t("ui.card_saved")); void load(); };
+  // Opened from the Wallet's card row (/account#card): brought into view once it has loaded.
+  useEffect(() => { if (d !== undefined && location.hash === "#card") document.getElementById("card")?.scrollIntoView({ block: "start" }); }, [d !== undefined]);
   const c = d?.card, u = d?.uses;
   const uses = u ? [u.membership?.on && t("ui.card_pays_membership", { name: u.membership.name, date: shortDay(u.membership.on) }),
     u.kids && (u.kids.length ? t("ui.card_pays_kids", { names: u.kids.join(", ") }) : t("ui.card_pays_family")),
     u.deadlines > 0 && t("ui.card_pays_deadlines", { count: u.deadlines }), u.weekly > 0 && t("ui.card_pays_weekly", { count: u.weekly })].filter(Boolean) : [];
   return (
-    <section class="card" aria-labelledby="me-card">
+    <section class="card" id="card" aria-labelledby="me-card">
       <h2 id="me-card">{t("ui.me_card_title")}</h2>
       <p class="meta">{t("ui.card_on_file_explain")}</p>
       {sheet}

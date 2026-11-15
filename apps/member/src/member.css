@@ -210,3 +210,18 @@ main.card.done { text-align: center; }
 .card-what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .card-uses { margin: 4px 0 8px; padding-left: 20px; }
 .plan-yours { border-color: var(--brand-ink); }
+/* My level: each "Why it moved" row with what it did to the level, and how levels work here. */
+.level-moves li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.level-why { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.level-move { flex: none; font-variant-numeric: tabular-nums; font-weight: 600; }
+.level-move.up { color: #1e6b3a; } .level-move.down { color: var(--muted); } .level-move.floor { color: var(--brand-ink); font-weight: 500; font-size: 14px; }
+@media (prefers-color-scheme: dark) { .level-move.up { color: #a6e3b8; } }
+.level-how { margin: 0; padding-left: 20px; } .level-how li { margin: 6px 0; }
+/* Wallet: club credit, what came in and went out, passes, and the links to the rest of the money. */
+.wallet-balance { font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0; }
+.wallet-list li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.wallet-list li:last-child { border-bottom: 0; }
+.wallet-what { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.wallet-amount { flex: none; font-variant-numeric: tabular-nums; font-weight: 600; }
+.wallet-amount.in { color: #1e6b3a; }
+@media (prefers-color-scheme: dark) { .wallet-amount.in { color: #a6e3b8; } }

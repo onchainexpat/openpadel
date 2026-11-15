@@ -1,9 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, lang, me, t, usePreview, clubTime } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
+import { moveOf } from "./level_moves.ts";
 
 type Platform = { key: string; min: number; max: number; whole: boolean; conf: "reliability" | "matches" | "wpr" | "percent" | null; converts: boolean };
-export type L = { rating: { level: string; provisional: boolean; floor: string | null; rated_games: number } | null; events: { at: string; explanation: string }[];
+export type L = { rating: { level: string; provisional: boolean; floor: string | null; floor_since?: string | null; rated_games: number } | null;
+  events: { at: string; kind: string; level_before: string | null; level_after: string; explanation: string }[];
   self_adjust: { can: boolean; used: number; games: number; played: number; max: number; floor: number | null };
   review: { open: { created_at: string; note: string | null; kind: string; claim: { platform: string } | null } | null; next_at: string | null; every: number };
   // A starting level brought from another app (level_import.ts), and what they can still do with it.
@@ -56,8 +58,13 @@ export function MyLevel() {
     <main>
       <h1>{t("ui.nav_level")}</h1>
       {sheet}
-      {!d.rating ? <p class="card">{t("ui.level_not_yet")}</p> : <section class="card"><p class="big">{d.rating.level}</p>
-        <p class="meta">{t("ui.rated_games", { count: d.rating.rated_games })}{d.rating.provisional ? ` · ${t("ui.provisional")}` : ""}</p>
+      {!d.rating ? <p class="card">{t("ui.level_not_yet")}</p> : <section class="card">
+        {/* Settled once the model is sure enough of it; provisional (still settling) until then (levels.ts). */}
+        <span class={`tag${d.rating.provisional ? "" : " on"}`}>{t(d.rating.provisional ? "ui.provisional" : "ui.level_settled")}</span>
+        <p class="big">{d.rating.level}</p>
+        <p class="meta">{t("ui.rated_games", { count: d.rating.rated_games })}</p>
+        {/* A floor the club set: results can't take the level below it (levels.ts shownLevel). */}
+        {d.rating.floor !== null && <p class="meta">{d.rating.floor_since ? t("ui.level_floor_since", { floor: d.rating.floor, date: day(d.rating.floor_since) }) : t("ui.level_floor_line", { floor: d.rating.floor })}</p>}
         {sa.used > 0 && <p class="meta">{t("ui.self_adjusted", { amount: sa.used.toFixed(2) })}</p>}</section>}
       {d.rating && sa.can && <section class="card">
         <h2>{t("ui.self_adjust_title")}</h2>
@@ -86,7 +93,21 @@ export function MyLevel() {
             <button onClick={() => preview("level.request_review", { person_id: pid, ...(note.trim() ? { note: note.trim() } : {}) })}>{t("ui.ask_review")}</button>
           </>}
       </section>
-      {d.events.length > 0 && <section class="card"><h2>{t("ui.history")}</h2><ul class="plain">{d.events.map((e) => <li><span class="meta">{when(e.at)}</span> {e.explanation}</li>)}</ul></section>}
+      {d.events.length > 0 && <section class="card"><h2>{t("ui.history")}</h2><ul class="plain level-moves">{d.events.map((e) => {
+        const mv = moveOf(e);
+        return <li><span class="level-why"><span class="meta">{when(e.at)}</span> {e.explanation}</span>
+          {mv && <span class={`level-move ${mv.kind}`}>{mv.kind === "floor" ? t("ui.level_move_floor") : mv.text}</span>}</li>;
+      })}</ul></section>}
+      <section class="card">
+        <h2>{t("ui.level_how_title")}</h2>
+        <ul class="level-how">
+          <li>{t("ui.level_how_score")}</li>
+          <li>{t("ui.level_how_odds")}</li>
+          <li>{t("ui.level_how_new")}</li>
+          <li>{t("ui.level_how_teams")}</li>
+          <li>{t("ui.level_how_friendly")}</li>
+        </ul>
+      </section>
     </main>
   );
 }

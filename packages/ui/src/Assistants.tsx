@@ -21,9 +21,11 @@ export function Assistants() {
     try { await api(`/runs/${pending!.runId}/apply`, {}, { "idempotency-key": pending!.runId }); setPending(null); await load(); }
     catch (e) { setError(e instanceof ApiError ? e.message : String(e)); setPending(null); }
   };
+  // Opened from the Wallet's "Change limit" (/profile#assistants): brought into view once it has loaded.
+  useEffect(() => { if (list && location.hash === "#assistants") document.getElementById("assistants")?.scrollIntoView({ block: "start" }); }, [list !== null]);
   if (!list) return null;   // shown with none yet too: it says how to connect one
   return (
-    <section class="card">
+    <section class="card" id="assistants">
       <h2>{t("ui.assistants_title")}</h2>
       <p class="meta">{t("ui.assistants_hint")}</p>
       <p class="meta">{t("ui.assistants_how", { address: `${location.origin}/mcp` })}</p>

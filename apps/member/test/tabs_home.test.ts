@@ -23,7 +23,7 @@ test("every page the app has is under a tab", () => {
     ["/take/x", "play"], ["/chats/booking/1", "play"], ["/friends", "play"], ["/friend/x", "play"], ["/learn", "learn"], ["/lessons", "learn"],
     ["/events/abc", "play"], ["/learn/abc", "learn"], ["/learn?show=courses", "learn"],
     ["/account", "me"], ["/profile", "me"], ["/membership", "me"], ["/level", "me"], ["/family", "me"], ["/family/join/x", "me"], ["/waiver", "me"],
-    ["/receipts/1", "me"], ["/gift-cards", "me"], ["/passes", "me"], ["/places?paid=1", "me"]];
+    ["/receipts/1", "me"], ["/wallet", "me"], ["/gift-cards", "me"], ["/passes", "me"], ["/places?paid=1", "me"]];
   for (const [path, tab] of cases) assert.equal(tabOf(path), tab, path);
   // /membership-plans and /bookings are the server's, but the start of a name never counts: /books isn't Book.
   assert.equal(tabOf("/books"), "home");
@@ -32,7 +32,7 @@ test("every page the app has is under a tab", () => {
 test("every old address still has its page, and the new ones are routed", () => {
   const app = readFileSync(join(import.meta.dirname, "../src/App.tsx"), "utf8");
   for (const p of ["/", "/events", "/learn", "/account", "/places", "/competitions", "/gift-cards", "/passes", "/level", "/inbox", "/book", "/join/:code", "/membership",
-    "/play", "/match/:id", "/friends", "/friend/:code", "/take/:code", "/lessons", "/family", "/family/join/:code", "/waiver", "/ask", "/ask/:id", "/receipts", "/receipts/:id",
+    "/play", "/match/:id", "/friends", "/friend/:code", "/take/:code", "/lessons", "/family", "/family/join/:code", "/waiver", "/ask", "/ask/:id", "/wallet", "/receipts", "/receipts/:id",
     "/chats", "/chats/:kind/:id", "/profile", "/events/:id", "/learn/:id"]) assert.ok(app.includes(`<Route path="${p}" `), p);
   assert.match(app, /<TabBar \/>/);
 });

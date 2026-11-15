@@ -28,6 +28,8 @@ const Ask = lazyPage(() => import("./Ask.tsx").then((m) => m.Ask));
 const AskThread = lazyPage(() => import("./Ask.tsx").then((m) => m.AskThread));
 const Receipts = lazyPage(() => import("./Receipts.tsx").then((m) => m.Receipts));
 const ReceiptPage = lazyPage(() => import("./Receipts.tsx").then((m) => m.ReceiptPage));
+// Wallet: club credit and what came and went, passes held, and links to the rest of their money.
+const Wallet = lazyPage(() => import("./Wallet.tsx").then((m) => m.Wallet));
 // Me: the member's own pages. At /account, since /me is the server's (who is signed in).
 const Me = lazyPage(() => import("./Me.tsx").then((m) => m.Me));
 const Chats = lazyPage(() => import("./Chats.tsx").then((m) => m.Chats));
@@ -116,6 +118,7 @@ export function App() {
         <Route path="/waiver" component={Waiver} />
         <Route path="/ask" component={Ask} />
         <Route path="/ask/:id" component={AskThread} />
+        <Route path="/wallet" component={Wallet} />
         <Route path="/receipts" component={Receipts} />
         <Route path="/receipts/:id" component={ReceiptPage} />
         <Route path="/chats" component={Chats} />

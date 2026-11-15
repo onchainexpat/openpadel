@@ -23,7 +23,7 @@ const under: [TabKey, RegExp][] = [
   ["book", /^\/(book|join)(\/|$)/],
   ["play", /^\/(play|match|events|competitions|tournaments|leagues|take|chats|friends|friend)(\/|$)/],
   ["learn", /^\/(learn|lessons)(\/|$)/],
-  ["me", /^\/(account|profile|membership|level|family|waiver|receipts|gift-cards|passes|places)(\/|$)/],
+  ["me", /^\/(account|profile|membership|level|family|waiver|wallet|receipts|gift-cards|passes|places)(\/|$)/],
 ];
 
 /** The tab an address belongs to. */
