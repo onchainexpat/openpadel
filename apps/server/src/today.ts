@@ -14,6 +14,7 @@ import { productName, t, type Key, type Lang } from "@kumi/i18n";
 import { ASK_ENDED, decide, KumiError, levelQueue, localDate, mayAnswer, onDate, outstandingCredit, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
 import { seesChats } from "./chats.ts";
 import { seesMoney } from "./receipts.ts";
+import { planLines, saidIn } from "./changes.ts";
 
 type Me = { id: string; locale: string } | null;
 /** What reads.ts knows of a reader, handed over so both judge them the same way. */
@@ -66,11 +67,14 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
   }
   type Ask = Awaited<ReturnType<typeof waitingFor>>[number];
   /** An ask as the screens show it: who asked and its summary only for those who read people (its title otherwise). */
-  const askView = (x: Pick<Ask, "id" | "action" | "plan" | "via" | "created_at" | "plan_expires_at" | "money_cents" | "display_name" | "support_name">, l: Lang, o: Lens) => {
+  const askView = (x: Pick<Ask, "id" | "action" | "plan" | "input" | "via" | "created_at" | "plan_expires_at" | "money_cents" | "display_name" | "support_name">, l: Lang, o: Lens) => {
     const p = x.plan as { title?: Record<Lang, string>; summary?: Record<Lang, string>; undo?: { kind?: string }; secondPerson?: boolean };
     const by = x.support_name ? t(l, "ui.support_by", { name: x.support_name }) : x.display_name ?? productName();
     return { id: x.id, action: x.action, title: p.title?.[l] ?? x.action, summary: o.people ? p.summary?.[l] ?? null : null, by: o.people ? by : null, via: x.via,
-      asked_at: x.created_at, expires_at: x.plan_expires_at, undo: p.undo?.kind ?? null, ...(o.money ? { money_cents: Number(x.money_cents) || 0 } : {}) };
+      asked_at: x.created_at, expires_at: x.plan_expires_at, undo: p.undo?.kind ?? null, ...(o.money ? { money_cents: Number(x.money_cents) || 0 } : {}),
+      // What it does, one consequence a line (changes.ts), and the asker's own words where the change has a field for
+      // them: both name people, so only for those who read people.
+      lines: o.people ? planLines(x.plan, l) : [], said: o.people ? saidIn(x.input) : null };
   };
 
   /** What's owed at the desk on courts and program dates that start between two times, earliest first: a booking whose
@@ -293,7 +297,7 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
     const id = me(c)!.id, o = await lens(id), now = new Date(), l = lang(c);
     const waiting = (await waitingFor(id, now)).map((x) => askView(x, l, o));
     const base = () => db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
-      .select(["action_run.id", "action_run.action", "action_run.plan", "action_run.via", "action_run.created_at", "action_run.plan_expires_at", "action_run.money_cents", "action_run.status",
+      .select(["action_run.id", "action_run.action", "action_run.plan", "action_run.input", "action_run.via", "action_run.created_at", "action_run.plan_expires_at", "action_run.money_cents", "action_run.status",
         "action_run.error", "action_run.approved_by", "action_run.applied_at", "person.display_name", "support_grant.name as support_name"]);
     const mine = (await base().where("action_run.actor_person_id", "=", id).where("action_run.status", "=", "awaiting_approval").where("action_run.plan_expires_at", ">", now)
       .orderBy("action_run.created_at").limit(50).execute()).map((x) => askView(x, l, o));

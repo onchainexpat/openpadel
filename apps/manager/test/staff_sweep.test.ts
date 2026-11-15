@@ -12,7 +12,7 @@ const coarse = /@media \(pointer: coarse\) \{\n([\s\S]*?)\n\}/.exec(css.slice(cs
 
 test("Changes shows Undo only where the server says it can work", () => {
   const page = src("Changes.tsx");
-  assert.match(page, /\{r\.can_undo && <button class="small" onClick=\{\(\) => previewUndo\(r\.id\)\}>/);
+  assert.match(page, /\{r\.can_undo && <><button class="small" onClick=\{\(\) => previewUndo\(r\.id\)\}>/);
   assert.doesNotMatch(page, /r\.status === "applied" && r\.action !== "action\.undo"/, "the old rule offered Undo on receipts, alerts and money sent");
 });
 

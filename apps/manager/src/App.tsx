@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses } from "@kumi/ui";
+import { api, club, mayCreate, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts, NewBooking, SessionPanel } from "./Courts.tsx";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
@@ -164,8 +164,11 @@ function StaffNav({ a, signOut }: { a: Access; signOut: () => void }) {
     // Approvals for everyone but a coach on their own (their own asks wait there too), and for anyone with one to answer.
     approvals: link(!coachOnly || n.approvals > 0, "/approvals", label("ui.nav_approvals"), on("/approvals"), n.approvals),
     usage: link(changes, "/usage", label("ui.nav_usage")),
+    // Roles (WebPermissions' "Staff and permissions"): for those who may make a role (the owner; a manager asks), on
+    // the Roles page Settings links to as well. Not under support access, which never changes roles.
+    roles: link(show("settings") && mayCreate("role.create") && !me.value?.support, "/roles", label("ui.nav_roles")),
     changes: link(changes, "/changes", label("ui.nav_changes")),
-    settings: link(show("settings"), "/settings", label("ui.nav_settings"), on("/settings", "/roles", "/vault")),
+    settings: link(show("settings"), "/settings", label("ui.nav_settings"), on("/settings", "/vault")),
     inbox: <li><InboxLink current={on("/inbox")} /></li>,
     profile: link(true, "/profile", label("ui.nav_profile")),
   };

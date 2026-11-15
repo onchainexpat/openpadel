@@ -15,7 +15,7 @@ test("each menu link is shown only to the roles that read its area, as before", 
     ['show("bookings")', "/courts"], ["coach", "/schedule"], ['show("bookings")', "/bookings"], ['show("members")', "/people"], ['show("programs")', "/programs"], ['show("money")', "/payments"],
     ['show("memberships")', "/memberships"], ['coach || desk || areas?.includes("coaches")', "/coaches"], ['show("levels")', "/levels"], ['show("levels")', "/scores"],
     ["messages", "/messages"], ['show("members") && club.value?.players_chat', "/chats"], ["me.value?.playtomic", "/playtomic"], ['show("money") || coachSide', "/reports"],
-    ["changes", "/usage"], ["changes", "/changes"], ['show("settings")', "/settings"], ["true", "/profile"],
+    ["changes", "/usage"], ['show("settings") && mayCreate("role.create") && !me.value?.support', "/roles"], ["changes", "/changes"], ['show("settings")', "/settings"], ["true", "/profile"],
   ];
   for (const [gate, href] of gates) assert.ok(app.includes(`: link(${gate}, "${href}"`), `${href} behind ${gate}`);
   assert.match(app, /const messages = desk \|\| Boolean\(areas\?\.includes\("messages"\)\);/);

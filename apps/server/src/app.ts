@@ -13,9 +13,9 @@ import { brandTag, manifestRoutes } from "./manifest.ts";
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
-import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, productName, type Key, type Lang } from "@kumi/i18n";
+import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, type Lang } from "@kumi/i18n";
 import { comingFrom } from "@kumi/i18n/presets";
-import { welcomeDue, greetDue, greeted, ASK_ENDED, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, mayAnswer, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { welcomeDue, greetDue, greeted, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -30,7 +30,8 @@ import { broadcastRoutes } from "./broadcasts.ts";
 import { publicRoutes } from "./public.ts";
 import { memberUrl } from "./addresses.ts";
 import { memberRoutes } from "./member.ts";
-import { seesChats, staffChatRoutes } from "./chats.ts";
+import { staffChatRoutes } from "./chats.ts";
+import { changeRoutes } from "./changes.ts";
 import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import { textRoutes } from "./texts.ts";
 import { emailEventRoutes } from "./email_events.ts";
@@ -47,10 +48,11 @@ export const CLIENT_ACTIONS = ["person.create", "person.import", "person.email_u
   "payment_found.refund", "payment_found.paid_elsewhere", "mirror.take_over", "broadcast.send", "broadcast.cancel", "segment.save", "segment.update", "template.save", "template.update",
   "tag.create", "tag.update", "fact.create", "fact.update", "program.set_name", "program.set_prices", "program.set_sign_up", "program.set_minimum", "program.publish", "program.cancel",
   "session.set_coach", "session.add", "series.cancel", "membership.grant", "membership.pause", "membership.unpause", "membership.resume", "membership.cancel", "membership.end",
-  "household.add_junior", "person.tag", "person.untag", "attendance.mark"];
+  "household.add_junior", "person.tag", "person.untag", "attendance.mark", "role.create"];
 
-/** The changes the Schedule's + Create starts, for /me's `creates`. */
-export const CREATE_ACTIONS = ["program.create", "booking.create", "booking.create_lesson", "booking.repeat", "court.block"];
+/** The changes the Schedule's + Create starts, for /me's `creates`; and making a role, for the staff menu's Roles item
+ *  (an owner's, or a manager's to ask for). */
+export const CREATE_ACTIONS = ["program.create", "booking.create", "booking.create_lesson", "booking.repeat", "court.block", "role.create"];
 
 export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db; mailer: Mailer; publicUrl?: string;
   /** The members' app's address (addresses.ts), for the public page's own links; from publicUrl when not given. */
@@ -506,46 +508,8 @@ export function makeApp(deps: AppDeps) {
     return c.json({ ok: true });
   });
 
-  // ---- Changes: the audit log, for the people allowed to see it. Under /staff/ like the staff app's other data, so the
-  // staff app's own /changes page loads as a page when it's opened or reloaded.
-  app.get("/staff/changes", async (c) => {
-    const a = actor(c);
-    const d = await decide(db, "changes.view", { personId: a.personId, at: now() });
-    if (d.mode !== "allow") throw new KumiError("error.staff_only", {}, 403);
-    const lang = c.get("lang");
-    // Chats are the players' and the club's: someone who can't read them (support access on its own, a coach on their
-    // own) doesn't read their reports and stops here either, which name who reported whom.
-    const chats = a.personId ? await seesChats(db, a.personId) : false;
-    const rows = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
-      .leftJoin("person as approver", "approver.id", "action_run.approved_by")
-      .select(["action_run.id", "action_run.action", "action_run.status", "action_run.plan", "action_run.input", "action_run.location_id", "action_run.actor_person_id", "action_run.error", "action_run.via",
-        "action_run.created_at", "action_run.applied_at", "action_run.undo_kind", "action_run.undo_until", "person.display_name", "support_grant.name as support_name", "approver.display_name as approver_name"])
-      .$if(!chats, (q) => q.where("action_run.action", "not like", "chat.%"))
-      .orderBy("action_run.id", "desc").limit(Number(c.req.query("limit") ?? 50)).execute();
-    // A change made under support access says so, with the name the owner gave.
-    const by = (r: (typeof rows)[number]) => (r.support_name ? t(lang, "ui.support_by", { name: r.support_name }) : r.display_name ?? productName());
-    // An ask someone said no to: who it was, and why if they said.
-    const declinedBy = new Map<string, string>();
-    for (const r of rows) {
-      const e = r.error as { code?: string; params?: { by?: string } } | null;
-      if (e?.code === "error.declined" && e.params?.by) declinedBy.set(r.id, (await db.selectFrom("person").select("display_name").where("id", "=", e.params.by).executeTakeFirst())?.display_name ?? "");
-    }
-    const out = [];
-    for (const r of rows) {
-      const waiting = r.status === "awaiting_approval";
-      out.push({ id: r.id, action: r.action, status: declinedBy.has(r.id) ? "declined" : r.status, by: by(r), support: Boolean(r.support_name), via: r.via,
-        summary: (r.plan as any)?.summary?.[lang] ?? null, at: r.applied_at ?? r.created_at,
-        // Undo is offered only where it can work: a change that kept a way back, still in time. Receipts, alerts,
-        // deletions and money sent can't be put back, so the screen doesn't offer to (it used to, then refused).
-        can_undo: r.status === "applied" && r.undo_kind !== "none" && r.action !== "action.undo" && r.action !== "club.setup" && (!r.undo_until || r.undo_until.getTime() > now().getTime()),
-        can_answer: waiting && await mayAnswer(db, r, a.personId, now()), approved_by: r.approver_name ?? null, declined_by: declinedBy.get(r.id) ?? null,
-        reason: declinedBy.has(r.id) ? (r.error as { params?: { reason?: string | null } }).params?.reason ?? null : null,
-        // Why an ask ended without a yes, in words (done meanwhile by another change, out of date).
-        ended: r.status === "failed" && ASK_ENDED.has((r.error as { code?: string } | null)?.code ?? "") && (r.error as { code: string }).code !== "error.declined"
-          ? t(lang, (r.error as { code: string }).code as Key, {}) : null });
-    }
-    return c.json(out);
-  });
+  // ---- Changes: the audit log, for the people allowed to see it (changes.ts).
+  app.route("/", changeRoutes(db, actor, (c) => c.get("lang"), now));
 
   return app;
 }
