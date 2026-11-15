@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { decide, getAction, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { shortContact } from "./mcp.ts";
 import { csvCell, readPeopleCsv, readPeopleRows } from "./csv.ts";
@@ -747,7 +747,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // Phone numbers in full for the front desk and up (owner, manager, front desk; support access reads as a manager),
     // who ring members back; everyone else reading the list (the accountant, a coach, a role the club made covering
     // members) sees the last two digits, as the assistant door shortens them (mcp.ts), enough to tell two people apart.
-    // No role the club makes reads more contact detail than a member's page gives it, and that page shows no phone.
+    // No role the club makes reads more contact detail than a member's page gives it (the same rule, /staff/people/:id).
     const fullPhone = !opts.assistant && deskUp(await rolesOf(me(c)!.id));
     const rows = await found.select(["id", "display_name", "email", "phone", "junior"]).select((eb) => [rolesOfRow(eb).as("roles"), tagsOfRow(eb).as("tags")])
       .orderBy("display_name").orderBy("id").limit(CUSTOMERS_PAGE).offset((at - 1) * CUSTOMERS_PAGE).execute();
@@ -793,8 +793,13 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   });
   app.get("/staff/people/:id", async (c) => {
     const id = c.req.param("id");
-    const p = await db.selectFrom("person").select(["id", "display_name", "email", "locale", "status", "created_via", "created_at", "junior", "birth_year", "redacted_at"]).where("id", "=", id).executeTakeFirst();
-    if (!p) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
+    const found = await db.selectFrom("person").select(["id", "display_name", "email", "phone", "locale", "status", "created_via", "created_at", "junior", "birth_year", "redacted_at"]).where("id", "=", id).executeTakeFirst();
+    if (!found) throw new KumiError("error.not_found", { thing: { en: "person", es: "la persona" } }, 404);
+    // Their phone as the Customers list gives it: in full for the front desk and up, who ring members back; to its last
+    // two digits for everyone else reading the page (a coach's own student, the accountant, a role the club made), and
+    // through the assistant door. `contact_short` says it was shortened, so the page can say why.
+    const desk = deskUp(await rolesOf(me(c)!.id)), fullPhone = !opts.assistant && desk;
+    const p = { ...found, phone: fullPhone ? found.phone : shortContact("phone", found.phone) as string | null, contact_short: !fullPhone && Boolean(found.phone) };
     const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").leftJoin("location", "location.id", "person_role.location_id")
       .select(["role.key", "role.name", "person_role.location_id", "location.name as location_name"]).where("person_role.person_id", "=", id).where("person_role.active", "=", true).where("role.active", "=", true).orderBy("role.key").execute();
     // What they sign in with, for the owner's reset (never the secrets themselves).
@@ -833,6 +838,15 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         pt_cents: mine.filter((x) => x.method === "playtomic").reduce((n, x) => n + x.amount_cents - Number(x.back), 0),
         refundable: mine.filter((x) => x.provider !== "none" && x.amount_cents - Number(x.back) > 0).map((x) => ({ payment_id: x.id, left_cents: x.amount_cents - Number(x.back) })) };
     });
+    // The program dates coming up that they have a place on (a whole course's, or that one date's), soonest first: the
+    // page's Coming up, beside their court bookings above.
+    const coming = await db.selectFrom("enrolment").innerJoin("program", "program.id", "enrolment.program_id").innerJoin("session", "session.program_id", "enrolment.program_id")
+      .select(["session.id", "session.starts_at", "program.id as program_id", "program.name", "program.kind"])
+      .where("enrolment.person_id", "=", id).where("enrolment.status", "=", "booked").where("session.status", "!=", "cancelled").where("session.starts_at", ">", new Date())
+      .where((w) => w.or([w("enrolment.session_id", "is", null), w("enrolment.session_id", "=", w.ref("session.id"))]))
+      .orderBy("session.starts_at").limit(5).execute();
+    // Their latest question to the club, for the desk (who answer questions): the page's Message opens it.
+    const question = desk ? await db.selectFrom("question").select(["id", "status"]).where("person_id", "=", id).orderBy("created_at", "desc").limit(1).executeTakeFirst() : undefined;
     // Refunds to them that didn't go through: the staff can send each again.
     const failedRefunds = await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select(["refund.id", "refund.amount_cents", "refund.failure", "refund.created_at"])
       .where("payment.person_id", "=", id).where("refund.status", "=", "failed").orderBy("refund.created_at", "desc").limit(20).execute();
@@ -878,7 +892,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       membership: membership ? { ...unpaid(membership, MEMBERSHIP_MONEY), ...(money || membership.status !== "past_due" ? {} : { status: "active" }), ends_on: membership.current_period_end ? endDay({ current_period_end: membership.current_period_end, source: membership.source }, tz) : null, ...(money ? { due } : {}) } : null,
       // Their bookings in the club's copy of Playtomic, newest first, read only (playtomic_archive.ts).
       // A coach sees who a student played with in Playtomic no more than in Kumi's own list above: front desk and up do.
-      playtomic: await (async () => { const desk = deskUp(await rolesOf(me(c)!.id));
+      coming: coming.map((x) => ({ ...x, starts_at: new Date(x.starts_at).toISOString() })), question: question ?? null,
+      playtomic: await (async () => {
         return (await archiveOf(db, id, { limit: 30 })).map(({ price, payment_status, ...b }) => ({ ...b, ...(money ? { price, payment_status } : {}), others: desk ? b.others : [], kind: t(lang(c), typeKey(b.type)) })); })() });
   });
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.
@@ -1037,7 +1052,46 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   });
 
   // The level review queue: reviews players asked for, and levels that moved a lot.
-  app.get("/staff/levels", async (c) => c.json({ ...await levelQueue(db, new Date()), limit: MOVE_LIMIT, days: MOVE_DAYS }));
+  // With the numbers the club's level rules run on, for the page's How levels work.
+  app.get("/staff/levels", async (c) => c.json({ ...await levelQueue(db, new Date()), limit: MOVE_LIMIT, days: MOVE_DAYS,
+    rules: { review_days: REVIEW_EVERY_DAYS, self_adjust_games: SELF_ADJUST_GAMES, self_adjust_max: SELF_ADJUST_MAX, import_line: await clubLine(db) } }));
+  // Every player with a level, by name (a search narrows it), a page of 100 at a time: the Levels page's All players.
+  const LEVEL_PAGE = 100;
+  app.get("/staff/levels/players", async (c) => {
+    const q = String(c.req.query("q") ?? "").trim().slice(0, 80), page = Math.max(1, Math.floor(Number(c.req.query("page")) || 1));
+    const base = db.selectFrom("rating").innerJoin("person", "person.id", "rating.person_id").where("rating.sport", "=", "padel")
+      .where("person.status", "!=", "archived").where("person.created_via", "!=", "support")
+      .$if(q.length > 0, (x) => x.where("person.display_name", "ilike", `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`));
+    const total = Number((await base.select((eb) => eb.fn.countAll<string>().as("n")).executeTakeFirstOrThrow()).n), pages = Math.max(1, Math.ceil(total / LEVEL_PAGE)), at = Math.min(page, pages);
+    const rows = await base.select(["rating.person_id", "person.display_name as name", "rating.level", "rating.provisional", "rating.floor", "rating.rated_games"])
+      .orderBy("person.display_name").orderBy("person.id").limit(LEVEL_PAGE).offset((at - 1) * LEVEL_PAGE).execute();
+    return c.json({ total, page: at, pages, per_page: LEVEL_PAGE, rows });
+  });
+  // What staff did to levels lately, newest first: a level set (by hand, after a session or answering a review), a floor,
+  // a level brought from another app and checked, or taken away; and a level kept on a review (nothing changed, so no
+  // event, only the answer). A player's own (moving their level, bringing one in) isn't staff's and stays out. Each
+  // change says whether it can still be undone (the Changes page's rule), and was undone.
+  app.get("/staff/levels/changes", async (c) => {
+    const l = lang(c), limit = Math.min(Math.max(1, Math.floor(Number(c.req.query("limit")) || 50)), 100), now = new Date();
+    const evs = await db.selectFrom("rating_event").innerJoin("action_run", "action_run.id", "rating_event.action_run_id").innerJoin("person", "person.id", "rating_event.person_id")
+      .leftJoin("person as by", "by.id", "action_run.actor_person_id")
+      .select(["rating_event.id", "rating_event.person_id", "person.display_name as name", "rating_event.kind", "rating_event.level_before", "rating_event.level_after", "rating_event.explanation", "rating_event.at",
+        "action_run.id as run_id", "action_run.action", "action_run.status", "action_run.undo_kind", "action_run.undo_until", "by.display_name as by"])
+      .where("rating_event.kind", "in", ["staff_set", "floor", "import_seed", "import_removed"]).where("action_run.actor_person_id", "is not", null)
+      .whereRef("action_run.actor_person_id", "!=", "rating_event.person_id").where("action_run.action", "!=", "action.undo")
+      .orderBy("rating_event.at", "desc").orderBy("rating_event.id", "desc").limit(limit).execute();
+    const kept = await db.selectFrom("level_review").innerJoin("person", "person.id", "level_review.person_id").innerJoin("person as by", "by.id", "level_review.answered_by")
+      .select(["level_review.id", "level_review.person_id", "person.display_name as name", "level_review.level_at", "level_review.answer", "level_review.answered_at", "by.display_name as by"])
+      .where("level_review.status", "=", "kept").where("level_review.answered_at", "is not", null).orderBy("level_review.answered_at", "desc").limit(limit).execute();
+    const rows = [
+      ...evs.map((e) => ({ id: e.id, person_id: e.person_id, name: e.name, kind: e.kind, before: e.level_before, after: e.level_after, at: new Date(e.at).toISOString(), by: e.by,
+        explanation: (e.explanation as Record<string, string>)[l] ?? "", run_id: e.run_id, undone: e.status === "undone",
+        can_undo: e.status === "applied" && e.undo_kind !== "none" && (!e.undo_until || e.undo_until.getTime() > now.getTime()) })),
+      ...kept.map((k) => ({ id: k.id, person_id: k.person_id, name: k.name, kind: "kept", before: k.level_at, after: k.level_at, at: new Date(k.answered_at!).toISOString(), by: k.by,
+        explanation: k.answer ?? "", run_id: null, undone: false, can_undo: false })),
+    ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+    return c.json(rows);
+  });
   // Everyone who had a place in a session, with their levels, for setting levels after it.
   app.get("/staff/sessions/:id/levels", async (c) => {
     await coachRuns(c, "session", c.req.param("id"), ["level.set_session"]);

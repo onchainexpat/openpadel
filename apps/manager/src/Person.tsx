@@ -8,10 +8,15 @@ import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type
 import { amountStep, capFor, fromMajor, plainAmount, toMajor } from "@kumi/i18n/format";
 import { playtomicParts } from "./paid_line.ts";
 import { initials, Tabs } from "./lists.tsx";
+import { comingUp, moneyFigures, type ComingSession } from "./person_head.ts";
 
 type Role = { key: string; name?: string | null; location_id: string | null; location_name: string | null };
 type P = {
   id: string; display_name: string; email: string | null; locale: string; created_via: string; created_at: string;
+  /** In full for the front desk and up; to its last two digits for anyone else (`contact_short`), as the Customers list. */
+  phone: string | null; contact_short: boolean;
+  /** Program dates coming up they have a place on, and their latest question to the club (for the desk, who answer them). */
+  coming: ComingSession[]; question: { id: string; status: string } | null;
   email_problem: { reason: "bounce" | "complaint" | "provider"; since: string; detail: string | null } | null;
   roles: Role[]; places: { id: string; status: string; program_id: string; name: string; first_start: string | null }[];
   /** Whether the reader sees money: without it (a coach's own student, a role covering members only) the server leaves
@@ -51,15 +56,21 @@ const tabOfHash = (): TabKey => {
  *  only staff roles are the club's own and cover members. A coach isn't offered it. */
 const changesEmails = () => me.value?.areas ? me.value.areas.includes("members") : (me.value?.roles ?? []).some((r) => ["owner", "manager", "front_desk"].includes(r.key));
 
+/** Their level at a glance (the page's chips and its Levels tab), for those who read levels. */
+type LevelGlance = { rating: { level: string; provisional: boolean; floor: string | null; rated_games: number } | null };
+const readsLevels = () => { const areas = me.value?.areas ?? null; return areas ? areas.includes("levels") : true; };
+
 export function Person({ id }: { id: string }) {
   const [p, setP] = useState<P | null>(null), [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [glance, setGlance] = useState<LevelGlance | null>(null);
   const [role, setRole] = useState<string>("front_desk"), [where, setWhere] = useState(""), [jName, setJName] = useState(""), [jYear, setJYear] = useState("");
   // Tags: the club's own words for a member ("league A"); a new one is made by typing it.
   const [tags, setTags] = useState<{ id: string; name: string }[] | null>(null), [newTag, setNewTag] = useState("");
   // The club's own roles, offered alongside the built-in ones.
   const [custom, setCustom] = useState<{ key: string; name: string }[]>([]);
   const { route } = useLocation();
-  const load = () => api<P>(`/staff/people/${id}`).then((x) => { setP(x); setNewTag(""); });
+  const loadLevel = () => readsLevels() ? api<LevelGlance>(`/staff/people/${id}/level`).then(setGlance).catch(() => setGlance(null)) : setGlance(null);
+  const load = () => { void loadLevel(); return api<P>(`/staff/people/${id}`).then((x) => { setP(x); setNewTag(""); }); };
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); api<{ id: string; name: string }[]>("/staff/locations").then(setLocations); api<{ id: string; name: string }[]>("/staff/tags").then(setTags).catch(() => setTags(null));
     api<{ key: string; name: string; system: boolean }[]>("/staff/roles").then((r) => setCustom(r.filter((x) => !x.system))).catch(() => setCustom([])); }, [id]);
@@ -92,11 +103,12 @@ export function Person({ id }: { id: string }) {
   const shownTab = tabs.includes(tab) ? tab : "profile", is = (k: TabKey) => shownTab === k;
   return (
     <main>
-      <div class="person-head"><span class="avatar big" aria-hidden="true">{initials(p.display_name)}</span><h1>{p.display_name}</h1></div>
+      <PersonHead p={p} glance={glance} tabs={tabs.filter((k) => k !== "profile")} pick={setTab} levels={levels} />
       <Tabs label={t("ui.person_sections")} tabs={tabs.map((k) => [k, t(`ui.person_tab_${k}` as Key)])} on={shownTab} pick={setTab} id="person" />
       <div role="tabpanel" tabIndex={0} id={`person-panel-${shownTab}`} aria-labelledby={`person-tab-${shownTab}`} class="tab-panel">
+      {is("profile") && <ComingUp p={p} />}
+      {is("profile") && p.money !== false && <MoneyCard p={p} toWallet={tabs.includes("wallet") ? () => setTab("wallet") : null} />}
       {is("profile") && <section class="card">
-        <p>{p.email ?? t("ui.no_email")}</p>
         {p.email_problem && <p class="note" role="status">{t(`ui.email_held_${p.email_problem.reason}` as Key, { date: date(p.email_problem.since) })}{p.email_problem.detail ? ` (${p.email_problem.detail})` : ""}{" "}
           {mayDo("person.email_unsuppress") && <button class="small" onClick={() => preview("person.email_unsuppress", { person_id: p.id })}>{t("ui.email_held_clear")}</button>}</p>}
         <p class="meta">{t("ui.joined", { date: date(p.created_at), how: t(`ui.via_${p.created_via}` as Key) })} · {p.locale === "es" ? "Español" : "English"}</p>
@@ -400,4 +412,86 @@ function PersonPasses({ personId, preview }: { personId: string; preview: (actio
       <select name="method" aria-label={t("ui.desk_taken_how")}><option value="cash">{t("paid_by.cash")}</option><option value="terminal">{t("paid_by.terminal")}</option><option value="other">{t("paid_by.other")}</option></select>
       <button class="small">{t("ui.pass_sell")}</button></form>}
   </section>;
+}
+
+/** The top of the page: who they are in a line (with the club since when, their plan, their family), what the club
+ *  knows about them as chips, how to reach them, and what staff do from here: answer their question (Message), book a
+ *  court with them as the organiser (the Schedule's own new booking), and the page's other parts (More). */
+function PersonHead({ p, glance, tabs, pick, levels }: { p: P; glance: LevelGlance | null; tabs: TabKey[]; pick: (k: string) => void; levels: boolean }) {
+  const month = (iso: string) => clubTime(iso, { month: "short", year: "numeric" });
+  const plan = p.membership?.name ?? p.covered_by?.plan ?? null;
+  const summary = [p.membership ? t("ui.person_member_since", { date: month(p.membership.started_at) }) : t("ui.person_here_since", { date: month(p.created_at) }),
+    plan, p.family.length > 0 ? t("count.person_family", { count: p.family.length + 1 }) : null].filter(Boolean).join(" · ");
+  const r = glance?.rating;
+  const chips = [
+    ...(r ? [t("ui.person_chip_level", { level: r.level })] : []), ...(r?.provisional ? [t("ui.person_chip_provisional")] : []),
+    ...(r?.floor ? [t("ui.floor", { floor: r.floor })] : []),
+    ...(p.membership?.status === "past_due" ? [t("ui.person_chip_late")] : []), ...(p.membership?.paused_until ? [t("ui.person_chip_paused")] : []),
+    ...(p.junior ? [t("ui.person_chip_junior")] : []), ...(p.email_problem ? [t("ui.person_chip_email_held")] : []),
+    ...p.tags.map((x) => x.name),
+  ];
+  const first = p.display_name.trim().split(/\s+/)[0] || p.display_name;
+  const book = `/courts?for=${encodeURIComponent(p.id)}&name=${encodeURIComponent(p.display_name)}`;
+  return (
+    <header class="person-top">
+      <div class="person-head">
+        <span class="avatar big" aria-hidden="true">{initials(p.display_name)}</span>
+        <div class="person-who"><h1>{p.display_name}</h1><p class="meta">{summary}</p></div>
+        <div class="person-actions">
+          {p.question && <a class="button small" href={`/questions/${p.question.id}`}>{t("ui.person_message")}</a>}
+          {mayDo("booking.create") && <a class="button small primary" href={book}>{t("ui.person_book_for", { name: first })}</a>}
+          <details class="more-menu">
+            <summary class="button small">{t("ui.person_more")}</summary>
+            <ul class="plain">
+              {tabs.map((k) => <li><button type="button" class="link" onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; pick(k); }}>{t(`ui.person_tab_${k}` as Key)}</button></li>)}
+              {levels && <li><a href={`/people/${p.id}/level`}>{t("ui.person_level_page")}</a></li>}
+            </ul>
+          </details>
+        </div>
+      </div>
+      {chips.length > 0 && <p class="chips person-chips">{chips.map((c) => <span class="chip">{c}</span>)}</p>}
+      <dl class="person-contact">
+        <div><dt>{t("ui.person_phone")}</dt><dd>{!p.phone ? <span class="meta">{t("ui.no_phone")}</span> : p.contact_short ? p.phone : <a href={`tel:${p.phone.replace(/[^\d+]/g, "")}`}>{p.phone}</a>}</dd></div>
+        <div><dt>{t("ui.person_email")}</dt><dd>{p.email ?? <span class="meta">{t("ui.no_email")}</span>}</dd></div>
+      </dl>
+      {p.contact_short && <p class="meta">{t("ui.person_phone_short")}</p>}
+    </header>
+  );
+}
+
+/** What's next for them: court bookings (as the organiser or a player) and program dates, soonest first. */
+function ComingUp({ p }: { p: P }) {
+  const rows = comingUp(p.bookings, p.coming ?? [], serverNow());
+  const when = (iso: string) => clubTime(iso, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return (
+    <section class="card">
+      <h2>{t("ui.person_coming_up")}</h2>
+      {!rows.length ? <p class="meta">{t("ui.person_nothing_coming")}</p> : <ul class="plain">{rows.map((x) => x.kind === "booking"
+        ? <li class="row"><a href={`#booking-${x.id}`}>{when(x.starts_at)} · {x.court}</a><span class="meta">{t(x.organiser ? "ui.person_coming_organiser" : "ui.person_coming_player", { code: x.code })}</span></li>
+        : <li class="row"><a href={`/programs/${x.program_id}`}>{when(x.starts_at)} · {x.name}</a><span class="meta">{t("ui.person_coming_place")}</span></li>)}</ul>}
+    </section>
+  );
+}
+
+/** Their money at a glance, for those the server shows money to: club credit, what's owed on their membership, what
+ *  waits to go back to them, and their last few receipts. The Wallet tab has each line and what to do about it. */
+function MoneyCard({ p, toWallet }: { p: P; toWallet: (() => void) | null }) {
+  const [recent, setRecent] = useState<ReceiptRow[] | null>(null);
+  useEffect(() => { api<ReceiptRow[]>(`/staff/receipts?person_id=${p.id}`).then((r) => setRecent(r.slice(0, 3))).catch(() => setRecent(null)); }, [p.id, lang.value]);
+  const f = moneyFigures(p), money = (c: number) => dollars(c, lang.value);
+  return (
+    <section class="card">
+      <h2>{t("ui.person_money")}</h2>
+      <dl class="money-figures">
+        <div><dt>{t("ui.credit_title")}</dt><dd>{money(f.credit)}</dd></div>
+        <div><dt>{t("ui.person_owes")}</dt><dd class={f.owed > 0 ? "owed" : undefined}>{money(f.owed)}</dd></div>
+        {f.back > 0 && <div><dt>{t("ui.person_back")}</dt><dd>{money(f.back)}</dd></div>}
+      </dl>
+      {recent && recent.length > 0 && <>
+        <h3>{t("ui.person_recent_payments")}</h3>
+        <ul class="plain">{recent.map((r) => <li class="row"><span>{r.when} · {r.what}</span><span class="meta">{r.kind === "refund" ? `${t("ui.receipt_refund_tag")} ` : ""}{r.total}</span></li>)}</ul>
+      </>}
+      {toWallet && <p><button type="button" class="link" onClick={toWallet}>{t("ui.person_see_wallet")}</button></p>}
+    </section>
+  );
 }

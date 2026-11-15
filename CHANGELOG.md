@@ -96,6 +96,23 @@ up right there.
   answers are two tabs.
 - The staff menu has "Roles and permissions" (the Roles page Settings links to), for those who may make roles: the
   owner, and managers, who ask the owner.
+- A person's page (staff): a header with a line saying since when they're with the club, their plan and their
+  family's size; chips for their level (provisional, a floor), a late payment or a pause, a junior, club email not
+  reaching them, and their tags; their phone and email; and Message (their latest question to the club, for the desk),
+  "Book for <name>" (the Schedule's new booking with them as the organiser) and More (the page's other tabs and their
+  level page). The phone is in full for the front desk, managers and the owner, and its last two digits for everyone
+  else, as on Customers. The Profile tab starts with Coming up (court bookings, as organiser or player, and the program
+  dates they have a place on) and, for those who see money, a Money card (club credit, what's owed on the membership,
+  what waits to go back to them, and their last receipts).
+- Levels: tabs To review, All players, Changes and Score disputes. Each one to review has a flag saying why it's there
+  (an imported level to check, a review asked, a sharp drop or rise) and what the data says; Keep it takes it off the
+  list. All players lists everyone's level, provisional and floor, with a search. Changes lists what staff did to
+  levels lately (set, floored, checked from another app, kept on a review), with Undo while a change can be undone.
+  Score disputes are the disputed scores, decided as on Scores. Beside them, How levels work here (the club's own
+  numbers: reviews, big moves, a player's own say, levels from other apps) and the last few changes by staff.
+- A coach's level check after a session: reason chips (session assessment, back from injury, recent results, other)
+  that fill the reason, what each player was, −/+ 0.1 steps that keep to a floor, and a footer counting the changes,
+  "Save 2 changes", which opens the preview as before (`level.set_session`, unchanged).
 - The club's logo (Settings, next to the colour, or `logo:` in club.yaml): an SVG, PNG or JPEG in place of the mark
   drawn from the club's name, on the app icons, the iPhone start images, the apps' start screen and welcome, and both
   apps' headers. It sits on the club's colour where it stands out, and on a dark or white tile where it wouldn't; the

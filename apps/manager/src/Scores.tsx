@@ -5,7 +5,7 @@ import type { Key } from "@kumi/i18n";
 import { api, lang, t, usePreview } from "@kumi/ui";
 import { formatLocale, productName } from "@kumi/i18n/format";
 
-type Score = { id: string; status: string; rated: boolean; played_at: string; court: string; time_zone: string; sets: { a: number; b: number }[]; a: string[]; b: string[];
+export type Score = { id: string; status: string; rated: boolean; played_at: string; court: string; time_zone: string; sets: { a: number; b: number }[]; a: string[]; b: string[];
   answers: { answer: string; note: string | null; at: string; display_name: string | null }[] };
 
 export function Scores() {
@@ -14,21 +14,26 @@ export function Scores() {
   const { preview, sheet } = usePreview(load);
   useEffect(() => { void load(); }, []);
   if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;
-  const when = (s: Score) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: s.time_zone, dateStyle: "medium", timeStyle: "short" }).format(new Date(s.played_at));
   return (
     <main>
       <h1>{t("ui.nav_scores")}</h1>
       {sheet}
       {rows.length === 0 && <p class="card">{t("ui.no_scores")}</p>}
-      {rows.map((s) => (
-        <section class="card">
-          <p><strong>{s.a.join(" & ")} {s.sets.map((x) => `${x.a}-${x.b}`).join(" ")} {s.b.join(" & ")}</strong>{s.status === "disputed" && <> <span class="badge warn">{t("ui.disputed")}</span></>}</p>
-          <p class="meta">{s.court} · {when(s)} · {t(s.rated ? "ui.match_rated" : "ui.match_friendly")} · {t(`ui.score_status_${s.status}` as Key)}</p>
-          <ul class="plain">{s.answers.map((a) => <li class="meta">{a.display_name ?? productName()}: {t(`ui.answer_${a.answer}` as Key)}{a.note ? ` ("${a.note}")` : ""}</li>)}</ul>
-          {s.status === "disputed" && <Decide s={s} send={preview} />}
-        </section>
-      ))}
+      {rows.map((s) => <ScoreCard key={s.id} s={s} send={preview} />)}
     </main>
+  );
+}
+
+/** One score, what each side said, and for a disputed one, the club's say (also the Levels page's Score disputes). */
+export function ScoreCard({ s, send }: { s: Score; send: (a: string, i: unknown) => Promise<void> }) {
+  const when = new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: s.time_zone, dateStyle: "medium", timeStyle: "short" }).format(new Date(s.played_at));
+  return (
+    <section class="card">
+      <p><strong>{s.a.join(" & ")} {s.sets.map((x) => `${x.a}-${x.b}`).join(" ")} {s.b.join(" & ")}</strong>{s.status === "disputed" && <> <span class="badge warn">{t("ui.disputed")}</span></>}</p>
+      <p class="meta">{s.court} · {when} · {t(s.rated ? "ui.match_rated" : "ui.match_friendly")} · {t(`ui.score_status_${s.status}` as Key)}</p>
+      <ul class="plain">{s.answers.map((a) => <li class="meta">{a.display_name ?? productName()}: {t(`ui.answer_${a.answer}` as Key)}{a.note ? ` ("${a.note}")` : ""}</li>)}</ul>
+      {s.status === "disputed" && <Decide s={s} send={send} />}
+    </section>
   );
 }
 
