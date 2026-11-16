@@ -41,7 +41,10 @@ export function People() {
   // The club's tags and saved groups (front desk and up): narrow the list to one of them.
   const [tag, setTag] = useState(""), [segment, setSegment] = useState(String(query.segment ?? "")), [lists, setLists] = useState<{ tags: { id: string; name: string }[]; segments: { id: string; name: string }[] } | null>(null);
   const [adding, setAdding] = useState(false), [f, setF] = useState({ display_name: "", email: "", locale: lang.value as Lang });
-  const [csv, setCsv] = useState<Csv | null>(null), [importing, setImporting] = useState(false), [reading, setReading] = useState(false);
+  // ?import=1 (or =playbypoint) opens the import, as the guided move-in links it (MoveSteps.tsx).
+  const [csv, setCsv] = useState<Csv | null>(null), [importing, setImporting] = useState(Boolean(query.import)), [reading, setReading] = useState(false);
+  // Which system the file is from: Playbypoint's list is read by its own preset (csv.ts), anything else as any spreadsheet.
+  const [from, setFrom] = useState<"" | "playbypoint">(query.import === "playbypoint" ? "playbypoint" : "");
   // membership: a plan's id, "any" or "none". tab: the people, or the imports.
   const [membership, setMembership] = useState(""), [tab, setTab] = useState<"people" | "imports">(query.tab === "imports" ? "imports" : "people"), [imports, setImports] = useState<Import[] | null>(null);
   const seq = useRef(0);
@@ -68,7 +71,7 @@ export function People() {
     setReading(true); setCsv(null);
     try {
       const excel = /\.xlsx$/i.test(file.name) || file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-      const r = await api<Csv>("/staff/people/import-preview", excel ? { xlsx: base64(await file.arrayBuffer()) } : { csv: await file.text() });
+      const r = await api<Csv>("/staff/people/import-preview", { ...(excel ? { xlsx: base64(await file.arrayBuffer()) } : { csv: await file.text() }), ...(from ? { from } : {}) });
       setCsv({ ...r, name: file.name.slice(0, 200) });
     } catch (x) { setCsv({ rows: [], problems: [], fatal: (x as Error).message }); }
     finally { setReading(false); }
@@ -98,7 +101,10 @@ export function People() {
       {importing && (
         <section class="card card-form">
           <p class="meta">{t("ui.import_help")}</p>
-          <input type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label={t("ui.import_people")} onChange={pick} />
+          <label>{t("ui.import_from")}<select value={from} onChange={(e) => { setFrom(e.currentTarget.value as "" | "playbypoint"); setCsv(null); }}>
+            <option value="">{t("ui.import_from_any")}</option><option value="playbypoint">{t("ui.import_from_playbypoint")}</option></select></label>
+          {from === "playbypoint" && <p class="meta">{t("ui.moving_playbypoint_unverified")}</p>}
+          <input key={from} type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label={t("ui.import_people")} onChange={pick} />
           {reading && <p class="meta" role="status">{t("ui.reading_file")}</p>}
           {csv?.fatal && <p class="error" role="alert">{csv.fatal}</p>}
           {csv && !csv.fatal && <p>{t("count.ready_to_import", { count: csv.rows.length })}</p>}
