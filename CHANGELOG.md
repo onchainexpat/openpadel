@@ -9,6 +9,11 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+Undo, right after a change: the note that follows a confirm (Done.) now has Undo when the change can be taken back,
+in the members' app and the staff app alike. Undo is previewed like any change, and judged as the change it takes back:
+a member can now undo their own changes (a new grant for the member role, migration 120), but never one only staff
+could make. Spanish says "miembros" instead of "socios" throughout.
+
 The staff app's Payments page is now the club's money at a glance (Money in openPadel's own words; Playtomic clubs keep
 Payments). Four tiles: today's takings so far beside the same time last week, what's owed to the club, the club credit
 members hold and the refunds of the last 7 days. Below them: every court and program place from the last 30 days and

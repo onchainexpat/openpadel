@@ -39,12 +39,15 @@ export function ChargeLines({ charge }: { charge: Charge }) {
 
 export function usePreview(onDone: (result?: any) => void) {
   const [pending, setPending] = useState<Pending | null>(null), [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
-  useEffect(() => { if (!note) return; const id = setTimeout(() => setNote(null), 5000); return () => clearTimeout(id); }, [note]);
+  // The change just made, while it can still be taken back from the note (Undo): it goes with the note.
+  const [undoRun, setUndoRun] = useState<string | null>(null);
+  // A note with Undo stays a little longer, to give time to reach it.
+  useEffect(() => { if (!note) return; const id = setTimeout(() => { setNote(null); setUndoRun(null); }, undoRun ? 10000 : 5000); return () => clearTimeout(id); }, [note, undoRun]);
   // The phone's back button closes the preview, not the page under it.
   useBackCloses(Boolean(pending), () => setPending(null));
   const step = useStepUp();
   const preview = async (action: string, input: unknown) => {
-    setError(null); setNote(null);
+    setError(null); setNote(null); setUndoRun(null);
     try {
       // First a look: a change that needs someone else's yes is asked for only when the person says so (ask below).
       const p = await api<{ run_id: string; status: Pending["status"]; summary: string; charge?: Charge; image?: string }>(`/actions/${action}/plan?ask=hold`, input);
@@ -69,12 +72,15 @@ export function usePreview(onDone: (result?: any) => void) {
     if (!pending) return;
     if (pending.status === "would_ask") return ask();
     try {
-      const r = await api<{ result?: any }>(`/runs/${pending.runId}/apply`, {}, { "idempotency-key": pending.runId });
+      const r = await api<{ result?: any; undoable?: boolean }>(`/runs/${pending.runId}/apply`, {}, { "idempotency-key": pending.runId });
       setPending(null);
       // A kid's: sent to their parents to approve, or already paid on the family card (no card form to open).
       if (r.result?.asked_parent) { setNote(t("ui.kid_asked_parents")); onDone(); return; }
       const f = r.result?.family as { status: "paid" | "parent"; cents: number } | undefined;
-      setNote(!f ? t("ui.done") : f.status === "paid" ? t("ui.kid_paid_family", { amount: dollars(f.cents, lang.value) }) : t("ui.kid_parent_pays"));
+      setNote(!f ? t(pending.action === "action.undo" ? "ui.undone" : "ui.done") : f.status === "paid" ? t("ui.kid_paid_family", { amount: dollars(f.cents, lang.value) }) : t("ui.kid_parent_pays"));
+      // Undo from the note, when the change can be taken back and nothing is left to do for it (no card form to
+      // fill, no family card involved). Taking it back is previewed like any change (action.undo).
+      if (r.undoable && !f && !r.result?.payment_id) setUndoRun(pending.runId);
       onDone(r.result);
     }
     catch (e) {
@@ -96,7 +102,8 @@ export function usePreview(onDone: (result?: any) => void) {
         {pending.charge && <ChargeLines charge={pending.charge} />}
         {pending.status === "would_ask" && <p class="meta">{t("ui.would_ask")}</p>}
         <button class="primary" onClick={confirm}>{t(pending.status === "would_ask" ? "ui.ask_for_yes" : "ui.confirm")}</button> <button onClick={() => setPending(null)}>{t(pending.charge ? "ui.change" : "ui.back")}</button></div>}
-      {note && <p class="note" role="status" onClick={() => setNote(null)}>{note}</p>}
+      {note && <p class="note" role="status" onClick={() => { if (!undoRun) setNote(null); }}>{note}
+        {undoRun && <> <button class="link" onClick={() => { const run = undoRun; setUndoRun(null); setNote(null); void preview("action.undo", { run_id: run }); }}>{t("ui.undo")}</button></>}</p>}
       {error && <p class="error" role="alert" onClick={() => setError(null)}>{error}</p>}
     </div>
   );

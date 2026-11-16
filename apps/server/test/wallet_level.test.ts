@@ -1,7 +1,7 @@
 // The member's Wallet and My level read what the server already keeps: club credit with what came in and went out
 // (the books' kind of each entry, which the Wallet words), and a level's floor with when it was set, and each
-// change's level before and after (the "Why it moved" sizes). And a member can't undo through action.undo: the
-// member role holds no grant for it, so the member app offers no Undo (member-13, 15 Nov 2026).
+// change's level before and after (the "Why it moved" sizes). And a member can undo a change of their own through
+// action.undo (migration 120), judged as the change itself: not a change only staff could make.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
@@ -68,13 +68,22 @@ test("my level: the floor and when it was set, and each change's level before an
   assert.equal(bo3.rating.floor, null); assert.equal(bo3.rating.floor_since, null);
 });
 
-test("a member can't undo a change through action.undo: the member role holds no grant for it", async () => {
+test("a member undoes their own change from the note, and not one only staff could make", async () => {
   const cookie = await signIn("bo@example.test");
-  // A change of Bo's own that could be undone by staff: a review he asked for.
-  const p = await call("/actions/level.request_review/plan", cookie, { person_id: bo });
+  // A change of Bo's own: yes to club news. The apply says it can be taken back.
+  const p = await call("/actions/consent.club_news/plan", cookie, { person_id: bo, granted: true });
   assert.equal(p.status, 200, JSON.stringify(p.json));
-  assert.equal((await call(`/runs/${p.json.run_id}/apply`, cookie, {})).status, 200);
+  const applied = await call(`/runs/${p.json.run_id}/apply`, cookie, {});
+  assert.equal(applied.status, 200);
+  assert.equal(applied.json.undoable, true);
   const undo = await call("/actions/action.undo/plan", cookie, { run_id: p.json.run_id });
-  assert.equal(undo.status, 403, JSON.stringify(undo.json));
-  assert.equal(undo.json.error, "error.forbidden_reason", JSON.stringify(undo.json));
+  assert.equal(undo.status, 200, JSON.stringify(undo.json));
+  const done = await call(`/runs/${undo.json.run_id}/apply`, cookie, {});
+  assert.equal(done.status, 200, JSON.stringify(done.json));
+  assert.equal(done.json.undoable, false, "an undo is final");
+  // A level the club set for him: he can't take that back, since he can't set levels.
+  const set = await run(db, "level.set", { person_id: bo, level: 3.1, reason: "After the clinic" }, owner);
+  const no = await call("/actions/action.undo/plan", cookie, { run_id: (set as any).runId });
+  assert.equal(no.status, 403, JSON.stringify(no.json));
+  assert.equal(no.json.error, "error.forbidden_reason", JSON.stringify(no.json));
 });

@@ -368,7 +368,7 @@ Each one previews first (exit code 10) and changes nothing until `openpadel conf
 
 #### openpadel action undo
 
-Undo a change. Who may: owner, manager.
+Undo a change. Who may: owner, manager, member (their own).
 
 | Flag | Takes | | What it is |
 |---|---|---|---|

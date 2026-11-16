@@ -498,7 +498,11 @@ export function makeApp(deps: AppDeps) {
     const result = await apply(db, id, a, { now: now(), idempotencyKey: c.req.header("idempotency-key") });
     // A kid's booking or sign-up: what it costs goes on the family card now, so there's no card form to open.
     const family = await payKidRun(db, id, a.personId, now());
-    return c.json({ result: family ? { ...(result && typeof result === "object" ? result : {}), payment_id: undefined, family } : result });
+    // Whether it can be taken back (its undo kind isn't "none"), so the app can offer Undo right away. Undo itself
+    // is planned and judged like any change (action.undo), as the person who'd take it back.
+    const run = await db.selectFrom("action_run").select(["undo_kind", "action", "status"]).where("id", "=", id).executeTakeFirst();
+    const undoable = Boolean(run && run.status === "applied" && run.undo_kind !== "none" && run.action !== "action.undo");
+    return c.json({ result: family ? { ...(result && typeof result === "object" ? result : {}), payment_id: undefined, family } : result, undoable });
   });
   app.post("/runs/:id/approve", async (c) => c.json({ result: await approve(db, c.req.param("id"), actor(c), { now: now() }) }));
   // Saying no to an ask: nothing changes, and the person who asked hears (with the reason, if one is given).

@@ -272,7 +272,7 @@ async function tellCheck(db: Db, check: CheckItem[], now: Date) {
   const n = (w: CheckItem["what"]) => check.filter((c) => c.what === w).length;
   // Whole sentences (an alert is at most 300 characters): the second is left off rather than cut in the middle.
   const words = fitWords([{ en: `${n("credit")} members' club credit differs from before the restore, and ${n("gift_void") + n("gift_redeemed")} gift cards and ${n("payout")} credit pay-outs need a look (the restore's output lists them).`,
-    es: `El saldo a favor de ${n("credit")} socios no coincide con el de antes de la restauración, y ${n("gift_void") + n("gift_redeemed")} tarjetas regalo y ${n("payout")} pagos de saldo necesitan revisión (la salida de la restauración los lista).` },
+    es: `El saldo a favor de ${n("credit")} miembros no coincide con el de antes de la restauración, y ${n("gift_void") + n("gift_redeemed")} tarjetas regalo y ${n("payout")} pagos de saldo necesitan revisión (la salida de la restauración los lista).` },
   { en: "Confirmations sent after the backup may refer to bookings or gift card codes this copy doesn't have.", es: "Las confirmaciones enviadas después de la copia pueden referirse a reservas o códigos que esta copia no tiene." }]);
   await runAsSystem(db, "ops.report_failure", { job: "restore_erase", error: words.en, words }, "restore", { now }).catch((e) => console.error(`restore: couldn't tell the staff (${(e as Error).message})`));
 }

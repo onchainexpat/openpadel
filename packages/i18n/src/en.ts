@@ -662,6 +662,7 @@ export const en = {
   "ui.new_level": "New level",
   "ui.history": "Why it moved",
   "ui.done": "Done.",
+  "ui.undone": "Undone.",
   "ui.nav_whats_on": "What's on",
   "ui.nav_my": "My places",
   "ui.nav_level": "My level",
