@@ -8,13 +8,15 @@ import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 import { PlaySwitch } from "./TabBar.tsx";
 import { DayStrip, PlacesToggle } from "./DayStrip.tsx";
-import { Taken } from "./cards.tsx";
+import { GenderChips, Taken } from "./cards.tsx";
 import { initials, matchHasPlace, matchOn } from "./whats_on.ts";
 import { fitOf } from "./fit.ts";
+import { genderShown, type Gender } from "./alert_bits.ts";
+import { MatchAlert } from "./Alerts.tsx";
 
 export type Match = {
   id: string; court: string; location: string; time_zone: string; start: string; end: string; host: string | null; host_is_me: boolean; open: boolean; cancelled: boolean; rated: boolean; listed: boolean;
-  level_min: string; level_max: string; outside_band: "ask" | "closed"; note: string | null; share_cents: number; spots_left: number; my_level: number | null;
+  level_min: string; level_max: string; outside_band: "ask" | "closed"; note: string | null; gender?: Gender | null; share_cents: number; spots_left: number; my_level: number | null;
   players: { id?: string; name: string | null; level: number | null; host: boolean; added?: boolean; paying: boolean; saved: boolean; leaving: boolean; no_show?: boolean; record?: Rec }[];
   // Any other court booking shows here too: is_match is false, and a court booked in full has its players named.
   is_match: boolean; whole: boolean; players_link: string | null; can_name: boolean; can_rate: boolean;
@@ -53,6 +55,7 @@ function Facts({ m }: { m: Match }) {
       <div><dt>{t("ui.fact_level")}</dt><dd>{band(m)}</dd></div>
       <div><dt>{t("ui.fact_price")}</dt><dd>{dollars(m.share_cents, lang.value)} <small>{t("ui.each")}</small></dd></div>
       <div><dt>{t("ui.fact_places")}</dt><dd>{taken}/{total}</dd></div>
+      {m.gender && <div><dt>{t("ui.gender")}</dt><dd>{t(`gender.${m.gender}`)}</dd></div>}
     </dl>}
     <p class="meta">{t(m.rated ? "ui.rated_label" : "ui.friendly_label")}</p>
     {m.is_match && !m.cancelled && <progress class="fill" max={total} value={taken} aria-label={t("ui.n_places_taken", { taken, total })} />}
@@ -70,11 +73,11 @@ function Facts({ m }: { m: Match }) {
 const placeCount = (m: Match) => { const taken = m.players.filter((p) => !p.leaving).length; return { taken, total: taken + m.spots_left }; };
 
 export function Play() {
-  const [rows, setRows] = useState<Match[] | null>(null), [day, setDay] = useState(""), [places, setPlaces] = useState(false);
+  const [rows, setRows] = useState<Match[] | null>(null), [day, setDay] = useState(""), [places, setPlaces] = useState(false), [gender, setGender] = useState<Gender | "">("");
   useEffect(() => { api<Match[]>("/open-matches").then(setRows); }, [lang.value]);
   if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const level = rows[0]?.my_level, tz = rows[0]?.time_zone ?? club.value?.time_zone ?? "UTC";
-  const shown = rows.filter((m) => matchOn(m, day) && (!places || matchHasPlace(m)));
+  const shown = rows.filter((m) => matchOn(m, day) && (!places || matchHasPlace(m)) && genderShown(m.gender, gender));
   return (
     <main>
       <h1>{t("ui.nav_play")}</h1>
@@ -83,6 +86,8 @@ export function Play() {
       {club.value?.court_bookings && <p class="start-match"><a class="button primary" href="/book?start=match">{t("ui.start_match")}</a> <span class="meta">{t("ui.start_match_hint")}</span></p>}
       <DayStrip value={day} onChange={setDay} tz={tz} has={(d) => rows.some((m) => matchOn(m, d))} />
       <PlacesToggle value={places} onChange={setPlaces} />
+      <GenderChips rows={rows} value={gender} onChange={setGender} />
+      <MatchAlert />
       {rows.length > 0 && <p class="meta">{t("ui.your_level_is", { level: lv(level ?? null) })}{level == null && <> <a href="/level">{t("ui.set_level")}</a></>}</p>}
       {rows.length === 0 ? <EmptyState art="no-matches">{t("ui.no_open_matches")}</EmptyState> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
       <ul class="items">{shown.map((m) => <li key={m.id}><MatchCard m={m} /></li>)}</ul>
@@ -105,7 +110,7 @@ function MatchCard({ m }: { m: Match }) {
       </span>
       <span class="item-title">{when(m, { weekday: "short", day: "numeric", month: "short" })}, {t("ui.time_range", { from: when(m, { hour: "numeric", minute: "2-digit" }), to: end })}</span>
       <span class="item-when">{m.court}, {m.location}</span>
-      <span class="tags"><span class="tag">{t("ui.level_band", { min: Number(m.level_min).toFixed(2), max: Number(m.level_max).toFixed(2) })}</span><span class="tag">{t(m.rated ? "ui.rated_short" : "ui.friendly_short")}</span></span>
+      <span class="tags"><span class="tag">{t("ui.level_band", { min: Number(m.level_min).toFixed(2), max: Number(m.level_max).toFixed(2) })}</span><span class="tag">{t(m.rated ? "ui.rated_short" : "ui.friendly_short")}</span>{m.gender && <span class="tag">{t(`gender.${m.gender}`)}</span>}</span>
       <span class="item-foot"><Taken taken={taken} total={total} names={m.players.filter((p) => !p.leaving).map((p) => p.name)} />{m.host && <span class="item-org">{t("ui.by_name", { name: m.host })}</span>}</span>
     </a>
   );

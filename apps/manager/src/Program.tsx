@@ -4,6 +4,7 @@ import { amountInput, amountPattern, amountStep, fromMajor, parseDollars, toMajo
 import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf, clubTime, serverNow, clubMoment } from "@kumi/ui";
 import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
+import { PROGRAM_GENDERS } from "./genders.ts";
 
 type Person = { id: string; person_id: string; display_name: string; status: string; waitlist_position: number | null; level: string | null;
   // What was paid, refunds and a free place's note come only to the club's money people (Data.money): a coach reads the roster without them.
@@ -96,6 +97,10 @@ export function Program({ id }: { id: string }) {
       {/* How people sign up: only before anyone has (clinics and socials can go date by date). */}
       {d.roster.length === 0 && p.status !== "cancelled" && (p.kind === "clinic" || p.kind === "social" || byDate) && mayDo("program.set_sign_up") && <p><button class="small" onClick={() => preview("program.set_sign_up", { program_id: id, sign_up: byDate ? "whole_program" : "per_session" })}>
         {t(byDate ? "ui.make_whole" : "ui.make_per_date")}</button></p>}
+      {/* Who it's for (Play's cards and filter): a label, never checked against anyone. */}
+      {p.status !== "cancelled" && <p class="meta">{t("ui.gender")}: {p.gender ? t(`gender.${p.gender}` as Key) : t("ui.gender_any")}{" "}
+        {mayDo("program.set_gender") && <select aria-label={t("ui.gender")} value={p.gender ?? ""} onChange={(e) => preview("program.set_gender", { program_id: id, gender: e.currentTarget.value || null })}>
+          <option value="">{t("ui.gender_any")}</option>{PROGRAM_GENDERS.map((g) => <option value={g}>{t(`gender.${g}` as Key)}</option>)}</select>}</p>}
       {p.status !== "cancelled" && <p class="meta">{p.min_players ? t("ui.min_to_run", { min: p.min_players, hours: t("count.hours", { count: p.decide_hours ?? d.decide_hours }) }) : t("ui.no_min")}
         {p.min_decided_at && p.status === "published" ? ` · ${t("ui.min_decided_runs")}` : ""}{" "}
         {!minimum && mayDo("program.set_minimum") && <button class="small" onClick={() => setMinimum({ min: p.min_players ? String(p.min_players) : "", hours: p.decide_hours ? String(p.decide_hours) : "" })}>{t("ui.change")}</button>}</p>}
