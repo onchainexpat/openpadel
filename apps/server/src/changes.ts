@@ -89,7 +89,7 @@ export function changeRoutes(db: Db, actor: (c: Context<any>) => Actor, lang: (c
   const base = () => db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
     .leftJoin("person as approver", "approver.id", "action_run.approved_by")
     .select(["action_run.id", "action_run.action", "action_run.status", "action_run.plan", "action_run.input", "action_run.location_id", "action_run.actor_person_id", "action_run.error", "action_run.via",
-      "action_run.created_at", "action_run.applied_at", "action_run.undo_kind", "action_run.undo_until", "person.display_name", "support_grant.name as support_name", "approver.display_name as approver_name"]);
+      "action_run.created_at", "action_run.applied_at", "action_run.undo_kind", "action_run.undo_until", "action_run.yeses", "person.display_name", "support_grant.name as support_name", "approver.display_name as approver_name"]);
   type Row = Awaited<ReturnType<ReturnType<typeof base>["execute"]>>[number];
   // A change made under support access says so, with the name the owner gave.
   const by = (r: Row, l: Lang) => (r.support_name ? t(l, "ui.support_by", { name: r.support_name }) : r.display_name ?? productName());
@@ -150,7 +150,10 @@ export function changeRoutes(db: Db, actor: (c: Context<any>) => Actor, lang: (c
     const p = (r.plan ?? {}) as StoredPlan;
     const wrote = await db.selectFrom("entity_change").select(["entity", "op", "before", "after"]).where("action_run_id", "=", id).orderBy("id").execute();
     const charge = (p.charge?.lines ?? []).filter((x) => x.label?.[l]).map((x) => ({ label: x.label![l]!, cents: x.cents ?? null }));
-    return c.json({ ...await view(r, l, a.personId), title: p.title?.[l] ?? r.action, lines: planLines(p, l), charge, charge_how: p.charge?.how?.[l] ?? null,
+    // Everyone who said yes, in order (two under the club's second-yes rule), as the change keeps them.
+    const yeses = [];
+    for (const y of (r.yeses as { by: string; at: string }[] | null) ?? []) yeses.push((await db.selectFrom("person").select("display_name").where("id", "=", y.by).executeTakeFirst())?.display_name ?? "");
+    return c.json({ ...await view(r, l, a.personId), yeses, title: p.title?.[l] ?? r.action, lines: planLines(p, l), charge, charge_how: p.charge?.how?.[l] ?? null,
       undo_kind: r.undo_kind, undo_until: r.undo_until, asked_at: r.created_at, said: saidIn(r.input), ...fieldChanges(wrote) });
   });
   return app;

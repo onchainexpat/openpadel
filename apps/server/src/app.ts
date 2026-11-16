@@ -15,7 +15,7 @@ import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, type Lang } from "@kumi/i18n";
 import { comingFrom } from "@kumi/i18n/presets";
-import { welcomeDue, greetDue, greeted, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, decline, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { welcomeDue, greetDue, greeted, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, isYesWaiting, decline, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -491,7 +491,7 @@ export function makeApp(deps: AppDeps) {
     // to the member whose change it is (or a parent of theirs): staff at the desk see the summary, as before.
     const who = actor(c).personId, ch = who && p.plan.ownerIds?.includes(who) ? p.plan.charge : undefined;
     const charge = ch ? { lines: ch.lines.map((l) => ({ kind: l.kind, label: l.label[lang], cents: l.cents })), due_cents: ch.due_cents, how: ch.how[lang], when: ch.when?.[lang] ?? null } : undefined;
-    return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt, ...(charge ? { charge } : {}), ...(p.plan.image ? { image: p.plan.image } : {}) });
+    return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt, yeses_needed: p.yesesNeeded, ...(charge ? { charge } : {}), ...(p.plan.image ? { image: p.plan.image } : {}) });
   });
   app.post("/runs/:id/apply", async (c) => {
     const a = actor(c), id = c.req.param("id");
@@ -504,7 +504,12 @@ export function makeApp(deps: AppDeps) {
     const undoable = Boolean(run && run.status === "applied" && run.undo_kind !== "none" && run.action !== "action.undo");
     return c.json({ result: family ? { ...(result && typeof result === "object" ? result : {}), payment_id: undefined, family } : result, undoable });
   });
-  app.post("/runs/:id/approve", async (c) => c.json({ result: await approve(db, c.req.param("id"), actor(c), { now: now() }) }));
+  // A yes. Under the club's second-yes rule the first of two only counts: the change still waits (yes_waiting says how
+  // many yeses it has and needs), and the same person saying yes again gets the same answer.
+  app.post("/runs/:id/approve", async (c) => {
+    const r = await approve(db, c.req.param("id"), actor(c), { now: now() });
+    return c.json(isYesWaiting(r) ? { result: null, yes_waiting: r.yes_waiting } : { result: r });
+  });
   // Saying no to an ask: nothing changes, and the person who asked hears (with the reason, if one is given).
   app.post("/runs/:id/decline", async (c) => {
     const body = await c.req.json().catch(() => ({})) as { reason?: unknown };

@@ -424,6 +424,9 @@ main.money { display: flex; flex-direction: column; } main.money > * { min-width
 .money-tile { margin: 0; overflow-wrap: anywhere; } .money-tile h2 { font-size: 14px; margin: 0; color: var(--muted); } .money-tile .today-total { font-size: 26px; }
 .pill-refund-sent { --pill-bg: color-mix(in srgb, var(--brand) 14%, var(--card)); --pill-ink: var(--brand-ink); } .pill-refund-pending, .pill-refund-waiting_for_sub { --pill-bg: #fff1dc; --pill-ink: #8a4b00; }
 .pill-refund-failed { --pill-bg: color-mix(in srgb, var(--error) 14%, var(--card)); --pill-ink: var(--error); }
+.pill-payout-paid { --pill-bg: color-mix(in srgb, var(--brand) 14%, var(--card)); --pill-ink: var(--brand-ink); } .pill-payout-in_transit, .pill-payout-pending { --pill-bg: #e3ecfc; --pill-ink: #1d4aa8; }
+.pill-payout-failed, .pill-payout-canceled { --pill-bg: color-mix(in srgb, var(--error) 14%, var(--card)); --pill-ink: var(--error); }
+@media (prefers-color-scheme: dark) { .pill-payout-in_transit, .pill-payout-pending { --pill-bg: #1c2a44; --pill-ink: #9dbcf5; } }
 @media (prefers-color-scheme: dark) { .pill-refund-pending, .pill-refund-waiting_for_sub { --pill-bg: #3d2f17; --pill-ink: #f0bd7e; } }
 .take-rows li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 10px 0; }
 .take-bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }

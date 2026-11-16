@@ -1,6 +1,6 @@
 // The staff app's Today page, its Approvals page, its Money page and the counts on its menu: what needs a person now,
 // today's takings so far and what happened since the reader last looked; every ask waiting for a yes; and the club's
-// money at a glance (takings, what's owed, refunds, credit held). Views only: answering an ask is
+// money at a glance (takings, what's owed, refunds, credit held, the provider's payouts to the club's bank). Views only: answering an ask is
 // /runs/:id/approve and /decline as before (actions.ts), and each row links to the page where it's handled.
 //
 // Each part only for those whose roles read it, judged as the page it links to judges it (reads.ts): money for the
@@ -11,7 +11,7 @@
 import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { productName, t, type Key, type Lang } from "@kumi/i18n";
-import { ASK_ENDED, decide, KumiError, levelQueue, localDate, mayAnswer, onDate, outstandingCredit, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
+import { ASK_ENDED, decide, paymentProvider, type Payout, type Yes, KumiError, levelQueue, localDate, mayAnswer, onDate, outstandingCredit, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
 import { seesChats } from "./chats.ts";
 import { seesMoney } from "./receipts.ts";
 import { planLines, saidIn } from "./changes.ts";
@@ -34,7 +34,7 @@ const REVENUE = ["courts", "lessons", "programs", "memberships", "passes", "gift
  *  far back a failed card charge is shown, and how many rows each part lists. */
 const SINCE_MAX_HOURS = 72, COVER_DAYS = 7, FAILED_DAYS = 7, LIST = 3, SINCE_LIST = 8;
 /** The Money page: how far back what's owed and the refunds reach, the refunds tile's days, and how many rows each lists. */
-const OWED_DAYS = 30, REFUND_DAYS = 30, REFUND_TILE_DAYS = 7, OWED_LIST = 50, REFUND_LIST = 20, CREDIT_LIST = 10;
+const OWED_DAYS = 30, REFUND_DAYS = 30, REFUND_TILE_DAYS = 7, OWED_LIST = 50, REFUND_LIST = 20, CREDIT_LIST = 10, PAYOUT_LIST = 10;
 
 export type NeedKind = "approvals" | "owed" | "disputes" | "levels" | "questions" | "cover" | "failed" | "alerts";
 export interface Need { kind: NeedKind; count: number; href: string; items: { text: string | null; sub?: string | null; at?: string | null; cents?: number | null; href?: string | null }[] }
@@ -59,13 +59,28 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
   async function waitingFor(id: string, now: Date) {
     const rows = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
       .select(["action_run.id", "action_run.action", "action_run.input", "action_run.plan", "action_run.location_id", "action_run.actor_person_id", "action_run.via", "action_run.created_at",
-        "action_run.plan_expires_at", "action_run.money_cents", "person.display_name", "support_grant.name as support_name"])
+        "action_run.plan_expires_at", "action_run.money_cents", "action_run.yeses", "action_run.yeses_needed", "person.display_name", "support_grant.name as support_name"])
       .where("action_run.status", "=", "awaiting_approval").where("action_run.plan_expires_at", ">", now).orderBy("action_run.created_at").limit(200).execute();
     const out: typeof rows = [];
     for (const x of rows) if (await mayAnswer(db, x, id, now)) out.push(x);
     return out;
   }
   type Ask = Awaited<ReturnType<typeof waitingFor>>[number];
+  /** Each person's name, once per request (only for those who read people). */
+  const namer = (o: Lens) => {
+    const names = new Map<string, string>();
+    return async (pid: string | null | undefined) => {
+      if (!pid || !o.people) return null;
+      if (!names.has(pid)) names.set(pid, (await db.selectFrom("person").select("display_name").where("id", "=", pid).executeTakeFirst())?.display_name ?? "");
+      return names.get(pid)!;
+    };
+  };
+  /** Who said yes so far to an ask, in order, and how many yeses it needs (two under the club's second-yes rule):
+   *  names for those who read people, and whether the reader is one of them. */
+  const yesView = async (x: { yeses: unknown; yeses_needed: number }, me: string, nameOf: ReturnType<typeof namer>) => {
+    const yeses = (x.yeses as Yes[] | null) ?? [];
+    return { needed: x.yeses_needed, yeses: await Promise.all(yeses.map(async (y) => ({ name: await nameOf(y.by), at: y.at, me: y.by === me }))) };
+  };
   /** An ask as the screens show it: who asked and its summary only for those who read people (its title otherwise). */
   const askView = (x: Pick<Ask, "id" | "action" | "plan" | "input" | "via" | "created_at" | "plan_expires_at" | "money_cents" | "display_name" | "support_name">, l: Lang, o: Lens) => {
     const p = x.plan as { title?: Record<Lang, string>; summary?: Record<Lang, string>; undo?: { kind?: string }; secondPerson?: boolean };
@@ -291,32 +306,47 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
       credit: { cents: credit.cents, people: credit.people, top: holders.map((h) => ({ person_id: h.id, name: h.display_name, cents: Number(h.cents) })) } });
   });
 
+  // ---- Payouts: when the payment provider sent (or is sending) the club's money to its bank, newest first, asked of
+  // the provider each time (nothing is kept here). Apart from /staff/money, so the page never waits on Stripe for the
+  // rest, and a provider that can't be reached costs only this list. Same readers as the Money page.
+  app.get("/staff/money/payouts", async (c) => {
+    const id = me(c)!.id, o = await lens(id);
+    if (!o.money) throw new KumiError("error.staff_only", {}, 403);
+    const provider = paymentProvider();
+    if (!provider.listPayouts) return c.json({ provider: provider.name, connected: false, payouts: [], bank: null, unavailable: false });
+    let list: Payout[] | null;
+    try { list = await provider.listPayouts(PAYOUT_LIST); }
+    catch { return c.json({ provider: provider.name, connected: true, payouts: [], bank: null, unavailable: true }); }
+    return c.json({ provider: provider.name, connected: list !== null, unavailable: false, bank: list?.find((p) => p.bank)?.bank ?? null,
+      payouts: (list ?? []).map((p) => ({ id: p.ref, amount_cents: p.amountCents, currency: p.currency, status: p.status, arrives_on: p.arrivesOn, created_at: p.created.toISOString() })) });
+  });
+
   // ---- Approvals: every ask waiting for this person's yes (who asked, what it changes, when the ask runs out); the asks
   // they made themselves still waiting for someone else's; and the asks of theirs or answered by them in the last week.
   app.get("/staff/approvals", async (c) => {
-    const id = me(c)!.id, o = await lens(id), now = new Date(), l = lang(c);
-    const waiting = (await waitingFor(id, now)).map((x) => askView(x, l, o));
+    const id = me(c)!.id, o = await lens(id), now = new Date(), l = lang(c), nameOf = namer(o);
+    const view = async (x: Parameters<typeof askView>[0] & { yeses: unknown; yeses_needed: number }) => ({ ...askView(x, l, o), ...await yesView(x, id, nameOf) });
+    const waiting = await Promise.all((await waitingFor(id, now)).map(view));
     const base = () => db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
       .select(["action_run.id", "action_run.action", "action_run.plan", "action_run.input", "action_run.via", "action_run.created_at", "action_run.plan_expires_at", "action_run.money_cents", "action_run.status",
-        "action_run.error", "action_run.approved_by", "action_run.applied_at", "person.display_name", "support_grant.name as support_name"]);
-    const mine = (await base().where("action_run.actor_person_id", "=", id).where("action_run.status", "=", "awaiting_approval").where("action_run.plan_expires_at", ">", now)
-      .orderBy("action_run.created_at").limit(50).execute()).map((x) => askView(x, l, o));
-    const week = new Date(now.getTime() - 7 * 86400_000);
-    const ended = await base().where("action_run.created_at", ">=", week)
-      .where((eb) => eb.or([eb("action_run.approved_by", "is not", null), eb.and([eb("action_run.status", "=", "failed"), eb(sql<string>`action_run.error->>'code'`, "in", [...ASK_ENDED])])]))
-      .where((eb) => eb.or([eb("action_run.actor_person_id", "=", id), eb("action_run.approved_by", "=", id), eb(sql<string>`action_run.error->'params'->>'by'`, "=", id)]))
-      .orderBy("action_run.created_at", "desc").limit(30).execute();
-    const names = new Map<string, string>();
-    const nameOf = async (pid: string | null | undefined) => {
-      if (!pid || !o.people) return null;
-      if (!names.has(pid)) names.set(pid, (await db.selectFrom("person").select("display_name").where("id", "=", pid).executeTakeFirst())?.display_name ?? "");
-      return names.get(pid)!;
-    };
+        "action_run.error", "action_run.approved_by", "action_run.applied_at", "action_run.ended_at", "action_run.yeses", "action_run.yeses_needed", "person.display_name", "support_grant.name as support_name"]);
+    const iSaidYes = sql<boolean>`action_run.yeses @> ${JSON.stringify([{ by: id }])}::jsonb`;
+    // Still waiting: their own asks, and asks they said yes to that wait for a second yes.
+    const mine = await Promise.all((await base().where("action_run.status", "=", "awaiting_approval").where("action_run.plan_expires_at", ">", now)
+      .where((eb) => eb.or([eb("action_run.actor_person_id", "=", id), iSaidYes])).orderBy("action_run.created_at").limit(50).execute()).map(view));
+    // Done today, in the club's time: a yes that made it happen, and an ask that ended without one (a no, out of date),
+    // that they asked for or answered.
+    const tz = await clubTz(), dayStart = onDate(localDate(now, tz), "00:00", tz);
+    const ended = await base()
+      .where((eb) => eb.or([eb.and([eb("action_run.approved_by", "is not", null), eb("action_run.applied_at", ">=", dayStart)]),
+        eb.and([eb("action_run.status", "=", "failed"), eb("action_run.ended_at", ">=", dayStart), eb(sql<string>`action_run.error->>'code'`, "in", [...ASK_ENDED])])]))
+      .where((eb) => eb.or([eb("action_run.actor_person_id", "=", id), eb("action_run.approved_by", "=", id), eb(sql<string>`action_run.error->'params'->>'by'`, "=", id), iSaidYes]))
+      .orderBy(sql`coalesce(action_run.applied_at, action_run.ended_at)`, "desc").limit(50).execute();
     const done = [];
     for (const x of ended) {
       const e = x.error as { code?: string; params?: { by?: string; reason?: string | null } } | null;
       const outcome = x.approved_by ? "approved" : e?.code === "error.declined" ? "declined" : "ended";
-      done.push({ ...askView(x, l, o), outcome, answered_by: await nameOf(x.approved_by ?? e?.params?.by), answered_at: x.applied_at,
+      done.push({ ...await view(x), outcome, answered_by: await nameOf(x.approved_by ?? e?.params?.by), answered_at: x.applied_at ?? x.ended_at,
         reason: outcome === "declined" && o.people ? e?.params?.reason ?? null : null, ended: outcome === "ended" ? t(l, e!.code as Key, {}) : null });
     }
     return c.json({ people: o.people, waiting, mine, done });

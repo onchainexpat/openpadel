@@ -1,5 +1,6 @@
 // The Money page (/payments): today's takings, what's owed to the club, recent refunds and the credit members hold
-// (apps/server/src/today.ts, /staff/money), and where the club's card payments go (Stripe). Only the club's money
+// (apps/server/src/today.ts, /staff/money), Stripe's payouts to the club's bank (/staff/money/payouts, asked of Stripe
+// on its own so the rest never waits on it), and where the club's card payments go (Stripe). Only the club's money
 // people open it; names and links to people only for those who read people. A payment taken at the desk is the same
 // record-payment action the Schedule and a program's roster use: its preview first, then confirm.
 import { Fragment } from "preact";
@@ -9,6 +10,8 @@ import { api, ApiError, clubTime, coversLocation, dollars, lang, mayDo, t, usePr
 import { DeskPay } from "./DeskPay.tsx";
 import { payAction } from "./money_pay.ts";
 import { label } from "./words.ts";
+import { nextPayout, payoutDay, type PayoutRow } from "./payouts.ts";
+import { formatLocale } from "@kumi/i18n/format";
 
 type P = { mode: "test" | "direct" | "connect"; live: boolean; account: { tail: string; charges_enabled: boolean; details_submitted: boolean } | null };
 type Owed = { kind: "booking" | "place"; id: string; at: string; who: string | null; person_id: string | null; location_id: string; cents: number;
@@ -86,6 +89,8 @@ export function Payments() {
           </table></div>}
         </section>
 
+        <Payouts />
+
         <section class="card" aria-labelledby="money-credit">
           <h2 id="money-credit">{t("ui.money_credit")}</h2>
           <p class="meta">{t("ui.money_credit_help")}</p>
@@ -100,6 +105,37 @@ export function Payments() {
       <StripeCard />
       {sheet}
     </main>
+  );
+}
+
+type PayoutView = { provider: "test" | "stripe"; connected: boolean; unavailable: boolean; bank: { name: string | null; last4: string } | null; payouts: PayoutRow[] };
+
+/** When Stripe sends the club's money to its bank: the next one on its way, then the latest, each with the day it's
+ *  due, its amount and where it stands. */
+function Payouts() {
+  const [d, setD] = useState<PayoutView | null>(null), [error, setError] = useState<string | null>(null);
+  useEffect(() => { void api<PayoutView>("/staff/money/payouts").then(setD).catch((e: ApiError) => setError(e.message)); }, [lang.value]);
+  const day = (x: string) => payoutDay(x, formatLocale(lang.value));
+  const next = d ? nextPayout(d.payouts) : null;
+  return (
+    <section class="card" aria-labelledby="money-payouts">
+      <h2 id="money-payouts">{t("ui.money_payouts")}</h2>
+      <p class="meta">{t("ui.money_payouts_help")}{d?.bank ? <> {t("ui.money_payouts_bank", { last4: d.bank.last4 })}</> : null}</p>
+      {error && <p class="error" role="alert">{error}</p>}
+      {!d && !error && <p class="meta">{t("ui.loading")}</p>}
+      {d && (d.provider === "test" && !d.payouts.length ? <p class="meta">{t("ui.money_payouts_test")}</p>
+        : d.unavailable ? <p class="meta">{t("ui.money_payouts_unavailable")}</p>
+        : !d.connected ? <p class="meta">{t("ui.money_payouts_not_connected")}</p>
+        : !d.payouts.length ? <p class="meta">{t("ui.money_payouts_none")}</p> : <>
+          {next && <p><strong>{t("ui.money_payout_next", { amount: dollars(next.amount_cents, lang.value), day: day(next.arrives_on) })}</strong></p>}
+          <div class="table-scroll"><table class="stack">
+            <thead><tr><th>{t("ui.col_arrives")}</th><th>{t("ui.col_amount")}</th><th>{t("ui.col_status")}</th></tr></thead>
+            <tbody>{d.payouts.map((p) => <tr key={p.id}><td data-label={t("ui.col_arrives")}>{day(p.arrives_on)}</td>
+              <td data-label={t("ui.col_amount")} class="num">{dollars(p.amount_cents, lang.value)}</td>
+              <td data-label={t("ui.col_status")}><span class={`pill pill-payout-${p.status}`}>{t(`ui.payout_state_${p.status}` as Key)}</span></td></tr>)}</tbody>
+          </table></div>
+        </>)}
+    </section>
   );
 }
 

@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
+import { decide, getAction, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db , type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { shortContact } from "./mcp.ts";
 import { csvCell, readPeopleCsv, readPeopleRows } from "./csv.ts";
@@ -1233,6 +1233,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     return c.json(roles.map((r) => ({ key: r.key, name: r.system ? t(l, `role.${r.key}` as Key) : r.name, system: r.system, based_on: r.based_on, holders: Number(r.holders ?? 0) })));
   });
   app.get("/staff/roles/catalogue", async (c) => c.json(await roleCatalogue(db, lang(c))));
+  // Which changes need two different people's yes (role.second_yes), and the changes it can name, area by area.
+  app.get("/staff/roles/second_yes", async (c) => c.json(await secondYesView(db, lang(c))));
   app.get("/staff/roles/:key/grants", async (c) => c.json(await roleGrantsView(db, c.req.param("key"))));
 
   // The staff app's Today, Approvals and menu counts (today.ts), judged by the same reach as every read here. Not

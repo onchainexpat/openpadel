@@ -240,8 +240,8 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
       try {
         const p = await plan(db, a.name, args, actor, { now: now() });
         // A preview's words shortened as staff reads are: what it names that the asker didn't type comes back short.
-        return text({ run_id: p.runId, status: p.status, summary: shortenInText(p.plan.summary[lang], givenContacts(args)), undo: p.plan.undo.kind, expires_at: p.expiresAt,
-          next: p.status === "awaiting_approval" ? "This needs a staff member's approval; it will happen once they approve." : `Show the person the summary. If they agree, call ${base}_confirm with this run_id.` });
+        return text({ run_id: p.runId, status: p.status, summary: shortenInText(p.plan.summary[lang], givenContacts(args)), undo: p.plan.undo.kind, expires_at: p.expiresAt, yeses_needed: p.yesesNeeded,
+          next: p.status === "awaiting_approval" ? (p.yesesNeeded > 1 ? "This needs two different staff members' approval (the club's rule for this change); it will happen once both approve." : "This needs a staff member's approval; it will happen once they approve.") : `Show the person the summary. If they agree, call ${base}_confirm with this run_id.` });
       } catch (e) { return fail(e); }
     });
     server.registerTool(`${base}_confirm`, {

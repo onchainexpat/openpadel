@@ -11,7 +11,7 @@ import { viaWords } from "./made_via.ts";
 type Change = { id: string; action: string; area: string; status: string; ended?: string | null; by: string; via: string; summary: string | null; at: string;
   can_answer: boolean; can_undo: boolean; undo_why: string | null; approved_by: string | null; declined_by: string | null; reason: string | null };
 type Value = string | number | boolean | null;
-type Detail = Change & { title: string; lines: string[]; charge: { label: string; cents: number | null }[]; charge_how: string | null; undo_until: string | null;
+type Detail = Change & { yeses?: string[]; title: string; lines: string[]; charge: { label: string; cents: number | null }[]; charge_how: string | null; undo_until: string | null;
   said: string | null; fields: { entity: string; op: "insert" | "update"; field: string; before: Value; after: Value }[]; more: number };
 /** A sheet open on one change: undo it, or say yes or no to what someone asked for. */
 type Open = { kind: "undo"; runId: string; summary: string; askFor?: string } | { kind: "approve" | "decline"; row: Change };
@@ -69,7 +69,11 @@ export function Changes() {
         setNote(t("ui.sent_for_approval"));
       }
       else if (open.kind === "undo") await api(`/runs/${open.runId}/apply`, {}, { "idempotency-key": open.runId });
-      else if (open.kind === "approve") await api(`/runs/${open.row.id}/approve`, {});
+      else if (open.kind === "approve") {
+        // The first of two yeses (the club's second-yes rule): kept, and the change waits for someone else's.
+        const r = await api<{ yes_waiting?: unknown }>(`/runs/${open.row.id}/approve`, {});
+        if (r.yes_waiting) setNote(t("ui.yes_recorded"));
+      }
       else await api(`/runs/${open.row.id}/decline`, { reason: reason.trim() || undefined });
       setOpen(null); await loadMe(); void load();
     } catch (e) {
@@ -154,7 +158,9 @@ export function ChangeDetail({ d, undo }: { d: Detail; undo: () => void }) {
       <div class="drawer-head"><div>
         <h2>{d.title}</h2>
         <p class="meta">{byline(d)} · {when(d.at)} · <span class={`status ${d.status}`}>{t(`ui.status_${d.status}` as Key)}</span></p>
-        {d.approved_by && <p class="meta">{t("ui.approved_by", { name: d.approved_by })}</p>}
+        {/* Two yeses (the club's second-yes rule): both, in order; one: who approved it. */}
+        {(d.yeses?.length ?? 0) > 1 ? <p class="meta">{t("count.yes_from", { count: d.yeses!.length, names: d.yeses!.join(", ") })}</p>
+          : d.approved_by && <p class="meta">{t("ui.approved_by", { name: d.approved_by })}</p>}
         {d.declined_by && <p class="meta">{t("ui.declined_by", { name: d.declined_by })}{d.reason ? `: ${d.reason}` : ""}</p>}
         {d.ended && <p class="meta">{d.ended}</p>}
       </div></div>

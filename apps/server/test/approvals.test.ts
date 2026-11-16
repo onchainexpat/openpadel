@@ -28,8 +28,11 @@ before(async () => {
   const owner: Actor = { personId: (s.result as { owner_person_id: string }).owner_person_id, via: "test", lang: "en", auth: "passkey" };
   const mia = ((await run(db, "person.create", { display_name: "Mia", email: "mia@example.test" }, owner)).result as { person_id: string }).person_id;
   await run(db, "role.assign", { person_id: mia, role: "manager" }, owner);
+  const sam = ((await run(db, "person.create", { display_name: "Sam", email: "sam@example.test" }, owner)).result as { person_id: string }).person_id;
+  await run(db, "role.assign", { person_id: sam, role: "owner" }, owner);
   await session("owner", owner.personId!);
   await session("mia", mia);
+  await session("sam", sam);
   app = makeApp({ db, mailer: new MemoryMailer(), secureCookies: false });
 });
 after(async () => drop());
@@ -56,4 +59,31 @@ test("declining keeps it in Changes as declined, with who and why", async () => 
   assert.deepEqual([row.status, row.declined_by, row.reason, row.can_answer], ["declined", "Robin Hale", "Not this month", false]);
   // Approving it later says someone said no, not "it is failed".
   assert.equal((await req(`/runs/${asked.json.run_id}/approve`, "owner", {})).json.error, "error.declined");
+});
+
+test("a change the club's rule names waits for two yeses: Approvals says how many and who, and Changes keeps both", async () => {
+  const rule = await req("/actions/role.second_yes/plan", "owner", { actions: ["tag.create"], over_cents: null });
+  assert.equal((await req(`/runs/${rule.json.run_id}/apply`, "owner", {})).status, 200);
+  assert.deepEqual((await req("/staff/roles/second_yes", "owner")).json.actions, ["tag.create"]);
+  const asked = await req("/actions/tag.create/plan", "mia", { name: "Early birds" });
+  assert.deepEqual([asked.json.status, asked.json.yeses_needed], ["awaiting_approval", 2]);
+  const id = asked.json.run_id;
+  const before = (await req("/staff/approvals", "owner")).json.waiting.find((a: any) => a.id === id);
+  assert.deepEqual([before.needed, before.yeses], [2, []]);
+  const first = await req(`/runs/${id}/approve`, "owner", {});
+  assert.deepEqual(first.json, { result: null, yes_waiting: { yeses: 1, needed: 2 } });
+  // The first to say yes sees it waiting for someone else; the next person sees who said yes.
+  const owners = (await req("/staff/approvals", "owner")).json;
+  assert.equal(owners.waiting.find((a: any) => a.id === id), undefined);
+  assert.deepEqual(owners.mine.find((a: any) => a.id === id).yeses.map((y: any) => [y.name, y.me]), [["Robin Hale", true]]);
+  const sams = (await req("/staff/approvals", "sam")).json.waiting.find((a: any) => a.id === id);
+  assert.deepEqual(sams.yeses.map((y: any) => [y.name, y.me]), [["Robin Hale", false]]);
+  const second = await req(`/runs/${id}/approve`, "sam", {});
+  assert.equal(second.status, 200, JSON.stringify(second.json));
+  assert.equal(second.json.yes_waiting, undefined);
+  const done = (await req("/staff/approvals", "owner")).json.done.find((a: any) => a.id === id);
+  assert.deepEqual([done.outcome, done.answered_by, done.yeses.length], ["approved", "Sam", 2]);
+  assert.deepEqual((await req(`/staff/changes/${id}`, "owner")).json.yeses, ["Robin Hale", "Sam"]);
+  const off = await req("/actions/role.second_yes/plan", "owner", { actions: [], over_cents: null });
+  await req(`/runs/${off.json.run_id}/apply`, "owner", {});
 });

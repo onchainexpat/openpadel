@@ -9,6 +9,20 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+A second yes: the club can say which changes need two different people's yes before they happen (Roles, "Needs a
+second yes"): changes it names, whatever their amount, and any change by staff that charges or refunds more than an
+amount it sets. Neither the person who asked nor someone who already said yes counts again, so the owner's own change
+under the rule waits for two others; members' own changes never wait for it. Setting the rule is the owner's (a manager
+asks), previewed, and can be undone. Approvals shows "Needs 2 yeses", who has said yes and "you'd be the second yes";
+whoever said yes first sees it waiting for someone else's, and the change log keeps both yeses in order. Two people
+saying yes at the same moment are counted one after the other, and saying yes again gives the same answer. Approvals'
+second tab is now "Done today", since a no now records when it was said (migration 122).
+
+The Money page lists Stripe's payouts to the club's bank: the next one on its way and the latest ten, each with the day
+it's due in the bank, its amount and where it stands, and the bank account's last four digits. They're asked of Stripe
+each time the page opens (the club's own account under Connect), so nothing about them is kept here, and the rest of
+the page never waits for Stripe. A club in practice mode has none.
+
 Undo, right after a change: the note that follows a confirm (Done.) now has Undo when the change can be taken back,
 in the members' app and the staff app alike. Undo is previewed like any change, and judged as the change it takes back:
 a member can now undo their own changes (a new grant for the member role, migration 120), but never one only staff

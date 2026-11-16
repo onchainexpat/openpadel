@@ -5,7 +5,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { localDate, onDate, run, runAsSystem, uuidv7, type Actor, type Db } from "@kumi/core";
+import { localDate, onDate, paymentProvider, run, runAsSystem, setPaymentProvider, StripeError, TestProvider, uuidv7, type Actor, type Db } from "@kumi/core";
 import { sql } from "kysely";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
@@ -124,4 +124,28 @@ test("a payment recorded at the desk, through the action's preview and confirm, 
   assert.equal(m.owed.count, 2);
   assert.ok(!m.owed.rows.some((x: any) => x.id === beaBooking));
   assert.ok(m.takings.total_cents >= 3000, "today's takings count the cash");
+});
+
+test("payouts: from the payment provider, newest first, the next one on its way, for the same readers only", async () => {
+  const was = paymentProvider(), stand = new TestProvider();
+  setPaymentProvider(stand);
+  try {
+    // A club in practice has had none: an empty list, said to be the stand-in's.
+    const none = await get("/staff/money/payouts", ROBIN);
+    assert.equal(none.status, 200);
+    assert.deepEqual(none.json, { provider: "test", connected: true, unavailable: false, bank: null, payouts: [] });
+    const bank = { name: "STRIPE TEST BANK", last4: "6789" };
+    stand.payouts.push({ ref: "po_1", amountCents: 790244, currency: "USD", status: "paid", arrivesOn: "2026-10-27", created: new Date("2026-10-25T12:00:00Z"), bank },
+      { ref: "po_2", amountCents: 521436, currency: "USD", status: "in_transit", arrivesOn: "2026-10-28", created: new Date("2026-10-27T12:00:00Z"), bank });
+    const r = await get("/staff/money/payouts", as("Acc"));
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json.payouts.map((p: any) => [p.id, p.amount_cents, p.status, p.arrives_on]), [["po_2", 521436, "in_transit", "2026-10-28"], ["po_1", 790244, "paid", "2026-10-27"]]);
+    assert.deepEqual(r.json.bank, bank);
+    for (const who of ["Cora", "Cleo"]) assert.equal((await get("/staff/money/payouts", as(who))).status, 403, who);
+    // Stripe out of reach: the list says so, and the rest of the page is untouched.
+    stand.listPayouts = async () => { throw new StripeError("down", null, 500, null); };
+    const down = await get("/staff/money/payouts", ROBIN);
+    assert.deepEqual([down.status, down.json.unavailable, down.json.payouts], [200, true, []]);
+    assert.equal((await get("/staff/money", ROBIN)).status, 200);
+  } finally { setPaymentProvider(was); }
 });
