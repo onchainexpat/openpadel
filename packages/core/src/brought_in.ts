@@ -356,12 +356,12 @@ async function staleSource(db: Db | Trx, i: { source: "playtomic" | "file"; uplo
 /** Asks for the same action still waiting once a run is done: those it covered (planned again now, nothing is left to
  *  do, or their source is out of turn) are settled, so nobody is asked again for what's done. Any with something left
  *  to do (other memberships, other people) keep waiting. */
-async function settleAsks(ctx: { trx: Trx; runId: string; actor: { personId?: string | null } }, name: string, leftToDo: (input: any) => Promise<boolean>) {
+async function settleAsks(ctx: { trx: Trx; runId: string; now: Date; actor: { personId?: string | null } }, name: string, leftToDo: (input: any) => Promise<boolean>) {
   const waiting = await ctx.trx.selectFrom("action_run").select(["id", "input"]).where("action", "=", name).where("status", "=", "awaiting_approval").where("id", "!=", ctx.runId).execute();
   for (const w of waiting) {
     const left = await leftToDo(w.input).catch(() => false);
     if (left) continue;
-    await ctx.trx.updateTable("action_run").set({ status: "failed", error: JSON.stringify({ code: "error.ask_settled", params: { by: ctx.actor.personId ?? null, run: ctx.runId } }) })
+    await ctx.trx.updateTable("action_run").set({ status: "failed", ended_at: ctx.now, error: JSON.stringify({ code: "error.ask_settled", params: { by: ctx.actor.personId ?? null, run: ctx.runId } }) })
       .where("id", "=", w.id).where("status", "=", "awaiting_approval").execute();
   }
 }

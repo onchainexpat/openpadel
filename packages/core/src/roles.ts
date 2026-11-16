@@ -4,7 +4,7 @@
 // give a role that does more than they can themselves.
 import { randomBytes } from "node:crypto";
 import * as z from "zod/mini";
-import { both, type Key, type Text } from "@kumi/i18n";
+import { both, money, type Key, type Text } from "@kumi/i18n";
 import { actions, defineAction, readRow, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
@@ -183,6 +183,47 @@ export const roleRetire = defineAction({
     const d = p.details as { role_id: string; holders: string[] };
     for (const id of d.holders) await ctx.update("person_role", id, { active: false });
     await ctx.update("role", d.role_id, { active: false });
+    return null;
+  },
+});
+
+// ---- A second yes: which changes wait for two different people's yes (actions.ts, secondYesNeeded) ----
+/** The changes the club can name for a second yes: any a person can ask for, but this rule itself (named, it could
+ *  only ever be changed back with two people's yes). */
+export function secondYesChoices(): string[] {
+  return actions().filter((a) => !a.system && !a.internal && !a.name.startsWith("test.") && a.name !== "role.second_yes").map((a) => a.name).sort();
+}
+/** For the staff screens: the rule as it stands, and the changes it can name, area by area, in the reader's language. */
+export async function secondYesView(db: Db | Trx, lang: "en" | "es") {
+  const club = await db.selectFrom("club").select(["second_yes_actions", "second_yes_over_cents"]).executeTakeFirstOrThrow();
+  const names = secondYesChoices();
+  return { actions: club.second_yes_actions, over_cents: club.second_yes_over_cents,
+    areas: AREAS.map((a) => ({ key: a.key, title: both(`area.${a.key}` as Key)[lang], actions: names.filter((n) => areaOf(n) === a.key).map((n) => ({ name: n, title: actionWords(n)[lang] })) })).filter((a) => a.actions.length) };
+}
+
+export const roleSecondYes = defineAction({
+  name: "role.second_yes", version: 1, strongAuth: true,
+  input: z.object({
+    actions: z.array(z.string()).check(z.maxLength(200), z.describe("The changes (action names) that need two different people's yes, whatever their amount. [] for none.")),
+    over_cents: z.nullable(z.number().check(z.int(), z.minimum(0), z.maximum(100_000_000), z.describe("Any change by staff that charges or refunds more than this (in cents) needs two people's yes too. null: no amount."))),
+  }),
+  async plan(ctx, i) {
+    const allowed = new Set(secondYesChoices()), seen = new Set<string>();
+    for (const a of i.actions) {
+      if (seen.has(a)) throw new KumiError("error.role_grant_twice", { action: actionWords(a) });
+      seen.add(a);
+      if (!allowed.has(a)) throw new KumiError("error.second_yes_not_here", { action: actionWords(a) });
+    }
+    const { read } = await readRow(ctx.db, "club", "singleton");
+    const parts = (l: "en" | "es") => [...[...seen].map((a) => actionWords(a)[l]),
+      ...(i.over_cents !== null ? [both("plan.role.second_yes_over", { amount: { en: money(i.over_cents, "en"), es: money(i.over_cents, "es") } })[l]] : [])];
+    const summary: Text = seen.size || i.over_cents !== null
+      ? { en: both("plan.role.second_yes", { list: parts("en").join("; ") }).en, es: both("plan.role.second_yes", { list: parts("es").join("; ") }).es }
+      : both("plan.role.second_yes_off");
+    return { title: both("action.role.second_yes"), summary, reads: [read], undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) {
+    await ctx.update("club", "singleton", { second_yes_actions: [...new Set(i.actions)], second_yes_over_cents: i.over_cents });
     return null;
   },
 });

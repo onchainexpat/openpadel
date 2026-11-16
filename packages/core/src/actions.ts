@@ -10,7 +10,7 @@ import type { Charge } from "./charge.ts";
 import { plainIssues } from "./plain_issues.ts";
 import { checkAssistantSpend } from "./assistant_spend.ts";
 import { uuidv7 } from "./ids.ts";
-import { CHAT_ACTIONS, CREDIT_MONEY, decide, DESK_MONEY, holdsRole, type Decision } from "./permissions.ts";
+import { CHAT_ACTIONS, CREDIT_MONEY, decide, DESK_MONEY, holdsRole, roleKeysOf, type Decision } from "./permissions.ts";
 import { readOnlyGate } from "./read_only.ts";
 import { hasSecondFactor, secondStepForChanges } from "./second_step.ts";
 
@@ -230,11 +230,11 @@ const keyOf = (e: Entity, id: string) => `${e}:${id}`;
 export const ASK_ENDED = new Set(["error.ask_settled", "error.ask_out_of_date", "error.declined"]);
 /** After a change: asks still waiting that read anything it changed are out of date (they'd be refused at the yes:
  *  "error.changed"), so they say so now. One query on what this change touched. */
-async function outdateAsks(trx: Trx, runId: string, by: string | null) {
+async function outdateAsks(trx: Trx, runId: string, by: string | null, now: Date) {
   const touched = await trx.selectFrom("entity_change").select(["entity", "entity_id"]).distinct().where("action_run_id", "=", runId).execute();
   if (!touched.length) return;
   const keys = touched.map((t) => `${t.entity}:${t.entity_id}`);
-  await sql`UPDATE action_run SET status = 'failed', error = ${JSON.stringify({ code: "error.ask_out_of_date", params: { by, run: runId } })}::jsonb
+  await sql`UPDATE action_run SET status = 'failed', ended_at = ${now}, error = ${JSON.stringify({ code: "error.ask_out_of_date", params: { by, run: runId } })}::jsonb
     WHERE status = 'awaiting_approval' AND id <> ${runId} AND read_versions ?| ${keys}::text[]`.execute(trx);
 }
 
@@ -350,7 +350,9 @@ export async function mayAlso(db: Db | Trx, actor: Actor, name: string, o: { loc
   return (await decide(db, name, { personId: actor.personId, agentId: actor.agentId ?? null, locationId: o.locationId, ownerIds: o.ownerIds ?? [], at: o.at, ...how(def, actor) })).mode === "allow";
 }
 
-export interface Planned { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; plan: Plan; expiresAt: Date }
+export interface Planned { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; plan: Plan; expiresAt: Date;
+  /** How many different people's yes it waits for: 2 under the club's second-yes rule (secondYesNeeded), else 1. */
+  yesesNeeded: number }
 export interface PlanOpts { now?: Date; internal?: boolean; /** A parent approved it: a kid's rules don't stop it again. */ parentApproved?: boolean;
   /** The staff app's first look: a change that needs someone else's yes is shown, not yet asked for, until the person
    *  says to ask (status "would_ask", nothing stored or sent). */
@@ -405,6 +407,20 @@ export async function dryPlan(db: Db | Trx, name: string, raw: unknown, actor: A
   return p;
 }
 
+/** The club's second-yes rule (role.second_yes, roles.ts): whether a change waits for two different people's yes,
+ *  neither of them the person who asked. A change the club names (an undo as the change it undoes), or one that charges
+ *  or refunds more than the club's amount. It's a rule for staff work: a member's own changes (someone holding no staff
+ *  role) never wait for staff under it. Kumi's own agents count as staff. */
+export async function secondYesNeeded(db: Db | Trx, name: string, judgedName: string | null, actor: Actor, p: Plan): Promise<boolean> {
+  const club = await db.selectFrom("club").select(["second_yes_actions", "second_yes_over_cents"]).executeTakeFirst();
+  if (!club) return false;
+  const named = club.second_yes_actions.includes(name) || (judgedName !== null && club.second_yes_actions.includes(judgedName));
+  const over = club.second_yes_over_cents !== null && (p.moneyCents ?? 0) > club.second_yes_over_cents;
+  if (!named && !over) return false;
+  if (!actor.personId) return true;
+  return (await roleKeysOf(db, actor)).some((k) => k !== "member");
+}
+
 /** Step one: validate, check permission, build the preview, and store it. Nothing changes yet. */
 export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opts: PlanOpts = {}): Promise<Planned> {
   const def = getAction(name);
@@ -442,7 +458,8 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
       p.summary = { en: `${p.summary.en} ${note.en}`, es: `${p.summary.es} ${note.es}` };
     }
   }
-  const status: Planned["status"] = d.mode === "ask" || p.secondPerson ? "awaiting_approval" : "planned";
+  const yesesNeeded = (await secondYesNeeded(db, name, judged?.def.name ?? null, actor, p)) ? 2 : 1;
+  const status: Planned["status"] = d.mode === "ask" || p.secondPerson || yesesNeeded > 1 ? "awaiting_approval" : "planned";
   const expiresAt = new Date(now.getTime() + (status === "planned" ? PLAN_MINUTES * 60_000 : APPROVAL_DAYS * 864e5));
   const runId = uuidv7(now.getTime());
   const row = {
@@ -450,10 +467,10 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     location_id: p.locationId ?? null, input: JSON.stringify(stored(def, input)), plan: planJson(p), status, undo_kind: p.undo.kind,
     undo_note: p.undo.note ? JSON.stringify(p.undo.note) : null, read_versions: JSON.stringify(Object.fromEntries(p.reads.map((r) => [keyOf(r.entity, r.id), r.version]))),
     plan_expires_at: expiresAt, money_cents: String(p.moneyCents ?? 0), undo_of: (input as any)?.run_id && name === "action.undo" ? (input as any).run_id : null,
-    oauth_grant_id: actor.grantId ?? null, support_grant_id: d.support ?? null,
+    oauth_grant_id: actor.grantId ?? null, support_grant_id: d.support ?? null, yeses_needed: yesesNeeded,
   };
-  if (status === "planned") { await db.insertInto("action_run").values(row).execute(); return { runId, status, plan: p, expiresAt }; }
-  if (opts.holdAsk) return { runId: "", status: "would_ask", plan: p, expiresAt };
+  if (status === "planned") { await db.insertInto("action_run").values(row).execute(); return { runId, status, plan: p, expiresAt, yesesNeeded }; }
+  if (opts.holdAsk) return { runId: "", status: "would_ask", plan: p, expiresAt, yesesNeeded };
   await db.transaction().execute(async (trx) => {
     // The same change asked for again while the first ask still waits, by anyone, isn't asked twice: everyone who can
     // say yes would be told again, and two yeses would do it twice. One ask of each action at a time gets this far.
@@ -469,7 +486,7 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     // Whoever can say yes hears it's waiting (messages.ts), once for this ask.
     await trx.insertInto("event_outbox").values({ action_run_id: runId, topic: "approval.waiting", payload: JSON.stringify({ run_id: runId }) }).execute();
   });
-  return { runId, status, plan: p, expiresAt };
+  return { runId, status, plan: p, expiresAt, yesesNeeded };
 }
 
 /** Step two: apply a stored plan, once. Fails if anything it read has changed since. */
@@ -500,6 +517,15 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       }
       const def = getAction(run.action);
       const p = run.plan as Plan;
+      if (approving) {
+        // Each yes is kept on the change, in order, under this lock: two people saying yes at once are counted one
+        // after the other, and the same person twice counts once (approve never lets the asker's count at all). Short
+        // of the yeses it needs (the club's second-yes rule), it keeps waiting with this one recorded.
+        const yeses = [...((run.yeses as Yes[] | null) ?? [])];
+        if (!yeses.some((y) => y.by === opts.approvedBy)) yeses.push({ by: opts.approvedBy!, at: now.toISOString() });
+        await trx.updateTable("action_run").set({ yeses: JSON.stringify(yeses) }).where("id", "=", runId).execute();
+        if (yeses.length < run.yeses_needed) return { yes_waiting: { yeses: yeses.length, needed: run.yeses_needed } } satisfies YesWaiting;
+      }
       await readOnlyGate(trx, run.action);   // a preview made before the club went read-only
       if (!approving && !opts.system) await requireStrongAuth(trx, def, actor, run.input);
       if (opts.system && !def.system) throw new KumiError("error.forbidden_reason", { reason: both("reason.no_role") }, 403);
@@ -535,7 +561,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       }).where("id", "=", runId).execute();
       // An ask still waiting that read something this change has just changed can never be done as it was asked: it's
       // marked out of date, with a reason staff read, instead of waiting for a yes that would be refused.
-      await outdateAsks(trx, runId, runActor.personId ?? null);
+      await outdateAsks(trx, runId, runActor.personId ?? null, now);
       if (def.after) after = () => def.after!(db, run.input, result, { actor: runActor, now });
       return result;
     }));
@@ -548,23 +574,36 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
   }
 }
 
-type AskedRun = { id: string; action: string; input: unknown; plan: unknown; location_id: string | null; actor_person_id: string | null };
+type AskedRun = { id: string; action: string; input: unknown; plan: unknown; location_id: string | null; actor_person_id: string | null; yeses?: unknown };
+/** A yes given to an ask: who and when (action_run.yeses). */
+export interface Yes { by: string; at: string }
+/** What approve gives back when the change still waits for another yes (the club's second-yes rule). */
+export interface YesWaiting { yes_waiting: { yeses: number; needed: number } }
+export const isYesWaiting = (r: unknown): r is YesWaiting => Boolean(r && typeof r === "object" && "yes_waiting" in r);
+/** Whether this person already said yes to an ask. */
+export const saidYes = (run: { yeses?: unknown }, personId: string | null) => Boolean(personId) && ((run.yeses as Yes[] | undefined) ?? []).some((y) => y.by === personId);
 
-/** Whether this person could say yes to an ask (or no): allowed the change outright, and not the person who asked.
- *  An undo is judged as the change it undoes. The strong sign-in is checked when they say yes, not here. */
+/** Whether this person could say yes to an ask (or no): allowed the change outright, not the person who asked, and
+ *  not someone who already said yes to it. An undo is judged as the change it undoes. The strong sign-in is checked
+ *  when they say yes, not here. */
 export async function mayAnswer(db: Db | Trx, run: AskedRun, personId: string | null, at: Date): Promise<boolean> {
-  if (!personId || run.actor_person_id === personId) return false;
+  if (!personId || run.actor_person_id === personId || saidYes(run, personId)) return false;
   const p = run.plan as Plan, def = getAction(run.action), s = { personId, agentId: null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at };
   if ((await decide(db, run.action, { ...s, assistant: false, strongAuth: Boolean(def.strongAuth), clubWide: Boolean(def.clubWide) })).mode !== "allow") return false;
   const judged = await judgedAs(db, def, run.input);
   return !judged || (await decide(db, judged.def.name, { ...s, assistant: false, strongAuth: Boolean(judged.def.strongAuth), clubWide: Boolean(judged.def.clubWide) })).mode === "allow";
 }
 
-/** An "ask" waits for someone allowed to do it, who isn't the person who asked. */
+/** An "ask" waits for someone allowed to do it, who isn't the person who asked: one yes, or two different people's under
+ *  the club's second-yes rule (YesWaiting after the first). Saying yes again gives the same answer, not a second yes. */
 export async function approve(db: Db, runId: string, approver: Actor, opts: { now?: Date } = {}): Promise<unknown> {
   const now = opts.now ?? new Date();
   const run = await db.selectFrom("action_run").selectAll().where("id", "=", runId).executeTakeFirst();
   if (!run) throw new KumiError("error.not_found", { thing: both("thing.change") }, 404);
+  if (approver.personId && saidYes(run, approver.personId)) {
+    if (run.status === "applied") return run.result;
+    if (run.status === "awaiting_approval") return { yes_waiting: { yeses: (run.yeses as Yes[]).length, needed: run.yeses_needed } } satisfies YesWaiting;
+  }
   // An ask that ended (done meanwhile, out of date, someone said no) says why, not just that it's "failed".
   const ended = run.status === "failed" ? (run.error as { code?: string; params?: Record<string, unknown> } | null) : null;
   if (ended?.code && ASK_ENDED.has(ended.code)) throw new KumiError(ended.code as Key, ended.params as any);
@@ -576,6 +615,7 @@ export async function approve(db: Db, runId: string, approver: Actor, opts: { no
   if (d.mode !== "allow") throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
   await allowedAsJudged(db, def, run.input, approver, run.location_id, p.ownerIds ?? [], now);
   const result = await apply(db, runId, approver, { now, approvedBy: approver.personId! });
+  if (isYesWaiting(result)) return result;
   // The person who asked hears it's done.
   await db.insertInto("event_outbox").values({ action_run_id: runId, topic: "approval.approved", payload: JSON.stringify({ run_id: runId, by: approver.personId }) }).execute();
   return result;
@@ -593,7 +633,7 @@ export async function decline(db: Db, runId: string, decliner: Actor, opts: { no
   if (!(await mayAnswer(db, run, decliner.personId, now))) throw new KumiError("error.forbidden_reason", { reason: both("reason.no_role") }, 403);
   const reason = opts.reason?.trim().slice(0, 300) || null;
   await db.transaction().execute(async (trx) => {
-    const r = await trx.updateTable("action_run").set({ status: "failed", error: JSON.stringify({ code: "error.declined", params: { by: decliner.personId, reason } }) })
+    const r = await trx.updateTable("action_run").set({ status: "failed", ended_at: now, error: JSON.stringify({ code: "error.declined", params: { by: decliner.personId, reason } }) })
       .where("id", "=", runId).where("status", "=", "awaiting_approval").executeTakeFirst();
     if (!Number(r.numUpdatedRows)) throw new KumiError("error.not_planned", { status: "failed" });
     await trx.insertInto("event_outbox").values({ action_run_id: runId, topic: "approval.declined", payload: JSON.stringify({ run_id: runId, by: decliner.personId, reason }) }).execute();
