@@ -9,6 +9,22 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+Checking in at the desk: Today has Now and next, what's on the courts now and in the next few hours across the club,
+with Check in on each booking (and Checked in, to take it back) and how many bookings are checked in. A booking's own
+panel on the Schedule and in Bookings checks its players in one by one, guests too, or everyone at once. It's a new
+action, booking.check_in (`openpadel booking check-in`), for the front desk and up: from two hours before a booking
+until twelve after, previewed like any change, undone exactly; it tells nobody and moves no money. + Create has Check
+in under "At the desk", which opens Today's Now and next. Migration 121 records who checked each place in.
+
+Blocking a court that has bookings on it now moves them, when staff say so (on by default in the block form; `--move-bookings`
+on the command line): each booking in the way goes to a free court of the same kind at the same time, and its players
+hear about the new court. One that can't move (it has started, or no court like it is free then) stays where it is and
+the block leaves its time free; the preview names it, offers the nearest free time that day, and says to move it or
+cancel it from the booking, where what goes back is staff's choice by the club's rule. Nothing is cancelled and no money
+moves on its own. The preview shows "Here is what will happen" row by row (Block, Moves, Stays, Messages, Money). Undo
+opens the court and puts the moved bookings back, and says their players aren't told again. Without moving them, a
+court with anything on it still can't be blocked, as before.
+
 Undo, right after a change: the note that follows a confirm (Done.) now has Undo when the change can be taken back,
 in the members' app and the staff app alike. Undo is previewed like any change, and judged as the change it takes back:
 a member can now undo their own changes (a new grant for the member role, migration 120), but never one only staff
