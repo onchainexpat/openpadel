@@ -11,7 +11,7 @@
 import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { productName, t, type Key, type Lang } from "@kumi/i18n";
-import { ASK_ENDED, decide, KumiError, levelQueue, localDate, mayAnswer, onDate, outstandingCredit, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
+import { ASK_ENDED, checkInOpen, decide, KumiError, levelQueue, localDate, mayAnswer, onDate, outstandingCredit, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
 import { seesChats } from "./chats.ts";
 import { seesMoney } from "./receipts.ts";
 import { planLines, saidIn } from "./changes.ts";
@@ -33,6 +33,8 @@ const REVENUE = ["courts", "lessons", "programs", "memberships", "passes", "gift
 /** How far back "since you last looked" reaches, how far ahead a coach's time off is checked against their work, how
  *  far back a failed card charge is shown, and how many rows each part lists. */
 const SINCE_MAX_HOURS = 72, COVER_DAYS = 7, FAILED_DAYS = 7, LIST = 3, SINCE_LIST = 8;
+/** Now and next: how far ahead it looks, and how many it lists. */
+const NEXT_HOURS = 4, NEXT_LIST = 8;
 /** The Money page: how far back what's owed and the refunds reach, the refunds tile's days, and how many rows each lists. */
 const OWED_DAYS = 30, REFUND_DAYS = 30, REFUND_TILE_DAYS = 7, OWED_LIST = 50, REFUND_LIST = 20, CREDIT_LIST = 10;
 
@@ -250,13 +252,51 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
     return c.json({ approvals: of("approvals"), questions: of("questions"), today: ns.reduce((s, x) => s + x.count, 0), disputes: of("disputes") });
   });
 
+  /** Now and next: what's on the courts now and what starts in the next few hours, across the club, earliest first.
+   *  Bookings say who's checked in at the desk (booking.check_in) and whether it can be done now; program dates link to
+   *  their page, where the coach or the desk marks who came. Who booked, only for those who read people. */
+  async function nowNext(o: Lens, l: Lang, now: Date) {
+    const tz = await clubTz(), to = new Date(now.getTime() + NEXT_HOURS * 3600_000);
+    const rows = await db.selectFrom("court_time").innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id")
+      .leftJoin("booking", "booking.id", "court_time.booking_id").leftJoin("person as org", "org.id", "booking.organiser_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
+      .leftJoin("session", "session.id", "court_time.session_id").leftJoin("program", "program.id", "session.program_id")
+      .select(["court_time.id", "court_time.kind", "court_time.booking_id", "court_time.session_id", "court.name as court", "location.id as location_id", "location.name as location",
+        "booking.code", "booking.kind as booking_kind", "booking.status", "org.display_name as who", "coach.display_name as coach", "program.name as program", "program.kind as program_kind",
+        sql<Date>`lower(court_time.during)`.as("start"), sql<Date>`upper(court_time.during)`.as("end")])
+      .select((eb) => eb.selectFrom("booking_player").select("guest_name").whereRef("booking_player.booking_id", "=", "booking.id").where("guest_name", "is not", null).limit(1).as("guest"))
+      .select((eb) => eb.selectFrom("open_match").select("open_match.booking_id").whereRef("open_match.booking_id", "=", "booking.id").as("open_match"))
+      .where("court_time.active", "=", true).where("court_time.kind", "in", ["booking", "session"]).where("location.archived_at", "is", null)
+      .where(sql<boolean>`upper(court_time.during) > ${now} AND lower(court_time.during) < ${to}`)
+      .where((eb) => eb.or([eb("booking.status", "=", "confirmed"), eb("court_time.kind", "=", "session")]))
+      .orderBy(sql`lower(court_time.during)`).orderBy("court.sort").orderBy("court.name").limit(NEXT_LIST * 3).execute();
+    // A program date on several courts is one row, with its courts together.
+    const items: { kind: "booking" | "session"; id: string; start: Date; end: Date; courts: string[]; location_id: string; location: string; r: (typeof rows)[number] }[] = [];
+    for (const r of rows) {
+      const id = (r.booking_id ?? r.session_id)!, same = items.find((x) => x.id === id);
+      if (same) { same.courts.push(r.court); continue; }
+      items.push({ kind: r.booking_id ? "booking" : "session", id, start: new Date(r.start), end: new Date(r.end), courts: [r.court], location_id: r.location_id, location: r.location, r });
+    }
+    const shown = items.slice(0, NEXT_LIST), bookingIds = shown.filter((x) => x.kind === "booking").map((x) => x.id);
+    const places = bookingIds.length ? await db.selectFrom("booking_player").select(["booking_id", "checked_in_at"]).where("booking_id", "in", bookingIds)
+      .where("removed_at", "is", null).where("leaving_at", "is", null).execute() : [];
+    const locations = new Set(items.map((x) => x.location_id)).size > 1;
+    return { time_zone: tz, items: shown.map((x) => {
+      const base = { kind: x.kind, id: x.id, start: x.start.toISOString(), end: x.end.toISOString(), court: x.courts.join(", "), location_id: x.location_id, location: locations ? x.location : null };
+      if (x.kind === "session") return { ...base, title: x.r.program ?? "", sub: x.r.program_kind ? t(l, `kind.${x.r.program_kind}` as Key) : null, href: o.reads("programs") ? `/sessions/${x.id}` : null };
+      const mine = places.filter((p) => p.booking_id === x.id);
+      const what = x.r.booking_kind === "lesson" ? t(l, "ui.kind_lesson") : x.r.open_match ? t(l, "ui.kind_open_match") : t(l, "ui.kind_booking");
+      return { ...base, title: o.people ? (x.r.who ?? x.r.guest ?? what) : what, sub: [o.people && x.r.booking_kind === "lesson" && x.r.coach ? x.r.coach : null, x.r.code].filter(Boolean).join(" · ") || null,
+        href: `/courts?location=${x.location_id}`, places: mine.length, checked_in: mine.filter((p) => p.checked_in_at).length, check_in_open: checkInOpen(x.start, x.end, now) };
+    }) };
+  }
+
   app.get("/staff/today", async (c) => {
     const id = me(c)!.id, o = await lens(id), now = new Date(), l = lang(c);
     // Since the last look the app remembers, kept to the last three days; the start of yesterday evening when there's none.
     const asked = new Date(c.req.query("since") ?? ""), floor = new Date(now.getTime() - SINCE_MAX_HOURS * 3600_000);
     const at = isNaN(asked.getTime()) ? new Date(now.getTime() - 12 * 3600_000) : asked < floor ? floor : asked > now ? now : asked;
     return c.json({ now, time_zone: await clubTz(), people: o.people, needs: o.coachOnly ? [] : await needs(id, o, l, now, true),
-      takings: o.money ? await takings(now) : null, since: await since(id, o, l, at, now) });
+      takings: o.money ? await takings(now) : null, since: await since(id, o, l, at, now), next: !o.coachOnly && o.reads("bookings") ? await nowNext(o, l, now) : null });
   });
 
   // ---- Money: today's takings, what's owed to the club, refunds and the credit members hold, for the club's money

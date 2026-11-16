@@ -491,6 +491,20 @@ Its preview reads: "Cancel booking {code}; the court is free again."
 openpadel booking cancel --booking-id <id>
 ```
 
+#### openpadel booking check-in
+
+Check in. Who may: owner, manager, front desk.
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--booking-id` | id | needed |  |
+| `--booking-player-ids` | ids, with commas |  | The places to mark. Left out: everyone in the booking. |
+| `--checked-in` | yes/no (the flag alone is yes) |  | No (false) takes a check-in back. Left out: checks in. |
+
+```
+openpadel booking check-in --booking-id <id>
+```
+
 #### openpadel booking create
 
 Book a court. Who may: owner, manager, front desk.
@@ -1158,6 +1172,7 @@ Its preview reads: "Block {courts} from {from} to {to} ({reason})."
 | `--ends-at` | time: "YYYY-MM-DD HH:MM" on the club's clock, or ISO | needed |  |
 | `--reason` | maintenance \| fault \| resurfacing \| event \| other | needed |  |
 | `--note` | text |  |  |
+| `--move-bookings` | yes/no (the flag alone is yes) |  | Move bookings in the way to another free court of the same kind, same time. What can't move stays, and the block leaves its time free. |
 
 ```
 openpadel court block --courts "Court 1,Court 2" --starts-at "2026-11-20 18:00" --ends-at "2026-11-20 18:00" --reason maintenance

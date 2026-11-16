@@ -42,7 +42,7 @@ import type { Mailer } from "./mailer.ts";
 /** Every change a staff or members' app button asks mayDo about (client_actions.test.ts checks the apps' sources): /me
  *  says which of them the roles of a coach, or of a role the club made, allow. One left out reads as "not allowed". */
 export const CLIENT_ACTIONS = ["person.create", "person.import", "person.email_unsuppress", "booking.create", "booking.create_lesson", "booking.repeat", "program.create", "booking.move", "booking.extend", "booking.record_payment", "booking.cancel", "booking.refund",
-  "booking.add_player", "booking.remove_player", "booking.paid_in_playtomic", "court.block", "court.unblock", "court.block_repeat", "court.block_repeat_end", "court.block_repeat_edit", "alert.handle",
+  "booking.add_player", "booking.remove_player", "booking.paid_in_playtomic", "booking.check_in", "court.block", "court.unblock", "court.block_repeat", "court.block_repeat_end", "court.block_repeat_edit", "alert.handle",
   "series.edit", "weekly.end_all", "membership.sell", "membership.record_payment", "membership.bring_in", "enrolment.record_payment", "enrolment.remove", "enrolment.comp", "enrolment.join_dates",
   "refund.give_back", "refund.resend", "credit.bring_in", "credit.pay_out", "gift_card.sell", "gift_card.resend", "gift_card.void", "pass.sell", "pass.refund", "pass_product.set", "promo_code.set",
   "payment_found.refund", "payment_found.paid_elsewhere", "mirror.take_over", "broadcast.send", "broadcast.cancel", "segment.save", "segment.update", "template.save", "template.update",
@@ -491,7 +491,8 @@ export function makeApp(deps: AppDeps) {
     // to the member whose change it is (or a parent of theirs): staff at the desk see the summary, as before.
     const who = actor(c).personId, ch = who && p.plan.ownerIds?.includes(who) ? p.plan.charge : undefined;
     const charge = ch ? { lines: ch.lines.map((l) => ({ kind: l.kind, label: l.label[lang], cents: l.cents })), due_cents: ch.due_cents, how: ch.how[lang], when: ch.when?.[lang] ?? null } : undefined;
-    return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt, ...(charge ? { charge } : {}), ...(p.plan.image ? { image: p.plan.image } : {}) });
+    return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt, ...(charge ? { charge } : {}), ...(p.plan.image ? { image: p.plan.image } : {}),
+      ...(p.plan.rows?.length ? { rows: p.plan.rows.map((r) => ({ label: r.label[lang], text: r.text[lang] })) } : {}) });
   });
   app.post("/runs/:id/apply", async (c) => {
     const a = actor(c), id = c.req.param("id");

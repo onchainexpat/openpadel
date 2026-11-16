@@ -38,6 +38,10 @@ export interface Plan {
   image?: string;
   /** What a member's change charges, line by line (charge.ts): the members' app shows it before the yes. */
   charge?: Charge;
+  /** The preview row by row, for a change that does several things at once (a block that moves bookings): each row a
+   *  label ("Moves", "Money") and what happens. The staff app shows them in place of the summary, which still says it all
+   *  for the command line and assistants. */
+  rows?: { label: Text; text: Text }[];
 }
 export interface PlanCtx { db: Db | Trx; actor: Actor; now: Date }
 /** Whose a change is and where, before its preview (ActionDef.owners). `locationId` left out: the row it names isn't
