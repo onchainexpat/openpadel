@@ -261,22 +261,60 @@ const when = (d: Date, tz: string): Text => ({ en: dateTime(d, "en", tz), es: da
 export const courtBlock = defineAction({
   name: "court.block", version: 1,
   input: z.object({ court_ids: z.array(z.uuid()).check(z.minLength(1)), starts_at: z.iso.datetime({ offset: true }), ends_at: z.iso.datetime({ offset: true }),
-    reason: z.enum(["maintenance", "fault", "resurfacing", "event", "other"]), note: z.optional(z.string().check(z.maxLength(200))) }),
+    reason: z.enum(["maintenance", "fault", "resurfacing", "event", "other"]), note: z.optional(z.string().check(z.maxLength(200))),
+    // Bookings in the way move to another court like theirs at the same time (block_moves.ts); without it, a court with
+    // anything on it then can't be blocked.
+    move_bookings: z.optional(z.boolean().check(z.describe("Move bookings in the way to another free court of the same kind, same time. What can't move stays, and the block leaves its time free."))) }),
   async plan(ctx, i) {
     const start = new Date(i.starts_at), end = new Date(i.ends_at);
     if (end <= start) throw new KumiError("error.bad_times");
     const courts = await courtsAt(ctx.db, i.court_ids), tz = await locationTz(ctx.db, courts[0]!.location_id);
-    if ((await occupied(ctx.db, i.court_ids, start, end, ctx.now)).length) throw new KumiError("error.court_taken");
-    return { title: both("action.court.block"), summary: both("plan.court.block", { courts: courts.map((c) => c.name).join(", "), from: when(start, tz), to: when(end, tz), reason: both(`block.${i.reason}` as Key) }),
-      reads: [], locationId: courts[0]!.location_id, undo: { kind: "reversible" } };
+    const block = both("plan.court.block", { courts: courts.map((c) => c.name).join(", "), from: when(start, tz), to: when(end, tz), reason: both(`block.${i.reason}` as Key) });
+    const base = { title: both("action.court.block"), reads: [], locationId: courts[0]!.location_id };
+    if (!i.move_bookings) {
+      if ((await occupied(ctx.db, i.court_ids, start, end, ctx.now)).length) throw new KumiError("error.court_taken");
+      return { ...base, summary: block, undo: { kind: "reversible" } };
+    }
+    const { blockLayout, layoutWords } = await import("./block_moves.ts");
+    const layout = await blockLayout(ctx.db, { courtIds: i.court_ids, locationId: courts[0]!.location_id, tz, start, end, now: ctx.now });
+    const words = await layoutWords(ctx.db, layout, tz, block);
+    // Undone, the moved bookings go back to the blocked court, and their players, told of the move, aren't told again.
+    return { ...base, summary: words.summary, rows: words.rows.length > 1 ? words.rows : undefined, undo: { kind: layout.moves.length ? "compensating" : "reversible" },
+      details: { layout, location_id: courts[0]!.location_id, tz } };
   },
-  async apply(ctx, i) {
-    await lockCourts(ctx, i.court_ids);
+  undoSummary(changes) {
+    const moved = changes.filter((c) => c.entity === "court_time" && c.op === "insert" && (c.after as { kind?: string } | null)?.kind === "booking").length;
+    return moved ? both("plan.court.block_undo_moves", { count: moved }) : null;
+  },
+  async apply(ctx, i, plan) {
     const id = uuidv7();
+    if (!i.move_bookings) {
+      await lockCourts(ctx, i.court_ids);
+      await ctx.insert("court_block", { id, reason: i.reason, note: i.note ?? null });
+      await insertTime(ctx, i.court_ids.map((court) => ({ id: uuidv7(), court_id: court, during: range(new Date(i.starts_at), new Date(i.ends_at)), kind: "block", block_id: id })));
+      await ctx.emit("court.blocked", { block_id: id });
+      return { block_id: id };
+    }
+    const d = plan.details as { layout: import("./block_moves.ts").BlockLayout; location_id: string; tz: string };
+    // Every court at the location, in id order: the blocked ones and any a booking moves to.
+    const all = await ctx.trx.selectFrom("court").select("id").where("location_id", "=", d.location_id).execute();
+    await lockCourts(ctx, all.map((c) => c.id));
+    const { blockLayout, sameLayout } = await import("./block_moves.ts");
+    const now = await blockLayout(ctx.trx, { courtIds: i.court_ids, locationId: d.location_id, tz: d.tz, start: new Date(i.starts_at), end: new Date(i.ends_at), now: ctx.now });
+    // Anything booked, moved or started since the preview: it's previewed again rather than done differently.
+    if (!sameLayout(now, d.layout)) throw new KumiError("error.changed");
+    const names = new Map((await ctx.trx.selectFrom("court").select(["id", "name"]).where("location_id", "=", d.location_id).execute()).map((c) => [c.id, c.name]));
+    const at = (court: string, iso: string): Text => { const w = when(new Date(iso), d.tz); return { en: `${names.get(court)}, ${w.en}`, es: `${names.get(court)}, ${w.es}` }; };
+    for (const m of now.moves) {
+      await ctx.update("court_time", m.time_id, { active: false });
+      await insertTime(ctx, [{ id: uuidv7(), court_id: m.to_court, during: range(new Date(m.start), new Date(m.end)), kind: "booking", booking_id: m.booking_id }]);
+    }
     await ctx.insert("court_block", { id, reason: i.reason, note: i.note ?? null });
-    await insertTime(ctx, i.court_ids.map((court) => ({ id: uuidv7(), court_id: court, during: range(new Date(i.starts_at), new Date(i.ends_at)), kind: "block", block_id: id })));
+    await insertTime(ctx, now.pieces.map((p) => ({ id: uuidv7(), court_id: p.court_id, during: range(new Date(p.start), new Date(p.end)), kind: "block", block_id: id })));
+    // Each moved booking's players hear where it is now; no money moved, so nothing about money.
+    for (const m of now.moves) await ctx.emit("booking.moved", { booking_id: m.booking_id, from: at(m.from_court, m.start), to: at(m.to_court, m.start), owed: 0, refunds: {} });
     await ctx.emit("court.blocked", { block_id: id });
-    return { block_id: id };
+    return { block_id: id, moved: now.moves.map((m) => m.booking_id), stayed: now.stays.flatMap((s) => (s.booking_id ? [s.booking_id] : [])) };
   },
 });
 

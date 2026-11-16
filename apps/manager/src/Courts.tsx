@@ -28,11 +28,13 @@ const MonthView = lazyPage(() => import("./Month.tsx").then((m) => m.MonthView))
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
 type Seat = { id: string; name: string; booker: boolean };
+/** Each place still in a booking, and whether its player is checked in at the desk (booking.check_in). */
+type Arrival = { id: string; name: string; guest: boolean; in: boolean };
 /** `who` and `players` on a Playtomic copy: who booked it and plays in it, from the club's archive, only for staff who
  *  read people (never a coach on their own, never a member whose account was deleted here). */
 export type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; off_cents?: number; pt_cents?: number; balance_cents?: number; booking_kind?: string;
   open_match?: boolean; coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; invite_code?: string | null; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string;
-  program_id?: string; program_kind?: string | null; label?: string; empty_places?: Empty[]; note?: string; player_note?: string; split?: boolean };
+  program_id?: string; program_kind?: string | null; label?: string; empty_places?: Empty[]; note?: string; player_note?: string; split?: boolean; arrivals?: Arrival[] };
 // `open`: that court's own hours that day (they can differ from the location's); null when it's closed all day.
 export type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
 /** `money` false: a reader who doesn't see what members paid (a coach on their own lesson, a role the club made covering
@@ -241,6 +243,8 @@ function createChoices(open: boolean, booking: (once: boolean) => void, block: (
       courts && mayCreate("booking.repeat") && { key: "weekly", go: () => booking(false) }] },
     { group: "closures", items: [
       open && here && mayCreate("court.block") && { key: "block", go: block }] },
+    // Not something added: who's arrived for what's on now and next, on Today (booking.check_in).
+    { group: "desk", items: [here && mayDo("booking.check_in") && { key: "check_in", href: "/today#now-next" }] },
   ];
   return groups.map((x) => ({ group: x.group, items: x.items.filter((i): i is Choice => Boolean(i)) })).filter((x) => x.items.length > 0);
 }
@@ -532,6 +536,7 @@ export function Details({ it, court, g, clock, slots, preview, canMove, canResiz
         onCancel={() => setPaying(false)} send={(cents, method) => { setPaying(false); preview("booking.record_payment", { booking_id: it.booking_id, cents, method }); }} />}
       {it.empty_places?.map((e) => <EmptyPlace e={e} preview={preview} money={g.money !== false} />)}
       {it.whole && mayHere("booking.add_player") && <Players it={it} preview={preview} />}
+      {isBooking(it) && it.status === "confirmed" && (it.arrivals?.length ?? 0) > 0 && <CheckIn it={it} preview={preview} />}
       {changing && !it.series && <ChangeForm it={it} court={court} g={g} clock={clock} slots={slots} preview={preview} canMove={canMove} canResize={canResize} courtFixed={courtFixed} />}
       {changing && it.series && <SeriesChange it={it} g={g} slots={court.open ? courtSlots(court.open) : slots} clock={clock} preview={preview} />}
     </section>
@@ -556,6 +561,22 @@ function Players({ it, preview }: { it: Item; preview: Preview }) {
         {found.length > 0 && <ul class="plain">{found.slice(0, 6).map((p) => <li class="row"><span>{p.display_name}</span>
           <button type="button" class="small" onClick={() => { setFound([]); setQ(""); void preview("booking.add_player", { booking_id: it.booking_id, person_id: p.id }); }}>{t("ui.choose")}</button></li>)}</ul>}
       </>}
+    </div>
+  );
+}
+
+/** Who's arrived: each place checked in (or taken back) on its own, or everyone at once. The server says when it can be
+ *  done (from a while before the start); outside that the preview says so. Nobody is told and no money moves. */
+function CheckIn({ it, preview }: { it: Item; preview: Preview }) {
+  const all = it.arrivals!, n = all.filter((a) => a.in).length, may = mayHere("booking.check_in");
+  const mark = (ids: string[] | undefined, on: boolean) => preview("booking.check_in", { booking_id: it.booking_id, ...(ids ? { booking_player_ids: ids } : {}), ...(on ? {} : { checked_in: false }) });
+  return (
+    <div class="card-form check-in">
+      <h3>{t("ui.check_in_title")} <span class="meta">{t("count.checked_in_of", { count: n, total: all.length })}</span></h3>
+      <ul class="plain">{all.map((a) => <li class="row"><span>{a.name || t("ui.player")}{a.guest ? ` · ${t("ui.guest")}` : ""}</span>
+        {may ? <button type="button" class={`small${a.in ? " checked" : ""}`} aria-pressed={a.in} onClick={() => mark([a.id], !a.in)}>{t(a.in ? "ui.checked_in" : "ui.check_in")}</button>
+          : <span class="meta">{a.in ? t("ui.checked_in") : ""}</span>}</li>)}</ul>
+      {may && n < all.length && all.length > 1 && <p><button type="button" class="small primary" onClick={() => mark(undefined, true)}>{t("ui.check_in_everyone")}</button></p>}
     </div>
   );
 }
@@ -626,9 +647,12 @@ function BlockForm({ courts, g, slots: daySlots, clock, preview }: { courts: Cou
   };
   // Every week: on these weekdays from this date, until a date or with no end; bookings in the way stay, or are called off.
   const [rep, setRep] = useState({ on: false, days: [new Date(`${g.date}T12:00:00Z`).getUTCDay()], until: "", way: "keep", refund: "full" });
+  // Once: bookings in the way move to another court like theirs at the same time (the preview lists each), or the block
+  // is refused while anything is on those courts then.
+  const [move, setMove] = useState(true);
   const submit = (e: Event) => {
     e.preventDefault();
-    if (!rep.on) return void preview("court.block", { court_ids: ids, starts_at: f.from, ends_at: f.to, reason: f.reason, note: f.note || undefined });
+    if (!rep.on) return void preview("court.block", { court_ids: ids, starts_at: f.from, ends_at: f.to, reason: f.reason, note: f.note || undefined, ...(move ? { move_bookings: true } : {}) });
     preview("court.block_repeat", { court_ids: ids, weekdays: rep.days, starts: clubTime(f.from, g.time_zone), ends: clubTime(f.to, g.time_zone, true), from_date: g.date,
       ...(rep.until ? { until_date: rep.until } : {}), reason: f.reason, note: f.note || undefined, in_the_way: rep.way, ...(rep.way === "cancel" ? { refund: rep.refund } : {}) });
   };
@@ -641,6 +665,8 @@ function BlockForm({ courts, g, slots: daySlots, clock, preview }: { courts: Cou
       <label>{t("ui.to")}<select value={f.to} onChange={(e) => setF({ ...f, to: e.currentTarget.value })}>{slots.slice(1).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
       <label>{t("ui.reason")}<select value={f.reason} onChange={(e) => setF({ ...f, reason: e.currentTarget.value })}>{["maintenance", "fault", "resurfacing", "event", "other"].map((r) => <option value={r}>{t(`block.${r}` as Key)}</option>)}</select></label>
       <label>{t("ui.block_note")}<input value={f.note} onInput={(e) => setF({ ...f, note: e.currentTarget.value })} /></label>
+      {!rep.on && <><label class="check"><input type="checkbox" checked={move} onChange={(e) => setMove(e.currentTarget.checked)} /> {t("ui.block_move_bookings")}</label>
+        <p class="meta">{t(move ? "ui.block_move_help" : "ui.block_no_move_help")}</p></>}
       <label class="check"><input type="checkbox" checked={rep.on} onChange={(e) => setRep({ ...rep, on: e.currentTarget.checked })} /> {t("ui.block_every_week")}</label>
       {rep.on && <>
         <fieldset><legend>{t("ui.block_on_days")}</legend>

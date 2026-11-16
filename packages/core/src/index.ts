@@ -23,6 +23,8 @@ export * from "./promo_codes.ts";
 export * from "./promo_off.ts";
 export * from "./booking_players.ts";
 export * from "./booking_changes.ts";
+export * from "./block_moves.ts";
+export * from "./check_in.ts";
 export * from "./memberships.ts";
 export * from "./program_prices.ts";
 export * from "./match_rules.ts";

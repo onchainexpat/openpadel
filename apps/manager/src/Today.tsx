@@ -1,16 +1,21 @@
 // Today: what needs a person now, today's takings so far and what happened since the person last looked
 // (apps/server/src/today.ts). The server sends only what the person's roles read, with no names for a role that doesn't
-// read people; each row links to the page where it's handled. Nothing is changed here.
+// read people; each row links to the page where it's handled. The one change made here is checking in a booking from Now and next, previewed first like any other.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, clubTime, dollars, EmptyState, lang, me, serverNow, t, type ApiError } from "@kumi/ui";
+import { api, clubTime, coversLocation, dollars, EmptyState, lang, mayDo, me, serverNow, t, usePreview, type ApiError } from "@kumi/ui";
 import { label } from "./words.ts";
+import { allIn, bookingsIn, checkInInput } from "./check_in.ts";
 
 type Item = { text: string | null; sub?: string | null; at?: string | null; cents?: number | null; href?: string | null };
 type Need = { kind: "approvals" | "owed" | "disputes" | "levels" | "questions" | "cover" | "failed" | "alerts"; count: number; href: string; items: Item[] };
+/** What's on now and next across the club (today.ts nowNext): a booking says how many of its places are checked in. */
+type NextItem = { kind: "booking" | "session"; id: string; start: string; end: string; court: string; location_id: string; location: string | null; title: string; sub: string | null;
+  href: string | null; places?: number; checked_in?: number; check_in_open?: boolean };
 type TodayView = {
   now: string; time_zone: string; people: boolean; needs: Need[];
   takings: { total_cents: number; last_week_cents: number; rows: { type: string; cents: number }[] } | null;
+  next: { time_zone: string; items: NextItem[] } | null;
   since: { from: string; counts: Partial<Record<"booked" | "cancelled" | "places" | "answered", number>>; changes: { id: string; summary: string; by: string; at: string }[] | null; more: number };
 };
 const ICON: Record<Need["kind"], string> = { approvals: "✓", owed: "$", disputes: "!", levels: "L", questions: "?", cover: "C", failed: "$", alerts: "!" };
@@ -29,8 +34,10 @@ function lastLook(): string | null {
 
 export function Today() {
   const [v, setV] = useState<TodayView | null>(null), [error, setError] = useState<string | null>(null), [since] = useState(lastLook);
+  const load = () => api<TodayView>(`/staff/today${since ? `?since=${encodeURIComponent(since)}` : ""}`).then(setV).catch((e: ApiError) => setError(e.message));
+  // Checking in from Now and next previews first, like every change, then the list is read again.
+  const { preview, sheet } = usePreview(() => { void load(); });
   useEffect(() => {
-    const load = () => api<TodayView>(`/staff/today${since ? `?since=${encodeURIComponent(since)}` : ""}`).then(setV).catch((e: ApiError) => setError(e.message));
     void load();
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
@@ -77,6 +84,7 @@ export function Today() {
             </ul>)}
           <p class="meta">{t("ui.today_takings_note")}</p>
         </section>}
+        {v.next && <NowNext next={v.next} preview={preview} />}
         <section class="card today-since" aria-labelledby="today-since">
           <h2 id="today-since">{t("ui.today_since")}</h2>
           <p class="meta">{t("ui.today_since_at", { time: sinceWords })}</p>
@@ -87,6 +95,29 @@ export function Today() {
           {v.since.changes && <p>{v.since.more > 0 && <span class="meta">{t("count.since_more", { count: v.since.more })} · </span>}<a href="/changes">{t("ui.since_all_changes")}</a></p>}
         </section>
       </div>
+      {sheet}
     </main>
+  );
+}
+
+/** Now and next: what's on the courts now and what starts in the next few hours, each booking with Check in (or Checked
+ *  in, to take it back) and how many bookings are checked in; a program date opens its page, where who came is marked. */
+function NowNext({ next, preview }: { next: NonNullable<TodayView["next"]>; preview: (action: string, input: unknown) => Promise<void> }) {
+  const clock = (iso: string) => clubTime(iso, { hour: "numeric", minute: "2-digit" }, next.time_zone), now = serverNow();
+  const counts = bookingsIn(next.items);
+  return (
+    <section class="card today-next" id="now-next" aria-labelledby="today-next">
+      <h2 id="today-next">{t("ui.now_next")}</h2>
+      <p class="meta">{counts.total ? t("count.bookings_checked_in", counts) : t("ui.next_nothing_to_check_in")}</p>
+      {next.items.length === 0 ? <p class="meta">{t("ui.next_none_today")}</p> : <ul class="plain next-list">{next.items.map((x) => {
+        const on = Date.parse(x.start) <= now, may = x.kind === "booking" && x.check_in_open && (x.places ?? 0) > 0 && mayDo("booking.check_in") && coversLocation(x.location_id);
+        return <li>
+          <span class="meta num next-time">{on ? t("ui.next_now") : clock(x.start)}</span>
+          <span class="next-body"><strong>{x.href ? <a href={x.href}>{x.title}</a> : x.title}</strong>
+            <span class="meta">{[x.court, x.location, x.sub, x.kind === "booking" && (x.places ?? 0) > 0 ? t("count.checked_in_of", { count: x.checked_in ?? 0, total: x.places ?? 0 }) : null].filter(Boolean).join(" · ")}</span></span>
+          {may && <button type="button" class={`small${allIn(x) ? " checked" : ""}`} aria-pressed={allIn(x)}
+            onClick={() => preview("booking.check_in", checkInInput(x))}>{t(allIn(x) ? "ui.checked_in" : "ui.check_in")}</button>}
+        </li>; })}</ul>}
+    </section>
   );
 }

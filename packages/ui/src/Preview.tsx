@@ -22,7 +22,9 @@ export function useStepUp() {
 /** What a change that charges money comes to, line by line, as the server's preview built it (core charge.ts): the
  *  same numbers apply charges, only formatted here. Older servers and changes that charge nothing send none. */
 export type Charge = { lines: { kind: string; label: string; cents: number | null }[]; due_cents: number; how: string; when: string | null };
-export type Pending = { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; summary: string; action?: string; input?: unknown; charge?: Charge; image?: string;
+/** A preview row by row (the server's Plan.rows): a change that does several things at once, a block that moves bookings. */
+export type PlanRow = { label: string; text: string };
+export type Pending = { runId: string; status: "planned" | "awaiting_approval" | "would_ask"; summary: string; action?: string; input?: unknown; charge?: Charge; image?: string; rows?: PlanRow[];
   /** Two under the club's second-yes rule: two different people's yes, neither the person asking. */
   yesesNeeded?: number };
 
@@ -52,9 +54,9 @@ export function usePreview(onDone: (result?: any) => void) {
     setError(null); setNote(null); setUndoRun(null);
     try {
       // First a look: a change that needs someone else's yes is asked for only when the person says so (ask below).
-      const p = await api<{ run_id: string; status: Pending["status"]; summary: string; charge?: Charge; image?: string; yeses_needed?: number }>(`/actions/${action}/plan?ask=hold`, input);
+      const p = await api<{ run_id: string; status: Pending["status"]; summary: string; charge?: Charge; image?: string; rows?: PlanRow[]; yeses_needed?: number }>(`/actions/${action}/plan?ask=hold`, input);
       if (p.status === "awaiting_approval") { setNote(`${p.summary} ${t("ui.sent_for_approval")}`); onDone(); return; }
-      setPending({ runId: p.run_id, status: p.status, summary: p.summary, action, input, charge: p.charge, image: p.image, yesesNeeded: p.yeses_needed });
+      setPending({ runId: p.run_id, status: p.status, summary: p.summary, action, input, charge: p.charge, image: p.image, rows: p.rows, yesesNeeded: p.yeses_needed });
     } catch (e) {
       if (needsStep(e)) { step.ask(() => void preview(action, input)); return; }
       setError(e instanceof ApiError ? e.message : String(e));
@@ -63,11 +65,11 @@ export function usePreview(onDone: (result?: any) => void) {
   const ask = async () => {
     if (!pending?.action) return;
     try {
-      const p = await api<{ run_id: string; status: Pending["status"]; summary: string; charge?: Charge }>(`/actions/${pending.action}/plan`, pending.input);
+      const p = await api<{ run_id: string; status: Pending["status"]; summary: string; charge?: Charge; rows?: PlanRow[] }>(`/actions/${pending.action}/plan`, pending.input);
       // Asked: it waits for a yes. If it no longer needs one (something changed since the first look), nothing has
       // happened yet: it's shown again, to confirm, rather than said to be done.
       if (p.status === "awaiting_approval") { setPending(null); setNote(t("ui.sent_for_approval")); onDone(); return; }
-      setPending({ runId: p.run_id, status: p.status, summary: p.summary, charge: p.charge });
+      setPending({ runId: p.run_id, status: p.status, summary: p.summary, charge: p.charge, rows: p.rows });
     } catch (e) { setError(e instanceof ApiError ? e.message : String(e)); setPending(null); }
   };
   const confirm = async () => {
@@ -98,7 +100,11 @@ export function usePreview(onDone: (result?: any) => void) {
       {pending && !step.sheet && <div class="card sheet" role="dialog" aria-modal="true" aria-label={pending.charge ? t("ui.check_before") : undefined}>
         {/* A change that charges money: what it comes to, line by line, before the yes (the server's own numbers). */}
         {pending.charge && <h2>{t("ui.check_before")}</h2>}
-        <p class={pending.charge ? "meta" : undefined}>{pending.summary}</p>
+        {/* Several things at once: what happens, row by row (the summary says the same in one paragraph). */}
+        {pending.rows?.length ? <>
+          <h2>{t("ui.what_happens")}</h2>
+          <dl class="plan-rows">{pending.rows.map((r) => <><dt>{r.label}</dt><dd>{r.text}</dd></>)}</dl>
+        </> : <p class={pending.charge ? "meta" : undefined}>{pending.summary}</p>}
         {/* A picture the server drew of what the change makes (the club's logo on its colour): only ever a data: PNG. */}
         {pending.image?.startsWith("data:image/png;base64,") && <img class="preview-picture" src={pending.image} alt={t("ui.preview_picture")} />}
         {pending.charge && <ChargeLines charge={pending.charge} />}

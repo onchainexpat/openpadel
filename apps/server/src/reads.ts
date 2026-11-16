@@ -442,7 +442,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("booking.id", "in", ids("booking_id")).execute() : [];
     // Who's playing in each, and what players said about running late (today's word, newest first).
     const players = ids("booking_id").length ? await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id")
-      .select(["booking_player.id", "booking_player.booking_id", "booking_player.person_id", "person.display_name", "booking_player.guest_name"])
+      .select(["booking_player.id", "booking_player.booking_id", "booking_player.person_id", "person.display_name", "booking_player.guest_name", "booking_player.checked_in_at"])
       .where("booking_player.booking_id", "in", ids("booking_id")).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is", null).orderBy("booking_player.id").execute() : [];
     const late = ids("booking_id").length ? await db.selectFrom("event_outbox").select(["payload", "created_at"]).where("topic", "=", "booking.running_late")
       .where("created_at", ">=", dayStart).where(sql<boolean>`payload->>'booking_id' = ANY(${ids("booking_id")})`).orderBy("id", "desc").execute() : [];
@@ -486,7 +486,9 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         whole: b?.kind === "court" && b.pay_mode === "whole" && Boolean(b.organiser_id) && b.status === "confirmed",
         invite_code: b?.kind === "court" && b.pay_mode === "whole" && b.status === "confirmed" ? b.invite_code : null,
         seats: players.filter((p) => p.booking_id === x.booking_id && p.person_id).map((p) => ({ id: p.id, name: nm(p.display_name ?? ""), booker: p.person_id === b?.organiser_id })),
-        empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: nm(e.name), open: e.fill_refund_percent !== null })) }; }
+        empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: nm(e.name), open: e.fill_refund_percent !== null })),
+        // Who's checked in at the desk (booking.check_in): every place still in it, guests too, with the names as above.
+        arrivals: players.filter((p) => p.booking_id === x.booking_id).map((p) => ({ id: p.id, name: nm(p.display_name ?? p.guest_name ?? ""), guest: !p.person_id, in: Boolean(p.checked_in_at) })) }; }
       if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, series: Boolean(k?.series_id), label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
       if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, program_kind: s?.kind ?? null, label: s?.name ?? "" }; }
       // A Playtomic copy: its kind, and who booked it and plays in it (from the club's archive) for those who read people.

@@ -30,6 +30,10 @@ form.inline { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: cent
 .sheet { border-color: var(--brand-ink); }
 /* "Check before you confirm" (Preview.tsx): a change's charge, line by line, amounts to the right. */
 .sheet h2 { font-size: 18px; margin: 0 0 4px; }
+/* A preview row by row (Preview.tsx): the label beside what happens, stacked on a phone. */
+.plan-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 8px 0 12px; }
+.plan-rows dt { font-weight: 600; } .plan-rows dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 420px) { .plan-rows { grid-template-columns: minmax(0, 1fr); gap: 0; } .plan-rows dd { margin-bottom: 8px; } }
 table.charge-lines { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 15px; }
 table.charge-lines th { text-align: left; font-weight: 400; padding: 6px 8px 6px 0; } table.charge-lines td { text-align: right; white-space: nowrap; padding: 6px 0; font-variant-numeric: tabular-nums; }
 table.charge-lines tr { border-bottom: 1px solid var(--line); }
@@ -431,6 +435,12 @@ main.money { display: flex; flex-direction: column; } main.money > * { min-width
 .take-rows li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 10px 0; }
 .take-bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .take-bar span { display: block; height: 100%; background: var(--brand); }
+/* Today's Now and next: the time, what and where, and Check in on the right. */
+.next-list li { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.next-body { display: flex; flex-direction: column; overflow-wrap: anywhere; }
+button.checked { background: #e3f3e8; border-color: #9fd0ae; color: #1e6b3a; }
+@media (prefers-color-scheme: dark) { button.checked { background: #1d3a27; border-color: #3f7a52; color: #bfe6cb; } }
+.check-in h3 .meta { font-weight: 400; margin-left: 6px; }
 .since-list li { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; } .since-list li > .meta { flex: none; min-width: 64px; }
 ul.plain li.card.ask, ul.plain li.card.need { padding: 14px 16px; border: 1px solid var(--line); }
 .need-items li:last-child { border-bottom: 0; }
