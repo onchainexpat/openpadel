@@ -20,7 +20,7 @@ body { padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom)); }
 
 /* Things side by side to scroll: what's coming up, the plans to join. */
 .rail { position: static; width: auto; height: auto; background: none; border-right: 0; list-style: none; margin: 0; padding: 0 0 6px; display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; }
-.rail > li, .rail > section { flex: 0 0 min(82%, 300px); scroll-snap-align: start; }
+.rail > li, .rail > section { position: relative; flex: 0 0 min(82%, 300px); scroll-snap-align: start; }   /* relative: a card's hidden words (.visually-hidden, absolute) stay inside the scrolling row instead of widening the page */
 .rail > section.card { margin: 0; }
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 18px 0 8px; }
 .section-head h2 { margin: 0; }
