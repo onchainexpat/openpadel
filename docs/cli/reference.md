@@ -360,6 +360,16 @@ Who may: staff (each sees what their staff screens show).
 openpadel questions
 ```
 
+### openpadel moving-in
+
+Moving in. Where the club is in its move from Playtomic, Playbypoint or spreadsheets (connect, review, practice run, switch-over, wrap up): the step, what each step sees for itself, the items staff tick (openpadel move check), and the practice run's comparison of the old records with what has come over. For the owner and managers.
+
+Who may: staff (each sees what their staff screens show).
+
+```
+openpadel moving-in
+```
+
 ## Changes
 
 Each one previews first (exit code 10) and changes nothing until `openpadel confirm <run_id>`, or the same command with `--yes`.
@@ -2265,6 +2275,73 @@ Take over Playtomic bookings. Who may: owner, manager.
 
 ```
 openpadel mirror take-over --booking-ids '[...]'
+```
+
+### move
+
+#### openpadel move check
+
+Mark a move-in item. Who may: owner, manager.
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--item` | close_bookings \| renewals_stopped \| programs_left \| announced \| history_downloaded \| plan_cancelled \| link_website \| link_google \| link_social | needed |  |
+| `--done` | yes/no (the flag alone is yes) | needed |  |
+
+```
+openpadel move check --item close_bookings --done
+```
+
+#### openpadel move finish
+
+Finish the move. Who may: owner, manager (with approval).
+
+Its preview reads: "The move is finished. What came over and the archive stay as they are."
+
+```
+openpadel move finish
+```
+
+#### openpadel move source
+
+Choose where the club moves in from. Who may: owner, manager.
+
+Its preview reads: "The club moves in from {from}. The guide shows that system's steps; nothing is read or changed yet."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--source` | playtomic \| playbypoint \| spreadsheet | needed |  |
+
+```
+openpadel move source --source playtomic
+```
+
+#### openpadel move step
+
+Go to a step of the move. Who may: owner, manager.
+
+Its preview reads: "The move goes to step {n} of 5: {step}."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--step` | connect \| review \| practice \| switch \| wrap_up | needed |  |
+
+```
+openpadel move step --step connect
+```
+
+#### openpadel move switch-at
+
+Plan the switch-over time. Who may: owner, manager.
+
+Its preview reads: "Switch-over planned for {when}. Nothing happens by itself then: it's when the staff go through the switch-over list."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--at` | time: "YYYY-MM-DD HH:MM" on the club's clock, or ISO | needed |  |
+
+```
+openpadel move switch-at --at "2026-11-20 18:00"
 ```
 
 ### pass

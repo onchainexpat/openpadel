@@ -87,6 +87,8 @@ export const READS: DoorRead[] = [
     description: "The membership plans, how many hold each, and the members on them (emails shortened)." },
   { name: "questions", staff: true, title: { en: "Members' questions", es: "Preguntas de los miembros" }, input: { view: z.optional(z.enum(["waiting", "answered", "closed"])) }, path: (a) => `/staff/questions?${qs({ view: a.view })}`,
     description: "Members' questions to the club: waiting for an answer (the default), answered or closed." },
+  { name: "moving_in", staff: true, title: { en: "Moving in", es: "La mudanza" }, input: {}, path: () => "/staff/move-in/steps",
+    description: "Where the club is in its move from Playtomic, Playbypoint or spreadsheets (connect, review, practice run, switch-over, wrap up): the step, what each step sees for itself, the items staff tick (move_check_preview), and the practice run's comparison of the old records with what has come over. For the owner and managers." },
 ];
 /** An email or phone number as a staff read through the door shows it: the first letter and the domain, or the last
  *  two digits. */

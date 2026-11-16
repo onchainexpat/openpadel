@@ -6,7 +6,9 @@ import { CSV_COLUMNS as COLUMNS, normHeader as norm, parseCsv } from "@kumi/core
 // The parser and the Playtomic export's reader live in core (csv_read.ts), where the move-in reads an upload itself.
 export { parseCsv, readDay, readMoveInCsv, type MoveInRow } from "@kumi/core";
 
-export interface PersonRow { display_name: string; email?: string; locale?: "en" | "es"; phone?: string; club_news?: true; playtomic_id?: string; level?: { value: number; reliability?: number } }
+export interface PersonRow { display_name: string; email?: string; locale?: "en" | "es"; phone?: string; club_news?: true; playtomic_id?: string; level?: { value: number; reliability?: number; platform?: "playbypoint" } }
+/** Which system's export it is, when staff say so: Playbypoint's columns are read by a preset (CSV_COLUMNS). */
+export type ImportFrom = "playbypoint";
 export interface Problem { line: number; text: Text }
 
 /** One cell of a spreadsheet Kumi hands out: quoted when it needs to be, and text a spreadsheet would run as a
@@ -28,18 +30,20 @@ function language(v: string): "en" | "es" | undefined {
 }
 
 /** The people in the file, and every line that couldn't be used (with why). Nothing is changed here. */
-export function readPeopleCsv(text: string): { rows: PersonRow[]; problems: Problem[]; fatal?: Text } {
-  return readPeopleRows(parseCsv(text));
+export function readPeopleCsv(text: string, from?: ImportFrom): { rows: PersonRow[]; problems: Problem[]; fatal?: Text } {
+  return readPeopleRows(parseCsv(text), from);
 }
 /** The same from a spreadsheet's rows of cells (an Excel workbook's first sheet, xlsx.ts). */
-export function readPeopleRows(cells: string[][]): { rows: PersonRow[]; problems: Problem[]; fatal?: Text } {
+export function readPeopleRows(cells: string[][], from?: ImportFrom): { rows: PersonRow[]; problems: Problem[]; fatal?: Text } {
   const all = cells.filter((r) => r.some((c) => c.trim()));
   if (all.length < 2) return { rows: [], problems: [], fatal: both(all.length ? "csv.empty" : "csv.no_header") };
   const head = all[0]!.map(norm);
   const col = (k: keyof typeof COLUMNS) => head.findIndex((h) => COLUMNS[k].includes(h));
   const name = col("name"), first = col("first"), last = col("last"), email = col("email"), lang = col("language");
   const phone = col("phone"), news = col("news"), ptId = col("playtomic_id"), reliability = col("reliability");
-  const ptLevel = col("playtomic_level") >= 0 ? col("playtomic_level") : ptId >= 0 ? col("level") : -1;
+  // A Playbypoint list: its level (NPRP, 1 to 7) under any of its likely names, and no Playtomic columns at all.
+  const pbp = from === "playbypoint";
+  const ptLevel = pbp ? col("playbypoint_level") : col("playtomic_level") >= 0 ? col("playtomic_level") : ptId >= 0 ? col("level") : -1;
   if (name < 0 && first < 0) return { rows: [], problems: [], fatal: both(head.some((h) => h) ? "csv.no_name_column" : "csv.no_header") };
   const rows: PersonRow[] = [], problems: Problem[] = [], firstLine = new Map<string, number>();
   all.slice(1).forEach((r, i) => {
@@ -56,8 +60,12 @@ export function readPeopleRows(cells: string[][]): { rows: PersonRow[]; problems
     const extra: Partial<PersonRow> = {};
     if (get(phone)) extra.phone = get(phone).slice(0, 40);
     if (YES.has(norm(get(news)))) extra.club_news = true;
-    if (get(ptId)) extra.playtomic_id = get(ptId).slice(0, 64);
-    if (get(ptLevel)) {
+    if (get(ptId) && !pbp) extra.playtomic_id = get(ptId).slice(0, 64);
+    if (get(ptLevel) && pbp) {
+      const v = number(get(ptLevel));
+      if (v === null || v < 1 || v > 7) problems.push({ line, text: both("csv.bad_level", { line, level: get(ptLevel) }) });
+      else extra.level = { value: Math.round(v * 100) / 100, platform: "playbypoint" };
+    } else if (get(ptLevel)) {
       // Reliability as a percent ("80", "80%") or a fraction ("0.8").
       const v = number(get(ptLevel)), r = number(get(reliability)), pct = r !== null && r > 0 && r < 1 ? r * 100 : r;
       if (v === null || v < 0 || v > 7) problems.push({ line, text: both("csv.bad_level", { line, level: get(ptLevel) }) });

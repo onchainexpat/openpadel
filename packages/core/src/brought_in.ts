@@ -607,3 +607,34 @@ export const membershipBringIn = defineAction({
     return { memberships: ids.length };
   },
 });
+
+/** What the club's old records hold, beside what has come over here: the guided move-in's practice run compares
+ *  them (move_in.ts, moveComparison). From the source the last credit run used, else Playtomic's players as last
+ *  read, else the latest upload of the export. Counts and totals only: nobody is named. Null when there's no source. */
+export async function broughtTotals(db: Db | Trx) {
+  const c = { ...(await db.selectFrom("club").select(["currency", "time_zone"]).executeTakeFirstOrThrow()),
+    ...(await db.selectFrom("move_in").select(["brought_run_source", "playtomic_players_read_at"]).executeTakeFirstOrThrow()) };
+  const latest = await db.selectFrom("playtomic_upload").select(["id", "sha256"]).orderBy("at", "desc").limit(1).executeTakeFirst();
+  const run = c.brought_run_source && c.brought_run_source !== "playtomic"
+    ? await db.selectFrom("playtomic_upload").select(["id", "sha256"]).where("id", "=", c.brought_run_source).executeTakeFirst() : undefined;
+  const pick = run ? { source: "file" as const, upload_id: run.id, sha256: run.sha256 }
+    : c.brought_run_source === "playtomic" || c.playtomic_players_read_at ? { source: "playtomic" as const }
+    : latest ? { source: "file" as const, upload_id: latest.id, sha256: latest.sha256 } : null;
+  if (!pick) return null;
+  const { players, readAt, columns } = await playersFrom(db, pick, c.time_zone);
+  // Wallets as staff would bring them: every wallet column (they may leave one out), in the club's currency.
+  let walletCents = 0, unreadable = 0;
+  for (const p of players) for (const w of p.wallets ?? []) {
+    const b = parseBalance(w.balance, c.currency);
+    if (!b || b.cents < 0) unreadable++;
+    else if (b.currency === c.currency) walletCents += b.cents;
+  }
+  // Who of them is here: by a Playtomic id linked to someone, else their address. Two reads, whatever the size.
+  const ids = [...new Set(players.map((p) => p.playtomic_id).filter((x): x is string => Boolean(x)))];
+  const emails = [...new Set(players.map((p) => p.email?.trim().toLowerCase()).filter((x): x is string => Boolean(x)))];
+  const linked = new Set(ids.length ? (await db.selectFrom("external_ref").select("external_id").where("system", "=", PLAYTOMIC).where("entity", "=", "person").where("external_id", "in", ids).execute()).map((r) => r.external_id) : []);
+  const known = new Set(emails.length ? (await db.selectFrom("person").select(sql<string>`lower(email)`.as("e")).where(sql<string>`lower(email)`, "in", emails).where("redacted_at", "is", null).execute()).map((r) => r.e) : []);
+  const here = players.filter((p) => (p.playtomic_id && linked.has(p.playtomic_id)) || (p.email && known.has(p.email.trim().toLowerCase()))).length;
+  return { from: pick.source, read_at: readAt, players: players.length, here, wallet_cents: walletCents, unreadable, wallet_columns: columns?.length ?? null,
+    with_membership: players.filter((p) => (p.benefits ?? []).length > 0).length };
+}

@@ -35,13 +35,16 @@ export const CSV_COLUMNS = {
   email: ["email", "emailaddress", "mail", "correo", "correoelectronico"],
   language: ["language", "locale", "lang", "idioma"],
   // From a Playtomic customer export, or any file with these columns (docs/setup/README.md, step 5b).
-  phone: ["phone", "phonenumber", "mobile", "mobilephone", "cell", "telephone", "tel", "telefono", "movil", "celular"],
-  news: ["clubnews", "news", "newsletter", "marketing", "marketingconsent", "acceptscommercialcommunications", "commercialcommunications", "consent", "noticias", "noticiasdelclub", "comunicacionescomerciales", "consentimiento"],
+  phone: ["phone", "phonenumber", "mobile", "mobilephone", "mobilenumber", "cell", "cellphone", "cellphonenumber", "telephone", "tel", "telefono", "movil", "celular"],
+  news: ["clubnews", "news", "newsletter", "marketing", "marketingconsent", "acceptscommercialcommunications", "commercialcommunications", "consent", "marketingoptin", "emailoptin", "newsletteroptin", "acceptsmarketing", "acceptsemailmarketing", "noticias", "noticiasdelclub", "comunicacionescomerciales", "consentimiento"],
   playtomic_id: ["playtomicid", "playtomicuserid", "playtomicplayerid", "idplaytomic", "idenplaytomic"],
   playtomic_level: ["playtomiclevel", "nivelplaytomic", "nivelenplaytomic"],
   // A plain "level" is read as Playtomic's only beside a Playtomic id: a file from another system has its own scale.
   level: ["level", "nivel", "levelvalue"],
   reliability: ["reliability", "playtomicreliability", "levelreliability", "fiabilidad", "confiabilidad"],
+  // From Playbypoint (its Reports, All Users list): a preset by likely names, not checked against a real export (no
+  // published column list; docs/setup/moving-in.md). Its level is NPRP's 1 to 7; a DUPR column is another scale, never read.
+  playbypoint_level: ["playbypointlevel", "pbplevel", "nprp", "nprplevel", "nprprating", "playbypointrating", "pbprating", "skilllevel", "level", "rating", "nivel"],
 };
 
 // ---- Moving in from Playtomic: wallets and memberships (brought_in.ts) ----

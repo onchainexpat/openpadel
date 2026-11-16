@@ -48,7 +48,7 @@ export const CLIENT_ACTIONS = ["person.create", "person.import", "person.email_u
   "payment_found.refund", "payment_found.paid_elsewhere", "mirror.take_over", "broadcast.send", "broadcast.cancel", "segment.save", "segment.update", "template.save", "template.update",
   "tag.create", "tag.update", "fact.create", "fact.update", "program.set_name", "program.set_prices", "program.set_sign_up", "program.set_minimum", "program.publish", "program.cancel",
   "session.set_coach", "session.add", "series.cancel", "membership.grant", "membership.pause", "membership.unpause", "membership.resume", "membership.cancel", "membership.end",
-  "household.add_junior", "person.tag", "person.untag", "attendance.mark", "role.create"];
+  "household.add_junior", "person.tag", "person.untag", "attendance.mark", "role.create", "move.step"];
 
 /** The changes the Schedule's + Create starts, for /me's `creates`; and making a role, for the staff menu's Roles item
  *  (an owner's, or a manager's to ask for). */
