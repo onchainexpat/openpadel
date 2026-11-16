@@ -1,17 +1,18 @@
 // Home: the club at the top (its name, the member's plan, today's hours), what the member has coming up, the ways
 // in (book, a match, events, learning), what's on at the club in the next two weeks, asking the club, and the
-// club's courts, hours and address. Everything here comes from reads the app already makes, and /my/club (the
+// club's courts, hours and address, what it has (parking, showers...), and Call and Website. Everything here comes from reads the app already makes, and /my/club (the
 // club's public facts). Nothing about another member is shown.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
 import { api, club, clubTime, EmptyState, Illustration, lang, serverNow, t } from "@kumi/ui";
-import { formatLocale } from "@kumi/i18n/format";
+import { formatLocale, type Key } from "@kumi/i18n/format";
 import { hoursOn, weekLines, clock, type Hours, type Special } from "./hours.ts";
 import { comingUp, type Upcoming } from "./home_data.ts";
 import type { SoonCounts } from "./whats_on.ts";
 
 type Place = { id: string; name: string; address: string | null; courts: number; kinds: string[]; hours: Hours[]; special: Special[] };
-type ClubInfo = { time_zone: string; locations: Place[] };
+/** phone: international form, for the Call link; phone_shown: as people read it. amenities: keys, in the list's order. */
+type ClubInfo = { time_zone: string; locations: Place[]; phone?: string | null; phone_shown?: string | null; website?: string | null; amenities?: string[] };
 
 /** Today in the club's time zone (YYYY-MM-DD). */
 const clubToday = (tz: string) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(serverNow()));
@@ -74,7 +75,7 @@ export function Home() {
 
       <AskBox />
 
-      {info && info.locations.length > 0 && <section class="card" aria-labelledby="club-title">
+      {info && (info.locations.length > 0 || info.phone || info.website || info.amenities?.length) && <section class="card" aria-labelledby="club-title">
         <h2 id="club-title">{t("ui.home_club_title")}</h2>
         {info.locations.map((l) => <div class="place">
           {info.locations.length > 1 && <h3>{l.name}</h3>}
@@ -86,6 +87,11 @@ export function Home() {
           </>}
           {l.address && <p><a class="button" href={mapLink(l.address)} target="_blank" rel="noopener noreferrer">{t("ui.home_directions")}</a></p>}
         </div>)}
+        {info.amenities && info.amenities.length > 0 && <ul class="chips amenity-chips" aria-label={t("ui.amenities")}>{info.amenities.map((a) => <li class="chip">{t(`amenity.${a}` as Key)}</li>)}</ul>}
+        {(info.phone || info.website) && <p class="club-reach">
+          {info.phone && <a class="button" href={`tel:${info.phone}`}>{t("ui.home_call")}<span class="visually-hidden">: {info.phone_shown ?? info.phone}</span></a>}
+          {info.website && <a class="button" href={info.website} target="_blank" rel="noopener noreferrer">{t("ui.home_website")}</a>}
+        </p>}
       </section>}
     </main>
   );

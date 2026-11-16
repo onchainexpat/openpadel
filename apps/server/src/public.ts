@@ -5,7 +5,8 @@
 import { sql } from "kysely";
 import { Hono, type Context } from "hono";
 import { isLang, money, plainAmount, t, weekOrder, type Key, type Lang, formatLocale, isHosted, HOSTED_URL } from "@kumi/i18n";
-import { competitionView, coachPhoto, factIn, inLang, lessonCoaches, trSql, localDate, membersFrom, planCounts, ruleWhen, searchFacts, TEXTS_FORM, type Db } from "@kumi/core";
+import { clubPhoneShown, competitionView, coachPhoto, factIn, inLang, lessonCoaches, trSql, localDate, membersFrom, planCounts, ruleWhen, searchFacts, TEXTS_FORM, type Db } from "@kumi/core";
+import { amenitiesInOrder } from "@kumi/i18n/amenities";
 
 /** Every value from the database goes through this before it reaches the page. */
 const h = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -34,7 +35,7 @@ export function publicRoutes(db: Db, lang: (c: Context<any>) => Lang, memberUrl:
   const app = new Hono();
   const base = memberUrl.replace(/\/$/, "");
   const pick = (c: Context<any>): Lang => { const q = c.req.query("lang"); return isLang(q) ? q : lang(c); };
-  const club = () => db.selectFrom("club").select(["name", "brand_colour", "time_zone", "currency", "public_page", "about", "translations", "sign_up_open", "terms_url", "privacy_policy_url"]).executeTakeFirstOrThrow();
+  const club = () => db.selectFrom("club").select(["name", "brand_colour", "time_zone", "currency", "public_page", "about", "translations", "sign_up_open", "terms_url", "privacy_policy_url", "phone", "website", "amenities", "country"]).executeTakeFirstOrThrow();
   /** The club's own terms and privacy policy, when it has set them (Settings): at the foot of each page, and beside
    *  the yes to texts on the texts page, as in the app. */
   type Links = { terms_url: string | null; privacy_policy_url: string | null };
@@ -129,10 +130,16 @@ ${list ? `<h3>${h(t(l, "ui.prices_title"))}</h3><ul>${list}</ul>` : ""}</section
     const eventsHtml = `<section><h2>${h(t(l, "pub.coming_up"))}</h2>${coming.length ? `<ul>${coming.map((e) => `<li><a href="/public/events/${h(e.id)}${l === "es" ? "?lang=es" : ""}">${h(e.name)}</a><br><span class="meta">${eventLine(l, e)}</span></li>`).join("")}</ul>` : `<p class="meta">${h(t(l, "pub.no_events"))}</p>`}</section>`;
     const join = cl.sign_up_open ? t(l, "pub.join") : t(l, "pub.sign_in");
     const about = inLang(cl.about, cl.translations, "about", l);
-    const body = `<header><h1>${h(cl.name)}</h1>${about ? `<p>${h(about)}</p>` : ""}<p><a class="button" href="/">${h(join)}</a> <a href="/public?lang=${l === "es" ? "en" : "es"}">${l === "es" ? "English" : "Español"}</a></p></header>
+    // How to reach the club and what it has (Settings), under its name.
+    const has = amenitiesInOrder(cl.amenities), phoneShown = cl.phone ? clubPhoneShown(cl.phone, cl.country) : null;
+    const reach = [phoneShown && `<a href="tel:${h(cl.phone!)}">${h(phoneShown)}</a>`, cl.website && `<a href="${h(cl.website)}" rel="noopener">${h(t(l, "ui.club_website"))}</a>`].filter(Boolean).join(" · ");
+    const contact = `${reach ? `<p>${reach}</p>` : ""}${has.length ? `<p class="meta">${h(has.map((a) => t(l, `amenity.${a}` as Key)).join(" · "))}</p>` : ""}`;
+    const body = `<header><h1>${h(cl.name)}</h1>${about ? `<p>${h(about)}</p>` : ""}${contact}<p><a class="button" href="/">${h(join)}</a> <a href="/public?lang=${l === "es" ? "en" : "es"}">${l === "es" ? "English" : "Español"}</a></p></header>
 ${where}${plansHtml}${coachesHtml}${eventsHtml}${faqHtml}${footer(l, cl)}`;
     const clubLd = { "@context": "https://schema.org", "@type": "SportsActivityLocation", name: cl.name, url: `${base}/public`, ...(about ? { description: about } : {}),
       ...(locations[0]?.address ? { address: locations[0].address } : {}),
+      ...(cl.phone ? { telephone: cl.phone } : {}), ...(cl.website ? { sameAs: cl.website } : {}),
+      ...(has.length ? { amenityFeature: has.map((a) => ({ "@type": "LocationFeatureSpecification", name: t("en", `amenity.${a}` as Key), value: true })) } : {}),
       openingHoursSpecification: hours.filter((x) => x.location_id === locations[0]?.id && x.opens).map((x) => ({ "@type": "OpeningHoursSpecification",
         dayOfWeek: `https://schema.org/${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][x.weekday]}`, opens: t5(x.opens), closes: t5(x.closes) === "24:00" ? "23:59" : t5(x.closes) })) };
     return html(c, page({ lang: l, title: cl.name, description: about ?? t(l, "pub.description", { club: cl.name }), canonical: `${base}/public${l === "es" ? "?lang=es" : ""}`,

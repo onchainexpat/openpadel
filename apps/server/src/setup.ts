@@ -8,8 +8,9 @@ import { basename, dirname, resolve } from "node:path";
 import * as z from "zod/mini";
 import { parse } from "yaml";
 import { both, type Key, type Lang, type Text } from "@kumi/i18n";
-import { pageUrl, readLogo, run, runAsSystem, type Actor, type Db } from "@kumi/core";
+import { clubPhone, KumiError, pageUrl, readLogo, run, runAsSystem, type Actor, type Db } from "@kumi/core";
 import { COMING_FROM, DEFAULT_COMING_FROM } from "@kumi/i18n/presets";
+import { AMENITIES } from "@kumi/i18n/amenities";
 
 const name = z.string().check(z.minLength(1));
 const court = z.union([name, z.object({ name, kind: z.optional(z.enum(["indoor", "covered_outdoor", "outdoor"])) })]);
@@ -42,8 +43,9 @@ export const ClubFile = z.object({
   // coming_from: the software staff used before (none or playtomic), for the staff app's words, menu order and first
   // page; brand_colour: the club's colour (#rrggbb) in both apps. Left out, each stays as it is. logo: a path to the
   // club's logo (SVG, PNG or JPEG, from the file's own folder when it's relative) and logo_for: the background it's
-  // made for (light or dark; left out, read from the logo). Left out, the logo stays as it is.
-  club: z.object({ logo: z.optional(name), logo_for: z.optional(z.enum(["light", "dark"])), name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])), terms_url: z.optional(pageUrl), privacy_policy_url: z.optional(pageUrl),
+  // made for (light or dark; left out, read from the logo). Left out, the logo stays as it is. phone, website and
+  // amenities: how members reach the club and what it has (keys from AMENITIES), set when the club has none yet.
+  club: z.object({ phone: z.optional(z.string().check(z.minLength(1), z.maxLength(40))), website: z.optional(pageUrl), amenities: z.optional(z.array(z.enum(AMENITIES))), logo: z.optional(name), logo_for: z.optional(z.enum(["light", "dark"])), name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])), terms_url: z.optional(pageUrl), privacy_policy_url: z.optional(pageUrl),
     staff_second_step: z.optional(z.boolean()), coming_from: z.optional(z.enum(COMING_FROM)), brand_colour: z.optional(z.string().check(z.regex(/^#[0-9A-Fa-f]{6}$/, "a colour like #0B5A55"))) }),
   owner: z.object({ name, email: z.email() }),
   locations: z.optional(z.array(z.object({ name, address: z.optional(z.string()), time_zone: z.optional(name), courts: z.optional(z.array(court)) }))),
@@ -124,6 +126,27 @@ export async function setupClub(db: Db, file: ClubFile, opts: { apply: boolean; 
   }
   if (links.terms_url || links.privacy_policy_url) await step("club.update", both("cli.step.club_policies", { links: [links.terms_url, links.privacy_policy_url].filter(Boolean).join(", ") }),
     async () => ok(await run(db, "club.update", links, owner)));
+  // The club's phone, website and amenities: each set when the club has none yet (older files named the website only
+  // under texting, so that counts too); one the club has already changes in Settings.
+  const reach = club ? await db.selectFrom("club").select(["phone", "website", "amenities", "country"]).executeTakeFirstOrThrow() : { phone: null, website: null, amenities: [] as string[], country: "US" };
+  const contact: { phone?: string; website?: string; amenities?: string[] } = {};
+  const wantPhone = file.club.phone, wantSite = file.club.website ?? file.texting?.website;
+  if (wantPhone) {
+    const p = clubPhone(wantPhone, reach.country ?? "US");
+    if (!p) throw new KumiError("error.club_phone_bad", { phone: wantPhone }, 400);
+    if (reach.phone && reach.phone !== p) notes.push(both("cli.note.policies_differ", { field: both("field.phone") }));
+    else if (!reach.phone) contact.phone = p;
+  }
+  if (wantSite && wantSite !== reach.website) {
+    if (reach.website) notes.push(both("cli.note.policies_differ", { field: both("field.website") }));
+    else if (pageUrl.safeParse(wantSite).success) contact.website = wantSite;
+  }
+  if (file.club.amenities?.length) {
+    if (reach.amenities.length && [...reach.amenities].sort().join() !== [...new Set(file.club.amenities)].sort().join()) notes.push(both("cli.note.policies_differ", { field: both("field.amenities") }));
+    else if (!reach.amenities.length) contact.amenities = [...new Set(file.club.amenities)];
+  }
+  if (Object.keys(contact).length) await step("club.update", both("cli.step.club_contact", { what: [contact.phone, contact.website, contact.amenities?.join(", ")].filter(Boolean).join("; ") }),
+    async () => ok(await run(db, "club.update", contact, owner)));
   // The second step at sign-in, when the file says and the club differs (a new club starts with it off).
   const secondStep = file.club.staff_second_step;
   const hadSecondStep = club ? (await db.selectFrom("club").select("second_step_sign_in").executeTakeFirstOrThrow()).second_step_sign_in : false;

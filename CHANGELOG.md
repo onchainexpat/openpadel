@@ -25,6 +25,7 @@ The Money page lists Stripe's payouts to the club's bank: the next one on its wa
 it's due in the bank, its amount and where it stands, and the bank account's last four digits. They're asked of Stripe
 each time the page opens (the club's own account under Connect), so nothing about them is kept here, and the rest of
 the page never waits for Stripe. A club in practice mode has none.
+
 Checking in at the desk: Today has Now and next, what's on the courts now and in the next few hours across the club,
 with Check in on each booking (and Checked in, to take it back) and how many bookings are checked in. A booking's own
 panel on the Schedule and in Bookings checks its players in one by one, guests too, or everyone at once. It's a new
@@ -40,6 +41,7 @@ cancel it from the booking, where what goes back is staff's choice by the club's
 moves on its own. The preview shows "Here is what will happen" row by row (Block, Moves, Stays, Messages, Money). Undo
 opens the court and puts the moved bookings back, and says their players aren't told again. Without moving them, a
 court with anything on it still can't be blocked, as before.
+
 "Tell me when" alerts (the boards' priority alerts), in the members' app. On Book, a switch for the day shown: tell me
 when a court frees up then, for a start in a window I pick at that location. On Play, a switch: tell me when an open
 match opens whose levels include mine. Each is turned on and off through a preview (play_alert.set and play_alert.end,
@@ -57,6 +59,18 @@ to all). The host chooses it in Start a match, the desk in + Create's open match
 on its page (program.set_gender). Cards and pages on Play show it, and Play's matches and events filter by it. It's a
 label to help players choose: nobody is checked against it when they join, and the club keeps no one's gender. The
 preview says so.
+
+The club's phone, website and amenities: Settings, The club, has a phone for members, the club's website and what it
+has besides its courts (parking, showers, changing rooms, lockers, a café, a pro shop, racket rental, Wi-Fi, step-free
+access, a kids' area), through the same club.update preview as the rest (migration 124). Members see them on Home,
+under the club's hours, with Call and Website buttons, and the public page shows them under the club's name. A phone
+typed without a + is read in the club's country. `club.yaml` takes `phone`, `website` and `amenities` too, set when the
+club has none yet (club.example.yaml).
+
+The staff app on a phone has tabs at the bottom: Today, the Schedule, a + in the middle, Approvals (with its count) and
+Members for owners, managers and the desk; a coach on their own gets their schedule, the courts' day, Levels and
+Programs. + opens the Schedule's + Create from any page. The Menu at the top still opens every page; a wide screen is
+as it was.
 
 Undo, right after a change: the note that follows a confirm (Done.) now has Undo when the change can be taken back,
 in the members' app and the staff app alike. Undo is previewed like any change, and judged as the change it takes back:

@@ -60,6 +60,10 @@ body:has(main.home) #app > header .club-name { visibility: hidden; }
 .ask-row button { flex: none; }
 .place + .place { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 4px; }
 .place h3 { font-size: 16px; margin: 8px 0 4px; }
+/* What the club has, and how to reach it (Settings): small chips, then Call and Website side by side. */
+.amenity-chips { list-style: none; padding: 0; }
+.amenity-chips .chip { padding: 4px 10px; font-size: 13px; }
+.club-reach { display: flex; flex-wrap: wrap; gap: 8px; }
 .small-head { font-size: 15px; margin: 12px 0 6px; }
 dl.hours { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0 0 12px; }
 dl.hours dt { color: var(--muted); } dl.hours dd { margin: 0; }

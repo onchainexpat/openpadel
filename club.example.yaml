@@ -12,6 +12,12 @@ club:
   # links them where members join, beside the yes to texts and on the profile; joining agrees to them.
   # terms_url: https://kestrelpadel.example/terms
   # privacy_policy_url: https://kestrelpadel.example/privacy
+  # How members reach the club and what it has, on their Home (Call, Website) and the public page. A phone without a +
+  # is read in the club's country. amenities, any of: parking, showers, changing_rooms, lockers, cafe, pro_shop,
+  # racket_rental, wifi, step_free, kids_area. Each is set when the club has none yet; after that, change it in Settings.
+  # phone: "+1 503 555 0142"
+  # website: https://kestrelpadel.example
+  # amenities: [parking, showers, changing_rooms, cafe, racket_rental]
   # Owners and managers sign in with the emailed code; a passkey or authenticator app is their choice (Profile), and
   # the most sensitive changes ask for one. true: they give one at every sign-in too (also in Settings).
   # staff_second_step: true

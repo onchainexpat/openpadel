@@ -4,6 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { amountInput, amountPattern, capFor, fromMajor, money, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
 import { COMING_FROM, comingFrom } from "@kumi/i18n/presets";
+import { AMENITIES } from "@kumi/i18n/amenities";
 import { api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, RunsOn, savedIn, t, translationsOf, usePreview, type Club, applyBrand, applyTitle } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
@@ -15,7 +16,7 @@ type Price = { id: string; name: string; translations?: unknown; court_ids: stri
 type Loc = { id: string; name: string; address: string | null; postal_code?: string | null; region?: string | null; country?: string | null; time_zone: string; courts: Court[]; hours: Hours[]; special_days: Special[]; prices: Price[] };
 type Policy = { version_no: number; days_ahead: number; max_active: number; free_cancel_hours: number; late_refund_percent: number; split_deadline_hours: number; same_day_cutoff_hours: number; lengths: number[];
   late_sub_refund_percent: number; late_filled_refund_percent: number; late_empty_refund_percent: number };
-type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; country: string; prices_include_tax: boolean; tax_label: string | null; languages: string[]; default_language: string; brand_colour: string; coming_from: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; level_import_line: number; two_factor: "owner_manager" | "all_staff" | "off"; second_step_sign_in: boolean; logo_id: string | null; logo_for: "light" | "dark" | null };
+type ClubRow = { name: string; translations?: unknown; legal_name: string | null; time_zone: string; currency: string; format_locale: string; country: string; prices_include_tax: boolean; tax_label: string | null; languages: string[]; default_language: string; brand_colour: string; coming_from: string; sign_up_open: boolean; court_bookings: boolean; players_chat: boolean; gift_cards: boolean; gift_card_min_cents: number; gift_card_max_cents: number; weekly_bookings: boolean; weekly_max_weeks: number; tax_rate_bp: number; public_page: boolean; about: string | null; terms_url: string | null; privacy_policy_url: string | null; question_alert_hours: number; auto_answers: boolean; broadcast_daily_cap: number; broadcast_copy_managers: boolean; program_decide_hours: number; program_heads_up_hours: number; level_import_line: number; two_factor: "owner_manager" | "all_staff" | "off"; second_step_sign_in: boolean; logo_id: string | null; logo_for: "light" | "dark" | null; phone: string | null; website: string | null; amenities: string[] };
 type Plan = { id: string; name: string };
 type Month = { month: string; texts: number; segments: number; held: number; estimate_cents: number; priced: number; actual_cents: number };
 type Usage = { cents_per_segment: number; paused: boolean; resets: string; current: Month; history: Month[] };
@@ -173,17 +174,25 @@ const LOCALES = ["en-US", "en-CA", "es-US", "es-MX", "en-GB", "en-IE", "en-AU", 
 
 function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: Preview }) {
   const { translations, logo_id, logo_for, ...rest } = c, aboutTr0 = savedIn(translations, "about");
-  const start = { ...rest, legal_name: c.legal_name ?? "", about: c.about ?? "", terms_url: c.terms_url ?? "", privacy_policy_url: c.privacy_policy_url ?? "" };
+  const start = { ...rest, legal_name: c.legal_name ?? "", about: c.about ?? "", terms_url: c.terms_url ?? "", privacy_policy_url: c.privacy_policy_url ?? "", phone: c.phone ?? "", website: c.website ?? "" };
   const [f, setF] = useState(start), [aboutTr, setAboutTr] = useState(aboutTr0);
   const set = (k: keyof ClubRow, v: unknown) => setF({ ...f, [k]: v });
   // A link left empty takes it off: members then see none.
-  const links = (d: Partial<typeof f>) => ({ ...d, ...(d.terms_url !== undefined ? { terms_url: d.terms_url.trim() || null } : {}), ...(d.privacy_policy_url !== undefined ? { privacy_policy_url: d.privacy_policy_url.trim() || null } : {}) });
+  const links = (d: Partial<typeof f>) => ({ ...d, ...Object.fromEntries((["terms_url", "privacy_policy_url", "phone", "website"] as const).filter((k) => d[k] !== undefined).map((k) => [k, d[k]!.trim() || null])) });
+  const toggleAmenity = (a: string, on: boolean) => set("amenities", on ? AMENITIES.filter((x) => x === a || f.amenities.includes(x)) : f.amenities.filter((x) => x !== a));
   const toggleLang = (l: string, on: boolean) => set("languages", on ? [...new Set([...f.languages, l])].sort() : f.languages.filter((x) => x !== l));
   return (
     <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("club.update", { ...links(diff(start, f)), ...(aboutTr.trim() !== aboutTr0 ? { translations: translationsOf({ about: aboutTr }) } : {}) }); }}>
       <h2>{t("ui.club_details")}</h2>
       <label>{t("ui.name")}<input required value={f.name} onInput={(e) => set("name", e.currentTarget.value)} /></label>
       <label>{t("ui.legal_name")}<input value={f.legal_name} onInput={(e) => set("legal_name", e.currentTarget.value)} /></label>
+      <label>{t("ui.club_phone")}<input type="tel" inputMode="tel" autocomplete="tel" maxLength={40} value={f.phone} aria-describedby="contact-help" onInput={(e) => set("phone", e.currentTarget.value)} /></label>
+      <label>{t("ui.club_website")}<input type="url" inputMode="url" placeholder="https://" maxLength={2000} value={f.website} aria-describedby="contact-help" onInput={(e) => set("website", e.currentTarget.value)} /></label>
+      <fieldset class="amenities">
+        <legend>{t("ui.amenities")}</legend>
+        {AMENITIES.map((a) => <label class="check"><input type="checkbox" checked={f.amenities.includes(a)} onChange={(e) => toggleAmenity(a, e.currentTarget.checked)} /> {t(`amenity.${a}`)}</label>)}
+      </fieldset>
+      <p class="meta" id="contact-help">{t("ui.club_contact_hint")}</p>
       <label>{t("ui.brand_color")}<input type="color" value={f.brand_colour} onInput={(e) => set("brand_colour", e.currentTarget.value)} /></label>
       <LogoField has={Boolean(logo_id)} madeFor={logo_for} send={send} />
       <label>{t("ui.coming_from")}<select value={comingFrom(f.coming_from)} aria-describedby="coming-from-help" onChange={(e) => set("coming_from", e.currentTarget.value)}>

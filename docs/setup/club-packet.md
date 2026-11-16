@@ -27,6 +27,7 @@ collected here.
 | Each coach who gives private lessons: a photo, a few lines about them, the levels and languages they teach, a rate for each lesson length (court included), and the hours they give lessons each week | Coaches (step 5f); each coach can keep their own | The coach, owner approves |
 | The club's waiver text, if players must accept one (a lawyer's wording, not openPadel's) | Settings, Waiver (step 5g) | Owner |
 | A few lines about the club, for its public page | Settings (step 5e) | Website, owner approves |
+| The club's phone for members, its website, and what it has besides courts (parking, showers, changing rooms, lockers, a café, a pro shop, racket rental, Wi-Fi, step-free access, a kids' area) | `club.yaml` (`phone`, `website`, `amenities`) or Settings, The club | Website or Google listing, owner checks |
 | The questions members ask most, with the club's answers (parking, door code, what juniors bring, cancelling), and which may go on the public page | Questions, Club facts (step 5h) | Front desk, owner approves |
 | How many emails for messages to members may go out a day (80 to start; more on a paid email plan), and whether owners and managers get a copy of each | Settings (step 5i) | Owner |
 | The club's tags for members, if any (league teams, beginner cohorts) | Messages, Groups (step 5i) | Front desk |

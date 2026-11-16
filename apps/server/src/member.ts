@@ -1,7 +1,8 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { openCardOnFile, checkCardOnFile, itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, bookingTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf, alertsOf } from "@kumi/core";
+import { openCardOnFile, checkCardOnFile, itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, bookingTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf, alertsOf, clubPhoneShown } from "@kumi/core";
+import { amenitiesInOrder } from "@kumi/i18n/amenities";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
 import { clubFileStem } from "./file_names.ts";
@@ -177,7 +178,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   // the club's public page shows (public.ts), for members whether or not that page is on.
   app.get("/my/club", async (c) => {
     who(c);
-    const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirstOrThrow()).time_zone, at = now();
+    const club = await db.selectFrom("club").select(["time_zone", "phone", "website", "amenities", "country"]).executeTakeFirstOrThrow(), tz = club.time_zone, at = now();
     const today = localDate(at, tz), until = localDate(new Date(at.getTime() + 14 * 86_400_000), tz);
     const locations = await db.selectFrom("location").select(["id", "name", "address"]).where("archived_at", "is", null).orderBy("name").execute();
     const courts = await db.selectFrom("court").select(["location_id", "kind"]).where("archived_at", "is", null).where("bookable", "=", true).execute();
@@ -185,7 +186,9 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const special = await db.selectFrom("hours_exception").select(["location_id", "on_date", "opens", "closes"]).where("active", "=", true).where("court_id", "is", null)
       .where("on_date", ">=", today).where("on_date", "<=", until).orderBy("on_date").execute();
     const hm = (x: string | null) => (x ? String(x).slice(0, 5) : null);
-    return c.json({ time_zone: tz, locations: locations.map((l) => {
+    // How to reach the club and what it has (Settings): Call, Website and the amenities under the club's hours.
+    return c.json({ time_zone: tz, phone: club.phone, phone_shown: club.phone ? clubPhoneShown(club.phone, club.country) : null, website: club.website,
+      amenities: amenitiesInOrder(club.amenities), locations: locations.map((l) => {
       const mine = courts.filter((x) => x.location_id === l.id);
       return { id: l.id, name: l.name, address: l.address, courts: mine.length, kinds: [...new Set(mine.map((x) => x.kind))],
         hours: hours.filter((x) => x.location_id === l.id).map((x) => ({ weekday: x.weekday, opens: hm(x.opens), closes: hm(x.closes) })),
