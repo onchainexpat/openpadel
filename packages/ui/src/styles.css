@@ -202,6 +202,25 @@ body:has(div.shell) #app { max-width: none; padding: 0; }
   .rail { display: none; }
   .rail.open { display: block; position: fixed; top: 0; left: 0; bottom: 0; z-index: 9; width: min(300px, 86vw); height: auto; box-shadow: 8px 0 24px rgba(0, 0, 0, .2); }
 }
+/* The staff app's tabs at the bottom of a phone (PhoneTabs): a thumb's 44 px and more, clear of the phone's own home bar
+   (safe area), with + in the middle. The page and the docked preview keep clear of them; the menu and panels open over. */
+.phone-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 7; display: flex; align-items: center; justify-content: center;
+  padding: 4px 8px env(safe-area-inset-bottom); background: var(--card); border-top: 1px solid var(--line); }
+.phone-tabs a { flex: 1 1 0; max-width: 120px; min-width: 0; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  color: var(--muted); font-size: 11px; font-weight: 500; text-decoration: none; text-align: center; line-height: 1.15; }
+.phone-tabs .tab-word { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-tabs a.on { color: var(--brand-ink); font-weight: 700; }
+.phone-tabs a:focus-visible, .tab-plus:focus-visible { outline: 2px solid var(--brand-ink); outline-offset: -2px; }
+.tab-icon { position: relative; display: inline-flex; }
+.tab-count { position: absolute; top: -4px; right: -10px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #a3402d; color: #fff;
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.tab-plus { flex: none; width: 56px; height: 56px; min-height: 56px; margin: 0 6px; padding: 0; border-radius: 18px; border: 0; background: var(--brand); color: var(--on-brand);
+  display: inline-flex; align-items: center; justify-content: center; }
+body:has(.phone-tabs) .shell-main { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+body:has(.phone-tabs) .dock:not(:empty) { bottom: calc(64px + env(safe-area-inset-bottom)); padding-bottom: 12px; }
+body:has(.phone-tabs) .dock .sheet { max-height: calc(88vh - 64px - env(safe-area-inset-bottom)); }
+@media (min-width: 900px) { .phone-tabs { display: none; } }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* The Schedule: a bar with the day and + Create, the legend, then the grid with a side column beside it on a wide
    screen (what was picked, what needs someone, what's on now) and below it on a phone. */
 .sched-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 4px 0 8px; }

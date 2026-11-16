@@ -5321,6 +5321,9 @@ export const en = {
   "ui.nav_day_schedule": "Schedule",
   "ui.nav_main": "Staff menu",
   "ui.menu": "Menu",
+  // The staff app's tabs at the bottom of a phone (phone_tabs.ts).
+  "ui.phone_tabs": "Main pages",
+  "ui.phone_tab_programs": "Programs",
   "ui.occupancy_day": "Occupancy {percent}%",
   "ui.unpaid_pill": "Unpaid",
   "ui.legend": "What the colours mean",

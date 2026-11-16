@@ -7,6 +7,7 @@ import { NARROW, useDrawer, useMedia } from "./drawer.ts";
 import { formatLocale } from "@kumi/i18n/format";
 import { homeFor, type MenuItem } from "./presets.ts";
 import { label, preset } from "./words.ts";
+import { phoneTabs, plusAt, tabIsOn, type PhoneTab, type TabKey } from "./phone_tabs.ts";
 
 // Pages loaded when first opened (Courts and a coach's schedule are in the first screen: they're where most staff start).
 const Changes = lazyPage(() => import("./Changes.tsx").then((m) => m.Changes));
@@ -135,10 +136,9 @@ type Access = ReturnType<typeof access>;
  *  club's own pages, and the person's own, in the order and words of the club's "Coming from" preset (presets.ts).
  *  Each link only for those whose roles read that area (the server refuses the rest either way): the preset orders
  *  and names the links, never who gets one. */
-function StaffNav({ a, signOut }: { a: Access; signOut: () => void }) {
+function StaffNav({ a, n, signOut }: { a: Access; n: Counts; signOut: () => void }) {
   const { path } = useLocation();
   const { coach, coachOnly, desk, changes, areas, coachSide, show, homeItem } = a;
-  const n = useCounts(!coachOnly);
   // The page open now: its own address or one under it ("/" is whichever page is home).
   const on = (...roots: string[]) => (roots.some((r) => path === r || path.startsWith(`${r}/`)) ? "page" as const : undefined);
   const home = (item: MenuItem) => (path === "/" && homeItem === item ? "page" as const : undefined);
@@ -184,10 +184,67 @@ function StaffNav({ a, signOut }: { a: Access; signOut: () => void }) {
   );
 }
 
+/** Whether + offers this person anything: the Schedule's + Create choices their roles allow (the Schedule decides
+ *  each one again, for its location and day). */
+const mayAddSomething = () => ["program.create", "booking.create", "booking.create_lesson", "court.block"].some((x) => mayCreate(x));
+const TAB_WORDS: Record<TabKey, () => string> = {
+  today: () => t("ui.nav_today"), day: () => label("ui.nav_day_schedule"), schedule: () => label("ui.nav_schedule"),
+  approvals: () => t("ui.nav_approvals"), people: () => label("ui.nav_people"), levels: () => t("ui.nav_levels"), programs: () => t("ui.phone_tab_programs"),
+  bookings: () => label("ui.nav_bookings"), reports: () => t("ui.nav_reports"), profile: () => t("ui.nav_profile"),
+};
+const TAB_ICONS: Record<TabKey, preact.JSX.Element> = {
+  today: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
+  day: <><rect x="3" y="4.5" width="18" height="16.5" rx="2" /><path d="M8 2.5v4M16 2.5v4M3 10h18" /></>,
+  schedule: <><rect x="3" y="4.5" width="18" height="16.5" rx="2" /><path d="M8 2.5v4M16 2.5v4M3 10h18M8 14h3M8 17h6" /></>,
+  approvals: <><path d="M9 11l3 3 8-8" /><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" /></>,
+  people: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6" /></>,
+  levels: <path d="M4 20V14M10 20V9M16 20V4M2 20h20" />,
+  programs: <><path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v16H5.5A1.5 1.5 0 0 0 4 20.5z" /><path d="M4 20.5A1.5 1.5 0 0 0 5.5 22H20" /></>,
+  bookings: <><path d="M8 6h13M8 12h13M8 18h13" /><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></>,
+  reports: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
+  profile: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
+};
+
+/** On a phone, the pages a person opens most as tabs at the bottom, with + in the middle opening the Schedule's
+ *  + Create (the same choices, each previewed before anything changes). Approvals carries its count. Everything else
+ *  stays in the Menu at the top. Not shown on a wide screen, where the menu is down the left. */
+function PhoneTabs({ a, n }: { a: Access; n: Counts }) {
+  const { path, route } = useLocation();
+  const tabs = phoneTabs(a), homeHref = homeHrefOf(a);
+  const plus = mayAddSomething() && a.show("bookings");
+  // On the Schedule, + opens its Create panel where it is; anywhere else it goes to the Schedule with the panel open.
+  const add = () => {
+    const onSchedule = path.startsWith("/courts") || (path === "/" && a.home === Courts);
+    if (onSchedule) dispatchEvent(new Event("kumi:create")); else route("/courts?create=1");
+  };
+  const cell = (x: PhoneTab) => {
+    const on = tabIsOn(x, path, homeHref);
+    return <a href={x.href} class={on ? "on" : undefined} aria-current={on ? "page" : undefined}>
+      <span class="tab-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{TAB_ICONS[x.key]}</svg>
+        {x.key === "approvals" && n.approvals > 0 && <span class="tab-count">{n.approvals}</span>}</span>
+      <span class="tab-word">{TAB_WORDS[x.key]()}</span>
+      {x.key === "approvals" && n.approvals > 0 && <span class="visually-hidden">: {t("count.approvals_waiting", { count: n.approvals })}</span>}
+    </a>;
+  };
+  const at = plusAt(tabs.length);
+  return (
+    <nav class="phone-tabs" aria-label={t("ui.phone_tabs")}>
+      {tabs.slice(0, at).map(cell)}
+      {plus && <button type="button" class="tab-plus" aria-label={t("ui.create")} aria-haspopup="dialog" onClick={add}>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></button>}
+      {tabs.slice(at).map(cell)}
+    </nav>
+  );
+}
+/** The address of the page "/" shows, so its tab is lit there too. */
+const homeHrefOf = (a: Access): string | null => a.home === Schedule ? "/schedule" : a.home === Courts ? "/courts" : a.homeItem === "today" ? "/today"
+  : a.homeItem === "bookings" ? "/bookings" : a.homeItem === "people" ? "/people" : a.homeItem === "programs" ? "/programs" : null;
+
 /** The page's frame: the menu down the left on a wide screen; on a phone a bar with a Menu button that opens it over
- *  the page (Escape, the back button or a link closes it). */
+ *  the page (Escape, the back button or a link closes it), and tabs at the bottom (PhoneTabs). */
 function Frame({ a, signOut, children }: { a: Access; signOut: () => void; children: any }) {
   const [open, setOpen] = useState(false), { path } = useLocation(), narrow = useMedia(NARROW);
+  const n = useCounts(!a.coachOnly);
   const shown = open && narrow, close = () => setOpen(false);
   useEffect(close, [path, narrow]);
   useBackCloses(shown, close);
@@ -204,9 +261,10 @@ function Frame({ a, signOut, children }: { a: Access; signOut: () => void; child
         aria-label={shown ? t("ui.nav_main") : undefined}>
         <div class="rail-head"><strong>{club.value?.logo && <img class="club-logo" src={club.value.logo} alt="" width={28} height={28} />}{club.value?.name}</strong>
           {shown && <button type="button" class="small" onClick={close}>{t("ui.close")}</button>}</div>
-        <StaffNav a={a} signOut={signOut} />
+        <StaffNav a={a} n={n} signOut={signOut} />
       </div>
       <div class="shell-main">{children}</div>
+      {narrow && <PhoneTabs a={a} n={n} />}
     </div>
   );
 }

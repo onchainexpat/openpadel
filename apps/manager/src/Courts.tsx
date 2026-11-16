@@ -101,6 +101,8 @@ export function Courts() {
   const closePanel = () => { setPicked(null); setForm(null); setBlocking(false); setChoosing(null); setLesson(false); setMatch(null); };
   // The phone's back button closes what's open (the side panel or Create), not the page: one entry while anything is.
   useBackCloses(panel || creating, () => { setCreating(false); closePanel(); });
+  // The phone's + (PhoneTabs in App.tsx) opens + Create here when the Schedule is already open.
+  useEffect(() => { const open = () => { closePanel(); setCreating(true); }; addEventListener("kumi:create", open); return () => removeEventListener("kumi:create", open); }, []);
   shown = loc;
   const load = () => loc && api<Grid>(`/staff/grid?location_id=${loc}${date ? `&date=${date}` : ""}`).then((x) => { setG(x); if (!date) setDate(x.date); });
   const loadAlerts = () => api<Alerts>("/staff/alerts").then(setAlerts).catch(() => setAlerts(null));

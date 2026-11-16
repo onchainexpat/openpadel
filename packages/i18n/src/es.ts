@@ -5321,6 +5321,9 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.nav_day_schedule": "Agenda",
   "ui.nav_main": "Menú del personal",
   "ui.menu": "Menú",
+  // The staff app's tabs at the bottom of a phone (phone_tabs.ts).
+  "ui.phone_tabs": "Páginas principales",
+  "ui.phone_tab_programs": "Programas",
   "ui.occupancy_day": "Ocupación {percent}%",
   "ui.unpaid_pill": "Sin pagar",
   "ui.legend": "Qué significan los colores",
