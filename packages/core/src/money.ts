@@ -43,7 +43,13 @@ export interface PaymentProvider {
   methodOf?(method: string, account?: string | null): Promise<CardFacts | null>;
   /** Take a saved card off its customer, so it can't be charged again. Optional; never throws for one already gone. */
   detachMethod?(method: string, account?: string | null): Promise<void>;
+  /** The club's latest payouts (the provider sending the club's money to its bank), newest first, at most `limit`.
+   *  Null while the club has no account there yet. Read only, for the Money page. Optional. */
+  listPayouts?(limit: number): Promise<Payout[] | null>;
 }
+/** A payout as the provider has it: how much, where it stands, and the day it's due in the bank (a date, no time). */
+export interface Payout { ref: string; amountCents: number; currency: string; status: "paid" | "pending" | "in_transit" | "failed" | "canceled";
+  arrivesOn: string; created: Date; bank: { name: string | null; last4: string } | null }
 export interface CardFacts { brand: string; last4: string; expMonth: number | null; expYear: number | null }
 
 /** A stand-in for Stripe: records what was asked, and can be told to fail. */
@@ -65,6 +71,8 @@ export class TestProvider implements PaymentProvider {
   /** Payments disputed at the stand-in provider (by reference). */
   disputes = new Set<string>();
   failNextRefund = false;
+  /** Payouts at the stand-in provider: none until a test adds some (a club in practice has had none). */
+  payouts: Payout[] = [];
   async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; customer?: string; saveCard?: boolean; metadata?: Record<string, string> }) {
     const known = this.byKey.get(i.idempotencyKey);
     if (known) return { ref: known, clientSecret: this.intents.get(known)!.clientSecret, account: null };
@@ -156,6 +164,9 @@ export class TestProvider implements PaymentProvider {
     const refunds: FoundRefund[] = [...this.refunds.entries()].filter(([, r]) => (r.created ?? new Date(0)) >= since)
       .map(([key, r]) => ({ ref: r.ref, paymentRef: r.paymentRef, amountCents: r.amountCents, ok: r.status !== "failed", created: r.created ?? new Date(0), kumiRefundId: key, status: r.status ?? "succeeded" }));
     return { intents, refunds };
+  }
+  async listPayouts(limit: number) {
+    return [...this.payouts].sort((a, b) => b.created.getTime() - a.created.getTime()).slice(0, limit);
   }
   async refundsOf(paymentRef: string) {
     const refunds: FoundRefund[] = [...this.refunds.entries()].filter(([, r]) => r.paymentRef === paymentRef)

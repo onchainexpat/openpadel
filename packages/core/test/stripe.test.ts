@@ -200,3 +200,24 @@ test("payments and refunds since a time: past 200 pages (20,000 of each) it stop
   const done = listingStripe(() => ({ data: [], has_more: false }));
   assert.equal((await new StripeProvider({ secretKey: "sk_test_abc", fetch: done.fetch }).listSince(new Date())).cut, false);
 });
+
+test("payouts: the latest, with the bank's last four, under the club's own account; none until it has one", async () => {
+  const s = fakeStripe(() => ({ json: { data: [
+    { id: "po_2", amount: 521436, currency: "usd", status: "in_transit", arrival_date: Date.UTC(2026, 9, 28) / 1000, created: Date.UTC(2026, 9, 27, 9) / 1000,
+      destination: { id: "ba_1", object: "bank_account", bank_name: "STRIPE TEST BANK", last4: "6789" } },
+    { id: "po_1", amount: 790244, currency: "usd", status: "paid", arrival_date: Date.UTC(2026, 9, 27) / 1000, created: Date.UTC(2026, 9, 25, 9) / 1000, destination: "ba_1" },
+  ] } }));
+  const direct = new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch });
+  const list = await direct.listPayouts(10);
+  assert.deepEqual(list!.map((p) => [p.ref, p.amountCents, p.currency, p.status, p.arrivesOn, p.bank?.last4 ?? null]),
+    [["po_2", 521436, "USD", "in_transit", "2026-10-28", "6789"], ["po_1", 790244, "USD", "paid", "2026-10-27", null]]);
+  assert.equal(s.calls[0]!.method, "GET");
+  assert.equal(s.calls[0]!.path, "/v1/payouts");
+  assert.equal(s.calls[0]!.headers["stripe-account"], undefined, "run directly: the key's own account");
+  const hosted = new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch, connect: async () => ({ id: "acct_9", ready: true }) });
+  await hosted.listPayouts(5);
+  assert.equal(s.calls[1]!.headers["stripe-account"], "acct_9");
+  const notYet = new StripeProvider({ secretKey: "sk_test_abc", fetch: s.fetch, connect: async () => ({ id: null, ready: false }) });
+  assert.equal(await notYet.listPayouts(5), null);
+  assert.equal(s.calls.length, 2, "nothing asked of Stripe without an account");
+});

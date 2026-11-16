@@ -3,7 +3,7 @@
 // Kumi) adds the account header later.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { KumiError } from "./errors.ts";
-import type { CardFacts, IntentStatus, PaymentProvider } from "./money.ts";
+import type { CardFacts, IntentStatus, PaymentProvider, Payout } from "./money.ts";
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 /** Pinned, so Stripe can't change an answer's shape under us; moved on deliberately. */
@@ -209,6 +209,23 @@ export class StripeProvider implements PaymentProvider {
     const r = await this.call("GET", `/v1/refunds?payment_intent=${encodeURIComponent(paymentRef)}&limit=100`, undefined, undefined, account);
     const d = await this.call("GET", `/v1/disputes?payment_intent=${encodeURIComponent(paymentRef)}&limit=1`, undefined, undefined, account);
     return { refunds: (r?.data ?? []).map(refundOf), disputed: Boolean(d?.data?.length) };
+  }
+
+  /** The club's latest payouts to its bank, newest first (at most 100), with the bank's name and last four digits.
+   *  Under Connect, the club's own account's (null until it has one); run directly, the key's own account's. */
+  async listPayouts(limit: number): Promise<Payout[] | null> {
+    const account = await this.domainAccount();
+    if (account === undefined) return null;
+    const d = await this.call("GET", `/v1/payouts?limit=${Math.max(1, Math.min(100, Math.floor(limit)))}&expand[]=data.destination`, undefined, undefined, account);
+    const status = (x: string): Payout["status"] => (["paid", "pending", "in_transit", "failed", "canceled"].includes(x) ? x : "pending") as Payout["status"];
+    return (d?.data ?? []).map((x: any) => {
+      const dest = x.destination && typeof x.destination === "object" ? x.destination : null;
+      const last4 = dest && /^\d{4}$/.test(String(dest.last4 ?? "")) ? String(dest.last4) : null;
+      return { ref: String(x.id), amountCents: Number(x.amount ?? 0), currency: String(x.currency ?? "").toUpperCase(), status: status(String(x.status)),
+        // Stripe gives the day it's due as midnight UTC of that day.
+        arrivesOn: new Date(Number(x.arrival_date ?? x.created ?? 0) * 1000).toISOString().slice(0, 10), created: new Date(Number(x.created ?? 0) * 1000),
+        bank: last4 ? { name: dest.bank_name ? String(dest.bank_name) : dest.brand ? String(dest.brand) : null, last4 } : null };
+    });
   }
 
   /** The card a payment went through on (its latest charge), for the receipt: brand and last four only. */
