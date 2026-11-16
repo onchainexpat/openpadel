@@ -9,6 +9,7 @@ export * from "./club.ts";
 export * from "./programs.ts";
 export * from "./program_clashes.ts";
 export * from "./programming.ts";
+export * from "./play_alerts.ts";
 export * from "./bookings.ts";
 export * from "./block_series.ts";
 export * from "./booking_series.ts";

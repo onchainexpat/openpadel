@@ -29,6 +29,7 @@ import { mayAnswer } from "./actions.ts";
 import { emailSuppressed } from "./email_suppression.ts";
 import { gameOf } from "./chat.ts";
 import { typeKey } from "./playtomic.ts";
+import { courtFreedDrafts, matchOpenedDrafts } from "./play_alerts.ts";
 
 /** `id`, when given, makes a repeat of the same send a no-op at the provider (a retry after a timeout).
  *  `headers`: extra mail headers, such as a club news email's one-click unsubscribe (RFC 8058). */
@@ -1030,6 +1031,14 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
   async "program.place_open"({ tz }, p: { program_id: string; name: string | Text; starts_at: string | null; people: string[] }) {
     const start = p.starts_at ? new Date(p.starts_at) : null;
     return p.people.map((to) => ({ to, kind: "place_open", params: { name: p.name, when: when(start, tz) }, purpose: "account" as const, essential: false, email: true, link: `/events/${p.program_id}`, staleAt: start }));   // its own page (a clinic or course moves on to Learn)
+  },
+  // "Tell me when" (play_alerts.ts): a court freed in someone's window, an open match at their level. First come, first
+  // served, so not essential (quiet hours hold the email and the push), and never by text.
+  async "court.freed"({ db }, p: { booking_id: string; at: string; times: { court_id: string; start: string; end: string }[] }) {
+    return (await courtFreedDrafts(db, p)).map((d) => ({ ...d, purpose: "account" as const, essential: false, email: true }));
+  },
+  async "open_match.opened"({ db }, p: { booking_id: string; at: string }) {
+    return (await matchOpenedDrafts(db, p)).map((d) => ({ ...d, purpose: "account" as const, essential: false, email: true }));
   },
   // An edit to a program's dates undone: the people told about it hear it's back as it was.
   async "action.undone"({ db }, p: { run_id: string }) {

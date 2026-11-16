@@ -52,7 +52,7 @@ const MAX_ATTEMPTS = 5;
 /** What matters within minutes goes at high urgency, so a phone asleep gets it now rather than at its next wake-up:
  *  a place offered or handed on, a court booked for you or lost, a match about to start or changed, money that needs
  *  you. Staff alerts always do. The rest goes at normal urgency. */
-const URGENT = new Set(["offered", "place_open", "match_place_offered", "passed_to_you", "match_ask", "match_running_late", "match_not_filled", "match_place_given",
+const URGENT = new Set(["offered", "place_open", "court_free", "match_alert", "match_place_offered", "passed_to_you", "match_ask", "match_running_late", "match_not_filled", "match_place_given",
   "match_seat_released", "booked", "booked_to_pay", "booking_lost", "booking_player_added", "booking_courts", "booking_reminder", "lesson_reminder", "dates_changed",
   "removed", "payment_failed", "membership_payment_failed", "membership_payment_unfinished", "kid_pay_needed", "kid_asked", "booking_balance_due", "booking_parts_owed", "unpaid_reminder",
   "sign_in_reset"]);

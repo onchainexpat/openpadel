@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { openCardOnFile, checkCardOnFile, itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, bookingTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf } from "@kumi/core";
+import { openCardOnFile, checkCardOnFile, itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, bookingTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf, alertsOf } from "@kumi/core";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
 import { clubFileStem } from "./file_names.ts";
@@ -27,7 +27,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
 
   app.get("/open-programs", async (c) => {
     const pid = await forWhom(c), l = lang(c);
-    const rows = await db.selectFrom("program").select(["id", trSql("program", "name", l).as("name"), "kind", "format", "capacity", "price_cents", "member_price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window", "min_players", "sign_up"])
+    const rows = await db.selectFrom("program").select(["id", trSql("program", "name", l).as("name"), "kind", "format", "capacity", "price_cents", "member_price_cents", "rated", "level_min", "level_max", "refund_window_hours", "refund_inside_window", "min_players", "sign_up", "gender"])
       .select((eb) => [
         eb.selectFrom("enrolment").select((x) => x.fn.countAll<string>().as("n")).whereRef("enrolment.program_id", "=", "program.id").where("enrolment.status", "=", "booked").as("booked"),
         eb.selectFrom("session").select((x) => x.fn.min("starts_at").as("s")).whereRef("session.program_id", "=", "program.id").where("session.status", "!=", "cancelled").as("first_start"),
@@ -287,7 +287,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       .innerJoin("court", "court.id", "court_time.court_id").innerJoin("location", "location.id", "court.location_id").leftJoin("person", "person.id", "booking.organiser_id")
       .leftJoin("booking_policy", "booking_policy.id", "booking.policy_id")
       .select(["booking.id", "booking.status", "booking.players", "booking.price_cents", "booking.settled_at", "booking.organiser_id", "booking.invite_code", "booking.pay_mode", "open_match.level_min", "open_match.level_max",
-        "open_match.outside_band", "open_match.listed", "court.name as court", "location.name as location", "location.time_zone", "person.display_name as host",
+        "open_match.outside_band", "open_match.listed", "open_match.gender", "court.name as court", "location.name as location", "location.time_zone", "person.display_name as host",
         // An open match's note from its host, or the note the desk wrote for a court's players (Schedule, + Create).
         sql<string | null>`coalesce(open_match.note, booking.player_note)`.as("note"),
         sql<boolean>`open_match.booking_id IS NOT NULL`.as("is_match"), sql<boolean>`coalesce(open_match.rated, booking.rated)`.as("rated"),
@@ -385,6 +385,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const f = await friendsOf(db, pid), has = (list: { id: string }[]) => list.some((x) => x.id === p.id);
     return c.json({ ...p, status: has(f.friends) ? "friends" : has(f.you_added) ? "waiting" : has(f.added_you) ? "added_you" : "none" });
   });
+  // "Tell me when" alerts that are on (play_alerts.ts): Book's court alert for a day, Play's match alert.
+  app.get("/my/alerts", async (c) => c.json(await alertsOf(db, await forWhom(c), now())));
   app.get("/open-matches", async (c) => {
     const pid = who(c);
     const ids = await db.selectFrom("open_match").innerJoin("booking", "booking.id", "open_match.booking_id").innerJoin("court_time", "court_time.booking_id", "booking.id").select("booking.id")
