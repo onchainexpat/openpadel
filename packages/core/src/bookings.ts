@@ -10,6 +10,7 @@ import { defineAction, mayAlso, readRow, type ApplyCtx, type PlanCtx } from "./a
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
+import { matchOpened } from "./play_alerts.ts";
 import { localParts, onDate, weekdayOf } from "./clock.ts";
 import { currentPolicy, quote } from "./prices.ts";
 import { band, joinRule, levelOf } from "./match_rules.ts";
@@ -400,7 +401,8 @@ const filled = placeFilled;
 /** An open match made at the desk (+ Create, Open match): the level band and who may join, as in the members' app. */
 const levelIn = z.number().check(z.minimum(0.5), z.maximum(7));
 const deskOpen = z.object({ level_min: levelIn, level_max: levelIn, outside_band: z.optional(z.enum(["ask", "closed"])), rated: z.optional(z.boolean()),
-  listed: z.optional(z.boolean()), note: z.optional(z.string().check(z.maxLength(200))) });
+  listed: z.optional(z.boolean()), note: z.optional(z.string().check(z.maxLength(200))),
+  gender: z.optional(z.enum(["mixed", "women", "men"]).check(z.describe("Who it's meant for, as a label players choose by. Nobody is checked against it. Leave out: open to all."))) });
 
 export const bookingCreate = defineAction({
   name: "booking.create", version: 1,
@@ -478,6 +480,7 @@ export const bookingCreate = defineAction({
     const open = (pay === "split" ? 4 : places.length) - places.filter(filled).length;
     if (open > 0 && org.person_id) parts.push(i.open ? both("plan.booking.desk_open_match", { count: open })
       : both(pay === "split" ? "plan.booking.desk_open_split" : "plan.booking.desk_open_whole", { count: open }));
+    if (i.open?.gender) parts.push(both("plan.gender_label", { label: both(`gender.${i.open.gender}` as const) }));
     if (i.player_note?.trim()) parts.push(both("plan.booking.desk_player_note", { note: i.player_note.trim() }));
     const summary: Text = { en: parts.map((x) => x.en).join(" "), es: parts.map((x) => x.es).join(" ") };
     return { title: both("action.booking.create"), summary, reads: [], locationId: court.location_id, ownerIds: org.person_id ? [org.person_id] : [], moneyCents: price, undo: { kind: "reversible" },
@@ -500,7 +503,7 @@ export const bookingCreate = defineAction({
       quote: JSON.stringify(q), policy_id: policy.id, note: i.note?.trim() || null, player_note: i.player_note?.trim() || null, pay_mode: pay, ...(pay === "split" ? { players: 4 } : {}),
       invite_code: org.person_id ? randomBytes(9).toString("base64url") : null });
     if (i.open) await ctx.insert("open_match", { booking_id: id, level_min: i.open.level_min.toFixed(2), level_max: i.open.level_max.toFixed(2), outside_band: i.open.outside_band ?? "ask",
-      rated: i.open.rated ?? true, listed: i.open.listed ?? true, note: i.open.note?.trim() || null, cutoff_at: cutoffAt ? new Date(cutoffAt) : null });
+      rated: i.open.rated ?? true, listed: i.open.listed ?? true, note: i.open.note?.trim() || null, cutoff_at: cutoffAt ? new Date(cutoffAt) : null, gender: i.open.gender ?? null });
     const share = deskParts(price, pay, places.length);
     const seats: { id: string; place: DeskPlace; cents: number }[] = [];
     for (const [n, p] of places.entries()) {
@@ -517,6 +520,7 @@ export const bookingCreate = defineAction({
       await recordAtDesk(ctx, { personId: s.place.person_id ?? org.person_id ?? ctx.actor.personId!, cents: s.cents, method: i.paid_method ?? "cash", revenue: "courts", memo: "court booking",
         link: { booking_player_id: s.id } });
     await ctx.emit("booking.created", { booking_id: id });
+    if (i.open) await matchOpened(ctx, id);   // listed for anyone: news for match alerts (play_alerts.ts)
     return { booking_id: id, code };
   },
 });

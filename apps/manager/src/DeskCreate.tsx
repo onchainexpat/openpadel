@@ -12,6 +12,7 @@ import type { Key } from "@kumi/i18n";
 import { formatLocale } from "@kumi/i18n/format";
 import { api, dollars, lang, serverNow, t } from "@kumi/ui";
 import { blank, freeUntil, partsOf, PlaceRow, startsOn, type NbCourt, type Place } from "./NewBooking.tsx";
+import { MATCH_GENDERS } from "./genders.ts";
 
 type Preview = (action: string, input: unknown) => Promise<void>;
 type Coach = { id: string; name: string; rates: Record<string, number>; max_players: number };
@@ -119,7 +120,7 @@ const LEVELS = Array.from({ length: 14 }, (_, n) => (n + 1) / 2);   // 0.5 to 7,
 export function DeskMatch({ courts, court, start, tz, clock, money, people, may, preview, onClose }: { courts: NbCourt[]; court: NbCourt; start: string; tz: string;
   clock: (s: string | number) => string; money: boolean; people: boolean; may: (action: string) => boolean; preview: Preview; onClose: () => void }) {
   const firstEnd = (c: NbCourt, s: string) => new Date(ms(s) + Math.min(90 * 60_000, Math.floor((freeUntil(c, s) - ms(s)) / HALF) * HALF)).toISOString();
-  const [f, setF] = useState({ court: court.id, start, end: firstEnd(court, start), min: 2.5, max: 3.5, outside: "ask", rated: true, listed: true, method: "cash", note: "", matchNote: "" });
+  const [f, setF] = useState({ court: court.id, start, end: firstEnd(court, start), min: 2.5, max: 3.5, outside: "ask", rated: true, listed: true, method: "cash", note: "", matchNote: "", gender: "" });
   const [places, setPlaces] = useState<Place[]>([blank(), blank(), blank(), blank()]), [quoted, setQuoted] = useState<Quoted | null>(null);
   const c = courts.find((x) => x.id === f.court) ?? court, minutes = Math.round((ms(f.end) - ms(f.start)) / 60_000), org = places[0]!;
   const ends: string[] = [];
@@ -143,7 +144,7 @@ export function DeskMatch({ courts, court, start, tz, clock, money, people, may,
     const s = sent(places, parts, true);
     void preview("booking.create", { court_id: f.court, starts_at: f.start, minutes, pay: "split", places: s, ...(s.some((p) => p.paid) ? { paid_method: f.method } : {}),
       ...(f.note.trim() ? { note: f.note.trim() } : {}),
-      open: { level_min: f.min, level_max: f.max, outside_band: f.outside, rated: f.rated, listed: f.listed, ...(f.matchNote.trim() ? { note: f.matchNote.trim() } : {}) } });
+      open: { level_min: f.min, level_max: f.max, outside_band: f.outside, rated: f.rated, listed: f.listed, ...(f.matchNote.trim() ? { note: f.matchNote.trim() } : {}), ...(f.gender ? { gender: f.gender } : {}) } });
   };
   const level = (v: number) => v.toFixed(1);
   return (
@@ -170,6 +171,9 @@ export function DeskMatch({ courts, court, start, tz, clock, money, people, may,
           <button type="button" aria-pressed={!f.rated} onClick={() => setF({ ...f, rated: false })}>{t("ui.dc_friendly")}</button>
         </div>
         <label class="check"><input type="checkbox" checked={f.listed} onChange={(e) => setF({ ...f, listed: e.currentTarget.checked })} /> {t("ui.dc_listed")}</label>
+        <label>{t("ui.gender")}<select value={f.gender} onChange={(e) => setF({ ...f, gender: e.currentTarget.value })}><option value="">{t("ui.gender_any")}</option>
+          {MATCH_GENDERS.map((g) => <option value={g}>{t(`gender.${g}` as Key)}</option>)}</select></label>
+        <p class="meta">{t("ui.gender_hint")}</p>
       </fieldset>
 
       <fieldset class="nb-pay"><legend>{t("ui.nb_payment")}</legend>

@@ -9,6 +9,7 @@ import { PaySheet } from "./Pay.tsx";
 import { weeklyLaterLine, type WeeklyLater } from "./weekly_later.ts";
 import { formatLocale } from "@kumi/i18n/format";
 import { startTimes } from "./book_times.ts";
+import { CourtAlert } from "./Alerts.tsx";
 
 type Options = { locations: { id: string; name: string; time_zone: string }[]; lengths: number[]; days_ahead: number; split_deadline_hours: number; weekly: boolean; weekly_max_weeks: number; same_day_cutoff_hours: number; free_cancel_hours: number; late_refund_percent: number };
 type Free = { open: { opens: string; closes: string } | null; courts: { id: string; name: string; kind: string; starts: string[] }[] };
@@ -19,7 +20,10 @@ const kindName = (k: string) => k === "indoor" ? t("ui.kind_indoor") : k === "ou
 export function Book() {
   // "Start a match" on Play: this same page, with paying my part and opening it to others chosen for each time picked.
   const [startMatch] = useState(() => new URLSearchParams(location.search).get("start") === "match");
-  const [o, setO] = useState<Options | null>(null), [loc, setLoc] = useState(""), [day, setDay] = useState(""), [minutes, setMinutes] = useState(90);
+  // From a "court is free" message: its location and day (/book?location=...&date=...).
+  const [asked] = useState(() => new URLSearchParams(location.search));
+  const [o, setO] = useState<Options | null>(null), [loc, setLoc] = useState(""), [minutes, setMinutes] = useState(90);
+  const [day, setDay] = useState(() => /^\d{4}-\d{2}-\d{2}$/.test(asked.get("date") ?? "") ? asked.get("date")! : "");
   const [free, setFree] = useState<Free | null>(null), [pick, setPick] = useState<{ start: string; courts: Free["courts"] } | null>(null), [court, setCourt] = useState("");
   const [q, setQ] = useState<Quote | null>(null), [pay, setPay] = useState<"whole" | "split">("whole"), [players, setPlayers] = useState(4);
   // Each free court's price at the chosen time, for its card (the chosen one's quote is `q`, as before).
@@ -29,7 +33,7 @@ export function Book() {
   const [provider, setProvider] = useState("test"), [paying, setPaying] = useState<{ id: string; cents: number; later?: WeeklyLater | null } | null>(null), [done, setDone] = useState(false);
   // An open match: the level band (around my own level to start with), and who else may join.
   const [open, setOpen] = useState(startMatch), [myLevel, setMyLevel] = useState<number | null>(null), [matchId, setMatchId] = useState<string | null>(null);
-  const [om, setOm] = useState({ min: "3.00", max: "4.00", ask: true, rated: true, listed: true });
+  const [om, setOm] = useState({ min: "3.00", max: "4.00", ask: true, rated: true, listed: true, gender: "" as "" | "mixed" | "women" | "men" });
   // Courts added to pay together (the same day, whole courts).
   const [cart, setCart] = useState<{ court: string; name: string; start: string; minutes: number; cents: number }[]>([]);
   const cartTotal = cart.reduce((n, x) => n + x.cents, 0);
@@ -41,7 +45,7 @@ export function Book() {
   });
 
   useEffect(() => {
-    api<Options>("/booking-options").then((x) => { setO(x); setLoc(x.locations[0]?.id ?? ""); setMinutes(x.lengths.includes(90) ? 90 : x.lengths[0]!); });
+    api<Options>("/booking-options").then((x) => { setO(x); const want = asked.get("location"); setLoc(x.locations.some((l) => l.id === want) ? want! : x.locations[0]?.id ?? ""); setMinutes(x.lengths.includes(90) ? 90 : x.lengths[0]!); });
     api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {});
     api<{ rating: { level: string } | null }>("/my/level").then((r) => {
       if (!r.rating) return;
@@ -98,7 +102,7 @@ export function Book() {
     ? preview("booking.request", { court_id: cart[0]!.court, starts_at: cart[0]!.start, minutes: cart[0]!.minutes, pay: "whole", person_id: me.value!.person.id })
     : preview("booking.request_courts", { courts: cart.map((x) => ({ court_id: x.court, starts_at: x.start, minutes: x.minutes })), person_id: me.value!.person.id });
   const book = () => weekly && pay === "whole" ? preview("booking.repeat_request", { court_id: court, starts_at: pick!.start, minutes, weeks, person_id: me.value!.person.id }) : preview("booking.request", { court_id: court, starts_at: pick!.start, minutes, pay, ...(pay === "split" ? { players } : {}), person_id: me.value!.person.id,
-    ...(opened ? { open: { level_min: Number(om.min), level_max: Number(om.max), outside_band: om.ask ? "ask" : "closed", rated: om.rated, listed: om.listed } } : {}) });
+    ...(opened ? { open: { level_min: Number(om.min), level_max: Number(om.max), outside_band: om.ask ? "ask" : "closed", rated: om.rated, listed: om.listed, ...(om.gender ? { gender: om.gender } : {}) } } : {}) });
   const chosen = pick?.courts.find((c) => c.id === court);
   // Ready to book: a court with its price, and not adding to courts already chosen (those are booked together above).
   const ready = Boolean(pick && court && q?.priced && !cart.length);
@@ -177,6 +181,9 @@ export function Book() {
                 <label class="check"><input type="checkbox" checked={om.ask} onChange={(e) => setOm({ ...om, ask: e.currentTarget.checked })} /> {t("ui.outside_can_ask")}</label>
                 <label class="check"><input type="checkbox" checked={om.rated} onChange={(e) => setOm({ ...om, rated: e.currentTarget.checked })} /> {t("ui.match_counts")}</label>
                 <label class="check"><input type="checkbox" checked={om.listed} onChange={(e) => setOm({ ...om, listed: e.currentTarget.checked })} /> {t("ui.list_on_play")}</label>
+                <label>{t("ui.gender")}<select value={om.gender} onChange={(e) => setOm({ ...om, gender: e.currentTarget.value as typeof om.gender })}><option value="">{t("ui.gender_any")}</option>
+                  {(["mixed", "women", "men"] as const).map((g) => <option value={g}>{t(`gender.${g}`)}</option>)}</select></label>
+                <p class="meta">{t("ui.gender_hint")}</p>
               </fieldset>}
             </>}
             <p class="meta">{t(o.late_refund_percent ? "ui.cancel_rule" : "ui.cancel_rule_none", { hours: t("count.hours", { count: o.free_cancel_hours }), percent: o.late_refund_percent })}</p>
@@ -185,6 +192,9 @@ export function Book() {
           </div> : <p class="meta">{t("error.no_price")}</p>)}
         </section>
       )}
+      {/* Priority alert: tell me when a court frees up on this day, for a start in a window I pick. */}
+      {free?.open && loc && day && <CourtAlert location={loc} date={day} tz={tz} open={free.open}
+        dayLabel={new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" }).format(new Date(`${day}T12:00:00Z`))} />}
       {/* The Book button, at the bottom of the screen above the tabs, with what it books. */}
       {ready && <div class="book-bar">
         <span class="book-bar-what"><strong>{fmt(pick!.start, { weekday: "short", day: "numeric", month: "short" })}, {fmt(pick!.start, { hour: "numeric", minute: "2-digit" })}</strong>

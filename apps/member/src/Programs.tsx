@@ -10,13 +10,14 @@ import { api, club, clubTime, dollars, EmptyState, lang, me, NewOnly, placesLeft
 import { ForWhom } from "./ForWhom.tsx";
 import { LearnSwitch, PlaySwitch } from "./TabBar.tsx";
 import { DayStrip, PlacesToggle } from "./DayStrip.tsx";
-import { CoachFace, Taken } from "./cards.tsx";
+import { CoachFace, GenderChips, Taken } from "./cards.tsx";
 import { Lessons } from "./Lessons.tsx";
 import { EVENT_CHIPS, isEvent, onChip, programHasPlace, programOn, weeksOf, type EventChip } from "./whats_on.ts";
 import { fitOf } from "./fit.ts";
+import { genderShown, type Gender } from "./alert_bits.ts";
 
 type Day = { id: string; starts_at: string; capacity: number; booked: number; offered: number; my_status: string | null; my_offer_until: string | null; my_watch: string | null };
-export type Program = ProgramCardData & { kind: string; format: string | null; my_status: string | null; my_offer_until: string | null; my_watch: string | null; dates?: Day[];
+export type Program = ProgramCardData & { kind: string; format: string | null; gender?: Gender | null; my_status: string | null; my_offer_until: string | null; my_watch: string | null; dates?: Day[];
   coach: { name: string; photo: string | null } | null; minutes: number | null; sessions: number; last_start: string | null; next_session_id: string | null };
 
 const KINDS = { social: "ui.pk_social", tournament: "ui.pk_tournament", league: "ui.pk_league", clinic: "ui.pk_clinic", course: "ui.pk_course" } as const;
@@ -47,9 +48,9 @@ function useLevel(who: string) {
 /** Events, under Play: chips for the kinds, a week of days, and only the ones with places if asked. */
 export function Events() {
   const [who, setWho] = useState(me.value!.person.id), { rows } = usePrograms(who);
-  const [chip, setChip] = useState<EventChip>("all"), [day, setDay] = useState(""), [places, setPlaces] = useState(false);
+  const [chip, setChip] = useState<EventChip>("all"), [day, setDay] = useState(""), [places, setPlaces] = useState(false), [gender, setGender] = useState<Gender | "">("");
   const tz = club.value?.time_zone ?? "UTC", all = (rows ?? []).filter((p) => isEvent(p.kind));
-  const shown = all.filter((p) => onChip(p.kind, chip) && programOn(p, day, tz) && (!places || programHasPlace(p)));
+  const shown = all.filter((p) => onChip(p.kind, chip) && programOn(p, day, tz) && (!places || programHasPlace(p)) && genderShown(p.gender, gender));
   return (
     <main>
       <h1>{t(club.value?.court_bookings ? "ui.nav_play" : "ui.home_events")}</h1>
@@ -58,6 +59,7 @@ export function Events() {
         <button type="button" class={c === chip ? "chip on" : "chip"} aria-pressed={c === chip} onClick={() => setChip(c)}>{t(CHIPS[c])}</button>)}</div>
       <DayStrip value={day} onChange={setDay} tz={tz} has={(d) => all.some((p) => onChip(p.kind, chip) && programOn(p, d, tz))} />
       <PlacesToggle value={places} onChange={setPlaces} />
+      <GenderChips rows={all} value={gender} onChange={setGender} />
       <ForWhom value={who} onChange={setWho} />
       {!rows ? <p class="meta">{t("ui.loading")}</p> : all.length === 0 ? <p class="card">{t("ui.events_nothing")}</p> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
       <ul class="items">{shown.map((p) => <li key={p.id}><ProgramItem p={p} href={`/events/${p.id}${forQuery(who)}`} /></li>)}</ul>
@@ -117,8 +119,9 @@ function ProgramItem({ p, href, join, level }: { p: Program; href: string; join?
       <a class="item-title item-link" href={href}>{p.name}</a>
       <span class="item-when">{p.dates ? t("ui.dates_count", { count: p.dates.length }) : p.kind === "course" && p.sessions > 1
         ? t("ui.course_when", { weeks: t("count.weeks", { count: weeks }), first: when }) : when}{p.minutes ? ` · ${lengthText(p.minutes)}` : ""}</span>
-      {p.level_min && p.level_max && <span class="tags"><span class="tag">{t("ui.level_band", { min: p.level_min, max: p.level_max })}</span>
-        {fit && <span class={`tag fit-${fit}`}>{fit === "great" || fit === "good" ? t("ui.fit_yours", { level: level!.toFixed(2) }) : t(`ui.fit_${fit}` as Key)}</span>}</span>}
+      {((p.level_min && p.level_max) || p.gender) && <span class="tags">{p.level_min && p.level_max && <span class="tag">{t("ui.level_band", { min: p.level_min, max: p.level_max })}</span>}
+        {p.level_min && p.level_max && fit && <span class={`tag fit-${fit}`}>{fit === "great" || fit === "good" ? t("ui.fit_yours", { level: level!.toFixed(2) }) : t(`ui.fit_${fit}` as Key)}</span>}
+        {p.gender && <span class="tag">{t(`gender.${p.gender}`)}</span>}</span>}
       <span class="item-foot">
         {p.dates ? <span class="count">{t("ui.per_date_short")}</span> : full ? <span class="tag warn">{t("ui.full")}</span> : <Taken taken={p.booked + p.offered} total={p.capacity} />}
         <span class="item-org">{p.coach && <CoachFace name={p.coach.name} photo={p.coach.photo} />}{p.coach ? p.coach.name : t("ui.by_name", { name: coachOrClub(p) })}</span>
@@ -161,6 +164,7 @@ export function ProgramPage({ id }: { id: string }) {
           <div><dt>{t("ui.fact_level")}</dt><dd>{p.level_min && p.level_max ? `${p.level_min}-${p.level_max}` : t("ui.all_levels")}</dd></div>
           <div><dt>{t("ui.fact_price")}</dt><dd>{price}{p.kind === "course" && p.my_basis !== "included" && <small> {t("ui.total")}</small>}</dd></div>
           <div><dt>{t("ui.fact_places")}</dt><dd>{p.dates ? t("ui.per_date_short") : full ? t("ui.full") : `${p.booked + p.offered}/${p.capacity}`}</dd></div>
+          {p.gender && <div><dt>{t("ui.gender")}</dt><dd>{t(`gender.${p.gender}`)}</dd></div>}
         </dl>
         {p.my_basis === "member" && <p class="meta">{t("ui.your_member_price", { amount: dollars(p.my_price_cents, lang.value) })}</p>}
         {p.my_basis === "included" && p.included && <p class="meta">{t("ui.your_included", { n: p.included.n, of: p.included.of })}</p>}

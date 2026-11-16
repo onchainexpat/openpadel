@@ -2395,6 +2395,37 @@ Its preview reads: "Change {fields} on your profile."
 openpadel person update-profile --person "Maria Lopez"
 ```
 
+### play-alert
+
+#### openpadel play-alert end
+
+Turn off an alert. Who may: owner, manager, member (their own).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--alert-id` | id | needed |  |
+
+```
+openpadel play-alert end --alert-id <id>
+```
+
+#### openpadel play-alert set
+
+Turn on an alert. Who may: owner, manager, member (their own).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--person` | person: a name or an id | needed |  |
+| `--kind` | court \| match | needed | court: when a court frees up on a day, in a window of start times. match: when an open match opens whose level band has my level. |
+| `--location` | location: a name or an id |  | Where. Needed for a court alert; for a match alert, leave it out for any location. |
+| `--date` | date YYYY-MM-DD |  | A court alert's day, YYYY-MM-DD, in the location's time. |
+| `--from` | text |  | A time of day in the location's time, HH:MM. |
+| `--until` | text |  | A time of day in the location's time, HH:MM. |
+
+```
+openpadel play-alert set --person "Maria Lopez" --kind court
+```
+
 ### playtomic
 
 #### openpadel playtomic read-players
@@ -2514,6 +2545,7 @@ Its preview reads: "Create {name} ({kind}), {capacity} places at {price}."
 | `--decide-hours` | whole number |  | How many hours before the first date the minimum is decided. Empty: the club's default. |
 | `--translations` | JSON |  |  |
 | `--sign-up` | whole_program \| per_session |  | whole_program (default): one place covers every date. per_session: each date has its own places, roster, waitlist and minimum, and people sign up for the dates they want (clinics and socials). |
+| `--gender` | mixed \| women \| men \| mixed_pairs |  | Who it's meant for, as a label players choose by (Play filters by it). Nobody is checked against it. Leave out: open to all. |
 
 ```
 openpadel program create --location Main --kind clinic --name "Tuesday drills" --capacity 8 --price-cents 3000
@@ -2531,6 +2563,21 @@ Its preview reads: "Publish {name} so players can sign up."
 
 ```
 openpadel program publish --program "Tuesday drills"
+```
+
+#### openpadel program set-gender
+
+Change a program's category. Who may: owner, manager.
+
+Its preview reads: "Change the category of {name}."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--program` | program: a name or an id | needed |  |
+| `--gender` | mixed \| women \| men \| mixed_pairs | needed | Who it's meant for, as a label players choose by (Play filters by it). Nobody is checked against it. Leave out: open to all. |
+
+```
+openpadel program set-gender --program "Tuesday drills" --gender mixed
 ```
 
 #### openpadel program set-minimum

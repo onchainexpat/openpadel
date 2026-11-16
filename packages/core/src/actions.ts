@@ -118,6 +118,7 @@ const ENTITIES = {
   enrolment: { table: "enrolment", key: "id", retire: { status: "cancelled" } },
   waitlist_offer: { table: "waitlist_offer", key: "id", retire: { outcome: "expired" } },
   program_watch: { table: "program_watch", key: "id", retire: { ended_at: "now" } },
+  play_alert: { table: "play_alert", key: "id", retire: { ended_at: "now" } },
   payment: { table: "payment", key: "id", retire: null },
   refund: { table: "refund", key: "id", retire: null },
   draw: { table: "draw", key: "session_id", retire: { status: "void" } },

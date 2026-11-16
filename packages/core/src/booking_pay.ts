@@ -26,6 +26,7 @@ import { kidOf, overRules, paymentsWhat } from "./kids.ts";
 import { isReadOnly } from "./read_only.ts";
 import { backSql, bookingRevenue, callOff, deskPaid, leftOf, paidHow, recordAtDesk, refundTo } from "./desk_pay.ts";
 import { seriesCard } from "./booking_series.ts";
+import { matchOpened } from "./play_alerts.ts";
 import { charge, chargeAt, chargeLine, courtLines, howPaid, type ChargeLine } from "./charge.ts";
 
 /** How long a court is held while the organiser pays. */
@@ -133,7 +134,8 @@ export const bookingRequest = defineAction({
     players: z.optional(z.number().check(z.int(), z.minimum(2), z.maximum(4))), person_id: z.uuid(),   // a padel court holds 4
     // An open match: other players can find it and join, inside the level band (or ask the host).
     open: z.optional(z.object({ level_min: levelInput, level_max: levelInput, outside_band: z.optional(z.enum(["ask", "closed"])), rated: z.optional(z.boolean()),
-      listed: z.optional(z.boolean()), note: z.optional(z.string().check(z.maxLength(200))) })) }),
+      listed: z.optional(z.boolean()), note: z.optional(z.string().check(z.maxLength(200))),
+      gender: z.optional(z.enum(["mixed", "women", "men"]).check(z.describe("Who it's meant for, as a label players choose by (Play filters by it). Nobody is checked against it. Leave out: open to all."))) })) }),
   // Whose booking it'll be: what they owe, whether they're a junior and their price are said to nobody else.
   owners: async (db, i) => ({ ownerIds: await playerOrParents(db, i.person_id), locationId: await courtLocation(db, i.court_id) }),
   async plan(ctx, i) {
@@ -161,7 +163,10 @@ export const bookingRequest = defineAction({
       : both(i.open ? "plan.booking.request_open" : "plan.booking.request_split", { ...p, share: usd(s.organiser), players: both("count.players", { count: players }), others: usd(s.each), hours });
     const band_ = i.open ? both(i.open.rated === false ? "plan.booking.open_friendly" : "plan.booking.open_rated", { band: band(i.open), hours,
       outside: both(i.open.outside_band === "closed" ? "plan.booking.outside_closed" : "plan.booking.outside_ask") }) : null;
-    const openText = band_ && sameDay ? (() => { const n = both("plan.booking.same_day_note"); return { en: `${band_.en} ${n.en}`, es: `${band_.es} ${n.es}` }; })() : band_;
+    const withDay = band_ && sameDay ? (() => { const n = both("plan.booking.same_day_note"); return { en: `${band_.en} ${n.en}`, es: `${band_.es} ${n.es}` }; })() : band_;
+    // Who it's for, when the host says: a label, said as one.
+    const g = withDay && i.open?.gender ? both("plan.gender_label", { label: both(`gender.${i.open.gender}` as const) }) : null;
+    const openText = withDay && g ? { en: `${withDay.en} ${g.en}`, es: `${withDay.es} ${g.es}` } : withDay;
     // Line by line, from the same quote and shares apply charges (charge.ts). A member price shows as money off the
     // price for everyone, the same court and time quoted for nobody in particular.
     const due = i.pay === "whole" ? q.total_cents : s.organiser;
@@ -187,7 +192,7 @@ export const bookingRequest = defineAction({
     await ctx.insert("booking", { id, code, location_id: court.location_id, organiser_id: i.person_id, status: "held", source: "app", price_cents: q.total_cents, tax_cents: q.tax_cents,
       quote: JSON.stringify(q), policy_id, pay_mode: i.pay, players, invite_code: randomBytes(9).toString("base64url") });   // whole court: the players link (booking_players.ts)
     if (i.open) await ctx.insert("open_match", { booking_id: id, level_min: i.open.level_min.toFixed(2), level_max: i.open.level_max.toFixed(2), outside_band: i.open.outside_band ?? "ask",
-      rated: i.open.rated ?? true, listed: i.open.listed ?? true, note: i.open.note ?? null, cutoff_at: cutoff_at ? new Date(cutoff_at) : null });
+      rated: i.open.rated ?? true, listed: i.open.listed ?? true, note: i.open.note ?? null, cutoff_at: cutoff_at ? new Date(cutoff_at) : null, gender: i.open.gender ?? null });
     const bp = uuidv7();
     await ctx.insert("booking_player", { id: bp, booking_id: id, person_id: i.person_id, share_cents: i.pay === "whole" ? q.total_cents : s.organiser });
     try {
@@ -468,6 +473,7 @@ export async function afterBookingPayment(ctx: ApplyCtx, pay: { id: string; amou
   }
   await ctx.update("booking", bp.id, { status: "confirmed" });
   if (!o.quiet) await ctx.emit("booking.confirmed", { booking_id: bp.id });
+  await matchOpened(ctx, bp.id);
   return "confirmed";
 }
 
@@ -658,12 +664,17 @@ async function dropChangeNews(trx: Trx, bookingId: string) {
 export async function cancelBooking(ctx: ApplyCtx, bookingId: string, refunds: PlannedRefund[], reason: string | null, choice: RefundChoice = "rule") {
   await ctx.update("booking", bookingId, { status: "cancelled", cancelled_at: ctx.now, cancel_reason: reason });
   await dropChangeNews(ctx.trx, bookingId);
-  for (const t of await ctx.trx.selectFrom("court_time").select("id").where("booking_id", "=", bookingId).where("active", "=", true).execute()) await ctx.update("court_time", t.id, { active: false });
+  const freed = await ctx.trx.selectFrom("court_time").select(["id", "court_id", sql<Date>`lower(during)`.as("start"), sql<Date>`upper(during)`.as("end")])
+    .where("booking_id", "=", bookingId).where("active", "=", true).execute();
+  for (const t of freed) await ctx.update("court_time", t.id, { active: false });
   for (const r of refunds) await refundTo(ctx, r.payment_id, r.cents, { credit: r.credit });
   // Shares not paid yet can't be paid any more.
   for (const p of await ctx.trx.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select("payment.id")
     .where("booking_player.booking_id", "=", bookingId).where("payment.status", "=", "pending").execute()) await callOff(ctx, p.id);
   await ctx.emit("booking.cancelled", { booking_id: bookingId, by: ctx.actor.personId });
+  // Its court time is free again: whoever asked to hear when a court frees up then is told (play_alerts.ts).
+  if (freed.length) await ctx.emit("court.freed", { booking_id: bookingId, at: ctx.now.toISOString(),
+    times: freed.map((t) => ({ court_id: t.court_id, start: new Date(t.start).toISOString(), end: new Date(t.end).toISOString() })) });
   // Paid in Playtomic (a booking taken over, playtomic_archive.ts): whatever cancelled it (the booking itself, its
   // weekly court ended, a court blocked), the managers are told to give that part back there, once, until handled.
   await givenBackInPlaytomic(ctx, bookingId, refunds, { choice });

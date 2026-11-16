@@ -176,6 +176,10 @@ export const courtArchive = defineAction({
  *  which are played for a score with fair teams; no for clinics and courses, which are for learning. */
 export const ratedByDefault = (kind: string) => kind !== "clinic" && kind !== "course";
 
+/** Who a program is meant for (migration 123): a label people choose by, never checked against anyone. */
+const programGender = z.enum(["mixed", "women", "men", "mixed_pairs"]).check(z.describe("Who it's meant for, as a label players choose by (Play filters by it). Nobody is checked against it. Leave out: open to all."));
+const sp = (x: Text): Text => ({ en: ` ${x.en}`, es: ` ${x.es}` });
+
 export const programCreate = defineAction({
   name: "program.create", version: 1,
   input: z.object({
@@ -189,6 +193,7 @@ export const programCreate = defineAction({
     decide_hours: z.optional(z.nullable(z.number().check(z.int(), z.minimum(1), z.maximum(336), z.describe("How many hours before the first date the minimum is decided. Empty: the club's default.")))),
     translations: translationsInput("program"),
     sign_up: z.optional(z.enum(["whole_program", "per_session"]).check(z.describe("whole_program (default): one place covers every date. per_session: each date has its own places, roster, waitlist and minimum, and people sign up for the dates they want (clinics and socials)."))),
+    gender: z.optional(programGender),
   }),
   async plan(ctx, i) {
     await readRow(ctx.db, "location", i.location_id, "thing.location");
@@ -202,6 +207,7 @@ export const programCreate = defineAction({
     // Whether its results change levels: chosen, or the default for its kind (clinics and courses don't).
     summary = join2(summary, both((i.rated ?? ratedByDefault(i.kind)) ? "plan.program.rated" : "plan.program.unrated"));
     if (i.sign_up === "per_session") summary = join2(summary, both("plan.program.per_date"));
+    if (i.gender) summary = join2(summary, sp(both("plan.gender_label", { label: both(`gender.${i.gender}` as const) })));
     if (i.member_price_cents != null) summary = join2(summary, both("plan.program.member_price", { amount: usd(i.member_price_cents) }));
     if (i.min_players != null) summary = join2(summary, both(i.sign_up === "per_session" ? "plan.program.min_line_date" : "plan.program.min_line", { min: i.min_players, hours: both("count.hours", { count: i.decide_hours ?? (await ctx.db.selectFrom("club").select("program_decide_hours").executeTakeFirstOrThrow()).program_decide_hours }) }));
     return { title: both("action.program.create"), summary, reads: [], locationId: i.location_id, undo: { kind: "reversible" } };
@@ -210,7 +216,7 @@ export const programCreate = defineAction({
     const id = uuidv7();
     await ctx.insert("program", { id, location_id: i.location_id, kind: i.kind, format: i.format ?? null, name: i.name, capacity: i.capacity, price_cents: i.price_cents, member_price_cents: i.member_price_cents ?? null,
       level_min: i.level_min ?? null, level_max: i.level_max ?? null, refund_window_hours: i.refund_window_hours ?? 24, refund_inside_window: i.refund_inside_window ?? "none", rated: i.rated ?? ratedByDefault(i.kind),
-      min_players: i.min_players ?? null, decide_hours: i.decide_hours ?? null, sign_up: i.sign_up ?? "whole_program", translations: JSON.stringify(mergeTranslations({}, i.translations)) });
+      min_players: i.min_players ?? null, decide_hours: i.decide_hours ?? null, sign_up: i.sign_up ?? "whole_program", translations: JSON.stringify(mergeTranslations({}, i.translations)), gender: i.gender ?? null });
     return { program_id: id };
   },
 });
@@ -289,6 +295,21 @@ export const programSetSignUp = defineAction({
     await ctx.update("program", i.program_id, { sign_up: i.sign_up });
     return null;
   },
+});
+
+/** Who a program is meant for, or no category (open to all). A label: nobody signed up is checked against it or moved. */
+export const programSetGender = defineAction({
+  name: "program.set_gender", version: 1,
+  input: z.object({ program_id: z.uuid(), gender: z.nullable(programGender) }),
+  async plan(ctx, i) {
+    const { row, read } = await readRow(ctx.db, "program", i.program_id, "thing.program");
+    if ((row.gender ?? null) === i.gender) throw new KumiError("error.nothing_changed");
+    const name = textOf(row.name, row.translations, "name");
+    const summary = i.gender ? join2(both("plan.program.set_gender", { name }), sp(both("plan.gender_label", { label: both(`gender.${i.gender}` as const) })))
+      : both("plan.program.gender_none", { name });
+    return { title: both("action.program.set_gender"), summary, reads: [read], locationId: row.location_id, undo: { kind: "reversible" } };
+  },
+  async apply(ctx, i) { await ctx.update("program", i.program_id, { gender: i.gender }); return null; },
 });
 
 /** A program's name, and its name in the other language. Its places, dates and people stay as they are; members
