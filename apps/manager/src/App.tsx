@@ -186,7 +186,7 @@ function StaffNav({ a, n, signOut }: { a: Access; n: Counts; signOut: () => void
 
 /** Whether + offers this person anything: the Schedule's + Create choices their roles allow (the Schedule decides
  *  each one again, for its location and day). */
-const mayAddSomething = () => ["program.create", "booking.create", "booking.create_lesson", "court.block"].some((x) => mayCreate(x));
+const mayAddSomething = () => mayCreate("program.create") || mayCreate("booking.create") || mayCreate("booking.create_lesson") || mayCreate("court.block");
 const TAB_WORDS: Record<TabKey, () => string> = {
   today: () => t("ui.nav_today"), day: () => label("ui.nav_day_schedule"), schedule: () => label("ui.nav_schedule"),
   approvals: () => t("ui.nav_approvals"), people: () => label("ui.nav_people"), levels: () => t("ui.nav_levels"), programs: () => t("ui.phone_tab_programs"),
