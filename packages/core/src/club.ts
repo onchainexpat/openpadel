@@ -2,7 +2,8 @@
 import { sql } from "kysely";
 import { erasedMatcher, markRejoined } from "./playtomic_erased.ts";
 import * as z from "zod/mini";
-import { both, capFor, currencyProblem, en, money, setClubFormat, type Key, type Text } from "@kumi/i18n";
+import { both, capFor, clubFormat, currencyProblem, en, money, setClubFormat, type Key, type Text } from "@kumi/i18n";
+import { parsePhoneNumberFromString } from "libphonenumber-js/min";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { KumiError } from "./errors.ts";
 import { holdsRole } from "./permissions.ts";
@@ -19,6 +20,7 @@ import { SELF_ADJUST_GAMES } from "./level_tools.ts";
 import { dayText } from "./memberships.ts";
 import { loadRating } from "./ratings.ts";
 import { COMING_FROM, comingFrom } from "@kumi/i18n/presets";
+import { AMENITIES, amenitiesInOrder } from "@kumi/i18n/amenities";
 import { brandColours } from "@kumi/ui/brand";
 import { DARK_TILE, drawLogo, LOGO_MAX_BYTES, logoTile, readLogo } from "./logo.ts";
 
@@ -43,7 +45,7 @@ function fieldList(fields: string[], values?: Record<string, unknown>, currency 
     const name = both(`field.${f}` as Key), raw = values?.[f];
     // A yes-or-no setting reads "whether members book courts in the app (yes)"; the rest "the legal name to ...".
     if (values && typeof raw === "boolean") return both(raw ? says.yes : says.no, { field: name });
-    if (values && says.none && (raw === null || raw === "")) return both(says.none, { field: name });
+    if (values && says.none && (raw === null || raw === "" || (Array.isArray(raw) && !raw.length))) return both(says.none, { field: name });
     const v = values ? shownValue(f, raw, currency) : null;
     return v ? both(says.to, { field: name, value: v }) : says.plain ? both(says.plain, { field: name }) : name;
   });
@@ -55,8 +57,13 @@ const endOnce = (t: Text): Text => ({ en: t.en.replace(/\.\.$/, "."), es: t.es.r
  *  value isn't worth reading out (a long text, the other language's words, a code nobody reads). */
 function shownValue(field: string, v: unknown, currency: string): Text | string | null {
   if (v === undefined || ["about", "translations", "two_factor"].includes(field)) return null;
-  if (v === null || v === "") return both("plan.value_none");
+  if (v === null || v === "" || (Array.isArray(v) && !v.length)) return both("plan.value_none");
   if (field === "coming_from" && typeof v === "string") return both(`preset.name_${comingFrom(v)}` as Key);
+  if (field === "phone" && typeof v === "string") return clubPhoneShown(v);
+  if (field === "amenities" && Array.isArray(v)) {
+    const words = amenitiesInOrder(v as string[]).map((a) => both(`amenity.${a}` as Key));
+    return { en: words.map((w) => w.en.toLowerCase()).join(", "), es: words.map((w) => w.es.toLowerCase()).join(", ") };
+  }
   if (field === "tax_rate_bp" && typeof v === "number") return `${(v / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
   if (field.endsWith("_cents") && typeof v === "number") return { en: money(v, "en", currency), es: money(v, "es", currency) };
   if (Array.isArray(v)) return v.join(", ");
@@ -66,6 +73,16 @@ function shownValue(field: string, v: unknown, currency: string): Text | string 
 }
 const changed = (row: Record<string, unknown>, input: Record<string, unknown>) =>
   Object.keys(input).filter((k) => input[k] !== undefined && JSON.stringify(row[k]) !== JSON.stringify(input[k]));
+/** The club's phone as people read it: in its own country's way when it's the club's country ("(555) 014-2000",
+ *  "91 123 45 67"), with its country code otherwise. */
+export function clubPhoneShown(e164: string, country: string = clubFormat().country ?? "US"): string {
+  const p = parsePhoneNumberFromString(e164);
+  if (!p) return e164;
+  return p.country === country.toUpperCase() ? p.formatNational() : p.formatInternational();
+}
+/** The club's phone as typed (read in its country when there's no +), or null where it isn't one. */
+export const clubPhone = (typed: string, country: string) => anyPhone(typed, country.toUpperCase());
+
 async function roleId(ctx: PlanCtx, key: string): Promise<string> {
   const r = await ctx.db.selectFrom("role").select("id").where("key", "=", key).where("active", "=", true).executeTakeFirst();
   if (!r) throw new KumiError("error.not_found", { thing: both("thing.role") }, 404);
@@ -142,6 +159,10 @@ export const clubUpdate = defineAction({
     // The club's own terms and privacy policy for members (docs/templates): linked where members join, beside the
     // yes to texts, on the profile and the public pages. Someone who joins after they're set agrees to them.
     terms_url: z.optional(z.nullable(pageUrl)), privacy_policy_url: z.optional(z.nullable(pageUrl)),
+    // How members reach the club and what it has, on their Home and the public page. null takes the phone or website off.
+    phone: z.optional(z.nullable(z.string().check(z.minLength(1), z.maxLength(40), z.describe("The club's phone number for members to call. Typed without a +, it's read in the club's country. null: none.")))),
+    website: z.optional(z.nullable(pageUrl.check(z.describe("The club's own website (http or https). null: none.")))),
+    amenities: z.optional(z.array(z.enum(AMENITIES)).check(z.maxLength(AMENITIES.length), z.describe("What the club has besides its courts, the whole list each time (an empty list: none)."))),
     // The public page's blurb in the other language: { es: { about } }.
     translations: translationsInput("club"),
     question_alert_hours: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(72))),
@@ -158,6 +179,10 @@ export const clubUpdate = defineAction({
   }),
   async plan(ctx, i) {
     const { row, read } = await readRow(ctx.db, "club", "singleton");
+    // The phone and amenities as they'll be kept, so the plan names only a real change and reads the number as kept.
+    const country = (i.country ?? row.country ?? "US").toUpperCase();
+    if (typeof i.phone === "string" && !clubPhone(i.phone, country)) throw new KumiError("error.club_phone_bad", { phone: i.phone }, 400);
+    i = { ...i, ...(typeof i.phone === "string" ? { phone: clubPhone(i.phone, country)! } : {}), ...(i.amenities ? { amenities: amenitiesInOrder(i.amenities) } : {}) };
     const fields = changed(row, i);
     // How staff sign in is the owner's to say: a manager can't turn the second step at sign-in off (or on), or ask to.
     if (i.second_step_sign_in !== undefined && i.second_step_sign_in !== row.second_step_sign_in && ctx.actor.personId && !(await holdsRole(ctx.db, ctx.actor, ["owner"])))
@@ -197,6 +222,12 @@ export const clubUpdate = defineAction({
     if (translations) patch.translations = JSON.stringify(mergeTranslations((await ctx.trx.selectFrom("club").select("translations").executeTakeFirstOrThrow()).translations, translations));
     if (i.format_locale !== undefined) patch.format_locale = Intl.getCanonicalLocales(i.format_locale)[0];
     if (i.country !== undefined) patch.country = i.country.toUpperCase();
+    if (typeof i.phone === "string") {
+      const country = String(patch.country ?? (await ctx.trx.selectFrom("club").select("country").executeTakeFirstOrThrow()).country ?? "US");
+      patch.phone = clubPhone(i.phone, country);
+      if (!patch.phone) throw new KumiError("error.club_phone_bad", { phone: i.phone }, 400);
+    }
+    if (i.amenities) patch.amenities = amenitiesInOrder(i.amenities);
     await ctx.update("club", "singleton", patch); await ctx.emit("club.updated", {});
     if (patch.currency || patch.format_locale || patch.country) setClubFormat({ currency: patch.currency as string | undefined, locale: patch.format_locale as string | undefined, country: patch.country as string | undefined });
     return null;
