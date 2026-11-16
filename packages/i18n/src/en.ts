@@ -3776,6 +3776,8 @@ export const en = {
   "plan.role.second_yes_over": "any change by staff that charges or refunds more than {amount}",
   "plan.role.second_yes_off": "From now on, no change needs a second yes: one yes is enough, as before.",
   "error.second_yes_not_here": "{action} can't need a second yes.",
+  "error.second_yes_too_few": "{action} can't need a second yes: whoever asks, two other people have to be able to say yes to it, and fewer than three on the staff can. Give the role to more people first.",
+  "ui.yes_stuck": "Nobody else can give the second yes: change the rule in Roles.",
   "roledesc.scope_any": "everyone's",
   "roledesc.scope_own": "their own",
   "roledesc.with_approval": "with approval",

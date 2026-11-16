@@ -5,7 +5,7 @@
 import { randomBytes } from "node:crypto";
 import * as z from "zod/mini";
 import { both, money, type Key, type Text } from "@kumi/i18n";
-import { actions, defineAction, readRow, type PlanCtx } from "./actions.ts";
+import { actions, answerers, defineAction, readRow, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
@@ -188,6 +188,8 @@ export const roleRetire = defineAction({
 });
 
 // ---- A second yes: which changes wait for two different people's yes (actions.ts, secondYesNeeded) ----
+/** The refunds staff give, against which the amount rule's "two other people can say yes" is checked. */
+const SECOND_YES_MONEY = ["booking.refund", "pass.refund", "payment_found.refund"];
 /** The changes the club can name for a second yes: any a person can ask for, but this rule itself (named, it could
  *  only ever be changed back with two people's yes). */
 export function secondYesChoices(): string[] {
@@ -213,6 +215,14 @@ export const roleSecondYes = defineAction({
       if (seen.has(a)) throw new KumiError("error.role_grant_twice", { action: actionWords(a) });
       seen.add(a);
       if (!allowed.has(a)) throw new KumiError("error.second_yes_not_here", { action: actionWords(a) });
+    }
+    // Never a rule nothing can get through: whoever asks, two other people must be able to say yes. Anyone who may say yes
+    // may also ask (and then can't count), so each change needs three who may say yes outright, counted as an ask's
+    // answerers are. The amount rule is checked against the refunds staff give.
+    const named = [...seen, ...(i.over_cents !== null ? SECOND_YES_MONEY.filter((a) => allowed.has(a)) : [])];
+    for (const a of named) {
+      const can = await answerers(ctx.db, { id: "", action: a, input: {}, plan: { ownerIds: [] }, location_id: null, actor_person_id: null }, ctx.now);
+      if (can.length < 3) throw new KumiError("error.second_yes_too_few", { action: actionWords(a) });
     }
     const { read } = await readRow(ctx.db, "club", "singleton");
     const parts = (l: "en" | "es") => [...[...seen].map((a) => actionWords(a)[l]),

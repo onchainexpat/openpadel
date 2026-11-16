@@ -4,7 +4,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
-import { approve, decline, isYesWaiting, mayAnswer, plan, run, runAsSystem, secondYesNeeded, KumiError, type Actor, type Db, type Plan } from "../src/index.ts";
+import { approve, decline, isYesWaiting, mayAnswer, plan, run, runAsSystem, secondYesNeeded, yesesReachable, KumiError, type Actor, type Db, type Plan } from "../src/index.ts";
 
 let db: Db, drop: () => Promise<void>, owner: Actor, sam: Actor, lee: Actor, mia: Actor, member: Actor;
 const as = (personId: string, auth: Actor["auth"] = "two_factor"): Actor => ({ personId, via: "test", lang: "en", auth });
@@ -134,4 +134,26 @@ test("money over the amount: staff changes only, never a member's own", async ()
   await run(db, "role.second_yes", { actions: [], over_cents: null }, owner);
   const plain = await askTag();
   assert.equal(plain.status, "planned");
+});
+
+// Last: it takes owners away.
+test("never a rule nothing can get through: refused with fewer than three who may say yes, and an ask left with nobody says so", async () => {
+  // The usage cap is the owners' (a manager asks): three owners, so whoever asks, two others are left.
+  await run(db, "role.second_yes", { actions: ["club.usage_cap_set"], over_cents: null }, owner);
+  const asked = await plan(db, "club.usage_cap_set", { cap_cents: 9000, over_cents: 0 }, mia);
+  assert.equal(asked.yesesNeeded, 2);
+  await approve(db, asked.runId, owner);
+  assert.equal(await yesesReachable(db, await runRow(asked.runId), new Date()), true);
+  await run(db, "role.remove", { person_id: lee.personId!, role: "owner" }, owner);
+  await run(db, "role.remove", { person_id: sam.personId!, role: "owner" }, owner);
+  assert.equal(await yesesReachable(db, await runRow(asked.runId), new Date()), false, "the only owner left already said yes");
+  // Now two owners at most: a rule naming it would be stuck whenever one of them asked.
+  await run(db, "role.assign", { person_id: sam.personId!, role: "owner" }, owner);
+  await assert.rejects(plan(db, "role.second_yes", { actions: ["club.usage_cap_set"], over_cents: null }, owner), (e: unknown) => {
+    assert.ok(e instanceof KumiError); assert.equal(e.code, "error.second_yes_too_few");
+    const m = (e as KumiError & { params: { action: { en: string } } }).params.action.en;
+    assert.ok(m.length > 0); return true;
+  });
+  // Changes the manager may do too still have three: allowed.
+  await plan(db, "role.second_yes", { actions: ["tag.create"], over_cents: 5000 }, owner);
 });

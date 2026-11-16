@@ -16,7 +16,10 @@ under the rule waits for two others; members' own changes never wait for it. Set
 asks), previewed, and can be undone. Approvals shows "Needs 2 yeses", who has said yes and "you'd be the second yes";
 whoever said yes first sees it waiting for someone else's, and the change log keeps both yeses in order. Two people
 saying yes at the same moment are counted one after the other, and saying yes again gives the same answer. Approvals'
-second tab is now "Done today", since a no now records when it was said (migration 122).
+second tab is now "Done today", since a no now records when it was said (migration 122). A rule nothing could get through
+is refused: each change it names (and, for the amount, the refunds staff give) needs three people who may say yes, so
+two are always left whoever asks. An ask left with nobody to give its second yes (a role taken away since) says so on
+its card.
 
 The Money page lists Stripe's payouts to the club's bank: the next one on its way and the latest ten, each with the day
 it's due in the bank, its amount and where it stands, and the bank account's last four digits. They're asked of Stripe

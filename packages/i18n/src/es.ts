@@ -3779,6 +3779,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "plan.role.second_yes_over": "cualquier cambio del personal que cobre o devuelva más de {amount}",
   "plan.role.second_yes_off": "Desde ahora, ningún cambio necesita un segundo sí: basta con un sí, como antes.",
   "error.second_yes_not_here": "{action} no puede necesitar un segundo sí.",
+  "error.second_yes_too_few": "{action} no puede necesitar un segundo sí: pida quien lo pida, otras dos personas tienen que poder aprobarlo, y en el personal pueden menos de tres. Primero dale el rol a más personas.",
+  "ui.yes_stuck": "Nadie más puede dar el segundo sí: cambia la regla en Roles.",
   "roledesc.scope_any": "de todos",
   "roledesc.scope_own": "lo suyo",
   "roledesc.with_approval": "con aprobación",

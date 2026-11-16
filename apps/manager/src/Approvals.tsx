@@ -13,7 +13,7 @@ import { Tabs } from "./lists.tsx";
 import { agoParts, viaWords } from "./made_via.ts";
 
 type Ask = { id: string; action: string; title: string; summary: string | null; by: string | null; via: string; asked_at: string; expires_at: string; undo: string | null; money_cents?: number;
-  lines: string[]; said: string | null; needed: number; yeses: { name: string | null; at: string; me: boolean }[] };
+  lines: string[]; said: string | null; needed: number; yeses: { name: string | null; at: string; me: boolean }[]; stuck?: boolean };
 type Done = Ask & { outcome: "approved" | "declined" | "ended"; answered_by: string | null; answered_at: string | null; reason: string | null; ended: string | null };
 type View = { people: boolean; waiting: Ask[]; mine: Ask[]; done: Done[] };
 
@@ -64,7 +64,7 @@ export function Approvals() {
     if (others.length) parts.push(t("count.yes_from", { count: others.length, names: others.join(", ") }));
     if (mine) parts.push(t("ui.yes_from_you"));
     if (answering && a.yeses.length === a.needed - 1) parts.push(t("ui.yes_you_second"));
-    return <p class="meta yes-line">{parts.join(" · ")}</p>;
+    return <><p class="meta yes-line">{parts.join(" · ")}</p>{a.stuck && <p class="error">{t("ui.yes_stuck")}</p>}</>;
   };
   const card = (a: Ask, buttons: boolean) => (
     <li class="card ask" key={a.id}>

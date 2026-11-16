@@ -8,7 +8,7 @@ import { run, runAsSystem, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 
-let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>;
+let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, ownerA: Actor, samId = "";
 const cookies: Record<string, string> = {};
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 const req = async (path: string, who: string, body?: unknown) => {
@@ -29,6 +29,7 @@ before(async () => {
   const mia = ((await run(db, "person.create", { display_name: "Mia", email: "mia@example.test" }, owner)).result as { person_id: string }).person_id;
   await run(db, "role.assign", { person_id: mia, role: "manager" }, owner);
   const sam = ((await run(db, "person.create", { display_name: "Sam", email: "sam@example.test" }, owner)).result as { person_id: string }).person_id;
+  ownerA = owner; samId = sam;
   await run(db, "role.assign", { person_id: sam, role: "owner" }, owner);
   await session("owner", owner.personId!);
   await session("mia", mia);
@@ -86,4 +87,17 @@ test("a change the club's rule names waits for two yeses: Approvals says how man
   assert.deepEqual((await req(`/staff/changes/${id}`, "owner")).json.yeses, ["Robin Hale", "Sam"]);
   const off = await req("/actions/role.second_yes/plan", "owner", { actions: [], over_cents: null });
   await req(`/runs/${off.json.run_id}/apply`, "owner", {});
+});
+
+test("an ask left with nobody to give its second yes says so on the card", async () => {
+  const rule = await req("/actions/role.second_yes/plan", "owner", { actions: ["tag.create"], over_cents: null });
+  await req(`/runs/${rule.json.run_id}/apply`, "owner", {});
+  const asked = await req("/actions/tag.create/plan", "mia", { name: "Night owls" });
+  await req(`/runs/${asked.json.run_id}/approve`, "owner", {});
+  const mine = () => req("/staff/approvals", "mia").then((r) => r.json.mine.find((a: any) => a.id === asked.json.run_id));
+  assert.equal((await mine()).stuck, false);
+  await run(db, "role.remove", { person_id: samId, role: "owner" }, ownerA);
+  assert.equal((await mine()).stuck, true, "Robin said yes, Mia asked, and Sam is no longer on the staff");
+  await run(db, "role.assign", { person_id: samId, role: "owner" }, ownerA);
+  assert.equal((await mine()).stuck, false);
 });

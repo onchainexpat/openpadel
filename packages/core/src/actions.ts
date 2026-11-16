@@ -594,6 +594,21 @@ export async function mayAnswer(db: Db | Trx, run: AskedRun, personId: string | 
   return !judged || (await decide(db, judged.def.name, { ...s, assistant: false, strongAuth: Boolean(judged.def.strongAuth), clubWide: Boolean(judged.def.clubWide) })).mode === "allow";
 }
 
+/** Everyone on the staff who could say yes to this ask now (mayAnswer): not its asker, not anyone who already said yes. */
+export async function answerers(db: Db | Trx, run: AskedRun, at: Date): Promise<string[]> {
+  const staff = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
+    .where("role.key", "!=", "member").where("person_role.active", "=", true).where("role.active", "=", true).distinct().execute();
+  const out: string[] = [];
+  for (const s of staff) if (await mayAnswer(db, run, s.person_id, at)) out.push(s.person_id);
+  return out;
+}
+/** Whether an ask that waits for more yeses can still get them: those given, and everyone left who could give one. */
+export async function yesesReachable(db: Db | Trx, run: AskedRun & { yeses_needed: number }, at: Date): Promise<boolean> {
+  const given = ((run.yeses as Yes[] | undefined) ?? []).length;
+  if (given + 1 > run.yeses_needed) return true;
+  return given + (await answerers(db, run, at)).length >= run.yeses_needed;
+}
+
 /** An "ask" waits for someone allowed to do it, who isn't the person who asked: one yes, or two different people's under
  *  the club's second-yes rule (YesWaiting after the first). Saying yes again gives the same answer, not a second yes. */
 export async function approve(db: Db, runId: string, approver: Actor, opts: { now?: Date } = {}): Promise<unknown> {

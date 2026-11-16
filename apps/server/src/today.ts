@@ -11,7 +11,7 @@
 import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { productName, t, type Key, type Lang } from "@kumi/i18n";
-import { ASK_ENDED, decide, paymentProvider, type Payout, type Yes, KumiError, levelQueue, localDate, mayAnswer, onDate, outstandingCredit, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
+import { ASK_ENDED, decide, paymentProvider, yesesReachable, type Payout, type Yes, KumiError, levelQueue, localDate, mayAnswer, onDate, outstandingCredit, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
 import { seesChats } from "./chats.ts";
 import { seesMoney } from "./receipts.ts";
 import { planLines, saidIn } from "./changes.ts";
@@ -325,11 +325,14 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
   // they made themselves still waiting for someone else's; and the asks of theirs or answered by them in the last week.
   app.get("/staff/approvals", async (c) => {
     const id = me(c)!.id, o = await lens(id), now = new Date(), l = lang(c), nameOf = namer(o);
-    const view = async (x: Parameters<typeof askView>[0] & { yeses: unknown; yeses_needed: number }) => ({ ...askView(x, l, o), ...await yesView(x, id, nameOf) });
+    // An ask still waiting for a second yes that nobody left can give (a role taken away since) says so, not just expires.
+    const view = async (x: Parameters<typeof askView>[0] & { yeses: unknown; yeses_needed: number; location_id: string | null; actor_person_id: string | null; status?: string }) => ({
+      ...askView(x, l, o), ...await yesView(x, id, nameOf),
+      stuck: x.yeses_needed > 1 && (x.status ?? "awaiting_approval") === "awaiting_approval" && !(await yesesReachable(db, x, now)) });
     const waiting = await Promise.all((await waitingFor(id, now)).map(view));
     const base = () => db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
       .select(["action_run.id", "action_run.action", "action_run.plan", "action_run.input", "action_run.via", "action_run.created_at", "action_run.plan_expires_at", "action_run.money_cents", "action_run.status",
-        "action_run.error", "action_run.approved_by", "action_run.applied_at", "action_run.ended_at", "action_run.yeses", "action_run.yeses_needed", "person.display_name", "support_grant.name as support_name"]);
+        "action_run.error", "action_run.approved_by", "action_run.applied_at", "action_run.ended_at", "action_run.yeses", "action_run.yeses_needed", "action_run.location_id", "action_run.actor_person_id", "person.display_name", "support_grant.name as support_name"]);
     const iSaidYes = sql<boolean>`action_run.yeses @> ${JSON.stringify([{ by: id }])}::jsonb`;
     // Still waiting: their own asks, and asks they said yes to that wait for a second yes.
     const mine = await Promise.all((await base().where("action_run.status", "=", "awaiting_approval").where("action_run.plan_expires_at", ">", now)
