@@ -9,6 +9,24 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+"Tell me when" alerts (the boards' priority alerts), in the members' app. On Book, a switch for the day shown: tell me
+when a court frees up then, for a start in a window I pick at that location. On Play, a switch: tell me when an open
+match opens whose levels include mine. Each is turned on and off through a preview (play_alert.set and play_alert.end,
+the member's own rows, a parent's for their juniors; migration 123 grants them to members), and works from the command
+line and /mcp too. A booking called off tells whoever's window has the freed time, if it's still free when the message
+is written; an open match confirmed (paid by its host, or made at the desk) and listed tells those whose level is in its
+band. Never the people in the booking or match itself. Each goes in the app, by push and by email, with quiet hours,
+consent at the send and STOP as for every other message, and never by text. One message per freed start time or match
+per person, at most 3 a day for a court alert's day and 3 in 24 hours for match alerts, and at most 7 court alerts on at
+once. A "court is free" message opens Book on that location and day. Alerts are in a person's data export and go when
+they're erased.
+
+A category on open matches and events: Mixed, Women or Men, and Mixed pairs for events (migration 123), or none (open
+to all). The host chooses it in Start a match, the desk in + Create's open match, and staff when making a program and
+on its page (program.set_gender). Cards and pages on Play show it, and Play's matches and events filter by it. It's a
+label to help players choose: nobody is checked against it when they join, and the club keeps no one's gender. The
+preview says so.
+
 Undo, right after a change: the note that follows a confirm (Done.) now has Undo when the change can be taken back,
 in the members' app and the staff app alike. Undo is previewed like any change, and judged as the change it takes back:
 a member can now undo their own changes (a new grant for the member role, migration 120), but never one only staff
