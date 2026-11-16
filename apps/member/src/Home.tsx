@@ -5,7 +5,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
 import { api, club, clubTime, EmptyState, Illustration, lang, serverNow, t } from "@kumi/ui";
-import { formatLocale } from "@kumi/i18n/format";
+import { formatLocale, type Key } from "@kumi/i18n/format";
 import { hoursOn, weekLines, clock, type Hours, type Special } from "./hours.ts";
 import { comingUp, type Upcoming } from "./home_data.ts";
 import type { SoonCounts } from "./whats_on.ts";
@@ -87,7 +87,7 @@ export function Home() {
           </>}
           {l.address && <p><a class="button" href={mapLink(l.address)} target="_blank" rel="noopener noreferrer">{t("ui.home_directions")}</a></p>}
         </div>)}
-        {info.amenities && info.amenities.length > 0 && <ul class="chips amenity-chips" aria-label={t("ui.amenities")}>{info.amenities.map((a) => <li class="chip">{t(`amenity.${a}`)}</li>)}</ul>}
+        {info.amenities && info.amenities.length > 0 && <ul class="chips amenity-chips" aria-label={t("ui.amenities")}>{info.amenities.map((a) => <li class="chip">{t(`amenity.${a}` as Key)}</li>)}</ul>}
         {(info.phone || info.website) && <p class="club-reach">
           {info.phone && <a class="button" href={`tel:${info.phone}`}>{t("ui.home_call")}<span class="visually-hidden">: {info.phone_shown ?? info.phone}</span></a>}
           {info.website && <a class="button" href={info.website} target="_blank" rel="noopener noreferrer">{t("ui.home_website")}</a>}

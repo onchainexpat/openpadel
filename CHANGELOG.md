@@ -9,6 +9,18 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+The club's phone, website and amenities: Settings, The club, has a phone for members, the club's website and what it
+has besides its courts (parking, showers, changing rooms, lockers, a café, a pro shop, racket rental, Wi-Fi, step-free
+access, a kids' area), through the same club.update preview as the rest (migration 124). Members see them on Home,
+under the club's hours, with Call and Website buttons, and the public page shows them under the club's name. A phone
+typed without a + is read in the club's country. `club.yaml` takes `phone`, `website` and `amenities` too, set when the
+club has none yet (club.example.yaml).
+
+The staff app on a phone has tabs at the bottom: Today, the Schedule, a + in the middle, Approvals (with its count) and
+Members for owners, managers and the desk; a coach on their own gets their schedule, the courts' day, Levels and
+Programs. + opens the Schedule's + Create from any page. The Menu at the top still opens every page; a wide screen is
+as it was.
+
 Undo, right after a change: the note that follows a confirm (Done.) now has Undo when the change can be taken back,
 in the members' app and the staff app alike. Undo is previewed like any change, and judged as the change it takes back:
 a member can now undo their own changes (a new grant for the member role, migration 120), but never one only staff
