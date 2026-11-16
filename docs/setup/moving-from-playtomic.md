@@ -10,7 +10,10 @@ openPadel never writes to Playtomic: its API is read only. Whatever has to chang
 themselves. Never automate Playtomic Manager (a staff login driven by a program): Playtomic is shutting off
 unauthorised automations, and openPadel doesn't do it.
 
-There are four stages. Keep the second one short: weeks, not months.
+There are four stages. Keep the second one short: weeks, not months. The staff app walks a club through them as five
+steps (Settings, "Moving in, step by step"; `openpadel moving-in` and `openpadel move ...`), with the switch-over and
+Stage 4 lists below as items to tick, and a practice-run comparison of Playtomic's records with what came over:
+[moving-in.md](moving-in.md).
 
 | Stage | What runs | Who sells courts | Ends when |
 |---|---|---|---|
@@ -140,7 +143,8 @@ How Playtomic wallet balances come in as club credit: see
 
 How Playtomic memberships come in: see [playtomic-wallets-and-memberships.md](playtomic-wallets-and-memberships.md).
 
-**At the switch, in one sitting at a quiet hour:**
+**At the switch, in one sitting at a quiet hour** (the guide's Switch-over step holds this list, and ticks what
+openPadel sees for itself):
 
 1. Set Playtomic's book-ahead limit to 0 (and each benefit's window).
 2. **Stop Playtomic's membership renewals.** Playtomic charges card-paid memberships again by itself, and a

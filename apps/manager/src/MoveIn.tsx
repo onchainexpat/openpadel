@@ -33,7 +33,7 @@ export function MoveIn() {
   const reading = s.players_wanted_at && (!s.players_read_at || s.players_read_at < s.players_wanted_at);
   return (
     <main>
-      <p><a href="/playtomic">{t("ui.mirror_title")}</a></p>
+      <p><a href="/settings/moving-in">{t("ui.moving_link")}</a> · <a href="/playtomic">{t("ui.mirror_title")}</a></p>
       <h1>{t("ui.movein_title")}</h1>
       <section class="card"><p>{t("ui.movein_intro")}</p></section>
       {sheet}

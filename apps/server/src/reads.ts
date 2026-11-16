@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db, type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff, clubPhoneShown } from "@kumi/core";
+import { decide, getAction, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db, type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff, clubPhoneShown, moveState, broughtTotals, broughtPeople, upcomingCompared } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { shortContact } from "./mcp.ts";
 import { csvCell, readPeopleCsv, readPeopleRows } from "./csv.ts";
@@ -902,15 +902,17 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // Read a spreadsheet of members and say what's in it; nothing changes until person.import is confirmed.
   // An Excel workbook comes as base64 (`xlsx`), read on the server (xlsx.ts) and never kept: its first sheet, as a CSV's lines.
   app.post("/staff/people/import-preview", async (c) => {
-    const { csv, xlsx } = await c.req.json().catch(() => ({ csv: "" })) as { csv?: string; xlsx?: string };
+    const { csv, xlsx, from: said } = await c.req.json().catch(() => ({ csv: "" })) as { csv?: string; xlsx?: string; from?: string };
+    // Staff say a list is Playbypoint's: its columns are read by that preset (csv.ts). Anything else is any spreadsheet.
+    const from = said === "playbypoint" ? "playbypoint" as const : undefined;
     const l = lang(c);
     let r: ReturnType<typeof readPeopleCsv>;
     if (typeof xlsx === "string") {
       if (xlsx.length > XLSX_MAX_BASE64) throw new KumiError("error.too_big", {}, 413);
       const bytes = Buffer.from(xlsx, "base64"), cells = looksLikeXlsx(bytes) ? readXlsx(bytes) : null;
       if (!cells) return c.json({ rows: [], problems: [], fatal: t(l, "csv.not_xlsx") });
-      r = readPeopleRows(cells);
-    } else r = readPeopleCsv(String(csv ?? "").slice(0, 2_000_000));
+      r = readPeopleRows(cells, from);
+    } else r = readPeopleCsv(String(csv ?? "").slice(0, 2_000_000), from);
     return c.json({ rows: r.rows, problems: r.problems.map((p) => ({ line: p.line, text: p.text[l] })), ...(r.fatal ? { fatal: r.fatal[l] } : {}) });
   });
 
@@ -1154,6 +1156,61 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     return c.json({ ...st, upload: up, has_keys: Boolean(process.env.KUMI_PLAYTOMIC_CLIENT_ID && process.env.KUMI_PLAYTOMIC_SECRET && process.env.KUMI_PLAYTOMIC_TENANT_ID),
       benefits: benefitCounts(kept.map((k) => ({ benefits: k.benefits as { name: string; until: string | null }[] }))),
       plans: plans.map((p) => ({ id: p.id, name: inLang(p.name, p.translations, "name", l), join_in_app: p.join_in_app })) });
+  });
+
+  // The guided move-in (move_in.ts): where the club is in the five steps, what each step can see for itself, and the
+  // practice run's comparison of the old system's records with what has come over (counts and totals; nobody named).
+  // Each step's work is its own page's (Customers import, Playtomic, Moving in); this only reads.
+  app.get("/staff/move-in/steps", async (c) => {
+    await ownerOrManager(c);
+    const now = new Date(), l = lang(c);
+    const st = await moveState(db), mi = await moveInStatus(db);
+    const playtomic = (st.source ?? "spreadsheet") === "playtomic";
+    const hasKeys = Boolean(process.env.KUMI_PLAYTOMIC_CLIENT_ID && process.env.KUMI_PLAYTOMIC_SECRET && process.env.KUMI_PLAYTOMIC_TENANT_ID);
+    const practice = process.env.KUMI_PRACTICE === "1";
+    const status = await db.selectFrom("connector_status").select(["last_sync_at", "last_ok_at", "last_error", "unmapped"]).where("system", "=", PLAYTOMIC).executeTakeFirst();
+    const refs = await db.selectFrom("external_ref").select("external_id").where("system", "=", PLAYTOMIC).where("entity", "=", "court").execute();
+    const unlinked = ((status?.unmapped ?? []) as { courtRef: string }[]).filter((u) => !refs.some((r) => r.external_id === u.courtRef)).length;
+    const imports = await db.selectFrom("action_run").select([sql<string>`count(*)`.as("n"), sql<Date | null>`max(created_at)`.as("at")])
+      .where("action", "=", "person.import").where("status", "=", "applied").executeTakeFirstOrThrow();
+    const club = await db.selectFrom("club").select(["court_bookings", "currency", "time_zone"]).executeTakeFirstOrThrow(), tz = club.time_zone;
+    const people = await broughtPeople(db);
+    // The old records as the server last read them: Playtomic's players or the club's export (brought_in.ts).
+    const totals = playtomic ? await broughtTotals(db).catch(() => null) : null;
+    const upcoming = playtomic && refs.length ? await upcomingCompared(db, now) : null;
+    const diffs = playtomic && status ? (await comparison(db, now, 7)).diffs.length : null;
+    const toTake = playtomic && status ? (await takeOverCandidates(db, now, { limit: 300 })).length : 0;
+    const levels = await db.selectFrom("rating_event").select(sql<string>`count(DISTINCT person_id)`.as("n")).where("kind", "=", "import_seed").executeTakeFirstOrThrow();
+    const bookedHere = st.switch_at ? await db.selectFrom("booking").select(sql<string>`count(*)`.as("n")).where("created_at", ">=", st.switch_at).where("source", "!=", "import")
+      .where("status", "!=", "cancelled").executeTakeFirstOrThrow() : null;
+    // What openPadel sees for itself, beside what staff tick (move_in.ts MOVE_CHECKS): read live, never ticked.
+    const seen = [
+      ...(playtomic ? [{ key: "taken_over", step: "switch", done: toTake === 0, detail: toTake ? t(l, "count.moving_to_take_over", { count: toTake }) : null }] : []),
+      ...(playtomic && mi.wallets_brought_at ? [{ key: "wallets_zeroed", step: "switch", done: Boolean(mi.wallets_zeroed_at), detail: null }] : []),
+      { key: "court_bookings", step: "switch", done: club.court_bookings, detail: null },
+      { key: "practice_off", step: "switch", done: !practice, detail: null },
+      ...(playtomic ? [{ key: "keys_removed", step: "wrap_up", done: !hasKeys, detail: null },
+        { key: "last_booking", step: "wrap_up", done: !upcoming?.last_left, detail: upcoming?.last_left ? t(l, "ui.moving_last_booking_on", { when: dateTime(new Date(upcoming.last_left), l, tz) }) : null }] : []),
+    ].map((x) => ({ ...x, text: t(l, `ui.moving_seen_${x.key}` as Key) }));
+    const row = (what: string, theirs: number | null, ours: number, money = false) => ({ what, theirs, ours, money,
+      result: theirs === null ? "only_ours" : theirs === ours ? "match" : ours === 0 ? "not_yet" : "differs" });
+    const compare = playtomic ? [
+      row("members", totals?.players ?? null, totals?.here ?? people.people),
+      ...(upcoming ? [row("bookings", upcoming.theirs, upcoming.ours)] : []),
+      row("memberships", totals?.with_membership ?? null, mi.memberships),
+      row("credit", totals ? totals.wallet_cents : null, mi.credit_cents, true),
+    ] : [row("members", null, people.people)];
+    return c.json({
+      ...st, checks: st.checks.map((x) => ({ ...x, text: x.text[l] })), seen, practice, currency: club.currency,
+      connect: { has_keys: hasKeys, mirror: status ? { last_ok_at: status.last_ok_at, last_sync_at: status.last_sync_at, failed: Boolean(status.last_error) } : null,
+        players_read_at: mi.players_read_at, upload: mi.upload ? { file_name: mi.upload.file_name, rows: mi.upload.rows, at: mi.upload.at } : null,
+        imports: Number(imports.n), imported_at: imports.at },
+      review: { people: people.people, levels: Number(levels.n), linked_courts: refs.length, unlinked_courts: unlinked, players: mi.players,
+        credit_cents: mi.credit_cents, credit_people: mi.credit_people, memberships: mi.memberships, wallets_brought_at: mi.wallets_brought_at, wallets_zeroed_at: mi.wallets_zeroed_at },
+      practice_run: { compare, totals_from: totals?.from ?? null, totals_read_at: totals?.read_at ?? null, unreadable: totals?.unreadable ?? 0, differences: diffs, checked_at: now,
+        last_copy_at: status?.last_ok_at ?? null, copy_failed: Boolean(status?.last_error) },
+      wrap_up: { people: people.people, signed_in: people.signed_in, booked_here: bookedHere ? Number(bookedHere.n) : null, credit_cents: mi.credit_cents, credit_people: mi.credit_people },
+    });
   });
 
   app.get("/staff/mirror", async (c) => {

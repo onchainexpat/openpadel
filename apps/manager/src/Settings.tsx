@@ -112,6 +112,8 @@ function SignInCard({ rule, atSignIn, send }: { rule: ClubRow["two_factor"]; atS
       {owner && <p class="meta">{t("ui.second_step_sign_in_hint")}</p>}
       <button class="primary" disabled={(v === rule || v === "off") && on === atSignIn} onClick={() => send("club.update", { ...(v !== rule && v !== "off" ? { two_factor: v } : {}), ...(on !== atSignIn ? { second_step_sign_in: on } : {}) })}>{t("ui.preview")}</button>
       <p><a href="/roles">{t("ui.roles_link")}</a></p>
+      {/* The guided move-in (MoveSteps.tsx): the owner and managers. */}
+      {(me.value?.can ? mayDo("move.step") : me.value?.roles.some((r) => r.key === "owner" || r.key === "manager")) && <p><a href="/settings/moving-in">{t("ui.moving_link")}</a> <span class="meta">{t("ui.moving_settings_help")}</span></p>}
       {me.value?.roles.some((r) => r.key === "owner") && <p><a href="/vault">{t("ui.vault_link")}</a></p>}
       {!me.value?.support && me.value?.roles.some((r) => r.key === "owner" || r.key === "manager") && <p><a href="/support">{t("ui.support_link")}</a></p>}
     </section>

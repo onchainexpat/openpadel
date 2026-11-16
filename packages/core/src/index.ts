@@ -54,6 +54,7 @@ export * from "./ratings.ts";
 export * from "./level_tools.ts";
 export * from "./level_import.ts";
 export * from "./brought_in.ts";
+export * from "./move_in.ts";
 export * from "./csv_read.ts";
 export * from "./lessons.ts";
 export * from "./ical.ts";

@@ -30,7 +30,7 @@ export function Mirror() {
   return (
     <main>
       <h1>{t("ui.mirror_title")}</h1>
-      {canMoveIn && <p><a href="/playtomic/move-in">{t("ui.movein_link")}</a></p>}
+      {canMoveIn && <p><a href="/settings/moving-in">{t("ui.moving_link")}</a> · <a href="/playtomic/move-in">{t("ui.movein_link")}</a></p>}
       <section class="card">
         <p>{!d.status ? t("ui.mirror_off") : d.status.failed ? t("ui.mirror_failed", { when: fmt(d.status.last_sync_at) }) : t("ui.mirror_ok", { when: fmt(d.status.last_sync_at) })}</p>
       </section>

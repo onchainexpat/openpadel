@@ -72,6 +72,23 @@ Members for owners, managers and the desk; a coach on their own gets their sched
 Programs. + opens the Schedule's + Create from any page. The Menu at the top still opens every page; a wide screen is
 as it was.
 
+Moving in, step by step: the staff app guides a club's move from Playtomic, Playbypoint or spreadsheets in five
+steps (Settings, "Moving in, step by step"; the owner and managers): connect the old system, review what came across,
+a practice run, the switch-over and the wrap up. Each step links to the pages that do the work (Customers' import, the
+Playtomic page, Moving in), says what comes across, what needs a file and what never moves, and lists what's left,
+with who does each item: what openPadel can see (bookings taken over, wallets at zero, members booking here, practice
+mode off, the Playtomic keys gone) it ticks itself, and staff tick the rest (closing bookings in the old system,
+stopping its renewals, the club's announcement, cancelling its plan, the old links). The practice run sets Playtomic's
+records beside what came over: members, upcoming bookings on linked courts, memberships and the credit total. Where the
+club is (its source, step, switch-over time, ticked items, finished) is club data, changed only by previewed changes
+with an undo (move.source, move.step, move.switch_at, move.check, move.finish; a manager asks the owner to finish,
+migration 125), and from the command line as `openpadel move ...` and `openpadel moving-in`, or through `/mcp`. Nothing
+is sent to members at the switch-over: they see the welcome when they first sign in. Guide: docs/setup/moving-in.md.
+
+A Playbypoint users list imports members (Customers, Import, "The file is from: Playbypoint"; `openpadel import
+members <file> --from playbypoint`): name, email, phone, club news and its NPRP level as a provisional start. Its
+columns are read by their likely names, not yet checked against a real Playbypoint export, so check the preview.
+
 Undo, right after a change: the note that follows a confirm (Done.) now has Undo when the change can be taken back,
 in the members' app and the staff app alike. Undo is previewed like any change, and judged as the change it takes back:
 a member can now undo their own changes (a new grant for the member role, migration 120), but never one only staff

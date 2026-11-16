@@ -15,7 +15,7 @@ import { uuidv7 } from "./ids.ts";
 import { anyPhone, showPhone } from "./texts.ts";
 import { nameInput } from "./plain_text.ts";
 import { localDate } from "./clock.ts";
-import { activeImports, startSigma, writeImport } from "./level_import.ts";
+import { activeImports, startSigma, toKumi, writeImport } from "./level_import.ts";
 import { SELF_ADJUST_GAMES } from "./level_tools.ts";
 import { dayText } from "./memberships.ts";
 import { loadRating } from "./ratings.ts";
@@ -359,7 +359,9 @@ const importRow = z.object({ display_name: nameInput(80), email: z.optional(z.em
   // Only a yes counts: a file that says no, or nothing, adds no consent.
   club_news: z.optional(z.boolean()),
   playtomic_id: z.optional(z.string().check(z.minLength(1), z.maxLength(64))),
-  level: z.optional(z.object({ value: z.number().check(z.minimum(0), z.maximum(7)), reliability: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100))) })) });
+  // A Playtomic level unless it says it's Playbypoint's (NPRP, the same 1 to 7 range: level_import.ts).
+  level: z.optional(z.object({ value: z.number().check(z.minimum(0), z.maximum(7)), reliability: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100))),
+    platform: z.optional(z.enum(["playtomic", "playbypoint"])) })) });
 type ImportRow = z.infer<typeof importRow>;
 export const personImport = defineAction({
   name: "person.import", version: 1,
@@ -396,9 +398,9 @@ export const personImport = defineAction({
       if (r.news) await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: id, channel: "email", purpose: "club_news", granted: true, source: "import", form_version: null,
         evidence: JSON.stringify({ via: "import", by: ctx.actor.personId }), at: ctx.now }).execute();
       if (r.level) {
-        const conf = r.level.reliability !== undefined ? { reliability: r.level.reliability } : {};
-        await writeImport(ctx, id, { platform: "playtomic", raw: r.level.value, conf, start_level: r.level.value, sigma: startSigma("playtomic", "club_data", conf)!, evidence: "club_data",
-          external_id: r.row.playtomic_id ?? null }, both("level_import.how_club", { date }), ctx.actor.personId);
+        const platform = r.level.platform ?? "playtomic", conf = r.level.reliability !== undefined && platform === "playtomic" ? { reliability: r.level.reliability } : {};
+        await writeImport(ctx, id, { platform, raw: r.level.value, conf, start_level: toKumi(platform, r.level.value)!, sigma: startSigma(platform, "club_data", conf)!, evidence: "club_data",
+          external_id: platform === "playtomic" ? r.row.playtomic_id ?? null : null }, both(platform === "playbypoint" ? "level_import.how_club_playbypoint" : "level_import.how_club", { date }), ctx.actor.personId);
       }
     }
     await ctx.emit("person.imported", { count: p.add.length });
@@ -443,7 +445,7 @@ async function importPlan(db: Db | Trx, rows: ImportRow[]) {
     if (row.level) {
       if (!personId) level = row.level;
       else {
-        const r = await loadRating(db, personId), had = (await activeImports(db, personId)).find((x) => x.factors.platform === "playtomic");
+        const r = await loadRating(db, personId), had = (await activeImports(db, personId)).find((x) => x.factors.platform === (row.level!.platform ?? "playtomic"));
         if (r.games < SELF_ADJUST_GAMES && (!had || (r.games === 0 && Number(had.factors.raw) !== row.level.value))) level = row.level;
       }
     }

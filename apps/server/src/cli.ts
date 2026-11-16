@@ -3,7 +3,7 @@
 // clinic, a refund) run from any computer: cli_remote.ts, and docs/cli/README.md.
 //   kumi setup plan [club.yaml]    what setting the club up from the file would change (changes nothing)
 //   kumi setup apply [club.yaml]   make those changes; run it again after editing the file
-//   kumi import members <file.csv> [--apply]   members from a spreadsheet (a preview unless --apply)
+//   kumi import members <file.csv> [--from playbypoint] [--apply]   members from a spreadsheet (a preview unless --apply)
 //   kumi move-in players           read every player from Playtomic now, with their wallets and memberships
 //   kumi move-in wallets [<export.csv>] [--take-back] [--apply]   Playtomic wallet balances become club credit (a
 //                                  preview unless --apply): from the players last read, or the club's customer export;
@@ -157,7 +157,9 @@ async function main(): Promise<number> {
     const path = resolve(process.env.KUMI_CALLER_DIR ?? ".", rest[0]);
     // An Excel workbook (.xlsx) reads like a CSV: its first sheet (xlsx.ts).
     const bytes = readFileSync(path), cells = looksLikeXlsx(bytes) ? readXlsx(bytes) : undefined;
-    const r = cells === undefined ? readPeopleCsv(bytes.toString("utf8")) : cells ? readPeopleRows(cells) : { rows: [], problems: [], fatal: both("csv.not_xlsx") };
+    // `--from playbypoint`: a Playbypoint users list, read by its preset (csv.ts).
+    const fromAt = args.indexOf("--from"), from = fromAt >= 0 && args[fromAt + 1] === "playbypoint" ? "playbypoint" as const : undefined;
+    const r = cells === undefined ? readPeopleCsv(bytes.toString("utf8"), from) : cells ? readPeopleRows(cells, from) : { rows: [], problems: [], fatal: both("csv.not_xlsx") };
     const problems = r.problems.map((p) => say(p.text));
     if (r.fatal) { if (json) out({ ok: false, problems: [say(r.fatal), ...problems] }); else { console.error(say(r.fatal)); for (const p of problems) console.error(`  - ${p}`); } return 2; }
     const db = await clubDb();
