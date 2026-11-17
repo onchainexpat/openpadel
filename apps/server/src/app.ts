@@ -21,6 +21,8 @@ import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, mcpResourceOf, mcpResources, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
+import { previewWords } from "./preview_words.ts";
+import { assistantRoutes, type ModelClient } from "./assistant.ts";
 import { passkeyRoutes } from "./passkeys.ts";
 import { readRoutes } from "./reads.ts";
 import { supportRoutes } from "./support_routes.ts";
@@ -71,7 +73,10 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   /** Where a sign-in code emailed goes (main.ts): "sent" by the email service; "log", with no email service set up, only
    *  to the server's log; "practice", only to the server's test addresses (the rest are held in its log). The sign-in
    *  page then says so, rather than that it was emailed. */
-  mailReach?: "sent" | "log" | "practice" }
+  mailReach?: "sent" | "log" | "practice"
+  /** Ask openPadel's model (assistant.ts): on with KUMI_ANTHROPIC_API_KEY, off (and the apps say how to turn it on)
+   *  without one. Tests give a fake. */
+  assistant?: ModelClient | null }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
 type Me = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
@@ -302,22 +307,27 @@ export function makeApp(deps: AppDeps) {
   // The MCP door, at either address. What an assistant reads is what the person reads in the app: the same
   // member routes, run in-process for the person behind the token.
   const mcpAt = mcpResources(publicUrl, deps.memberUrl ?? memberUrl(publicUrl, {}));
+  /** What the door reads for a person: the members' app's reads as them, and for staff the staff screens' reads with
+   *  their own checks, never through support access (reads.ts). */
+  const doorReads = (who: { id: string; locale: string }) => {
+    const lang = isLang(who.locale) ? who.locale : "en";
+    const reads = memberRoutes(db, () => ({ id: who.id }), () => lang, { production: deps.production ?? false, now });
+    reads.onError((e) => { throw e; });
+    const staffReads = readRoutes(db, () => ({ id: who.id, locale: lang }), () => lang, { assistant: true });
+    staffReads.onError((e) => { throw e; });
+    return { read: async (path: string) => (await reads.request(`http://kumi${path}`)).json(), readStaff: async (path: string) => (await staffReads.request(`http://kumi${path}`)).json() };
+  };
   app.all("/mcp", async (c) => {
     const who = await bearerPerson(db, c.req.header("authorization"), mcpAt, now());
     if (!who) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": `Bearer resource_metadata="${new URL(mcpResourceOf(mcpAt, c.req.url)).origin}/.well-known/oauth-protected-resource/mcp", scope="kumi"` });
-    const reads = memberRoutes(db, () => ({ id: who.id }), () => (isLang(who.locale) ? who.locale : "en"), { production: deps.production ?? false, now });
-    reads.onError((e) => { throw e; });
-    const read = async (path: string) => (await reads.request(`http://kumi${path}`)).json();
-    // And for staff, the staff screens' reads with their own checks, never through support access (reads.ts).
-    const lang = isLang(who.locale) ? who.locale : "en";
-    const staffReads = readRoutes(db, () => ({ id: who.id, locale: lang }), () => lang, { assistant: true });
-    staffReads.onError((e) => { throw e; });
-    const readStaff = async (path: string) => (await staffReads.request(`http://kumi${path}`)).json();
+    const { read, readStaff } = doorReads(who);
     // Never further than the person allowed when they connected it: a role given since, or a second step the club
     // now asks for, and it works as a member's until they connect it again (assistant_reach.ts).
     const limited = await connectionReach(db, who.grant_id, who.id, now());
     return handleMcp(c.req.raw, await mcpServerFor(db, who, now, read, readStaff, limited));
   });
+  // Ask openPadel, the hosted assistant: the same door, opened in-process for the person signed in (assistant.ts).
+  app.route("/", assistantRoutes({ db, now, model: deps.assistant ?? null, me: (c) => c.get("me"), lang: (c) => c.get("lang"), reads: doorReads }));
 
   // ---- Sign in by an emailed code ----
   app.post("/auth/email/start", async (c) => {
@@ -486,13 +496,10 @@ export function makeApp(deps: AppDeps) {
   app.post("/actions/:name/plan", async (c) => {
     // ?ask=hold: a change that needs someone else's yes is only shown, until the person says to ask (Preview.tsx).
     const p = await plan(db, c.req.param("name"), await c.req.json().catch(() => ({})), actor(c), { now: now(), holdAsk: c.req.query("ask") === "hold" });
-    const lang = c.get("lang");
-    // A change that charges money says it line by line too (charge.ts): the members' app shows it before the yes. Only
-    // to the member whose change it is (or a parent of theirs): staff at the desk see the summary, as before.
-    const who = actor(c).personId, ch = who && p.plan.ownerIds?.includes(who) ? p.plan.charge : undefined;
-    const charge = ch ? { lines: ch.lines.map((l) => ({ kind: l.kind, label: l.label[lang], cents: l.cents })), due_cents: ch.due_cents, how: ch.how[lang], when: ch.when?.[lang] ?? null } : undefined;
-    return c.json({ run_id: p.runId, status: p.status, title: p.plan.title[lang], summary: p.plan.summary[lang], undo: p.plan.undo.kind, expires_at: p.expiresAt, yeses_needed: p.yesesNeeded, ...(charge ? { charge } : {}), ...(p.plan.image ? { image: p.plan.image } : {}),
-      ...(p.plan.rows?.length ? { rows: p.plan.rows.map((r) => ({ label: r.label[lang], text: r.text[lang] })) } : {}) });
+    // A change that charges money says it line by line too (charge.ts): the members' app shows it before the yes.
+    const w = previewWords(p.plan, c.get("lang"), actor(c).personId);
+    return c.json({ run_id: p.runId, status: p.status, title: w.title, summary: w.summary, undo: p.plan.undo.kind, expires_at: p.expiresAt, yeses_needed: p.yesesNeeded, ...(w.charge ? { charge: w.charge } : {}), ...(p.plan.image ? { image: p.plan.image } : {}),
+      ...(w.rows ? { rows: w.rows } : {}) });
   });
   app.post("/runs/:id/apply", async (c) => {
     const a = actor(c), id = c.req.param("id");

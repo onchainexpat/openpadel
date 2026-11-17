@@ -1,4 +1,4 @@
-import { playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, tidyCardsOnFile, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
+import { playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, tidyAssistantChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, tidyCardsOnFile, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -10,6 +10,7 @@ import { TwilioApi } from "./twilio_admin.ts";
 import { handlers } from "./outbox.ts";
 import { tidySignIns } from "./oauth.ts";
 import { answererFromEnv, answerModels } from "./answerer.ts";
+import { modelFromEnv } from "./assistant.ts";
 import { setTranslator, translatorFromEnv } from "./translate.ts";
 import { describeListen, listen, listenFrom, type Listen } from "./listen.ts";
 
@@ -136,13 +137,17 @@ const answerer = answererFromEnv(process.env, undefined, (u) => countAi(db, "ai_
 if (answerer) { setAnswerer(answerer); console.log(`ask the club: answered by ${answerer.name}`); }
 // Drafts of the club's own words in its other language, for staff to check (translate.ts): the same Anthropic key.
 setTranslator(translatorFromEnv(process.env));
+// Ask openPadel, the hosted assistant for staff and members (assistant.ts): the same Anthropic key. Without one it's off,
+// and the apps say how to turn it on.
+const assistant = modelFromEnv(process.env);
+if (assistant) console.log("ask openpadel: on (Claude Sonnet for staff, Claude Haiku for members)");
 // Bot protection on sign-up, sign-in codes and checkout. KUMI_BOT_CHECK=0 leaves it off on a practice
 // machine (scripts that sign in over the API); production refuses to start that way.
 const botCheck = process.env.KUMI_BOT_CHECK !== "0";
 if (!botCheck && production) { console.error("KUMI_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
 // The session cookie's old name, still read (and moved) over HTTPS for one release (session_cookie.ts).
 const legacySessionCookie = process.env.KUMI_LEGACY_SESSION_COOKIE !== "0";
-const server = await listen(makeApp({ db, mailer, mailReach, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
+const server = await listen(makeApp({ assistant, db, mailer, mailReach, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
   emailEvents: { secret: process.env.KUMI_RESEND_WEBHOOK_SECRET || null, from: process.env.KUMI_MAIL_FROM || null },
   ...(texter && twilio ? { texts: { texter, authToken: twilio.authToken } } : {}) }).fetch, listenAt);
 console.log(`kumi server on ${describeListen(listenAt, server)}`);
@@ -280,6 +285,9 @@ const jobSteps: JobStep[] = [
       // Players' chats go 90 days after their game (chat.ts).
       const ch = await tidyChats(db);
       if (ch.deleted) console.log(`chats: ${ch.deleted} chats 90 days after their game deleted`);
+      // Conversations with Ask openPadel go 30 days after their last turn (assistant_chats.ts).
+      const ac = await tidyAssistantChats(db);
+      if (ac.deleted) console.log(`ask openpadel: ${ac.deleted} conversations 30 days after their last turn deleted`);
     }
   }],
   ["family cards", async () => {
