@@ -42,6 +42,7 @@ const Roles = lazyPage(() => import("./Roles.tsx").then((m) => m.Roles));
 const Vault = lazyPage(() => import("./Vault.tsx").then((m) => m.Vault));
 const Usage = lazyPage(() => import("./Usage.tsx").then((m) => m.Usage));
 const Support = lazyPage(() => import("./Support.tsx").then((m) => m.Support));
+const Agents = lazyPage(() => import("./Agents.tsx").then((m) => m.Agents));
 // A coach's lists, opened from the schedule.
 const Roster = lazyPage(() => import("./Roster.tsx").then((m) => m.Roster));
 const Students = lazyPage(() => import("./Students.tsx").then((m) => m.Students));
@@ -169,7 +170,7 @@ function StaffNav({ a, n, signOut }: { a: Access; n: Counts; signOut: () => void
     // the Roles page Settings links to as well. Not under support access, which never changes roles.
     roles: link(show("settings") && mayCreate("role.create") && !me.value?.support, "/roles", label("ui.nav_roles")),
     changes: link(changes, "/changes", label("ui.nav_changes")),
-    settings: link(show("settings"), "/settings", label("ui.nav_settings"), on("/settings", "/vault")),
+    settings: link(show("settings"), "/settings", label("ui.nav_settings"), on("/settings", "/vault", "/agents")),
     inbox: <li><InboxLink current={on("/inbox")} /></li>,
     profile: link(true, "/profile", label("ui.nav_profile")),
   };
@@ -342,6 +343,7 @@ export function App() {
         <Route path="/settings" component={only("settings", Settings)} />
         <Route path="/usage" component={changes ? Usage : NotForRole} />
         <Route path="/support" component={changes && !me.value.support ? Support : NotForRole} />
+        <Route path="/agents" component={changes && !me.value.support ? Agents : NotForRole} />
         <Route path="/roles" component={only("settings", Roles)} />
         <Route path="/vault" component={only("settings", Vault)} />
         <Route path="/courts" component={only("bookings", Courts)} />
