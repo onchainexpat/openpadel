@@ -24,6 +24,7 @@ import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { passkeyRoutes } from "./passkeys.ts";
 import { readRoutes } from "./reads.ts";
 import { supportRoutes } from "./support_routes.ts";
+import { agentRoutes } from "./agent_routes.ts";
 import { calendarRoutes } from "./calendar.ts";
 import { translateRoutes, translatorOn } from "./translate.ts";
 import { broadcastRoutes } from "./broadcasts.ts";
@@ -278,6 +279,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
   app.route("/", staffChatRoutes(db, (c) => c.get("me"), now));
   app.route("/", supportRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), now));
+  app.route("/", agentRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), now));
   app.route("/", vaultRoutes(db, (c) => c.get("me"), now));
   app.route("/", exportRoutes(db, (c) => c.get("me"), { databaseUrl: deps.databaseUrl ?? null, now }));
   app.route("/", calendarRoutes(db, (c) => c.get("me")));
@@ -315,7 +317,8 @@ export function makeApp(deps: AppDeps) {
     const readStaff = async (path: string) => (await staffReads.request(`http://kumi${path}`)).json();
     // Never further than the person allowed when they connected it: a role given since, or a second step the club
     // now asks for, and it works as a member's until they connect it again (assistant_reach.ts).
-    const limited = await connectionReach(db, who.grant_id, who.id, now());
+    // A club agent's reach is its role, capped as it acts (permissions.ts): nothing of a person's to hold back.
+    const limited = who.agent_id ? null : await connectionReach(db, who.grant_id, who.id, now());
     return handleMcp(c.req.raw, await mcpServerFor(db, who, now, read, readStaff, limited));
   });
 

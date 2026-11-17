@@ -264,6 +264,11 @@ export async function roleGrantsView(db: Db | Trx, key: string): Promise<{ actio
   return names.map((n) => ({ n, h: roleAllows(grants, n) })).filter((x) => x.h).map((x) => ({ action: x.n, scope: x.h!.scope, approval: x.h!.mode === "ask" }));
 }
 
+/** What a role lets its holder do, in words ("It can: ... It can't do anything in: ..."), for the club's list of agents. */
+export async function roleText(db: Db | Trx, key: string): Promise<Text> {
+  return describe(db, await roleGrantsView(db, key));
+}
+
 /** The staff screens' areas a coach's role reads: their own work (lessons and court time, programs, levels, coaches). */
 export const COACH_AREAS = ["bookings", "programs", "levels", "coaches"];
 /** The built-in roles that read every area: front desk and up, and the accountant. Support access reads as a manager. */

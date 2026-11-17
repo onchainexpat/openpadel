@@ -87,7 +87,7 @@ export type Member = { id: string; display_name: string; given_name: string | nu
 export async function segmentMembers(db: Db | Trx, filters: Filters, now: Date): Promise<Member[]> {
   const f = cleanFilters(filters), tz = (await clubOf(db)).time_zone;
   let q = db.selectFrom("person").select(["person.id", "person.display_name", "person.given_name", "person.junior", "person.own_login", "person.locale", "person.email"])
-    .where("person.status", "!=", "archived").where("person.redacted_at", "is", null).where("person.created_via", "!=", "support");   // not support access's accounts
+    .where("person.status", "!=", "archived").where("person.redacted_at", "is", null).where("person.created_via", "not in", ["support", "agent"]);   // not support access's accounts, nor club agents'
   if (f.membership === "not_member") q = q.where(sql<boolean>`NOT ${covering(f, now, "any")}`);
   else if (f.membership || f.plan_ids?.length) q = q.where(covering(f, now, f.membership ?? "member"));
   if (f.level_min !== undefined || f.level_max !== undefined)

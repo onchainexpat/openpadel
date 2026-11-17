@@ -101,7 +101,7 @@ export const CHAT_ACTIONS = ["chat.report", "chat.hide", "chat.stop", "chat.allo
  *  the club), every member's details in one file, deleting people or data, a person's sign-in, the club's secrets,
  *  the usage cap, the host's read-only and leaving switches, and support access itself. */
 export const SUPPORT_NEVER = ["support.*", "role.*", "club.payment_*", "club.export", "club.setup", "club.read_only", "club.moved*", "club.leaving*", "club.usage_cap_set",
-  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*", ...DESK_MONEY, ...CREDIT_MONEY, "pass_product.set", "promo_code.set", "chat.*", "weekly.end_all", "fixture.reopen",
+  "privacy.erase", "privacy.export", "person.reset_sign_in", "person.import", "vault.*", "assistant.*", "agent.*", "webhook.*", ...DESK_MONEY, ...CREDIT_MONEY, "pass_product.set", "promo_code.set", "chat.*", "weekly.end_all", "fixture.reopen",
   // A member's own credit and gift cards are theirs to spend and redeem, in the app (credit.ts, gift_cards.ts).
   "payment.use_credit", "gift_card.redeem",
   // A member's passes and the codes they use are theirs too (passes.ts, promo_codes.ts).
@@ -137,8 +137,19 @@ async function decideSupport(db: Db | Trx, action: string, s: Subject & { person
   return { mode: best.mode as Mode, support: g.id };
 }
 
+/** What a club agent (agents.ts) may always do for itself, whatever its role: its own webhooks (webhooks.ts). Nobody's
+ *  role holds these for an agent, since a role the club makes holds only what a manager does without asking. */
+export const AGENT_OWN = ["webhook.subscribe", "webhook.update", "webhook.remove", "webhook.test"];
+/** The club agent a person row stands for (agents.ts), while it's not taken back: null for everyone else. */
+export async function clubAgentOf(db: Db | Trx, personId: string | null | undefined): Promise<{ id: string; capped_role_id: string | null } | null> {
+  if (!personId) return null;
+  return (await db.selectFrom("agent").select(["id", "capped_role_id"]).where("person_id", "=", personId).where("kind", "=", "club").where("revoked_at", "is", null).executeTakeFirst()) ?? null;
+}
+
 export async function decide(db: Db | Trx, action: string, s: Subject): Promise<Decision> {
   if (!s.personId) return { mode: "no", reason: "reason.no_role" };
+  // A club agent looks after its own webhooks (its own rows only), whatever its role says.
+  if (AGENT_OWN.includes(action) && (s.ownerIds ?? []).includes(s.personId) && await clubAgentOf(db, s.personId)) return { mode: "allow" };
   const own = await decidePerson(db, action, { ...s, personId: s.personId });
   // Support access adds to what the person holds themselves; it never takes anything away.
   const support = await decideSupport(db, action, { ...s, personId: s.personId });

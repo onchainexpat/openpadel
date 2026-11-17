@@ -698,8 +698,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       within = seg ? (await segmentMembers(db, seg.filters as Filters, new Date())).map((p) => p.id) : [];
     }
     if (within && !within.length) return null;
-    // An account made for support access (support.ts) isn't one of the club's people.
-    return db.selectFrom("person").where("status", "!=", "archived").where("created_via", "!=", "support")
+    // An account made for support access (support.ts), or a club agent's (agents.ts), isn't one of the club's people.
+    return db.selectFrom("person").where("status", "!=", "archived").where("created_via", "not in", ["support", "agent"])
       // Through the assistant door, names only: an email or phone it can match is a yes or no on the whole of one, and
       // the door shows them shortened (mcp.ts), so matching them would let the shortening be undone one letter at a time.
       .where((eb) => eb.or([eb("display_name", "ilike", q), ...(opts.assistant ? [] : [eb("email", "ilike", q), ...(digits.length >= 3 ? [eb(sql<string>`regexp_replace(coalesce(phone, ''), '\\D', '', 'g')`, "like", `%${digits}%`)] : [])])]))
@@ -1267,7 +1267,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const plan = await memberPlan(db, q.person_id, now), level = await levelOf(db, q.person_id);
     const parents = q.junior ? (await db.selectFrom("person").select("display_name").where("id", "in", [...await managersOf(db, q.person_id), "00000000-0000-0000-0000-000000000000"]).execute()).map((p) => p.display_name) : [];
     const desk = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").innerJoin("person", "person.id", "person_role.person_id")
-      .select(["person.id", "person.display_name"]).distinct().where("role.key", "in", ["owner", "manager", "front_desk"]).where("person_role.active", "=", true).orderBy("person.display_name").execute();
+      .select(["person.id", "person.display_name"]).distinct().where("role.key", "in", ["owner", "manager", "front_desk"]).where("person_role.active", "=", true).where("person.created_via", "!=", "agent").orderBy("person.display_name").execute();
     // A fact Kumi sent by itself: which fact, how sure the model was, and what the member said about it.
     const l = lang(c), picks = await db.selectFrom("answer_decision").innerJoin("club_fact", "club_fact.id", "answer_decision.fact_id")
       .select(["answer_decision.fact_id", "answer_decision.answerer", "answer_decision.confidence", "answer_decision.corrected", "answer_decision.created_at",

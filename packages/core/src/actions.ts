@@ -8,9 +8,9 @@ import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import type { Charge } from "./charge.ts";
 import { plainIssues } from "./plain_issues.ts";
-import { checkAssistantSpend } from "./assistant_spend.ts";
+import { checkAgentSpend, checkAssistantSpend } from "./assistant_spend.ts";
 import { uuidv7 } from "./ids.ts";
-import { CHAT_ACTIONS, CREDIT_MONEY, decide, DESK_MONEY, holdsRole, roleKeysOf, type Decision } from "./permissions.ts";
+import { CHAT_ACTIONS, clubAgentOf, CREDIT_MONEY, decide, DESK_MONEY, holdsRole, roleKeysOf, type Decision } from "./permissions.ts";
 import { readOnlyGate } from "./read_only.ts";
 import { hasSecondFactor, secondStepForChanges } from "./second_step.ts";
 
@@ -169,6 +169,8 @@ const ENTITIES = {
   broadcast: { table: "broadcast", key: "id", retire: { status: "cancelled" } },
   staff_alert: { table: "staff_alert", key: "id", retire: null },
   oauth_grant: { table: "oauth_grant", key: "id", retire: { revoked_at: "now" } },
+  agent: { table: "agent", key: "id", retire: { revoked_at: "now" } },
+  webhook_subscription: { table: "webhook_subscription", key: "id", retire: { active: false } },
   texting_registration: { table: "texting_registration", key: "id", retire: null },
   support_grant: { table: "support_grant", key: "id", retire: { ended_at: "now" } },
   email_suppression: { table: "email_suppression", key: "address", retire: { cleared_at: "now" } },
@@ -194,6 +196,8 @@ export type Entity = keyof typeof ENTITIES;
  *  never copied into the change log. */
 const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"], staff_factor: ["secret"], chat_message: ["body"], chat_report: ["reason"], chat_stop: ["reason"],
   gift_card: ["code_hash", "code_sealed"],
+  // A club agent's new token waiting to be shown once, and a webhook's signing secret (agents.ts, webhooks.ts).
+  agent: ["token_once"], webhook_subscription: ["secret_sealed"],
   // An upload of the club's export (brought_in.ts): its hash and row count are logged, never the people in it.
   playtomic_upload: ["rows", "problems", "wallet_columns"] };
 const unkept = (entity: Entity, row: unknown) => {
@@ -454,8 +458,10 @@ export async function plan(db: Db, name: string, raw: unknown, actor: Actor, opt
     const instead = await planGate(db, name, input, actor, p, now);
     if (instead) return plan(db, instead.name, instead.input, actor, { now, internal: true });
   }
+  // A club agent can't plan past the weekly limit the club set for it (assistant_spend.ts, checkAgentSpend).
+  if (actor.agentId) await checkAgentSpend(db, actor.agentId, p, now);
   // An assistant can't plan past the weekly cap its person set for it (assistant_spend.ts).
-  if (actor.grantId && actor.personId) {
+  else if (actor.grantId && actor.personId) {
     const counted = await checkAssistantSpend(db, actor.grantId, name, input, p, actor.personId, now);
     // A shared court counts in full until the others pay: the preview says so.
     if (counted > (p.moneyCents ?? 0)) {
@@ -549,7 +555,11 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
         const g = await trx.selectFrom("oauth_grant").select("revoked_at").where("id", "=", run.oauth_grant_id).forUpdate().executeTakeFirst();
         if (!g || g.revoked_at) throw new KumiError("error.assistant_disconnected", {}, 403);
       }
-      if (run.oauth_grant_id && run.actor_person_id) {
+      if (run.agent_id) {
+        // A club agent's limit, likewise with the agent locked; one taken back since can't have its change made.
+        await trx.selectFrom("agent").select("id").where("id", "=", run.agent_id).forUpdate().executeTakeFirst();
+        await checkAgentSpend(trx, run.agent_id, p, now, runId);
+      } else if (run.oauth_grant_id && run.actor_person_id) {
         await checkAssistantSpend(trx, run.oauth_grant_id, run.action, run.input, p, run.actor_person_id, now, runId);
       }
       for (const [k, v] of Object.entries(run.read_versions as Record<string, number>)) {
@@ -593,6 +603,8 @@ export const saidYes = (run: { yeses?: unknown }, personId: string | null) => Bo
  *  when they say yes, not here. */
 export async function mayAnswer(db: Db | Trx, run: AskedRun, personId: string | null, at: Date): Promise<boolean> {
   if (!personId || run.actor_person_id === personId || saidYes(run, personId)) return false;
+  // A club agent never says yes to anything: asks are for people (agents.ts).
+  if (await clubAgentOf(db, personId)) return false;
   const p = run.plan as Plan, def = getAction(run.action), s = { personId, agentId: null, locationId: run.location_id, ownerIds: p.ownerIds ?? [], at };
   if ((await decide(db, run.action, { ...s, assistant: false, strongAuth: Boolean(def.strongAuth), clubWide: Boolean(def.clubWide) })).mode !== "allow") return false;
   const judged = await judgedAs(db, def, run.input);
