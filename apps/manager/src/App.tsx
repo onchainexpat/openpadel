@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, club, mayCreate, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses } from "@kumi/ui";
+import { api, AskChat, club, mayCreate, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts, NewBooking, SessionPanel } from "./Courts.tsx";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
@@ -241,6 +241,30 @@ function PhoneTabs({ a, n }: { a: Access; n: Counts }) {
 const homeHrefOf = (a: Access): string | null => a.home === Schedule ? "/schedule" : a.home === Courts ? "/courts" : a.homeItem === "today" ? "/today"
   : a.homeItem === "bookings" ? "/bookings" : a.homeItem === "people" ? "/people" : a.homeItem === "programs" ? "/programs" : null;
 
+/** Ask openPadel's key, as this computer writes it. */
+const askKeys = () => (/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K");
+/** Ask openPadel over whatever page is open (AskChat, loaded when first opened): Ctrl+K (⌘K on a Mac) or the menu's
+ *  button opens it, and Escape, Close, the back button or a click outside shuts it. Its changes open in the usual
+ *  preview sheet, above it. */
+function useAsk() {
+  const [open, setOpen] = useState(false), close = () => setOpen(false);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); setOpen((o) => !o); }
+      else if (e.key === "Escape") setOpen(false);
+    };
+    addEventListener("keydown", key);
+    return () => removeEventListener("keydown", key);
+  }, []);
+  useBackCloses(open, close);
+  const panel = open ? <div class="ask-overlay" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+    <section class="card ask-panel" role="dialog" aria-modal="true" aria-label={t("ui.assistant_title")}>
+      <header><h2>{t("ui.assistant_title")}</h2><button type="button" class="small" onClick={close}>{t("ui.close")}</button></header>
+      <AskChat surface="staff" autoFocus />
+    </section></div> : null;
+  return { open: () => setOpen(true), panel };
+}
+
 /** The page's frame: the menu down the left on a wide screen; on a phone a bar with a Menu button that opens it over
  *  the page (Escape, the back button or a link closes it), and tabs at the bottom (PhoneTabs). */
 function Frame({ a, signOut, children }: { a: Access; signOut: () => void; children: any }) {
@@ -250,6 +274,7 @@ function Frame({ a, signOut, children }: { a: Access; signOut: () => void; child
   useEffect(close, [path, narrow]);
   useBackCloses(shown, close);
   const rail = useDrawer<HTMLDivElement>(shown, close, true);
+  const ask = useAsk();
   return (
     <div class="shell">
       <header class="topbar">
@@ -262,8 +287,10 @@ function Frame({ a, signOut, children }: { a: Access; signOut: () => void; child
         aria-label={shown ? t("ui.nav_main") : undefined}>
         <div class="rail-head"><strong>{club.value?.logo && <img class="club-logo" src={club.value.logo} alt="" width={28} height={28} />}{club.value?.name}</strong>
           {shown && <button type="button" class="small" onClick={close}>{t("ui.close")}</button>}</div>
+        <p><button type="button" class="link" onClick={() => { close(); ask.open(); }} aria-haspopup="dialog">{t("ui.assistant_title")}</button> <kbd aria-hidden="true">{askKeys()}</kbd></p>
         <StaffNav a={a} n={n} signOut={signOut} />
       </div>
+      {ask.panel}
       <div class="shell-main">{children}</div>
       {narrow && <PhoneTabs a={a} n={n} />}
     </div>

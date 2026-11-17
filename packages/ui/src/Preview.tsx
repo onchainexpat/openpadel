@@ -115,7 +115,10 @@ export function usePreview(onDone: (result?: any) => void) {
       {error && <p class="error" role="alert" onClick={() => setError(null)}>{error}</p>}
     </div>
   );
-  return { preview, sheet };
+  /** A preview someone else already made for the person (Ask openPadel, AskChat.tsx): shown in the same sheet, confirmed
+   *  the same way. */
+  const show = (p: Pending) => { setError(null); setNote(null); setUndoRun(null); setPending(p); };
+  return { preview, sheet, show };
 }
 
 export const dollars = (cents: number, lang: string) => money(cents, lang === "es" ? "es" : "en");

@@ -5,7 +5,7 @@ export * from "./state.ts";
 export { SignIn } from "./SignIn.tsx";
 export { AccountData } from "./AccountData.tsx";
 export { Inbox, InboxLink } from "./Inbox.tsx";
-export { usePreview, useStepUp, needsStep, dollars, ChargeLines, type Charge } from "./Preview.tsx";
+export { usePreview, useStepUp, needsStep, dollars, ChargeLines, type Charge, type Pending } from "./Preview.tsx";
 export { useBackCloses } from "./back.ts";
 export { ProgramCard, placesLeft, type ProgramCardData } from "./ProgramCard.tsx";
 export { protectedPost, botProof } from "./pow.ts";
@@ -26,3 +26,6 @@ export { whyNothingNew } from "./notices.ts";
 export const ProfilePage = lazyPage(() => import("./Profile.tsx").then((m) => m.Profile));
 /** The second step at sign-in, while a session owes it (me.gate): loaded only then. */
 export const TwoFactor = lazyPage(() => import("./TwoFactor.tsx").then((m) => m.TwoFactor));
+/** Ask openPadel, the hosted assistant (staff app's Ctrl+K, the members' Ask tab): loaded only when it's opened. */
+export const AskChat = lazyPage(() => import("./AskChat.tsx").then((m) => m.AskChat));
+export type { AskStatus } from "./ask_status.ts";

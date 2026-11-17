@@ -13,6 +13,7 @@ const src = (f: string) => readFileSync(join(import.meta.dirname, "../src", f), 
 test("how a change came in, in words: the app, an assistant on /mcp, setup, a job, the Playtomic copy", () => {
   assert.deepEqual(viaWords("web"), { word: "web", params: {} });
   assert.deepEqual(viaWords("mcp:Claude"), { word: "mcp", params: { name: "Claude" } });
+  assert.deepEqual(viaWords("assistant:hosted:member"), { word: "assistant", params: {} });
   assert.deepEqual(viaWords("setup"), { word: "setup", params: {} });
   assert.deepEqual(viaWords("job:receipts"), { word: "job", params: {} });
   assert.deepEqual(viaWords("jobs"), { word: "job", params: {} });

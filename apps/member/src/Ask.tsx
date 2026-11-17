@@ -3,7 +3,7 @@
 // ask about one of their juniors.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation, useRoute } from "preact-iso";
-import { api, lang, me, t, usePreview, clubTime } from "@kumi/ui";
+import { api, AskChat, lang, me, t, usePreview, clubTime, type AskStatus } from "@kumi/ui";
 import { ForWhom } from "./ForWhom.tsx";
 
 type Fact = { id: string; topic: string; question: string; answer: string };
@@ -24,6 +24,10 @@ export function Ask() {
   const [search, setSearch] = useState(""), [facts, setFacts] = useState<Fact[] | null>(null), [text, setText] = useState(() => new URLSearchParams(location.search).get("q") ?? ""), [matches, setMatches] = useState<Fact[]>([]);
   const [mine, setMine] = useState<Mine[] | null>(null), [forId, setFor] = useState(me.value!.person.id);
   const loadMine = () => api<Mine[]>("/my/questions").then(setMine);
+  // The club assistant (Ask openPadel), when the club has it on: its chat is loaded only then. Off, or a club with its
+  // own agent, and this page is the club's questions, as before.
+  const [assistant, setAssistant] = useState<AskStatus | null>(null);
+  useEffect(() => { api<AskStatus>("/assistant?app=member").then((s) => setAssistant(s.on ? s : null)).catch(() => setAssistant(null)); }, [lang.value]);
   const { preview, sheet } = usePreview((r?: { question_id?: string }) => { if (r?.question_id) route(`/ask/${r.question_id}`); else void loadMine(); });
   useEffect(() => { const id = setTimeout(() => { api<Fact[]>(`/my/facts?q=${encodeURIComponent(search)}`).then(setFacts); }, search ? 250 : 0); return () => clearTimeout(id); }, [search, lang.value]);
   useEffect(() => { void loadMine(); }, [lang.value]);
@@ -36,6 +40,7 @@ export function Ask() {
     <main>
       <h1>{t("ui.ask_title")}</h1>
       {sheet}
+      {assistant && <section class="card"><h2>{t("ui.assistant_club_title")}</h2><AskChat key={lang.value} surface="member" status={assistant} /></section>}
       <section class="card">
         <h2>{t("ui.common_questions")}</h2>
         <label>{t("ui.search_questions")}<input type="search" value={search} onInput={(e) => setSearch(e.currentTarget.value)} /></label>

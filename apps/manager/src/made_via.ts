@@ -4,7 +4,7 @@
 const KNOWN = ["web", "setup", "cli", "import", "household", "signup", "support", "staff", "restore"] as const;
 const JOBS = ["job", "jobs", "schedule", "texting"];
 /** The end of a `ui.made_via_*` key, and what it fills in. */
-export type ViaWord = (typeof KNOWN)[number] | "mcp" | "playtomic" | "parent" | "text" | "job";
+export type ViaWord = (typeof KNOWN)[number] | "mcp" | "assistant" | "playtomic" | "parent" | "text" | "job";
 export type ViaWords = { word: ViaWord; params: Record<string, string> };
 
 /** The words for a run's `via`, or null when there's nothing worth saying (a test's, a developer's own). */
@@ -13,6 +13,8 @@ export function viaWords(via: string | null | undefined): ViaWords | null {
   const at = via.indexOf(":"), head = at < 0 ? via : via.slice(0, at), rest = at < 0 ? "" : via.slice(at + 1);
   const w = (word: ViaWord, params: Record<string, string> = {}) => ({ word, params });
   if (head === "mcp") return w("mcp", { name: rest });
+  // Ask openPadel, the hosted assistant (assistant:hosted:staff or :member): previewed by it, confirmed by the person.
+  if (head === "assistant") return w("assistant");
   if (head === "mirror") return w("playtomic");
   if (head === "parent") return w("parent");
   if (head === "text") return w("text");
