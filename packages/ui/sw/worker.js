@@ -21,7 +21,7 @@
 
 /** Where the club's API answers (Caddy sends these to the server, deploy/server-setup.sh's api=; a test keeps the two
  *  the same). The worker never answers for these, never caches them, and never opens the app on them. */
-const API_PATHS = "/auth/* /me /me/* /my/* /club /actions /actions/* /runs /runs/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /health /health/* /open-programs /payments/* /webhooks/* /manifest/* /availability /booking-options /quote /bookings/* /membership-plans /open-matches /matches/* /public /public/* /calendar/* /unsubscribe/*".split(" ");
+const API_PATHS = "/auth/* /me /me/* /my/* /club /actions /actions/* /runs /runs/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /assistant /assistant/* /health /health/* /open-programs /payments/* /webhooks/* /manifest/* /availability /booking-options /quote /bookings/* /membership-plans /open-matches /matches/* /public /public/* /calendar/* /unsubscribe/*".split(" ");
 
 /** The start screen's look from the club: its colour and words, and its logo or mark. Public, the same for everyone,
  *  read with or without a query (the app adds ?v= for the current logo). The only server answers ever kept. */

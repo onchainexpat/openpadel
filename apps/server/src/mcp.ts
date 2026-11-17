@@ -180,11 +180,17 @@ function slimToolList(server: McpServer): void {
 /** Errors that would say whether an email or phone is someone's at the club: through the door, a plain refusal. */
 const SAYS_WHO = new Set(["error.duplicate_email", "error.duplicate_phone", "error.phone_taken", "error.email_taken"]);
 
+/** How the door is opened in-process, for Ask openPadel (assistant.ts): the `via` its runs carry; a change that needs
+ *  someone else's yes only shown until the person says to ask, as the staff app's first look does (holdAsk); and the
+ *  members' app's assistant held to a member's reach whatever roles the person has (memberOnly). */
+export interface DoorOpts { via?: string; holdAsk?: boolean; memberOnly?: boolean }
+
 /** `limited`: the connection works as a member's until it's allowed again (assistant_reach.ts), and why. */
 export async function mcpServerFor(db: Db, who: { id: string; display_name: string; locale: string; client_name: string | null; grant_id: string }, now: () => Date,
-  read?: (path: string) => Promise<unknown>, readStaff?: (path: string) => Promise<unknown>, limited: Limited | null = null): Promise<McpServer> {
+  read?: (path: string) => Promise<unknown>, readStaff?: (path: string) => Promise<unknown>, limited: Limited | null = null, opts: DoorOpts = {}): Promise<McpServer> {
   const lang: Lang = isLang(who.locale) ? who.locale : "en";
-  const actor: Actor = { personId: who.id, via: `mcp:${who.client_name ?? "client"}`, lang, auth: "oauth", grantId: who.grant_id, memberOnly: Boolean(limited) };
+  const memberOnly = Boolean(limited) || Boolean(opts.memberOnly);
+  const actor: Actor = { personId: who.id, via: opts.via ?? `mcp:${who.client_name ?? "client"}`, lang, auth: "oauth", grantId: who.grant_id, memberOnly };
   const server = new McpServer({ name: "kumi", version: VERSION }, { instructions: `You act for ${who.display_name} at their padel club. Every change is two steps: call a *_preview tool, show the person the summary in their words, and only after they agree call the matching *_confirm tool with the run_id. Anything that costs them money must fit the weekly limit they set for you (whoami says what's left); over it, the preview fails and they do it in the club's app. Some things are only ever done in the app: their limit for you, how they sign in, accepting a waiver, moving their own level, downloading their data, the family card and saying yes to texts or club news. Reply in ${lang === "es" ? "Spanish" : "English"}.` });
   const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v) }] });
   // The words for the person, and for a program reading the answer (the command line) the failure's key and status.
@@ -217,7 +223,7 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
     return text({ changed: Boolean(later), status: run.status });
   });
 
-  const staff = !limited && readStaff ? Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key").where("person_role.person_id", "=", who.id)
+  const staff = !memberOnly && readStaff ? Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key").where("person_role.person_id", "=", who.id)
     .where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst()) : false;
   for (const r of READS) {
     const from = r.staff ? (staff ? readStaff : undefined) : read;
@@ -227,7 +233,7 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
     });
   }
 
-  const may = await everDoable(db, who.id, { memberOnly: Boolean(limited) });
+  const may = await everDoable(db, who.id, { memberOnly });
   for (const a of actions()) {
     // A tool you may never use doesn't exist for you. Undo is checked against the original change.
     const listed = a.name === "action.undo" || may(a.name);
@@ -240,7 +246,7 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
       inputSchema: a.input.shape, annotations: { readOnlyHint: true },
     }, async (args: unknown) => {
       try {
-        const p = await plan(db, a.name, args, actor, { now: now() });
+        const p = await plan(db, a.name, args, actor, { now: now(), holdAsk: opts.holdAsk });
         // A preview's words shortened as staff reads are: what it names that the asker didn't type comes back short.
         return text({ run_id: p.runId, status: p.status, summary: shortenInText(p.plan.summary[lang], givenContacts(args)), undo: p.plan.undo.kind, expires_at: p.expiresAt, yeses_needed: p.yesesNeeded,
           next: p.status === "awaiting_approval" ? (p.yesesNeeded > 1 ? "This needs two different staff members' approval (the club's rule for this change); it will happen once both approve." : "This needs a staff member's approval; it will happen once they approve.") : `Show the person the summary. If they agree, call ${base}_confirm with this run_id.` });

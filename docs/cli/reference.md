@@ -407,6 +407,20 @@ openpadel alert handle --event-id ... --kind match_late_cancel_staff
 
 ### assistant
 
+#### openpadel assistant chat-delete
+
+Delete a conversation with Ask openPadel. Who may: owner, manager, front desk (their own), coach (their own), accountant (their own), member (their own).
+
+Its preview reads: "Delete your conversation "{title}" with Ask openPadel. It can't be brought back."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--chat-id` | id |  | One conversation; left out, all of yours. |
+
+```
+openpadel assistant chat-delete
+```
+
 #### openpadel assistant disconnect
 
 Disconnect an assistant. Who may: owner, manager, member (their own).

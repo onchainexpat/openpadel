@@ -104,6 +104,12 @@ label.inline-number input { flex: none; width: 5.5em; margin: 0; }
 .thread .msg { overflow-wrap: anywhere; }
 .thread .msg.mine { margin-left: 12%; background: color-mix(in srgb, var(--brand) 7%, var(--card)); }
 .thread .msg.other { margin-right: 12%; }
+/* Ask openPadel (AskChat.tsx): the staff app's opens over the page (Ctrl+K), under the preview sheet's dock. */
+.ask-overlay { position: fixed; inset: 0; z-index: 9; background: rgba(0, 0, 0, .35); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 16px; }
+.ask-panel { width: 100%; max-width: 640px; max-height: 84vh; overflow-y: auto; margin: 0; }
+.ask-panel header { margin: 0; }
+.ask-chat .thread { max-height: 50vh; overflow-y: auto; }
+kbd { font: 12px/1 ui-monospace, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
 /* The bot check's hidden field: off screen, never seen or tabbed to (bot.ts). */
 .trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 /* Two-step sign-in: the authenticator's QR code and the recovery codes. */

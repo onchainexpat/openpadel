@@ -9,6 +9,21 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+Ask openPadel, the hosted assistant, for clubs without an agent of their own. Staff press Ctrl+K (⌘K on a Mac), or the
+button above the menu, on any staff page and ask; members get the club assistant at the top of the Ask tab. It answers
+from what the person could read in the app, and a change comes back as the usual preview ("Ask for a yes" when it needs
+someone else's): nothing happens until the person presses Confirm. It acts only as the person, through a connection of
+its own for them that's listed under Profile, Assistants like one they connect themselves: the same permission check,
+never further than they reached when it was first turned on, a weekly spending limit ($0 until they choose more) and
+Disconnect. In the members' app it acts as a member whatever roles the person holds, and "Ask a person" sends what they
+asked to the front desk as a question to the club. Changes it previewed are marked as made through it. Staff questions
+use Claude Sonnet 5.5, members' Claude Haiku 5.5, on the club's Anthropic key (`KUMI_ANTHROPIC_API_KEY`, the one Ask the
+club uses); without one it's off, the staff app says how to turn it on, and the Ask tab stays as it was. Its cost counts
+on the monthly meter as "AI: Ask openPadel" under the owner's cap; past it, it says it's paused until the 1st and stops.
+Conversations are kept 30 days after their last message, are in the person's data download, and the person can delete
+one or all of them (`openpadel assistant chat-delete`). `openpadel doctor` reports it as `assistant` (migration 127).
+See docs/setup/accounts/ask-openpadel.md.
+
 A second yes: the club can say which changes need two different people's yes before they happen (Roles, "Needs a
 second yes"): changes it names, whatever their amount, and any change by staff that charges or refunds more than an
 amount it sets. Neither the person who asked nor someone who already said yes counts again, so the owner's own change

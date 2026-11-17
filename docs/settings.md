@@ -54,7 +54,7 @@ Texts count toward the club's one monthly cap, below.
 | Setting | What it does | Default |
 |---|---|---|
 | `KUMI_TYPESAFE_API_KEY` | TypeSafe's Jev answers a member's new question from the club's facts, word for word, or hands it to the staff (`docs/setup/accounts/ask-the-club.md`). | not set |
-| `KUMI_ANTHROPIC_API_KEY` | Claude Haiku makes the same decision: when Jev fails or is slow, or on its own without a TypeSafe key. It also writes the drafts staff can ask for of the club's own words in its other language. | not set |
+| `KUMI_ANTHROPIC_API_KEY` | Claude Haiku makes the same decision: when Jev fails or is slow, or on its own without a TypeSafe key. It also writes the drafts staff can ask for of the club's own words in its other language, and turns on Ask openPadel, the hosted assistant (Claude Sonnet for staff, Claude Haiku for members: [accounts/ask-openpadel.md](setup/accounts/ask-openpadel.md)). | not set |
 
 With neither, every question goes to the staff. The club can switch answering off in Settings either way.
 
@@ -66,7 +66,7 @@ the club's setting, not the server's. What each thing costs is the server's:
 
 | Setting | What it does | Default |
 |---|---|---|
-| `KUMI_PRICES` | Prices in cents, comma-separated, for any that differ from list prices: `text_segment` (a text segment with the carrier fee), `email` (one email), and per million tokens `jev_input`, `jev_output`, `haiku_input`, `haiku_output`. Like `text_segment=0.83,email=0`. A hosted service sets its own; a club on its own keys can set what its providers charge it. | `text_segment=1.26,email=0.09,jev_input=4.2,jev_output=0,haiku_input=10,haiku_output=50` |
+| `KUMI_PRICES` | Prices in cents, comma-separated, for any that differ from list prices: `text_segment` (a text segment with the carrier fee), `email` (one email), and per million tokens `jev_input`, `jev_output`, `haiku_input`, `haiku_output`, `sonnet_input`, `sonnet_output` (Ask openPadel for staff). Like `text_segment=0.83,email=0`. A hosted service sets its own; a club on its own keys can set what its providers charge it. | `text_segment=1.26,email=0.09,jev_input=4.2,jev_output=0,haiku_input=10,haiku_output=50,sonnet_input=200,sonnet_output=1000` |
 
 A price counts from when it's set: what's already counted keeps the price it had. `openpadel usage --json` gives a
 month's lines by kind (calls, tokens, segments, emails and cents to four places).

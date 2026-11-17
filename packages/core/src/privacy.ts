@@ -20,6 +20,7 @@ import { paymentsWhat } from "./kids.ts";
 import { receiptNo } from "./receipts.ts";
 import { QUIET } from "./messages.ts";
 import { excerpt } from "./questions.ts";
+import { assistantChatsExport } from "./assistant_chats.ts";
 import { cancelBooking } from "./booking_pay.ts";
 import { leaveForErase } from "./programs.ts";
 import { endSeriesForErase } from "./booking_series.ts";
@@ -312,6 +313,8 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
       messages_to_members: broadcastsSent.map((b) => ({ purpose: b.purpose, subject: (lang === "es" ? b.subject_es ?? b.subject_en : b.subject_en ?? b.subject_es) ?? "", status: b.status, send_at: iso(b.send_at), sent_at: iso(b.sent_at), people: b.recipients })),
     } } : {}),
     questions,
+    // Their conversations with Ask openPadel, while they're kept (assistant_chats.ts): what each side said.
+    assistant_chats: await assistantChatsExport(db, personId),
     // What they wrote in their games' chats (others' messages are theirs).
     chats: (await chatsOf(db, personId)).map((m) => ({ ...m, at: iso(m.at), edited_at: iso(m.edited_at), taken_back_at: iso(m.taken_back_at) })),
     // Their bookings in Playtomic, as the club's copy of Playtomic keeps them (playtomic_archive.ts), with the others
@@ -654,6 +657,8 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
     // The table's rule lets this one change through (migration 082): no lock on the table.
     await sql`UPDATE channel_consent SET evidence = NULL WHERE person_id = ${personId} AND evidence IS NOT NULL`.execute(db);
   }
+  // Their conversations with Ask openPadel go whole: nobody else's words are in them.
+  await db.deleteFrom("assistant_chat").where("person_id", "=", personId).execute();
   // What they wrote in chats: the words go, "message removed" stays under "Former member" (chat.ts).
   await eraseChats(db, personId, ctx.now);
   // Gift cards they bought: who it was for and their message (often someone else's name) go; the card stays in

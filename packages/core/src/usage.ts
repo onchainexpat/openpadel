@@ -16,16 +16,16 @@ import { atLocal, localDate } from "./clock.ts";
 import type { Db, Trx } from "./db.ts";
 import { uuidv7 } from "./ids.ts";
 
-export type UsageKind = "ai_decisions" | "ai_drafts" | "texts" | "email";
-export const USAGE_KINDS: UsageKind[] = ["ai_decisions", "ai_drafts", "texts", "email"];
+export type UsageKind = "ai_decisions" | "ai_drafts" | "ai_assistant" | "texts" | "email";
+export const USAGE_KINDS: UsageKind[] = ["ai_decisions", "ai_drafts", "ai_assistant", "texts", "email"];
 /** What can wait for next month (texts that can go another way, drafts, club news), and what can't. */
 export type UsageNeed = "can_wait" | "essential";
 
 /** What each thing costs, in cents; AI per million tokens. */
-export interface Prices { text_segment: number; email: number; jev_input: number; jev_output: number; haiku_input: number; haiku_output: number }
+export interface Prices { text_segment: number; email: number; jev_input: number; jev_output: number; haiku_input: number; haiku_output: number; sonnet_input: number; sonnet_output: number }
 /** List prices in late 2026: a Twilio US text segment with the carrier fee; a Resend email past the plan; TypeSafe's
- *  Jev (output free); Claude Haiku 5.5 for prompts up to 100,000 tokens. */
-export const DEFAULT_PRICES: Prices = { text_segment: 1.26, email: 0.09, jev_input: 4.2, jev_output: 0, haiku_input: 10, haiku_output: 50 };
+ *  Jev (output free); Claude Haiku 5.5 for prompts up to 100,000 tokens; Claude Sonnet 5.5 (Ask openPadel for staff). */
+export const DEFAULT_PRICES: Prices = { text_segment: 1.26, email: 0.09, jev_input: 4.2, jev_output: 0, haiku_input: 10, haiku_output: 50, sonnet_input: 200, sonnet_output: 1000 };
 /** KUMI_PRICES, like "text_segment=0.83,email=0": any price left out keeps its default. */
 export function parsePrices(s: string | undefined): Prices {
   const p: Prices = { ...DEFAULT_PRICES };
@@ -42,8 +42,13 @@ let prices: Prices = DEFAULT_PRICES;
 export function setPrices(p: Prices): void { prices = p; }
 export const currentPrices = (): Prices => prices;
 /** One call to a model, in cents. */
-export const aiCents = (model: "jev" | "haiku", input: number, output: number) =>
+export const aiCents = (model: AiModel, input: number, output: number) =>
   (input * prices[`${model}_input`] + output * prices[`${model}_output`]) / 1_000_000;
+export type AiModel = "jev" | "haiku" | "sonnet";
+/** A Claude call with prompt caching, in cents: a cache write at 1.25 times the input price, a cache read at a tenth. */
+export const claudeCents = (model: "haiku" | "sonnet", t: { input: number; output: number; cacheWrite?: number; cacheRead?: number }) =>
+  (t.input * prices[`${model}_input`] + (t.cacheWrite ?? 0) * prices[`${model}_input`] * 1.25 + (t.cacheRead ?? 0) * prices[`${model}_input`] * 0.1
+    + t.output * prices[`${model}_output`]) / 1_000_000;
 
 /** The share of the cap that brings the first message. */
 export const NEAR_SHARE = 0.8;
@@ -95,7 +100,7 @@ export async function countUsage(db: Db, kind: UsageKind, add: { count?: number;
   await sayAlerts(db, month, c, await spentIn(db, month), now);
 }
 /** A call to a model that answered, at its price per token. */
-export function countAi(db: Db, kind: "ai_decisions" | "ai_drafts", model: "jev" | "haiku", tokens: { input: number; output: number }, now = new Date()): Promise<void> {
+export function countAi(db: Db, kind: "ai_decisions" | "ai_drafts" | "ai_assistant", model: AiModel, tokens: { input: number; output: number }, now = new Date()): Promise<void> {
   return countUsage(db, kind, { input_tokens: tokens.input, output_tokens: tokens.output, cents: aiCents(model, tokens.input, tokens.output) }, now);
 }
 /** An email the provider took. */

@@ -10,7 +10,7 @@ import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setSession } from "./session_cookie.ts";
 import { money, t, type Lang } from "@kumi/i18n";
-import { activeFactor, hasSecondFactor, KumiError, powersOf, secondStepForReach, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
+import { activeFactor, HOSTED_CLIENT_ID, hasSecondFactor, KumiError, powersOf, secondStepForReach, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 import { networkOf, RateLimiter } from "./limits.ts";
@@ -145,7 +145,8 @@ async function resolveClient(deps: OAuthDeps, fetched: Fetched, clientId: string
     if (fetched.size > 300) fetched.delete(fetched.keys().next().value!);
     return { ...client, published: true };
   }
-  const c = await deps.db.selectFrom("oauth_client").selectAll().where("client_id", "=", clientId).executeTakeFirst();
+  // Ask openPadel's own client (assistant_chats.ts) is the server's, never one an outside assistant can act as.
+  const c = clientId === HOSTED_CLIENT_ID ? undefined : await deps.db.selectFrom("oauth_client").selectAll().where("client_id", "=", clientId).executeTakeFirst();
   if (!c) throw new KumiError("error.oauth_client", {}, 400);
   return { client_id: c.client_id, name: c.name ?? "An app", redirect_uris: c.redirect_uris, published: false };
 }
@@ -162,7 +163,7 @@ function page(lang: Lang, title: string, body: unknown) {
 }
 
 /** Whether the browser's sign-in gave a second step: a passkey, or an emailed code and then the authenticator. */
-const gaveSecondStep = (me: { method?: string }) => me.method === "passkey" || me.method === "two_factor";
+export const gaveSecondStep = (me: { method?: string }) => me.method === "passkey" || me.method === "two_factor";
 
 export function oauthRoutes(deps: OAuthDeps) {
   const app = new Hono();
@@ -364,7 +365,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
 
   app.post("/oauth/device_authorization", async (c) => {
     const f = await c.req.parseBody();
-    const client = await deps.db.selectFrom("oauth_client").select(["client_id", "name"]).where("client_id", "=", String(f.client_id ?? "")).executeTakeFirst();
+    const client = await deps.db.selectFrom("oauth_client").select(["client_id", "name"]).where("client_id", "=", String(f.client_id ?? "")).where("client_id", "!=", HOSTED_CLIENT_ID).executeTakeFirst();
     if (!client) return c.json({ error: "invalid_client" }, 400);
     const resource = f.resource ? String(f.resource) : resources[0]!;
     if (!resources.includes(resource)) return c.json({ error: "invalid_target" }, 400);
@@ -451,7 +452,7 @@ ${step === "code" ? html`<label>${t(lang, "consent.device_factor_label")}<input 
     let clientId = String(f.client_id ?? ""), secret = f.client_secret ? String(f.client_secret) : null;
     const basic = c.req.header("authorization");
     if (basic?.startsWith("Basic ")) { const [id, s] = Buffer.from(basic.slice(6), "base64").toString().split(":"); clientId = decodeURIComponent(id ?? ""); secret = decodeURIComponent(s ?? ""); }
-    const client = await deps.db.selectFrom("oauth_client").selectAll().where("client_id", "=", clientId).executeTakeFirst();
+    const client = clientId === HOSTED_CLIENT_ID ? undefined : await deps.db.selectFrom("oauth_client").selectAll().where("client_id", "=", clientId).executeTakeFirst();
     if (!client) return err("invalid_client");
     if (client.secret_hash && (!secret || sha(secret) !== client.secret_hash)) return err("invalid_client");
     const now = deps.now();
@@ -533,7 +534,7 @@ export async function bearerPerson(db: Db, header: string | undefined, resources
  *  are hours old at most, so nothing a limit needs goes. */
 export async function tidySignIns(db: Db, now = new Date()): Promise<{ challenges: number; clients: number }> {
   const challenges = await db.deleteFrom("auth_challenge").where("expires_at", "<", new Date(now.getTime() - 864e5)).executeTakeFirst();
-  const clients = await db.deleteFrom("oauth_client").where("created_at", "<", new Date(now.getTime() - UNUSED_CLIENT_DAYS * 864e5))
+  const clients = await db.deleteFrom("oauth_client").where("created_at", "<", new Date(now.getTime() - UNUSED_CLIENT_DAYS * 864e5)).where("client_id", "!=", HOSTED_CLIENT_ID)
     .where(({ not, exists, selectFrom }) => not(exists(selectFrom("oauth_grant").select("oauth_grant.id").whereRef("oauth_grant.client_id", "=", "oauth_client.client_id")))).executeTakeFirst();
   return { challenges: Number(challenges.numDeletedRows), clients: Number(clients.numDeletedRows) };
 }

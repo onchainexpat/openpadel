@@ -3,7 +3,7 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
-import { answerCounts, clubStripeAccount, dayText, emailDomain, suppressionCounts, heartbeats, heldSummary, leavingOn, localDate, localParts, movedAway, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageGaps, usageView, type Db } from "@kumi/core";
+import { answerCounts, monthOf, clubStripeAccount, dayText, emailDomain, suppressionCounts, heartbeats, heldSummary, leavingOn, localDate, localParts, movedAway, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageGaps, usageView, type Db } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { offsitePrunes } from "./backups.ts";
 import { archiverFailing, archiverState, PITR_CONF } from "./pitr.ts";
@@ -144,15 +144,27 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   // the last day's questions say whether decisions are coming back. Nothing is sent to a model from here.
   const atcDoc = "docs/setup/accounts/ask-the-club.md", models = answerModels(env);
   const named = (m: string) => (m === "jev" ? "Jev" : "Claude Haiku");
+  const keys = models.length ? await checkAnswerKeys(env, deps.fetch) : [];
   if (!models.length) add("answers", "off", "answers.off", {}, atcDoc);
   else {
-    const refused = (await checkAnswerKeys(env, deps.fetch)).find((k) => k.error);
+    const refused = keys.find((k) => k.error);
     const on = (await db.selectFrom("club").select("auto_answers").executeTakeFirst())?.auto_answers ?? true;
     const n = await answerCounts(db, now), list = models.map(named).join(" + ");
     if (refused) add("answers", "fail", "answers.refused", { model: named(refused.model), error: refused.error! }, atcDoc);
     else if (!on) add("answers", "off", "answers.club_off", { models: list });
     else if (n.total >= 5 && n.errors / n.total > 0.2) add("answers", "warn", "answers.failing", { errors: n.errors, total: n.total }, atcDoc);
     else add("answers", "ok", "answers.ok", { models: list, total: n.total, answered: n.answered });
+  }
+
+  // Ask openPadel, the hosted assistant (assistant.ts): optional, on the same Anthropic key, whose check above is reused.
+  const askDoc = "docs/setup/accounts/ask-openpadel.md";
+  if (!env.KUMI_ANTHROPIC_API_KEY?.trim()) add("assistant", "off", "assistant.off", {}, askDoc);
+  else {
+    const refused = keys.find((k) => k.model === "haiku" && k.error);
+    const month = monthOf(now, club.time_zone);
+    const used = await db.selectFrom("usage_month").select("count").where("month", "=", month).where("kind", "=", "ai_assistant").executeTakeFirst();
+    if (refused) add("assistant", "fail", "assistant.refused", { error: refused.error! }, askDoc);
+    else add("assistant", "ok", "assistant.ok", { count: used?.count ?? 0 });
   }
 
   // Card payments.
