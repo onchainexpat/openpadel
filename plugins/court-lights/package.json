@@ -1,0 +1,19 @@
+{
+  "name": "@openpadel/plugin-court-lights",
+  "version": "0.1.0",
+  "private": true,
+  "description": "openPadel's court lights plugin: Home Assistant turns a court's lights on before each booking and off after it.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "openpadel-court-lights": "bin/start"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test 'test/*.test.ts'",
+    "pack": "node tools/pack.ts"
+  }
+}
