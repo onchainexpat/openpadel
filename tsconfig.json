@@ -1,2 +1,3 @@
 { "extends": "./tsconfig.base.json", "compilerOptions": { "types": ["node"] },
-  "include": ["packages/core/src", "packages/core/test", "packages/i18n/src", "packages/i18n/test", "apps/server/src", "apps/server/test"] }
+  "include": ["packages/core/src", "packages/core/test", "packages/i18n/src", "packages/i18n/test", "apps/server/src", "apps/server/test",
+    "plugins/court-lights/src", "plugins/court-lights/test", "plugins/court-lights/tools"] }
