@@ -144,8 +144,8 @@ shown once, to whoever made it, and kept only as a hash; New token ends the old 
 its webhooks and any preview it hadn't confirmed. It connects at the club's /mcp address with that token (or
 `openpadel login <address> --agent-token`), acts as itself on behalf of the club through the same door as everyone
 (the same permission check, previews, the change log with the agent named, undo), and what its role says to ask about
-waits in Approvals for a person. An agent never makes or changes agents, never says yes to an ask, and an assistant
-making one can't give it a higher limit than its own. Agents can subscribe to the club's events (booking.cancelled,
+waits in Approvals for a person. An agent never makes or changes agents and never says yes to an ask; making an agent,
+changing its role or limit and giving it a new token are app-only (a passkey or two steps), like giving a person a role. Agents can subscribe to the club's events (booking.cancelled,
 payment.failed and 29 more): each is POSTed after its change is saved, signed with HMAC-SHA256 under the subscription's
 own secret (shown once, sealed), only if the agent's role reads that part of the club, and tried again with longer
 waits; an address that keeps failing is paused and the owner hears once. In production webhooks go only to public

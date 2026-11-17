@@ -23,7 +23,7 @@ Tell the agent the rule: show the preview's words, and confirm only on your yes.
 
 ## As a club agent (working for the club, on a server or in CI)
 
-Make the agent in Settings, Agents (or have the owner's assistant run `openpadel agent create`). Its token is shown
+Make the agent in the staff app, Settings, Agents (only a person there can make one). Its token is shown
 once. On the machine it runs on, keep it in the environment, never in a command's arguments:
 
 ```bash

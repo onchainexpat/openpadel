@@ -390,37 +390,6 @@ openpadel action undo --run-id <id>
 
 ### agent
 
-#### openpadel agent create
-
-Make a club agent. Who may: owner, manager (with approval).
-
-Its preview reads: "Make a club agent called {name}, acting for the club with the {role} role. It can move {cap}. Anything its role says to ask about waits in Approvals. Its token is shown once, to you: give it to the agent."
-
-| Flag | Takes | | What it is |
-|---|---|---|---|
-| `--name` | text | needed |  |
-| `--role` | text | needed | The role that caps it, by key: front_desk, accountant, manager, or one the club made (custom_...); never owner or coach |
-| `--weekly-cap-cents` | whole number (cents) |  | The most money its changes may move each club week (payments and refunds together), in cents; 0 for none |
-| `--language` | en \| es |  |  |
-
-```
-openpadel agent create --name "Tuesday drills" --role ...
-```
-
-#### openpadel agent new-token
-
-Give a club agent a new token. Who may: owner, manager (with approval).
-
-Its preview reads: "Give {name} a new token. The one ending in {last4} stops working at once. The new one is shown once, to you."
-
-| Flag | Takes | | What it is |
-|---|---|---|---|
-| `--agent-id` | id | needed |  |
-
-```
-openpadel agent new-token --agent-id <id>
-```
-
 #### openpadel agent revoke
 
 Revoke a club agent. Who may: owner, manager (with approval).
@@ -433,23 +402,6 @@ Its preview reads: "Revoke {name}: its token stops working at once, previews it 
 
 ```
 openpadel agent revoke --agent-id <id>
-```
-
-#### openpadel agent update
-
-Change a club agent. Who may: owner, manager (with approval).
-
-Its preview reads: "Change {name}: {changes}"
-
-| Flag | Takes | | What it is |
-|---|---|---|---|
-| `--agent-id` | id | needed |  |
-| `--name` | text |  |  |
-| `--role` | text |  | The role that caps it, by key: front_desk, accountant, manager, or one the club made (custom_...); never owner or coach |
-| `--weekly-cap-cents` | whole number (cents) |  | The most money its changes may move each club week (payments and refunds together), in cents; 0 for none |
-
-```
-openpadel agent update --agent-id <id>
 ```
 
 ### alert

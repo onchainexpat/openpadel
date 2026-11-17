@@ -23,9 +23,9 @@ Two kinds of connection:
 | Listed in | the person's Profile, Assistants; and Settings, Agents | Settings, Agents |
 | Ended by | Disconnect | Revoke (or a new token, which ends the old one) |
 
-A club agent is made by the owner (a manager asks, and the owner says yes) in **Settings, Agents**, or by the owner's
-own assistant with `openpadel agent create --name "Night desk" --role front_desk` (it can't give the agent a weekly
-limit higher than its own). An agent can never make, change or revoke agents, and can never be given a role with
+A club agent is made by the owner (a manager asks, and the owner says yes) in **Settings, Agents**, signed in with a passkey or two steps.
+Making an agent, changing its role or limit and giving it a new token are only ever done in the app, never by an
+assistant or another agent: a token works on its own for as long as it lasts. Revoking one can be done anywhere. An agent can never make, change or revoke agents, and can never be given a role with
 `role.assign`.
 
 ## Recipes

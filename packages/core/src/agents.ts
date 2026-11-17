@@ -102,7 +102,7 @@ async function liveAgent(ctx: { db: Db | Trx }, id: string) {
 }
 
 export const agentCreate = defineAction({
-  name: "agent.create", version: 1, wholeClub: "reason.whole_club_agents",
+  name: "agent.create", version: 1, strongAuth: true, wholeClub: "reason.whole_club_agents",
   input: z.object({ name: agentName, role: roleInput, weekly_cap_cents: z.optional(capInput), language: z.optional(z.enum(["en", "es"])) }),
   async plan(ctx, i) {
     notByAnAgent(ctx);
@@ -135,7 +135,7 @@ export const agentCreate = defineAction({
 });
 
 export const agentUpdate = defineAction({
-  name: "agent.update", version: 1, wholeClub: "reason.whole_club_agents",
+  name: "agent.update", version: 1, strongAuth: true, wholeClub: "reason.whole_club_agents",
   input: z.object({ agent_id: z.uuid(), name: z.optional(agentName), role: z.optional(roleInput), weekly_cap_cents: z.optional(capInput) }),
   async plan(ctx, i) {
     notByAnAgent(ctx);
@@ -179,7 +179,7 @@ export const agentUpdate = defineAction({
 });
 
 export const agentNewToken = defineAction({
-  name: "agent.new_token", version: 1, wholeClub: "reason.whole_club_agents",
+  name: "agent.new_token", version: 1, strongAuth: true, wholeClub: "reason.whole_club_agents",
   input: z.object({ agent_id: z.uuid() }),
   async plan(ctx, i) {
     notByAnAgent(ctx);

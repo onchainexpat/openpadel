@@ -114,7 +114,7 @@ test("the weekly limit on money an agent's changes move: past it, the preview is
   await run(db, "test.agent_money", { cents: 600 }, actor);
 });
 
-test("only people make agents: a manager asks, an assistant can't give more than its own limit, an agent can't, never the owner's role", async () => {
+test("only people in the app make agents: a manager asks, an assistant or an agent can't, never the owner's role", async () => {
   const mgr = ((await run(db, "person.create", { display_name: "Mo Manager", email: "mo@example.test" }, owner)).result as any).person_id;
   await run(db, "role.assign", { person_id: mgr, role: "manager" }, owner);
   const asked = await run(db, "agent.create", { name: "Asked for", role: roleKey }, { personId: mgr, via: "test", lang: "en" });
@@ -124,10 +124,14 @@ test("only people make agents: a manager asks, an assistant can't give more than
   await db.insertInto("oauth_client").values({ client_id: "c-owner", kind: "registered", name: "Claude", redirect_uris: ["https://a.example.test/cb"], auth_method: "none", secret_hash: null, metadata: null }).execute();
   const grant = uuidv7();
   await db.insertInto("oauth_grant").values({ id: grant, person_id: owner.personId!, client_id: "c-owner", scopes: ["kumi"], revoked_at: null, weekly_cap_cents: 2500 }).execute();
-  await assert.rejects(run(db, "agent.create", { name: "Rich bot", role: roleKey, weekly_cap_cents: 5000 }, { ...owner, auth: "oauth", grantId: grant }), (e: any) => e.code === "error.agent_cap_over_yours");
+  await assert.rejects(run(db, "agent.create", { name: "Rich bot", role: roleKey, weekly_cap_cents: 5000 }, { ...owner, auth: "oauth", grantId: grant }), (e: any) => e.code === "error.assistant_in_app");
+  const kept = await makeAgent("Kept in the app");
+  for (const [name, input] of [["agent.update", { agent_id: kept.id, weekly_cap_cents: 100 }], ["agent.new_token", { agent_id: kept.id }]] as const)
+    await assert.rejects(run(db, name, input, { ...owner, auth: "oauth", grantId: grant }), (e: any) => e.code === "error.assistant_in_app", name);
+  assert.equal((await run(db, "agent.revoke", { agent_id: kept.id }, { ...owner, auth: "oauth", grantId: grant })).status, "planned", "revoking stays open to an assistant (previewed, for the person to confirm)");
   const a = await makeAgent("Lone agent");
   await assert.rejects(run(db, "agent.create", { name: "Child", role: roleKey }, { personId: a.person, agentId: a.id, via: "test", lang: "en", auth: "oauth", grantId: a.grant }),
-    (e: any) => e.code === "error.agent_not_for_agents" || e.code === "error.forbidden_reason");
+    (e: any) => ["error.agent_not_for_agents", "error.forbidden_reason", "error.assistant_in_app"].includes(e.code));
   await assert.rejects(run(db, "role.assign", { person_id: a.person, role: "manager" }, owner), (e: any) => e.code === "error.agent_role_on_its_page");
 });
 
