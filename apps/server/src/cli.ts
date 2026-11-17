@@ -483,7 +483,7 @@ async function main(): Promise<number> {
     try {
       const checks: Check[] = await doctor(db);
       const bad = checks.filter((c) => c.state === "fail").length;
-      if (json) { out({ ok: bad === 0, checks: checks.map((c) => ({ id: c.id, state: c.state, text: say(c.text), ...(c.doc ? { doc: c.doc } : {}) })) }); return bad ? 1 : 0; }
+      if (json) { out({ ok: bad === 0, checks: checks.map((c) => ({ id: c.id, state: c.state, text: say(c.text), ...(c.doc ? { doc: c.doc } : {}), ...(c.detail ? { detail: c.detail } : {}) })) }); return bad ? 1 : 0; }
       const mark = { ok: "ok  ", warn: "WARN", fail: "FAIL", off: "off " } as const;
       for (const c of checks) console.log(`${mark[c.state]}  ${say(c.text)}${c.doc && c.state !== "ok" ? `  (${c.doc})` : ""}`);
       console.log(t(lang, bad ? "cli.doctor_bad" : "cli.doctor_good", { count: bad }));

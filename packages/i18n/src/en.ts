@@ -6201,4 +6201,13 @@ export const en = {
   "ui.vault_asked_by": "Asked {when} by {who}",
   "ui.vault_asked_save": "Save to the vault",
   "ui.vault_asked_never": "Whoever installed it never sees these: they're told each was added and its last four characters. The plugin reads only its own.",
+  "plugin.problem_dns": "can't find {host}: that address doesn't exist, or its name isn't set up",
+  "plugin.problem_refused": "{host} refused the connection",
+  "plugin.problem_timeout": "{host} didn't answer in time",
+  "plugin.problem_tls": "{host}'s security certificate isn't valid",
+  "plugin.problem_http": "{host} answered with an error (HTTP {status})",
+  "plugin.problem_not_public": "{host} isn't an address the club will call: it must be public and use https",
+  "plugin.problem_hung_up": "{host} cut the connection",
+  "plugin.problem_bad_answer": "{host} gave an answer that made no sense",
+  "plugin.problem_other": "can't reach {host} just now",
 } as const;

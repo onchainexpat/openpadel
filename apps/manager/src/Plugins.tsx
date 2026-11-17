@@ -9,9 +9,9 @@ type Setting = { key: string; type: "string" | "integer" | "boolean" | "choice" 
   choices?: { value: string; label: string }[] };
 type Plugin = { id: string; name: string; version: string; status: "waiting" | "on" | "paused" | "removed"; mode: "remote" | "local"; source: "catalog" | "url" | "file"; source_host: string | null;
   address: string | null; publisher: string; description: string; can: string; reads: string; events: string[]; sends: string; runs: string; cost: { charges: boolean; note: string };
-  installed_at: string; installed_by: string | null; removed_at: string | null; registration_error: string | null; last_event_at: string | null; last_used_at: string | null;
+  installed_at: string; installed_by: string | null; removed_at: string | null; registration_error: string | null; registration_problem: string | null; last_event_at: string | null; last_used_at: string | null;
   keys: { name: string; vault_name: string; label: string; where: string; added: boolean; last4: string | null }[]; settings: Setting[]; settings_values: Record<string, unknown>;
-  health: { state: "ok" | "down" | "paused" | "waiting"; error?: string; ms?: number } | null };
+  health: { state: "ok" | "down" | "paused" | "waiting"; problem?: string; ms?: number } | null };
 type Send = (action: string, input: unknown) => Promise<void>;
 
 const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
@@ -47,11 +47,11 @@ function PluginRow({ p, send }: { p: Plugin; send: Send }) {
         <span class={`pill ${pill === "ui.plugin_on" ? "pill-yes" : "pill-paused"}`}>{t(pill)}</span>
         {p.source !== "catalog" && <> <span class="pill pill-paused">{t("ui.plugin_not_reviewed")}</span></>}
         <p class="meta">{p.description}</p>
-        <p class="meta">{[p.health?.state === "ok" ? t("ui.plugin_healthy", { ms: p.health.ms ?? 0 }) : p.health?.state === "down" ? t("ui.plugin_health_down", { error: p.health.error ?? "" }) : null,
+        <p class="meta">{[p.health?.state === "ok" ? t("ui.plugin_healthy", { ms: p.health.ms ?? 0 }) : p.health?.state === "down" ? t("ui.plugin_health_down", { error: p.health.problem ?? "" }) : null,
           p.last_event_at ? t("ui.plugin_last_event", { when: when(p.last_event_at) }) : null,
           p.last_used_at ? t("ui.agents_last_used", { when: when(p.last_used_at) }) : null,
           p.installed_by ? t("ui.plugin_installed_by", { name: p.installed_by, when: clubTime(p.installed_at, { dateStyle: "medium" }) }) : null].filter(Boolean).join(" · ")}</p>
-        {p.status === "waiting" && p.registration_error && <p class="meta">{t("ui.plugin_registration_error", { error: p.registration_error })}</p>}
+        {p.status === "waiting" && p.registration_problem && <p class="meta">{t("ui.plugin_registration_error", { error: p.registration_problem })}</p>}
         {p.keys.length > 0 && <p class="meta">{t("ui.plugin_keys")}: {p.keys.map((k) => k.added ? t("ui.plugin_key_added", { name: k.name, last4: k.last4 ?? "" }) : t("ui.plugin_key_needed", { name: k.name })).join(" · ")}</p>}
         {needed.length > 0 && <p class="meta"><a href="/vault">{t("ui.plugin_add_keys")}</a></p>}
         <details><summary>{t("ui.plugin_what")}</summary>

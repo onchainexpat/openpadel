@@ -11,7 +11,7 @@ import { createServer, type Server } from "node:http";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { apply, checkManifestAtClub, messageHandlers, parseManifest, plan, processOutbox, run, runAsSystem, sendWebhooks, stageVaultUpload, verifyWebhookSignature, type Actor, type Db } from "@kumi/core";
+import { apply, checkManifestAtClub, problemText, rawError, messageHandlers, parseManifest, plan, processOutbox, run, runAsSystem, sendWebhooks, stageVaultUpload, verifyWebhookSignature, type Actor, type Db } from "@kumi/core";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
@@ -295,7 +295,12 @@ test("doctor checks each plugin's health, and keys still needed", async () => {
   await run(db, "vault.add", { name: "court-lights/HA_WEBHOOK_ID", upload_id: up.upload_id }, { ...owner, auth: "passkey" });
   c = (await doctor(db, { NODE_ENV: "development" })).find((x) => x.id === "plugin:court-lights")!;
   assert.equal(c.state, "fail");
-  assert.match(c.text.en, /HTTP 503/);
+  // Staff and doctor's words are plain; the raw detail is kept beside them (doctor --json, the logs).
+  assert.match(c.text.en, /answered with an error \(HTTP 503\)/);
+  assert.match(c.text.es, /respondió con un error \(HTTP 503\)/);
+  assert.equal(c.detail, "HTTP 503");
+  const card = (await staff("/staff/plugins")).json.find((p: any) => p.name === "court-lights");
+  assert.match(card.health.problem, /^127\.0\.0\.1:\d+ answered with an error \(HTTP 503\)$/);
   healthStatus = 200;
   c = (await doctor(db, { NODE_ENV: "development" })).find((x) => x.id === "plugin:court-lights")!;
   assert.equal(c.state, "ok", c.text.en);
@@ -399,5 +404,24 @@ test("a local plugin: no registration POST; its release is checked against its S
   assert.notEqual(again.OPENPADEL_TOKEN, env.OPENPADEL_TOKEN);
   assert.equal((await call(env.OPENPADEL_TOKEN!, "whoami")).error, "signed_out");
   assert.ok(!JSON.stringify(await db.selectFrom("entity_change").select("after").execute()).includes(again.OPENPADEL_TOKEN!));
+});
+
+test("what went wrong reaching a plugin reads in plain words, both languages, whatever the network said", () => {
+  const h = "lights.plugins.openpadel.org";
+  const cases: [string, RegExp][] = [
+    ["getaddrinfo ENOTFOUND lights.plugins.openpadel.org", /^can't find lights\.plugins\.openpadel\.org: that address doesn't exist/],
+    ["ENOTFOUND: getaddrinfo ENOTFOUND x", /^can't find/], ["connect ECONNREFUSED 1.2.3.4:443", /refused the connection$/],
+    ["took longer than 4 seconds", /didn't answer in time$/], ["UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error", /didn't answer in time$/],
+    ["CERT_HAS_EXPIRED: certificate has expired", /security certificate isn't valid$/], ["HTTP 500", /answered with an error \(HTTP 500\)$/],
+    ["lights isn't a public address", /must be public and use https$/], ["socket hang up", /cut the connection$/],
+    ["too large", /made no sense$/], ["fetch failed", /^can't reach lights\.plugins\.openpadel\.org just now$/], ["", /just now$/],
+  ];
+  for (const [raw, want] of cases) {
+    const t = problemText(raw, h);
+    assert.match(t.en, want, raw);
+    assert.ok(t.es && t.es !== t.en && !/ENOTFOUND|ECONN|fetch failed/.test(t.en + t.es), raw);
+  }
+  // The raw detail keeps fetch's hidden cause.
+  assert.equal(rawError(Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND", message: "getaddrinfo ENOTFOUND x" } })), "ENOTFOUND: getaddrinfo ENOTFOUND x");
 });
 

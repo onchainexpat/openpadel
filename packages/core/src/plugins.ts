@@ -117,6 +117,7 @@ export async function signForPlugin(db: Db, body: string, t: number): Promise<st
 // ---- Rows ----
 export const PLUGIN_NAME = z.string().check(z.regex(/^[a-z][a-z0-9-]{1,38}[a-z0-9]$/), z.describe("The plugin's name, as its manifest and the catalog give it (court-lights)"));
 const manifestOf = (row: { manifest: unknown }) => row.manifest as Manifest;
+const hostOf = (url: string | null) => { try { return url ? new URL(url).host : ""; } catch { return url ?? ""; } };
 /** A plugin that's installed (not removed), by name. */
 async function livePlugin(db: Db | Trx, name: string) {
   const p = await db.selectFrom("plugin").select(["id"]).where("name", "=", name).where("status", "!=", "removed").executeTakeFirst();
@@ -476,7 +477,7 @@ export async function deliverRegistrations(db: Db, now = new Date(), only?: stri
     const headers = { "content-type": "application/json", "user-agent": "openPadel-Plugins/1", "openpadel-event": REGISTER_TOPIC, "openpadel-signature-ed25519": await signForPlugin(db, body, t) };
     let error: string | null = null;
     try { const r = await io.post(`${p.base_url}/register`, body, headers); if (r.status < 200 || r.status > 299) error = `HTTP ${r.status}`; }
-    catch (e) { error = String((e as Error).message ?? e).slice(0, 200); }
+    catch (e) { error = rawError(e); }
     if (!error) {
       sent++;
       await db.updateTable("plugin").set({ registration_sealed: null, registration_next_at: null, registration_error: null, registered_at: now }).where("id", "=", p.id).execute();
@@ -512,6 +513,28 @@ export async function localPluginEnv(db: Db, name: string, now = new Date()): Pr
   await db.updateTable("plugin").set({ status: "on" }).where("id", "=", p.id).where("status", "=", "waiting").execute();
   return { PORT: String(p.local_port), OPENPADEL_URL: body.club.url, OPENPADEL_MCP: body.door.mcp, OPENPADEL_TOKEN: token, OPENPADEL_WEBHOOK_SECRET: body.webhooks.secret ?? "",
     OPENPADEL_HOOK_SECRET: body.hooks.secret, OPENPADEL_PLUGIN: p.name };
+}
+
+// ---- Errors in words ----
+/** What went wrong reaching a plugin, as kept for the logs and `doctor --json`: the cause's code when there is one
+ *  (fetch's "fetch failed" hides it there). */
+export function rawError(e: unknown): string {
+  const c = (e as { cause?: { code?: string; message?: string } })?.cause;
+  return String(c?.code ? `${c.code}: ${c.message ?? ""}`.trim() : (e as Error)?.message ?? e).slice(0, 200);
+}
+/** The same in plain words for staff, in both languages: can't find the address, refused, too slow, its certificate,
+ *  an error status, an answer that made no sense, an address the club won't call; anything else, a plain sentence. */
+export function problemText(raw: string | null | undefined, host: string): Text {
+  const r = raw ?? "", status = /\bHTTP (\d{3})\b/.exec(r)?.[1];
+  if (status) return both("plugin.problem_http", { host, status });
+  if (/ENOTFOUND|EAI_AGAIN|EAI_NONAME|getaddrinfo/i.test(r)) return both("plugin.problem_dns", { host });
+  if (/ECONNREFUSED/.test(r)) return both("plugin.problem_refused", { host });
+  if (/took longer|timed? ?out|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT|aborted/i.test(r)) return both("plugin.problem_timeout", { host });
+  if (/CERT|certificate|TLS|SSL|self[- ]signed|ERR_TLS/i.test(r)) return both("plugin.problem_tls", { host });
+  if (/isn't a public address|https only|ENOTPUBLIC/.test(r)) return both("plugin.problem_not_public", { host });
+  if (/ECONNRESET|socket hang up|UND_ERR_SOCKET|EPIPE/i.test(r)) return both("plugin.problem_hung_up", { host });
+  if (/too large|JSON|Unexpected token|not an address/i.test(r)) return both("plugin.problem_bad_answer", { host });
+  return both("plugin.problem_other", { host });
 }
 
 // ---- Inbound hooks ----
@@ -552,7 +575,9 @@ export async function clubPlugins(db: Db | Trx, lang: Lang) {
     out.push({ ...pluginCard(m, lang), id: r.id, name: r.name, version: r.release, status: r.status, mode: r.mode, source: r.source,
       source_host: r.source_url ? (() => { try { return new URL(r.source_url!).host; } catch { return r.source_url; } })() : null,
       address: r.mode === "remote" && r.base_url ? new URL(r.base_url).host : r.base_url, installed_at: r.installed_at, installed_by: r.installed_by, removed_at: r.removed_at,
-      registered_at: r.registered_at, registration_error: r.registration_error, last_event_at: r.last_event_at, event_error: r.event_error, last_used_at: r.last_used_at, token_last4: r.token_last4,
+      registered_at: r.registered_at, registration_error: r.registration_error,
+      registration_problem: r.registration_error ? problemText(r.registration_error, hostOf(r.base_url))[lang] : null,
+      last_event_at: r.last_event_at, event_error: r.event_error, event_problem: r.event_error ? problemText(r.event_error, hostOf(r.base_url))[lang] : null, last_used_at: r.last_used_at, token_last4: r.token_last4,
       settings_values: r.settings, keys: (await pluginSecrets(db, r.name, m)).map((k) => ({ name: k.name, vault_name: k.vault_name, label: k.label[lang], where: k.where[lang], added: k.added, last4: k.last4 })) });
   }
   return out;

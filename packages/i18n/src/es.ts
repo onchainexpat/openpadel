@@ -6201,4 +6201,13 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.vault_asked_by": "Lo pidió {who}, {when}",
   "ui.vault_asked_save": "Guardar en la bóveda",
   "ui.vault_asked_never": "Quien lo instaló nunca las ve: se entera de que se agregó cada una y de sus últimos cuatro caracteres. El plugin solo lee las suyas.",
+  "plugin.problem_dns": "no se encuentra {host}: esa dirección no existe o su nombre no está configurado",
+  "plugin.problem_refused": "{host} rechazó la conexión",
+  "plugin.problem_timeout": "{host} no respondió a tiempo",
+  "plugin.problem_tls": "el certificado de seguridad de {host} no es válido",
+  "plugin.problem_http": "{host} respondió con un error (HTTP {status})",
+  "plugin.problem_not_public": "{host} no es una dirección a la que llame el club: debe ser pública y usar https",
+  "plugin.problem_hung_up": "{host} cortó la conexión",
+  "plugin.problem_bad_answer": "{host} dio una respuesta que no tiene sentido",
+  "plugin.problem_other": "no se puede contactar con {host} en este momento",
 };

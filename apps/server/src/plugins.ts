@@ -6,7 +6,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { Hono, type Context } from "hono";
 import { both, type Lang } from "@kumi/i18n";
-import { clubPlugins, HOOK_MAX_BYTES, HOOK_PER_MINUTE, hookTarget, KumiError, parseManifest, pluginCard, pluginCatalog, pluginKey, processors, searchCatalog, setPluginIo,
+import { clubPlugins, problemText, rawError, HOOK_MAX_BYTES, HOOK_PER_MINUTE, hookTarget, KumiError, parseManifest, pluginCard, pluginCatalog, pluginKey, processors, searchCatalog, setPluginIo,
   type Db, type Manifest } from "@kumi/core";
 import { publicOnlyLookup, readCapped } from "./oauth.ts";
 import { publicHost } from "./webhooks.ts";
@@ -60,7 +60,8 @@ export function usePluginIo(o: { production: boolean; publicUrl: string; catalog
   });
 }
 
-export type Health = { state: "ok" | "down" | "paused" | "waiting"; status?: number; error?: string; ms?: number };
+export type Health = { state: "ok" | "down" | "paused" | "waiting"; status?: number; error?: string; ms?: number;
+  /** What went wrong in plain words, in the reader's language (the staff list); `error` is the raw detail. */ problem?: string };
 /** A plugin's health: its manifest's health path on its own address, within the timeout and the webhooks' rules (a
  *  local plugin on the loopback). Paused or not yet registered says so without asking it. */
 export async function pluginHealth(p: { status: string; base_url: string | null; mode: string; manifest: unknown }, production: boolean): Promise<Health> {
@@ -71,12 +72,12 @@ export async function pluginHealth(p: { status: string; base_url: string | null;
     const r = await pluginRequest(`${p.base_url}${(p.manifest as Manifest).health}`, { method: "GET", headers: { "user-agent": "openPadel-Health/1" }, max: 16_000, timeoutMs: HEALTH_TIMEOUT_MS,
       publicOnly: production, loopbackOk: p.mode === "local" });
     return r.status >= 200 && r.status < 300 ? { state: "ok", status: r.status, ms: Date.now() - started } : { state: "down", status: r.status, error: `HTTP ${r.status}` };
-  } catch (e) { return { state: "down", error: String((e as Error).message ?? e).slice(0, 200) }; }
+  } catch (e) { return { state: "down", error: rawError(e) }; }
 }
 /** Live plugins with their health, all asked at once. */
 export async function pluginsHealth(db: Db, production: boolean) {
   const rows = await db.selectFrom("plugin").select(["name", "status", "base_url", "mode", "manifest", "registration_error", "registered_at"]).where("status", "!=", "removed").orderBy("name").execute();
-  return Promise.all(rows.map(async (r) => ({ name: r.name, status: r.status, registration_error: r.registration_error, registered: Boolean(r.registered_at), health: await pluginHealth(r, production) })));
+  return Promise.all(rows.map(async (r) => ({ name: r.name, status: r.status, base_url: r.base_url, registration_error: r.registration_error, registered: Boolean(r.registered_at), health: await pluginHealth(r, production) })));
 }
 
 /** Headers never passed on to a plugin: the club's own cookies and the connection's. */
@@ -125,7 +126,12 @@ export function pluginReadRoutes(db: Db, lang: (c: Context<any>) => Lang, o: { p
   app.get("/staff/plugins", async (c) => {
     const l = lang(c), list = await clubPlugins(db, l);
     const health = new Map((await pluginsHealth(db, o.production)).map((h) => [h.name, h.health]));
-    return c.json(list.map((p) => ({ ...p, health: p.status === "removed" ? null : health.get(p.name) ?? null })));
+    // What staff read is plain words (problemText); the raw detail stays in `error` for agents and the logs.
+    const host = (p: { address: string | null }) => (p.address ?? "").replace(/^https?:\/\//, "");
+    return c.json(list.map((p) => {
+      const h = p.status === "removed" ? null : health.get(p.name) ?? null;
+      return { ...p, health: h && h.state === "down" ? { ...h, problem: problemText(h.error, host(p))[l] } : h };
+    }));
   });
   app.get("/staff/plugins/catalog", async (c) => {
     const l = lang(c), q = c.req.query("q") ?? "";
