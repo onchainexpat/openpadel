@@ -109,7 +109,10 @@ export function pluginRoutes(db: Db, o: { production: boolean; now: () => Date }
     Object.assign(headers, { "user-agent": "openPadel-Hooks/1", "openpadel-event": "plugin.hook", "openpadel-signature": target.sign(body, t) });
     try {
       const r = await pluginRequest(target.url, { method: "POST", body, headers, max: 256_000, timeoutMs: PLUGIN_TIMEOUT_MS, publicOnly: o.production, loopbackOk: target.local });
-      return new Response(new Uint8Array(r.body), { status: r.status >= 200 && r.status < 600 ? r.status : 502, headers: { "content-type": r.type ?? "text/plain", "x-content-type-options": "nosniff", "cache-control": "no-store" } });
+      // The answer goes back to the sender as JSON or plain text only: never a page the club's address would show.
+      const type = /^application\/json\b/i.test(r.type ?? "") ? "application/json" : "text/plain; charset=utf-8";
+      return new Response(new Uint8Array(r.body), { status: r.status >= 200 && r.status < 600 ? r.status : 502,
+        headers: { "content-type": type, "x-content-type-options": "nosniff", "cache-control": "no-store", "content-security-policy": "default-src 'none'; sandbox" } });
     } catch { return c.json({ error: "plugin_unreachable" }, 502); }
   });
   return app;

@@ -35,3 +35,9 @@ assistant or another agent: a token works on its own for as long as it lasts. Re
 - [n8n](n8n.md): an MCP or HTTP node to act, a webhook trigger to hear.
 - [Any MCP client](any-mcp-client.md): the address and a header.
 - [Webhooks](webhooks.md): the events, how they're signed, and checking a signature (with code).
+
+## Plugins
+
+A plugin is a club agent that comes with a manifest saying exactly what it may do, installed by the club's agent with
+the owner's yes (`openpadel plugin install`) rather than made by hand. Its token goes straight to it and is never
+shown. See [docs/plugins/](../plugins/README.md).

@@ -16,14 +16,19 @@ import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 import { doctor } from "../src/doctor.ts";
+import { fetchRelease, servicePlan, writeService } from "../src/plugin_service.ts";
+import { webhookPost } from "../src/webhooks.ts";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, statSync } from "node:fs";
+import { localPluginEnv } from "@kumi/core";
 
 const BASE = "https://club.example.test", MCP = `${BASE}/mcp`, TZ = "America/Los_Angeles";
 const ROOT = new URL("../../../", import.meta.url);
 const EXAMPLE = JSON.parse(readFileSync(new URL("docs/plugins/examples/court-lights/openpadel-plugin.json", ROOT), "utf8"));
 let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor, ownerCookie = "", server: Server, PLUGIN = "", courtId = "";
 const got: { path: string; headers: Record<string, string>; body: string }[] = [];
-let healthStatus = 200;
-const sha = (v: string) => createHash("sha256").update(v).digest("hex");
+let healthStatus = 200, release = Buffer.alloc(0);
+const sha = (v: string) => createHash("sha256").update(v).digest("hex"), sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
 /** The example's manifest pointed at the fake plugin, with changes. */
 const manifest = (over: Record<string, unknown> = {}) => ({ ...EXAMPLE, run: { mode: "remote", url: `${PLUGIN}/p` }, ...over });
@@ -47,6 +52,7 @@ before(async () => {
     req.on("end", () => {
       got.push({ path: req.url ?? "", headers: req.headers as Record<string, string>, body });
       if (req.url === "/p/health") { res.writeHead(healthStatus); return res.end("ok"); }
+      if (req.url === "/release.tgz") { res.writeHead(200); return res.end(release); }
       if (req.url === "/p/hook") { res.writeHead(202, { "content-type": "application/json" }); return res.end(JSON.stringify({ seen: body.length })); }
       res.writeHead(200, { "content-type": "application/json" }); res.end("{}");
     });
@@ -252,6 +258,7 @@ test("/plugins/<name>/hook is passed on to the plugin, signed with its own secre
   const body = JSON.stringify({ event: "lights_on", court: "Court 1" });
   const r = await app.request(`${BASE}/plugins/court-lights/hook`, { method: "POST", body, headers: { "content-type": "application/json", cookie: ownerCookie, "x-vendor-signature": "abc" } });
   assert.equal(r.status, 202);
+  assert.equal(r.headers.get("content-type"), "application/json");
   assert.deepEqual(await r.json(), { seen: body.length });
   const h = got.filter((g) => g.path === "/p/hook").at(-1)!;
   assert.equal(h.body, body);
@@ -333,3 +340,49 @@ test("removing revokes its token, ends its webhook and role, and deletes its key
   assert.equal((await db.selectFrom("vault_item").select("id").where("name", "like", "court-lights/%").where("active", "=", true).execute()).length, 0);
   assert.equal((await db.selectFrom("vault_item").select("id").where("name", "=", "HA_TOKEN").where("active", "=", true).execute()).length, 1, "the club's own key stays");
 });
+
+test("a local plugin: no registration POST; its release is checked against its SHA-256, and its token goes only into its service's environment", async () => {
+  const src = mkdtempSync(join(tmpdir(), "plugin-release-"));
+  mkdirSync(join(src, "bin"));
+  writeFileSync(join(src, "bin", "start"), "#!/bin/sh\necho lights\n", { mode: 0o755 });
+  execFileSync("tar", ["-czf", join(src, "r.tgz"), "-C", src, "bin"]);
+  release = readFileSync(join(src, "r.tgz"));
+  const m = { ...EXAMPLE, name: "lights-local", run: { mode: "local", release_url: `${PLUGIN}/release.tgz`, sha256: sha256(release), entry: "bin/start" } };
+  const p = await plan(db, "plugin.install", { manifest: JSON.stringify(m) }, owner);
+  assert.match(p.plan.summary.en, /It runs: on the club's own server as its own service, from 127\.0\.0\.1:\d+ \(checked against its fingerprint [0-9a-f]{12}\)/);
+  assert.match(p.plan.summary.en, /written into its service's settings on the server by `openpadel plugin service lights-local`/);
+  const before = got.length;
+  const r = (await apply(db, p.runId, owner)) as any;
+  assert.equal(r.status, "waiting");
+  assert.equal(got.length, before, "nothing is POSTed to a local plugin");
+  const row = await db.selectFrom("plugin").selectAll().where("name", "=", "lights-local").where("status", "!=", "removed").executeTakeFirstOrThrow();
+  assert.ok(row.local_port! >= 47100);
+  assert.equal((await db.selectFrom("webhook_subscription").select("url").where("id", "=", row.subscription_id!).executeTakeFirstOrThrow()).url, `http://127.0.0.1:${row.local_port}/events`);
+  // The release, checked; a different one refused.
+  assert.ok((await fetchRelease(m as any, false)).equals(release));
+  await assert.rejects(fetchRelease({ ...m, run: { ...m.run, sha256: "0".repeat(64) } } as any, false), /not installed/);
+  // What `openpadel plugin service` writes, into a scratch place here: the unpacked release, its environment (root's alone) and its unit.
+  const root = mkdtempSync(join(tmpdir(), "plugin-service-"));
+  const sp = servicePlan(m as any, row.local_port!, false, { root: join(root, "opt"), envDir: join(root, "env"), unitDir: root });
+  assert.match(sp.unit, /DynamicUser=yes/);
+  assert.match(sp.unit, /InaccessiblePaths=.*\/etc\/kumi/);
+  assert.match(sp.unit, /IPAddressDeny=10\.0\.0\.0\/8 .*169\.254\.0\.0\/16/);
+  const env = await localPluginEnv(db, "lights-local");
+  writeService(sp, release, "bin/start", env);
+  assert.equal(statSync(sp.envFile).mode & 0o777, 0o600);
+  assert.match(readFileSync(sp.envFile, "utf8"), new RegExp(`^OPENPADEL_TOKEN=${env.OPENPADEL_TOKEN}$`, "m"));
+  assert.equal(readFileSync(join(sp.dir, "bin", "start"), "utf8"), "#!/bin/sh\necho lights\n");
+  assert.equal((await call(env.OPENPADEL_TOKEN!, "whoami")).agent.name, "lights-local (plugin)");
+  assert.equal((await db.selectFrom("plugin").select(["status", "registration_sealed"]).where("id", "=", row.id).executeTakeFirstOrThrow()).registration_sealed, null);
+  // In production, events reach the loopback only at a local plugin's own port (main.ts gives webhookPost that rule).
+  const port = new URL(PLUGIN).port;
+  await assert.rejects(webhookPost(true)(`${PLUGIN}/p/events`, "{}", {}), /https only/);
+  await assert.rejects(webhookPost(true, async (u) => u.port === "1")(`${PLUGIN}/p/events`, "{}", {}), /https only/);
+  assert.equal(await webhookPost(true, async (u) => u.port === port)(`${PLUGIN}/p/events`, "{}", { "content-type": "application/json" }), 200);
+  // Asked again, it's a new token, and the old one stops.
+  const again = await localPluginEnv(db, "lights-local");
+  assert.notEqual(again.OPENPADEL_TOKEN, env.OPENPADEL_TOKEN);
+  assert.equal((await call(env.OPENPADEL_TOKEN!, "whoami")).error, "signed_out");
+  assert.ok(!JSON.stringify(await db.selectFrom("entity_change").select("after").execute()).includes(again.OPENPADEL_TOKEN!));
+});
+
