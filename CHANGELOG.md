@@ -153,6 +153,27 @@ https addresses. The same page lists every person's own assistant with who conne
 its last use, to disconnect it. Recipes for Claude Code, Codex, Claude, ChatGPT, n8n and any MCP client, and how to
 check a webhook's signature, are in docs/agents/ (migration 126).
 
+Plugins. A plugin is an extra a club installs only if it wants it (court lights, an accounting export, a camera's
+highlights): a separate program that acts only through the club's door and gets events by signed webhook, never inside
+the server and never near its database. Its manifest, openpadel-plugin.json, says exactly what it asks for (the
+actions it may plan, outright or asking a person first; the parts of the club it reads; its events; the vault keys it
+needs and where the owner gets each; its settings; what member data it sends where; its cost; its cards; its health
+address; and whether it runs at its publisher's address or as a pinned, checksummed release on the club's own server),
+and openPadel refuses one with anything off. The club's agent installs it (`openpadel plugin search`, `plugin info`,
+`plugin install`): the preview lists all of that in words, says NOT REVIEWED in capitals when it isn't from openPadel's
+catalog, and the owner's yes lets it in (a manager asks). It becomes a club agent with a role made from its manifest,
+never more than the installer holds, no money to move, and one webhook; its token goes straight to the plugin in a
+registration signed with the club's own key (published at /.well-known/openpadel-plugin-key), never to whoever
+installed it and never into the change log. Keys it needs become a request: the owner hears, and adds them in the
+vault (or with `openpadel plugin secret` on the server); the plugin reads only its own, by name, and the installer
+sees only "added, ends in 4F2A". `plugin configure` checks settings against the manifest, `plugin update` previews what
+a new version asks for that the old one didn't, `plugin pause` and `plugin resume`, and `plugin remove` revokes it
+(keeping its keys unless told). What outside services post to /plugins/<name>/hook is passed on to the plugin, signed,
+so the club opens no new ports. `openpadel doctor` checks each plugin's health; `openpadel processors` lists the
+services that see member data with each plugin's data out added, as rows for the privacy policy. Settings, Agents lists
+installed plugins. A local plugin's release is fetched and checked against its SHA-256 by `openpadel plugin service`,
+which writes its systemd unit with `--apply`. See docs/plugins/ (migration 128).
+
 ### Added
 - Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed
   scores, levels to review, members' questions for staff, sessions whose coach is off this week, card charges that
@@ -369,6 +390,9 @@ check a webhook's signature, are in docs/agents/ (migration 126).
 - The database change (migration 112) applies by itself when the server starts.
 - Club agents and webhooks (migration 126): nothing to do. The server's 30-second jobs send webhooks; in production
   they go only to public https addresses.
+- Plugins (migration 128): nothing to do; none is installed until the club's agent installs one and the owner says yes.
+  The catalog is a sample bundled with openPadel until `KUMI_PLUGIN_CATALOG_URL` names another. The update gives Caddy
+  the new /plugins/* path by itself.
 
 ## 0.6.3 (2026-11-10)
 
