@@ -3,7 +3,7 @@
 // save places for friends (each has added the other), share the link and mark who didn't come.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, ApiError, club, dollars, EmptyState, lang, lazyPage, me, NewOnly, shortTime, t, usePreview, serverNow } from "@kumi/ui";
+import { api, ApiError, club, dollars, EmptyState, lang, lazyPage, me, NewOnly, PluginCards, shortTime, t, usePluginCards, usePreview, serverNow } from "@kumi/ui";
 import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 import { PlaySwitch } from "./TabBar.tsx";
@@ -129,6 +129,8 @@ export function MatchPage({ id }: { id: string }) {
   const { preview, sheet } = usePreview((r?: { payment_id?: string }) => { if (r?.payment_id) setPaying(r.payment_id); void load(); });
   useEffect(() => { void load(); api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {}); }, [id, lang.value]);
   useConfirming([m?.me?.pending_payment_id], load);
+  // Plugins' cards on the game (connectors.ts): for its organiser and players only; anyone else, nothing.
+  const cards = usePluginCards(m && (m.me || m.host_is_me) ? `/matches/${id}/cards` : null);
   if (error) return <main class="card"><p class="error">{error}</p></main>;
   if (!m) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const pid = me.value!.person.id, payNow = m.me?.pending_payment_id;
@@ -162,6 +164,7 @@ export function MatchPage({ id }: { id: string }) {
         {m.me && m.late_window && !m.me.leaving && <div class="chips" role="group" aria-label={t("ui.running_late")}><span class="meta">{t("ui.running_late")}:</span>
           {[5, 10, 15, 20].map((n) => <button type="button" class="chip" onClick={() => preview("booking.running_late", { booking_id: m.id, person_id: pid, minutes: n })}>{t("ui.minutes", { count: n })}</button>)}</div>}
       </section>
+      <PluginCards cards={cards} />
       {m.is_match && m.me && !m.cancelled && !m.host_is_me && !m.me.leaving && !m.me.sub && !m.started && <section class="card card-form">
         <h2>{t("ui.cant_make_it_title")}</h2>
         {m.me.offer ? <>

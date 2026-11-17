@@ -509,3 +509,31 @@ ul.plain li.card.ask, ul.plain li.card.need { padding: 14px 16px; border: 1px so
 .move-checks .move-mark { flex: none; width: 20px; color: #1e6b3a; font-weight: 700; } .move-checks li.done > span, .move-checks li.done label > span { color: var(--muted); }
 .move-list li { padding: 6px 0; border-bottom: 1px solid var(--line); } .move-list li:last-child { border-bottom: 0; }
 @media (prefers-color-scheme: dark) { .move-steps li.done .move-dot { background: #1f3a2a; color: #9fd6b0; } .move-checks .move-mark { color: #9fd6b0; } }
+
+/* Plugins' cards (PluginCards.tsx): data from a plugin, drawn with the app's own pieces. */
+.plugin-cards { display: grid; gap: 10px; margin: 10px 0; }
+.plugin-card { border-left: 3px solid var(--brand); }
+.plugin-card.tone-warn { border-left-color: #c77700; }
+.plugin-card.tone-off { border-left-color: var(--line); }
+.plugin-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
+.plugin-card-by { margin-left: auto; }
+.plugin-card-rows { margin: 6px 0 0; display: grid; gap: 2px; }
+.plugin-card-rows > div { display: flex; flex-wrap: wrap; gap: 0 8px; }
+.plugin-card-rows dt { color: var(--muted); min-width: 7em; }
+.plugin-card-rows dd { margin: 0; overflow-wrap: anywhere; }
+.plugin-card-link { margin: 6px 0 0; }
+section.plugin-card:not(.card) { padding: 6px 0 0 10px; }
+/* The Connectors page: one kind of card for built-in services and plugins. */
+.connector-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
+.connector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 12px; align-items: start; }
+.connector { display: flex; flex-direction: column; gap: 6px; }
+.connector.status-attention { border-color: #e7c48f; }
+.connector-head { display: flex; align-items: center; gap: 10px; }
+.connector-mono { flex: none; width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; font-weight: 700; font-size: 14px;
+  background: color-mix(in srgb, var(--brand) 12%, var(--card)); color: var(--brand-ink); }
+.connector-head .pill { margin-left: auto; }
+.connector-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.pill-attention { --pill-bg: #fff1dc; --pill-ink: #8a4b00; } .pill-waiting { --pill-bg: #e3ecfc; --pill-ink: #1d4aa8; }
+.pill-off { --pill-bg: transparent; --pill-ink: var(--muted); border-color: var(--line); }
+@media (prefers-color-scheme: dark) { .pill-attention { --pill-bg: #3d2f17; --pill-ink: #f0bd7e; } .pill-waiting { --pill-bg: #22324d; --pill-ink: #a9c4ff; } }
+.connector-ask code { display: block; overflow-wrap: anywhere; margin: 2px 0; }

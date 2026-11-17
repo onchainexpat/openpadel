@@ -6,7 +6,7 @@
 import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, ApiError, clubTime, coversLocation, dollars, lang, mayDo, t, usePreview } from "@kumi/ui";
+import { api, ApiError, clubTime, coversLocation, dollars, lang, mayDo, PluginCards, t, usePluginCards, usePreview } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 import { payAction } from "./money_pay.ts";
 import { label } from "./words.ts";
@@ -31,6 +31,8 @@ export function Payments() {
   const { preview, sheet } = usePreview(() => { void loadMoney(); });
   useEffect(() => { void loadMoney(); }, [lang.value]);
   const money = (c: number) => dollars(c, lang.value);
+  // Plugins' cards on the Money page (an accounting export's last run, say).
+  const cards = usePluginCards("/staff/reports/cards");
   const at = (iso: string) => clubTime(iso, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }, m?.time_zone);
   const who = (name: string | null, id: string | null) => (id ? <a href={`/people/${id}`}>{name}</a> : name ?? "");
 
@@ -51,6 +53,7 @@ export function Payments() {
           <section class="card money-tile"><h2>{t("ui.money_refunds", { days: m.refunds.week_days })}</h2><p class="today-total num">{money(m.refunds.week_cents)}</p>
             <p class="meta">{t("count.money_refunds", { count: m.refunds.week_count })}</p></section>
         </div>
+        <PluginCards cards={cards} />
 
         <section class="card" aria-labelledby="money-owed">
           <h2 id="money-owed">{t("ui.money_owed")}</h2>

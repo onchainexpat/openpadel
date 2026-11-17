@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
 import type { Key } from "@kumi/i18n";
 import { formatLocale, weekOrder } from "@kumi/i18n/format";
-import { api, club, coversLocation, dollars, lang, lazyPage, mayCreate, mayDo, me, t, usePreview, serverNow, useBackCloses } from "@kumi/ui";
+import { api, club, coversLocation, dollars, lang, lazyPage, mayCreate, mayDo, me, PluginCards, t, usePluginCards, usePreview, serverNow, useBackCloses } from "@kumi/ui";
 import { courtSlots, spanOfCourts } from "./open_times.ts";
 import { playtomicParts } from "./paid_line.ts";
 import { dayStats, kindOf, type Kind } from "./day_stats.ts";
@@ -505,12 +505,15 @@ export function Details({ it, court, g, clock, slots, preview, canMove, canResiz
   // Paid in Playtomic: said, with what's still owed here (time added here) beside it.
   const pt = playtomicParts({ paid: it.paid_cents ?? 0, pt: it.pt_cents ?? 0, owed: unpaid(it) });
   const kind = kindOf(it);
+  // Plugins' cards on the game (connectors.ts): a camera's highlights, say.
+  const cards = usePluginCards(it.booking_id ? `/staff/bookings/${it.booking_id}/cards` : null);
   return (
     <section>
       <span class={`kind-tag k-${kind}`}>{tagOf(it) || kindWords(kind)}</span>
       <h2>{clock(it.start)} - {clock(it.end)} · {court.name}</h2>
       <p>{labelOf(it)}{it.code ? ` · ${it.code}` : ""}</p>
       {(it.players?.length ?? 0) > 0 && <p class="meta">{t("ui.today_players", { names: it.players!.join(", ") })}</p>}
+      <PluginCards cards={cards} bare />
       {isBooking(it) && g.money !== false && <p class="meta">{pt ? pt.map((x) => t(x.key, { amount: dollars(x.cents, lang.value) })).join(" · ")
         : unpaid(it) > 0 ? t("ui.unpaid_amount", { amount: dollars(unpaid(it), lang.value) }) : (it.off_cents ?? 0) > 0 ? t("ui.paid_off", { amount: dollars(it.paid_cents ?? 0, lang.value), off: dollars(it.off_cents ?? 0, lang.value) })
         : t("ui.today_paid", { amount: dollars(it.paid_cents ?? 0, lang.value) })}</p>}

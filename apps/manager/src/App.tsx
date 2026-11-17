@@ -42,7 +42,8 @@ const Roles = lazyPage(() => import("./Roles.tsx").then((m) => m.Roles));
 const Vault = lazyPage(() => import("./Vault.tsx").then((m) => m.Vault));
 const Usage = lazyPage(() => import("./Usage.tsx").then((m) => m.Usage));
 const Support = lazyPage(() => import("./Support.tsx").then((m) => m.Support));
-const Agents = lazyPage(() => import("./Agents.tsx").then((m) => m.Agents));
+// Connectors: built-in services, plugins, and the club's agents and assistants (Agents.tsx, inside it).
+const Connectors = lazyPage(() => import("./Connectors.tsx").then((m) => m.Connectors));
 // A coach's lists, opened from the schedule.
 const Roster = lazyPage(() => import("./Roster.tsx").then((m) => m.Roster));
 const Students = lazyPage(() => import("./Students.tsx").then((m) => m.Students));
@@ -166,11 +167,13 @@ function StaffNav({ a, n, signOut }: { a: Access; n: Counts; signOut: () => void
     // Approvals for everyone but a coach on their own (their own asks wait there too), and for anyone with one to answer.
     approvals: link(!coachOnly || n.approvals > 0, "/approvals", label("ui.nav_approvals"), on("/approvals"), n.approvals),
     usage: link(changes, "/usage", label("ui.nav_usage")),
+    // Connectors (the WebConnectors board): the owner's and managers', not under support access, as Agents was.
+    connectors: link(changes && !me.value?.support, "/connectors", t("ui.nav_connectors"), on("/connectors")),
     // Roles (WebPermissions' "Staff and permissions"): for those who may make a role (the owner; a manager asks), on
     // the Roles page Settings links to as well. Not under support access, which never changes roles.
     roles: link(show("settings") && mayCreate("role.create") && !me.value?.support, "/roles", label("ui.nav_roles")),
     changes: link(changes, "/changes", label("ui.nav_changes")),
-    settings: link(show("settings"), "/settings", label("ui.nav_settings"), on("/settings", "/vault", "/agents")),
+    settings: link(show("settings"), "/settings", label("ui.nav_settings"), on("/settings", "/vault")),
     inbox: <li><InboxLink current={on("/inbox")} /></li>,
     profile: link(true, "/profile", label("ui.nav_profile")),
   };
@@ -242,6 +245,13 @@ function PhoneTabs({ a, n }: { a: Access; n: Counts }) {
 const homeHrefOf = (a: Access): string | null => a.home === Schedule ? "/schedule" : a.home === Courts ? "/courts" : a.homeItem === "today" ? "/today"
   : a.homeItem === "bookings" ? "/bookings" : a.homeItem === "people" ? "/people" : a.homeItem === "programs" ? "/programs" : null;
 
+/** Agents (Settings, Agents) and the plugin list are on Connectors now: their old addresses go there. */
+function ToConnectors() {
+  const { path, route } = useLocation();
+  useEffect(() => { route(path.startsWith("/plugins") ? "/connectors#plugins" : "/connectors#agents", true); }, []);
+  return null;
+}
+
 /** Ask openPadel's key, as this computer writes it. */
 const askKeys = () => (/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K");
 /** Ask openPadel over whatever page is open (AskChat, loaded when first opened): Ctrl+K (⌘K on a Mac) or the menu's
@@ -254,8 +264,11 @@ function useAsk() {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); setOpen((o) => !o); }
       else if (e.key === "Escape") setOpen(false);
     };
+    // A page's own button for it (Connectors' "Ask your agent to connect something").
+    const ask = () => setOpen(true);
     addEventListener("keydown", key);
-    return () => removeEventListener("keydown", key);
+    addEventListener("kumi:ask", ask);
+    return () => { removeEventListener("keydown", key); removeEventListener("kumi:ask", ask); };
   }, []);
   useBackCloses(open, close);
   const panel = open ? <div class="ask-overlay" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
@@ -371,7 +384,9 @@ export function App() {
         <Route path="/settings" component={only("settings", Settings)} />
         <Route path="/usage" component={changes ? Usage : NotForRole} />
         <Route path="/support" component={changes && !me.value.support ? Support : NotForRole} />
-        <Route path="/agents" component={changes && !me.value.support ? Agents : NotForRole} />
+        <Route path="/connectors" component={changes && !me.value.support ? Connectors : NotForRole} />
+        <Route path="/agents" component={changes && !me.value.support ? ToConnectors : NotForRole} />
+        <Route path="/plugins" component={changes && !me.value.support ? ToConnectors : NotForRole} />
         <Route path="/roles" component={only("settings", Roles)} />
         <Route path="/vault" component={only("settings", Vault)} />
         <Route path="/courts" component={only("bookings", Courts)} />

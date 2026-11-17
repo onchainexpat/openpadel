@@ -20,7 +20,7 @@ export type PresetWord = WordOf<Key>;
 
 /** Every item in the staff menu (sign out is always last, after them). */
 export const MENU_ITEMS = ["day", "today", "schedule", "bookings", "people", "programs", "payments", "memberships", "coaches", "levels", "scores",
-  "questions", "messages", "chats", "playtomic", "reports", "approvals", "usage", "roles", "changes", "settings", "inbox", "profile"] as const;
+  "questions", "messages", "chats", "playtomic", "reports", "approvals", "usage", "connectors", "roles", "changes", "settings", "inbox", "profile"] as const;
 export type MenuItem = (typeof MENU_ITEMS)[number];
 /** Pages a preset may start staff on, in place of the courts' day (each only for those whose roles open it). */
 export const HOME_PAGES = ["day", "today", "bookings", "people", "programs"] as const;
@@ -45,7 +45,7 @@ export interface Preset {
 const playtomic: Preset = {
   labels: {},
   menu: [["day", "today", "schedule", "bookings"], ["people", "programs", "payments", "memberships", "coaches"], ["levels", "scores"],
-    ["questions", "messages", "chats"], ["playtomic", "reports", "approvals", "usage", "roles", "changes", "settings"], ["inbox", "profile"]],
+    ["questions", "messages", "chats"], ["playtomic", "reports", "approvals", "usage", "connectors", "roles", "changes", "settings"], ["inbox", "profile"]],
   home: "day",
   bookingColumns: ["when", "length", "players", "court", "type", "made_in", "status"],
   customerColumns: ["name", "phone", "email", "membership", "membership_ends", "club_news", "level"],
@@ -59,7 +59,7 @@ const none: Preset = {
   labels: { "ui.nav_day_schedule": "plain_schedule", "ui.nav_people": "plain_people", "ui.people_title": "plain_people", "ui.nav_programs": "plain_programs",
     "ui.nav_payments": "plain_money" },
   menu: [["today", "day", "schedule", "bookings"], ["programs", "people", "memberships", "coaches", "payments"], ["levels", "scores"],
-    ["questions", "messages", "chats"], ["approvals", "playtomic", "reports", "usage", "roles", "changes", "settings"], ["inbox", "profile"]],
+    ["questions", "messages", "chats"], ["approvals", "playtomic", "reports", "usage", "connectors", "roles", "changes", "settings"], ["inbox", "profile"]],
   home: "today",
   bookingColumns: ["when", "court", "type", "players", "length", "status", "made_in"],
   customerColumns: ["name", "membership", "membership_ends", "level", "phone", "email", "club_news"],

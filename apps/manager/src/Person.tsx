@@ -2,7 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
-import { AccountData, api, club, dollars, emailedNote, lang, coversLocation, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
+import { AccountData, api, club, PluginCards, usePluginCards, dollars, emailedNote, lang, coversLocation, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
 import { WeeklyCourts, type WeeklyCourt } from "@kumi/ui/weekly";
 import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
 import { amountStep, capFor, fromMajor, plainAmount, toMajor } from "@kumi/i18n/format";
@@ -69,6 +69,8 @@ export function Person({ id }: { id: string }) {
   // The club's own roles, offered alongside the built-in ones.
   const [custom, setCustom] = useState<{ key: string; name: string }[]>([]);
   const { route } = useLocation();
+  // Plugins' cards on a member's profile (connectors.ts): none, or none this reader's roles read, draws nothing.
+  const cards = usePluginCards(`/staff/people/${id}/cards`);
   const loadLevel = () => readsLevels() ? api<LevelGlance>(`/staff/people/${id}/level`).then(setGlance).catch(() => setGlance(null)) : setGlance(null);
   const load = () => { void loadLevel(); return api<P>(`/staff/people/${id}`).then((x) => { setP(x); setNewTag(""); }); };
   const { preview, sheet } = usePreview(load);
@@ -107,6 +109,7 @@ export function Person({ id }: { id: string }) {
       <Tabs label={t("ui.person_sections")} tabs={tabs.map((k) => [k, t(`ui.person_tab_${k}` as Key)])} on={shownTab} pick={setTab} id="person" />
       <div role="tabpanel" tabIndex={0} id={`person-panel-${shownTab}`} aria-labelledby={`person-tab-${shownTab}`} class="tab-panel">
       {is("profile") && <ComingUp p={p} />}
+      {is("profile") && <PluginCards cards={cards} />}
       {is("profile") && p.money !== false && <MoneyCard p={p} toWallet={tabs.includes("wallet") ? () => setTab("wallet") : null} />}
       {is("profile") && <section class="card">
         {p.email_problem && <p class="note" role="status">{t(`ui.email_held_${p.email_problem.reason}` as Key, { date: date(p.email_problem.since) })}{p.email_problem.detail ? ` (${p.email_problem.detail})` : ""}{" "}

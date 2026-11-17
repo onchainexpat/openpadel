@@ -15,7 +15,7 @@ test("each menu link is shown only to the roles that read its area, as before", 
     ['show("bookings")', "/courts"], ["coach", "/schedule"], ['show("bookings")', "/bookings"], ['show("members")', "/people"], ['show("programs")', "/programs"], ['show("money")', "/payments"],
     ['show("memberships")', "/memberships"], ['coach || desk || areas?.includes("coaches")', "/coaches"], ['show("levels")', "/levels"], ['show("levels")', "/scores"],
     ["messages", "/messages"], ['show("members") && club.value?.players_chat', "/chats"], ["me.value?.playtomic", "/playtomic"], ['show("money") || coachSide', "/reports"],
-    ["changes", "/usage"], ['show("settings") && mayCreate("role.create") && !me.value?.support', "/roles"], ["changes", "/changes"], ['show("settings")', "/settings"], ["true", "/profile"],
+    ["changes", "/usage"], ["changes && !me.value?.support", "/connectors"], ['show("settings") && mayCreate("role.create") && !me.value?.support', "/roles"], ["changes", "/changes"], ['show("settings")', "/settings"], ["true", "/profile"],
   ];
   for (const [gate, href] of gates) assert.ok(app.includes(`: link(${gate}, "${href}"`), `${href} behind ${gate}`);
   assert.match(app, /const messages = desk \|\| Boolean\(areas\?\.includes\("messages"\)\);/);
@@ -30,6 +30,8 @@ test("the Schedule is home for those who read bookings; a coach keeps their own 
   assert.match(app, /const base = areas \? \(coach \? Schedule : areas\.includes\("bookings"\) \? Courts : areaHome\[areas\[0\] \?\? ""\] \?\? Profile\)\n\s+: desk \? Courts : coach \? Schedule : roles\.includes\("accountant"\) \? Reports : show\("bookings"\) \? Courts : Programs;/);
   // Old addresses still open what they did.
   for (const path of ["/courts", "/people", "/programs", "/schedule"]) assert.ok(app.includes(`<Route path="${path}"`), path);
+  // Settings, Agents moved into Connectors: its address opens Connectors at the agents.
+  assert.match(app, /<Route path="\/agents" component=\{changes && !me\.value\.support \? ToConnectors : NotForRole\} \/>/);
 });
 
 test("the menu over the page on a phone: a real button opens it, Escape and the back button close it", () => {

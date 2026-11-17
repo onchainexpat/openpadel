@@ -3,7 +3,7 @@
 // and the rest of their pages: profile and settings, bookings, friends, receipts, their data, and signing out.
 // Loaded when it's first opened.
 import { useEffect, useState } from "preact/hooks";
-import { api, clubTime, club, dollars, lang, me, signOutHere, t, usePreview } from "@kumi/ui";
+import { api, clubTime, club, dollars, lang, me, PluginCards, signOutHere, t, usePluginCards, usePreview } from "@kumi/ui";
 import { MembershipBody } from "./Membership.tsx";
 import { juniors } from "./ForWhom.tsx";
 import { confirmPaid, PaySheet } from "./Pay.tsx";
@@ -15,6 +15,8 @@ export function Me() {
   const m = me.value!, c = club.value;
   const [level, setLevel] = useState<{ level: string; provisional: boolean } | null | undefined>(undefined), [credit, setCredit] = useState<number | null>(null);
   const [plan, setPlan] = useState<string | null>(null);
+  // Plugins' cards on the member's own profile (connectors.ts), theirs alone.
+  const cards = usePluginCards("/my/cards");
   useEffect(() => {
     api<{ rating: { level: string; provisional: boolean } | null }>("/my/level").then((r) => setLevel(r.rating)).catch(() => setLevel(null));
     api<{ cents: number }>("/my/credit").then((r) => setCredit(r.cents)).catch(() => {});
@@ -60,6 +62,8 @@ export function Me() {
           <span class="tile-more">{t("ui.me_wallet_more")}</span>
         </a>
       </div>
+
+      <PluginCards cards={cards} />
 
       {(c?.memberships || plan) && <section aria-labelledby="me-membership">
         <h2 id="me-membership">{t(plan ? "ui.me_membership_title" : "ui.me_plans_title")}</h2>

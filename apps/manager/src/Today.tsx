@@ -3,7 +3,7 @@
 // read people; each row links to the page where it's handled. The one change made here is checking in a booking from Now and next, previewed first like any other.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, clubTime, coversLocation, dollars, EmptyState, lang, mayDo, me, serverNow, t, usePreview, type ApiError } from "@kumi/ui";
+import { api, clubTime, coversLocation, dollars, EmptyState, lang, mayDo, me, PluginCards, serverNow, t, usePluginCards, usePreview, type ApiError, type PluginCardData } from "@kumi/ui";
 import { label } from "./words.ts";
 import { allIn, bookingsIn, checkInInput } from "./check_in.ts";
 
@@ -42,6 +42,8 @@ export function Today() {
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
   }, [lang.value]);
+  // Each court's tile with plugins' cards on it (lights on until 21:30, say), read again with the page.
+  const courts = usePluginCards<{ court_id: string; court: string; cards: PluginCardData[] }[]>("/staff/grid/cards", v?.now);
   if (error && !v) return <main class="card"><p class="error" role="alert">{error}</p></main>;
   if (!v) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const at = (iso: string, o: Intl.DateTimeFormatOptions) => clubTime(iso, o, v.time_zone);
@@ -85,6 +87,10 @@ export function Today() {
           <p class="meta">{t("ui.today_takings_note")}</p>
         </section>}
         {v.next && <NowNext next={v.next} preview={preview} />}
+        {courts && courts.length > 0 && <section class="card today-courts" aria-labelledby="today-courts">
+          <h2 id="today-courts">{t("ui.today_courts")}</h2>
+          <ul class="plain">{courts.map((c) => <li key={c.court_id}><strong>{c.court}</strong><PluginCards cards={c.cards} bare /></li>)}</ul>
+        </section>}
         <section class="card today-since" aria-labelledby="today-since">
           <h2 id="today-since">{t("ui.today_since")}</h2>
           <p class="meta">{t("ui.today_since_at", { time: sinceWords })}</p>
