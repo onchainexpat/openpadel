@@ -64,6 +64,10 @@ export function setPluginIo(next: Partial<PluginIo>): void { io = { ...io, ...ne
 export function pluginIo(): PluginIo { return io; }
 
 // ---- The catalog ----
+/** openPadel's own reviewed catalog (its repository is round F's): the one a club's doctor doesn't warn about. */
+export const OPENPADEL_CATALOG_URL = "https://plugins.openpadel.org/catalog.json";
+/** Whether the catalog the server is set to is someone else's: everything in it would count as reviewed. */
+export const ownCatalog = (url: string | null | undefined) => !url?.trim() || url.trim().replace(/\/+$/, "") === OPENPADEL_CATALOG_URL;
 export interface CatalogEntry { manifest: Manifest }
 const SAMPLE = new URL("./plugin_catalog.sample.json", import.meta.url);
 let catalogCache: { at: number; url: string | null; entries: CatalogEntry[]; skipped: string[] } | null = null;

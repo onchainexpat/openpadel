@@ -172,7 +172,9 @@ a new version asks for that the old one didn't, `plugin pause` and `plugin resum
 so the club opens no new ports. `openpadel doctor` checks each plugin's health; `openpadel processors` lists the
 services that see member data with each plugin's data out added, as rows for the privacy policy. Settings, Agents lists
 installed plugins. A local plugin's release is fetched and checked against its SHA-256 by `openpadel plugin service`,
-which writes its systemd unit with `--apply`. See docs/plugins/ (migration 128).
+which writes its systemd unit with `--apply`. The plugin list and the catalog are the owner's and managers'. `openpadel
+doctor` warns when `KUMI_PLUGIN_CATALOG_URL` names a catalog other than openPadel's, since all it lists counts as
+reviewed. See docs/plugins/ (migration 128).
 
 ### Added
 - Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed

@@ -6210,4 +6210,5 @@ export const es: { [K in keyof typeof en]: Message } = {
   "plugin.problem_hung_up": "{host} cortó la conexión",
   "plugin.problem_bad_answer": "{host} dio una respuesta que no tiene sentido",
   "plugin.problem_other": "no se puede contactar con {host} en este momento",
+  "doctor.plugin_catalog.other": "Catálogo de plugins: este servidor lee los plugins de {url}, no del catálogo propio de openPadel. Todo lo que aparece ahí cuenta como revisado cuando el agente del club lo instala, y la vista previa de la instalación no avisará, así que úsalo solo si confías en quien lo mantiene. Para usar el de openPadel, quita KUMI_PLUGIN_CATALOG_URL del archivo de configuración.",
 };

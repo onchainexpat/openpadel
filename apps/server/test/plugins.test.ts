@@ -425,3 +425,32 @@ test("what went wrong reaching a plugin reads in plain words, both languages, wh
   assert.equal(rawError(Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND", message: "getaddrinfo ENOTFOUND x" } })), "ENOTFOUND: getaddrinfo ENOTFOUND x");
 });
 
+test("the plugin list and the catalog are the owner's and managers'; the processors list stays every staff member's", async () => {
+  const session = async (name: string, email: string, role: string) => {
+    const id = ((await run(db, "person.create", { display_name: name, email }, owner)).result as any).person_id;
+    await run(db, "role.assign", { person_id: id, role }, { ...owner, auth: "passkey" });
+    const tok = `${role}-session`;
+    await db.insertInto("web_session").values({ token_hash: sha(tok), person_id: id, expires_at: new Date(Date.now() + 864e5), last_seen_at: new Date(), user_agent: null, revoked_at: null, method: "passkey" }).execute();
+    return async (path: string) => (await app.request(`${BASE}${path}`, { headers: { cookie: `kumi_session=${tok}` } })).status;
+  };
+  const desk = await session("Dee Desk", "dee@example.test", "front_desk"), boss = await session("Max Manager", "max@example.test", "manager");
+  for (const path of ["/staff/plugins", "/staff/plugins/catalog?q=lights", "/staff/plugins/catalog/court-lights"]) {
+    assert.equal(await desk(path), 403, `front desk: ${path}`);
+    assert.equal(await boss(path), 200, `manager: ${path}`);
+  }
+  assert.equal(await desk("/staff/processors"), 200);
+  // The vault, with the keys plugins ask for, is the owner's alone.
+  assert.equal(await desk("/staff/vault"), 403);
+  assert.equal(await boss("/staff/vault"), 403);
+});
+
+test("doctor warns when the plugin catalog is someone else's: everything in it counts as reviewed", async () => {
+  const at = (env: Record<string, string>) => doctor(db, { NODE_ENV: "development", ...env }).then((cs) => cs.find((c) => c.id === "plugin_catalog"));
+  assert.equal(await at({}), undefined, "the bundled sample");
+  assert.equal(await at({ KUMI_PLUGIN_CATALOG_URL: "https://plugins.openpadel.org/catalog.json" }), undefined, "openPadel's own");
+  const c = (await at({ KUMI_PLUGIN_CATALOG_URL: "https://plugins.example.com/index.json" }))!;
+  assert.equal(c.state, "warn");
+  assert.match(c.text.en, /reads plugins from https:\/\/plugins\.example\.com\/index\.json, not openPadel's own catalog\. Everything listed there counts as reviewed/);
+  assert.match(c.text.es, /cuenta como revisado/);
+});
+

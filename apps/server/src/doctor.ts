@@ -3,7 +3,7 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
-import { answerCounts, monthOf, clubStripeAccount, dayText, emailDomain, suppressionCounts, heartbeats, heldSummary, leavingOn, localDate, localParts, movedAway, parseSecretKey, pendingMigrations, pluginSecrets, problemText, readOnlySince, StripeProvider, textCounts, textingRegistration, usageGaps, usageView, type Db, type Manifest } from "@kumi/core";
+import { answerCounts, monthOf, clubStripeAccount, dayText, emailDomain, suppressionCounts, heartbeats, heldSummary, leavingOn, localDate, localParts, movedAway, parseSecretKey, pendingMigrations, ownCatalog, pluginSecrets, problemText, readOnlySince, StripeProvider, textCounts, textingRegistration, usageGaps, usageView, type Db, type Manifest } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { offsitePrunes } from "./backups.ts";
 import { archiverFailing, archiverState, PITR_CONF } from "./pitr.ts";
@@ -242,6 +242,8 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
 
   // Plugins (plugins.ts): each one's health, asked at its health address within the webhooks' rules and a few seconds;
   // one waiting for its registration or for keys says so. None installed, nothing said.
+  // A catalog other than openPadel's (KUMI_PLUGIN_CATALOG_URL): whatever is in it counts as reviewed, so it's said.
+  if (!ownCatalog(env.KUMI_PLUGIN_CATALOG_URL)) add("plugin_catalog", "warn", "plugin_catalog.other", { url: env.KUMI_PLUGIN_CATALOG_URL!.trim() }, "docs/plugins/README.md");
   const plugins = await pluginsHealth(db, production).catch(() => []);
   const hostOfUrl = (u: string | null) => { try { return u ? new URL(u).host : ""; } catch { return u ?? ""; } };
   for (const pl of plugins) {

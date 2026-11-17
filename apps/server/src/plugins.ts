@@ -121,8 +121,20 @@ export function pluginRoutes(db: Db, o: { production: boolean; now: () => Date }
 
 /** The staff reads (reads.ts mounts these behind its checks: the settings area, the owner and managers, and the door
  *  for their assistants): installed plugins with health, the catalog and one plugin in it, and the processors list. */
-export function pluginReadRoutes(db: Db, lang: (c: Context<any>) => Lang, o: { production: boolean }) {
+export function pluginReadRoutes(db: Db, me: (c: Context<any>) => { id: string } | null, lang: (c: Context<any>) => Lang, o: { production: boolean }) {
   const app = new Hono();
+  // What's installed, and the catalog (which says what's installed), are the owner's and managers' (and their agents'),
+  // like Settings, Agents: the front desk and coaches aren't told. The processors list below stays every staff read.
+  app.use("/staff/plugins", ownerOrManager);
+  app.use("/staff/plugins/*", ownerOrManager);
+  async function ownerOrManager(c: Context<any>, next: () => Promise<void>) {
+    const m = me(c);
+    if (!m) throw new KumiError("error.signed_out", {}, 401);
+    const boss = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key").where("person_role.person_id", "=", m.id)
+      .where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "in", ["owner", "manager"]).executeTakeFirst();
+    if (!boss) throw new KumiError("error.staff_only", {}, 403);
+    await next();
+  }
   app.get("/staff/plugins", async (c) => {
     const l = lang(c), list = await clubPlugins(db, l);
     const health = new Map((await pluginsHealth(db, o.production)).map((h) => [h.name, h.health]));

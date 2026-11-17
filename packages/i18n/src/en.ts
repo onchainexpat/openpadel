@@ -6210,4 +6210,5 @@ export const en = {
   "plugin.problem_hung_up": "{host} cut the connection",
   "plugin.problem_bad_answer": "{host} gave an answer that made no sense",
   "plugin.problem_other": "can't reach {host} just now",
+  "doctor.plugin_catalog.other": "Plugin catalog: this server reads plugins from {url}, not openPadel's own catalog. Everything listed there counts as reviewed when the club's agent installs it, and the install preview won't warn about it, so use it only if you trust whoever keeps it. To use openPadel's, take KUMI_PLUGIN_CATALOG_URL out of the settings file.",
 } as const;

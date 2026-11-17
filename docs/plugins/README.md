@@ -61,6 +61,11 @@ So the club's agent can do the installing, and the owner's yes to the preview is
 `openpadel plugin search` reads a JSON index of manifests: openPadel's reviewed catalog, or another the server names in
 `KUMI_PLUGIN_CATALOG_URL` (an https address, or a file on the server). Without one it reads a sample bundled with
 openPadel, with the court lights example.
+Whatever a catalog lists counts as reviewed, so `openpadel doctor` warns while the server reads one other than
+openPadel's own (`https://plugins.openpadel.org/catalog.json`) or the bundled sample.
+
+The list of installed plugins and the catalog are for the owner and managers (and their agents), like Settings, Agents;
+the services that see member data (`openpadel processors`) are for all staff.
 
 ### Local plugins
 

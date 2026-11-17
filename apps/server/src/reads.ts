@@ -1302,6 +1302,6 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // through the assistant door: they're the staff app's own screens.
   if (!opts.assistant) app.route("/", todayRoutes(db, me, lang, { reach: reachOf, roles: rolesOf, mayAnyOf }));
   // Plugins: what's installed (with health), the catalog, and the services that see member data (plugins.ts).
-  app.route("/", pluginReadRoutes(db, lang, { production: Boolean(opts.production) }));
+  app.route("/", pluginReadRoutes(db, (c) => me(c), lang, { production: Boolean(opts.production) }));
   return app;
 }
