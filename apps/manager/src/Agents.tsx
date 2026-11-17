@@ -1,11 +1,13 @@
 // Settings > Agents (agents.ts, webhooks.ts): every agent and assistant connected to the club, and the club's webhooks.
 // Club agents (an n8n workflow, a bot, a desk agent running all night) are the club's: made, changed and revoked here,
 // each with a role that caps it and a weekly limit on the money its changes move. People's own assistants are listed
-// with who connected them and can be disconnected. A later Connectors page takes this list in. The owner and managers
+// with who connected them and can be disconnected. Installed plugins (Plugins.tsx) are listed here too. A later
+// Connectors page takes this list in. The owner and managers
 // read it; every change is previewed (a manager's asks wait for the owner).
 import { useEffect, useState } from "preact/hooks";
 import { api, clubTime, dollars, lang, t, usePreview } from "@kumi/ui";
 import { amountInput, amountPattern, currencySign, parseAmount } from "@kumi/i18n/format";
+import { Plugins } from "./Plugins.tsx";
 
 type Agent = { id: string; name: string; role: string | null; role_name: string; can: string; created_by: string | null; created_at: string; revoked_at: string | null;
   last_used_at: string | null; token_last4: string | null; weekly_cap_cents: number; spent_cents: number; webhooks: number };
@@ -21,12 +23,13 @@ const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "s
 const cents = (text: string) => (text.trim() ? parseAmount(text.trim()) ?? NaN : 0);
 
 export function Agents() {
-  const [d, setD] = useState<Data | null>(null), [shown, setShown] = useState<Shown | null>(null);
+  const [d, setD] = useState<Data | null>(null), [shown, setShown] = useState<Shown | null>(null), [n, setN] = useState(0);
   const load = () => api<Data>("/staff/agents").then(setD);
   // A token or a secret comes back once, with the change that made it: shown here until the page is left.
   const { preview, sheet } = usePreview((r?: { token?: string | null; secret?: string | null; name?: string }) => {
     if (r?.token) setShown({ kind: "token", value: r.token, name: r.name ?? "" });
     if (r?.secret) setShown({ kind: "secret", value: r.secret, name: "" });
+    setN((x) => x + 1);
     void load();
   });
   useEffect(() => { void load(); }, [lang.value]);
@@ -45,6 +48,7 @@ export function Agents() {
           <ul class="plain">{gone.map((a) => <li class="meta">{a.name} · {a.role_name} · {t("ui.agent_revoked_at", { when: when(a.revoked_at!) })}</li>)}</ul></details>}
       </section>
       <NewAgent d={d} send={preview} />
+      <Plugins send={preview} owner={d.owner} n={n} />
       <section class="card">
         <h2>{t("ui.agents_assistants")}</h2>
         <p class="meta">{t("ui.agents_assistants_hint", { address: `${location.origin}/mcp` })}</p>

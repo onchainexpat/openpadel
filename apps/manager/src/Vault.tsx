@@ -5,7 +5,9 @@ import { api, ApiError, lang, needsStep, t, usePreview, useStepUp, clubTime } fr
 
 type Item = { id: string; kind: "secret" | "document"; name: string; note: string | null; last4: string | null; filename: string | null; size_bytes: number;
   created_at: string; updated_at: string; by: string | null; downloads: { at: string; by: string | null }[] };
-type D = { items: Item[]; limits: { secret_chars: number; document_bytes: number } };
+/** A key an installed plugin needs that the vault doesn't have yet (plugins.ts). */
+type Request = { plugin: string; by: string | null; asked_at: string; why: string; can: string | null; keys: { name: string; vault_name: string; label: string; where: string }[] };
+type D = { items: Item[]; limits: { secret_chars: number; document_bytes: number }; requests?: Request[] };
 
 const kb = (n: number) => Math.max(1, Math.round(n / 1000));
 /** A file as base64, for the upload. */
@@ -42,6 +44,14 @@ export function Vault() {
       <p class="meta">{t("ui.vault_help")}</p>
       {/* What the server said about a value or file it wouldn't keep: the page and what was typed stay. */}
       {error && <p class="error" role="alert" onClick={() => setError(null)}>{error}</p>}
+      {(d.requests ?? []).map((r) => (
+        <section class="card" key={`${r.plugin}:${n}`}>
+          <h2>{t("ui.vault_asked_title", { plugin: r.plugin })}</h2>
+          <p class="meta">{r.why}{r.can ? ` ${t("ui.vault_asked_can", { can: r.can })}` : ""}</p>
+          <p class="meta">{t("ui.vault_asked_by", { when: day(r.asked_at), who: r.by ?? "" })}</p>
+          {r.keys.map((k) => <AskedKey key={k.vault_name} k={k} max={d.limits.secret_chars} onSend={(value) => send({ kind: "secret", value }, "vault.add", { name: k.vault_name })} />)}
+          <p class="meta">{t("ui.vault_asked_never")}</p>
+        </section>))}
       <section class="card">
         <h2>{t("ui.vault_secrets")}</h2>
         {!secrets.length ? <p class="meta">{t("ui.vault_no_secrets")}</p> : <ul class="plain">{secrets.map((x) => (
@@ -112,4 +122,17 @@ function ReplaceDoc({ onSend }: { onSend: (data: string, filename: string) => vo
   if (!open) return <button class="small" onClick={() => setOpen(true)}>{t("ui.vault_replace")}</button>;
   return <input type="file" aria-label={t("ui.vault_new_file")} accept="application/pdf,image/jpeg,image/png,image/webp"
     onChange={async (e) => { const f = e.currentTarget.files?.[0]; if (f) onSend(await readFile(f), f.name); }} />;
+}
+
+/** One key a plugin asked for: what it is, where the owner gets it, and the field for it (its name is the plugin's own). */
+function AskedKey({ k, max, onSend }: { k: Request["keys"][number]; max: number; onSend: (value: string) => void }) {
+  const [value, setValue] = useState("");
+  return (
+    <form class="card-form" onSubmit={(e) => { e.preventDefault(); onSend(value); }}>
+      <label>{k.label} <span class="meta">({k.name})</span>
+        <input type="password" autocomplete="new-password" value={value} maxLength={max} required onInput={(e) => setValue(e.currentTarget.value)} /></label>
+      <p class="meta">{k.where}</p>
+      <button class="primary" type="submit" disabled={!value}>{t("ui.vault_asked_save")}</button>
+    </form>
+  );
 }

@@ -22,3 +22,12 @@ openPadel keeps a copy of each booking it reads, with its players' names and ema
 when their account is deleted ([moving-from-playtomic.md](setup/moving-from-playtomic.md)).
 Moving in from Playtomic, staff can also read the club's own players from it, or upload its customer export (name, email, phone,
 wallet balances and memberships), kept on the club's server for the move-in (an upload 30 days) and deleted with the person ([wallets and memberships](setup/playtomic-wallets-and-memberships.md)).
+
+## Plugins
+
+Each plugin a club installs ([plugins/README.md](plugins/README.md)) says in its manifest what member data it sends
+where, in plain words (its `data_out`). The club's own list adds it as it's installed and drops it when it's removed:
+`openpadel processors` gives the services above with a row for each installed plugin, in the reader's language, and the
+same as Markdown rows ready for the privacy policy's table ([templates/member-privacy-policy.md](templates/member-privacy-policy.md)).
+A plugin is installed only after the owner sees, in its install preview, what it sends.
+

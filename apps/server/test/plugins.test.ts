@@ -82,7 +82,7 @@ test("a manifest is checked strictly: the example passes, the bundled catalog ha
   bad({ surprise: true }, /surprise|Unrecognized/i);
   bad({ name: "Court Lights" }, /name/);
   bad({ data_out: undefined }, /data_out/);
-  bad({ description: { en: "Lights — on", es: "Luces" } }, /description/);
+  bad({ description: { en: "Lights \u2014 on", es: "Luces" } }, /description/);
   bad({ run: { mode: "local", release_url: "https://x.example/r.tgz", sha256: "abc", entry: "bin/start" } }, /sha256/);
   bad({ run: { mode: "local", release_url: "https://x.example/r.tgz", sha256: "a".repeat(64), entry: "../etc/passwd" } }, /entry/);
   bad({ events: ["booking.created", "booking.created"] }, /twice/);
@@ -295,13 +295,16 @@ test("the processors list and the privacy policy's rows take each installed plug
   assert.equal(row.service, "openPadel examples (the plugin court-lights)");
   assert.match(row.gets, /Home Assistant/);
   assert.ok(r.json.rows.some((x: any) => x.service === "Stripe"));
-  assert.match(r.json.markdown, /^\| Service \| When \| What it gets \|\n\|---\|---\|---\|\n/);
+  assert.match(r.json.markdown, /^\| Company \| What for \| What it gets \|\n\|---\|---\|---\|\n/);
   assert.match(r.json.markdown, /\| openPadel examples \(the plugin court-lights\) \|/);
   const es = await app.request(`${BASE}/staff/processors`, { headers: { cookie: ownerCookie, "accept-language": "es" } });
   assert.ok(es.status === 200);
   // Through the door too, for the owner's agent.
   const cat = await staff("/staff/plugins/catalog?q=lights");
   assert.deepEqual(cat.json.plugins.map((p: any) => [p.name, p.installed]), [["court-lights", true]]);
+  // Its agent and webhook are listed with the plugin, not among the club's own agents and webhooks.
+  const agents = await staff("/staff/agents");
+  assert.ok(!agents.json.agents.some((a: any) => /\(plugin\)$/.test(a.name)) && !agents.json.webhooks.some((h: any) => h.url.startsWith(PLUGIN)), "plugins are listed as plugins");
   const info = await staff("/staff/plugins/catalog/court-lights");
   assert.equal(info.json.keys[0].name, "HA_TOKEN");
   assert.ok(info.json.words.some((w: any) => w.label === "It sends"));

@@ -107,6 +107,7 @@ the public page, in level lists or on leaderboards.
 | TypeSafe and Anthropic [IF THE CLUB USES "ASK THE CLUB"] | Matching your question to the club's own answers | The words of your question and the club's answers. We send no names, emails or numbers with it, so don't put personal details in a question you'd rather the club's staff read first. Under their terms, they may not use it to train AI models |
 | [HOSTING PROVIDER OR "KUMI'S HOSTED SERVICE AND THE COMPANIES IT USES"] | Running the club's app and its backups | Everything the app holds. Backups are sealed before they leave the server, so the storage company can't read them |
 | [PLAYTOMIC, IF THE CLUB USES IT] | Court bookings made on Playtomic | Nothing from the app: the club only reads its own Playtomic bookings into it, and keeps a copy of them (below) |
+| [EACH PLUGIN THE CLUB INSTALLED: ITS ROW FROM `openpadel processors`] | [WHAT IT DOES] | [WHAT ITS MANIFEST SAYS IT SENDS] |
 
 **Your own AI assistant.** If you connect an assistant (Claude, ChatGPT or another) to the club, it gets what you
 ask it to read or do, under your own agreement with that company. You choose how much it may spend for you each

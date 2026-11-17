@@ -330,7 +330,10 @@ export async function clubWebhooks(db: Db | Trx) {
     .select(["webhook_subscription.id", "webhook_subscription.url", "webhook_subscription.topics", "webhook_subscription.secret_last4", "webhook_subscription.created_at",
       "webhook_subscription.paused_at", "webhook_subscription.paused_why", "webhook_subscription.failures", "webhook_subscription.last_ok_at", "webhook_subscription.last_error",
       "webhook_subscription.agent_id", "agent.name as agent_name", "person.display_name as person"])
-    .where("webhook_subscription.active", "=", true).orderBy("webhook_subscription.created_at", "desc").execute();
+    .where("webhook_subscription.active", "=", true)
+    // A plugin's webhook is listed with its plugin (plugins.ts), where it's changed.
+    .where((w) => w.not(w.exists(w.selectFrom("plugin").select("plugin.id").whereRef("plugin.subscription_id", "=", "webhook_subscription.id"))))
+    .orderBy("webhook_subscription.created_at", "desc").execute();
   const out = [];
   for (const r of rows) {
     const c = await db.selectFrom("webhook_delivery").select(["status", (eb) => eb.fn.countAll<string>().as("n")]).where("subscription_id", "=", r.id)

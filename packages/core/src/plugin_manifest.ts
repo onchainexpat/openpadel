@@ -25,7 +25,7 @@ export const AREA_KEYS = AREAS.map((a) => a.key) as [string, ...string[]];
  *  confirms. (Most of these aren't in a club's role anyway; this says so even if a club's manager role changes.) */
 export const PLUGIN_NEVER = ["agent.*", "plugin.*", "webhook.*", "vault.*", "role.*", "assistant.*", "support.*", "privacy.*", "club.*"];
 
-const noDash = (s: string) => !/[—–]/.test(s);
+const noDash = (s: string) => !/[\u2014\u2013]/.test(s);
 const words = (max: number) => z.string().check(z.minLength(1), z.maxLength(max), z.refine(noDash, "no em or en dashes"));
 /** Words in both of the club's languages. */
 const text = (max = 300) => z.strictObject({ en: words(max), es: words(max) });

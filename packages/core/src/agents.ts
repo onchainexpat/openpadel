@@ -260,7 +260,10 @@ export function agentActor(a: { id: string; name: string }, personId: string, gr
 export async function clubAgents(db: Db | Trx, lang: "en" | "es", now: Date) {
   const agents = await db.selectFrom("agent").leftJoin("role", "role.id", "agent.capped_role_id").leftJoin("person as by", "by.id", "agent.created_by")
     .select(["agent.id", "agent.name", "agent.weekly_cap_cents", "agent.created_at", "agent.revoked_at", "agent.last_used_at", "agent.token_last4", "role.key as role_key", "by.display_name as created_by"])
-    .where("agent.kind", "=", "club").orderBy("agent.revoked_at", "desc").orderBy("agent.created_at", "desc").execute();
+    .where("agent.kind", "=", "club")
+    // A plugin's agent is listed with its plugin (plugins.ts), where it's changed.
+    .where((w) => w.not(w.exists(w.selectFrom("plugin").select("plugin.id").whereRef("plugin.agent_id", "=", "agent.id"))))
+    .orderBy("agent.revoked_at", "desc").orderBy("agent.created_at", "desc").execute();
   const roleWords = new Map<string, { name: string; can: string }>();
   const words = async (key: string | null) => {
     if (!key) return { name: "", can: "" };
