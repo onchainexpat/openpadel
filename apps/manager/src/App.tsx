@@ -261,7 +261,8 @@ function useAsk() {
   const panel = open ? <div class="ask-overlay" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
     <section class="card ask-panel" role="dialog" aria-modal="true" aria-label={t("ui.assistant_title")}>
       <header><h2>{t("ui.assistant_title")}</h2><button type="button" class="small" onClick={close}>{t("ui.close")}</button></header>
-      <AskChat surface="staff" autoFocus />
+      {/* Outside the Router, so AskChat (loaded on first open) needs its own boundary to wait for it. */}
+      <ErrorBoundary><AskChat surface="staff" autoFocus /></ErrorBoundary>
     </section></div> : null;
   return { open: () => setOpen(true), panel };
 }
