@@ -5,11 +5,11 @@ import { useEffect, useState } from "preact/hooks";
 import { api, dollars, lang, me, t, usePreview, clubTime } from "@kumi/ui";
 import { fromMajor, plainAmount, formatLocale, money, clubFormat } from "@kumi/i18n/format";
 
-type Kind = "ai_decisions" | "ai_drafts" | "texts" | "email";
+type Kind = "ai_decisions" | "ai_drafts" | "ai_assistant" | "texts" | "email";
 type Line = { count: number; input_tokens: number; output_tokens: number; segments: number; cents: number };
 type U = { month: string; cap_cents: number; over_cents: number; limit_cents: number; spent_cents: number; share: number | null; state: "ok" | "near" | "over" | "paused"; resets: string;
   kinds: Record<Kind, Line>; history: { month: string; cents: number; kinds: Record<Kind, number> }[] };
-const KINDS: Kind[] = ["ai_decisions", "ai_drafts", "texts", "email"];
+const KINDS: Kind[] = ["ai_decisions", "ai_drafts", "ai_assistant", "texts", "email"];
 
 export function Usage() {
   const [d, setD] = useState<{ usage: U | null } | null>(null);
