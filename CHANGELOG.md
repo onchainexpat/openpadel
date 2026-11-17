@@ -137,6 +137,22 @@ Owners and managers no longer have to set up a passkey or an authenticator app b
 (or texted) code is enough. The club's most sensitive changes still ask them for a second step, and offer to set one
 up right there.
 
+Club agents and webhooks. A club agent is an agent that isn't any one person's (an n8n workflow, a bot, a desk agent
+running all night): the owner makes one in Settings, Agents (a manager asks), with a name, the role that caps it (any
+role but the owner's or a coach's, including one made just for it) and a weekly limit on the money its changes move. Its token is
+shown once, to whoever made it, and kept only as a hash; New token ends the old one at once, and Revoke ends the token,
+its webhooks and any preview it hadn't confirmed. It connects at the club's /mcp address with that token (or
+`openpadel login <address> --agent-token`), acts as itself on behalf of the club through the same door as everyone
+(the same permission check, previews, the change log with the agent named, undo), and what its role says to ask about
+waits in Approvals for a person. An agent never makes or changes agents, never says yes to an ask, and an assistant
+making one can't give it a higher limit than its own. Agents can subscribe to the club's events (booking.cancelled,
+payment.failed and 29 more): each is POSTed after its change is saved, signed with HMAC-SHA256 under the subscription's
+own secret (shown once, sealed), only if the agent's role reads that part of the club, and tried again with longer
+waits; an address that keeps failing is paused and the owner hears once. In production webhooks go only to public
+https addresses. The same page lists every person's own assistant with who connected it, its spending this week and
+its last use, to disconnect it. Recipes for Claude Code, Codex, Claude, ChatGPT, n8n and any MCP client, and how to
+check a webhook's signature, are in docs/agents/ (migration 126).
+
 ### Added
 - Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed
   scores, levels to review, members' questions for staff, sessions whose coach is off this week, card charges that
@@ -351,6 +367,8 @@ up right there.
   "Staff must use a second step at sign-in" in Settings, "Sign-in and roles" (or adds `staff_second_step: true`
   under `club:` in club.yaml and runs `openpadel setup apply club.yaml`).
 - The database change (migration 112) applies by itself when the server starts.
+- Club agents and webhooks (migration 126): nothing to do. The server's 30-second jobs send webhooks; in production
+  they go only to public https addresses.
 
 ## 0.6.3 (2026-11-10)
 

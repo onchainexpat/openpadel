@@ -84,6 +84,7 @@ export const SEALED_COLUMNS: { table: string; key: string; column: string; kind:
   { table: "push_key", key: "singleton", column: "private_key", kind: "text" },
   { table: "vault_blob", key: "id", column: "bytes", kind: "bytes" },
   { table: "gift_card", key: "id", column: "code_sealed", kind: "text" },
+  { table: "webhook_subscription", key: "id", column: "secret_sealed", kind: "text" },
 ];
 
 /** A fingerprint of a secret the database has to find without holding it in the open (a gift card's code): an

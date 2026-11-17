@@ -116,6 +116,8 @@ function SignInCard({ rule, atSignIn, send }: { rule: ClubRow["two_factor"]; atS
       {(me.value?.can ? mayDo("move.step") : me.value?.roles.some((r) => r.key === "owner" || r.key === "manager")) && <p><a href="/settings/moving-in">{t("ui.moving_link")}</a> <span class="meta">{t("ui.moving_settings_help")}</span></p>}
       {me.value?.roles.some((r) => r.key === "owner") && <p><a href="/vault">{t("ui.vault_link")}</a></p>}
       {!me.value?.support && me.value?.roles.some((r) => r.key === "owner" || r.key === "manager") && <p><a href="/support">{t("ui.support_link")}</a></p>}
+      {/* Club agents, people's assistants and webhooks (Agents.tsx): the owner and managers. */}
+      {!me.value?.support && me.value?.roles.some((r) => r.key === "owner" || r.key === "manager") && <p><a href="/agents">{t("ui.agents_link")}</a></p>}
     </section>
   );
 }

@@ -112,16 +112,18 @@ async function owes(db: Db, enrolmentId: string): Promise<number> {
   const r = await db.selectFrom("payment").select((eb) => eb.fn.sum<string>("amount_cents").as("c")).where("enrolment_id", "=", enrolmentId).where("status", "=", "pending").executeTakeFirst();
   return Number(r?.c ?? 0);
 }
+/** A club agent's person row (agents.ts) holds a staff role but reads no messages: never one of the staff told. */
+const notAgent = sql<boolean>`NOT EXISTS (SELECT 1 FROM agent WHERE agent.person_id = person_role.person_id)`;
 /** Front desk and up: who hears about a place left empty at the last minute. */
 async function desk(db: Db): Promise<string[]> {
   const rows = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
-    .where("role.key", "in", ["owner", "manager", "front_desk"]).where("person_role.active", "=", true).distinct().execute();
+    .where("role.key", "in", ["owner", "manager", "front_desk"]).where("person_role.active", "=", true).where(notAgent).distinct().execute();
   return rows.map((r) => r.person_id);
 }
 /** Owners and managers: who hears about money that went wrong and clashes with Playtomic. */
 async function managers(db: Db): Promise<string[]> {
   const rows = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("person_role.person_id")
-    .where("role.key", "in", ["owner", "manager"]).where("person_role.active", "=", true).distinct().execute();
+    .where("role.key", "in", ["owner", "manager"]).where("person_role.active", "=", true).where(notAgent).distinct().execute();
   return rows.map((r) => r.person_id);
 }
 /** The club's owners: who's told the day the club's Kumi ends (leaving.ts), and about support access (support.ts). */
@@ -1145,6 +1147,16 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
       juniors: p.juniors ? both("msg.privacy_erased_juniors", { count: p.juniors }) : NOTHING };
     return (await managers(db)).filter((to) => to !== p.by).map((to) => ({ to, kind: "privacy_erased_staff", params, purpose: "staff" as const, essential: false, email: true, link: "/people" }));
   },
+  // A webhook address that kept failing was paused (webhooks.ts): the owners hear once, with where it went and why.
+  async "webhook.paused"({ db }, p: { subscription_id: string; why: string }) {
+    const s = await db.selectFrom("webhook_subscription").leftJoin("agent", "agent.id", "webhook_subscription.agent_id").innerJoin("person", "person.id", "webhook_subscription.person_id")
+      .select(["webhook_subscription.url", "agent.name as agent", "person.display_name as person"]).where("webhook_subscription.id", "=", p.subscription_id).executeTakeFirst();
+    if (!s) return [];
+    let host = s.url;
+    try { host = new URL(s.url).host; } catch { /* kept as written */ }
+    const params = { url: host, who: s.agent ?? s.person, why: p.why };
+    return (await owners(db)).map((to) => ({ to, kind: "webhook_paused_owner", params, purpose: "staff" as const, essential: true, email: true, link: "/agents" }));
+  },
   // Support access: the person let in hears where to sign in; the owners hear when it's first used and when it ends.
   async "support.granted"({ db, tz }, p: { grant_id: string }) {
     const { g, params } = await supportInfo(db, p.grant_id, tz);
@@ -1255,8 +1267,9 @@ async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<numbe
   const drafts = await forJuniors(db, await composers[ev.topic]!({ db, tz: club.time_zone }, ev.payload));
   let written = 0;
   for (const d of drafts) {
-    const person = await db.selectFrom("person").select(["locale", "email", "status", "redacted_at"]).where("id", "=", d.to).executeTakeFirst();
-    if (!person || person.redacted_at || person.status === "archived") continue;
+    const person = await db.selectFrom("person").select(["locale", "email", "status", "redacted_at", "created_via"]).where("id", "=", d.to).executeTakeFirst();
+    // A club agent (agents.ts) reads no messages: its ask answered, say, is in the change log for it.
+    if (!person || person.redacted_at || person.status === "archived" || person.created_via === "agent") continue;
     const lang: Lang = pickLang(person.locale, pickLang(club.default_language));
     const wordsIn = (l: Lang) => {
       const w = { subject: tidy(t(l, `msg.${d.kind}.subject` as Key, d.params)), body: tidy(t(l, `msg.${d.kind}.body` as Key, d.params)) };

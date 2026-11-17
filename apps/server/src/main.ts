@@ -1,4 +1,4 @@
-import { playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, tidyAssistantChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, tidyCardsOnFile, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
+import { fanOutWebhooks, sendWebhooks, tidyAgentTokens, playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, tidyAssistantChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, tidyCardsOnFile, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -9,6 +9,7 @@ import { newJobsState, runJobs, type JobStep } from "./jobs.ts";
 import { TwilioApi } from "./twilio_admin.ts";
 import { handlers } from "./outbox.ts";
 import { tidySignIns } from "./oauth.ts";
+import { useWebhookRules, webhookPost } from "./webhooks.ts";
 import { answererFromEnv, answerModels } from "./answerer.ts";
 import { modelFromEnv } from "./assistant.ts";
 import { setTranslator, translatorFromEnv } from "./translate.ts";
@@ -155,6 +156,9 @@ console.log(`kumi server on ${describeListen(listenAt, server)}`);
 // The jobs, every 30 seconds: refunds and messages leave through the outbox, and due emails go out;
 // waitlist offers that ran out pass on; card payments nobody told us about are checked with the provider.
 // Each runs on its own (jobs.ts): one that throws doesn't stop the rest, and one that keeps failing is said once.
+// Webhooks: https and public addresses only in production (webhooks.ts).
+useWebhookRules(production);
+const postWebhook = webhookPost(production);
 const pushContact = process.env.KUMI_PUSH_CONTACT ?? (publicUrl.startsWith("https://") ? publicUrl : "mailto:owner@localhost");
 const jobsState = newJobsState();
 const jobSteps: JobStep[] = [
@@ -274,8 +278,16 @@ const jobSteps: JobStep[] = [
     const bs = await extendBlockSeries(db);
     if (bs.dates) console.log(`court blocks: ${bs.dates} more dates of repeating blocks made`);
   }],
+  ["webhooks", async () => {
+    // The club's signed webhooks (webhooks.ts): events copied from the outbox for each address that wants them, then sent.
+    const q = await fanOutWebhooks(db);
+    const w = await sendWebhooks(db, postWebhook);
+    if (q.queued || w.sent || w.failed) console.log(`webhooks: ${q.queued} queued, ${w.sent} sent, ${w.failed} to retry${w.paused ? `, ${w.paused} addresses paused (the owner told)` : ""}`);
+  }],
   ["uploads", async () => {
     await tidyVaultUploads(db);
+    // A club agent's new token nobody was shown within the hour (an approved change): dropped.
+    await tidyAgentTokens(db);
   }],
   ["hourly tidy", async () => {
     if (Date.now() >= tidyNext) {   // sign-in leftovers, hourly

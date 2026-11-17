@@ -76,6 +76,8 @@ export * from "./two_factor.ts";
 export * from "./roles.ts";
 export * from "./sealed.ts";
 export * from "./vault.ts";
+export * from "./agents.ts";
+export * from "./webhooks.ts";
 export * from "./ops.ts";
 export * from "./receipts.ts";
 export * from "./charge.ts";

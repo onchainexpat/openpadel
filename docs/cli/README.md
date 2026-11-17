@@ -16,6 +16,8 @@ connector (`/mcp`), and every command is one of that connector's own tools. So:
 - support access never reaches it.
 
 Every command, with its flags and who may use it, is in [reference.md](reference.md), made from the catalogue itself.
+An agent that works for the club rather than for one person (an n8n workflow, a bot, a desk agent at night) signs in
+with a club agent's token instead: see [docs/agents](../agents/README.md), with recipes for each tool and the club's webhooks.
 On the club's own server, `openpadel doctor`, `openpadel setup`, `openpadel backup` and the other server commands are the same tool
 (`openpadel` with nothing after it lists them; see the [setup guide](../setup/README.md)).
 

@@ -269,7 +269,13 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     };
     let tokens: { access_token: string; refresh_token: string; expires_in: number }, clientId: string;
     const browser = d.openBrowser;
-    if (device || !browser) {
+    if (args.includes("--agent-token")) {
+      // A club agent's token (agents.ts), from KUMI_AGENT_TOKEN or piped in, never typed as an argument (it would stay in
+      // the shell's history). It doesn't run out, so there's nothing to renew: it ends when the club revokes it.
+      const token = (d.env.KUMI_AGENT_TOKEN ?? await readStdin()).trim();
+      if (!/^opa_[A-Za-z0-9_-]{20,}$/.test(token)) throw stop(EXIT.usage, "cli.agent_token_bad");
+      tokens = { access_token: token, refresh_token: "", expires_in: 100 * 365 * 86400 }; clientId = "openpadel-agent";
+    } else if (device || !browser) {
       // Started earlier with --no-wait, and still waiting: carry on with that one.
       type Pending = { client_id: string; device_code: string; user_code: string; link: string; expires_at: number; interval: number };
       let p = store.pending(url) as Pending | null;

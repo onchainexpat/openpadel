@@ -556,6 +556,7 @@ export const roleAssign = defineAction({
   async plan(ctx, i) {
     const { row: person, read } = await readRow(ctx.db, "person", i.person_id, "thing.person");
     if (person.junior) throw new KumiError("error.not_an_adult");   // a junior has no login, so no role
+    if (person.created_via === "agent") throw new KumiError("error.agent_role_on_its_page");   // a club agent's role is changed with agent.update
     await checkAssign(ctx, await roleId(ctx, i.role));
     // An assistant they connected before keeps the reach they allowed it then (assistant_reach.ts): a wider role
     // reaches through it only once they allow it again.
@@ -574,6 +575,7 @@ export const roleRemove = defineAction({
   input: z.object({ person_id: z.uuid(), role: roleKey, location_id: z.optional(z.uuid()) }),
   async plan(ctx, i) {
     const { row: person } = await readRow(ctx.db, "person", i.person_id, "thing.person");
+    if (person.created_via === "agent") throw new KumiError("error.agent_role_on_its_page");
     const rid = await roleId(ctx, i.role);
     const pr = await ctx.db.selectFrom("person_role").selectAll().where("person_id", "=", i.person_id).where("role_id", "=", rid).where("active", "=", true)
       .$if(Boolean(i.location_id), (q) => q.where("location_id", "=", i.location_id!)).$if(!i.location_id, (q) => q.where("location_id", "is", null)).executeTakeFirst();

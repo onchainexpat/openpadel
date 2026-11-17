@@ -10,7 +10,7 @@ import { Hono, type Context } from "hono";
 import { html } from "hono/html";
 import { setSession } from "./session_cookie.ts";
 import { money, t, type Lang } from "@kumi/i18n";
-import { activeFactor, HOSTED_CLIENT_ID, hasSecondFactor, KumiError, powersOf, secondStepForReach, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
+import { activeFactor, agentUsed, AGENT_RESOURCE, HOSTED_CLIENT_ID, hasSecondFactor, KumiError, powersOf, secondStepForReach, supportOnly, textablePhone, useAuthenticatorCode, uuidv7, type Db, type Texter, type Trx } from "@kumi/core";
 import { phoneSignInOn, startEmailSignIn, startPhoneSignIn, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import type { Mailer } from "./mailer.ts";
 import { networkOf, RateLimiter } from "./limits.ts";
@@ -515,15 +515,25 @@ ${step === "code" ? html`<label>${t(lang, "consent.device_factor_label")}<input 
   return app;
 }
 
-/** The person behind a bearer token for one of this club's MCP addresses, or null. */
+/** The person behind a bearer token for one of this club's MCP addresses, or null. A club agent's token (agents.ts) is
+ *  good at any of them, and comes back with the agent (its name stands for the client's). */
 export async function bearerPerson(db: Db, header: string | undefined, resources: string[], now: Date) {
   if (!header?.startsWith("Bearer ")) return null;
   const r = await db.selectFrom("oauth_token").innerJoin("oauth_grant", "oauth_grant.id", "oauth_token.grant_id").innerJoin("oauth_client", "oauth_client.client_id", "oauth_grant.client_id")
     .innerJoin("person", "person.id", "oauth_grant.person_id")
-    .select(["person.id", "person.display_name", "person.locale", "person.created_via", "oauth_client.name as client_name", "oauth_token.resource", "oauth_grant.id as grant_id"])
+    .leftJoin("agent", (j) => j.onRef("agent.grant_id", "=", "oauth_grant.id").on("agent.kind", "=", "club").on("agent.revoked_at", "is", null))
+    .select(["person.id", "person.display_name", "person.locale", "person.created_via", "oauth_client.name as client_name", "oauth_token.resource", "oauth_grant.id as grant_id",
+      "agent.id as agent_id", "agent.name as agent_name"])
     .where("oauth_token.token_hash", "=", sha(header.slice(7))).where("oauth_token.kind", "=", "access").where("oauth_token.revoked_at", "is", null)
     .where("oauth_grant.revoked_at", "is", null).where("oauth_token.expires_at", ">", now).where("person.status", "!=", "archived").executeTakeFirst();
-  if (!r || !resources.includes(r.resource)) return null;
+  if (!r) return null;
+  if (r.resource === AGENT_RESOURCE) {
+    // Only a club agent's own connection holds such a token, and only while the agent is on.
+    if (!r.agent_id) return null;
+    await agentUsed(db, r.agent_id, now);
+    return { ...r, client_name: r.agent_name };
+  }
+  if (!resources.includes(r.resource) || r.created_via === "agent") return null;
   // One connected before support-only accounts were refused at the consent screen is refused here.
   if (r.created_via === "support" && await supportOnly(db, r.id)) return null;
   return r;

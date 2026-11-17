@@ -167,3 +167,29 @@ export async function checkAssistantSpend(db: Db | Trx, grantId: string, name: s
   throw new KumiError(sharedCourt(name, input) ? "error.assistant_over_cap_shared" : "error.assistant_over_cap",
     { client: g.name ?? "Your assistant", amount: usd(cents), cap: usd(g.weekly_cap_cents), left: usd(Math.max(0, g.weekly_cap_cents - spent)) }, 403);
 }
+
+// ---- A club agent's weekly limit (agents.ts) ----
+// A club agent spends nobody's own money: what it's held to is the money its changes move, charged or given back, this
+// club week (from Monday): each applied change's amount (action_run.money_cents), however it was made (confirmed by the
+// agent, or approved by someone after it asked). $0 until the club chooses more, so an agent that may take payments or
+// give refunds does neither until it's given a limit.
+
+/** What a club agent's changes moved this week, in cents. */
+export async function agentWeekSpent(db: Db | Trx, agentId: string, now: Date, exceptRunId?: string): Promise<number> {
+  const from = await weekStart(db, now);
+  const r = await db.selectFrom("action_run").select((eb) => eb.fn.sum<string>("money_cents").as("c")).where("agent_id", "=", agentId).where("status", "=", "applied")
+    .where("applied_at", ">=", from).$if(Boolean(exceptRunId), (q) => q.where("id", "!=", exceptRunId!)).executeTakeFirst();
+  return Number(r?.c ?? 0);
+}
+
+/** Stops a change a club agent makes that would take it over its weekly limit. Gives back what it counts. */
+export async function checkAgentSpend(db: Db | Trx, agentId: string, plan: PlanMoney, now: Date, exceptRunId?: string): Promise<number> {
+  const a = await db.selectFrom("agent").select(["name", "weekly_cap_cents", "revoked_at"]).where("id", "=", agentId).executeTakeFirst();
+  if (!a || a.revoked_at) throw new KumiError("error.agent_revoked", {}, 403);
+  const cents = Math.max(0, plan.moneyCents ?? 0);
+  if (cents <= 0) return 0;
+  const spent = await agentWeekSpent(db, agentId, now, exceptRunId);
+  if (spent + cents <= a.weekly_cap_cents) return cents;
+  const usd = (c: number) => ({ en: money(c, "en"), es: money(c, "es") });
+  throw new KumiError("error.agent_over_cap", { agent: a.name ?? "", amount: usd(cents), cap: usd(a.weekly_cap_cents), left: usd(Math.max(0, a.weekly_cap_cents - spent)) }, 403);
+}

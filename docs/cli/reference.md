@@ -388,6 +388,70 @@ Undo a change. Who may: owner, manager, member (their own).
 openpadel action undo --run-id <id>
 ```
 
+### agent
+
+#### openpadel agent create
+
+Make a club agent. Who may: owner, manager (with approval).
+
+Its preview reads: "Make a club agent called {name}, acting for the club with the {role} role. It can move {cap}. Anything its role says to ask about waits in Approvals. Its token is shown once, to you: give it to the agent."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--name` | text | needed |  |
+| `--role` | text | needed | The role that caps it, by key: front_desk, accountant, manager, or one the club made (custom_...); never owner or coach |
+| `--weekly-cap-cents` | whole number (cents) |  | The most money its changes may move each club week (payments and refunds together), in cents; 0 for none |
+| `--language` | en \| es |  |  |
+
+```
+openpadel agent create --name "Tuesday drills" --role ...
+```
+
+#### openpadel agent new-token
+
+Give a club agent a new token. Who may: owner, manager (with approval).
+
+Its preview reads: "Give {name} a new token. The one ending in {last4} stops working at once. The new one is shown once, to you."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--agent-id` | id | needed |  |
+
+```
+openpadel agent new-token --agent-id <id>
+```
+
+#### openpadel agent revoke
+
+Revoke a club agent. Who may: owner, manager (with approval).
+
+Its preview reads: "Revoke {name}: its token stops working at once, previews it made can't be confirmed, and its webhooks stop ({hooks}). What it already did stays in the change log."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--agent-id` | id | needed |  |
+
+```
+openpadel agent revoke --agent-id <id>
+```
+
+#### openpadel agent update
+
+Change a club agent. Who may: owner, manager (with approval).
+
+Its preview reads: "Change {name}: {changes}"
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--agent-id` | id | needed |  |
+| `--name` | text |  |  |
+| `--role` | text |  | The role that caps it, by key: front_desk, accountant, manager, or one the club made (custom_...); never owner or coach |
+| `--weekly-cap-cents` | whole number (cents) |  | The most money its changes may move each club week (payments and refunds together), in cents; 0 for none |
+
+```
+openpadel agent update --agent-id <id>
+```
+
 ### alert
 
 #### openpadel alert handle
@@ -3177,6 +3241,69 @@ Its preview reads: "Set the club's waiver (version {version}). Everyone is asked
 
 ```
 openpadel waiver set --body "Rain on the outdoor courts"
+```
+
+### webhook
+
+#### openpadel webhook remove
+
+Remove a webhook. Who may: owner, manager (with approval).
+
+Its preview reads: "Stop sending webhooks to {url}. Anything still waiting to go is dropped."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--subscription-id` | id | needed |  |
+
+```
+openpadel webhook remove --subscription-id <id>
+```
+
+#### openpadel webhook subscribe
+
+Subscribe a webhook. Who may: owner, manager (with approval).
+
+Its preview reads: "Send {topics} to {url} as they happen, signed, with only what {name} may read. Its signing secret is shown once."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--url` | text | needed | Where to POST each event: an https address (http and the server's own network only outside production) |
+| `--topics` | booking.cancelled \| booking.confirmed \| booking.created \| booking.joined \| booking.moved \| booking.no_show \| booking.player_added \| booking.player_left \| booking.player_removed \| booking.refunded \| court.blocked \| court.freed \| enrolment.booked \| enrolment.left \| enrolment.removed \| game.scored \| membership.cancelled \| membership.ended \| membership.payment_failed \| membership.renewed \| membership.started \| open_match.opened \| payment.failed \| payment.succeeded \| person.created \| person.signed_up \| program.min_cancelled \| program.published \| refund.failed \| result.confirmed \| waitlist.offered | needed |  |
+| `--agent-id` | id |  | For a club agent (it gets what the agent may read); left out, for whoever subscribes |
+
+```
+openpadel webhook subscribe --url ... --topics booking.cancelled
+```
+
+#### openpadel webhook test
+
+Send a webhook a test event. Who may: owner, manager (with approval).
+
+Its preview reads: "Send a test event to {url}, signed like the real ones. Nothing happens at the club."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--subscription-id` | id | needed |  |
+
+```
+openpadel webhook test --subscription-id <id>
+```
+
+#### openpadel webhook update
+
+Change a webhook. Who may: owner, manager (with approval).
+
+Its preview reads: "Change the webhook to {url}:"
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--subscription-id` | id | needed |  |
+| `--url` | text |  | Where to POST each event: an https address (http and the server's own network only outside production) |
+| `--topics` | booking.cancelled \| booking.confirmed \| booking.created \| booking.joined \| booking.moved \| booking.no_show \| booking.player_added \| booking.player_left \| booking.player_removed \| booking.refunded \| court.blocked \| court.freed \| enrolment.booked \| enrolment.left \| enrolment.removed \| game.scored \| membership.cancelled \| membership.ended \| membership.payment_failed \| membership.renewed \| membership.started \| open_match.opened \| payment.failed \| payment.succeeded \| person.created \| person.signed_up \| program.min_cancelled \| program.published \| refund.failed \| result.confirmed \| waitlist.offered |  |  |
+| `--resume` | yes/no (the flag alone is yes) |  |  |
+
+```
+openpadel webhook update --subscription-id <id>
 ```
 
 ### weekly
