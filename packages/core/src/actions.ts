@@ -172,6 +172,7 @@ const ENTITIES = {
   agent: { table: "agent", key: "id", retire: { revoked_at: "now" } },
   webhook_subscription: { table: "webhook_subscription", key: "id", retire: { active: false } },
   plugin: { table: "plugin", key: "id", retire: { status: "removed" } },
+  plugin_card: { table: "plugin_card", key: "id", retire: { cleared_at: "now" } },
   texting_registration: { table: "texting_registration", key: "id", retire: null },
   support_grant: { table: "support_grant", key: "id", retire: { ended_at: "now" } },
   email_suppression: { table: "email_suppression", key: "address", retire: { cleared_at: "now" } },

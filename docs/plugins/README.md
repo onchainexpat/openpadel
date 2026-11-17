@@ -43,7 +43,8 @@ Then:
 - **Settings.** `openpadel plugin configure --plugin court-lights --settings '{"courts": "Court 1, Court 2"}'`, checked
   against the manifest's settings and previewed. The plugin hears at once.
 - **Health.** `openpadel doctor` checks each plugin's health address, and says which keys it still waits for.
-- `openpadel plugin list` shows what's installed. `plugin update` previews what a new version asks for that the old
+- `openpadel plugin list` shows what's installed; `openpadel connectors` (and the staff app's Connectors page) shows it
+  beside the built-in services, each with its status and health. `plugin update` previews what a new version asks for that the old
   one didn't. `plugin pause` stops its token, events and hooks until `plugin resume`. `plugin remove` revokes its token,
   ends its webhook and role, and keeps its keys in the vault unless you add `--delete-keys`.
 
@@ -151,3 +152,25 @@ and what your manifest says to ask waits in the club's Approvals for a person. T
   other name is refused. Each read is kept on record.
 
 You can't move money (your weekly limit is 0), make webhooks, or install or change plugins.
+
+### Cards
+
+Your manifest's `cards` say where you show something and its title. What a card says comes from you, at run time,
+through two tools only your own token has (nobody else sees them, not even the club's owner):
+
+- `plugin_card_put_preview`, then `plugin_card_put_confirm` with its `run_id`:
+  `{ "slot": "court_tile", "subject": "<court id>", "tone": "ok", "rows": [...], "link": {...} }`
+  - `slot`: one your manifest declares. `subject`: what the card belongs to: a court's id for `court_tile`, a booking's
+    (or game's) id for `game`, a person's id for `member_profile`; none for `money` and `connectors`.
+  - `tone`: `ok` (the default), `warn` (something needs a look) or `off`.
+  - `rows`: 1 to 6 of `{ "label": { "en": "Lights", "es": "Luces" }, "text": { "en": "On until 21:30", "es": "Encendidas hasta las 21:30" } }`,
+    each one line, no em dashes (labels up to 40 characters, texts up to 200).
+  - `link`, optional: `{ "url": "https://…", "label": { "en": "…", "es": "…" } }`, https only.
+
+  Putting again for the same slot and subject replaces the card. The title is your manifest's.
+- `plugin_card_clear_preview` with `{ "slot", "subject" }`, then `plugin_card_clear_confirm`: takes it down.
+
+Each is a change like any other: previewed, kept in the club's change log as yours, and undoable. Who reads a card is
+the club's to decide: a court's tile and Money are staff's, a game's card its players' and staff's, a member's profile
+card that member's and staff's, Connectors the owner's and managers'. While you're paused or removed, your cards
+aren't shown. No buttons yet: a card says things and links somewhere.

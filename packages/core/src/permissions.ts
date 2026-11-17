@@ -146,8 +146,19 @@ export async function clubAgentOf(db: Db | Trx, personId: string | null | undefi
   return (await db.selectFrom("agent").select(["id", "capped_role_id"]).where("person_id", "=", personId).where("kind", "=", "club").where("revoked_at", "is", null).executeTakeFirst()) ?? null;
 }
 
+/** What only a plugin's own token may do (plugin_cards.ts): put and clear its own cards. Nobody's role holds these, not
+ *  even the owner's "*": a person, an assistant or another agent is refused, and the door never lists them for one. */
+export const PLUGIN_OWN = ["plugin.card_put", "plugin.card_clear"];
+/** Whether a person row is a live plugin's agent (not paused or removed, its agent not revoked). */
+async function isLivePlugin(db: Db | Trx, personId: string): Promise<boolean> {
+  return Boolean(await db.selectFrom("plugin").innerJoin("agent", "agent.id", "plugin.agent_id").select("plugin.id").where("agent.person_id", "=", personId)
+    .where("agent.revoked_at", "is", null).where("plugin.status", "in", ["waiting", "on"]).executeTakeFirst());
+}
+
 export async function decide(db: Db | Trx, action: string, s: Subject): Promise<Decision> {
   if (!s.personId) return { mode: "no", reason: "reason.no_role" };
+  // A plugin's own cards: its token alone, on its own rows, whatever any role says.
+  if (PLUGIN_OWN.includes(action)) return (s.ownerIds ?? []).includes(s.personId) && await isLivePlugin(db, s.personId) ? { mode: "allow" } : { mode: "no", reason: "reason.plugin_own" };
   // A club agent looks after its own webhooks (its own rows only), whatever its role says.
   if (AGENT_OWN.includes(action) && (s.ownerIds ?? []).includes(s.personId) && await clubAgentOf(db, s.personId)) return { mode: "allow" };
   const own = await decidePerson(db, action, { ...s, personId: s.personId });

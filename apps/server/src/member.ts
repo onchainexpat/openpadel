@@ -6,6 +6,7 @@ import { amenitiesInOrder } from "@kumi/i18n/amenities";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
 import { clubFileStem } from "./file_names.ts";
+import { memberCardRoutes } from "./connectors.ts";
 
 type Me = { id: string } | null;
 /** Learning, under the members' Learn tab; every other kind of program (socials, tournaments, leagues) is an event, under Play. */
@@ -414,6 +415,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
       rated: m.rated, my_level: m.my_level, me: m.me } });
   });
   // One match: listed ones for anyone signed in; one kept to its link, for its players and whoever has the link.
+  // Plugins' cards on a game's page and on the member's own profile (connectors.ts).
+  app.route("/", memberCardRoutes(db, who, lang));
   app.get("/matches/:id", async (c) => {
     const pid = who(c), m = await matchView(c.req.param("id"), pid);
     const code = (await db.selectFrom("booking").select("invite_code").where("id", "=", c.req.param("id")).executeTakeFirst())?.invite_code;

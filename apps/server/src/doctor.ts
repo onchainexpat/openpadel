@@ -16,6 +16,7 @@ import { pluginsHealth } from "./plugins.ts";
 
 export type CheckState = "ok" | "warn" | "fail" | "off";
 export interface Check { id: string; state: CheckState; text: Text; doc?: string;
+  /** Which of the check's sentences it is (doctor.<key>), for the Connectors page to tell waiting from a problem. */ key?: string;
   /** The raw detail behind a plain sentence (a plugin's network error), for `doctor --json` and the logs. */ detail?: string }
 type Env = Record<string, string | undefined>;
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
@@ -25,7 +26,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   // Docker installs (the image sets KUMI_INSTALL=docker) run backups from a service, not systemd timers.
   const docker = env.KUMI_INSTALL === "docker", opsDoc = docker ? "deploy/docker/README.md" : "deploy/README.md", d = docker ? "_docker" : "";
   const add = (id: string, state: CheckState, key: string, params: Params = {}, doc?: string) =>
-    checks.push({ id, state, text: both(`doctor.${key}` as Key, params), ...(doc ? { doc } : {}) });
+    checks.push({ id, state, text: both(`doctor.${key}` as Key, params), key, ...(doc ? { doc } : {}) });
   add("version", "ok", "version", { version: VERSION });
 
   // A missing table (42P01) only means a new database: connected, nothing set up yet.

@@ -14,6 +14,7 @@ import { translatorOn } from "./translate.ts";
 import { clubFileStem } from "./file_names.ts";
 import { todayRoutes } from "./today.ts";
 import { pluginReadRoutes } from "./plugins.ts";
+import { staffConnectorRoutes } from "./connectors.ts";
 
 /** An Excel file of about 2 MB, as base64 (the server takes 3 MB a request). */
 const XLSX_MAX_BASE64 = 2_800_000;
@@ -30,7 +31,7 @@ const NIGHT_READ = ["draw.generate", "game.score", "level.set_session"];
 const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
   [/^\/staff\/(people|tags|chats|customers)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
-  [/^\/staff\/(reports|coach-earnings|payments|receipts|desk|move-in)/, "money"], [/^\/staff\/(settings|roles|vault|usage|plugins|processors)/, "settings"],
+  [/^\/staff\/(reports|coach-earnings|payments|receipts|desk|move-in)/, "money"], [/^\/staff\/(settings|roles|vault|usage|plugins|processors|connectors)/, "settings"],
   [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|month|quote|lesson-coaches|lesson-times|mirror|alerts|block-series|bookings|weekly-courts)/, "bookings"],
   [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
 ];
@@ -1302,6 +1303,8 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // through the assistant door: they're the staff app's own screens.
   if (!opts.assistant) app.route("/", todayRoutes(db, me, lang, { reach: reachOf, roles: rolesOf, mayAnyOf }));
   // Plugins: what's installed (with health), the catalog, and the services that see member data (plugins.ts).
+  // Connectors, and plugins' cards in each slot whose area the reader reads (connectors.ts).
+  app.route("/", staffConnectorRoutes(db, (c) => me(c), lang, { production: Boolean(opts.production) }));
   app.route("/", pluginReadRoutes(db, (c) => me(c), lang, { production: Boolean(opts.production) }));
   return app;
 }

@@ -7,7 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { both, en, isLang, type Key, type Lang, type Text } from "@kumi/i18n";
 import { money } from "@kumi/i18n";
-import { actions, agentActor, agentWeekSpent, AGENT_OWN, apply, appOnly, everDoable, plan, pluginOfAgent, pluginSecretFor, pluginSecrets, weekSpent, APP_ONLY_YES, KumiError, type ActionDef, type Actor, type Db, type Limited, type Manifest } from "@kumi/core";
+import { actions, agentActor, agentWeekSpent, AGENT_OWN, PLUGIN_OWN, apply, appOnly, everDoable, plan, pluginOfAgent, pluginSecretFor, pluginSecrets, weekSpent, APP_ONLY_YES, KumiError, type ActionDef, type Actor, type Db, type Limited, type Manifest } from "@kumi/core";
 import { VERSION } from "./version.ts";
 
 export const toolBase = (action: string) => action.replace(/\./g, "_");
@@ -99,6 +99,10 @@ export const READS: DoorRead[] = [
     description: "Everything a plugin's manifest asks for, in words to show the owner before installing: what it does, what it will be able to do and read, the events it gets, what member data it sends where, the keys it needs (and where the owner gets each), its cost, where it runs and its settings. Then plugin_install_preview." },
   { name: "plugins", words: ["plugin", "list"], staff: true, title: { en: "Installed plugins", es: "Plugins instalados" }, input: {}, path: () => "/staff/plugins",
     description: "The club's installed plugins: status (waiting for its registration, on, paused), health, its keys (added, with the last four characters, or still needed), settings, and what each may do and sends. A key is never shown: the owner adds it in the vault." },
+  // The Connectors page (connectors.ts): what's connected and whether it's healthy.
+  { name: "connectors", words: ["connectors"], staff: true, title: { en: "Connectors", es: "Conectores" }, input: { fresh: z.optional(z.boolean().check(z.describe("Check every service again now, rather than the last minute's answer"))) },
+    path: (a) => `/staff/connectors?${qs({ fresh: a.fresh ? "1" : undefined })}`,
+    description: "Everything the club plugs into and whether it's working: the built-in services (Stripe, Resend for email, Twilio for texts, Playtomic, offsite backups) judged by openpadel doctor's checks, and each installed plugin, each with its status (on, waiting, attention, off), what it does and may do, its health and last event, and its keys (added with their last four, or missing: never the key). Then the club's agents and people's assistants, and how to connect something new (plugin_search, plugin_info, plugin_install_preview). For the owner and managers." },
   { name: "processors", words: ["processors"], staff: true, title: { en: "Services that see member data", es: "Servicios que ven datos de miembros" }, input: {}, path: () => "/staff/processors",
     description: "The outside services that see member data, with each installed plugin's data out added automatically: for the club's privacy policy (rows, and the same as Markdown table rows)." },
 ];
@@ -276,9 +280,11 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
     // A tool you may never use doesn't exist for you. Undo is checked against the original change. A club agent looks
     // after its own webhooks whatever its role (AGENT_OWN), and never makes or changes agents.
     if (agent && a.name.startsWith("agent.")) continue;
-    // A plugin's webhook and keys come with its manifest: it never subscribes, installs or changes plugins itself.
-    if (plugin && (a.name.startsWith("webhook.") || a.name.startsWith("plugin."))) continue;
-    const listed = a.name === "action.undo" || may(a.name) || (agent !== null && AGENT_OWN.includes(a.name));
+    // A plugin's webhook and keys come with its manifest: it never subscribes, installs or changes plugins itself. Its
+    // own cards (plugin_cards.ts) are its alone: listed for a plugin, and for nobody else whatever their role holds.
+    const own = PLUGIN_OWN.includes(a.name);
+    if (plugin ? !own && (a.name.startsWith("webhook.") || a.name.startsWith("plugin.")) : own) continue;
+    const listed = a.name === "action.undo" || own || may(a.name) || (agent !== null && AGENT_OWN.includes(a.name));
     if (!doorAction(a) || !listed) continue;   // never offered: see APP_ONLY
     const base = toolBase(a.name), title = titleOf(a.name);
     const onlyOff = APP_ONLY_YES.has(a.name) ? " Only to turn it off: saying yes is done in the club's app." : "";

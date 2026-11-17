@@ -26,7 +26,7 @@ Words in both languages are written `{ "en": "…", "es": "…" }` (US and Latin
 | `settings` | Its options, in the order a person sets them (below). Up to 20. |
 | `data_out` | What member data it sends where, in plain words. It goes into the club's list of services that see member data and its privacy policy's, as it's installed. Say so when it sends nothing about members. |
 | `cost` | `{ "charges": true \| false, "note": {…} }`: whether its service charges, and roughly what. |
-| `cards` | Where it shows something in the apps (rendered by the apps themselves, from data): each `{ "slot": "game" \| "court_tile" \| "member_profile" \| "money" \| "connectors", "title": {…} }`. Up to 10. |
+| `cards` | Where it shows something in the apps (rendered by the apps themselves, from data): each `{ "slot": "game" \| "court_tile" \| "member_profile" \| "money" \| "connectors", "title": {…} }`. Up to 10. What each card says, the plugin puts at run time ([README, Cards](README.md#cards)). |
 | `health` | A path on its own address that answers 2xx when it's working (`/health`), for `openpadel doctor` and the club's list. |
 | `hook` | Optional: `{ "from": {…} }`, who posts to `/plugins/<name>/hook` (a camera, Home Assistant). Without it, nothing is passed on. |
 | `run` | How it runs, below. |

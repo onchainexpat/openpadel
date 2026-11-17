@@ -408,6 +408,20 @@ Who may: staff (each sees what their staff screens show).
 openpadel plugin list
 ```
 
+### openpadel connectors
+
+Connectors. Everything the club plugs into and whether it's working: the built-in services (Stripe, Resend for email, Twilio for texts, Playtomic, offsite backups) judged by openpadel doctor's checks, and each installed plugin, each with its status (on, waiting, attention, off), what it does and may do, its health and last event, and its keys (added with their last four, or missing: never the key). Then the club's agents and people's assistants, and how to connect something new (openpadel plugin search, openpadel plugin info, openpadel plugin install). For the owner and managers.
+
+Who may: staff (each sees what their staff screens show).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--fresh` | yes/no (the flag alone is yes) |  | Check every service again now, rather than the last minute's answer |
+
+```
+openpadel connectors
+```
+
 ### openpadel processors
 
 Services that see member data. The outside services that see member data, with each installed plugin's data out added automatically: for the club's privacy policy (rows, and the same as Markdown table rows).

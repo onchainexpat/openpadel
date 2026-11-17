@@ -32,6 +32,9 @@ const oneLine = (s: string) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(
 const words = (max: number) => z.string().check(z.minLength(1), z.maxLength(max), z.refine(noDash, "no em or en dashes"), z.refine(oneLine, "one line, no control characters"));
 /** Words in both of the club's languages. */
 const text = (max = 300) => z.strictObject({ en: words(max), es: words(max) });
+/** Words in both languages under the manifest's rules (one line, no dashes, a length cap), for what a plugin sends at
+ *  run time too (its cards, plugin_cards.ts). */
+export const bothWords = text;
 const httpUrl = z.string().check(z.maxLength(500), z.refine(oneLine, "one line, no control characters"), z.refine((s) => { try { const u = new URL(s); return (u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password && !u.hash; } catch { return false; } }, "an http(s) address"));
 const settingKey = z.string().check(z.regex(/^[a-z][a-z0-9_]{0,39}$/));
 const common = { key: settingKey, label: text(80), help: z.optional(text(300)), required: z.optional(z.boolean()) };

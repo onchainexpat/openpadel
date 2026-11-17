@@ -80,6 +80,18 @@ export async function pluginsHealth(db: Db, production: boolean) {
   return Promise.all(rows.map(async (r) => ({ name: r.name, status: r.status, base_url: r.base_url, registration_error: r.registration_error, registered: Boolean(r.registered_at), health: await pluginHealth(r, production) })));
 }
 
+/** The club's plugins (clubPlugins) with each live one's health, for the staff list and the Connectors page. What staff
+ *  read is plain words (problemText); the raw detail stays in `error` for agents and the logs. */
+export async function pluginsWithHealth(db: Db, l: Lang, production: boolean) {
+  const list = await clubPlugins(db, l);
+  const health = new Map((await pluginsHealth(db, production)).map((h) => [h.name, h.health]));
+  const host = (p: { address: string | null }) => (p.address ?? "").replace(/^https?:\/\//, "");
+  return list.map((p) => {
+    const h: Health | null = p.status === "removed" ? null : health.get(p.name) ?? null;
+    return { ...p, health: h && h.state === "down" ? { ...h, problem: problemText(h.error, host(p))[l] } : h };
+  });
+}
+
 /** Headers never passed on to a plugin: the club's own cookies and the connection's. */
 const NOT_PASSED = new Set(["cookie", "host", "connection", "content-length", "transfer-encoding", "keep-alive", "upgrade", "te", "trailer", "proxy-authorization",
   "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded", "accept-encoding"]);
@@ -135,16 +147,7 @@ export function pluginReadRoutes(db: Db, me: (c: Context<any>) => { id: string }
     if (!boss) throw new KumiError("error.staff_only", {}, 403);
     await next();
   }
-  app.get("/staff/plugins", async (c) => {
-    const l = lang(c), list = await clubPlugins(db, l);
-    const health = new Map((await pluginsHealth(db, o.production)).map((h) => [h.name, h.health]));
-    // What staff read is plain words (problemText); the raw detail stays in `error` for agents and the logs.
-    const host = (p: { address: string | null }) => (p.address ?? "").replace(/^https?:\/\//, "");
-    return c.json(list.map((p) => {
-      const h = p.status === "removed" ? null : health.get(p.name) ?? null;
-      return { ...p, health: h && h.state === "down" ? { ...h, problem: problemText(h.error, host(p))[l] } : h };
-    }));
-  });
+  app.get("/staff/plugins", async (c) => c.json(await pluginsWithHealth(db, lang(c), o.production)));
   app.get("/staff/plugins/catalog", async (c) => {
     const l = lang(c), q = c.req.query("q") ?? "";
     const installed = new Set((await db.selectFrom("plugin").select("name").where("status", "!=", "removed").execute()).map((r) => r.name));
