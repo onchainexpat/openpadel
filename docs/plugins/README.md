@@ -8,6 +8,8 @@ written in any language.
 
 Each plugin is declared by a manifest, [`openpadel-plugin.json`](manifest.md), that says exactly what it asks for. An
 example: [examples/court-lights/openpadel-plugin.json](examples/court-lights/openpadel-plugin.json).
+The first real one, court lights for Home Assistant, is [plugins/court-lights](../../plugins/court-lights/README.md): a
+small Node program to read beside this page when writing one.
 
 ## For a club: installing one
 
