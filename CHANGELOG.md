@@ -170,11 +170,30 @@ sees only "added, ends in 4F2A". `plugin configure` checks settings against the 
 a new version asks for that the old one didn't, `plugin pause` and `plugin resume`, and `plugin remove` revokes it
 (keeping its keys unless told). What outside services post to /plugins/<name>/hook is passed on to the plugin, signed,
 so the club opens no new ports. `openpadel doctor` checks each plugin's health; `openpadel processors` lists the
-services that see member data with each plugin's data out added, as rows for the privacy policy. Settings, Agents lists
+services that see member data with each plugin's data out added, as rows for the privacy policy. Connectors lists
 installed plugins. A local plugin's release is fetched and checked against its SHA-256 by `openpadel plugin service`,
 which writes its systemd unit with `--apply`. The plugin list and the catalog are the owner's and managers'. `openpadel
 doctor` warns when `KUMI_PLUGIN_CATALOG_URL` names a catalog other than openPadel's, since all it lists counts as
 reviewed. See docs/plugins/ (migration 128).
+
+Connectors, in the staff app's menu for the owner and managers: everything the club plugs into as one kind of card.
+The built-in services (Stripe, Resend for email, Twilio for texts, Playtomic, offsite backups) are judged by
+`openpadel doctor`'s own checks, installed plugins by their health, last event and keys, and each says whether it's
+connected, waiting, needs attention or isn't set up, what it does and gets, and what can be done (a plugin's Set up,
+Pause, Turn back on and Remove, previewed as before). A key is never shown: the settings file's read "added, ends in
+4F2A" (the backup and secret keys only "added") or missing, and a plugin's go through the vault's request. "Ask your
+agent to connect something" gives the words and commands to give the club's agent and opens Ask openPadel; "Browse the
+catalog" lists the catalog's plugins with everything each one's install preview will say. The club's agents,
+assistants and webhooks moved here from Settings, Agents (its old address opens Connectors). `openpadel connectors`
+(the `connectors` tool for assistants) answers the same: what's connected and whether it's healthy.
+
+Plugin cards: what a plugin shows in the apps, as data the apps draw with their own pieces (a title from its manifest,
+a tone, up to six rows of words in both languages and an https link). A plugin puts and clears its own cards through
+the door (`plugin_card_put`, `plugin_card_clear`, previewed and kept in the change log like any change), only in the
+slots its manifest declares, and only its own token can: nobody else is offered them, not even the owner. They show on
+a court's tile on Today (staff), a game's page (its players in the members' app, and staff on the Schedule), a member's
+profile (the member under Me, staff on their page), the Money page and Connectors. A paused or removed plugin's cards
+don't show. See docs/plugins/README.md, Cards (migration 129).
 
 ### Added
 - Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed
