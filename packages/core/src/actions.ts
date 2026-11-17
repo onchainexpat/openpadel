@@ -171,6 +171,7 @@ const ENTITIES = {
   oauth_grant: { table: "oauth_grant", key: "id", retire: { revoked_at: "now" } },
   agent: { table: "agent", key: "id", retire: { revoked_at: "now" } },
   webhook_subscription: { table: "webhook_subscription", key: "id", retire: { active: false } },
+  plugin: { table: "plugin", key: "id", retire: { status: "removed" } },
   texting_registration: { table: "texting_registration", key: "id", retire: null },
   support_grant: { table: "support_grant", key: "id", retire: { ended_at: "now" } },
   email_suppression: { table: "email_suppression", key: "address", retire: { cleared_at: "now" } },
@@ -198,6 +199,8 @@ const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"
   gift_card: ["code_hash", "code_sealed"],
   // A club agent's new token waiting to be shown once, and a webhook's signing secret (agents.ts, webhooks.ts).
   agent: ["token_once"], webhook_subscription: ["secret_sealed"],
+  // A plugin's own secret and its token on the way to it (plugins.ts): never in the change log.
+  plugin: ["secret_sealed", "registration_sealed"],
   // An upload of the club's export (brought_in.ts): its hash and row count are logged, never the people in it.
   playtomic_upload: ["rows", "problems", "wallet_columns"] };
 const unkept = (entity: Entity, row: unknown) => {

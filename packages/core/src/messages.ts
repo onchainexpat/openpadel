@@ -1157,7 +1157,14 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     const params = { url: host, who: s.agent ?? s.person, why: p.why };
     return (await owners(db)).map((to) => ({ to, kind: "webhook_paused_owner", params, purpose: "staff" as const, essential: true, email: true, link: "/agents" }));
   },
-  // Support access: the person let in hears where to sign in; the owners hear when it's first used and when it ends.
+  // A plugin needs keys the vault doesn't have yet (plugins.ts): the owners hear which, where each comes from, and that
+  // they add them in the vault (or type them on the server). Whoever installed it never sees them.
+  async "plugin.secrets_needed"({ db }, p: { plugin_id: string; names: string[] }) {
+    const pl = await db.selectFrom("plugin").leftJoin("person", "person.id", "plugin.installed_by").select(["plugin.name", "plugin.status", "person.display_name as by"]).where("plugin.id", "=", p.plugin_id).executeTakeFirst();
+    if (!pl || pl.status === "removed" || !p.names.length) return [];
+    const params = { plugin: pl.name, keys: p.names.join(", "), by: pl.by ?? "" };
+    return (await owners(db)).map((to) => ({ to, kind: "plugin_secrets_owner", params, purpose: "staff" as const, essential: true, email: true, link: "/vault" }));
+  },
   async "support.granted"({ db, tz }, p: { grant_id: string }) {
     const { g, params } = await supportInfo(db, p.grant_id, tz);
     return [{ to: g.person_id, kind: "support_granted_you", params: { ...params, url: staffAddress ?? both("msg.staff_app") }, purpose: "staff" as const, essential: true, email: true, push: false, link: "/" }];

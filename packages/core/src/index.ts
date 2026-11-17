@@ -78,6 +78,8 @@ export * from "./sealed.ts";
 export * from "./vault.ts";
 export * from "./agents.ts";
 export * from "./webhooks.ts";
+export * from "./plugin_manifest.ts";
+export * from "./plugins.ts";
 export * from "./ops.ts";
 export * from "./receipts.ts";
 export * from "./charge.ts";

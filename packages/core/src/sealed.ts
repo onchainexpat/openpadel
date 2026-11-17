@@ -85,6 +85,10 @@ export const SEALED_COLUMNS: { table: string; key: string; column: string; kind:
   { table: "vault_blob", key: "id", column: "bytes", kind: "bytes" },
   { table: "gift_card", key: "id", column: "code_sealed", kind: "text" },
   { table: "webhook_subscription", key: "id", column: "secret_sealed", kind: "text" },
+  // A plugin's own secret, its token on its way to it, and the club's key for signing what it sends plugins (plugins.ts).
+  { table: "plugin", key: "id", column: "secret_sealed", kind: "text" },
+  { table: "plugin", key: "id", column: "registration_sealed", kind: "text", where: "registration_sealed IS NOT NULL" },
+  { table: "plugin_key", key: "singleton", column: "private_sealed", kind: "text" },
 ];
 
 /** A fingerprint of a secret the database has to find without holding it in the open (a gift card's code): an

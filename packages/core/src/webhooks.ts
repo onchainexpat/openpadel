@@ -44,6 +44,8 @@ export const WEBHOOK_TOPICS: Record<string, string> = {
 export const WEBHOOK_TOPIC_NAMES = Object.keys(WEBHOOK_TOPICS).sort();
 /** The test event (webhook.test): sent whatever the subscription asked for. */
 export const TEST_TOPIC = "webhook.test";
+/** What a plugin is sent when its settings change (plugins.ts): sent to it alone, whatever it asked for. */
+export const PLUGIN_CONFIGURED_TOPIC = "plugin.configured";
 export const WEBHOOK_MAX_ATTEMPTS = 8;
 /** Paused after this many failed tries in a row, or after failing this long. */
 export const PAUSE_AFTER_FAILURES = 15, PAUSE_AFTER_MS = 24 * 3600_000;
@@ -106,6 +108,9 @@ async function subscriber(ctx: PlanCtx, agentId: string | undefined): Promise<{ 
   const id = ctx.actor.agentId ?? agentId;
   if (ctx.actor.agentId && agentId && agentId !== ctx.actor.agentId) throw new KumiError("error.agent_not_for_agents", {}, 403);
   if (id) {
+    // A plugin gets the events its manifest names, with its plugin, and no others.
+    const p = await ctx.db.selectFrom("plugin").select("name").where("agent_id", "=", id).where("status", "!=", "removed").executeTakeFirst();
+    if (p) throw new KumiError("error.webhook_is_plugins", { name: p.name });
     const a = await ctx.db.selectFrom("agent").select(["person_id", "name", "revoked_at", "kind"]).where("id", "=", id).executeTakeFirst();
     if (!a || a.kind !== "club" || !a.person_id) throw new KumiError("error.not_found", { thing: both("thing.agent") }, 404);
     if (a.revoked_at) throw new KumiError("error.agent_revoked", {}, 409);
@@ -115,9 +120,14 @@ async function subscriber(ctx: PlanCtx, agentId: string | undefined): Promise<{ 
   const p = await ctx.db.selectFrom("person").select("display_name").where("id", "=", ctx.actor.personId).executeTakeFirstOrThrow();
   return { personId: ctx.actor.personId, agentId: null, name: p.display_name };
 }
-async function liveHook(db: Db | Trx, id: string) {
+async function liveHook(db: Db | Trx, id: string, opts: { pluginToo?: boolean } = {}) {
   const { row, read } = await readRow(db, "webhook_subscription", id, "thing.webhook");
   if (!row.active) throw new KumiError("error.not_found", { thing: both("thing.webhook") }, 404);
+  // A plugin's webhook goes and changes with its plugin (plugins.ts): its address and events are its manifest's.
+  if (!opts.pluginToo) {
+    const p = await db.selectFrom("plugin").select("name").where("subscription_id", "=", id).where("status", "!=", "removed").executeTakeFirst();
+    if (p) throw new KumiError("error.webhook_is_plugins", { name: p.name });
+  }
   return { row, read };
 }
 /** Whose a subscription is: its reader (an agent's own person, or the person who made it). */
@@ -222,7 +232,7 @@ export const webhookPause = defineAction({
   name: "webhook.pause", version: 1, system: true, internal: true,
   input: z.object({ subscription_id: z.uuid(), why: z.string().check(z.maxLength(300)) }),
   async plan(ctx, i) {
-    const { row, read } = await liveHook(ctx.db, i.subscription_id);
+    const { row, read } = await liveHook(ctx.db, i.subscription_id, { pluginToo: true });
     if (row.paused_at) throw new KumiError("error.nothing_changed");
     return { title: both("action.webhook.pause"), summary: both("plan.webhook.pause", { url: hostOf(row.url) }), reads: [read], undo: { kind: "none" } };
   },

@@ -3,7 +3,7 @@
 // check that isn't fine. It only reads: nothing here changes the club or sends anything.
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
-import { answerCounts, monthOf, clubStripeAccount, dayText, emailDomain, suppressionCounts, heartbeats, heldSummary, leavingOn, localDate, localParts, movedAway, parseSecretKey, pendingMigrations, readOnlySince, StripeProvider, textCounts, textingRegistration, usageGaps, usageView, type Db } from "@kumi/core";
+import { answerCounts, monthOf, clubStripeAccount, dayText, emailDomain, suppressionCounts, heartbeats, heldSummary, leavingOn, localDate, localParts, movedAway, parseSecretKey, pendingMigrations, pluginSecrets, readOnlySince, StripeProvider, textCounts, textingRegistration, usageGaps, usageView, type Db, type Manifest } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { offsitePrunes } from "./backups.ts";
 import { archiverFailing, archiverState, PITR_CONF } from "./pitr.ts";
@@ -12,6 +12,7 @@ import { checkSendingDomain } from "./mailer.ts";
 import { answerModels, checkAnswerKeys } from "./answerer.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { VERSION } from "./version.ts";
+import { pluginsHealth } from "./plugins.ts";
 
 export type CheckState = "ok" | "warn" | "fail" | "off";
 export interface Check { id: string; state: CheckState; text: Text; doc?: string }
@@ -237,6 +238,20 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   if (rt?.last_error) add("restore_test", "fail", "restore_test.failing", { error: rt.last_error }, opsDoc);
   else if (!rt?.last_ok_at) add("restore_test", production ? "warn" : "off", "restore_test.never", {}, opsDoc);
   else { const days = Math.round(ago(rt.last_ok_at)! / 24); add("restore_test", days > 40 ? "warn" : "ok", days > 40 ? `restore_test.old${d}` : "restore_test.ok", { days }); }
+
+  // Plugins (plugins.ts): each one's health, asked at its health address within the webhooks' rules and a few seconds;
+  // one waiting for its registration or for keys says so. None installed, nothing said.
+  const plugins = await pluginsHealth(db, production).catch(() => []);
+  for (const pl of plugins) {
+    const keys = await db.selectFrom("plugin").select("manifest").where("name", "=", pl.name).where("status", "!=", "removed").executeTakeFirst()
+      .then(async (r) => r ? (await pluginSecrets(db, pl.name, r.manifest as Manifest)).filter((k) => !k.added).map((k) => k.name) : []).catch(() => [] as string[]);
+    const id = `plugin:${pl.name}`, pdoc = "docs/plugins/README.md";
+    if (pl.status === "paused") add(id, "off", "plugin.paused", { name: pl.name });
+    else if (keys.length) add(id, "warn", "plugin.keys", { name: pl.name, keys: keys.join(", ") }, pdoc);
+    else if (!pl.registered) add(id, "warn", "plugin.waiting", { name: pl.name, error: pl.registration_error ? ` (${pl.registration_error})` : "" }, pdoc);
+    else if (pl.health.state === "ok") add(id, "ok", "plugin.ok", { name: pl.name, ms: pl.health.ms ?? 0 });
+    else add(id, "fail", "plugin.down", { name: pl.name, error: pl.health.error ?? "" }, pdoc);
+  }
 
   // Point-in-time backups (pitr.ts): Postgres handing its log to the archive, and the nightly base backups as the
   // postgres user's job recorded them (the kumi user can't read the archive itself). In Docker that job is the pitr

@@ -370,6 +370,54 @@ Who may: staff (each sees what their staff screens show).
 openpadel moving-in
 ```
 
+### openpadel plugin search
+
+Search the plugin catalog. Plugins in the club's catalog (openPadel's reviewed one) whose name, publisher or description has the words: what each does, whether it charges, whether it's installed, and the command to install it.
+
+Who may: staff (each sees what their staff screens show).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--q` | text |  | Words to look for (cameras, lights, accounting); empty lists them all |
+
+```
+openpadel plugin search
+```
+
+### openpadel plugin info
+
+A plugin in the catalog. Everything a plugin's manifest asks for, in words to show the owner before installing: what it does, what it will be able to do and read, the events it gets, what member data it sends where, the keys it needs (and where the owner gets each), its cost, where it runs and its settings. Then openpadel plugin install.
+
+Who may: staff (each sees what their staff screens show).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--name` | text | needed | Its name, as openpadel plugin search gives it |
+
+```
+openpadel plugin info --name court-lights
+```
+
+### openpadel plugin list
+
+Installed plugins. The club's installed plugins: status (waiting for its registration, on, paused), health, its keys (added, with the last four characters, or still needed), settings, and what each may do and sends. A key is never shown: the owner adds it in the vault.
+
+Who may: staff (each sees what their staff screens show).
+
+```
+openpadel plugin list
+```
+
+### openpadel processors
+
+Services that see member data. The outside services that see member data, with each installed plugin's data out added automatically: for the club's privacy policy (rows, and the same as Markdown table rows).
+
+Who may: staff (each sees what their staff screens show).
+
+```
+openpadel processors
+```
+
 ## Changes
 
 Each one previews first (exit code 10) and changes nothing until `openpadel confirm <run_id>`, or the same command with `--yes`.
@@ -2543,6 +2591,99 @@ Its preview reads: "Read every player from Playtomic, with their wallets and mem
 
 ```
 openpadel playtomic read-players
+```
+
+### plugin
+
+#### openpadel plugin configure
+
+Set up a plugin. Who may: owner, manager (with approval).
+
+Its preview reads: "Set up {name}: {settings}."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--plugin` | text | needed | The plugin's name, as its manifest and the catalog give it (court-lights) |
+| `--settings` | JSON | needed | The settings to change, by name, as plugin info lists them (courts by name or id) |
+
+```
+openpadel plugin configure --plugin court-lights --settings '{...}'
+```
+
+#### openpadel plugin install
+
+Install a plugin. Who may: owner, manager (with approval).
+
+Its preview reads: "Install the plugin {name} {version}."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--name` | text |  | The plugin's name, as its manifest and the catalog give it (court-lights) |
+| `--url` | text |  | A manifest's address (openpadel-plugin.json), for a plugin outside the catalog: the preview says so |
+| `--manifest` | text |  | A manifest's JSON itself, for a plugin outside the catalog: the preview says so |
+| `--settings` | JSON |  | Its settings, as its manifest describes them (plugin info lists them); they can be given later with plugin configure |
+
+```
+openpadel plugin install
+```
+
+#### openpadel plugin pause
+
+Pause a plugin. Who may: owner, manager (with approval).
+
+Its preview reads: "Pause {name}: its token stops working and its events wait no more until you turn it back on. Nothing is removed."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--plugin` | text | needed | The plugin's name, as its manifest and the catalog give it (court-lights) |
+
+```
+openpadel plugin pause --plugin court-lights
+```
+
+#### openpadel plugin remove
+
+Remove a plugin. Who may: owner, manager (with approval).
+
+Its preview reads: "Remove {name}: its token stops working at once, its events stop, and its role goes. What it already did stays in the change log."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--plugin` | text | needed | The plugin's name, as its manifest and the catalog give it (court-lights) |
+| `--delete-keys` | yes/no (the flag alone is yes) |  | Also delete its keys from the vault; left out, they stay there |
+
+```
+openpadel plugin remove --plugin court-lights
+```
+
+#### openpadel plugin resume
+
+Turn a plugin back on. Who may: owner, manager (with approval).
+
+Its preview reads: "Turn {name} back on: its token works again and new events go to it."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--plugin` | text | needed | The plugin's name, as its manifest and the catalog give it (court-lights) |
+
+```
+openpadel plugin resume --plugin court-lights
+```
+
+#### openpadel plugin update
+
+Update a plugin. Who may: owner, manager (with approval).
+
+Its preview reads: "Update {name} from {from} to {to}."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--plugin` | text | needed | The plugin's name, as its manifest and the catalog give it (court-lights) |
+| `--url` | text |  | A manifest's address (openpadel-plugin.json), for a plugin outside the catalog: the preview says so |
+| `--manifest` | text |  | A manifest's JSON itself, for a plugin outside the catalog: the preview says so |
+
+```
+openpadel plugin update --plugin court-lights
 ```
 
 ### policy

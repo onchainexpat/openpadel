@@ -13,6 +13,7 @@ import { seesMoney } from "./receipts.ts";
 import { translatorOn } from "./translate.ts";
 import { clubFileStem } from "./file_names.ts";
 import { todayRoutes } from "./today.ts";
+import { pluginReadRoutes } from "./plugins.ts";
 
 /** An Excel file of about 2 MB, as base64 (the server takes 3 MB a request). */
 const XLSX_MAX_BASE64 = 2_800_000;
@@ -29,14 +30,14 @@ const NIGHT_READ = ["draw.generate", "game.score", "level.set_session"];
 const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
   [/^\/staff\/(people|tags|chats|customers)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
-  [/^\/staff\/(reports|coach-earnings|payments|receipts|desk|move-in)/, "money"], [/^\/staff\/(settings|roles|vault|usage)/, "settings"],
+  [/^\/staff\/(reports|coach-earnings|payments|receipts|desk|move-in)/, "money"], [/^\/staff\/(settings|roles|vault|usage|plugins|processors)/, "settings"],
   [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|month|quote|lesson-coaches|lesson-times|mirror|alerts|block-series|bookings|weekly-courts)/, "bookings"],
   [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
 ];
 export const readArea = (path: string) => READ_AREAS.find(([re]) => re.test(path))?.[1] ?? null;
 /** `assistant`: read through the assistant door (mcp.ts) for someone's own connection, where support access never
  *  reaches (support.ts): only the person's own staff roles count. */
-export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { assistant?: boolean } = {}) {
+export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Context<any>) => Lang, opts: { assistant?: boolean; production?: boolean } = {}) {
   const app = new Hono();
   const supportKeys = (id: string) => opts.assistant ? Promise.resolve([] as string[]) : supportRoleKeys(db, id);
   app.use("/staff/*", async (c, next) => {
@@ -1288,7 +1289,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // ---- Roles: the built-in ones and the club's own, what each may do, and how many hold it ----
   app.get("/staff/roles", async (c) => {
     const roles = await db.selectFrom("role").select(["key", "name", "system", "based_on"]).select((eb) => eb.selectFrom("person_role").select((x) => x.fn.countAll<string>().as("n"))
-      .whereRef("person_role.role_id", "=", "role.id").where("person_role.active", "=", true).as("holders")).where("active", "=", true).orderBy("system", "desc").orderBy("created_at").execute();
+      .whereRef("person_role.role_id", "=", "role.id").where("person_role.active", "=", true).as("holders")).where("active", "=", true).where("for_plugin", "=", false).orderBy("system", "desc").orderBy("created_at").execute();
     const l = lang(c);
     return c.json(roles.map((r) => ({ key: r.key, name: r.system ? t(l, `role.${r.key}` as Key) : r.name, system: r.system, based_on: r.based_on, holders: Number(r.holders ?? 0) })));
   });
@@ -1300,5 +1301,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   // The staff app's Today, Approvals and menu counts (today.ts), judged by the same reach as every read here. Not
   // through the assistant door: they're the staff app's own screens.
   if (!opts.assistant) app.route("/", todayRoutes(db, me, lang, { reach: reachOf, roles: rolesOf, mayAnyOf }));
+  // Plugins: what's installed (with health), the catalog, and the services that see member data (plugins.ts).
+  app.route("/", pluginReadRoutes(db, lang, { production: Boolean(opts.production) }));
   return app;
 }

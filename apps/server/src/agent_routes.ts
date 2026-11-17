@@ -23,7 +23,7 @@ export function agentRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
     const { owner } = await boss(c);
     const l = lang(c);
     // The roles an agent may be capped by: any the club has but the owner's, a member's and a coach's.
-    const roles = await db.selectFrom("role").select(["key"]).where("active", "=", true).where("key", "not in", NOT_FOR_AGENTS).orderBy("system", "desc").orderBy("created_at").execute();
+    const roles = await db.selectFrom("role").select(["key"]).where("active", "=", true).where("for_plugin", "=", false).where("key", "not in", NOT_FOR_AGENTS).orderBy("system", "desc").orderBy("created_at").execute();
     const roleChoices = [];
     for (const r of roles) roleChoices.push({ key: r.key, name: (await roleLabel(db, r.key))[l] });
     const { agents, assistants } = await clubAgents(db, l, now());

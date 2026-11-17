@@ -7,7 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { both, en, isLang, type Key, type Lang, type Text } from "@kumi/i18n";
 import { money } from "@kumi/i18n";
-import { actions, agentActor, agentWeekSpent, AGENT_OWN, apply, appOnly, everDoable, plan, weekSpent, APP_ONLY_YES, KumiError, type ActionDef, type Actor, type Db, type Limited } from "@kumi/core";
+import { actions, agentActor, agentWeekSpent, AGENT_OWN, apply, appOnly, everDoable, plan, pluginOfAgent, pluginSecretFor, pluginSecrets, weekSpent, APP_ONLY_YES, KumiError, type ActionDef, type Actor, type Db, type Limited, type Manifest } from "@kumi/core";
 import { VERSION } from "./version.ts";
 
 export const toolBase = (action: string) => action.replace(/\./g, "_");
@@ -17,7 +17,8 @@ export const doorAction = (a: ActionDef<any>) => !a.system && !a.internal && !a.
 /** What an assistant can read: the same answers the members' app gets, for the person behind the token, and for
  *  staff the staff app's main screens. */
 const ymd = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/), z.describe("A club date, YYYY-MM-DD"));
-export interface DoorRead { name: string; title: Text; description: string; input: Record<string, z.ZodMiniType>; path: (a: any) => string; /** A staff screen's read, offered to staff only. */ staff?: boolean }
+export interface DoorRead { name: string; title: Text; description: string; input: Record<string, z.ZodMiniType>; path: (a: any) => string; /** A staff screen's read, offered to staff only. */ staff?: boolean;
+  /** Its command line words when not its name's (`openpadel plugin search`). */ words?: string[] }
 const qs = (o: Record<string, unknown>) => new URLSearchParams(Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v]) => [k, String(v)])).toString();
 export const READS: DoorRead[] = [
   { name: "booking_options", title: { en: "Where and how to book", es: "Dónde y cómo reservar" }, input: {}, path: () => "/booking-options",
@@ -89,6 +90,17 @@ export const READS: DoorRead[] = [
     description: "Members' questions to the club: waiting for an answer (the default), answered or closed." },
   { name: "moving_in", staff: true, title: { en: "Moving in", es: "La mudanza" }, input: {}, path: () => "/staff/move-in/steps",
     description: "Where the club is in its move from Playtomic, Playbypoint or spreadsheets (connect, review, practice run, switch-over, wrap up): the step, what each step sees for itself, the items staff tick (move_check_preview), and the practice run's comparison of the old records with what has come over. For the owner and managers." },
+  // Plugins (plugins.ts): the catalog, one plugin in it, what's installed, and the services that see member data.
+  { name: "plugin_search", words: ["plugin", "search"], staff: true, title: { en: "Search the plugin catalog", es: "Buscar en el catálogo de plugins" }, input: { q: z.optional(z.string().check(z.maxLength(100), z.describe("Words to look for (cameras, lights, accounting); empty lists them all"))) },
+    path: (a) => `/staff/plugins/catalog?${qs({ q: a.q })}`,
+    description: "Plugins in the club's catalog (openPadel's reviewed one) whose name, publisher or description has the words: what each does, whether it charges, whether it's installed, and the command to install it." },
+  { name: "plugin_info", words: ["plugin", "info"], staff: true, title: { en: "A plugin in the catalog", es: "Un plugin del catálogo" }, input: { name: z.string().check(z.regex(/^[a-z][a-z0-9-]{1,38}[a-z0-9]$/), z.describe("Its name, as plugin_search gives it")) },
+    path: (a) => `/staff/plugins/catalog/${encodeURIComponent(a.name)}`,
+    description: "Everything a plugin's manifest asks for, in words to show the owner before installing: what it does, what it will be able to do and read, the events it gets, what member data it sends where, the keys it needs (and where the owner gets each), its cost, where it runs and its settings. Then plugin_install_preview." },
+  { name: "plugins", words: ["plugin", "list"], staff: true, title: { en: "Installed plugins", es: "Plugins instalados" }, input: {}, path: () => "/staff/plugins",
+    description: "The club's installed plugins: status (waiting for its registration, on, paused), health, its keys (added, with the last four characters, or still needed), settings, and what each may do and sends. A key is never shown: the owner adds it in the vault." },
+  { name: "processors", words: ["processors"], staff: true, title: { en: "Services that see member data", es: "Servicios que ven datos de miembros" }, input: {}, path: () => "/staff/processors",
+    description: "The outside services that see member data, with each installed plugin's data out added automatically: for the club's privacy policy (rows, and the same as Markdown table rows)." },
 ];
 /** An email or phone number as a staff read through the door shows it: the first letter and the domain, or the last
  *  two digits. */
@@ -232,6 +244,23 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
     return text({ changed: Boolean(later), status: run.status });
   });
 
+  // A plugin's agent (plugins.ts) reads its own settings and its own declared keys, by name, and nothing else of the vault.
+  const plugin = agent ? await pluginOfAgent(db, agent.id) : null;
+  if (plugin && agent) {
+    server.registerTool("plugin_settings", { title: lang === "es" ? "Mi configuración" : "My settings", description: "This plugin's settings as the club set them, its status, and whether each key its manifest declares has been added (with its last four characters).",
+      annotations: { readOnlyHint: true } }, async () => {
+      const now_ = await pluginOfAgent(db, agent.id);
+      if (!now_) return fail(new KumiError("error.not_found", { thing: both("thing.plugin") }, 404));
+      const m = now_.manifest as Manifest;
+      return text({ name: now_.name, version: now_.release, status: now_.status, settings: now_.settings, events: m.events,
+        keys: (await pluginSecrets(db, now_.name, m)).map((k) => ({ name: k.name, added: k.added, last4: k.last4 })) });
+    });
+    server.registerTool("plugin_secret", { title: lang === "es" ? "Una de mis claves" : "One of my keys", description: "One key this plugin's manifest declares, by its name (HA_TOKEN), from the club's vault. Each read is kept on record.",
+      inputSchema: { name: z.string().check(z.regex(/^[A-Z][A-Z0-9_]{1,63}$/)) }, annotations: { readOnlyHint: true } }, async (args: { name: string }) => {
+      try { const k = await pluginSecretFor(db, agent.id, args.name); return k ? text(k) : fail(new KumiError("error.not_found", { thing: both("thing.plugin") }, 404)); } catch (e) { return fail(e); }
+    });
+  }
+
   const staff = !memberOnly && readStaff ? Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key").where("person_role.person_id", "=", who.id)
     .where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst()) : false;
   for (const r of READS) {
@@ -247,6 +276,8 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
     // A tool you may never use doesn't exist for you. Undo is checked against the original change. A club agent looks
     // after its own webhooks whatever its role (AGENT_OWN), and never makes or changes agents.
     if (agent && a.name.startsWith("agent.")) continue;
+    // A plugin's webhook and keys come with its manifest: it never subscribes, installs or changes plugins itself.
+    if (plugin && (a.name.startsWith("webhook.") || a.name.startsWith("plugin."))) continue;
     const listed = a.name === "action.undo" || may(a.name) || (agent !== null && AGENT_OWN.includes(a.name));
     if (!doorAction(a) || !listed) continue;   // never offered: see APP_ONLY
     const base = toolBase(a.name), title = titleOf(a.name);

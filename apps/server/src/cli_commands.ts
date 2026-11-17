@@ -65,7 +65,7 @@ export function commands(): Command[] {
   }
   for (const r of READS) {
     const schema = slim(toJSONSchema(z.object(r.input) as any)) as Record<string, unknown>;
-    out.push({ kind: "read", words: [kebab(r.name)], tool: r.name, title: r.title, description: r.description, schema, props: propsOf(schema), staff: r.staff });
+    out.push({ kind: "read", words: r.words ?? [kebab(r.name)], tool: r.name, title: r.title, description: r.description, schema, props: propsOf(schema), staff: r.staff });
   }
   // The door's descriptions name its tools (booking_request_preview, free_courts): here, the commands they are.
   const byTool = new Map(out.map((c) => [c.tool, `${COMMAND} ${c.words.join(" ")}`]));
@@ -270,6 +270,8 @@ function exampleValue(p: Prop): string {
   if (p.pattern?.includes("\\d{4}-\\d{2}-\\d{2}")) return "2026-11-20";
   if (p.pattern?.includes("\\d{2}:\\d{2}")) return "09:00";
   if (p.key === "time_zone") return "America/Los_Angeles";
+  // A plugin's name (plugins.ts): its pattern says so.
+  if ((p.key === "plugin" || p.key === "name") && p.pattern?.startsWith("^[a-z][a-z0-9-]")) return "court-lights";
   if (p.key === "name") return q("Tuesday drills");
   if (/reason|note|body|text|message/.test(p.key)) return q("Rain on the outdoor courts");
   return q("...");

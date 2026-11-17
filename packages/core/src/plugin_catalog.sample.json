@@ -1,0 +1,109 @@
+{
+  "catalog": 1,
+  "name": {
+    "en": "openPadel's sample catalog",
+    "es": "El catálogo de ejemplo de openPadel"
+  },
+  "plugins": [
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "name": "court-lights",
+        "publisher": "openPadel examples",
+        "version": "0.1.0",
+        "homepage": "https://github.com/openpadel/plugin-court-lights",
+        "licence": "AGPL-3.0-only",
+        "description": {
+          "en": "Turns a court's lights on in Home Assistant a few minutes before each booking and off after it ends.",
+          "es": "Enciende las luces de una cancha en Home Assistant unos minutos antes de cada reserva y las apaga cuando termina."
+        },
+        "grants": [],
+        "reads": [
+          "bookings",
+          "courts"
+        ],
+        "events": [
+          "booking.cancelled",
+          "booking.created",
+          "booking.moved",
+          "court.blocked",
+          "court.freed"
+        ],
+        "secrets": [
+          {
+            "name": "HA_TOKEN",
+            "label": {
+              "en": "Home Assistant access token",
+              "es": "Token de acceso de Home Assistant"
+            },
+            "where": {
+              "en": "In Home Assistant: your profile, Security, Long-lived access tokens, Create token.",
+              "es": "En Home Assistant: tu perfil, Seguridad, Tokens de acceso de larga duración, Crear token."
+            }
+          }
+        ],
+        "settings": [
+          {
+            "key": "home_assistant_url",
+            "type": "string",
+            "label": {
+              "en": "Home Assistant address",
+              "es": "Dirección de Home Assistant"
+            },
+            "help": {
+              "en": "Where the club's Home Assistant answers, such as https://ha.yourclub.com.",
+              "es": "Donde responde el Home Assistant del club, como https://ha.tuclub.com."
+            },
+            "required": true,
+            "max_length": 200
+          },
+          {
+            "key": "courts",
+            "type": "courts",
+            "label": {
+              "en": "Courts with lights",
+              "es": "Canchas con luces"
+            },
+            "required": true
+          },
+          {
+            "key": "minutes_before",
+            "type": "integer",
+            "label": {
+              "en": "Minutes before a booking",
+              "es": "Minutos antes de una reserva"
+            },
+            "default": 10,
+            "minimum": 0,
+            "maximum": 30
+          }
+        ],
+        "data_out": {
+          "en": "Each booking's court, start and end go to the club's own Home Assistant. No names, emails or phone numbers.",
+          "es": "La cancha, el inicio y el fin de cada reserva van al propio Home Assistant del club. Sin nombres, correos ni teléfonos."
+        },
+        "cost": {
+          "charges": false,
+          "note": {
+            "en": "Free. Home Assistant is the club's own.",
+            "es": "Gratis. El Home Assistant es del propio club."
+          }
+        },
+        "cards": [
+          {
+            "slot": "court_tile",
+            "title": {
+              "en": "Lights",
+              "es": "Luces"
+            }
+          }
+        ],
+        "health": "/health",
+        "run": {
+          "mode": "remote",
+          "url": "https://lights.plugins.openpadel.org/v1"
+        }
+      }
+    }
+  ]
+}

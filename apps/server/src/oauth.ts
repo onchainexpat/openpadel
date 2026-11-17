@@ -530,6 +530,8 @@ export async function bearerPerson(db: Db, header: string | undefined, resources
   if (r.resource === AGENT_RESOURCE) {
     // Only a club agent's own connection holds such a token, and only while the agent is on.
     if (!r.agent_id) return null;
+    // A paused plugin's token (plugins.ts) works again only once it's turned back on.
+    if (await db.selectFrom("plugin").select("id").where("agent_id", "=", r.agent_id).where("status", "=", "paused").executeTakeFirst()) return null;
     await agentUsed(db, r.agent_id, now);
     return { ...r, client_name: r.agent_name };
   }

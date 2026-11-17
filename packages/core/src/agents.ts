@@ -16,7 +16,7 @@
 import { randomBytes, createHash } from "node:crypto";
 import * as z from "zod/mini";
 import { both, money, type Text } from "@kumi/i18n";
-import { defineAction, readRow, type Actor, type PlanCtx } from "./actions.ts";
+import { defineAction, readRow, type Actor, type ApplyCtx, type PlanCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
@@ -44,12 +44,12 @@ const capInput = z.number().check(z.int(), z.minimum(0), z.maximum(AGENT_MAX_WEE
 const roleInput = z.string().check(z.minLength(1), z.maxLength(40), z.describe("The role that caps it, by key: front_desk, accountant, manager, or one the club made (custom_...); never owner or coach"));
 
 /** A new agent token: "opa_" and 43 characters, of which the last four are shown afterwards. */
-function newToken(): { token: string; hash: string; last4: string } {
+export function newToken(): { token: string; hash: string; last4: string } {
   const token = `opa_${randomBytes(32).toString("base64url")}`;
   return { token, hash: sha(token), last4: token.slice(-4) };
 }
 /** The token's row for the door (oauth.ts reads it like any access token): it doesn't run out; it ends with its grant. */
-async function keepToken(trx: Trx, grantId: string, hash: string, now: Date) {
+export async function keepToken(trx: Trx, grantId: string, hash: string, now: Date) {
   await trx.insertInto("oauth_token").values({ token_hash: hash, kind: "access", grant_id: grantId, family: grantId, resource: AGENT_RESOURCE,
     expires_at: new Date("9999-12-31T00:00:00Z"), used_at: null, revoked_at: null, created_at: now }).execute();
 }
@@ -83,7 +83,7 @@ async function capWithinAssistant(ctx: PlanCtx, cents: number) {
 /** The role an agent may be capped by: one the club has, not the owner's or a member's, and no more than the person
  *  giving it holds (roles.ts, checkAssign). */
 async function cappingRole(ctx: PlanCtx, key: string) {
-  const r = await ctx.db.selectFrom("role").select(["id", "key", "version"]).where("key", "=", key).where("active", "=", true).executeTakeFirst();
+  const r = await ctx.db.selectFrom("role").select(["id", "key", "version"]).where("key", "=", key).where("active", "=", true).where("for_plugin", "=", false).executeTakeFirst();
   if (!r) throw new KumiError("error.not_found", { thing: both("thing.role") }, 404);
   if (NOT_FOR_AGENTS.includes(r.key)) throw new KumiError("error.agent_role_not_allowed", { role: await roleLabel(ctx.db, r.key) });
   await checkAssign(ctx, r.id);
@@ -98,6 +98,9 @@ async function liveAgent(ctx: { db: Db | Trx }, id: string) {
   const { row, read } = await readRow(ctx.db, "agent", id, "thing.agent");
   if (row.kind !== "club") throw new KumiError("error.not_found", { thing: both("thing.agent") }, 404);
   if (row.revoked_at) throw new KumiError("error.agent_revoked", {}, 409);
+  // A plugin's agent changes only with its plugin (plugins.ts): its role is its manifest's, its token its own.
+  const plugin = await ctx.db.selectFrom("plugin").select("name").where("agent_id", "=", id).where("status", "!=", "removed").executeTakeFirst();
+  if (plugin) throw new KumiError("error.agent_is_plugin", { name: plugin.name });
   return { row, read };
 }
 
@@ -212,23 +215,29 @@ export const agentRevoke = defineAction({
       undo: { kind: "none", note: both("reason.agent_make_again") } };
   },
   async apply(ctx, i) {
-    const a = await ctx.trx.selectFrom("agent").select(["person_id", "grant_id"]).where("id", "=", i.agent_id).executeTakeFirstOrThrow();
-    await ctx.update("agent", i.agent_id, { revoked_at: ctx.now, token_once: null, token_once_at: null });
-    if (a.grant_id) {
-      await ctx.update("oauth_grant", a.grant_id, { revoked_at: ctx.now });
-      await ctx.trx.updateTable("oauth_token").set({ revoked_at: ctx.now }).where("grant_id", "=", a.grant_id).where("revoked_at", "is", null).execute();
-    }
-    for (const r of await ctx.trx.selectFrom("person_role").select("id").where("person_id", "=", a.person_id!).where("active", "=", true).execute()) await ctx.update("person_role", r.id, { active: false });
-    await ctx.update("person", a.person_id!, { status: "archived" });
-    // Its webhooks stop too, with anything still waiting to go.
-    for (const s of await ctx.trx.selectFrom("webhook_subscription").select("id").where("agent_id", "=", i.agent_id).where("active", "=", true).execute()) {
-      await ctx.update("webhook_subscription", s.id, { active: false });
-      await ctx.trx.updateTable("webhook_delivery").set({ status: "dropped" }).where("subscription_id", "=", s.id).where("status", "=", "waiting").execute();
-    }
+    await revokeAgentRows(ctx, i.agent_id);
     await ctx.emit("agent.revoked", { agent_id: i.agent_id, by: ctx.actor.personId });
     return null;
   },
 });
+
+/** Takes a club agent back: its token and connection, its role, its person row, and its webhooks with what's still
+ *  waiting to go. agent.revoke, and plugin.remove for a plugin's agent. */
+export async function revokeAgentRows(ctx: ApplyCtx, agentId: string): Promise<void> {
+  const a = await ctx.trx.selectFrom("agent").select(["person_id", "grant_id"]).where("id", "=", agentId).executeTakeFirstOrThrow();
+  await ctx.update("agent", agentId, { revoked_at: ctx.now, token_once: null, token_once_at: null });
+  if (a.grant_id) {
+    await ctx.update("oauth_grant", a.grant_id, { revoked_at: ctx.now });
+    await ctx.trx.updateTable("oauth_token").set({ revoked_at: ctx.now }).where("grant_id", "=", a.grant_id).where("revoked_at", "is", null).execute();
+  }
+  for (const r of await ctx.trx.selectFrom("person_role").select("id").where("person_id", "=", a.person_id!).where("active", "=", true).execute()) await ctx.update("person_role", r.id, { active: false });
+  await ctx.update("person", a.person_id!, { status: "archived" });
+  // Its webhooks stop too, with anything still waiting to go.
+  for (const s of await ctx.trx.selectFrom("webhook_subscription").select("id").where("agent_id", "=", agentId).where("active", "=", true).execute()) {
+    await ctx.update("webhook_subscription", s.id, { active: false });
+    await ctx.trx.updateTable("webhook_delivery").set({ status: "dropped" }).where("subscription_id", "=", s.id).where("status", "=", "waiting").execute();
+  }
+}
 
 /** The agent behind a connection, for the door (oauth.ts): its id and name, or null for a person's own assistant. */
 export async function agentOfGrant(db: Db | Trx, grantId: string): Promise<{ id: string; name: string } | null> {

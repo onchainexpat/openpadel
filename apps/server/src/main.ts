@@ -1,4 +1,4 @@
-import { fanOutWebhooks, sendWebhooks, tidyAgentTokens, playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, tidyAssistantChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, tidyCardsOnFile, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
+import { deliverRegistrations, fanOutWebhooks, sendWebhooks, tidyAgentTokens, playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, tidyAssistantChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, tidyCardsOnFile, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -148,7 +148,7 @@ const botCheck = process.env.KUMI_BOT_CHECK !== "0";
 if (!botCheck && production) { console.error("KUMI_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
 // The session cookie's old name, still read (and moved) over HTTPS for one release (session_cookie.ts).
 const legacySessionCookie = process.env.KUMI_LEGACY_SESSION_COOKIE !== "0";
-const server = await listen(makeApp({ assistant, db, mailer, mailReach, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
+const server = await listen(makeApp({ assistant, db, mailer, mailReach, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, pluginCatalogUrl: process.env.KUMI_PLUGIN_CATALOG_URL || null, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
   emailEvents: { secret: process.env.KUMI_RESEND_WEBHOOK_SECRET || null, from: process.env.KUMI_MAIL_FROM || null },
   ...(texter && twilio ? { texts: { texter, authToken: twilio.authToken } } : {}) }).fetch, listenAt);
 console.log(`kumi server on ${describeListen(listenAt, server)}`);
@@ -158,7 +158,9 @@ console.log(`kumi server on ${describeListen(listenAt, server)}`);
 // Each runs on its own (jobs.ts): one that throws doesn't stop the rest, and one that keeps failing is said once.
 // Webhooks: https and public addresses only in production (webhooks.ts).
 useWebhookRules(production);
-const postWebhook = webhookPost(production);
+// A local plugin (plugins.ts) gets its events on this server's loopback, at its own port and nowhere else there.
+const postWebhook = webhookPost(production, async (u) => Boolean(await db.selectFrom("plugin").select("id").where("mode", "=", "local").where("status", "!=", "removed")
+  .where("local_port", "=", Number(u.port)).executeTakeFirst()));
 const pushContact = process.env.KUMI_PUSH_CONTACT ?? (publicUrl.startsWith("https://") ? publicUrl : "mailto:owner@localhost");
 const jobsState = newJobsState();
 const jobSteps: JobStep[] = [
@@ -283,6 +285,11 @@ const jobSteps: JobStep[] = [
     const q = await fanOutWebhooks(db);
     const w = await sendWebhooks(db, postWebhook);
     if (q.queued || w.sent || w.failed) console.log(`webhooks: ${q.queued} queued, ${w.sent} sent, ${w.failed} to retry${w.paused ? `, ${w.paused} addresses paused (the owner told)` : ""}`);
+  }],
+  ["plugins", async () => {
+    // Remote plugins' registrations that haven't arrived yet, tried again (plugins.ts): signed, with their tokens.
+    const r = await deliverRegistrations(db);
+    if (r.sent || r.failed) console.log(`plugins: ${r.sent} registered, ${r.failed} to retry`);
   }],
   ["uploads", async () => {
     await tidyVaultUploads(db);

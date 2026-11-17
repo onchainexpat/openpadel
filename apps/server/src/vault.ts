@@ -2,8 +2,8 @@
 // waiting room, then previews and confirms vault.add or vault.replace naming the upload. The list never has a
 // value in it; a document comes back only to the owner, as a download that's kept on record.
 import { Hono, type Context } from "hono";
-import { both } from "@kumi/i18n";
-import { hasSecondFactor, KumiError, safeFilename, secondStepForChanges, stageVaultUpload, vaultDocument, vaultList, VAULT_DOC_MAX_BYTES, VAULT_SECRET_MAX, type Db } from "@kumi/core";
+import { both, type Lang } from "@kumi/i18n";
+import { hasSecondFactor, KumiError, pluginKeyRequests, safeFilename, secondStepForChanges, stageVaultUpload, vaultDocument, vaultList, VAULT_DOC_MAX_BYTES, VAULT_SECRET_MAX, type Db } from "@kumi/core";
 
 type Me = { id: string; method?: string } | null;
 
@@ -19,11 +19,12 @@ async function ownerOnly(db: Db, me: Me) {
   return me;
 }
 
-export function vaultRoutes(db: Db, me: (c: Context<any>) => Me, now: () => Date) {
+export function vaultRoutes(db: Db, me: (c: Context<any>) => Me, now: () => Date, lang: (c: Context<any>) => Lang = () => "en") {
   const app = new Hono();
   app.get("/staff/vault", async (c) => {
     await ownerOnly(db, me(c));
-    return c.json({ items: await vaultList(db), limits: { secret_chars: VAULT_SECRET_MAX, document_bytes: VAULT_DOC_MAX_BYTES } });
+    // And the keys installed plugins still need (plugins.ts): each asked for by name, with where the owner gets it.
+    return c.json({ items: await vaultList(db), limits: { secret_chars: VAULT_SECRET_MAX, document_bytes: VAULT_DOC_MAX_BYTES }, requests: await pluginKeyRequests(db, lang(c)) });
   });
   app.post("/staff/vault/upload", async (c) => {
     const m = await ownerOnly(db, me(c));

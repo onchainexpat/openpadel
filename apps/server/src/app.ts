@@ -27,6 +27,7 @@ import { passkeyRoutes } from "./passkeys.ts";
 import { readRoutes } from "./reads.ts";
 import { supportRoutes } from "./support_routes.ts";
 import { agentRoutes } from "./agent_routes.ts";
+import { pluginRoutes, usePluginIo } from "./plugins.ts";
 import { calendarRoutes } from "./calendar.ts";
 import { translateRoutes, translatorOn } from "./translate.ts";
 import { broadcastRoutes } from "./broadcasts.ts";
@@ -77,7 +78,9 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   mailReach?: "sent" | "log" | "practice"
   /** Ask openPadel's model (assistant.ts): on with KUMI_ANTHROPIC_API_KEY, off (and the apps say how to turn it on)
    *  without one. Tests give a fake. */
-  assistant?: ModelClient | null }
+  assistant?: ModelClient | null
+  /** Where the plugin catalog's index is (KUMI_PLUGIN_CATALOG_URL): an address or a file; the bundled sample without one. */
+  pluginCatalogUrl?: string | null }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
 type Me = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
@@ -115,7 +118,7 @@ export function makeApp(deps: AppDeps) {
   // the link that puts back an email someone else changed.
   app.use("*", async (c, next) => {
     const path = c.req.path, m = c.req.method;
-    if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && !path.startsWith("/webhooks/") && !path.startsWith("/mcp") && !path.startsWith("/unsubscribe/") && !path.startsWith("/auth/email-undo/")) {
+    if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && !path.startsWith("/webhooks/") && !path.startsWith("/plugins/") && !path.startsWith("/mcp") && !path.startsWith("/unsubscribe/") && !path.startsWith("/auth/email-undo/")) {
       const site = c.req.header("sec-fetch-site");
       if (site && site !== "same-origin" && site !== "none") throw new KumiError("error.cross_site", {}, 403);
       const type = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
@@ -281,11 +284,14 @@ export function makeApp(deps: AppDeps) {
     texter: deps.texts?.texter ?? null, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}), secondStepTries: secondStep, ip: ipOf, mailReach: deps.mailReach }));
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"), tries: secondStep }));
-  app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang")));
+  app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false }));
+  // Plugins (plugins.ts): the club's key for what it sends them, and what outside services post for them, passed on.
+  usePluginIo({ production: deps.production ?? false, publicUrl, catalogUrl: deps.pluginCatalogUrl ?? null });
+  app.route("/", pluginRoutes(db, { production: deps.production ?? false, now }));
   app.route("/", staffChatRoutes(db, (c) => c.get("me"), now));
   app.route("/", supportRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), now));
   app.route("/", agentRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), now));
-  app.route("/", vaultRoutes(db, (c) => c.get("me"), now));
+  app.route("/", vaultRoutes(db, (c) => c.get("me"), now, (c) => c.get("lang")));
   app.route("/", exportRoutes(db, (c) => c.get("me"), { databaseUrl: deps.databaseUrl ?? null, now }));
   app.route("/", calendarRoutes(db, (c) => c.get("me")));
   app.route("/", translateRoutes(db, (c) => c.get("me"), { now }));
@@ -315,7 +321,7 @@ export function makeApp(deps: AppDeps) {
     const lang = isLang(who.locale) ? who.locale : "en";
     const reads = memberRoutes(db, () => ({ id: who.id }), () => lang, { production: deps.production ?? false, now });
     reads.onError((e) => { throw e; });
-    const staffReads = readRoutes(db, () => ({ id: who.id, locale: lang }), () => lang, { assistant: true });
+    const staffReads = readRoutes(db, () => ({ id: who.id, locale: lang }), () => lang, { assistant: true, production: deps.production ?? false });
     staffReads.onError((e) => { throw e; });
     return { read: async (path: string) => (await reads.request(`http://kumi${path}`)).json(), readStaff: async (path: string) => (await staffReads.request(`http://kumi${path}`)).json() };
   };

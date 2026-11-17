@@ -28,16 +28,18 @@ export function useWebhookRules(production: boolean): void {
   setWebhookRules({ httpsOnly: production, hostOk: production ? publicHost : () => true, scrub: (d) => shortenContacts(d) });
 }
 
-/** POST a webhook: public addresses only when `publicOnly` (production), no redirects, 10 seconds at most. */
-export function webhookPost(publicOnly: boolean): WebhookPost {
-  return (url, body, headers) => new Promise((resolve, reject) => {
+/** POST a webhook: public addresses only when `publicOnly` (production), no redirects, 10 seconds at most. `localOk`: an
+ *  address on this server's loopback that is a local plugin's own (plugins.ts), the one exception. */
+export function webhookPost(publicOnly: boolean, localOk: (u: URL) => Promise<boolean> = async () => false): WebhookPost {
+  return (url, body, headers) => new Promise(async (resolve, reject) => {
     let u: URL;
     try { u = new URL(url); } catch { return reject(new Error("not an address")); }
-    if (publicOnly && u.protocol !== "https:") return reject(new Error("https only"));
     const host = u.hostname.replace(/^\[|\]$/g, "");
-    if (publicOnly && !publicHost(host)) return reject(new Error(`${host} isn't a public address`));
+    const local = publicOnly && u.protocol === "http:" && (host === "127.0.0.1" || host === "::1") && await localOk(u).catch(() => false);
+    if (publicOnly && !local && u.protocol !== "https:") return reject(new Error("https only"));
+    if (publicOnly && !local && !publicHost(host)) return reject(new Error(`${host} isn't a public address`));
     const send = u.protocol === "https:" ? httpsRequest : httpRequest;
-    const req = send(u, { method: "POST", headers: { ...headers, "content-length": String(Buffer.byteLength(body)) }, ...(publicOnly ? { lookup: publicOnlyLookup() as any } : {}) }, (res) => {
+    const req = send(u, { method: "POST", headers: { ...headers, "content-length": String(Buffer.byteLength(body)) }, ...(publicOnly && !local ? { lookup: publicOnlyLookup() as any } : {}) }, (res) => {
       res.resume();   // only the status counts; whatever it says is read and dropped
       res.on("end", () => { clearTimeout(timer); resolve(res.statusCode ?? 0); });
       res.on("error", (e) => { clearTimeout(timer); reject(e); });

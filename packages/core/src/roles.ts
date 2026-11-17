@@ -123,6 +123,7 @@ async function customRole(db: Db | Trx, key: string) {
   const r = await db.selectFrom("role").selectAll().where("key", "=", key).executeTakeFirst();
   if (!r || !r.active) throw new KumiError("error.not_found", { thing: both("thing.role") }, 404);
   if (r.system) throw new KumiError("error.role_built_in");
+  if (r.for_plugin) throw new KumiError("error.role_plugins");   // changed only with its plugin (plugin.update)
   return r;
 }
 
@@ -277,13 +278,14 @@ const ALL_AREAS_ROLES = ["owner", "manager", "front_desk", "accountant"];
  *  and up, the accountant, and `extraKeys`: support access's manager), else `coach` (the coach role, COACH_AREAS) and
  *  `custom`, the areas the roles the club made cover (null when they hold none). */
 export async function staffReach(db: Db | Trx, personId: string, extraKeys: string[] = []): Promise<{ all: boolean; coach: boolean; custom: string[] | null }> {
-  const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(["role.id", "role.key", "role.system"])
+  const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(["role.id", "role.key", "role.system", "role.read_areas"])
     .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true).execute();
   const all = [...roles.filter((r) => r.system).map((r) => r.key), ...extraKeys].some((k) => ALL_AREAS_ROLES.includes(k));
   const coach = roles.some((r) => r.system && r.key === "coach"), mine = roles.filter((x) => !x.system);
   if (!mine.length) return { all, coach, custom: null };
   const areas = new Set<string>();
-  for (const r of mine) for (const g of await grantsOfRole(db, r.id)) if (g.mode !== "no") areas.add(areaOf(g.pattern));
+  // A plugin's role also reads what its manifest says beyond its actions (plugins.ts).
+  for (const r of mine) { for (const g of await grantsOfRole(db, r.id)) if (g.mode !== "no") areas.add(areaOf(g.pattern)); for (const a of r.read_areas ?? []) areas.add(a); }
   return { all, coach, custom: AREAS.map((a) => a.key).filter((k) => areas.has(k)) };
 }
 /** The areas a person reads: the union of what each of their roles gives (a coach COACH_AREAS, each role the club made

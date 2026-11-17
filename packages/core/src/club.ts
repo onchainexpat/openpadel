@@ -84,7 +84,8 @@ export function clubPhoneShown(e164: string, country: string = clubFormat().coun
 export const clubPhone = (typed: string, country: string) => anyPhone(typed, country.toUpperCase());
 
 async function roleId(ctx: PlanCtx, key: string): Promise<string> {
-  const r = await ctx.db.selectFrom("role").select("id").where("key", "=", key).where("active", "=", true).executeTakeFirst();
+  // A plugin's role is its own: nobody else is given it (plugins.ts).
+  const r = await ctx.db.selectFrom("role").select("id").where("key", "=", key).where("active", "=", true).where("for_plugin", "=", false).executeTakeFirst();
   if (!r) throw new KumiError("error.not_found", { thing: both("thing.role") }, 404);
   return r.id;
 }

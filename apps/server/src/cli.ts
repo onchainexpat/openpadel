@@ -37,17 +37,23 @@
 //                                  (usage.ts); --json for a host's bill
 //   kumi pitr conf|tick|status|extract|test   point-in-time backups (pitr_cli.ts); `sudo kumi restore --to=
 //                                  "YYYY-MM-DD HH:MM" --yes` puts the database back as it was at that minute
+//   kumi plugin secret <plugin> <NAME>   type a plugin's key into the vault (at a prompt that doesn't show it, or piped
+//                                  in): the owner's way to add it on the server rather than in the app (plugins.ts)
+//   kumi plugin service <plugin> [--apply] [--remove]   a local plugin's own service: its release fetched and checked
+//                                  against its pinned SHA-256, and the systemd unit it runs as (a preview unless --apply)
 //   (on a one-server install, as root: kumi update <release.tar>, kumi rollback --yes, kumi releases)
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { both, money, t, pickLang, type Lang, type Text, formatLocale } from "@kumi/i18n";
-import { connect, loadClubFormat, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS, type Db } from "@kumi/core";
+import { localPluginEnv, pluginVaultName, stageVaultUpload, type Manifest, connect, loadClubFormat, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS, type Db } from "@kumi/core";
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
 import { readMoveInCsv, readPeopleCsv, readPeopleRows } from "./csv.ts";
 import { looksLikeXlsx, readXlsx } from "./xlsx.ts";
 import { doctor, type Check } from "./doctor.ts";
+import { usePluginIo } from "./plugins.ts";
+import { fetchRelease, servicePlan, unitName, writeService } from "./plugin_service.ts";
 import { ClubFileError, ownerActor, readClubFile, setupClub } from "./setup.ts";
 import { applyTexting, refreshTexting, textingPlan, textingStatusText, twilioProblem, verificationForm, withClubLinks, type TextingDeps, type TextingPlan } from "./texting.ts";
 import { twilioFromEnv } from "./twilio.ts";
@@ -118,7 +124,10 @@ const ON_SERVER = new Set(["setup", "import", "move-in", "texting", "usage", "ex
 
 async function main(): Promise<number> {
   const first = args.find((a) => !a.startsWith("-"));
-  if (first !== undefined && !ON_SERVER.has(first)) {
+  // A plugin's key typed on the server, and a local plugin's service, are the server's; the other plugin commands are
+  // the club's own (cli_remote.ts).
+  const serverPlugin = first === "plugin" && (sub === "secret" || sub === "service");
+  if (first !== undefined && !ON_SERVER.has(first) && !serverPlugin) {
     const { remoteMain } = await import("./cli_remote.ts");
     return remoteMain(args);
   }
@@ -412,6 +421,61 @@ async function main(): Promise<number> {
       for (const e of h.by_event) console.log(`  ${t(lang, "cli.held_event_line", { topic: e.topic, count: e.count, oldest: day(e.oldest) })}`);
       console.log(t(lang, "cli.held_hint"));
       return 0;
+    } finally { await db.destroy(); }
+  }
+  if (cmd === "plugin" && sub === "secret" && rest[0] && rest[1]) {
+    serverKeys();
+    const db = await clubDb();
+    try {
+      const owner = await ownerActor(db, lang);
+      if (!owner) { console.error(t(lang, "doctor.club.missing")); return 2; }
+      const pl = await db.selectFrom("plugin").select(["name", "manifest"]).where("name", "=", rest[0]).where("status", "!=", "removed").executeTakeFirst();
+      if (!pl) { console.error(t(lang, "error.plugin_not_installed", { name: rest[0] })); return 2; }
+      const decl = (pl.manifest as Manifest).secrets.find((x) => x.name === rest[1]);
+      if (!decl) { console.error(t(lang, "error.plugin_secret_undeclared", { name: rest[1] })); return 2; }
+      const value = (await passphrase(t(lang, "cli.plugin_secret_ask", { label: decl.label[lang], name: rest[1] }))).trim();
+      if (!value) { console.error(t(lang, "error.vault_empty")); return 2; }
+      const name = pluginVaultName(pl.name, rest[1]);
+      const up = await stageVaultUpload(db, owner.personId!, { kind: "secret", value });
+      const have = await db.selectFrom("vault_item").select("id").where((eb) => eb(eb.fn("lower", ["name"]), "=", name.toLowerCase())).where("active", "=", true).executeTakeFirst();
+      await run(db, have ? "vault.replace" : "vault.add", have ? { item_id: have.id, upload_id: up.upload_id } : { name, upload_id: up.upload_id }, owner);
+      // Only the name and the last four characters, like the agent is told.
+      if (json) out({ ok: true, name, last4: up.last4 }); else console.log(t(lang, "cli.plugin_secret_added", { name, last4: up.last4 ?? "" }));
+      return 0;
+    } finally { await db.destroy(); }
+  }
+  if (cmd === "plugin" && sub === "service" && rest[0]) {
+    serverKeys();
+    const db = await clubDb();
+    try {
+      const pl = await db.selectFrom("plugin").select(["name", "manifest", "mode", "local_port", "status"]).where("name", "=", rest[0]).where("status", "!=", "removed").executeTakeFirst();
+      if (!pl) { console.error(t(lang, "error.plugin_not_installed", { name: rest[0] })); return 2; }
+      if (pl.mode !== "local") { console.error(t(lang, "error.plugin_not_local", { name: pl.name })); return 2; }
+      const m = pl.manifest as Manifest, docker = process.env.KUMI_INSTALL === "docker", production = process.env.NODE_ENV === "production";
+      const sp = servicePlan(m, pl.local_port!, docker);
+      if (args.includes("--remove")) {
+        if (args.includes("--apply")) { rmSync(sp.envFile, { force: true }); rmSync(sp.unitFile, { force: true }); }
+        if (json) out({ ok: true, removed: args.includes("--apply"), files: [sp.envFile, sp.unitFile], then: `systemctl disable --now ${unitName(m.name)}` });
+        else console.log(t(lang, args.includes("--apply") ? "cli.plugin_service_removed" : "cli.plugin_service_remove_plan", { files: `${sp.envFile} ${sp.unitFile}`, unit: unitName(m.name) }));
+        return 0;
+      }
+      const release = await fetchRelease(m, production);   // refused (and nothing kept) unless its SHA-256 is the pinned one
+      const apply = args.includes("--apply") && !docker;
+      if (apply) {
+        usePluginIo({ production, publicUrl: process.env.KUMI_PUBLIC_URL ?? "http://localhost:8787" });
+        writeService(sp, release, (m.run as { entry: string }).entry, await localPluginEnv(db, m.name));
+      }
+      if (json) { out({ ok: true, applied: apply, verified_sha256: (m.run as { sha256: string }).sha256, bytes: release.length, dir: sp.dir, env_file: sp.envFile, env: sp.envNames, unit_file: sp.unitFile, unit: sp.unit, compose: sp.compose,
+        then: apply ? `systemctl daemon-reload && systemctl enable --now ${unitName(m.name)}` : null }); return 0; }
+      console.log(t(lang, "cli.plugin_service_verified", { name: m.name, version: m.version, mb: (release.length / 1048576).toFixed(1) }));
+      if (docker) { console.log(t(lang, "cli.plugin_service_docker")); console.log(sp.compose); return 0; }
+      console.log(t(lang, apply ? "cli.plugin_service_written" : "cli.plugin_service_plan", { dir: sp.dir, env: sp.envFile, unit: sp.unitFile, names: sp.envNames.join(", ") }));
+      console.log(sp.unit);
+      console.log(t(lang, apply ? "cli.plugin_service_start" : "cli.plugin_service_apply_hint", { unit: unitName(m.name), name: m.name }));
+      return 0;
+    } catch (e) {
+      if (json) out({ ok: false, error: (e as Error).message }); else console.error((e as Error).message);
+      return 1;
     } finally { await db.destroy(); }
   }
   if (cmd === "doctor") {
