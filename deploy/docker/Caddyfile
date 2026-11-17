@@ -1,6 +1,12 @@
 # Caddy for Kumi in Docker: HTTPS for the members' app ({$KUMI_HOST}) and the staff app (staff.{$KUMI_HOST}),
 # the API on its paths, and the apps' security headers. Keep the policy the same as server-setup.sh's
 # (a test checks they match).
+
+# No admin API: this Caddy is never reloaded (its container restarts with a new config), so nothing can rewrite the
+# sites through 127.0.0.1:2019.
+{
+	admin off
+}
 (kumi) {
 	encode zstd gzip
 	@api path /auth/* /me /me/* /my/* /club /actions /actions/* /runs /runs/* /staff/* /oauth/* /.well-known/* /mcp /mcp/* /assistant /assistant/* /health /health/* /open-programs /payments/* /webhooks/* /plugins/* /manifest/* /availability /booking-options /quote /bookings/* /membership-plans /open-matches /matches/* /public /public/* /calendar/* /unsubscribe/*

@@ -156,6 +156,9 @@ SITE
 kumi_sites() {
   echo "# Kumi's sites. Each update writes this file again from its own release (deploy/release.sh), unless it has"
   echo "# been changed by hand: then it's left as it is, and paths a new release answers on need adding here."
+  echo "# Caddy's admin API listens on a socket only the caddy user reaches (systemctl reload caddy uses it), never on"
+  echo "# 127.0.0.1:2019, where anything on this server (a local plugin) could rewrite the sites."
+  printf '{\n\tadmin unix//var/lib/caddy/admin.sock\n}\n'
   site "$1" member "$3" "$4"
   site "$2" manager "$3" "$4"
 }

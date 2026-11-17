@@ -26,10 +26,13 @@ export const AREA_KEYS = AREAS.map((a) => a.key) as [string, ...string[]];
 export const PLUGIN_NEVER = ["agent.*", "plugin.*", "webhook.*", "vault.*", "role.*", "assistant.*", "support.*", "privacy.*", "club.*"];
 
 const noDash = (s: string) => !/[\u2014\u2013]/.test(s);
-const words = (max: number) => z.string().check(z.minLength(1), z.maxLength(max), z.refine(noDash, "no em or en dashes"));
+/** No control characters (a line break, a tab, C0 or C1): every field is one line of words, and none can start a new
+ *  line in anything it's written into (a service's unit file, a header, a log). */
+const oneLine = (s: string) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(s);
+const words = (max: number) => z.string().check(z.minLength(1), z.maxLength(max), z.refine(noDash, "no em or en dashes"), z.refine(oneLine, "one line, no control characters"));
 /** Words in both of the club's languages. */
 const text = (max = 300) => z.strictObject({ en: words(max), es: words(max) });
-const httpUrl = z.string().check(z.maxLength(500), z.refine((s) => { try { const u = new URL(s); return (u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password && !u.hash; } catch { return false; } }, "an http(s) address"));
+const httpUrl = z.string().check(z.maxLength(500), z.refine(oneLine, "one line, no control characters"), z.refine((s) => { try { const u = new URL(s); return (u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password && !u.hash; } catch { return false; } }, "an http(s) address"));
 const settingKey = z.string().check(z.regex(/^[a-z][a-z0-9_]{0,39}$/));
 const common = { key: settingKey, label: text(80), help: z.optional(text(300)), required: z.optional(z.boolean()) };
 
@@ -55,7 +58,7 @@ const run = z.discriminatedUnion("mode", [
 ]);
 
 export const manifestSchema = z.strictObject({
-  $schema: z.optional(z.string().check(z.maxLength(300))),
+  $schema: z.optional(z.string().check(z.maxLength(300), z.refine(oneLine, "one line, no control characters"))),
   manifest_version: z.literal(1),
   name: z.string().check(z.regex(/^[a-z][a-z0-9-]{1,38}[a-z0-9]$/)),
   publisher: words(80),

@@ -393,6 +393,9 @@ which writes its systemd unit with `--apply`. See docs/plugins/ (migration 128).
 - Plugins (migration 128): nothing to do; none is installed until the club's agent installs one and the owner says yes.
   The catalog is a sample bundled with openPadel until `KUMI_PLUGIN_CATALOG_URL` names another. The update gives Caddy
   the new /plugins/* path by itself.
+- Caddy's admin API moves off 127.0.0.1:2019, where anything on the server could rewrite the club's sites: to a socket
+  under /var/lib/caddy that only the caddy user reaches (`systemctl reload caddy` still works through it), and off
+  altogether in Docker. The update does it by itself, restarting Caddy once since a reload can't reach the old address.
 
 ## 0.6.3 (2026-11-10)
 

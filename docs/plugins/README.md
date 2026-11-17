@@ -73,7 +73,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now openpadel-plugin-cou
 ```
 
 The release is refused unless its SHA-256 is the one its manifest pins. The service runs as its own throwaway user
-with the system read-only, the club's settings, backups and database out of sight, and the private networks refused:
+with the system read-only, the club's settings, backups, database socket and Caddy's admin socket out of sight, and the
+private networks refused (Postgres still answers on the loopback, but only with a password the plugin never has):
 it reaches the club only through its public address, like a remote plugin. Its token is written into its environment
 file (root's alone) and nowhere else. On a Docker install, this version prints the compose service it would add and
 writes nothing.

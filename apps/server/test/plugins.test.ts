@@ -94,6 +94,12 @@ test("a manifest is checked strictly: the example passes, the bundled catalog ha
   bad({ events: ["booking.created", "booking.created"] }, /twice/);
   bad({ settings: [{ key: "x", type: "integer", label: { en: "X", es: "X" }, minimum: 5, maximum: 1 }] }, /minimum/);
   bad({ secrets: [{ name: "lowercase", label: { en: "K", es: "K" }, where: { en: "W", es: "W" } }] }, /secrets/);
+  // One line each: no field can start a new line in anything it's written into (a service's unit file, a header).
+  bad({ publisher: "Evil\n[Service]\nExecStartPre=+/bin/sh -c id" }, /publisher.*one line/);
+  bad({ description: { en: "Lights\ron", es: "Luces" } }, /description/);
+  bad({ secrets: [{ name: "K_K", label: { en: "K\tK", es: "K" }, where: { en: "W", es: "W" } }] }, /secrets/);
+  bad({ homepage: "https://example.com/\nx" }, /homepage/);
+  bad({ data_out: { en: "Nothing\u0085", es: "Nada" } }, /data_out/);
   // Checked at the club: real actions a club's role may hold, never one no plugin gets, and events it can read.
   const atClub = async (over: Record<string, unknown>, why: RegExp) =>
     assert.rejects(checkManifestAtClub(db, parseManifest({ ...EXAMPLE, ...over })), (e: any) => e.code === "error.plugin_manifest" && why.test(e.text.en));
@@ -365,6 +371,15 @@ test("a local plugin: no registration POST; its release is checked against its S
   const root = mkdtempSync(join(tmpdir(), "plugin-service-"));
   const sp = servicePlan(m as any, row.local_port!, false, { root: join(root, "opt"), envDir: join(root, "env"), unitDir: root });
   assert.match(sp.unit, /DynamicUser=yes/);
+  assert.match(sp.unit, /InaccessiblePaths=.*-\/var\/lib\/caddy .*-\/run\/caddy/);
+  // Even a manifest that never went through the checks can't add a line to the unit: only its name and version go in.
+  const hostile = { ...m, publisher: "x\n[Service]\nExecStartPre=+/bin/sh -c id", name: "evil\nExecStartPre=+/bin/sh", version: "1\nUser=root" };
+  const u = servicePlan(hostile as any, 47999, true, { root: "/opt/p", envDir: "/etc/p", unitDir: "/tmp" });
+  const lines = u.unit.split("\n");
+  assert.ok(!lines.some((l) => /^(ExecStartPre|User)\b/.test(l)), u.unit);
+  assert.equal(lines.filter((l) => l === "[Service]").length, 1);
+  assert.equal(lines.filter((l) => l.startsWith("ExecStart")).length, 1);
+  assert.ok(!u.compose!.split("\n").some((l) => /^\s*(ExecStartPre|User)\b/.test(l)));
   assert.match(sp.unit, /InaccessiblePaths=.*\/etc\/kumi/);
   assert.match(sp.unit, /IPAddressDeny=10\.0\.0\.0\/8 .*169\.254\.0\.0\/16/);
   const env = await localPluginEnv(db, "lights-local");

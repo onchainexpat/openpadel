@@ -31,20 +31,28 @@ export async function fetchRelease(m: Manifest, production: boolean): Promise<Bu
   return r.body;
 }
 
-/** The systemd unit for a local plugin. */
+/** Only what's safe in a unit file or a compose file: letters, digits and . _ - / @ : (a name, a version, a path, an
+ *  image). The manifest's checks already hold every field to one line; this is the second lock on the same door. */
+export const unitSafe = (s: string) => s.replace(/[^A-Za-z0-9._\-/@:]/g, "");
+
+/** The systemd unit for a local plugin. Nothing the manifest says in words goes into it: only its name, version and
+ *  entry, which the manifest's checks hold to safe characters, and they're kept to those again here. */
 export function unitFile(m: Manifest, dir: string, envFile: string, port: number): string {
   if (m.run.mode !== "local") throw new Error("not local");
-  return `# openPadel plugin ${m.name} ${m.version} (${m.publisher}). Written by \`openpadel plugin service ${m.name}\`; it talks to the club
-# only through its door (OPENPADEL_MCP) and listens on 127.0.0.1:${port} for the events and hooks the club passes on.
+  const name = unitSafe(m.name), version = unitSafe(m.version), p = Number.isInteger(port) ? port : 0;
+  return `# openPadel plugin ${name} ${version}. Written by openpadel plugin service ${name}; it talks to the club only
+# through its door (OPENPADEL_MCP) and listens on 127.0.0.1:${p} for the events and hooks the club passes on.
+# It can't reach Caddy's admin (a socket under /var/lib/caddy, hidden here), the club's settings, backups or database
+# socket. Postgres on 127.0.0.1:5432 answers on the loopback, but only with a password this service never has.
 [Unit]
-Description=openPadel plugin ${m.name}
+Description=openPadel plugin ${name}
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-EnvironmentFile=${envFile}
-WorkingDirectory=${dir}
-ExecStart=${join(dir, m.run.entry)}
+EnvironmentFile=${unitSafe(envFile)}
+WorkingDirectory=${unitSafe(dir)}
+ExecStart=${unitSafe(join(dir, m.run.entry))}
 Restart=on-failure
 RestartSec=5
 DynamicUser=yes
@@ -59,7 +67,7 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 RestrictAddressFamilies=AF_INET AF_INET6
-InaccessiblePaths=-/etc/kumi -/var/backups/kumi -/var/lib/postgresql -/run/postgresql -/var/lib/kumi
+InaccessiblePaths=-/etc/kumi -/var/backups/kumi -/var/lib/postgresql -/run/postgresql -/var/lib/kumi -/etc/caddy -/var/lib/caddy -/run/caddy
 IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 fc00::/7 fe80::/10
 MemoryMax=512M
 CPUQuota=50%
@@ -71,12 +79,13 @@ WantedBy=multi-user.target
 /** The compose service a Docker install would add (printed, not written, in this version). */
 export function composeService(m: Manifest, port: number): string {
   if (m.run.mode !== "local") throw new Error("not local");
-  const image = m.run.image ?? "(this plugin publishes no container image: it can't run on a Docker install yet)";
-  return `  plugin-${m.name}:
+  const name = unitSafe(m.name), p = Number.isInteger(port) ? port : 0;
+  const image = m.run.image ? unitSafe(m.run.image) : "# this plugin publishes no container image: it can't run on a Docker install yet";
+  return `  plugin-${name}:
     image: ${image}
     restart: unless-stopped
-    env_file: ./plugins/${m.name}.env
-    environment: { PORT: "${port}" }
+    env_file: ./plugins/${name}.env
+    environment: { PORT: "${p}" }
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

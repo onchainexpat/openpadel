@@ -48,6 +48,21 @@ test("the update scripts run only their own text, whatever happens to their file
   }
 });
 
+test("Caddy's admin API never listens on TCP, where a local plugin on the server could rewrite the sites", () => {
+  const block = /# --- caddy sites \(the same in server-setup\.sh and release\.sh\) ---\n([\s\S]*?)# --- end caddy sites ---/.exec(read("deploy/server-setup.sh"))![1]!;
+  const r = spawnSync("bash", ["-c", `${block}\napi='/club'; csp="default-src 'self'"\nkumi_sites a.example staff.a.example 127.0.0.1:8790 /opt/kumi/app`], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  const conf = r.stdout.split("\n").filter((l) => !l.startsWith("#")).join("\n");
+  // The global options come first, and move the admin API to a socket only the caddy user reaches (reload uses it).
+  assert.match(conf, /^\{\n\tadmin unix\/\/var\/lib\/caddy\/admin\.sock\n\}\n/);
+  assert.ok(!/admin (localhost|127\.|\[?::1|:\d)/.test(conf));
+  // Docker's Caddy is never reloaded: no admin API at all.
+  const docker = read("deploy/docker/Caddyfile").split("\n").filter((l) => !l.startsWith("#")).join("\n").trim();
+  assert.match(docker, /^\{\n\tadmin off\n\}/);
+  // An update that moves it restarts Caddy when the reload can't reach the old address.
+  assert.match(read("deploy/release.sh"), /if \$CADDY_RELOAD \|\| \$CADDY_RESTART; then/);
+});
+
 test("both ways of running Kumi give the apps the same security policy and the same API paths", () => {
   const script = read("deploy/server-setup.sh"), caddy = read("deploy/docker/Caddyfile");
   assert.equal(caddy.match(/Content-Security-Policy "(.*)"/)![1], script.match(/^csp="(.*)"$/m)![1]);

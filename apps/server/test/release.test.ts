@@ -29,7 +29,7 @@ function sh(...args: string[]) {
   const r = spawnSync("bash", [script, ...args], { encoding: "utf8", env: {
     PATH: `${stub}:${process.env.PATH}`, KUMI_ROOT: root, KUMI_ENV_FILE: envFile, KUMI_BACKUP_DIR: backups, KUMI_PG_BIN: stub, KUMI_AS: "", KUMI_SYSTEM_FILES: "0",
     KUMI_CHECK_SECONDS: "3", KUMI_RESTART: `sh ${stub}/restart`, KUMI_STOP: "true", KUMI_INSTALL: "true", KUMI_BUILD: `sh ${stub}/build`, STUB_ROOT: root, STUB_DB: dbFile,
-    KUMI_CADDYFILE: caddyfile, KUMI_CADDY: `${stub}/caddy`, KUMI_CADDY_RELOAD: `sh ${stub}/reload` } });
+    KUMI_CADDYFILE: caddyfile, KUMI_CADDY: `${stub}/caddy`, KUMI_CADDY_RELOAD: `sh ${stub}/reload`, KUMI_CADDY_RESTART: `sh ${stub}/caddy_restart` } });
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
 }
 const running = () => readlinkSync(join(root, "app"));
@@ -82,7 +82,9 @@ before(() => {
       case "$url" in *health) printf '{"ok":true,"version":"0.1.0","revision":"%s"}' "$rev";; *club) printf 200;; esac`,
     // caddy validate --config <file> --adapter caddyfile
     caddy: `grep -q /refuse-me "$3" && { echo "Error: adapting config using caddyfile: /refuse-me"; exit 1; }; exit 0`,
-    reload: `[ -f "$STUB_ROOT/NORELOAD" ] && exit 1; echo reloaded >> "$STUB_ROOT/.reloads"`,
+    reload: `[ -f "$STUB_ROOT/NORELOAD" ] && exit 1; [ -f "$STUB_ROOT/OLDADMIN" ] && exit 1; echo reloaded >> "$STUB_ROOT/.reloads"`,
+    // Restarting Caddy: what an update does when a reload can't reach the admin API where the new config says it is.
+    caddy_restart: `[ -f "$STUB_ROOT/NORELOAD" ] && exit 1; rm -f "$STUB_ROOT/OLDADMIN"; echo restarted >> "$STUB_ROOT/.restarts"`,
   };
   for (const [name, body] of Object.entries(stubs)) { writeFileSync(join(stub, name), `#!/bin/sh\n${body}\n`); chmodSync(join(stub, name), 0o755); }
 });
@@ -214,6 +216,19 @@ test("if Caddy won't take the new config, its old one goes back and the update i
   assert.equal(db(), data);
   assert.equal(reloads(), n);
   assert.ok(!readdirSync(t).some((f) => f.startsWith("Caddyfile.")));
+});
+
+test("a config written before Caddy's admin API moved to its socket is still Kumi's: it's replaced, and Caddy restarted once", () => {
+  // The running release's config as a release before plugins wrote it: the same sites, without the global block (3 lines).
+  const cur = running().split("/").pop()!, lines = sites(cur).split("\n"), at = lines.indexOf("{");
+  assert.ok(at > 0);
+  writeFileSync(caddyfile, [...lines.slice(0, at), ...lines.slice(at + 3)].join("\n"));
+  writeFileSync(join(root, "OLDADMIN"), "");   // the running Caddy still listens on 127.0.0.1:2019: a reload can't reach it
+  const r = sh("update", release("r20"), "r20");
+  assert.equal(r.code, 0, r.out);
+  assert.equal(caddy(), sites("r20"));
+  assert.match(caddy(), /\tadmin unix\/\/var\/lib\/caddy\/admin\.sock/);
+  assert.ok(existsSync(join(root, ".restarts")) && !existsSync(join(root, "OLDADMIN")), "restarted, since the reload couldn't reach it");
 });
 
 test("a Caddy config changed by hand is left as it is, and the update says so", () => {

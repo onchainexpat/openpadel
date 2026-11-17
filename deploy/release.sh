@@ -35,6 +35,7 @@ SYSTEM_FILES=${KUMI_SYSTEM_FILES:-1}
 CADDYFILE=${KUMI_CADDYFILE:-/etc/caddy/Caddyfile}
 CADDY=${KUMI_CADDY:-caddy}
 CADDY_RELOAD=${KUMI_CADDY_RELOAD:-systemctl reload caddy}
+CADDY_RESTART=${KUMI_CADDY_RESTART:-systemctl restart caddy}
 KUMI_HOME=${KUMI_HOME_DIR:-/var/lib/kumi}   # the kumi user's own folder (npm's cache), outside the code
 # Commands that touch the app or the database run as the kumi user; the tests set KUMI_AS= to run them as themselves.
 AS=${KUMI_AS-sudo -u kumi HOME=$KUMI_HOME}
@@ -149,6 +150,9 @@ SITE
 kumi_sites() {
   echo "# Kumi's sites. Each update writes this file again from its own release (deploy/release.sh), unless it has"
   echo "# been changed by hand: then it's left as it is, and paths a new release answers on need adding here."
+  echo "# Caddy's admin API listens on a socket only the caddy user reaches (systemctl reload caddy uses it), never on"
+  echo "# 127.0.0.1:2019, where anything on this server (a local plugin) could rewrite the sites."
+  printf '{\n\tadmin unix//var/lib/caddy/admin.sock\n}\n'
   site "$1" member "$3" "$4"
   site "$2" manager "$3" "$4"
 }
@@ -177,7 +181,9 @@ caddy_for() {
 caddy_ours() {
   local want
   [ -f "$CADDYFILE" ] && want=$(caddy_for "$1") || return 1
-  [ "$(grep -v '^#' "$CADDYFILE")" = "$(printf '%s\n' "$want" | grep -v '^#')" ]
+  local have; have=$(grep -v '^#' "$CADDYFILE"); want=$(printf '%s\n' "$want" | grep -v '^#')
+  # Or as releases before plugins wrote it: without the block that moves Caddy's admin API to its socket (3 lines).
+  [ "$have" = "$want" ] || [ "$have" = "$(printf '%s\n' "$want" | sed '1,3d')" ]
 }
 # Release $1's config, written beside Caddy's and checked by Caddy itself; prints its path. Nothing is switched yet.
 caddy_next() {
@@ -196,8 +202,10 @@ caddy_use() {
   if cmp -s "$next" "$CADDYFILE"; then rm -f "$next"; return 0; fi
   cp -p "$CADDYFILE" "$CADDYFILE.kumi-before"
   chmod 644 "$next"; mv -f "$next" "$CADDYFILE"
-  if $CADDY_RELOAD; then rm -f "$CADDYFILE.kumi-before"; say "Caddy now has this release's config"; return 0; fi
-  mv -f "$CADDYFILE.kumi-before" "$CADDYFILE"; $CADDY_RELOAD || true
+  # A reload asks Caddy's admin API where the new config says it is: the first time it moves to its socket, the running
+  # Caddy is still on 127.0.0.1:2019, so it's restarted instead (the config was checked above).
+  if $CADDY_RELOAD || $CADDY_RESTART; then rm -f "$CADDYFILE.kumi-before"; say "Caddy now has this release's config"; return 0; fi
+  mv -f "$CADDYFILE.kumi-before" "$CADDYFILE"; $CADDY_RELOAD || $CADDY_RESTART || true
   say "Caddy didn't take the new config, so it has its old one back"
   return 1
 }
