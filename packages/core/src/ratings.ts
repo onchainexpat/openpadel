@@ -26,12 +26,14 @@ export async function saveRating(ctx: ApplyCtx, personId: string, s: RatingState
   const row = { mu: s.mu, sigma: s.sigma, level: lvl(s.level), rated_games: s.games, provisional: s.sigma > MODEL.provisionalSigma, floor: s.floor === null ? null : lvl(s.floor) };
   if (existed) await ctx.update("rating", personId, row); else await ctx.insert("rating", { person_id: personId, ...row });
 }
-export async function ratingEvent(ctx: ApplyCtx, personId: string, kind: string, before: RatingState | null, after: RatingState, explanation: Text, extra: { gameId?: string; share?: number; factors?: unknown } = {}) {
+export async function ratingEvent(ctx: ApplyCtx, personId: string, kind: string, before: RatingState | null, after: RatingState, explanation: Text, extra: { gameId?: string; share?: number; factors?: unknown } = {}): Promise<string> {
+  const id = uuidv7();
   await ctx.trx.insertInto("rating_event").values({
-    id: uuidv7(), person_id: personId, game_id: extra.gameId ?? null, kind, mu_before: before?.mu ?? null, sigma_before: before?.sigma ?? null, level_before: before ? lvl(before.level) : null,
+    id, person_id: personId, game_id: extra.gameId ?? null, kind, mu_before: before?.mu ?? null, sigma_before: before?.sigma ?? null, level_before: before ? lvl(before.level) : null,
     mu_after: after.mu, sigma_after: after.sigma, level_after: lvl(after.level), share: extra.share ?? null, factors: JSON.stringify(extra.factors ?? {}),
     explanation: JSON.stringify(explanation), action_run_id: ctx.runId, model_version: MODEL_VERSION, at: ctx.now,
   }).execute();
+  return id;
 }
 
 async function gameFacts(db: Db | Trx, gameId: string) {

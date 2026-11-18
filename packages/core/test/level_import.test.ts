@@ -1,6 +1,7 @@
 // A starting level from another app (level_import.ts): staff record what they saw, a player claims their own (at
 // once below the club's line, checked by staff above it), a club moving in brings its Playtomic levels, and a player
-// can take one away while still new. Never a floor, never surer than a staff-set level, never through an assistant.
+// can take one away while still new. Never a floor, never surer than a staff-set level. A player's assistant may
+// bring their level (level_claims.test.ts has the rest of claims), never take away a start staff recorded.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb } from "./helpers.ts";
@@ -67,7 +68,7 @@ test("staff record a level they saw in the player's app: a provisional start, wh
   assert.equal(ev.kind, "import_seed");
   assert.equal((ev.explanation as any).en, "Starting level 4.25, from Playtomic (4.25, reliability 80%). Seen in the player's app by Dana Desk on December 1, 2026. It's provisional: games at the club take over.");
   assert.deepEqual(ev.factors, { platform: "playtomic", raw: 4.25, conf: { reliability: 80 }, start_level: 4.25, sigma: 0.6, evidence: "staff_seen", external_id: null, last_played: "2026-11-20",
-    checked_by: desk.personId, table: "interim-2026-11-07" });
+    checked_by: desk.personId, table: "interim-2026-11-18" });
   // Once per app; a WPR rating marked NC is self-assigned and isn't used.
   await rejects(plan(db, "level.import", { person_id: people.Ann, platform: "playtomic", value: 4.5, evidence: "staff_seen" }, desk, opts), "error.import_already");
   await rejects(plan(db, "level.import", { person_id: people.Ben, platform: "wpr", value: 9, wpr: "NC", evidence: "staff_seen" }, desk, opts), "error.import_wpr_nc");
@@ -94,34 +95,36 @@ test("only while new: before 5 rated games here", async () => {
 test("a player's claim: at or below the club's line it starts as their own word; above it, staff check it first", async () => {
   // Below the line (4.50): at once, as unsure as a stranger's level but from a better middle.
   const low = await run(db, "level.claim", { person_id: people.Ben, platform: "playtomic", value: 3.8, reliability: 90 }, as("Ben"), opts);
-  assert.equal(low.plan.summary.en, "Start your level at 3.80, from Playtomic (3.8, reliability 90%). It's provisional: your first games here move it quickly. You can take it away before 5 rated games.");
+  assert.equal(low.plan.summary.en, "Your level from Playtomic (3.8, reliability 90%) starts you at 3.80 here, provisional: your first games here move it quickly. You can take it away before 5 rated games.");
   const b = (await rating("Ben"))!;
-  assert.deepEqual([b.level, b.sigma, (await lastEvent("Ben")).factors && ((await lastEvent("Ben")).factors as any).evidence], ["3.80", 1, "self"]);
+  assert.deepEqual([b.level, b.sigma, ((await lastEvent("Ben")).factors as any).evidence], ["3.80", 1, "self"]);
   // Only their own (or their junior's).
   await rejects(plan(db, "level.claim", { person_id: people.Fay, platform: "playtomic", value: 3 }, as("Ben"), opts), "error.forbidden_reason");
   // Above the line: it waits for staff, and staff hear.
   const high = await run(db, "level.claim", { person_id: people.Cy, platform: "playtomic", value: 5.2, reliability: 80 }, as("Cy"), opts);
   assert.equal(high.plan.summary.en, "Send your level on Playtomic (5.2, reliability 80%) to the club. Staff check levels above 4.50 first, for example by looking at your app. You'll hear in the app.");
   assert.equal(await rating("Cy"), undefined);
-  const review = await db.selectFrom("level_review").selectAll().where("person_id", "=", people.Cy!).executeTakeFirstOrThrow();
-  assert.deepEqual([review.kind, review.status, (review.claim as any).start_level], ["import", "open", 5.2]);
+  const claim = await db.selectFrom("level_claim").selectAll().where("person_id", "=", people.Cy!).executeTakeFirstOrThrow();
+  assert.deepEqual([claim.status, claim.start_level, claim.sigma], ["waiting", "5.20", null]);
   await processOutbox(db, messageHandlers);
   assert.equal((await inbox("Dana", "level_import_claimed_staff"))[0]!.body, "Cy says their level on Playtomic is 5.2, reliability 80%. Check it on the Levels page, for example by looking at their app.");
   // Staff check it (Cy shows them the app) and start them there, at the confidence the app shows.
   await rejects(plan(db, "level.import", { person_id: people.Cy, platform: "playtomic", value: 5.2, evidence: "staff_seen" }, desk, opts), "error.import_claim_open");
-  const acc = await run(db, "level.answer_review", { person_id: people.Cy, outcome: "accept" }, desk, opts);
-  assert.equal(acc.plan.summary.en, "Start Cy at 5.20, from Playtomic (5.2, reliability 80%), as you checked it. They're told.");
+  const acc = await run(db, "level.answer_claim", { claim_id: claim.id, outcome: "confirm" }, desk, opts);
+  assert.equal(acc.plan.summary.en, "Confirm Cy's level from Playtomic (5.2, reliability 80%) as seen: a start of 5.20, surer than their word alone. It becomes their start here, 5.20, provisional. They're told.");
   const c = (await rating("Cy"))!;
   assert.deepEqual([c.level, c.sigma], ["5.20", 0.6]);
   assert.equal(((await lastEvent("Cy")).explanation as any).en, "Starting level 5.20, from Playtomic (5.2, reliability 80%). Given in the app and checked by Dana Desk on December 1, 2026. It's provisional: games at the club take over.");
   await processOutbox(db, messageHandlers);
-  assert.equal((await inbox("Cy", "level_import_accepted"))[0]!.body, "The club checked your level from Playtomic, and your level here starts at 5.20. It's provisional: your games at the club take over.");
-  // From an app whose scale isn't converted: always staff, who give the start; or they don't use it, and say so.
+  assert.equal((await inbox("Cy", "level_claim_confirmed"))[0]!.body, "The club checked your level from Playtomic. Your level here is 5.20, provisional: your games at the club take over.");
+  // From an app whose scale isn't converted: always staff, who give the start; or they turn it down, and say why.
   await run(db, "level.claim", { person_id: people.Fay, platform: "padelmates", value: 2 }, as("Fay"), opts);
-  await rejects(plan(db, "level.answer_review", { person_id: people.Fay, outcome: "accept" }, desk, opts), "error.accept_needs_level");
-  await run(db, "level.answer_review", { person_id: people.Fay, outcome: "keep", reason: "Let's see a few games first" }, desk, opts);
+  const fay = await db.selectFrom("level_claim").select("id").where("person_id", "=", people.Fay!).executeTakeFirstOrThrow();
+  await rejects(plan(db, "level.answer_claim", { claim_id: fay.id, outcome: "confirm" }, desk, opts), "error.accept_needs_level");
+  await rejects(plan(db, "level.answer_claim", { claim_id: fay.id, outcome: "reject" }, desk, opts), "error.reject_needs_reason");
+  await run(db, "level.answer_claim", { claim_id: fay.id, outcome: "reject", reason: "Let's see a few games first" }, desk, opts);
   await processOutbox(db, messageHandlers);
-  assert.equal((await inbox("Fay", "level_import_kept"))[0]!.body, "The club looked at your level from Padelmates and didn't use it: your games here set your level. Note: \"Let's see a few games first\"");
+  assert.equal((await inbox("Fay", "level_claim_rejected"))[0]!.body, "The club looked at your level from Padelmates and didn't use it: your games here set your level. Note: \"Let's see a few games first\"");
   assert.equal(await rating("Fay"), undefined);
   // The club's own line.
   await db.updateTable("club").set({ level_import_line: 3 }).execute();
@@ -132,12 +135,14 @@ test("a player's claim: at or below the club's line it starts as their own word;
 
 test("a player takes an import away while new: the level is worked out again without it", async () => {
   // Ben's start was the only thing behind his level: he's back to none, and can bring one again.
-  const r = await run(db, "level.remove_import", { person_id: people.Ben }, as("Ben"), opts);
-  assert.equal(r.plan.summary.en, "Take away your starting level from Playtomic (3.80). With nothing else behind it, you'll have no level until you play here.");
+  const mine = await db.selectFrom("level_claim").select("id").where("person_id", "=", people.Ben!).where("status", "=", "standing").executeTakeFirstOrThrow();
+  await rejects(plan(db, "level.remove_import", { person_id: people.Ben }, as("Ben"), opts), "error.import_is_claim");
+  const r = await run(db, "level.remove_claim", { claim_id: mine.id }, as("Ben"), opts);
+  assert.equal(r.plan.summary.en, "Take away the level from Playtomic (3.8, reliability 90%). With nothing else behind it, there's no level until games here.");
   assert.equal(await rating("Ben"), undefined);
   assert.equal((await replay(db)).get(people.Ben!), undefined);
   assert.equal((await lastEvent("Ben")).kind, "import_removed");
-  await rejects(plan(db, "level.remove_import", { person_id: people.Ben }, as("Ben"), opts), "error.no_import");
+  await rejects(plan(db, "level.remove_claim", { claim_id: mine.id }, as("Ben"), opts), "error.claim_answered");
   await run(db, "level.claim", { person_id: people.Ben, platform: "playtomic", value: 3.6 }, as("Ben"), opts);
   assert.equal((await rating("Ben"))!.level, "3.60");
   // Eve had a level set by staff before her import: taking it away goes back to that.
@@ -152,9 +157,11 @@ test("a player takes an import away while new: the level is worked out again wit
   await db.updateTable("rating").set({ rated_games: 0 }).where("person_id", "=", people.Ann!).execute();
 });
 
-test("an assistant or the command line can't claim a level or take one away: that's in the app", async () => {
-  const bot: Actor = { personId: people.Ida!, via: "mcp:Test Agent", lang: "en", auth: "oauth", grantId: "g" };
-  await rejects(plan(db, "level.claim", { person_id: people.Ida, platform: "playtomic", value: 3 }, bot, opts), "error.assistant_in_app");
+test("a player's assistant can bring their level (previewed, in the same words), but not take away a start staff recorded", async () => {
+  const bot: Actor = { personId: people.Ida!, via: "mcp:Test Agent", lang: "en", auth: "oauth" };
+  const p = await plan(db, "level.claim", { person_id: people.Ida, platform: "playtomic", value: 4.2, reliability: 60 }, bot, opts);
+  assert.equal(p.plan.summary.en, "Your level from Playtomic (4.2, reliability 60%) starts you at 4.20 here, provisional: your first games here move it quickly. You can take it away before 5 rated games.");
+  assert.equal(p.plan.summary.es, "Tu nivel de Playtomic (4.2, confiabilidad 60%) te hace empezar en 4.20 aquí, provisional: tus primeros partidos aquí lo ajustan rápido. Puedes quitarlo antes de 5 partidos puntuables.");
   await rejects(plan(db, "level.remove_import", { person_id: people.Ann }, { ...bot, personId: people.Ann! }, opts), "error.assistant_in_app");
 });
 

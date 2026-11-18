@@ -29,6 +29,14 @@ test("the Levels queue's flags: a level from another app, a review asked for, an
   assert.deepEqual(items.map((x) => [x.key, x.flag]), [["imp", "imported"], ["ask", "asked"], ["move-down", "drop"], ["move-up", "rise"]]);
 });
 
+test("levels brought from other apps lead the queue: those waiting for staff first, then a player's word staff could confirm", () => {
+  const c = (id: string, status: "waiting" | "standing") => ({ id, person_id: id, name: id, platform: "wpr", shown: "9", start_level: 4.4, status, profile_url: null, proof: "none" as const,
+    created_at: "2026-11-01T10:00:00Z", sent_by: null, level: null, provisional: null, rated_games: 0 });
+  const items = queueItems({ requests: [{ id: "ask", person_id: "ask", name: "ask", note: null, created_at: "2026-11-01T10:00:00Z", level: "3.00", provisional: false, rated_games: 3, kind: "request", claim: null }],
+    moves: [], claims: [c("word", "standing"), c("wait", "waiting")] });
+  assert.deepEqual(items.map((x) => [x.key, x.flag, x.kind]), [["wait", "imported", "app"], ["word", "word", "app"], ["ask", "asked", "ask"]]);
+});
+
 test("a coach's level check: −/+ steps of 0.1 that keep to the floor and to 7, and only real changes are saved", () => {
   assert.equal(stepLevel("3.40", "3.40", 0.1, null), "3.50");
   assert.equal(stepLevel("", "3.40", -0.1, null), "3.30");          // nothing typed: from where they were

@@ -149,7 +149,7 @@ openpadel my-passes
 
 ### openpadel my-level
 
-My level. This person's level, how it moved and why, and their games.
+My level. This person's level, how it moved and why, and their games; levels they brought from other apps (claims) and each app's scale.
 
 Who may: anyone signed in, about themselves.
 
@@ -235,6 +235,30 @@ Who may: staff (each sees what their staff screens show).
 
 ```
 openpadel person-page --person "Maria Lopez"
+```
+
+### openpadel level-queue
+
+Levels to review. The Levels page's queue: levels players brought from other apps (claims: the app, its number, the start it converts to or null when staff give it, whether it waits for staff or counts as the player's word, a profile link and whether a screenshot is attached), reviews players asked for, and levels that moved a lot. Answer a claim with openpadel level answer-claim (confirm, change with a level and reason, or reject with a reason the player reads).
+
+Who may: staff (each sees what their staff screens show).
+
+```
+openpadel level-queue
+```
+
+### openpadel person-level
+
+A person's level. One person's level page, as staff see it: the level, its history, where a start from another app came from, and every level they brought (claims).
+
+Who may: staff (each sees what their staff screens show).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--person` | person: a name or an id | needed |  |
+
+```
+openpadel person-level --person "Maria Lopez"
 ```
 
 ### openpadel locations
@@ -2050,6 +2074,21 @@ openpadel lesson request --coach "Ana Ruiz" --starts-at "2026-11-20 18:00" --min
 
 ### level
 
+#### openpadel level answer-claim
+
+Answer a level from another app. Who may: owner, manager, front desk, coach.
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--claim-id` | id | needed |  |
+| `--outcome` | confirm \| change \| reject | needed | confirm: as the other app shows it (seen, so surer); change: start at another level, with a reason; reject: not used, with a reason. The player reads the reason. |
+| `--level` | number |  | The start on the club's 0 to 7: for change, and to confirm a level from an app whose scale isn't converted. |
+| `--reason` | text |  |  |
+
+```
+openpadel level answer-claim --claim-id <id> --outcome confirm
+```
+
 #### openpadel level answer-review
 
 Answer a level review. Who may: owner, manager, front desk, coach.
@@ -2065,6 +2104,27 @@ Answer a level review. Who may: owner, manager, front desk, coach.
 openpadel level answer-review --person "Maria Lopez" --outcome keep
 ```
 
+#### openpadel level claim
+
+Bring my level from another app. Who may: owner, manager, front desk (with approval), coach, member (their own).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--person` | person: a name or an id | needed |  |
+| `--platform` | playtomic \| playbypoint \| wpr \| matchi \| lta \| padellevels \| padelmates \| courtreserve \| other | needed | courtreserve: a club's own rating there (its WPR is wpr) |
+| `--value` | number | needed | The level as the other app shows it, on its own scale. |
+| `--reliability` | whole number |  | Playtomic's reliability for the level, in percent, as its app shows it. |
+| `--matches` | whole number |  | Playbypoint: how many matches its rating counts. |
+| `--wpr` | HC \| LC \| NC |  | WPR's confidence: HC high, LC low, NC none (self-assigned, not used). |
+| `--percent` | whole number |  | PadelLevels' confidence, in percent. |
+| `--last-played` | date YYYY-MM-DD |  | When they last played there, if the app shows it. |
+| `--profile-url` | text |  | Their public profile there |
+| `--proof-id` | id |  | The members' app's only |
+
+```
+openpadel level claim --person "Maria Lopez" --platform playtomic --value 0
+```
+
 #### openpadel level import
 
 Record a level from another app. Who may: owner, manager, front desk, coach.
@@ -2074,7 +2134,7 @@ Its preview reads: "Start {person} at {level} (now {before}), from {source} ({sh
 | Flag | Takes | | What it is |
 |---|---|---|---|
 | `--person` | person: a name or an id | needed |  |
-| `--platform` | playtomic \| playbypoint \| wpr \| matchi \| lta \| padellevels \| padelmates \| other | needed |  |
+| `--platform` | playtomic \| playbypoint \| wpr \| matchi \| lta \| padellevels \| padelmates \| courtreserve \| other | needed |  |
 | `--value` | number | needed | The level as the other app shows it, on its own scale. |
 | `--reliability` | whole number |  | Playtomic's reliability for the level, in percent, as its app shows it. |
 | `--matches` | whole number |  | Playbypoint: how many matches its rating counts. |
@@ -2087,6 +2147,20 @@ Its preview reads: "Start {person} at {level} (now {before}), from {source} ({sh
 
 ```
 openpadel level import --person "Maria Lopez" --platform playtomic --value 0 --evidence staff_seen
+```
+
+#### openpadel level remove-claim
+
+Take away a level brought from another app. Who may: owner, manager, front desk (with approval), coach, member (their own).
+
+Its preview reads: "Take away the level from {source} ({shown})."
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--claim-id` | id | needed |  |
+
+```
+openpadel level remove-claim --claim-id <id>
 ```
 
 #### openpadel level request-review

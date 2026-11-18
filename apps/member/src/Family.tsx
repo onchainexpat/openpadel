@@ -6,7 +6,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { loadFamily } from "./ForWhom.tsx";
-import { BringLevel, type L } from "./MyLevel.tsx";
+import { BringLevel, ClaimsList, type L } from "./MyLevel.tsx";
 import type { Key } from "@kumi/i18n";
 import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { capFor, fromMajor, toMajor, formatLocale } from "@kumi/i18n/format";
@@ -268,9 +268,10 @@ function JuniorLevel({ id, name, onChanged }: { id: string; name: string; onChan
           <p class="meta">{t("ui.rated_games", { count: d.rating.rated_games })}{d.rating.provisional ? ` · ${t("ui.provisional")}` : ""}</p></>
         : <p class="meta">{t("ui.level_not_yet_for")}</p>}
       {d.import && <><h3>{t("ui.level_started_from_for", { name })}</h3><p>{d.import.explanation}</p>
-        {d.can_remove && <button class="small" onClick={() => preview("level.remove_import", { person_id: id })}>{t("ui.remove_import")}</button>}</>}
+        {d.can_remove && !d.import.claim_id && <button class="small" onClick={() => preview("level.remove_import", { person_id: id })}>{t("ui.remove_import")}</button>}</>}
+      <ClaimsList d={d} name={name} remove={(claimId) => preview("level.remove_claim", { claim_id: claimId })} />
       {rv.open?.kind === "import" && rv.open.claim && <p class="meta">{t("ui.level_import_waiting_for", { name, source: t(`level_source.${rv.open.claim.platform}` as Key), date: day(rv.open.created_at) })}</p>}
-      {d.can_claim && !d.import && !rv.open && <BringLevel d={d} name={name} send={(input) => preview("level.claim", { person_id: id, ...input })} />}
+      {d.can_claim && !(rv.open?.kind === "import") && <BringLevel d={d} name={name} forId={id} send={(input) => preview("level.claim", { person_id: id, ...input })} />}
     </section>
   );
 }

@@ -1,4 +1,4 @@
-import { deliverRegistrations, fanOutWebhooks, sendWebhooks, tidyAgentTokens, playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, tidyAssistantChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, tidyCardsOnFile, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, sendWhatsApp, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
+import { deliverRegistrations, fanOutWebhooks, sendWebhooks, tidyAgentTokens, playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, tidyAssistantChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, tidyLevelProofs, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, tidyCardsOnFile, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, sendWhatsApp, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
@@ -299,6 +299,8 @@ const jobSteps: JobStep[] = [
   }],
   ["uploads", async () => {
     await tidyVaultUploads(db);
+    // Screenshots players added to a level from another app: unnamed after an hour, unanswered after 60 days (level_claims.ts).
+    await tidyLevelProofs(db);
     // A club agent's new token nobody was shown within the hour (an approved change): dropped.
     await tidyAgentTokens(db);
   }],

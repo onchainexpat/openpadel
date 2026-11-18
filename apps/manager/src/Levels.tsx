@@ -7,7 +7,8 @@ import { api, lang, me, t, usePreview, clubTime } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { Pager, Tabs } from "./lists.tsx";
 import { ScoreCard, type Score } from "./Scores.tsx";
-import { FLAG_TONE, queueItems, type QueueClaim, type QueueItem, type QueueMove, type QueueRequest } from "./levels_queue.ts";
+import { FLAG_TONE, queueItems, type QueueAppClaim, type QueueClaim, type QueueItem, type QueueMove, type QueueRequest } from "./levels_queue.ts";
+import { ClaimAnswer } from "./LevelClaim.tsx";
 
 /** What the player's other app showed, as they gave it. */
 function shown(c: QueueClaim): string {
@@ -16,7 +17,7 @@ function shown(c: QueueClaim): string {
   return conf ? `${c.raw}, ${conf}` : String(c.raw);
 }
 type Rules = { review_days: number; self_adjust_games: number; self_adjust_max: number; import_line: number };
-type Q = { requests: QueueRequest[]; moves: QueueMove[]; limit: number; days: number; rules: Rules };
+type Q = { requests: QueueRequest[]; moves: QueueMove[]; claims: QueueAppClaim[]; limit: number; days: number; rules: Rules };
 type Player = { person_id: string; name: string; level: string; provisional: boolean; floor: string | null; rated_games: number };
 type Players = { total: number; page: number; pages: number; per_page: number; rows: Player[] };
 type Change = { id: string; person_id: string; name: string; kind: string; before: string | null; after: string | null; at: string; by: string | null; explanation: string; run_id: string | null; undone: boolean; can_undo: boolean };
@@ -24,7 +25,25 @@ const TABS = ["review", "players", "changes", "disputes"] as const;
 type TabKey = (typeof TABS)[number];
 const tabOfHash = (): TabKey => { const h = location.hash.slice(1); return (TABS as readonly string[]).includes(h) ? h as TabKey : "review"; };
 
+/** A level brought from another app, in the queue: the player, then the claim and its answers (LevelClaim.tsx). */
+function AppClaim({ item, preview, day }: { item: Extract<QueueItem, { kind: "app" }>; preview: (a: string, i: unknown) => void; day: (iso: string) => string }) {
+  const c = item.c, games = c.rated_games !== null ? t("count.rated_games", { count: c.rated_games }) : null;
+  return (
+    <li class="card level-item">
+      <p><span class={`flag ${FLAG_TONE[item.flag]}`}>{t(`ui.level_flag_${item.flag}` as Key)}</span></p>
+      <p><a href={`/people/${c.person_id}/level`}><strong>{c.name}</strong></a> <span class="badge muted">{c.level ?? t("ui.no_level_yet")}</span>
+        {c.provisional && <span class="meta"> · {t("ui.person_chip_provisional")}</span>}{games && <span class="meta"> · {games}</span>}</p>
+      <ClaimAnswer c={c} preview={preview} day={day} />
+    </li>
+  );
+}
+
 function Answer({ item, preview, day }: { item: QueueItem; preview: (a: string, i: unknown) => void; day: (iso: string) => string }) {
+  if (item.kind === "app") return <AppClaim item={item} preview={preview} day={day} />;
+  return <OtherAnswer item={item} preview={preview} day={day} />;
+}
+
+function OtherAnswer({ item, preview, day }: { item: Exclude<QueueItem, { kind: "app" }>; preview: (a: string, i: unknown) => void; day: (iso: string) => string }) {
   const [to, setTo] = useState(""), [reason, setReason] = useState("");
   const personId = item.kind === "move" ? item.m.person_id : item.r.person_id, name = item.kind === "move" ? item.m.name : item.r.name;
   const level = item.kind === "move" ? item.m.level.toFixed(2) : item.r.level;

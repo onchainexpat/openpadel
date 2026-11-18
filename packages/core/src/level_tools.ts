@@ -203,8 +203,8 @@ export const levelAnswerReview = defineAction({
       const c = claim!.claim as Claim, d = plan.details as { start_level: number; sigma: number };
       if (before.games >= SELF_ADJUST_GAMES) throw new KumiError("error.import_late", { count: SELF_ADJUST_GAMES });
       const by = await nameOf(ctx.trx, ctx.actor.personId), date = dayText(localDate(ctx.now, await clubTz(ctx.trx)));
-      after = await writeImport(ctx, i.person_id, { platform: c.platform, raw: c.raw, conf: c.conf, start_level: d.start_level, sigma: d.sigma, evidence: "staff_seen", last_played: c.last_played ?? null },
-        parent ? both("level_import.how_checked_parent", { parent: await nameOf(ctx.trx, parent), by, date }) : both("level_import.how_checked", { by, date }), ctx.actor.personId);
+      after = (await writeImport(ctx, i.person_id, { platform: c.platform, raw: c.raw, conf: c.conf, start_level: d.start_level, sigma: d.sigma, evidence: "staff_seen", last_played: c.last_played ?? null },
+        parent ? both("level_import.how_checked_parent", { parent: await nameOf(ctx.trx, parent), by, date }) : both("level_import.how_checked", { by, date }), ctx.actor.personId)).level;
     }
     if (i.outcome === "change") {
       const next = staffSet(before, Math.max(before.floor ?? -Infinity, round2(i.level!)));
