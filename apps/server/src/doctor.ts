@@ -249,7 +249,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   const hostOfUrl = (u: string | null) => { try { return u ? new URL(u).host : ""; } catch { return u ?? ""; } };
   for (const pl of plugins) {
     const keys = await db.selectFrom("plugin").select("manifest").where("name", "=", pl.name).where("status", "!=", "removed").executeTakeFirst()
-      .then(async (r) => r ? (await pluginSecrets(db, pl.name, r.manifest as Manifest)).filter((k) => !k.added).map((k) => k.name) : []).catch(() => [] as string[]);
+      .then(async (r) => r ? (await pluginSecrets(db, pl.name, r.manifest as Manifest)).filter((k) => k.needed).map((k) => k.name) : []).catch(() => [] as string[]);
     const id = `plugin:${pl.name}`, pdoc = "docs/plugins/README.md";
     if (pl.status === "paused") add(id, "off", "plugin.paused", { name: pl.name });
     else if (keys.length) add(id, "warn", "plugin.keys", { name: pl.name, keys: keys.join(", ") }, pdoc);

@@ -80,6 +80,9 @@ export interface ActionDef<S extends z.ZodMiniObject = z.ZodMiniObject> {
   /** Input only the preview reads (a gift card's code): never stored, not even with the preview, so apply works
    *  from what the preview found (its details) and never sees it. */
   planOnly?: string[];
+  /** What the preview's details carry only for apply (a key the plugin keeps, sealed): taken out of the stored preview
+   *  once it's applied, never stored with a refused one, and taken out of a preview nobody confirmed once it expires. */
+  forgetDetails?: string[];
   /** Only this person may do it (their own credit, their own code): anyone else is refused before the preview is
    *  built, and the refusal is logged like any other (without what only the preview reads). */
   selfOnly?: (db: Db | Trx, input: any) => Promise<string | null>;
@@ -228,6 +231,11 @@ export async function forgetStaleInputs(db: Db | Trx, now = new Date()): Promise
       AND status <> 'applied' AND (status NOT IN ('planned', 'awaiting_approval') OR plan_expires_at < ${now})`.execute(db);
     n += Number(r.numAffectedRows ?? 0);
   }
+  for (const def of registry.values()) for (const key of def.forgetDetails ?? []) {
+    const r = await sql`UPDATE action_run SET plan = plan #- ${`{details,${key}}`}::text[] WHERE action = ${def.name} AND plan->'details' ? ${key}
+      AND (status NOT IN ('planned', 'awaiting_approval') OR plan_expires_at < ${now})`.execute(db);
+    n += Number(r.numAffectedRows ?? 0);
+  }
   return n;
 }
 export function getAction(name: string): ActionDef<any> {
@@ -274,6 +282,9 @@ function validate<S extends z.ZodMiniObject>(def: ActionDef<S>, raw: unknown): z
 
 /** The preview as it's stored: without its picture (Plan.image), which is for the person looking at it now. */
 const planJson = (p: Partial<Plan>) => JSON.stringify({ ...p, image: undefined });
+/** The preview without the details only apply reads (forgetDetails). */
+const planForgotten = (def: ActionDef<any>, p: Partial<Plan>) => def.forgetDetails?.length && p.details && typeof p.details === "object"
+  ? { ...p, details: without(p.details, def.forgetDetails) } : p;
 /** The input as it's kept: without what the action forgets. */
 const kept = (def: ActionDef<any>, input: unknown) => without(stored(def, input), def.forget);
 /** The input as it's stored with a preview: without what only the preview reads (planOnly). */
@@ -285,7 +296,7 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
   // Every "no" is logged (permissions.md), with the support access it was tried under (and nothing the action forgets).
   await db.insertInto("action_run").values({ support_grant_id: d.support ?? null,
     id: uuidv7(), action: def.name, action_version: def.version, actor_person_id: actor.personId, agent_id: actor.agentId ?? null,
-    via: actor.via, location_id: plan?.locationId ?? null, input: JSON.stringify(kept(def, input)), plan: planJson(plan ?? {}), status: "failed",
+    via: actor.via, location_id: plan?.locationId ?? null, input: JSON.stringify(kept(def, input)), plan: planJson(planForgotten(def, plan ?? {})), status: "failed",
     undo_kind: "none", read_versions: JSON.stringify({}), plan_expires_at: new Date(), error: JSON.stringify({ code: "error.forbidden_reason", reason: d.reason }),
   }).execute();
   throw new KumiError("error.forbidden_reason", { reason: both(d.reason ?? "reason.no_role") }, 403);
@@ -576,6 +587,7 @@ export async function apply(db: Db, runId: string, actor: Actor, opts: { idempot
       await trx.updateTable("action_run").set({
         status: "applied", applied_at: now, result: JSON.stringify(result), idempotency_key: opts.idempotencyKey ?? null,
         ...(def.forget?.length ? { input: JSON.stringify(kept(def, run.input)) } : {}),
+        ...(def.forgetDetails?.length ? { plan: planJson(planForgotten(def, p)) } : {}),
         approved_by: opts.approvedBy ?? null, undo_until: p.undo.minutes ? new Date(now.getTime() + p.undo.minutes * 60_000) : null,
       }).where("id", "=", runId).execute();
       // An ask still waiting that read something this change has just changed can never be done as it was asked: it's

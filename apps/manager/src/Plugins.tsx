@@ -12,7 +12,7 @@ export type ConnectorStatus = "on" | "waiting" | "attention" | "off";
 export type Plugin = { id: string; name: string; version: string; status: "waiting" | "on" | "paused" | "removed"; mode: "remote" | "local"; source: "catalog" | "url" | "file"; source_host: string | null;
   address: string | null; publisher: string; description: string; can: string; reads: string; events: string[]; sends: string; runs: string; cost: { charges: boolean; note: string };
   installed_at: string; installed_by: string | null; removed_at: string | null; registration_error: string | null; registration_problem: string | null; last_event_at: string | null; last_used_at: string | null;
-  keys: { name: string; vault_name: string; label: string; where: string; added: boolean; last4: string | null }[]; settings: Setting[]; settings_values: Record<string, unknown>;
+  keys: { name: string; vault_name: string; label: string; where: string; added: boolean; last4: string | null; kept_by_plugin?: boolean; optional?: boolean; needed?: boolean }[]; settings: Setting[]; settings_values: Record<string, unknown>;
   health: { state: "ok" | "down" | "paused" | "waiting"; problem?: string; ms?: number } | null; connector_status: ConnectorStatus; cards: PluginCardData[] };
 type Send = (action: string, input: unknown) => Promise<void>;
 
@@ -31,7 +31,7 @@ export const mono = (name: string) => name.replace(/[^A-Za-z0-9]/g, "").slice(0,
 /** One installed plugin, as the same kind of card as the built-in services. */
 export function PluginConnector({ p, send }: { p: Plugin; send: Send }) {
   const [setting, setSetting] = useState(false);
-  const needed = p.keys.filter((k) => !k.added);
+  const needed = p.keys.filter((k) => k.needed ?? !k.added);
   const health = [p.health?.state === "ok" ? t("ui.plugin_healthy", { ms: p.health.ms ?? 0 }) : p.health?.state === "down" ? t("ui.plugin_health_down", { error: p.health.problem ?? "" }) : null,
     p.last_event_at ? t("ui.plugin_last_event", { when: ago(p.last_event_at) }) : t("ui.plugin_no_event"),
     p.last_used_at ? t("ui.agents_last_used", { when: ago(p.last_used_at) }) : null].filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase());
@@ -47,7 +47,8 @@ export function PluginConnector({ p, send }: { p: Plugin; send: Send }) {
       <p>{p.description}</p>
       <p class="meta">{health}</p>
       {p.status === "waiting" && p.registration_problem && <p class="meta">{t("ui.plugin_registration_error", { error: p.registration_problem })}</p>}
-      {p.keys.length > 0 && <p class="meta">{t("ui.plugin_keys")}: {p.keys.map((k) => k.added ? t("ui.plugin_key_added", { name: k.name, last4: k.last4 ?? "" }) : t("ui.plugin_key_needed", { name: k.name })).join(" · ")}</p>}
+      {p.keys.length > 0 && <p class="meta">{t("ui.plugin_keys")}: {p.keys.map((k) => k.added ? t(k.kept_by_plugin ? "ui.plugin_key_kept" : "ui.plugin_key_added", { name: k.name, last4: k.last4 ?? "" })
+        : k.kept_by_plugin ? t("ui.plugin_key_not_kept_yet", { name: k.name }) : k.optional ? t("ui.plugin_key_optional", { name: k.name }) : t("ui.plugin_key_needed", { name: k.name })).join(" · ")}</p>}
       {needed.length > 0 && <p class="meta">{owner ? <a href="/vault">{t("ui.plugin_add_keys")}</a> : t("ui.plugin_keys_owner")}</p>}
       <PluginCards cards={p.cards} bare />
       <details><summary>{t("ui.plugin_what")}</summary>

@@ -146,9 +146,10 @@ export async function clubAgentOf(db: Db | Trx, personId: string | null | undefi
   return (await db.selectFrom("agent").select(["id", "capped_role_id"]).where("person_id", "=", personId).where("kind", "=", "club").where("revoked_at", "is", null).executeTakeFirst()) ?? null;
 }
 
-/** What only a plugin's own token may do (plugin_cards.ts): put and clear its own cards. Nobody's role holds these, not
- *  even the owner's "*": a person, an assistant or another agent is refused, and the door never lists them for one. */
-export const PLUGIN_OWN = ["plugin.card_put", "plugin.card_clear"];
+/** What only a plugin's own token may do: put and clear its own cards (plugin_cards.ts), and keep the keys its manifest
+ *  says are its to write (plugins.ts, plugin.secret_keep). Nobody's role holds these, not even the owner's "*": a person,
+ *  an assistant or another agent is refused, and the door never lists them for one. */
+export const PLUGIN_OWN = ["plugin.card_put", "plugin.card_clear", "plugin.secret_keep"];
 /** Whether a person row is a live plugin's agent (not paused or removed, its agent not revoked). */
 async function isLivePlugin(db: Db | Trx, personId: string): Promise<boolean> {
   return Boolean(await db.selectFrom("plugin").innerJoin("agent", "agent.id", "plugin.agent_id").select("plugin.id").where("agent.person_id", "=", personId)

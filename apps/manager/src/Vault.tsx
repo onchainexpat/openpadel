@@ -4,7 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, ApiError, lang, needsStep, t, usePreview, useStepUp, clubTime } from "@kumi/ui";
 
 type Item = { id: string; kind: "secret" | "document"; name: string; note: string | null; last4: string | null; filename: string | null; size_bytes: number;
-  created_at: string; updated_at: string; by: string | null; downloads: { at: string; by: string | null }[] };
+  created_at: string; updated_at: string; by: string | null; kept_by_plugin?: string | null; downloads: { at: string; by: string | null }[] };
 /** A key an installed plugin needs that the vault doesn't have yet (plugins.ts). */
 type Request = { plugin: string; by: string | null; asked_at: string; why: string; can: string | null; keys: { name: string; vault_name: string; label: string; where: string }[] };
 type D = { items: Item[]; limits: { secret_chars: number; document_bytes: number }; requests?: Request[] };
@@ -57,7 +57,7 @@ export function Vault() {
         {!secrets.length ? <p class="meta">{t("ui.vault_no_secrets")}</p> : <ul class="plain">{secrets.map((x) => (
           <li class="row"><span><strong>{x.name}</strong>{" "}<span class="meta">{x.last4 ? t("ui.vault_ending", { last4: x.last4 }) : t("ui.vault_short")}</span>
             {x.note && <><br /><span class="meta">{x.note}</span></>}<br />
-            <span class="meta">{t("ui.vault_kept", { when: day(x.updated_at), who: x.by ?? "" })}</span></span>
+            <span class="meta">{x.kept_by_plugin ? t("ui.vault_kept_by_plugin", { plugin: x.kept_by_plugin, when: day(x.updated_at) }) : t("ui.vault_kept", { when: day(x.updated_at), who: x.by ?? "" })}</span></span>
             <span><ReplaceSecret key={`${x.id}:${n}`} onSend={(value) => send({ kind: "secret", value }, "vault.replace", { item_id: x.id })} />{" "}
               <button class="small" onClick={() => preview("vault.remove", { item_id: x.id })}>{t("ui.vault_remove")}</button></span></li>))}</ul>}
         <AddSecret key={`s${n}`} max={d.limits.secret_chars} onSend={(name, value, note) => send({ kind: "secret", value }, "vault.add", { name, ...(note ? { note } : {}) })} />

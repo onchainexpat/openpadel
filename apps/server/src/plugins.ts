@@ -6,13 +6,15 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { Hono, type Context } from "hono";
 import { both, type Lang } from "@kumi/i18n";
-import { clubPlugins, problemText, rawError, HOOK_MAX_BYTES, HOOK_PER_MINUTE, hookTarget, KumiError, parseManifest, pluginCard, pluginCatalog, pluginKey, processors, searchCatalog, setPluginIo,
+import { callbackTarget, clubPlugins, problemText, rawError, HOOK_MAX_BYTES, HOOK_PER_MINUTE, hookTarget, KumiError, parseManifest, pluginCard, pluginCatalog, pluginKey, processors, searchCatalog, setPluginIo,
   type Db, type Manifest } from "@kumi/core";
 import { publicOnlyLookup, readCapped } from "./oauth.ts";
 import { publicHost } from "./webhooks.ts";
 import { RateLimiter } from "./limits.ts";
 
 export const PLUGIN_TIMEOUT_MS = 10_000, HEALTH_TIMEOUT_MS = 4_000;
+/** A browser's way back to a plugin (/plugins/<name>/callback): its query at most this long, this many a minute. */
+export const CALLBACK_MAX_QUERY = 2_000, CALLBACK_PER_MINUTE = 30;
 const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
 
 export interface PluginHttp { method: "GET" | "POST"; body?: string | Buffer; headers?: Record<string, string>; max: number; timeoutMs: number;
@@ -98,7 +100,7 @@ const NOT_PASSED = new Set(["cookie", "host", "connection", "content-length", "t
 
 export function pluginRoutes(db: Db, o: { production: boolean; now: () => Date }) {
   const app = new Hono();
-  const limit = new RateLimiter(HOOK_PER_MINUTE, 60_000);
+  const limit = new RateLimiter(HOOK_PER_MINUTE, 60_000), callbacks = new RateLimiter(CALLBACK_PER_MINUTE, 60_000);
   // The club's public key for what it sends plugins: a plugin checks a registration's openpadel-signature-ed25519 with it.
   app.get("/.well-known/openpadel-plugin-key", async (c) => {
     const k = await pluginKey(db);
@@ -127,6 +129,33 @@ export function pluginRoutes(db: Db, o: { production: boolean; now: () => Date }
       return new Response(new Uint8Array(r.body), { status: r.status >= 200 && r.status < 600 ? r.status : 502,
         headers: { "content-type": type, "x-content-type-options": "nosniff", "cache-control": "no-store", "content-security-policy": "default-src 'none'; sandbox" } });
     } catch { return c.json({ error: "plugin_unreachable" }, 502); }
+  });
+  // A browser coming back from signing in somewhere for a plugin (Xero's OAuth redirect, say): the narrowest way in for
+  // a plugin that can't take traffic itself. Only a GET to this one path, only for a plugin that's on and declares a
+  // callback, and all that's passed on is the address's query, as JSON, POSTed to the plugin's own <address>/callback
+  // and signed with its own secret (like a hook): no cookies, no headers, no body, nothing else of the club. What the
+  // plugin answers is never shown: the browser goes to the club's own Connectors page, told only whether it worked.
+  app.get("/plugins/:name/callback", async (c) => {
+    const name = c.req.param("name");
+    const back = (ok: boolean) => new Response(null, { status: 303, headers: { location: `/connectors?plugin=${encodeURIComponent(name)}&connected=${ok ? 1 : 0}`,
+      "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+    if (!/^[a-z][a-z0-9-]{1,38}[a-z0-9]$/.test(name)) throw new KumiError("error.not_found", { thing: both("thing.plugin") }, 404);
+    const target = await callbackTarget(db, name);
+    if (!target) throw new KumiError("error.not_found", { thing: both("thing.plugin") }, 404);
+    const raw = new URL(c.req.url).search.slice(1);
+    if (raw.length > CALLBACK_MAX_QUERY) throw new KumiError("error.too_big", {}, 413);
+    if (!callbacks.take(name)) return c.json({ error: "too_many" }, 429, { "retry-after": "60" });
+    const query: Record<string, string> = {};
+    for (const [k, v] of new URLSearchParams(raw)) if (!Object.hasOwn(query, k) && Object.keys(query).length < 20) query[k] = v;
+    const body = Buffer.from(JSON.stringify({ query }));
+    const t = Math.floor(o.now().getTime() / 1000);
+    try {
+      const r = await pluginRequest(target.url, { method: "POST", body, max: 16_000, timeoutMs: PLUGIN_TIMEOUT_MS, publicOnly: o.production, loopbackOk: target.local,
+        headers: { "content-type": "application/json", "user-agent": "openPadel-Plugins/1", "openpadel-event": "plugin.callback", "openpadel-signature": target.sign(body, t) } });
+      let ok = r.status >= 200 && r.status < 300;
+      try { ok = ok && (JSON.parse(r.body.toString("utf8")) as { ok?: unknown }).ok === true; } catch { ok = false; }
+      return back(ok);
+    } catch { return back(false); }
   });
   return app;
 }

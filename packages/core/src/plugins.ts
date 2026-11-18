@@ -23,7 +23,9 @@ import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
 import { backoffMs } from "./outbox.ts";
 import { exceeds, heldBy, readAreas } from "./roles.ts";
-import { openBytes, openText, sealText } from "./sealed.ts";
+import { openBytes, openText, sealBytes, sealText } from "./sealed.ts";
+import { pluginOfPerson } from "./plugin_cards.ts";
+import { VAULT_SECRET_MAX } from "./vault.ts";
 import { checkWebhookUrl, PLUGIN_CONFIGURED_TOPIC } from "./webhooks.ts";
 import { clubNetworkIp } from "./club_network.ts";
 import { areasText, checkManifestAtClub, checkSettings, grantsText, manifestDiff, manifestRows, manifestSha256, parseManifest, readsOf, rowsText, runText,
@@ -139,7 +141,10 @@ export async function pluginSecrets(db: Db | Trx, plugin: string, m: Pick<Manife
     .where((eb) => eb(eb.fn("lower", ["name"]), "in", names)).execute() : [];
   return m.secrets.map((s) => {
     const v = have.find((h) => h.name.toLowerCase() === pluginVaultName(plugin, s.name).toLowerCase());
-    return { name: s.name, vault_name: pluginVaultName(plugin, s.name), label: s.label, where: s.where, added: Boolean(v), last4: v?.last4 ?? null, added_at: v?.updated_at ?? null };
+    const kept = Boolean(s.kept_by_plugin), optional = Boolean(s.optional);
+    // `needed`: missing, and one the owner is asked for (not optional, not one the plugin keeps itself).
+    return { name: s.name, vault_name: pluginVaultName(plugin, s.name), label: s.label, where: s.where, added: Boolean(v), last4: v?.last4 ?? null, added_at: v?.updated_at ?? null,
+      kept_by_plugin: kept, optional, needed: !v && !kept && !optional };
   });
 }
 /** A plugin's own key, by the name its manifest declares, for the plugin itself through the door (mcp.ts): nothing it
@@ -156,6 +161,51 @@ export async function pluginSecretFor(db: Db, agentId: string, name: string): Pr
   await db.insertInto("vault_access").values({ id: uuidv7(), item_id: r.id, person_id: p.person_id! }).execute();
   return { name, value: openBytes(r.bytes).toString("utf8"), last4: r.last4 };
 }
+// ---- A key the plugin keeps itself ----
+/** A value a plugin keeps: one line of up to VAULT_SECRET_MAX characters, no control characters. */
+const keptValue = z.string().check(z.minLength(1), z.maxLength(VAULT_SECRET_MAX), z.refine((v) => !/[\u0000-\u001f\u007f]/.test(v), "no control characters"),
+  z.describe("The value to keep (a refresh token the outside service just handed over). Never shown again, never in the change log"));
+/** A plugin keeps one of its own keys in the club's vault (docs/plugins/README.md): an OAuth refresh token that changes
+ *  each time it's used, which the owner couldn't keep up with by hand. Only its own token may (PLUGIN_OWN), only for a
+ *  key its manifest marks kept_by_plugin, and the value is sealed in the preview and never stored in the clear: not in
+ *  the input (planOnly), not in the change log (the vault keeps blobs apart), and not in the stored preview once it's
+ *  used or expired (forgetDetails). People see "kept by <plugin>, ends in 4F2A". */
+export const pluginSecretKeep = defineAction({
+  name: "plugin.secret_keep", version: 1, planOnly: ["value"], forgetDetails: ["sealed"],
+  input: z.object({ name: z.string().check(z.regex(/^[A-Z][A-Z0-9_]{1,63}$/), z.describe("The key's name, as the plugin's manifest declares it with kept_by_plugin (XERO_REFRESH_TOKEN)")), value: keptValue }),
+  async plan(ctx, i) {
+    const p = await pluginOfPerson(ctx.db, ctx.actor.personId);
+    if (!p) throw new KumiError("error.plugin_keep_only", {}, 403);
+    const m = p.manifest as Manifest, decl = m.secrets.find((s) => s.name === i.name);
+    if (!decl?.kept_by_plugin) throw new KumiError("error.plugin_secret_not_kept", { name: i.name }, 403);
+    const vaultName = pluginVaultName(p.name, i.name), value = i.value.trim();
+    if (!value) throw new KumiError("error.vault_empty", {}, 400);
+    const have = await ctx.db.selectFrom("vault_item").select(["id", "version"]).where((eb) => eb(eb.fn("lower", ["name"]), "=", vaultName.toLowerCase())).where("active", "=", true).executeTakeFirst();
+    const last4 = value.length > 8 ? value.slice(-4) : null;
+    return { title: both("action.plugin.secret_keep"), summary: both(have ? "plan.plugin.keep_again" : "plan.plugin.keep", { name: p.name, key: i.name, label: decl.label }),
+      reads: have ? [{ entity: "vault_item", id: have.id, version: have.version }] : [], ownerIds: [ctx.actor.personId!],
+      undo: { kind: "none", note: both("reason.plugin_keep_no_undo") },
+      details: { plugin: p.name, vault_name: vaultName, item_id: have?.id ?? null, last4, size: Buffer.byteLength(value), sealed: sealBytes(Buffer.from(value, "utf8")).toString("base64") } };
+  },
+  async apply(ctx, _i, p) {
+    const d = p.details as { plugin: string; vault_name: string; item_id: string | null; last4: string | null; size: number; sealed: string };
+    const blobId = uuidv7(ctx.now.getTime());
+    await ctx.trx.insertInto("vault_blob").values({ id: blobId, kind: "secret", bytes: Buffer.from(d.sealed, "base64"), size_bytes: d.size, content_type: null, filename: null, last4: d.last4,
+      created_by: ctx.actor.personId, created_at: ctx.now, attached_at: ctx.now }).execute();
+    if (d.item_id) {
+      const old = await ctx.trx.selectFrom("vault_item").select("blob_id").where("id", "=", d.item_id).executeTakeFirstOrThrow();
+      await ctx.update("vault_item", d.item_id, { blob_id: blobId, last4: d.last4, size_bytes: d.size, kept_by_plugin: d.plugin, updated_at: ctx.now });
+      // The value it replaces is of no use to anyone now (a refresh token is spent once it's used), and nothing undoes
+      // this: it isn't kept. A key the owner added by hand under this name is replaced the same way.
+      if (old.blob_id !== blobId) await ctx.trx.deleteFrom("vault_blob").where("id", "=", old.blob_id).where((eb) => eb.not(eb.exists(eb.selectFrom("vault_item").select("id").whereRef("vault_item.blob_id", "=", "vault_blob.id")))).execute();
+      return { name: d.vault_name, last4: d.last4 };
+    }
+    await ctx.insert("vault_item", { id: uuidv7(), kind: "secret", name: d.vault_name, note: null, blob_id: blobId, last4: d.last4, filename: null, content_type: null, size_bytes: d.size,
+      kept_by_plugin: d.plugin, created_by: ctx.actor.personId, created_at: ctx.now, updated_at: ctx.now });
+    return { name: d.vault_name, last4: d.last4 };
+  },
+});
+
 /** The plugin a club agent is (mcp.ts): its name, settings and manifest, or null for any other agent. */
 export async function pluginOfAgent(db: Db | Trx, agentId: string) {
   const p = await db.selectFrom("plugin").select(["id", "name", "release", "status", "settings", "manifest", "mode"]).where("agent_id", "=", agentId).where("status", "!=", "removed").executeTakeFirst();
@@ -240,7 +290,7 @@ async function writeRole(ctx: ApplyCtx, m: Manifest, roleId: string | null): Pro
 const topicsOf = (m: Manifest) => [...new Set([...m.events, PLUGIN_CONFIGURED_TOPIC])].sort();
 /** A note for the owners that keys are missing (messages.ts), when any are. */
 async function askForKeys(ctx: ApplyCtx, pluginId: string, name: string, m: Manifest) {
-  const missing = (await pluginSecrets(ctx.trx, name, m)).filter((s) => !s.added).map((s) => s.name);
+  const missing = (await pluginSecrets(ctx.trx, name, m)).filter((s) => s.needed).map((s) => s.name);
   if (missing.length) await ctx.emit("plugin.secrets_needed", { plugin_id: pluginId, names: missing });
   return missing;
 }
@@ -570,6 +620,16 @@ export async function hookTarget(db: Db, name: string): Promise<{ url: string; s
   return { url: `${p.base_url}/hook`, sign: (body, t) => `t=${t},v1=${createHmac("sha256", secret).update(`${t}.`, "utf8").update(body).digest("hex")}`, local: p.mode === "local" };
 }
 
+/** Where a browser's way back to /plugins/<name>/callback goes (an OAuth sign-in's redirect): the plugin's own
+ *  <address>/callback, signed with its own secret like a hook; null unless the plugin is on and its manifest declares
+ *  a callback. Only the address's query is passed on, as JSON; the browser is shown the club's own page. */
+export async function callbackTarget(db: Db, name: string): Promise<{ url: string; sign: (body: Buffer, t: number) => string; local: boolean } | null> {
+  const p = await db.selectFrom("plugin").select(["base_url", "manifest", "secret_sealed", "mode"]).where("name", "=", name).where("status", "=", "on").executeTakeFirst();
+  if (!p || !p.base_url || !manifestOf(p).callback) return null;
+  const secret = openText(p.secret_sealed);
+  return { url: `${p.base_url}/callback`, sign: (body, t) => `t=${t},v1=${createHmac("sha256", secret).update(`${t}.`, "utf8").update(body).digest("hex")}`, local: p.mode === "local" };
+}
+
 // ---- Reads ----
 /** A plugin in words, for plugin info and the staff list: what it does, asks, sends, needs and costs, and its settings. */
 export function pluginCard(m: Manifest, lang: Lang) {
@@ -577,7 +637,8 @@ export function pluginCard(m: Manifest, lang: Lang) {
   return { name: m.name, publisher: m.publisher, version: m.version, homepage: m.homepage, licence: m.licence, description: m.description[lang], mode: m.run.mode,
     can: m.grants.length ? grantsText(m.grants)[lang] : both("plan.plugin.no_actions")[lang], reads: areasText(readsOf(m))[lang], events: m.events,
     sends: m.data_out[lang], cost: { charges: m.cost.charges, note: m.cost.note[lang] }, runs: runText(m)[lang], cards: m.cards.map((c) => ({ slot: c.slot, title: c.title[lang] })),
-    keys: m.secrets.map((s) => ({ name: s.name, label: s.label[lang], where: s.where[lang] })), hook: m.hook ? m.hook.from[lang] : null,
+    keys: m.secrets.map((s) => ({ name: s.name, label: s.label[lang], where: s.where[lang], kept_by_plugin: Boolean(s.kept_by_plugin), optional: Boolean(s.optional) })), hook: m.hook ? m.hook.from[lang] : null,
+    callback: m.callback ? m.callback.for[lang] : null,
     settings: m.settings.map((f) => ({ key: f.key, type: f.type, label: f.label[lang], help: f.help?.[lang] ?? null, required: "required" in f ? Boolean(f.required) : false,
       default: "default" in f ? f.default ?? null : null, choices: f.type === "choice" ? f.choices.map((c) => ({ value: c.value, label: c.label[lang] })) : undefined })),
     words: rows.map((r) => ({ label: r.label[lang], text: r.text[lang] })) };
@@ -600,7 +661,8 @@ export async function clubPlugins(db: Db | Trx, lang: Lang) {
       registered_at: r.registered_at, registration_error: r.registration_error,
       registration_problem: r.registration_error ? problemText(r.registration_error, hostOf(r.base_url))[lang] : null,
       last_event_at: r.last_event_at, event_error: r.event_error, event_problem: r.event_error ? problemText(r.event_error, hostOf(r.base_url))[lang] : null, last_used_at: r.last_used_at, token_last4: r.token_last4,
-      settings_values: r.settings, keys: (await pluginSecrets(db, r.name, m)).map((k) => ({ name: k.name, vault_name: k.vault_name, label: k.label[lang], where: k.where[lang], added: k.added, last4: k.last4 })) });
+      settings_values: r.settings, keys: (await pluginSecrets(db, r.name, m)).map((k) => ({ name: k.name, vault_name: k.vault_name, label: k.label[lang], where: k.where[lang], added: k.added, last4: k.last4,
+        kept_by_plugin: k.kept_by_plugin, optional: k.optional, needed: k.needed })) });
   }
   return out;
 }
@@ -611,7 +673,7 @@ export async function pluginKeyRequests(db: Db | Trx, lang: Lang) {
   const out = [];
   for (const r of rows) {
     const m = manifestOf(r);
-    const missing = (await pluginSecrets(db, r.name, m)).filter((s) => !s.added);
+    const missing = (await pluginSecrets(db, r.name, m)).filter((s) => s.needed);
     if (missing.length) out.push({ plugin: r.name, by: r.by, asked_at: r.installed_at, why: m.description[lang], can: m.grants.length ? grantsText(m.grants)[lang] : null,
       keys: missing.map((s) => ({ name: s.name, vault_name: s.vault_name, label: s.label[lang], where: s.where[lang] })) });
   }

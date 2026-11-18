@@ -56,6 +56,9 @@ Wants=network-online.target
 [Service]
 EnvironmentFile=${unitSafe(envFile)}
 WorkingDirectory=${unitSafe(dir)}
+# Its own place to keep what it needs across restarts (given to it as STATE_DIRECTORY), readable by it alone.
+StateDirectory=openpadel-plugin-${name}
+StateDirectoryMode=0700
 ExecStart=${unitSafe(join(dir, m.run.entry))}
 Restart=on-failure
 RestartSec=5

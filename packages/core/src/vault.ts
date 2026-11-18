@@ -118,7 +118,7 @@ export const vaultRemove = defineAction({
 export async function vaultList(db: Db | Trx) {
   const items = await db.selectFrom("vault_item").leftJoin("person", "person.id", "vault_item.created_by")
     .select(["vault_item.id", "vault_item.kind", "vault_item.name", "vault_item.note", "vault_item.last4", "vault_item.filename", "vault_item.content_type", "vault_item.size_bytes",
-      "vault_item.created_at", "vault_item.updated_at", "person.display_name as by"]).where("vault_item.active", "=", true).orderBy("vault_item.kind").orderBy("vault_item.name").execute();
+      "vault_item.created_at", "vault_item.updated_at", "vault_item.kept_by_plugin", "person.display_name as by"]).where("vault_item.active", "=", true).orderBy("vault_item.kind").orderBy("vault_item.name").execute();
   const ids = items.length ? items.map((x) => x.id) : ["00000000-0000-0000-0000-000000000000"];
   const access = await db.selectFrom("vault_access").leftJoin("person", "person.id", "vault_access.person_id").select(["vault_access.item_id", "vault_access.at", "person.display_name as by"])
     .where("vault_access.item_id", "in", ids).orderBy("vault_access.at", "desc").limit(50).execute();

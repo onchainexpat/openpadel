@@ -76,7 +76,7 @@ export async function connectors(db: Db, l: Lang, o: { production: boolean; env?
       doc: b.doc, page: b.page };
   });
   const plugins = (await pluginsWithHealth(db, l, o.production)).filter((p) => p.status !== "removed").map((p) => {
-    const missing = p.keys.filter((k) => !k.added);
+    const missing = p.keys.filter((k) => k.needed);
     const status: ConnectorStatus = p.status === "paused" ? "off" : p.status === "waiting" ? "waiting" : p.health?.state === "down" || missing.length ? "attention" : "on";
     return { ...p, connector_status: status };
   });

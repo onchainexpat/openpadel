@@ -76,7 +76,13 @@ export const manifestSchema = z.strictObject({
   /** And the parts of the club it reads (roles.ts AREAS) beyond what its actions cover. */
   reads: z.array(z.enum(AREA_KEYS)).check(z.maxLength(AREA_KEYS.length)),
   events: z.array(z.enum(WEBHOOK_TOPIC_NAMES as [string, ...string[]])).check(z.maxLength(WEBHOOK_TOPIC_NAMES.length)),
-  secrets: z.array(z.strictObject({ name: z.string().check(z.regex(/^[A-Z][A-Z0-9_]{1,63}$/)), label: text(80), where: text(300) })).check(z.maxLength(20)),
+  secrets: z.array(z.strictObject({ name: z.string().check(z.regex(/^[A-Z][A-Z0-9_]{1,63}$/)), label: text(80), where: text(300),
+    /** Not asked of the owner when it's installed: one the plugin needs only in some setups (a QuickBooks key, for a
+     *  club on Xero), and says on its card when it's missing. */
+    optional: z.optional(z.boolean()),
+    /** The plugin's own to write (plugin.secret_keep): a key it's handed and that changes as it's used, such as an
+     *  OAuth refresh token. Never asked of the owner; shown as "kept by <plugin>". */
+    kept_by_plugin: z.optional(z.boolean()) })).check(z.maxLength(20)),
   /** Its options, in the order a person sets them. */
   settings: z.array(settingField).check(z.maxLength(20)),
   /** What member data it sends where, in plain words (the processors list and the privacy policy take it from here). */
@@ -87,6 +93,9 @@ export const manifestSchema = z.strictObject({
   health: z.string().check(z.regex(/^\/[A-Za-z0-9._~/-]{0,200}$/)),
   /** What posts to /plugins/<name>/hook, if anything does (a camera saying a highlight is ready). */
   hook: z.optional(z.strictObject({ from: text(200) })),
+  /** Who sends a browser back to /plugins/<name>/callback (an OAuth sign-in's redirect, such as Xero's), if anyone:
+   *  the club passes the address's query on to the plugin and shows its own page, never the plugin's. */
+  callback: z.optional(z.strictObject({ for: text(200) })),
   run,
 });
 export type Manifest = z.infer<typeof manifestSchema>;
@@ -111,6 +120,7 @@ export function parseManifest(raw: unknown): Manifest {
   const d4 = dup(m.reads); if (d4) problems.push(`reads: ${d4} twice`);
   const d5 = dup(m.settings.map((f) => f.key)); if (d5) problems.push(`settings: ${d5} twice`);
   if (m.settings.filter((f) => f.type === "string" && f.club_network).length > 1) problems.push("settings: only one may be club_network");
+  for (const k of m.secrets) if (k.kept_by_plugin && k.optional) problems.push(`secrets.${k.name}: kept_by_plugin is never asked for, so it isn't optional too`);
   for (const f of m.settings) {
     const k = f.key;
     if (f.type === "integer" && f.minimum !== undefined && f.maximum !== undefined && f.minimum > f.maximum) problems.push(`settings.${k}: minimum over maximum`);
@@ -160,7 +170,12 @@ export function grantsText(grants: Manifest["grants"]): Text {
   return each((l) => list(grants.map((g) => `${lower(actionText(g.action)[l])}${g.mode === "ask" ? ` ${both("plan.plugin.asks_first")[l]}` : ""}`)));
 }
 export const areasText = (areas: string[]): Text => each((l) => areas.map((a) => lower(both(`area.${a}` as Key)[l])).join(", "));
-export const secretsText = (m: Pick<Manifest, "secrets">): Text => each((l) => list(m.secrets.map((s) => `${s.label[l]} (${s.name})`)));
+export const secretsText = (m: Pick<Manifest, "secrets">): Text => each((l) => list(m.secrets.map((s) => `${s.label[l]} (${s.name})${s.optional ? ` ${both("plan.plugin.key_optional")[l]}` : ""}`)));
+/** The keys the owner adds (not the ones the plugin keeps itself). */
+export const ownerKeys = (m: Pick<Manifest, "secrets">) => m.secrets.filter((s) => !s.kept_by_plugin);
+/** The keys the owner is asked for as it's installed: not optional ones, nor the ones the plugin keeps. */
+export const askedKeys = (m: Pick<Manifest, "secrets">) => m.secrets.filter((s) => !s.kept_by_plugin && !s.optional);
+const keptKeys = (m: Pick<Manifest, "secrets">) => m.secrets.filter((s) => s.kept_by_plugin);
 const hostOf = (url: string) => { try { return new URL(url).host; } catch { return url; } };
 /** Where it runs, in words. */
 export function runText(m: Manifest): Text {
@@ -177,10 +192,12 @@ export function manifestRows(m: Manifest): { label: Text; text: Text }[] {
   rows.push({ label: both("plan.plugin.row_reads"), text: reads.length ? areasText(reads) : both("plan.plugin.reads_nothing") });
   if (m.events.length) rows.push({ label: both("plan.plugin.row_events"), text: { en: m.events.join(", "), es: m.events.join(", ") } });
   rows.push({ label: both("plan.plugin.row_sends"), text: m.data_out });
-  rows.push({ label: both("plan.plugin.row_needs"), text: m.secrets.length ? both("plan.plugin.needs_keys", { keys: secretsText(m) }) : both("plan.plugin.needs_nothing") });
+  rows.push({ label: both("plan.plugin.row_needs"), text: ownerKeys(m).length ? both("plan.plugin.needs_keys", { keys: secretsText({ secrets: ownerKeys(m) }) }) : both("plan.plugin.needs_nothing") });
+  if (keptKeys(m).length) rows.push({ label: both("plan.plugin.row_keeps"), text: both("plan.plugin.keeps_keys", { keys: secretsText({ secrets: keptKeys(m) }) }) });
   rows.push({ label: both("plan.plugin.row_cost"), text: m.cost.charges ? both("plan.plugin.cost_charges", { note: m.cost.note }) : both("plan.plugin.cost_free", { note: m.cost.note }) });
   rows.push({ label: both("plan.plugin.row_runs"), text: runText(m) });
   if (m.hook) rows.push({ label: both("plan.plugin.row_hook"), text: both("plan.plugin.hook", { from: m.hook.from, name: m.name }) });
+  if (m.callback) rows.push({ label: both("plan.plugin.row_callback"), text: both("plan.plugin.callback", { for: m.callback.for, name: m.name }) });
   if (m.cards.length) rows.push({ label: both("plan.plugin.row_cards"), text: each((l) => m.cards.map((c) => `${c.title[l]} (${both(`plan.plugin.slot_${c.slot}` as Key)[l]})`).join(", ")) });
   return rows;
 }
@@ -206,12 +223,16 @@ export function manifestDiff(a: Manifest, b: Manifest): { label: Text; text: Tex
   const evMore = b.events.filter((x) => !a.events.includes(x)), evLess = a.events.filter((x) => !b.events.includes(x));
   if (evMore.length) rows.push({ label: both("plan.plugin.diff_events_more"), text: { en: evMore.join(", "), es: evMore.join(", ") } });
   if (evLess.length) rows.push({ label: both("plan.plugin.diff_events_less"), text: { en: evLess.join(", "), es: evLess.join(", ") } });
-  const secMore = b.secrets.filter((s) => !a.secrets.some((x) => x.name === s.name));
+  const secMore = ownerKeys(b).filter((s) => !a.secrets.some((x) => x.name === s.name));
   if (secMore.length) rows.push({ label: both("plan.plugin.diff_needs_more"), text: secretsText({ secrets: secMore }) });
+  // A key it may now keep itself, that it didn't before (or one the owner added that it may now overwrite).
+  const keepsMore = keptKeys(b).filter((s) => !a.secrets.some((x) => x.name === s.name && x.kept_by_plugin));
+  if (keepsMore.length) rows.push({ label: both("plan.plugin.row_keeps"), text: both("plan.plugin.keeps_keys", { keys: secretsText({ secrets: keepsMore }) }) });
   if (JSON.stringify(a.data_out) !== JSON.stringify(b.data_out)) rows.push({ label: both("plan.plugin.diff_sends"), text: b.data_out });
   if (JSON.stringify(a.cost) !== JSON.stringify(b.cost)) rows.push({ label: both("plan.plugin.row_cost"), text: b.cost.charges ? both("plan.plugin.cost_charges", { note: b.cost.note }) : both("plan.plugin.cost_free", { note: b.cost.note }) });
   if (JSON.stringify(a.run) !== JSON.stringify(b.run)) rows.push({ label: both("plan.plugin.row_runs"), text: runText(b) });
   if (!a.hook && b.hook) rows.push({ label: both("plan.plugin.row_hook"), text: both("plan.plugin.hook", { from: b.hook.from, name: b.name }) });
+  if (!a.callback && b.callback) rows.push({ label: both("plan.plugin.row_callback"), text: both("plan.plugin.callback", { for: b.callback.for, name: b.name }) });
   return rows;
 }
 
