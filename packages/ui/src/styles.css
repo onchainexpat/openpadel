@@ -537,7 +537,7 @@ section.plugin-card:not(.card) { padding: 6px 0 0 10px; }
 .connector-head .pill { margin-left: auto; }
 /* A plugin's name stays whole (court-lights, accounting-export): the pill goes under it when there isn't room. */
 .connector-head { flex-wrap: wrap; }
-.connector-head > div { flex: 1 1 auto; min-width: 0; }
+.connector-head > div { flex: 1 1 min-content; min-width: 0; } .connector-head > :first-child, .connector-head .pill { flex: none; }
 .connector-head strong { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .connector-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .pill-attention { --pill-bg: #fff1dc; --pill-ink: #8a4b00; } .pill-waiting { --pill-bg: #e3ecfc; --pill-ink: #1d4aa8; }
