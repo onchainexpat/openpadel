@@ -249,6 +249,28 @@ plugin connected after coming back from its sign-in, a plugin's card lists only 
 vault offers only "Take out" for a key a plugin keeps. A local plugin's service now has its own state directory. See docs/plugins/README.md and
 docs/plugins/manifest.md (migration 131).
 
+WhatsApp messages, the third plugin (plugins/whatsapp), and a way for a plugin to be a message channel beside email,
+push and texts. A member turns WhatsApp on in the app (Profile, WhatsApp): it's off until they tick the words and
+confirm, and then they link their number by sending the club's WhatsApp number the code the app shows ("Link my
+WhatsApp: 123456"), from any country. What they need to know soon (a place offered, a booking or class the club cancelled
+or moved, as texts) then also comes by WhatsApp, from the club's own WhatsApp Business number through Meta's Cloud API.
+The club still decides who gets what: their yes, their linked number, quiet hours and STOP are checked on the club's
+server before every send, and the plugin is handed only the number, the approved template's name and its words, the
+language and a send-by time, signed, on its own webhook. It sends a plain message inside WhatsApp's 24-hour window and
+the template outside it, paces itself, and tries again when Meta is down or busy. STOP, BAJA (and their kin) or Meta's
+own opt-out turn WhatsApp off for that member at once and drop what was waiting; anything else they write goes to the
+front desk as their question to the club, marked "(Sent by WhatsApp)", and the club's short answer goes back. Turning it
+off in the app also unlinks the number. Its card on Connectors shows the day's messages and anything wrong. The README
+says exactly what the owner sets up at Meta (the business portfolio, the number, a token that doesn't expire, the
+webhook) and the two templates to submit, in English and Spanish.
+
+For plugins like it: a manifest's `channel` (`{ "kind": "whatsapp", "address_setting": ... }`, one plugin per channel)
+makes it the club's channel, with three tools only its own token has: `plugin_message_status`, `plugin_channel_stop`
+and `plugin_channel_reply`, each previewed and kept in the change log as its own. A manifest's `hook.challenge` passes a
+sender's GET check of `/plugins/<name>/hook` (Meta's webhook check) on to that plugin alone, as its query only, and
+answers with the plugin's plain answer. The member's WhatsApp number is in their data download and erased with them. See
+docs/plugins/README.md, "A message channel" (migration 132).
+
 ### Added
 - Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed
   scores, levels to review, members' questions for staff, sessions whose coach is off this week, card charges that
