@@ -1,6 +1,7 @@
 // An owner's one-time sign-in link (auth.ts, `openpadel sign-in-link`): for the first sign-in on a new server with no
 // email service yet, so nobody reads a code out of the server's log and passes it on. Only owners, only while there's no
-// email service, once, for 15 minutes; opening it changes nothing, the button signs in.
+// email service, once, for 15 minutes; opening it changes nothing, the button signs in. And `openpadel keys`, for an owner
+// with no shell of their own to check the keys they keep: set or missing, and the last 4 characters only.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -108,4 +109,17 @@ test("openpadel sign-in-link: prints the link for an owner, and refuses once ema
   assert.match(go({ KUMI_RESEND_API_KEY: "re_x" }, "robin@kestrel.example").stderr, /Email is set up on this server/);
   assert.equal(go({ KUMI_PRACTICE: "" }, "robin@kestrel.example").status, 2, "live, never");
   assert.match(go({}, "dana@kestrel.example").stderr, /isn't an owner of this club/);
+});
+
+test("openpadel keys: whether each key is set and its last 4 characters, never the key", () => {
+  const cli = new URL("../src/cli.ts", import.meta.url).pathname;
+  const secret = Buffer.alloc(32, 7).toString("base64"), backup = Buffer.alloc(32, 9).toString("base64");
+  const r = spawnSync(process.execPath, [cli, "keys", "--json"], { encoding: "utf8", env: { PATH: process.env.PATH!, KUMI_SECRET_KEY: secret, KUMI_BACKUP_KEY: backup } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!r.stdout.includes(secret) && !r.stdout.includes(backup.slice(0, 20)));
+  assert.deepEqual(JSON.parse(r.stdout).keys, [{ name: "KUMI_SECRET_KEY", set: true, ends_in: secret.replace(/=+$/, "").slice(-4) }, { name: "KUMI_BACKUP_KEY", set: true, ends_in: backup.replace(/=+$/, "").slice(-4) }]);
+  const none = spawnSync(process.execPath, [cli, "keys", "--lang=es"], { encoding: "utf8", env: { PATH: process.env.PATH!, KUMI_SECRET_KEY: secret } });
+  assert.equal(none.status, 1);
+  assert.match(none.stdout, /KUMI_BACKUP_KEY: no está en \/etc\/kumi\/kumi\.env\./);
+  assert.match(none.stdout, /KUMI_SECRET_KEY: definida, termina en/);
 });

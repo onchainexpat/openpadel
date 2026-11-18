@@ -38,6 +38,8 @@
 //   kumi restore-test              restore the newest backup into a scratch database and check it
 //                                  (--scheduled: only when it's due, the 1st at 4:17 on the club's clock)
 //   kumi rotate-key                seal every secret with KUMI_SECRET_KEY (the old one in KUMI_SECRET_KEY_PREVIOUS)
+//   kumi keys                      whether KUMI_SECRET_KEY and KUMI_BACKUP_KEY are set, and each one's last 4 characters
+//                                  only: for the owner to check the copies they keep match (never the keys themselves)
 //   kumi texting plan|apply|status [club.yaml]   register the club's texting with US carriers through its own
 //                                  Twilio account, toll-free (texting.ts); apply --yes to buy a number or start over
 //   kumi usage [--month=YYYY-MM]   what AI, texts and email cost the club in a month, by kind, against its cap
@@ -127,7 +129,7 @@ async function formatOf(url: string): Promise<void> {
 /** The commands that run on the club's server itself, against its database. Everything else is the club's own
  *  commands, from any computer signed in to the club (cli_remote.ts: kumi login, kumi help). */
 const ON_SERVER = new Set(["setup", "import", "move-in", "texting", "usage", "export", "moved", "read-only", "leaving", "held", "doctor", "reset-sign-in", "sign-in-link", "owner", "backup",
-  "offsite", "pitr", "restore", "restore-test", "rotate-key", "update", "rollback", "releases"]);
+  "offsite", "pitr", "restore", "restore-test", "rotate-key", "keys", "update", "rollback", "releases"]);
 
 async function main(): Promise<number> {
   const first = args.find((a) => !a.startsWith("-"));
@@ -675,6 +677,17 @@ async function main(): Promise<number> {
       if (json) out({ ok: false, error: (e as Error).message }); else console.error(t(lang, "cli.restore_test_failed", { error: (e as Error).message }));
       return 1;
     } finally { await db.destroy(); }
+  }
+  // The two keys the owner keeps away from the server: set or missing, and the last 4 characters only, so the owner (or the
+  // agent, reading it to them) can check the copy in their password manager is the right one without anyone seeing a key.
+  if (cmd === "keys") {
+    const keys = (["KUMI_SECRET_KEY", "KUMI_BACKUP_KEY"] as const).map((name) => {
+      const v = process.env[name]?.trim().replace(/=+$/, "");
+      return { name, set: Boolean(v), ends_in: v && v.length >= 16 ? v.slice(-4) : null };
+    });
+    if (json) { out({ ok: keys.every((k) => k.set), keys }); return keys.every((k) => k.set) ? 0 : 1; }
+    for (const k of keys) console.log(k.set ? t(lang, "cli.key_set", { name: k.name, last: k.ends_in ?? "?" }) : t(lang, "cli.key_missing", { name: k.name }));
+    return keys.every((k) => k.set) ? 0 : 1;
   }
   if (cmd === "rotate-key") {
     if (!process.env.KUMI_SECRET_KEY?.trim()) { console.error(t(lang, "cli.rotate_no_key")); return 2; }

@@ -5584,6 +5584,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "cli.link_not_owner": "{email} no tiene el rol de dueño en este club. Los enlaces para iniciar sesión son solo para ese rol.",
   "cli.link_email_on": "El correo está configurado en este servidor (KUMI_RESEND_API_KEY), así que no hay enlaces para iniciar sesión: el dueño inicia sesión con el código que le llega por correo (en modo de práctica, pon su dirección en KUMI_MAIL_TEST_TO).",
   "cli.link_no_url": "KUMI_PUBLIC_URL no está definida, así que no hay dirección de la app del personal para el enlace.",
+  "cli.key_set": "{name}: definida, termina en {last}. La copia que guardas debe terminar igual.",
+  "cli.key_missing": "{name}: no está en /etc/kumi/kumi.env.",
   "cli.step.currency": "Poner la moneda del club en {currency}.",
   "cli.step.hours": "Poner el horario de {location}: {hours}.",
   "cli.step.price": "Poner el precio de todas las canchas de {location} en {amount} por hora, todos los días y a toda hora (las horas pico y los precios para miembros se agregan en Configuración, en la app del personal).",

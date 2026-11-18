@@ -5584,6 +5584,8 @@ export const en = {
   "cli.link_not_owner": "{email} isn't an owner of this club. Sign-in links are only for owners.",
   "cli.link_email_on": "Email is set up on this server (KUMI_RESEND_API_KEY), so there are no sign-in links: the owner signs in with the code emailed to them (in practice mode, put their address in KUMI_MAIL_TEST_TO).",
   "cli.link_no_url": "KUMI_PUBLIC_URL isn't set, so there's no staff app address for the link.",
+  "cli.key_set": "{name}: set, ends in {last}. The copy you keep should end the same way.",
+  "cli.key_missing": "{name}: missing from /etc/kumi/kumi.env.",
   "cli.step.currency": "Set the club's currency to {currency}.",
   "cli.step.hours": "Set the opening hours at {location}: {hours}.",
   "cli.step.price": "Price every court at {location} at {amount} an hour, every day and at every hour (peak times and member prices are added in the staff app's Settings).",
