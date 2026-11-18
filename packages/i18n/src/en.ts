@@ -5486,6 +5486,8 @@ export const en = {
   "ui.list_type_playtomic": "Playtomic copy",
   "ui.filters": "Filters",
   "ui.filter_all": "All",
+  "ui.changes_plugin_cards": "Show plugin card updates",
+  "ui.since_rest": "The rest",
   "ui.filter_type": "Type",
   "ui.filter_status": "Status",
   "ui.filter_made_in": "Made in",

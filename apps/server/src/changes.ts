@@ -6,7 +6,7 @@
 import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { both, t, productName, type Key, type Lang } from "@kumi/i18n";
-import { AREAS, ASK_ENDED, areaOf, decide, KumiError, mayAnswer, undoReason, type Actor, type Db } from "@kumi/core";
+import { AREAS, ASK_ENDED, areaOf, decide, KumiError, mayAnswer, PLUGIN_OWN, undoReason, type Actor, type Db } from "@kumi/core";
 import { seesChats } from "./chats.ts";
 
 /** Who made a change, as the filter has it: a person in the apps, an assistant through /mcp, or the club's own
@@ -25,6 +25,15 @@ export function planLines(plan: unknown, lang: Lang): string[] {
   const lines = summary ? [...seg.segment(summary)].map((s) => s.segment.trim()).filter(Boolean) : [];
   for (const x of p.tells ?? []) if (x?.[lang]) lines.push(x[lang]!);
   return lines;
+}
+
+/** A change in one short line, for lists that only glance (Today's "since you last looked"): its summary's first
+ *  sentence, and the rest, if any, apart. A plugin's install plan names everything it asks for, which is a page. */
+export function shortSummary(summary: string, lang: Lang): { summary: string; rest: string | null } {
+  const seg = new Intl.Segmenter(lang === "es" ? "es" : "en", { granularity: "sentence" });
+  const parts = [...seg.segment(summary.trim())].map((s) => s.segment.trim()).filter(Boolean);
+  if (parts.length < 2) return { summary: summary.trim(), rest: null };
+  return { summary: parts[0]!, rest: parts.slice(1).join(" ") };
 }
 
 /** The asker's own words, where the change has a field for them (a note, a reason, a message they typed). */
@@ -115,11 +124,12 @@ export function changeRoutes(db: Db, actor: (c: Context<any>) => Actor, lang: (c
   };
 
   // The list: newest first, `limit` at a time (50 unless asked, at most 200), the next page from `before` (the last
-  // id shown). `who` and `type` (an area, as the role editor groups actions) narrow it.
+  // id shown). `who` and `type` (an area, as the role editor groups actions) narrow it. A plugin's card updates (a court
+  // tile saying the lights are on, many a day) are left out unless `plugin_cards=1`: they stay in the log for undo.
   app.get("/staff/changes", async (c) => {
     const a = actor(c), { chats } = await allowed(a), l = lang(c);
     const limit = Math.min(200, Math.max(1, Math.floor(Number(c.req.query("limit") ?? 50)) || 50));
-    const before = c.req.query("before"), who = c.req.query("who") as Who | undefined, type = c.req.query("type");
+    const before = c.req.query("before"), who = c.req.query("who") as Who | undefined, type = c.req.query("type"), cards = c.req.query("plugin_cards") === "1";
     if (before && !/^[0-9a-f-]{36}$/i.test(before)) throw new KumiError("error.invalid_input", { details: "before" }, 400);
     if (who && !WHO.includes(who)) throw new KumiError("error.invalid_input", { details: "who" }, 400);
     const area = type ? AREAS.find((x) => x.key === type) : undefined;
@@ -127,6 +137,7 @@ export function changeRoutes(db: Db, actor: (c: Context<any>) => Actor, lang: (c
     const head = sql<string>`split_part(action_run.action, '.', 1)`;
     const rows = await base()
       .$if(!chats, (q) => q.where("action_run.action", "not like", "chat.%"))
+      .$if(!cards, (q) => q.where("action_run.action", "not in", PLUGIN_OWN))
       .$if(Boolean(before), (q) => q.where("action_run.id", "<", before!))
       .$if(who === "people", (q) => q.where("action_run.actor_person_id", "is not", null).where("action_run.via", "not like", "mcp:%"))
       .$if(who === "assistants", (q) => q.where("action_run.via", "like", "mcp:%"))

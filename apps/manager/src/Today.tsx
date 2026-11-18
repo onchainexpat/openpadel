@@ -16,7 +16,7 @@ type TodayView = {
   now: string; time_zone: string; people: boolean; needs: Need[];
   takings: { total_cents: number; last_week_cents: number; rows: { type: string; cents: number }[] } | null;
   next: { time_zone: string; items: NextItem[] } | null;
-  since: { from: string; counts: Partial<Record<"booked" | "cancelled" | "places" | "answered", number>>; changes: { id: string; summary: string; by: string; at: string }[] | null; more: number };
+  since: { from: string; counts: Partial<Record<"booked" | "cancelled" | "places" | "answered", number>>; changes: { id: string; summary: string; rest?: string | null; by: string; at: string }[] | null; more: number };
 };
 const ICON: Record<Need["kind"], string> = { approvals: "✓", owed: "$", disputes: "!", levels: "L", questions: "?", cover: "C", failed: "$", alerts: "!" };
 
@@ -96,7 +96,8 @@ export function Today() {
           <p class="meta">{t("ui.today_since_at", { time: sinceWords })}</p>
           {counts.length > 0 && <div class="chips">{counts.map(([k, n]) => <span class="count-chip">{t(`count.since_${k}` as Key, { count: n! })}</span>)}</div>}
           {v.since.changes && v.since.changes.length > 0 && <ul class="plain since-list">{v.since.changes.map((c) => (
-            <li><span class="meta num">{at(c.at, { hour: "numeric", minute: "2-digit" })}</span><span>{c.summary} <span class="meta">· {c.by}</span></span></li>))}</ul>}
+            <li><span class="meta num">{at(c.at, { hour: "numeric", minute: "2-digit" })}</span><span><span class="since-what">{c.summary}</span> <span class="meta">· {c.by}</span>
+              {c.rest && <details class="since-rest"><summary class="meta">{t("ui.since_rest")}</summary><p>{c.rest}</p></details>}</span></li>))}</ul>}
           {counts.length === 0 && !v.since.changes?.length && <p class="meta">{t("ui.since_quiet")}</p>}
           {v.since.changes && <p>{v.since.more > 0 && <span class="meta">{t("count.since_more", { count: v.since.more })} · </span>}<a href="/changes">{t("ui.since_all_changes")}</a></p>}
         </section>

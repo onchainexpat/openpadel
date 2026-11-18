@@ -11,10 +11,10 @@
 import { Hono, type Context } from "hono";
 import { sql } from "kysely";
 import { productName, t, type Key, type Lang } from "@kumi/i18n";
-import { ASK_ENDED, checkInOpen, decide, paymentProvider, yesesReachable, type Payout, type Yes, KumiError, levelQueue, localDate, mayAnswer, onDate, outstandingCredit, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
+import { ASK_ENDED, checkInOpen, decide, paymentProvider, PLUGIN_OWN, yesesReachable, type Payout, type Yes, KumiError, levelQueue, localDate, mayAnswer, onDate, outstandingCredit, promoOff, staffAlerts, type Db, type Owners } from "@kumi/core";
 import { seesChats } from "./chats.ts";
 import { seesMoney } from "./receipts.ts";
-import { planLines, saidIn } from "./changes.ts";
+import { planLines, saidIn, shortSummary } from "./changes.ts";
 
 type Me = { id: string; locale: string } | null;
 /** What reads.ts knows of a reader, handed over so both judge them the same way. */
@@ -232,7 +232,8 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
 
   /** What happened since the reader last looked (their app says when; at most three days back): how many courts were
    *  booked and cancelled, places taken and questions the club answered, each where their roles read it; and for those
-   *  who read Changes, the changes themselves. */
+   *  who read Changes, the changes themselves, each in one short line (the rest apart), and never a plugin's card
+   *  updates (Changes shows those when asked). */
   async function since(id: string, o: Lens, l: Lang, at: Date, now: Date) {
     const counts: Record<string, number> = {};
     const n = async (q: { executeTakeFirstOrThrow(): Promise<{ n: string | number | bigint }> }) => Number((await q.executeTakeFirstOrThrow()).n);
@@ -242,17 +243,18 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
     }
     if (o.reads("programs")) counts.places = await n(db.selectFrom("enrolment").select((eb) => eb.fn.countAll<string>().as("n")).where("created_at", ">=", at).where("status", "in", ["booked", "attended"]));
     if (o.desk) counts.answered = await n(db.selectFrom("question_message").select((eb) => eb.fn.countAll<string>().as("n")).where("side", "=", "club").where("created_at", ">=", at));
-    let changes: { id: string; summary: string; by: string; at: Date }[] | null = null, more = 0;
+    let changes: { id: string; summary: string; rest: string | null; by: string; at: Date }[] | null = null, more = 0;
     if ((await decide(db, "changes.view", { personId: id, at: now })).mode === "allow") {
       const chats = await seesChats(db, id);
       const rows = await db.selectFrom("action_run").leftJoin("person", "person.id", "action_run.actor_person_id").leftJoin("support_grant", "support_grant.id", "action_run.support_grant_id")
         .select(["action_run.id", "action_run.action", "action_run.plan", "action_run.applied_at", "person.display_name", "support_grant.name as support_name"])
-        .where("action_run.status", "=", "applied").where("action_run.applied_at", ">=", at).$if(!chats, (q) => q.where("action_run.action", "not like", "chat.%"))
+        .where("action_run.status", "=", "applied").where("action_run.applied_at", ">=", at).where("action_run.action", "not in", PLUGIN_OWN)
+        .$if(!chats, (q) => q.where("action_run.action", "not like", "chat.%"))
         .orderBy("action_run.applied_at", "desc").limit(SINCE_LIST).execute();
-      const all = await n(db.selectFrom("action_run").select((eb) => eb.fn.countAll<string>().as("n")).where("status", "=", "applied").where("applied_at", ">=", at)
+      const all = await n(db.selectFrom("action_run").select((eb) => eb.fn.countAll<string>().as("n")).where("status", "=", "applied").where("applied_at", ">=", at).where("action", "not in", PLUGIN_OWN)
         .$if(!chats, (q) => q.where("action", "not like", "chat.%")));
       more = Math.max(0, all - rows.length);
-      changes = rows.map((x) => ({ id: x.id, summary: (x.plan as { summary?: Record<Lang, string> })?.summary?.[l] ?? x.action, at: x.applied_at!,
+      changes = rows.map((x) => ({ id: x.id, ...shortSummary((x.plan as { summary?: Record<Lang, string> })?.summary?.[l] ?? x.action, l), at: x.applied_at!,
         by: x.support_name ? t(l, "ui.support_by", { name: x.support_name }) : x.display_name ?? productName() }));
     }
     return { from: at, counts, changes, more };

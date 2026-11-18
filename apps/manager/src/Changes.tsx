@@ -25,14 +25,14 @@ const byline = (r: Change) => { const v = viaWords(r.via); return v ? `${r.by} Â
 
 export function Changes() {
   const [rows, setRows] = useState<Change[] | null>(null), [more, setMore] = useState(false), [error, setError] = useState<string | null>(null);
-  const [who, setWho] = useState(""), [type, setType] = useState("");
+  const [who, setWho] = useState(""), [type, setType] = useState(""), [cards, setCards] = useState(false);
   const [open, setOpen] = useState<Open | null>(null), [reason, setReason] = useState(""), [busy, setBusy] = useState(false), [note, setNote] = useState<string | null>(null);
   const [picked, setPicked] = useState<Detail | null>(null);
   useBackCloses(Boolean(open), () => setOpen(null));
   useBackCloses(Boolean(picked) && !open, () => setPicked(null));
   // Only the latest answer is shown: a quick change of filter doesn't let an older one land after it.
   const asked = useRef(0);
-  const query = (before?: string) => `/staff/changes?${new URLSearchParams({ limit: String(PAGE), ...(who ? { who } : {}), ...(type ? { type } : {}), ...(before ? { before } : {}) })}`;
+  const query = (before?: string) => `/staff/changes?${new URLSearchParams({ limit: String(PAGE), ...(who ? { who } : {}), ...(type ? { type } : {}), ...(cards ? { plugin_cards: "1" } : {}), ...(before ? { before } : {}) })}`;
   const load = () => {
     const n = ++asked.current;
     return api<Change[]>(query()).then((r) => { if (n === asked.current) { setRows(r); setMore(r.length === PAGE); } }).catch((e: ApiError) => setError(e.message));
@@ -43,7 +43,7 @@ export function Changes() {
     const n = ++asked.current;
     api<Change[]>(query(last.id)).then((r) => { if (n === asked.current) { setRows((x) => [...(x ?? []), ...r]); setMore(r.length === PAGE); } }).catch((e: ApiError) => setError(e.message));
   };
-  useEffect(() => { void load(); }, [lang.value, who, type]);
+  useEffect(() => { void load(); }, [lang.value, who, type, cards]);
   const details = (id: string) => { setError(null); api<Detail>(`/staff/changes/${id}`).then(setPicked).catch((e: ApiError) => setError(e.message)); };
 
   const previewUndo = async (id: string) => {
@@ -126,6 +126,8 @@ export function Changes() {
       <div class="list-bar" role="group" aria-label={t("ui.filters")}>
         {filter(t("ui.changes_filter_who"), who, setWho, WHO.map((x) => [x, t(`ui.changes_who_${x}`)]))}
         {filter(t("ui.filter_type"), type, setType, AREAS.map((x) => [x, t(`area.${x}`)]))}
+        {/* A plugin's card updates (lights on at Court 1, many a day) stay in the log for undo, out of sight unless asked. */}
+        <label class={`filter-chip check${cards ? " on" : ""}`}><input type="checkbox" checked={cards} onChange={(e) => setCards(e.currentTarget.checked)} /><span>{t("ui.changes_plugin_cards")}</span></label>
       </div>
       {waiting.length > 0 && <section><h2>{t("ui.changes_waiting")}</h2><ul class="changes">{waiting.map(row)}</ul></section>}
       {rows.length === 0 && <p>{t(who || type ? "ui.changes_none_match" : "ui.changes_empty")}</p>}

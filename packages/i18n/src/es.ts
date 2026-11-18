@@ -5486,6 +5486,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.list_type_playtomic": "Copia de Playtomic",
   "ui.filters": "Filtros",
   "ui.filter_all": "Todo",
+  "ui.changes_plugin_cards": "Mostrar las actualizaciones de tarjetas de plugins",
+  "ui.since_rest": "El resto",
   "ui.filter_type": "Tipo",
   "ui.filter_status": "Estado",
   "ui.filter_made_in": "Hecha en",
