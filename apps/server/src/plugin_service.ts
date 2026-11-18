@@ -12,7 +12,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
-import type { Manifest } from "@kumi/core";
+import { clubNetworkField, ipKind, type Manifest } from "@kumi/core";
+import { isIP } from "node:net";
 import { pluginRequest } from "./plugins.ts";
 
 export const RELEASE_MAX_BYTES = 200_000_000;
@@ -37,8 +38,11 @@ export const unitSafe = (s: string) => s.replace(/[^A-Za-z0-9._\-/@:]/g, "");
 
 /** The systemd unit for a local plugin. Nothing the manifest says in words goes into it: only its name, version and
  *  entry, which the manifest's checks hold to safe characters, and they're kept to those again here. */
-export function unitFile(m: Manifest, dir: string, envFile: string, port: number): string {
+export function unitFile(m: Manifest, dir: string, envFile: string, port: number, allowIp: string | null = null): string {
   if (m.run.mode !== "local") throw new Error("not local");
+  // The one address on the club's network the owner said yes to (club_network.ts): only an IP, checked again here.
+  if (allowIp !== null && (!/^[0-9A-Fa-f:.]{2,45}$/.test(allowIp) || !isIP(allowIp) || ipKind(allowIp) !== "private")) throw new Error("not a private IP address");
+  const allow = allowIp === null ? "" : `\n# The owner let it reach this one address on the club's own network (its ${unitSafe(clubNetworkField(m)?.key ?? "club_network")} setting).\nIPAddressAllow=${allowIp}/${isIP(allowIp) === 4 ? 32 : 128}`;
   const name = unitSafe(m.name), version = unitSafe(m.version), p = Number.isInteger(port) ? port : 0;
   return `# openPadel plugin ${name} ${version}. Written by openpadel plugin service ${name}; it talks to the club only
 # through its door (OPENPADEL_MCP) and listens on 127.0.0.1:${p} for the events and hooks the club passes on.
@@ -68,7 +72,7 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 RestrictAddressFamilies=AF_INET AF_INET6
 InaccessiblePaths=-/etc/kumi -/var/backups/kumi -/var/lib/postgresql -/run/postgresql -/var/lib/kumi -/etc/caddy -/var/lib/caddy -/run/caddy
-IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 fc00::/7 fe80::/10
+IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 fc00::/7 fe80::/10${allow}
 MemoryMax=512M
 CPUQuota=50%
 
@@ -116,9 +120,9 @@ export function envFileText(env: Record<string, string>): string {
 }
 
 export interface ServicePlan { name: string; version: string; dir: string; envFile: string; unitFile: string; unit: string; compose: string | null; port: number; envNames: string[] }
-export function servicePlan(m: Manifest, port: number, docker: boolean, paths = servicePaths()): ServicePlan {
+export function servicePlan(m: Manifest, port: number, docker: boolean, paths = servicePaths(), allowIp: string | null = null): ServicePlan {
   const dir = resolve(paths.root, m.name, m.version), envFile = join(paths.envDir, `${m.name}.env`);
-  return { name: m.name, version: m.version, dir, envFile, unitFile: join(paths.unitDir, unitName(m.name)), unit: unitFile(m, dir, envFile, port), compose: docker ? composeService(m, port) : null, port,
+  return { name: m.name, version: m.version, dir, envFile, unitFile: join(paths.unitDir, unitName(m.name)), unit: unitFile(m, dir, envFile, port, allowIp), compose: docker ? composeService(m, port) : null, port,
     envNames: ["PORT", "OPENPADEL_URL", "OPENPADEL_MCP", "OPENPADEL_TOKEN", "OPENPADEL_WEBHOOK_SECRET", "OPENPADEL_HOOK_SECRET", "OPENPADEL_PLUGIN"] };
 }
 /** Writes what the plan says (systemd installs only): the release unpacked, its environment (root's alone) and its unit. */

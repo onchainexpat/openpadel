@@ -43,7 +43,7 @@ export interface PluginTable { id: string; name: string; release: string; manife
   mode: "remote" | "local"; base_url: string | null; local_port: number | null; status: Generated<"waiting" | "on" | "paused" | "removed">; settings: Generated<Json>;
   agent_id: string | null; role_id: string | null; subscription_id: string | null; secret_sealed: string; secret_last4: string; registration_sealed: string | null;
   registration_attempts: Generated<number>; registration_next_at: Date | null; registration_error: string | null; registered_at: Date | null; installed_by: string | null;
-  installed_at: Generated<Date>; updated_at: Generated<Date>; removed_at: Date | null; version: Generated<number> }
+  installed_at: Generated<Date>; updated_at: Generated<Date>; removed_at: Date | null; version: Generated<number>; club_network_ip: Generated<string | null> }
 /** A plugin's card in one of the apps' slots (plugin_cards.ts): put and cleared by the plugin through the door. */
 export interface PluginCardTable { id: string; plugin_id: string; slot: "game" | "court_tile" | "member_profile" | "money" | "connectors"; subject: string | null;
   tone: Generated<"ok" | "warn" | "off">; rows: Generated<Json>; link: Json | null; put_at: Generated<Date>; cleared_at: Date | null; version: Generated<number> }

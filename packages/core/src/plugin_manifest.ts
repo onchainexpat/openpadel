@@ -40,7 +40,9 @@ const settingKey = z.string().check(z.regex(/^[a-z][a-z0-9_]{0,39}$/));
 const common = { key: settingKey, label: text(80), help: z.optional(text(300)), required: z.optional(z.boolean()) };
 
 const settingField = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("string"), ...common, default: z.optional(z.string().check(z.maxLength(500))), max_length: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(500))) }),
+  z.strictObject({ type: z.literal("string"), ...common, default: z.optional(z.string().check(z.maxLength(500))), max_length: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(500))),
+    // The one address on the club's own network a local plugin may reach (club_network.ts): at most one per manifest.
+    club_network: z.optional(z.boolean()) }),
   z.strictObject({ type: z.literal("integer"), ...common, default: z.optional(z.number().check(z.int())), minimum: z.optional(z.number().check(z.int())), maximum: z.optional(z.number().check(z.int())) }),
   z.strictObject({ type: z.literal("boolean"), key: settingKey, label: text(80), help: z.optional(text(300)), default: z.optional(z.boolean()) }),
   z.strictObject({ type: z.literal("choice"), ...common, default: z.optional(z.string()),
@@ -108,6 +110,7 @@ export function parseManifest(raw: unknown): Manifest {
   const d3 = dup(m.events); if (d3) problems.push(`events: ${d3} twice`);
   const d4 = dup(m.reads); if (d4) problems.push(`reads: ${d4} twice`);
   const d5 = dup(m.settings.map((f) => f.key)); if (d5) problems.push(`settings: ${d5} twice`);
+  if (m.settings.filter((f) => f.type === "string" && f.club_network).length > 1) problems.push("settings: only one may be club_network");
   for (const f of m.settings) {
     const k = f.key;
     if (f.type === "integer" && f.minimum !== undefined && f.maximum !== undefined && f.minimum > f.maximum) problems.push(`settings.${k}: minimum over maximum`);

@@ -51,11 +51,12 @@
               "es": "Dirección de Home Assistant"
             },
             "help": {
-              "en": "Where the club's Home Assistant answers, such as https://ha.yourclub.com.",
-              "es": "Donde responde el Home Assistant del club, como https://ha.tuclub.com."
+              "en": "Where the club's Home Assistant answers, such as https://ha.yourclub.com, or its address on the club's network, such as http://192.168.1.20:8123. A local plugin may reach that one address on the club's network and nothing else there.",
+              "es": "Donde responde el Home Assistant del club, como https://ha.tuclub.com, o su dirección en la red del club, como http://192.168.1.20:8123. Un plugin local puede llegar a esa sola dirección de la red del club y a nada más ahí."
             },
             "required": true,
-            "max_length": 200
+            "max_length": 200,
+            "club_network": true
           },
           {
             "key": "courts",

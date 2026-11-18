@@ -25,6 +25,7 @@ import { backoffMs } from "./outbox.ts";
 import { exceeds, heldBy, readAreas } from "./roles.ts";
 import { openBytes, openText, sealText } from "./sealed.ts";
 import { checkWebhookUrl, PLUGIN_CONFIGURED_TOPIC } from "./webhooks.ts";
+import { clubNetworkIp } from "./club_network.ts";
 import { areasText, checkManifestAtClub, checkSettings, grantsText, manifestDiff, manifestRows, manifestSha256, parseManifest, readsOf, rowsText, runText,
   MANIFEST_MAX_BYTES, type Manifest } from "./plugin_manifest.ts";
 
@@ -244,6 +245,16 @@ async function askForKeys(ctx: ApplyCtx, pluginId: string, name: string, m: Mani
   return missing;
 }
 
+/** The plan's words for the one address on the club's network a local plugin may reach (club_network.ts). */
+function networkRow(name: string, net: { ip: string; label: Text } | null, was: string | null, local: boolean): { label: Text; text: Text } | null {
+  if (!net) return was ? { label: both("plan.plugin.row_club_network"), text: both("plan.plugin.club_network_off") } : null;
+  const text = both("plan.plugin.club_network", { ip: net.ip, label: net.label });
+  // An installed local plugin's service has to be written again to let a new address through.
+  if (!local || net.ip === was) return { label: both("plan.plugin.row_club_network"), text };
+  const then = both("plan.plugin.club_network_service", { name });
+  return { label: both("plan.plugin.row_club_network"), text: { en: `${text.en} ${then.en}`, es: `${text.es} ${then.es}` } };
+}
+
 export const pluginInstall = defineAction({
   name: "plugin.install", version: 1, wholeClub: "reason.whole_club_agents",
   input: z.object({ ...installInput, settings: z.optional(z.record(z.string(), z.unknown()).check(z.describe("Its settings, as its manifest describes them (plugin info lists them); they can be given later with plugin configure"))) }),
@@ -263,13 +274,14 @@ export const pluginInstall = defineAction({
       const todo = m.settings.filter((f) => "required" in f && f.required).map((f) => f.label);
       if (todo.length) setRows = [{ label: both("plan.plugin.row_settings"), text: both("plan.plugin.settings_later", { list: { en: todo.map((t) => t.en).join(", "), es: todo.map((t) => t.es).join(", ") }, name: m.name }) }];
     }
-    const rows = [sourceRow(s), ...manifestRows(m), ...setRows, tokenRow(m)];
+    const net = await clubNetworkIp(m, settings), netRow = networkRow(m.name, net, null, false);
+    const rows = [sourceRow(s), ...manifestRows(m), ...setRows, ...(netRow ? [netRow] : []), tokenRow(m)];
     const head = s.source === "catalog" ? both("plan.plugin.install", { name: m.name, version: m.version }) : both("plan.plugin.install_unreviewed", { name: m.name, version: m.version });
     return { title: both("action.plugin.install"), summary: rowsText(head, rows), rows, reads: [], undo: { kind: "none", note: both("reason.plugin_remove_instead") },
-      details: { manifest: m, sha: manifestSha256(m), source: s.source, source_url: s.source_url, settings } };
+      details: { manifest: m, sha: manifestSha256(m), source: s.source, source_url: s.source_url, settings, club_network_ip: net?.ip ?? null } };
   },
   async apply(ctx, _i, p) {
-    const d = p.details as { manifest: Manifest; sha: string; source: Source["source"]; source_url: string | null; settings: Record<string, unknown> };
+    const d = p.details as { manifest: Manifest; sha: string; source: Source["source"]; source_url: string | null; settings: Record<string, unknown>; club_network_ip?: string | null };
     const m = d.manifest;
     if (await ctx.trx.selectFrom("plugin").select("id").where("name", "=", m.name).where("status", "!=", "removed").executeTakeFirst()) throw new KumiError("error.plugin_installed", { name: m.name });
     const port = m.run.mode === "local" ? await freePort(ctx.trx) : null, base = baseUrlOf(m, port);
@@ -290,7 +302,7 @@ export const pluginInstall = defineAction({
       secret_last4: whsec.slice(-4), created_by: ctx.actor.personId, created_at: ctx.now });
     const id = uuidv7(), secret = `opps_${randomBytes(32).toString("base64url")}`;
     await ctx.insert("plugin", { id, name: m.name, release: m.version, manifest: JSON.stringify(m), manifest_sha256: d.sha, source: d.source, source_url: d.source_url, mode: m.run.mode,
-      base_url: base, local_port: port, status: "waiting", settings: JSON.stringify(d.settings), agent_id: agentId, role_id: roleId, subscription_id: subId,
+      base_url: base, local_port: port, status: "waiting", settings: JSON.stringify(d.settings), club_network_ip: d.club_network_ip ?? null, agent_id: agentId, role_id: roleId, subscription_id: subId,
       secret_sealed: sealText(secret), secret_last4: secret.slice(-4), registration_sealed: sealText(JSON.stringify({ token: t.token })), registration_attempts: 0,
       registration_next_at: ctx.now, installed_by: ctx.actor.personId, installed_at: ctx.now, updated_at: ctx.now });
     const missing = await askForKeys(ctx, id, m.name, m);
@@ -318,12 +330,16 @@ export const pluginConfigure = defineAction({
     const same = (a: Record<string, unknown>, b: Record<string, unknown>) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
     if (same(c.values, before)) throw new KumiError("error.nothing_changed");
     const list = { en: c.lines.map((l) => l.en).join("; "), es: c.lines.map((l) => l.es).join("; ") };
-    return { title: both("action.plugin.configure"), summary: both("plan.plugin.configure", { name: m.name, settings: list }), reads: [read], undo: { kind: "reversible" }, details: { values: c.values } };
+    const was = (row.club_network_ip as string | null) ?? null, net = await clubNetworkIp(m, c.values);
+    const netRow = networkRow(m.name, net, was, m.run.mode === "local");
+    const head = both("plan.plugin.configure", { name: m.name, settings: list });
+    const summary = netRow ? { en: `${head.en} ${netRow.text.en}`, es: `${head.es} ${netRow.text.es}` } : head;
+    return { title: both("action.plugin.configure"), summary, reads: [read], undo: { kind: "reversible" }, details: { values: c.values, club_network_ip: net?.ip ?? null } };
   },
   async apply(ctx, i, p) {
-    const { values } = p.details as { values: Record<string, unknown> };
+    const { values, club_network_ip } = p.details as { values: Record<string, unknown>; club_network_ip?: string | null };
     const pl = await ctx.trx.selectFrom("plugin").select(["id", "subscription_id", "name"]).where("name", "=", i.plugin).where("status", "!=", "removed").executeTakeFirstOrThrow();
-    await ctx.update("plugin", pl.id, { settings: JSON.stringify(values), updated_at: ctx.now });
+    await ctx.update("plugin", pl.id, { settings: JSON.stringify(values), club_network_ip: club_network_ip ?? null, updated_at: ctx.now });
     // The plugin hears at once, signed like its events (it can also read them through the door: plugin_settings).
     if (pl.subscription_id) {
       const body = JSON.stringify({ id: `cfg_${uuidv7()}`, type: PLUGIN_CONFIGURED_TOPIC, created_at: ctx.now.toISOString(), data: { plugin: pl.name, settings: values } });
@@ -356,11 +372,13 @@ export const pluginUpdate = defineAction({
       ...(diff.length ? diff : [{ label: both("plan.plugin.row_asks"), text: both("plan.plugin.asks_nothing_new") }])];
     const urlChanged = old.run.mode === "remote" && m.run.mode === "remote" && old.run.url !== m.run.url;
     if (urlChanged) rows.push(tokenRow(m));
+    const was = (row.club_network_ip as string | null) ?? null, net = await clubNetworkIp(m, values);
+    if ((net?.ip ?? null) !== was) { const r = networkRow(m.name, net, was, m.run.mode === "local"); if (r) rows.push(r); }
     return { title: both("action.plugin.update"), summary: rowsText(both("plan.plugin.update", { name: m.name, from: old.version, to: m.version }), rows), rows, reads: [read],
-      undo: { kind: "none", note: both("reason.plugin_update_back") }, details: { manifest: m, sha, source: s.source, source_url: s.source_url, settings: values, new_token: urlChanged } };
+      undo: { kind: "none", note: both("reason.plugin_update_back") }, details: { manifest: m, sha, source: s.source, source_url: s.source_url, settings: values, new_token: urlChanged, club_network_ip: net?.ip ?? null } };
   },
   async apply(ctx, i, p) {
-    const d = p.details as { manifest: Manifest; sha: string; source: Source["source"]; source_url: string | null; settings: Record<string, unknown>; new_token: boolean };
+    const d = p.details as { manifest: Manifest; sha: string; source: Source["source"]; source_url: string | null; settings: Record<string, unknown>; new_token: boolean; club_network_ip?: string | null };
     const m = d.manifest;
     const pl = await ctx.trx.selectFrom("plugin").selectAll().where("name", "=", i.plugin).where("status", "!=", "removed").executeTakeFirstOrThrow();
     await writeRole(ctx, m, pl.role_id);
@@ -378,7 +396,7 @@ export const pluginUpdate = defineAction({
         ...(pl.status === "on" ? { status: "waiting" } : {}) };
     }
     await ctx.update("plugin", pl.id, { manifest: JSON.stringify(m), manifest_sha256: d.sha, release: m.version, source: d.source, source_url: d.source_url, base_url: base,
-      settings: JSON.stringify(d.settings), updated_at: ctx.now, ...registration });
+      settings: JSON.stringify(d.settings), club_network_ip: d.club_network_ip ?? null, updated_at: ctx.now, ...registration });
     const missing = await askForKeys(ctx, pl.id, m.name, m);
     return { plugin_id: pl.id, name: m.name, version: m.version, keys_needed: missing };
   },

@@ -37,7 +37,7 @@ Each setting is one of:
 
 | `type` | Its other fields | What the club gives |
 |---|---|---|
-| `string` | `max_length` (up to 500), `default` | Text. |
+| `string` | `max_length` (up to 500), `default`, `club_network` | Text. |
 | `integer` | `minimum`, `maximum`, `default` | A whole number. |
 | `boolean` | `default` | `true` or `false`. |
 | `choice` | `choices`: `[{ "value": "daily", "label": {…} }, …]` (2 to 30), `default` | One of the values. |
@@ -46,6 +46,19 @@ Each setting is one of:
 Every setting also has `key` (lowercase letters, digits and `_`), `label` (both languages) and, except `boolean`,
 `required`; all may have `help`. `plugin configure` refuses a setting the manifest doesn't have, a value out of shape,
 and a court the club doesn't have, and says which.
+
+### One address on the club's own network (`club_network`)
+
+A local plugin's service is kept off private networks (10.x, 172.16-31.x, 192.168.x, 169.254.x, 100.64-127.x and
+IPv6's private and link-local ranges). A plugin that has to reach a device there, such as Home Assistant, marks the
+`string` setting that names it with `"club_network": true` (at most one per manifest). When the club gives that setting
+an address on its own network (`http://192.168.1.20:8123`, or a name that resolves to exactly one such address), the
+preview of `plugin install`, `plugin configure` or `plugin update` says so in words ("It can reach 192.168.1.20 on the
+club's own network (Home Assistant address), and nothing else there"), and once the owner says yes (a manager asks),
+`openpadel plugin service <name> --apply` writes its unit with `IPAddressAllow=` for that one IP, any port. It's
+refused, with the reason, when it's this server itself (the loopback or one of its own addresses), not one device's
+address (`0.0.0.0`, multicast), a name this server can't find, or a name that answers at more than one address. A
+public address needs nothing, and a remote plugin isn't affected: this is only about the local sandbox.
 
 ## `run`
 

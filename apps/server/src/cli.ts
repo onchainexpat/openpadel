@@ -448,11 +448,11 @@ async function main(): Promise<number> {
     serverKeys();
     const db = await clubDb();
     try {
-      const pl = await db.selectFrom("plugin").select(["name", "manifest", "mode", "local_port", "status"]).where("name", "=", rest[0]).where("status", "!=", "removed").executeTakeFirst();
+      const pl = await db.selectFrom("plugin").select(["name", "manifest", "mode", "local_port", "status", "club_network_ip"]).where("name", "=", rest[0]).where("status", "!=", "removed").executeTakeFirst();
       if (!pl) { console.error(t(lang, "error.plugin_not_installed", { name: rest[0] })); return 2; }
       if (pl.mode !== "local") { console.error(t(lang, "error.plugin_not_local", { name: pl.name })); return 2; }
       const m = pl.manifest as Manifest, docker = process.env.KUMI_INSTALL === "docker", production = process.env.NODE_ENV === "production";
-      const sp = servicePlan(m, pl.local_port!, docker);
+      const sp = servicePlan(m, pl.local_port!, docker, undefined, pl.club_network_ip);
       if (args.includes("--remove")) {
         if (args.includes("--apply")) { rmSync(sp.envFile, { force: true }); rmSync(sp.unitFile, { force: true }); }
         if (json) out({ ok: true, removed: args.includes("--apply"), files: [sp.envFile, sp.unitFile], then: `systemctl disable --now ${unitName(m.name)}` });
