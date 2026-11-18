@@ -679,6 +679,142 @@
           "url": "https://whatsapp.plugins.openpadel.org/v1"
         }
       }
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "name": "court-camera",
+        "publisher": "openPadel examples",
+        "version": "0.1.0",
+        "homepage": "https://github.com/openpadel/plugin-court-camera",
+        "licence": "AGPL-3.0-only",
+        "description": {
+          "en": "Shows the club's court cameras' highlights and game stats on each game's page, for its players and staff. A camera system posts when a clip is ready, and the plugin finds the booking on that court at that time.",
+          "es": "Muestra las jugadas destacadas y las estadísticas de las cámaras de las canchas en la página de cada partido, para sus jugadores y el personal. El sistema de cámaras avisa cuando un video está listo, y el plugin encuentra la reserva de esa cancha a esa hora."
+        },
+        "grants": [],
+        "reads": [
+          "bookings",
+          "courts"
+        ],
+        "events": [
+          "booking.cancelled",
+          "booking.created",
+          "booking.moved"
+        ],
+        "secrets": [
+          {
+            "name": "CAMERA_WEBHOOK_SECRET",
+            "label": {
+              "en": "Camera system's signing secret",
+              "es": "Secreto de firma del sistema de cámaras"
+            },
+            "where": {
+              "en": "In your camera system, where you add openPadel (its webhooks or integrations page): the secret it signs what it sends with. Give it https://<your club's address>/plugins/court-camera/hook as the address.",
+              "es": "En tu sistema de cámaras, donde agregas openPadel (su página de webhooks o integraciones): el secreto con el que firma lo que envía. Dale https://<la dirección de tu club>/plugins/court-camera/hook como dirección."
+            }
+          },
+          {
+            "name": "CAMERA_API_KEY",
+            "label": {
+              "en": "Camera system's API key",
+              "es": "Clave de API del sistema de cámaras"
+            },
+            "where": {
+              "en": "In your camera system's settings, its API keys page. Only needed when the cameras are told when bookings start and end.",
+              "es": "En la configuración de tu sistema de cámaras, su página de claves de API. Solo hace falta cuando se avisa a las cámaras cuándo empiezan y terminan las reservas."
+            },
+            "needed_when": {
+              "setting": "tell_cameras",
+              "is": true
+            }
+          }
+        ],
+        "settings": [
+          {
+            "key": "courts",
+            "type": "courts",
+            "label": {
+              "en": "Courts with cameras",
+              "es": "Canchas con cámaras"
+            },
+            "required": true
+          },
+          {
+            "key": "cameras",
+            "type": "string",
+            "label": {
+              "en": "Camera for each court",
+              "es": "La cámara de cada cancha"
+            },
+            "help": {
+              "en": "Each court and its camera's id in the camera system, such as Court 1 = cam-01, Court 2 = cam-02. A court left out uses its name as the id: Court 3 is court_3.",
+              "es": "Cada cancha y el id de su cámara en el sistema de cámaras, como Cancha 1 = cam-01, Cancha 2 = cam-02. Una cancha que no está usa su nombre como id: Cancha 3 es cancha_3."
+            },
+            "required": false,
+            "max_length": 500
+          },
+          {
+            "key": "tell_cameras",
+            "type": "boolean",
+            "label": {
+              "en": "Tell the cameras when bookings start and end",
+              "es": "Avisar a las cámaras cuándo empiezan y terminan las reservas"
+            },
+            "help": {
+              "en": "For a camera system that records only during bookings. It gets each booking's court, start and end, and nothing about who plays.",
+              "es": "Para un sistema de cámaras que graba solo durante las reservas. Recibe la cancha, el inicio y el fin de cada reserva, y nada sobre quién juega."
+            },
+            "default": false
+          },
+          {
+            "key": "vendor_url",
+            "type": "string",
+            "label": {
+              "en": "Camera system address",
+              "es": "Dirección del sistema de cámaras"
+            },
+            "help": {
+              "en": "Where the camera system takes bookings' times, such as https://api.cameras.example/v1, or its address on the club's network, such as http://192.168.1.30. Only needed when the cameras are told about bookings.",
+              "es": "Donde el sistema de cámaras recibe los horarios de las reservas, como https://api.cameras.example/v1, o su dirección en la red del club, como http://192.168.1.30. Solo hace falta cuando se avisa a las cámaras de las reservas."
+            },
+            "required": false,
+            "max_length": 200,
+            "club_network": true
+          }
+        ],
+        "data_out": {
+          "en": "Only when the club turns it on: each booking's court (as its camera), start and end, and an id for it, go to the camera system. No names, emails or phone numbers. The video is recorded and kept by the camera system, under the club's agreement with it; this plugin shows links to it.",
+          "es": "Solo si el club lo activa: la cancha (como su cámara), el inicio y el fin de cada reserva, y un id para ella, van al sistema de cámaras. Sin nombres, correos ni teléfonos. El video lo graba y lo guarda el sistema de cámaras, según el acuerdo del club con él; este plugin muestra enlaces a él."
+        },
+        "cost": {
+          "charges": true,
+          "note": {
+            "en": "The plugin is free. The camera system charges under its own agreement with the club.",
+            "es": "El plugin es gratis. El sistema de cámaras cobra según su propio acuerdo con el club."
+          }
+        },
+        "cards": [
+          {
+            "slot": "game",
+            "title": {
+              "en": "Video and stats",
+              "es": "Video y estadísticas"
+            }
+          }
+        ],
+        "health": "/health",
+        "hook": {
+          "from": {
+            "en": "The club's court cameras, when a highlight or a game's stats are ready",
+            "es": "Las cámaras de las canchas del club, cuando una jugada destacada o las estadísticas de un partido están listas"
+          }
+        },
+        "run": {
+          "mode": "remote",
+          "url": "https://cameras.plugins.openpadel.org/v1"
+        }
+      }
     }
   ]
 }

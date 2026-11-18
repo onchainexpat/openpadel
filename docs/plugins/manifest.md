@@ -139,3 +139,9 @@ takings, refunds, tax, card fees and payouts sent to the club's Xero or QuickBoo
 the club and reads money; its Xero and QuickBooks app keys are `needed_when` its `provider` setting chooses that one, its refresh
 tokens are `kept_by_plugin`, it takes the browser back from Xero's or Intuit's sign-in with `callback`, and it shows a
 card on Connectors and on Money. The plugin itself is [plugins/accounting-export](../../plugins/accounting-export/README.md).
+
+[examples/court-camera/openpadel-plugin.json](examples/court-camera/openpadel-plugin.json): a court camera system's
+highlights and game stats on each game's page. It changes nothing at the club, reads bookings and courts, takes what the
+camera system posts with `hook`, needs the vendor's signing secret, and its API key only `needed_when` its `tell_cameras`
+setting is on; the camera system's address is its `club_network` setting, and it shows a `game` card. The plugin itself
+is [plugins/court-camera](../../plugins/court-camera/README.md), with a vendor adapter interface for camera systems.
