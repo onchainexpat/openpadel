@@ -221,6 +221,12 @@ main.card.done { text-align: center; }
 .level-move.up { color: #1e6b3a; } .level-move.down { color: var(--muted); } .level-move.floor { color: var(--brand-ink); font-weight: 500; font-size: 14px; }
 @media (prefers-color-scheme: dark) { .level-move.up { color: #a6e3b8; } }
 .level-how { margin: 0; padding-left: 20px; } .level-how li { margin: 6px 0; }
+/* Where to find a level in another app (MyLevel.tsx): a plain phone drawing beside the words. */
+.level-where { display: flex; gap: 12px; align-items: flex-start; margin: 8px 0; }
+.level-where svg { flex: none; }
+.level-where figcaption { font-size: 0.92em; color: var(--muted); }
+.level-where figcaption strong { color: var(--ink); }
+.level-claims li { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 8px 0; }
 /* Wallet: club credit, what came in and went out, passes, and the links to the rest of the money. */
 .wallet-balance { font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0; }
 .wallet-list li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }

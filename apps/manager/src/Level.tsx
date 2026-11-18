@@ -2,12 +2,15 @@ import { useEffect, useState } from "preact/hooks";
 import { api, lang, t, clubTime } from "@kumi/ui";
 import { usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
+import { ClaimAnswer, type StaffClaim } from "./LevelClaim.tsx";
 
 type Platform = { key: string; min: number; max: number; whole: boolean; conf: "reliability" | "matches" | "wpr" | "percent" | null; converts: boolean };
 type L = { person: { id: string; display_name: string }; rating: { level: string; provisional: boolean; floor: string | null; rated_games: number } | null;
   events: { at: string; kind: string; level_before: string | null; level_after: string; explanation: string }[];
   // A starting level from another app (level_import.ts): the one standing, and whether one can still come in.
-  import: { at: string; level: number; platform: string; explanation: string } | null; can_remove: boolean; can_claim: boolean; games: number; platforms: Platform[] };
+  import: { at: string; level: number; platform: string; explanation: string; claim_id: string | null } | null; can_remove: boolean; can_claim: boolean; games: number; platforms: Platform[];
+  // Every level the player brought (level_claims.ts), answered here as in the Levels queue.
+  claims: StaffClaim[] };
 
 /** What staff saw in the player's app, or looked up: it starts their level, provisional, while they're new here. */
 function ImportForm({ d, send }: { d: L; send: (input: Record<string, unknown>) => void }) {
@@ -57,7 +60,10 @@ export function Level({ id }: { id: string }) {
         <button disabled={!floor || reason.trim().length < 3} onClick={() => preview("level.set_floor", { person_id: id, floor: Number(floor), reason })}>{t("ui.set_floor")}</button>
       </form>
       {d.import && <section class="card"><h2>{t("ui.level_import_from")}</h2><p>{d.import.explanation}</p>
-        {d.can_remove && <button class="small" onClick={() => preview("level.remove_import", { person_id: id })}>{t("ui.remove_import")}</button>}</section>}
+        {d.can_remove && !d.import.claim_id && <button class="small" onClick={() => preview("level.remove_import", { person_id: id })}>{t("ui.remove_import")}</button>}</section>}
+      {d.claims.length > 0 && <section class="card"><h2>{t("ui.level_claims_staff")}</h2>
+        <ul class="plain">{d.claims.map((c) => <li key={c.id}><strong>{t(`level_source.${c.platform}` as Key)}</strong> <span class="meta">{t(`ui.claim_status.${c.status}` as Key)}</span>
+          <ClaimAnswer c={c} preview={preview} day={when} open={d.can_claim || c.status === "waiting"} /></li>)}</ul></section>}
       {d.can_claim && !d.import && <ImportForm d={d} send={(input) => preview("level.import", { person_id: id, ...input })} />}
       <section class="card"><h2>{t("ui.history")}</h2>
         <ul class="plain">{d.events.map((e) => <li><span class="meta">{when(e.at)}</span> {e.explanation}</li>)}</ul></section>

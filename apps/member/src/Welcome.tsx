@@ -56,7 +56,7 @@ export function Welcome() {
             <ul class="plain">{b.map((x) => <li key={x.id} class="meta">{x.court} · {clubTime(x.start, { dateStyle: "medium", timeStyle: "short" }, f.time_zone)}</li>)}</ul></>
             : <span class="meta">{t("ui.welcome_no_bookings")}</span>}</li>
           <li>{f.level ? <><strong>{t("ui.welcome_level", { level: Number(f.level).toFixed(2) })}</strong> <span class="meta">{t("ui.welcome_level_note")}</span></>
-            : <span class="meta">{t("ui.welcome_no_level")}</span>}</li>
+            : <><span class="meta">{t("ui.welcome_no_level")}</span> <a href="/level">{t("ui.welcome_bring_level")}</a></>}</li>
           <li>{f.credit_cents ? <><strong>{t("ui.welcome_credit", { amount: dollars(f.credit_cents, lang.value) })}</strong> <span class="meta">{t("ui.welcome_credit_note")}</span></>
             : <span class="meta">{t("ui.welcome_no_credit")}</span>}</li>
           <li>{m ? <><strong>{t("ui.welcome_membership", { name: m.name })}</strong>{m.date && <> <span class="meta">{t(m.renews ? "ui.welcome_renews" : "ui.welcome_paid_through", { date: day(m.date) })}</span></>}</>
