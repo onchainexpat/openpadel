@@ -508,14 +508,19 @@ export const pluginRemove = defineAction({
   async plan(ctx, i) {
     const { row, read, m } = await livePlugin(ctx.db, i.plugin);
     // Every key kept under its name in the vault (pluginVaultName), declared now or by an older version.
-    const keys = (await ctx.db.selectFrom("vault_item").select("name").where("active", "=", true).where((eb) => eb(eb.fn("lower", ["name"]), "like", `${m.name}/%`)).orderBy("name").execute())
-      .map((v) => ({ vault_name: v.name }));
-    const names = { en: keys.map((k) => k.vault_name).join(", "), es: keys.map((k) => k.vault_name).join(", ") };
+    const all = (await ctx.db.selectFrom("vault_item").select(["name", "kept_by_plugin"]).where("active", "=", true).where((eb) => eb(eb.fn("lower", ["name"]), "like", `${m.name}/%`)).orderBy("name").execute());
+    // The keys it kept itself (a refresh token into the club's Xero) go with it, always: nobody else can use them, and
+    // they'd still open the outside service. The owner's own keys follow delete_keys.
+    const keptHere = (v: { name: string; kept_by_plugin?: string | null }) => Boolean(v.kept_by_plugin) || m.secrets.some((x) => x.kept_by_plugin && pluginVaultName(m.name, x.name).toLowerCase() === v.name.toLowerCase());
+    const kept = all.filter(keptHere).map((v) => ({ vault_name: v.name })), keys = all.filter((v) => !keptHere(v)).map((v) => ({ vault_name: v.name }));
+    const list = (xs: { vault_name: string }[]) => ({ en: xs.map((k) => k.vault_name).join(", "), es: xs.map((k) => k.vault_name).join(", ") });
+    const names = list(keys);
     const lines: Text[] = [both("plan.plugin.remove", { name: m.name })];
+    if (kept.length) lines.push(both("plan.plugin.remove_kept_keys", { keys: list(kept) }));
     if (keys.length) lines.push(i.delete_keys ? both("plan.plugin.remove_keys", { keys: names }) : both("plan.plugin.keep_keys", { keys: names }));
     if (row.mode === "local") lines.push(both("plan.plugin.remove_local", { name: m.name }));
     return { title: both("action.plugin.remove"), summary: { en: lines.map((l) => l.en).join(" "), es: lines.map((l) => l.es).join(" ") }, reads: [read],
-      undo: { kind: "none", note: both("reason.plugin_install_again") }, details: { keys: i.delete_keys ? keys.map((k) => k.vault_name) : [] } };
+      undo: { kind: "none", note: both("reason.plugin_install_again") }, details: { keys: [...kept, ...(i.delete_keys ? keys : [])].map((k) => k.vault_name) } };
   },
   async apply(ctx, i, p) {
     const pl = await ctx.trx.selectFrom("plugin").select(["id", "agent_id", "role_id"]).where("name", "=", i.plugin).where("status", "!=", "removed").executeTakeFirstOrThrow();

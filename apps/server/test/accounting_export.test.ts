@@ -250,14 +250,28 @@ test("the books: each club day's ledger by kind, a refund on its own line on its
   assert.ok((await call(lights, "money_books", { from: d1, to: d2 })).error, "court lights doesn't read money");
   // The same days read alone say the same.
   assert.deepEqual((await moneyBooks(db, d2, d2)).days[0]!.lines, two.lines);
+  // Stripe not answering: the figures say "error" (an export waits for them), never that there were none.
+  const fees = provider.feesBetween.bind(provider), list = provider.listPayouts.bind(provider);
+  provider.feesBetween = async () => { throw new Error("stripe down"); };
+  provider.listPayouts = async () => { throw new Error("stripe down"); };
+  try {
+    const down = (await moneyBooks(db, d1, d1)).days[0]!;
+    assert.deepEqual([down.fees, down.payouts], ["error", "error"]);
+    assert.deepEqual(down.lines.map((l) => l.key).sort(), ["cash.in", "takings.courts"]);
+  } finally { provider.feesBetween = fees; provider.listPayouts = list; }
   provider.fees.length = 0; provider.payouts.length = 0;
 });
 
-test("removed with --delete-keys, the keys it kept go too", async () => {
+test("removed, the keys it kept itself always go with it; the owner's own keys stay unless --delete-keys", async () => {
   await keep(keeper, "QUICKBOOKS_COMPANY_ID", "9130350000000002");
-  const r = await run(db, "plugin.remove", { plugin: "ledger-keep", delete_keys: true }, owner);
-  assert.match((r.plan as any).summary.en, /ledger-keep\/QUICKBOOKS_COMPANY_ID/);
-  assert.equal((await vaultList(db)).filter((v) => v.name.startsWith("ledger-keep/")).length, 0);
+  const up = await stageVaultUpload(db, owner.personId!, { kind: "secret", value: "owner-added-client-id-7777" });
+  await run(db, "vault.add", { name: "ledger-keep/XERO_CLIENT_ID", upload_id: up.upload_id }, owner);
+  const r = await run(db, "plugin.remove", { plugin: "ledger-keep" }, owner);
+  const said = (r.plan as any).summary;
+  assert.match(said.en, /The keys it kept itself \(ledger-keep\/QUICKBOOKS_COMPANY_ID, ledger-keep\/XERO_REFRESH_TOKEN\) are deleted with it/);
+  assert.match(said.es, /Las claves que guardó por su cuenta \(ledger-keep\/QUICKBOOKS_COMPANY_ID, ledger-keep\/XERO_REFRESH_TOKEN\) se borran con él/);
+  assert.match(said.en, /ledger-keep\/XERO_CLIENT_ID/, "the owner's key is named as kept");
+  assert.deepEqual((await vaultList(db)).filter((v) => v.name.startsWith("ledger-keep/")).map((v) => v.name), ["ledger-keep/XERO_CLIENT_ID"]);
   assert.equal((await keep(keeper, "XERO_REFRESH_TOKEN", "after-removal-000000")).error, "signed_out");
 });
 

@@ -6240,6 +6240,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "plan.plugin.callback": "un navegador que vuelve de {for} a la dirección del club /plugins/{name}/callback: el club le pasa solo lo que trae esa dirección y muestra su propia página",
   "action.plugin.secret_keep": "Guardar una clave de un plugin",
   "plan.plugin.keep": "{name} guarda su clave {key} ({label}) en la bóveda.",
+  "plan.plugin.remove_kept_keys": "Las claves que guardó por su cuenta ({keys}) se borran con él, porque nadie más puede usarlas.",
   "plan.plugin.keep_again": "{name} guarda un nuevo valor de su clave {key} ({label}) en la bóveda, en lugar del anterior.",
   "reason.plugin_keep_no_undo": "El valor que reemplaza ya no sirve una vez usado, así que no se guarda para volver a él.",
   "error.plugin_keep_only": "Solo un plugin, con su propia clave del club, puede guardar sus claves en la bóveda.",

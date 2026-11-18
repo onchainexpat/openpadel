@@ -6240,6 +6240,7 @@ export const en = {
   "plan.plugin.callback": "a browser coming back from {for} at the club's address /plugins/{name}/callback: the club passes on only what that address carries, and shows its own page",
   "action.plugin.secret_keep": "Keep a plugin's key",
   "plan.plugin.keep": "{name} keeps its key {key} ({label}) in the vault.",
+  "plan.plugin.remove_kept_keys": "The keys it kept itself ({keys}) are deleted with it, since nobody else can use them.",
   "plan.plugin.keep_again": "{name} keeps a new value of its key {key} ({label}) in the vault, in place of the last one.",
   "reason.plugin_keep_no_undo": "The value it replaces is spent once it's used, so it isn't kept to go back to.",
   "error.plugin_keep_only": "Only a plugin, with its own key to the club, can keep its keys in the vault.",
