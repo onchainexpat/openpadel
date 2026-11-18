@@ -638,6 +638,11 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   // And any upload of the club's export that has them in it (kept 30 days for the move-in): read again if needed.
   if (ptIds.length || x.emails.length)
     await db.deleteFrom("playtomic_upload").where(sql<boolean>`EXISTS (SELECT 1 FROM jsonb_array_elements(rows) r WHERE lower(r->>'email') = ANY (${x.emails}::text[]) OR r->>'playtomic_id' = ANY (${ptIds}::text[]))`).execute();
+  // And any file from CourtReserve or Playbypoint that names them (move_files.ts, kept 30 days): by an address, or
+  // their number there.
+  const oldIds = (await db.selectFrom("external_ref").select("external_id").where("entity", "=", "person").where("entity_id", "=", personId).where("system", "in", ["courtreserve", "playbypoint"]).execute()).map((r) => r.external_id);
+  if (oldIds.length || x.emails.length)
+    await db.deleteFrom("move_upload").where(sql<boolean>`EXISTS (SELECT 1 FROM jsonb_path_query(rows, 'strict $.**') v WHERE jsonb_typeof(v) = 'object' AND (lower(v->>'email') = ANY (${x.emails}::text[]) OR v->>'ext_id' = ANY (${oldIds}::text[])))`).execute();
   await db.deleteFrom("external_ref").where("entity", "=", "person").where("entity_id", "=", personId).execute();
   await db.deleteFrom("kid_rule").where("person_id", "=", personId).execute();
   // Friends and family links.

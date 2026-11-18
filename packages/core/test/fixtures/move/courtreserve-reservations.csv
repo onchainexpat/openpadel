@@ -1,0 +1,9 @@
+Reservation Type,Courts,Date,Start Time,End Time,Players,Reservation #
+Court Reservation,Court 1,11/20/2026,6:00 PM,7:30 PM,"Ann Lee; Ben Ross",R-501
+Court Reservation,Court 2,11/20/2026,6:00 PM,7:30 PM,"Ben Ross <ben@example.test>; Guest Player",R-502
+Court Reservation,Court 1,11/21/2026,9:00 AM,10:30 AM,Nobody Here,R-503
+Court Reservation,Court 9,11/21/2026,9:00 AM,10:30 AM,Ann Lee,R-504
+Court Reservation,Court 1,11/10/2026,9:00 AM,10:30 AM,Ann Lee,R-505
+Court Reservation,Court 1,11/22/2026,10:00 AM,11:00 AM,Ann Lee,R-506
+Court Reservation,Court 1,11/23/2026,10:00 AM,,Ann Lee,R-507
+Court Reservation,Court 1,11/20/2026,8:00 PM,9:00 PM,Cal Diaz,R-508

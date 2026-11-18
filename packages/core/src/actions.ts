@@ -189,6 +189,7 @@ const ENTITIES = {
   brought_identity: { table: "brought_identity", key: "key_hash", retire: null },
   move_in: { table: "move_in", key: "singleton", retire: null },
   playtomic_upload: { table: "playtomic_upload", key: "id", retire: null },
+  move_upload: { table: "move_upload", key: "id", retire: null },
   gift_card: { table: "gift_card", key: "id", retire: null },
   pass_product: { table: "pass_product", key: "id", retire: { on_sale: false } },
   pass: { table: "pass", key: "id", retire: null },
@@ -206,7 +207,9 @@ const KEYS_NOT_KEPT: Partial<Record<Entity, string[]>> = { person: ["news_token"
   // A plugin's own secret and its token on the way to it (plugins.ts): never in the change log.
   plugin: ["secret_sealed", "registration_sealed"],
   // An upload of the club's export (brought_in.ts): its hash and row count are logged, never the people in it.
-  playtomic_upload: ["rows", "problems", "wallet_columns"] };
+  playtomic_upload: ["rows", "problems", "wallet_columns"],
+  // A file from CourtReserve or Playbypoint (move_files.ts): the same.
+  move_upload: ["rows", "problems"] };
 const unkept = (entity: Entity, row: unknown) => {
   const drop = KEYS_NOT_KEPT[entity];
   if (!drop || !row || typeof row !== "object") return row;
@@ -321,7 +324,10 @@ export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.
   // Moving in from Playtomic (brought_in.ts): credit members are owed and memberships, in bulk, from the club's own
   // export or Playtomic itself, and saying Playtomic's wallets are at zero. Rows an assistant typed could make credit
   // from nothing: the app, or `openpadel playtomic` on the server, which read the file or Playtomic themselves.
-  "playtomic.upload", "credit.bring_in", "membership.bring_in", "credit.brought_zeroing", "credit.brought_zeroed"]);
+  "playtomic.upload", "credit.bring_in", "membership.bring_in", "credit.brought_zeroing", "credit.brought_zeroed",
+  // Moving in from CourtReserve or Playbypoint (move_files.ts): the same, from the files the club exports there. The
+  // app, or `openpadel move-in courtreserve|playbypoint` on the server, which reads the files itself.
+  "move.upload", "move.members", "move.memberships", "move.credit", "move.bookings", "move.programs"]);
 export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news", "consent.whatsapp"]);
 /** Whether an action is the app's alone, never an assistant's: with `input`, for this input. */
 export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
