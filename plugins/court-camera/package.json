@@ -1,0 +1,19 @@
+{
+  "name": "@openpadel/plugin-court-camera",
+  "version": "0.1.0",
+  "private": true,
+  "description": "openPadel's court camera plugin: a camera system's highlights and game stats on the game's page, for its players.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "openpadel-court-camera": "bin/start"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test 'test/*.test.ts'",
+    "pack": "node tools/pack.ts"
+  }
+}
