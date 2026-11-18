@@ -5569,6 +5569,12 @@ export const en = {
   "plan.suggest_coming_from": "Staff used to Playtomic can have its words in the staff app too: Settings, Staff are coming from, Playtomic.",
   "cli.step.coming_from": "Set the software staff used before to {name}, for the staff app's words and menu.",
   "cli.step.brand_colour": "Set the club's brand color to {colour}.",
+  "cli.step.currency": "Set the club's currency to {currency}.",
+  "cli.step.hours": "Set the opening hours at {location}: {hours}.",
+  "cli.step.price": "Price every court at {location} at {amount} an hour, every day and at every hour (peak times and member prices are added in the staff app's Settings).",
+  "cli.note.currency_paid": "In club.yaml, the currency is {want}, but the club has already taken payments in {have}, so it stays {have}.",
+  "cli.note.hours_differ": "In club.yaml, the opening hours at {location} aren't the ones it has. Change them in the staff app's Settings, not from this file.",
+  "cli.note.prices_differ": "In club.yaml, the court price at {location} isn't one it has. Change its prices in the staff app's Settings, not from this file.",
   "cli.step.logo": "Set the club's logo from {file}.",
   // Wallet (member app): club credit, what came in and went out, passes held, links to the rest of their money.
   "ui.wallet_title": "Wallet",

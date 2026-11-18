@@ -8,6 +8,7 @@ club:
   name: Kestrel Padel
   time_zone: America/Los_Angeles     # an IANA name: America/New_York, America/Chicago, Europe/Madrid...
   default_language: en               # en or es; each person can choose their own
+  currency: USD                      # the three-letter code (USD, the default, EUR, GBP, MXN...); only before the first payment
   # The club's own terms and privacy policy for members, on its website (templates in docs/templates). The app
   # links them where members join, beside the yes to texts and on the profile; joining agrees to them.
   # terms_url: https://kestrelpadel.example/terms
@@ -45,6 +46,11 @@ locations:
       - Court 1
       - Court 2
       - { name: Court 3, kind: covered_outdoor }
+    hours:                           # opening hours, set when the location has none yet; a day no line names is closed
+      - { days: [mon, tue, wed, thu, fri], opens: "07:00", closes: "22:00" }
+      - { days: [sat, sun], opens: "08:00", closes: "20:00" }
+    price_per_hour: 32               # one price for every court here, every day at every hour, in the club's currency
+                                     # (set when the location has no prices yet; peak and member prices go in Settings)
 
 staff:                               # roles: manager, front_desk, coach, accountant (or another owner)
   - { name: Dana Ortiz, email: dana@kestrelpadel.example, role: manager }

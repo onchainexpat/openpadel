@@ -55,6 +55,67 @@ test("apply makes the club; running it again only adds what's new", async () => 
   assert.match(again.notes[0]!.es, /^El club ya está configurado como Kestrel Padel\./);   // renaming is for the staff app
 });
 
+test("club.yaml carries the currency, each location's opening hours and one court price, through the same actions", async () => {
+  const { db: d2, drop: drop2 } = await freshDb();
+  try {
+    const body = `
+club: { name: Alcazar Padel, time_zone: Europe/Madrid, currency: eur, default_language: es }
+owner: { name: Lucia Mar, email: lucia@alcazar.example }
+locations:
+  - name: Centro
+    courts: [Pista 1]
+    hours:
+      - { days: [mon, tue, wed, thu, fri], opens: "07:00", closes: "22:00" }
+      - { days: [sat, sun], opens: "08:00", closes: "20:00" }
+    price_per_hour: 24.5
+`;
+    const planned = await setupClub(d2, readClubFile(file("eur.yaml", body)), { apply: false, lang: "en" });
+    const lines = en(planned);
+    assert.ok(lines.includes("Set the club's currency to EUR."), lines.join(" | "));
+    assert.ok(lines.includes("Set the opening hours at Centro: Mon to Fri 07:00 to 22:00; Sat, Sun 08:00 to 20:00."), lines.join(" | "));
+    assert.ok(lines.some((l) => l.startsWith("Price every court at Centro at €24.50 an hour")), lines.join(" | "));
+    assert.ok(planned.steps.every((s) => !/\u2014/.test(s.text.en + s.text.es)));
+    assert.match(planned.steps.find((s) => s.action === "hours.set")!.text.es, /^Poner el horario de Centro: lun a vie 07:00 a 22:00/);
+    await setupClub(d2, readClubFile(file("eur.yaml", body)), { apply: true, lang: "en" });
+    assert.equal((await d2.selectFrom("club").select("currency").executeTakeFirstOrThrow()).currency, "EUR");
+    const hours = await d2.selectFrom("opening_hours").select(["weekday", "opens", "closes"]).orderBy("weekday").execute();
+    assert.equal(hours.length, 7);
+    assert.deepEqual([hours[0]!.weekday, hours[0]!.opens?.slice(0, 5), hours[1]!.opens?.slice(0, 5), hours[1]!.closes?.slice(0, 5)], [0, "08:00", "07:00", "22:00"]);   // 0 is Sunday
+    const rule = await d2.selectFrom("price_rule").select(["name", "cents_per_hour", "weekdays", "starts", "translations"]).executeTakeFirstOrThrow();
+    assert.deepEqual([rule.name, rule.cents_per_hour, rule.weekdays, rule.starts], ["Tiempo de cancha", 2450, null, null]);
+    assert.equal((rule.translations as { en?: { name?: string } }).en?.name, "Court time");
+    // Through the actions, so each is in the audit log.
+    const runs = (await d2.selectFrom("action_run").select("action").where("via", "=", "setup").execute()).map((r) => r.action);
+    for (const a of ["club.update", "hours.set", "price.rule_set"]) assert.ok(runs.includes(a), a);
+    // Again: nothing new. Changed in the file: a note to change it in Settings, never a second rule or new hours.
+    assert.deepEqual(en(await setupClub(d2, readClubFile(file("eur.yaml", body)), { apply: false, lang: "en" })), []);
+    const changed = await setupClub(d2, readClubFile(file("eur2.yaml", body.replace("price_per_hour: 24.5", "price_per_hour: 30").replace('closes: "20:00"', 'closes: "21:00"'))), { apply: false, lang: "en" });
+    assert.deepEqual(en(changed), []);
+    assert.equal(changed.notes.length, 2);
+    assert.match(changed.notes[0]!.en, /opening hours at Centro aren't the ones it has/); assert.match(changed.notes[1]!.es, /precio de las canchas de Centro/);
+  } finally { await drop2(); }
+});
+
+test("club.example.yaml reads as a club file, and its plan is what the docs say step 4 does", async () => {
+  const f = readClubFile(new URL("../../../club.example.yaml", import.meta.url).pathname);
+  assert.equal(f.club.currency, "USD"); assert.equal(f.locations![0]!.price_per_hour, 32); assert.equal(f.locations![0]!.hours!.length, 2);
+  const { db: d3, drop: drop3 } = await freshDb();
+  try {
+    const lines = en(await setupClub(d3, f, { apply: false, lang: "en" }));
+    assert.ok(lines.includes("Set the opening hours at Eastside: Mon to Fri 07:00 to 22:00; Sat, Sun 08:00 to 20:00."), lines.join(" | "));
+    assert.ok(lines.some((l) => l.startsWith("Price every court at Eastside at $32.00 an hour")), lines.join(" | "));
+    assert.ok(!lines.some((l) => l.includes("currency")), "USD is the default: nothing to change");
+  } finally { await drop3(); }
+});
+
+test("club.yaml's hours and currency are checked before anything runs", () => {
+  const base = "club: { name: X, time_zone: America/Chicago }\nowner: { name: Y, email: y@example.test }\n";
+  assert.throws(() => readClubFile(file("cur.yaml", base.replace("America/Chicago }", "America/Chicago, currency: XYZ }"))), /club.currency: XYZ isn't a currency/);
+  assert.throws(() => readClubFile(file("h1.yaml", base + 'locations:\n  - { name: A, hours: [{ days: [mon], opens: "22:00", closes: "07:00" }] }\n')), /closes \(07:00\) must be after opens/);
+  assert.throws(() => readClubFile(file("h2.yaml", base + 'locations:\n  - { name: A, hours: [{ days: [mon, tue], opens: "07:00", closes: "22:00" }, { days: [tue], opens: "08:00", closes: "20:00" }] }\n')), /tue is in two lines/);
+  assert.throws(() => readClubFile(file("h3.yaml", base + 'locations:\n  - { name: A, hours: [{ days: [monday], opens: "07:00", closes: "22:00" }] }\n')), ClubFileError);
+});
+
 test("a file with mistakes says where each one is", () => {
   assert.throws(() => readClubFile(file("bad.yaml", "club: { name: X, time_zone: Mars/Base }\nowner: { name: Y, email: nope }\n")), (e: unknown) => {
     assert.ok(e instanceof ClubFileError);

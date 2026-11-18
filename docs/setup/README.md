@@ -54,8 +54,18 @@ take a few days.
 ### Step 4: the club itself
 
 Copy [`club.example.yaml`](../../club.example.yaml) to `/etc/kumi/club.yaml` on the server and fill
-it in: the club's name and time zone, the owner, each location with its courts, and the staff with
-their roles. No secrets go in this file.
+it in: the club's name, time zone and currency (`currency: EUR`; US dollars when it's left out), the
+owner, each location with its courts, its opening hours (`hours:`, the days each line covers as `mon`
+to `sun`; a day no line names is closed) and one simple court price (`price_per_hour: 32`, in the club's
+currency, for every court every day at every hour), and the staff with their roles. No secrets go in
+this file.
+
+What club.yaml doesn't carry is set in the staff app's Settings (step 5c) or with the command line
+([docs/cli/reference.md](../cli/reference.md)): peak and off-peak prices and member prices
+(`openpadel price rule-set`), a court's own week (`openpadel court hours-set`), special days, the sales tax and
+the booking rules. The hours and the price in the file are set only while the location has none: once
+it has, `setup plan` notes a difference and leaves them, and they're changed in Settings. The currency
+changes only before the club's first payment.
 
 ```bash
 openpadel setup plan       # what would change; changes nothing

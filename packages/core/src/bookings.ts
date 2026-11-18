@@ -111,7 +111,7 @@ const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 function dayName(w: number, lang: Lang) { return new Intl.DateTimeFormat(formatLocale(lang), { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w))); }
 /** "Mon to Fri 07:00 to 22:00; Sat, Sun 08:00 to 20:00; closed Tue": days with the same hours together. With
  *  `all` false, only the days listed (a court's own), and only days next to each other share a "to". */
-function hoursText(days: { weekday: number; opens: string | null; closes: string | null }[], lang: Lang, all = true): string {
+export function hoursText(days: { weekday: number; opens: string | null; closes: string | null }[], lang: Lang, all = true): string {
   const key = (d: { opens: string | null; closes: string | null }) => (d.opens ? `${d.opens} ${lang === "es" ? "a" : "to"} ${d.closes}` : lang === "es" ? "cerrado" : "closed");
   const order = [1, 2, 3, 4, 5, 6, 0], groups: { days: number[]; text: string }[] = [];
   let prev = -1;

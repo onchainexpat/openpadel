@@ -5569,6 +5569,12 @@ export const es: { [K in keyof typeof en]: Message } = {
   "plan.suggest_coming_from": "Si el personal está acostumbrado a Playtomic, la app del personal también puede usar sus palabras: Configuración, El personal viene de, Playtomic.",
   "cli.step.coming_from": "Poner el programa que usaba el personal en {name}, para las palabras y el menú de la app del personal.",
   "cli.step.brand_colour": "Poner el color de la marca del club en {colour}.",
+  "cli.step.currency": "Poner la moneda del club en {currency}.",
+  "cli.step.hours": "Poner el horario de {location}: {hours}.",
+  "cli.step.price": "Poner el precio de todas las canchas de {location} en {amount} por hora, todos los días y a toda hora (las horas pico y los precios para miembros se agregan en Configuración, en la app del personal).",
+  "cli.note.currency_paid": "En club.yaml la moneda es {want}, pero el club ya recibió pagos en {have}, así que sigue en {have}.",
+  "cli.note.hours_differ": "En club.yaml, el horario de {location} no es el que tiene. Cámbialo en Configuración, en la app del personal, no desde este archivo.",
+  "cli.note.prices_differ": "En club.yaml, el precio de las canchas de {location} no es uno de los que tiene. Cambia sus precios en Configuración, en la app del personal, no desde este archivo.",
   "cli.step.logo": "Poner el logo del club desde {file}.",
   // Billetera (app de miembros): crédito del club, lo que entró y salió, bonos, y enlaces al resto de su dinero.
   "ui.wallet_title": "Billetera",
