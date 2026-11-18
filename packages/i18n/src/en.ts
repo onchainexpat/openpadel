@@ -1488,6 +1488,8 @@ export const en = {
   "cli.staff": "staff",
   "cli.needed": "needed",
   "cli.example": "Example:",
+  "cli.for_example": "For example:",
+  "cli.weekdays": "weekday: 0 is Sunday, 1 Monday, 2 Tuesday, 3 Wednesday, 4 Thursday, 5 Friday, 6 Saturday",
   "cli.help_preview_first": "It shows the preview and changes nothing (exit code 10). To do it: openpadel confirm <run_id>, or the same command with --yes.",
   "cli.failed": "Something went wrong: {why}",
   "cli.signed_out": "The sign-in to {club} has ended. Run openpadel login {url} again.",

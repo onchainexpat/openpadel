@@ -16,6 +16,8 @@ export interface Prop {
   description?: string; minimum?: number; maximum?: number;
   /** A person, coach, court, location, program or plan: given by name as well as by id. */
   entity?: Entity;
+  /** For a flag that takes JSON: a whole example of it, as it's typed (in single quotes), and a note on its numbers. */
+  json?: { example: string; note?: Text };
 }
 export interface Command {
   kind: "action" | "read"; words: string[]; tool: string; action?: string; title: Text; description: string;
@@ -37,7 +39,7 @@ export function flagOf(p: Prop): string {
 /** Every spelling a flag answers to: location, location-id, location_id. */
 export function spellings(p: Prop): string[] { return [...new Set([flagOf(p), kebab(p.key), p.key])]; }
 
-function propsOf(schema: any): Prop[] {
+function propsOf(schema: any, name = ""): Prop[] {
   const req = new Set<string>(schema.required ?? []);
   return Object.entries<any>(schema.properties ?? {}).map(([key, v]) => {
     const alts: any[] = v.anyOf ?? v.oneOf ?? [v];
@@ -46,9 +48,65 @@ function propsOf(schema: any): Prop[] {
     const type: PropType = t.type === "integer" || t.type === "number" || t.type === "boolean" || t.type === "array" || t.type === "object" ? t.type : "string";
     const items = type === "array" ? (["integer", "number", "boolean", "object", "array"].includes(t.items?.type) ? t.items.type : "string") as PropType : undefined;
     const format = type === "array" ? t.items?.format : t.format;
+    const json = type === "object" || (type === "array" && (items === "object" || items === "array")) ? jsonExample(key, t, name) : undefined;
     return { key, type, items, format, pattern: t.pattern, enum: t.enum ?? t.items?.enum, nullable, required: req.has(key), description: v.description ?? t.description,
-      minimum: t.minimum, maximum: t.maximum, entity: ENTITY_OF[key] && format === "uuid" ? ENTITY_OF[key] : undefined };
+      minimum: t.minimum, maximum: t.maximum, entity: ENTITY_OF[key] && format === "uuid" ? ENTITY_OF[key] : undefined, ...(json ? { json } : {}) };
   });
+}
+
+// ---- Examples for the flags that take JSON (docs/cli/reference.md and `openpadel help <command>`) ----
+/** Hand-made where a made-up one would mislead (a week of hours, places that are either a member or a guest); otherwise
+ *  made from the input's own schema. Keyed by the input's name and the shape it has, so a different shape gets its own. */
+const JSON_EXAMPLES: Record<string, unknown> = {
+  // A whole week: Monday to Friday 07:00 to 22:00, Saturday 08:00 to 20:00, closed on Sunday.
+  "hours.set:days": [...[1, 2, 3, 4, 5].map((weekday) => ({ weekday, opens: "07:00", closes: "22:00" })), { weekday: 6, opens: "08:00", closes: "20:00" }, { weekday: 0, opens: null, closes: null }],
+  // An outdoor court that closes at dusk on the weekend; the other days follow the location.
+  "court.hours_set:days": [{ weekday: 6, opens: "08:00", closes: "18:00" }, { weekday: 0, opens: "08:00", closes: "18:00" }],
+  "stretches:weekday": [{ weekday: 1, starts: "09:00", ends: "13:00" }, { weekday: 1, starts: "16:00", ends: "20:00" }, { weekday: 3, starts: "09:00", ends: "13:00" }],
+  "places:person_id": [{ person_id: "<id>", paid: true }, { guest_name: "Sam Diaz" }],
+  "refund:outcome": { outcome: "partial", cents: 1500, note: "Left a week in" },
+  "open:level_min": { level_min: 3, level_max: 4.5, rated: true },
+  "courts:court_id": [{ court_id: "<id>", starts_at: "2026-11-20T18:00:00-08:00", minutes: 90 }, { court_id: "<id>", starts_at: "2026-11-20T18:00:00-08:00", minutes: 90 }],
+  "rates:minutes": [{ minutes: 60, cents: 6000 }, { minutes: 90, cents: 8500 }],
+  "filters:membership": { membership: "member", level_min: 3, level_max: 4.5 },
+  "settings:*": { "<setting>": "<value>" },
+};
+function sampleOf(s: any, key: string): unknown {
+  const alts: any[] | undefined = s?.anyOf ?? s?.oneOf;
+  if (alts) s = alts.find((x) => x.type !== "null") ?? alts[0];
+  if (s?.enum) return s.enum[0];
+  const type = Array.isArray(s?.type) ? s.type.find((x: string) => x !== "null") : s?.type;
+  if (type === "object") {
+    const props = Object.entries<any>(s.properties ?? {});
+    if (!props.length) return { "<name>": "<value>" };
+    const req = new Set<string>(s.required ?? []);
+    // A text in the other language: the Spanish one, say.
+    if (key === "translations") { const es = props.find(([k]) => k === "es"); return es ? { es: sampleOf(es[1], "es") } : {}; }
+    const shown = req.size ? props.filter(([k]) => req.has(k)) : props.slice(0, 2);
+    return Object.fromEntries(shown.map(([k, v]) => [k, sampleOf(v, k)]));
+  }
+  if (type === "array") return [sampleOf(s.items, key)];
+  if (type === "boolean") return true;
+  if (type === "integer" || type === "number") {
+    if (key === "weekday") return 1;
+    if (key === "us" || key === "a") return 6;
+    if (key === "them" || key === "b") return 4;
+    if (/cents/.test(key)) return 1500;
+    if (/level/.test(key)) return 3.5;
+    if (/minutes/.test(key)) return 60;
+    return s.minimum ?? 1;
+  }
+  if (s?.format === "uuid") return "<id>";
+  if (s?.format === "date-time") return "2026-11-20T18:00:00-08:00";
+  if (typeof s?.pattern === "string" && s.pattern.includes(":[0-5]")) return "09:00";
+  return "...";
+}
+function jsonExample(key: string, s: any, action: string): { example: string; note?: Text } {
+  const first = s.type === "array" ? s.items : s;
+  const shapeKey = Object.keys(first?.properties ?? {})[0] ?? "*";
+  const value = JSON_EXAMPLES[`${action}:${key}`] ?? JSON_EXAMPLES[`${key}:${shapeKey}`] ?? sampleOf(s, key);
+  const text = JSON.stringify(value);
+  return { example: `'${text}'`, ...(text.includes('"weekday"') ? { note: both("cli.weekdays") } : {}) };
 }
 const titleOf = (action: string): Text => (`action.${action}` in en ? both(`action.${action}` as Key) : { en: action, es: action });
 
@@ -62,7 +120,7 @@ export function commands(): Command[] {
     const schema = slim(toJSONSchema(a.input as any)) as Record<string, unknown>;
     const planKey = `plan.${a.name}` in en ? (`plan.${a.name}` as Key) : undefined;
     out.push({ kind: "action", words: a.name.split(".").map(kebab), tool: toolBase(a.name), action: a.name, title: titleOf(a.name), description: titleOf(a.name).en,
-      schema, props: propsOf(schema), planKey });
+      schema, props: propsOf(schema, a.name), planKey });
   }
   for (const r of READS) {
     const schema = slim(toJSONSchema(z.object(r.input) as any)) as Record<string, unknown>;
@@ -263,6 +321,7 @@ function exampleValue(p: Prop): string {
     if (/hours/.test(p.key)) return "24";
     return String(p.minimum ?? 1);
   }
+  if (p.json) return p.json.example;
   if (p.type === "array") return p.items === "integer" ? "1,3" : p.format === "uuid" ? "<id>,<id>" : "'[...]'";
   if (p.type === "object") return "'{...}'";
   if (p.format === "uuid") return "<id>";
@@ -336,6 +395,10 @@ export function referenceMarkdown(grants: GrantRow[]): string {
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
 }
 function flagTable(c: Command): string[] {
+  const json = c.props.filter((p) => p.json);
   return ["| Flag | Takes | | What it is |", "|---|---|---|---|",
-    ...c.props.map((p) => `| \`--${flagOf(p)}\` | ${cell(typeWords(p))} | ${p.required ? "needed" : ""} | ${cell(p.description ?? "")} |`)];
+    ...c.props.map((p) => `| \`--${flagOf(p)}\` | ${cell(typeWords(p))} | ${p.required ? "needed" : ""} | ${cell(p.description ?? "")} |`),
+    // A needed one is in the command's example below already: only what its numbers mean, if anything.
+    ...(json.length ? ["", ...json.flatMap((p) => p.required ? (p.json!.note ? [`\`--${flagOf(p)}\`: ${p.json!.note.en}.`, ""] : [])
+      : [`\`--${flagOf(p)}\` takes JSON, for example${p.json!.note ? ` (${p.json!.note.en})` : ""}:`, "", "```", `--${flagOf(p)} ${p.json!.example}`, "```", ""])] : [])];
 }

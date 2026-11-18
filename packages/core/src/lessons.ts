@@ -203,7 +203,8 @@ function stretchesText(rows: { weekday: number; starts: string; ends: string }[]
 export const coachSetHours = defineAction({
   name: "coach.set_hours", version: 1,
   input: z.object({ person_id: z.uuid(), location_id: z.uuid(),
-    stretches: z.array(z.object({ weekday: z.number().check(z.int(), z.minimum(0), z.maximum(6)), starts: clockTime, ends: clockTime })).check(z.maxLength(28)) }),
+    stretches: z.array(z.object({ weekday: z.number().check(z.int(), z.minimum(0), z.maximum(6)), starts: clockTime, ends: clockTime })).check(z.maxLength(28),
+      z.describe("When the coach teaches at this location, the whole week each time: one entry per stretch (weekday 0 is Sunday, 1 Monday ... 6 Saturday) with starts and ends as HH:MM; a day can have several that don't overlap. An empty list: none.")) }),
   async plan(ctx, i) {
     const { read } = await readRow(ctx.db, "coach", i.person_id, "thing.coach");
     const loc = (await readRow(ctx.db, "location", i.location_id, "thing.location")).row;

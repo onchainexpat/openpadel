@@ -128,7 +128,8 @@ export function hoursText(days: { weekday: number; opens: string | null; closes:
 
 export const hoursSet = defineAction({
   name: "hours.set", version: 1,
-  input: z.object({ location_id: z.uuid(), days: z.array(z.object({ weekday: z.number().check(z.int(), z.minimum(0), z.maximum(6)), opens: z.nullable(clockTime), closes: z.nullable(clockTime) })).check(z.maxLength(7)) }),
+  input: z.object({ location_id: z.uuid(), days: z.array(z.object({ weekday: z.number().check(z.int(), z.minimum(0), z.maximum(6)), opens: z.nullable(clockTime), closes: z.nullable(clockTime) })).check(z.maxLength(7),
+    z.describe("The location's week, one entry per weekday (weekday 0 is Sunday, 1 Monday ... 6 Saturday) with opens and closes as HH:MM, or both null for closed. A weekday left out is closed.")) }),
   async plan(ctx, i) {
     const { row: loc } = await readRow(ctx.db, "location", i.location_id, "thing.location");
     for (const d of i.days) if ((d.opens === null) !== (d.closes === null) || (d.opens && d.closes! <= d.opens)) throw new KumiError("error.bad_hours");
@@ -167,7 +168,8 @@ async function outsideHours(db: Db | Trx, courtId: string, tz: string, days: { w
 /** A court's own week: the weekdays listed are its own (no times: closed that day), the rest follow the location. */
 export const courtHoursSet = defineAction({
   name: "court.hours_set", version: 1,
-  input: z.object({ court_id: z.uuid(), days: z.array(z.object({ weekday: z.number().check(z.int(), z.minimum(0), z.maximum(6)), opens: z.nullable(clockTime), closes: z.nullable(clockTime) })).check(z.maxLength(7)) }),
+  input: z.object({ court_id: z.uuid(), days: z.array(z.object({ weekday: z.number().check(z.int(), z.minimum(0), z.maximum(6)), opens: z.nullable(clockTime), closes: z.nullable(clockTime) })).check(z.maxLength(7),
+    z.describe("The court's own hours, one entry per weekday it has its own (weekday 0 is Sunday, 1 Monday ... 6 Saturday) with opens and closes as HH:MM, or both null for closed that day. A weekday left out follows the location; an empty list: every day does.")) }),
   async plan(ctx, i) {
     const [court] = await courtsAt(ctx.db, [i.court_id]);
     const { row: loc } = await readRow(ctx.db, "location", court!.location_id, "thing.location");

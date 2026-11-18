@@ -582,7 +582,7 @@ Its preview reads: "Attendance at {what}, {when}: {marks}.{told}"
 | `--marks` | JSON list | needed |  |
 
 ```
-openpadel attendance mark --marks '[...]'
+openpadel attendance mark --marks '[{"person_id":"<id>","came":true}]'
 ```
 
 ### booking
@@ -682,6 +682,18 @@ Its preview reads: "Book {court}, {when}, for {minutes} minutes, for {who}."
 | `--player-note` | text |  |  |
 | `--open` | JSON |  |  |
 
+`--places` takes JSON, for example:
+
+```
+--places '[{"person_id":"<id>","paid":true},{"guest_name":"Sam Diaz"}]'
+```
+
+`--open` takes JSON, for example:
+
+```
+--open '{"level_min":3,"level_max":4.5,"rated":true}'
+```
+
 ```
 openpadel booking create --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90
 ```
@@ -703,7 +715,7 @@ Book a private lesson at the desk. Who may: owner, manager, front desk.
 | `--player-note` | text |  |  |
 
 ```
-openpadel booking create-lesson --coach "Ana Ruiz" --starts-at "2026-11-20 18:00" --minutes 90 --pay whole --places '[...]'
+openpadel booking create-lesson --coach "Ana Ruiz" --starts-at "2026-11-20 18:00" --minutes 90 --pay whole --places '[{"person_id":"<id>","paid":true},{"guest_name":"Sam Diaz"}]'
 ```
 
 #### openpadel booking drop-saved-place
@@ -970,6 +982,12 @@ Book a court. Who may: owner, manager, front desk, member (their own).
 | `--person` | person: a name or an id | needed |  |
 | `--open` | JSON |  |  |
 
+`--open` takes JSON, for example:
+
+```
+--open '{"level_min":3,"level_max":4.5,"rated":true}'
+```
+
 ```
 openpadel booking request --court "Court 1" --starts-at "2026-11-20 18:00" --minutes 90 --pay whole --person "Maria Lopez"
 ```
@@ -986,7 +1004,7 @@ Its preview reads: "Book {count} courts: {list}. {total} in all, paid now in one
 | `--person` | person: a name or an id | needed |  |
 
 ```
-openpadel booking request-courts --courts '[...]' --person "Maria Lopez"
+openpadel booking request-courts --courts '[{"court_id":"<id>","starts_at":"2026-11-20T18:00:00-08:00","minutes":90},{"court_id":"<id>","starts_at":"2026-11-20T18:00:00-08:00","minutes":90}]' --person "Maria Lopez"
 ```
 
 #### openpadel booking running-late
@@ -1120,6 +1138,12 @@ Send a message to a group. Who may: owner, manager, front desk.
 | `--body-es` | text |  |  |
 | `--send-at` | time: "YYYY-MM-DD HH:MM" on the club's clock, or ISO |  |  |
 
+`--filters` takes JSON, for example:
+
+```
+--filters '{"membership":"member","level_min":3,"level_max":4.5}'
+```
+
 ```
 openpadel broadcast send --purpose club_news
 ```
@@ -1134,10 +1158,12 @@ Set a coach's lesson hours. Who may: owner, manager, front desk, coach (their ow
 |---|---|---|---|
 | `--person` | person: a name or an id | needed |  |
 | `--location` | location: a name or an id | needed |  |
-| `--stretches` | JSON list | needed |  |
+| `--stretches` | JSON list | needed | When the coach teaches at this location, the whole week each time: one entry per stretch (weekday 0 is Sunday, 1 Monday ... 6 Saturday) with starts and ends as HH:MM; a day can have several that don't overlap. An empty list: none. |
+
+`--stretches`: weekday: 0 is Sunday, 1 Monday, 2 Tuesday, 3 Wednesday, 4 Thursday, 5 Friday, 6 Saturday.
 
 ```
-openpadel coach set-hours --person "Maria Lopez" --location Main --stretches '[...]'
+openpadel coach set-hours --person "Maria Lopez" --location Main --stretches '[{"weekday":1,"starts":"09:00","ends":"13:00"},{"weekday":1,"starts":"16:00","ends":"20:00"},{"weekday":3,"starts":"09:00","ends":"13:00"}]'
 ```
 
 #### openpadel coach set-photo
@@ -1169,8 +1195,14 @@ Save a coach profile. Who may: owner, manager, front desk, coach (their own).
 | `--max-players` | whole number | needed |  |
 | `--translations` | JSON |  |  |
 
+`--translations` takes JSON, for example:
+
 ```
-openpadel coach set-profile --person "Maria Lopez" --bio ... --level-min 3.5 --level-max 8 --languages en --rates '[...]' --lessons --max-players 8
+--translations '{"es":{"bio":"..."}}'
+```
+
+```
+openpadel coach set-profile --person "Maria Lopez" --bio ... --level-min 3.5 --level-max 8 --languages en --rates '[{"minutes":60,"cents":6000},{"minutes":90,"cents":8500}]' --lessons --max-players 8
 ```
 
 #### openpadel coach time-off-add
@@ -1433,10 +1465,12 @@ Set a court's own hours. Who may: owner, manager.
 | Flag | Takes | | What it is |
 |---|---|---|---|
 | `--court` | court: a name or an id | needed |  |
-| `--days` | JSON list | needed |  |
+| `--days` | JSON list | needed | The court's own hours, one entry per weekday it has its own (weekday 0 is Sunday, 1 Monday ... 6 Saturday) with opens and closes as HH:MM, or both null for closed that day. A weekday left out follows the location; an empty list: every day does. |
+
+`--days`: weekday: 0 is Sunday, 1 Monday, 2 Tuesday, 3 Wednesday, 4 Thursday, 5 Friday, 6 Saturday.
 
 ```
-openpadel court hours-set --court "Court 1" --days '[...]'
+openpadel court hours-set --court "Court 1" --days '[{"weekday":6,"opens":"08:00","closes":"18:00"},{"weekday":0,"opens":"08:00","closes":"18:00"}]'
 ```
 
 #### openpadel court unblock
@@ -1608,6 +1642,12 @@ Its preview reads: "Take {person} off {name} ({reason}). {refund}"
 | `--enrolment-id` | id | needed |  |
 | `--reason` | late_cancel \| no_show \| found_sub \| club \| other | needed |  |
 | `--refund` | JSON |  |  |
+
+`--refund` takes JSON, for example:
+
+```
+--refund '{"outcome":"partial","cents":1500,"note":"Left a week in"}'
+```
 
 ```
 openpadel enrolment remove --enrolment-id <id> --reason late_cancel
@@ -1782,7 +1822,7 @@ Its preview reads: "Your match against {opponents}: you {result} {score}. They h
 | `--sets` | JSON list | needed |  |
 
 ```
-openpadel fixture enter --fixture-id <id> --person "Maria Lopez" --sets '[...]'
+openpadel fixture enter --fixture-id <id> --person "Maria Lopez" --sets '[{"us":6,"them":4}]'
 ```
 
 #### openpadel fixture place
@@ -1814,7 +1854,7 @@ Its preview reads: "{a} {score} {b}. It counts now.{window} {counts}"
 | `--final` | yes/no (the flag alone is yes) |  | The club's word is final: the players can't dispute it. Otherwise they can for 24 hours, as for any score. |
 
 ```
-openpadel fixture score --fixture-id <id> --sets '[...]'
+openpadel fixture score --fixture-id <id> --sets '[{"a":6,"b":4}]'
 ```
 
 #### openpadel fixture walkover
@@ -1984,10 +2024,12 @@ Its preview reads: "Set the opening hours at {location}: {hours}."
 | Flag | Takes | | What it is |
 |---|---|---|---|
 | `--location` | location: a name or an id | needed |  |
-| `--days` | JSON list | needed |  |
+| `--days` | JSON list | needed | The location's week, one entry per weekday (weekday 0 is Sunday, 1 Monday ... 6 Saturday) with opens and closes as HH:MM, or both null for closed. A weekday left out is closed. |
+
+`--days`: weekday: 0 is Sunday, 1 Monday, 2 Tuesday, 3 Wednesday, 4 Thursday, 5 Friday, 6 Saturday.
 
 ```
-openpadel hours set --location Main --days '[...]'
+openpadel hours set --location Main --days '[{"weekday":1,"opens":"07:00","closes":"22:00"},{"weekday":2,"opens":"07:00","closes":"22:00"},{"weekday":3,"opens":"07:00","closes":"22:00"},{"weekday":4,"opens":"07:00","closes":"22:00"},{"weekday":5,"opens":"07:00","closes":"22:00"},{"weekday":6,"opens":"08:00","closes":"20:00"},{"weekday":0,"opens":null,"closes":null}]'
 ```
 
 ### household
@@ -2223,7 +2265,7 @@ Its preview reads: "Set levels after {program}, {when}: {changes}. Reason: {reas
 | `--levels` | JSON list | needed |  |
 
 ```
-openpadel level set-session --session-id <id> --reason "Rain on the outdoor courts" --levels '[...]'
+openpadel level set-session --session-id <id> --reason "Rain on the outdoor courts" --levels '[{"person_id":"<id>","level":3.5}]'
 ```
 
 ### location
@@ -2413,6 +2455,12 @@ Its preview reads: "Offer the {name} membership: {price}{window}."
 | `--family-size` | whole number |  | People covered, the payer included: a family plan |
 | `--extra-person-cents` | whole number (cents) |  | Each person beyond family_size, each period; none: no more than family_size |
 | `--translations` | JSON |  |  |
+
+`--translations` takes JSON, for example:
+
+```
+--translations '{"es":{"name":"...","description":"..."}}'
+```
 
 ```
 openpadel membership plan-set --name "Tuesday drills" --price-cents 3000 --period month
@@ -2741,7 +2789,7 @@ Its preview reads: "Set up {name}: {settings}."
 | `--settings` | JSON | needed | The settings to change, by name, as plugin info lists them (courts by name or id) |
 
 ```
-openpadel plugin configure --plugin court-lights --settings '{...}'
+openpadel plugin configure --plugin court-lights --settings '{"<setting>":"<value>"}'
 ```
 
 #### openpadel plugin install
@@ -2756,6 +2804,12 @@ Its preview reads: "Install the plugin {name} {version}."
 | `--url` | text |  | A manifest's address (openpadel-plugin.json), for a plugin outside the catalog: the preview says so |
 | `--manifest` | text |  | A manifest's JSON itself, for a plugin outside the catalog: the preview says so |
 | `--settings` | JSON |  | Its settings, as its manifest describes them (plugin info lists them); they can be given later with plugin configure |
+
+`--settings` takes JSON, for example:
+
+```
+--settings '{"<setting>":"<value>"}'
+```
 
 ```
 openpadel plugin install
@@ -2883,6 +2937,12 @@ Its preview reads: "Price {name} at {location}: {amount} an hour, {when}."
 | `--plans` | plans: names or ids, with commas |  |  |
 | `--translations` | JSON |  |  |
 
+`--translations` takes JSON, for example:
+
+```
+--translations '{"es":{"name":"..."}}'
+```
+
 ```
 openpadel price rule-set --location Main --name "Tuesday drills" --cents-per-hour 0
 ```
@@ -2928,6 +2988,12 @@ Its preview reads: "Create {name} ({kind}), {capacity} places at {price}."
 | `--translations` | JSON |  |  |
 | `--sign-up` | whole_program \| per_session |  | whole_program (default): one place covers every date. per_session: each date has its own places, roster, waitlist and minimum, and people sign up for the dates they want (clinics and socials). |
 | `--gender` | mixed \| women \| men \| mixed_pairs |  | Who it's meant for, as a label players choose by (Play filters by it). Nobody is checked against it. Leave out: open to all. |
+
+`--translations` takes JSON, for example:
+
+```
+--translations '{"es":{"name":"..."}}'
+```
 
 ```
 openpadel program create --location Main --kind clinic --name "Tuesday drills" --capacity 8 --price-cents 3000
@@ -2987,6 +3053,12 @@ Its preview reads: "Call {name} "{to}" from now on. Its places, dates and people
 | `--program` | program: a name or an id | needed |  |
 | `--name` | text | needed |  |
 | `--translations` | JSON |  |  |
+
+`--translations` takes JSON, for example:
+
+```
+--translations '{"es":{"name":"..."}}'
+```
 
 ```
 openpadel program set-name --program "Tuesday drills" --name "Tuesday drills"
@@ -3235,7 +3307,7 @@ Its preview reads: "Enter the score for your match on {court}, {when}: you and {
 | `--sets` | JSON list | needed |  |
 
 ```
-openpadel result enter --booking-id <id> --person "Maria Lopez" --partner "Maria Lopez" --sets '[...]'
+openpadel result enter --booking-id <id> --person "Maria Lopez" --partner "Maria Lopez" --sets '[{"us":6,"them":4}]'
 ```
 
 #### openpadel result resolve
@@ -3248,6 +3320,12 @@ Decide a disputed score. Who may: owner, manager, front desk.
 | `--outcome` | keep \| correct \| set_aside | needed |  |
 | `--sets` | JSON list |  |  |
 | `--note` | text |  |  |
+
+`--sets` takes JSON, for example:
+
+```
+--sets '[{"a":6,"b":4}]'
+```
 
 ```
 openpadel result resolve --game-id <id> --outcome keep
@@ -3267,7 +3345,7 @@ Its preview reads: "Save the group "{name}": {what}. It means whoever matches wh
 | `--filters` | JSON | needed |  |
 
 ```
-openpadel segment save --name "Tuesday drills" --filters '{...}'
+openpadel segment save --name "Tuesday drills" --filters '{"membership":"member","level_min":3,"level_max":4.5}'
 ```
 
 #### openpadel segment update
@@ -3282,6 +3360,12 @@ Its preview reads: "Change the group "{name}" to {what} ({people} now)."
 | `--name` | text |  |  |
 | `--filters` | JSON |  |  |
 | `--active` | yes/no (the flag alone is yes) |  |  |
+
+`--filters` takes JSON, for example:
+
+```
+--filters '{"membership":"member","level_min":3,"level_max":4.5}'
+```
 
 ```
 openpadel segment update --segment-id <id>
@@ -3465,6 +3549,12 @@ Its preview reads: "Set the club's waiver (version {version}). Everyone is asked
 |---|---|---|---|
 | `--body` | text | needed |  |
 | `--translations` | JSON |  |  |
+
+`--translations` takes JSON, for example:
+
+```
+--translations '{"es":{"body":"..."}}'
+```
 
 ```
 openpadel waiver set --body "Rain on the outdoor courts"

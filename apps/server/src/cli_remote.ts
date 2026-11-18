@@ -215,7 +215,8 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
       if (c.kind === "read") d.out(c.description);
       if (c.props.length) {
         d.out("");
-        for (const p of c.props) d.out(`  --${flagOf(p)}  ${typeWords(p)}${p.required ? `  (${say("cli.needed")})` : ""}${p.description ? `\n      ${p.description}` : ""}`);
+        for (const p of c.props) d.out(`  --${flagOf(p)}  ${typeWords(p)}${p.required ? `  (${say("cli.needed")})` : ""}${p.description ? `\n      ${p.description}` : ""}`
+          + (p.json ? `\n      ${say("cli.for_example")} --${flagOf(p)} ${p.json.example}${p.json.note ? `\n      (${p.json.note[lang]})` : ""}` : ""));
       }
       d.out(`\n${say("cli.example")}\n  ${example(c)}`);
       if (c.kind === "action") d.out(`\n${say("cli.help_preview_first")}`);
@@ -234,7 +235,8 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
   }
   function describe(c: Command) {
     return { command: `${COMMAND} ${c.words.join(" ")}`, kind: c.kind, tool: c.tool, action: c.action, title: c.title[lang], description: c.description, staff: c.staff ?? false,
-      flags: c.props.map((p) => ({ flag: `--${flagOf(p)}`, input: p.key, takes: typeWords(p), needed: p.required, description: p.description ?? null, choices: p.enum ?? null })),
+      flags: c.props.map((p) => ({ flag: `--${flagOf(p)}`, input: p.key, takes: typeWords(p), needed: p.required, description: p.description ?? null, choices: p.enum ?? null,
+        ...(p.json ? { example: p.json.example, ...(p.json.note ? { note: p.json.note[lang] } : {}) } : {}) })),
       example: example(c), input_schema: c.schema };
   }
   function schema(words: string[]): number {

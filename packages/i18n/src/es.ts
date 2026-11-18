@@ -1491,6 +1491,8 @@ export const es: { [K in keyof typeof en]: Message } = {
   "cli.staff": "personal",
   "cli.needed": "obligatorio",
   "cli.example": "Ejemplo:",
+  "cli.for_example": "Por ejemplo:",
+  "cli.weekdays": "weekday: 0 es domingo, 1 lunes, 2 martes, 3 miércoles, 4 jueves, 5 viernes, 6 sábado",
   "cli.help_preview_first": "Muestra la vista previa y no cambia nada (código de salida 10). Para hacerlo: openpadel confirm <run_id>, o el mismo comando con --yes.",
   "cli.failed": "Algo salió mal: {why}",
   "cli.signed_out": "La sesión en {club} terminó. Vuelve a correr openpadel login {url}.",
