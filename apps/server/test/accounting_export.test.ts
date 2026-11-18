@@ -96,27 +96,42 @@ before(async () => {
 });
 after(async () => { await drop(); capture.close(); });
 
-test("the manifest: keys the plugin keeps and optional ones aren't asked of the owner, and the preview says what it keeps and where a browser comes back", async () => {
+test("the manifest: the owner is asked for the keys the chosen setting needs, never for what the plugin keeps, and the preview says what it keeps and where a browser comes back", async () => {
   const m = parseManifest(JSON.stringify(EXAMPLE));
   await checkManifestAtClub(db, m);
   const sample = JSON.parse(readFileSync(new URL("../../../packages/core/src/plugin_catalog.sample.json", import.meta.url), "utf8"));
   const { $schema: _, ...bare } = EXAMPLE;
   assert.deepEqual(sample.plugins.find((p: any) => p.manifest.name === "accounting-export").manifest, bare, "the sample catalog has the documented example");
   const rows = manifestRows(m).map((r) => `${r.label.en}: ${r.text.en}`);
-  assert.ok(rows.some((r) => /^Needs: Xero app's client id \(XERO_CLIENT_ID\) \(only if you use it\)/.test(r)), rows.join("\n"));
+  assert.ok(rows.some((r) => /^Needs: Xero app's client id \(XERO_CLIENT_ID\) \(only when Accounting system is Xero\)/.test(r)), rows.join("\n"));
   assert.ok(!rows.some((r) => r.startsWith("Needs:") && r.includes("XERO_REFRESH_TOKEN")), "the owner isn't asked for what the plugin keeps");
   assert.ok(rows.some((r) => r.startsWith("It keeps itself: Xero connection (XERO_REFRESH_TOKEN)")), rows.join("\n"));
   assert.ok(rows.some((r) => r.startsWith("Sign-in return: a browser coming back from Xero or QuickBooks") && r.includes("/plugins/accounting-export/callback")));
   assert.ok(manifestRows(m).every((r) => !/[\u2014\u2013]/.test(r.text.en + r.text.es)));
   assert.throws(() => parseManifest({ ...EXAMPLE, secrets: [{ ...EXAMPLE.secrets[2], optional: true }] }), (e: any) => /kept_by_plugin is never asked for/.test(e.text.en));
   assert.throws(() => parseManifest({ ...EXAMPLE, callback: { for: { en: "X" } } }), (e: any) => e.code === "error.plugin_manifest");
-  // Installed, nothing is asked of the owner: every key it declares is optional or its own.
-  const requests = await get("Robin", "/staff/vault");
-  assert.equal(requests.status, 200);
-  assert.ok(!(requests.json.requests ?? []).some((r: any) => r.plugin === "ledger-keep"), JSON.stringify(requests.json.requests));
+  assert.throws(() => parseManifest({ ...EXAMPLE, secrets: [{ ...EXAMPLE.secrets[0], needed_when: { setting: "provider", is: "sage" } }] }), (e: any) => /needed_when's value/.test(e.text.en));
+  assert.throws(() => parseManifest({ ...EXAMPLE, secrets: [{ ...EXAMPLE.secrets[0], needed_when: { setting: "nope", is: "xero" } }] }), (e: any) => /setting the manifest doesn't have/.test(e.text.en));
+  // Installed, the default (Xero) needs the Xero app's two keys: asked of the owner, and the card needs attention. Not
+  // the QuickBooks ones, nor anything the plugin keeps.
+  const needed = async () => {
+    const pl = (await get("Robin", "/staff/plugins")).json.find((p: any) => p.name === "ledger-keep");
+    const req = ((await get("Robin", "/staff/vault")).json.requests ?? []).find((r: any) => r.plugin === "ledger-keep");
+    return { keys: pl.keys.filter((k: any) => k.needed).map((k: any) => k.name), asked: (req?.keys ?? []).map((k: any) => k.name) };
+  };
+  assert.deepEqual(await needed(), { keys: ["XERO_CLIENT_ID", "XERO_CLIENT_SECRET"], asked: ["XERO_CLIENT_ID", "XERO_CLIENT_SECRET"] });
+  const conn = (await get("Robin", "/staff/connectors")).json.plugins.find((p: any) => p.name === "ledger-keep");
+  assert.equal(conn.connector_status, "attention");
   const pl = (await get("Robin", "/staff/plugins")).json.find((p: any) => p.name === "ledger-keep");
-  assert.deepEqual(pl.keys.filter((k: any) => k.needed), []);
   assert.deepEqual(pl.keys.filter((k: any) => k.kept_by_plugin).map((k: any) => k.name), ["XERO_REFRESH_TOKEN", "QUICKBOOKS_REFRESH_TOKEN", "QUICKBOOKS_COMPANY_ID"]);
+  // Choosing QuickBooks asks for its keys instead, and the owner hears of them then.
+  const told = await db.selectFrom("event_outbox").select("payload").where("topic", "=", "plugin.secrets_needed").orderBy("created_at").orderBy("id").execute();
+  await run(db, "plugin.configure", { plugin: "ledger-keep", settings: { provider: "quickbooks", start_date: "2026-12-01", account_courts: "200", account_card: "610", account_other: "999" } }, owner);
+  assert.deepEqual(await needed(), { keys: ["QUICKBOOKS_CLIENT_ID", "QUICKBOOKS_CLIENT_SECRET"], asked: ["QUICKBOOKS_CLIENT_ID", "QUICKBOOKS_CLIENT_SECRET"] });
+  const now = await db.selectFrom("event_outbox").select("payload").where("topic", "=", "plugin.secrets_needed").orderBy("created_at").orderBy("id").execute();
+  assert.deepEqual((now.at(-1)!.payload as any).names, ["QUICKBOOKS_CLIENT_ID", "QUICKBOOKS_CLIENT_SECRET"]);
+  assert.equal(now.length, told.length + 1);
+  await run(db, "plugin.configure", { plugin: "ledger-keep", settings: { provider: "xero" } }, owner);
 });
 
 test("a plugin keeps its own key: sealed, shown only as kept by it and its last four, never in the change log, out of Changes, replaced in place", async () => {

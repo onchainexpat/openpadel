@@ -28,7 +28,7 @@ import { pluginOfPerson } from "./plugin_cards.ts";
 import { VAULT_SECRET_MAX } from "./vault.ts";
 import { checkWebhookUrl, PLUGIN_CONFIGURED_TOPIC } from "./webhooks.ts";
 import { clubNetworkIp } from "./club_network.ts";
-import { areasText, checkManifestAtClub, checkSettings, grantsText, manifestDiff, manifestRows, manifestSha256, parseManifest, readsOf, rowsText, runText,
+import { areasText, checkManifestAtClub, checkSettings, grantsText, keyAsked, manifestDiff, manifestRows, manifestSha256, parseManifest, readsOf, rowsText, runText,
   MANIFEST_MAX_BYTES, type Manifest } from "./plugin_manifest.ts";
 
 /** Local plugins listen on the server's loopback, one port each from here. */
@@ -135,14 +135,15 @@ async function livePlugin(db: Db | Trx, name: string) {
 /** The vault name a plugin's key is kept under: its own, so a plugin never reads the club's other keys. */
 export const pluginVaultName = (plugin: string, secret: string) => `${plugin}/${secret}`;
 /** Each key a plugin's manifest declares: whether the vault has it, and its last four if so. */
-export async function pluginSecrets(db: Db | Trx, plugin: string, m: Pick<Manifest, "secrets">) {
+export async function pluginSecrets(db: Db | Trx, plugin: string, m: Pick<Manifest, "secrets"> & Partial<Pick<Manifest, "settings">>, settings: Record<string, unknown> = {}) {
   const names = m.secrets.map((s) => pluginVaultName(plugin, s.name).toLowerCase());
   const have = names.length ? await db.selectFrom("vault_item").select(["name", "last4", "updated_at"]).where("kind", "=", "secret").where("active", "=", true)
     .where((eb) => eb(eb.fn("lower", ["name"]), "in", names)).execute() : [];
   return m.secrets.map((s) => {
     const v = have.find((h) => h.name.toLowerCase() === pluginVaultName(plugin, s.name).toLowerCase());
-    const kept = Boolean(s.kept_by_plugin), optional = Boolean(s.optional);
-    // `needed`: missing, and one the owner is asked for (not optional, not one the plugin keeps itself).
+    // `needed`: missing, and one the owner is asked for now (not one the plugin keeps itself, not an optional one, and
+    // one marked needed_when only while its setting says so). `optional`: one the owner isn't asked for now.
+    const kept = Boolean(s.kept_by_plugin), optional = !kept && !keyAsked(m, s, settings);
     return { name: s.name, vault_name: pluginVaultName(plugin, s.name), label: s.label, where: s.where, added: Boolean(v), last4: v?.last4 ?? null, added_at: v?.updated_at ?? null,
       kept_by_plugin: kept, optional, needed: !v && !kept && !optional };
   });
@@ -289,10 +290,16 @@ async function writeRole(ctx: ApplyCtx, m: Manifest, roleId: string | null): Pro
 }
 const topicsOf = (m: Manifest) => [...new Set([...m.events, PLUGIN_CONFIGURED_TOPIC])].sort();
 /** A note for the owners that keys are missing (messages.ts), when any are. */
-async function askForKeys(ctx: ApplyCtx, pluginId: string, name: string, m: Manifest) {
-  const missing = (await pluginSecrets(ctx.trx, name, m)).filter((s) => s.needed).map((s) => s.name);
-  if (missing.length) await ctx.emit("plugin.secrets_needed", { plugin_id: pluginId, names: missing });
+async function askForKeys(ctx: ApplyCtx, pluginId: string, name: string, m: Manifest, settings: Record<string, unknown> = {}, before: string[] = []) {
+  const missing = (await pluginSecrets(ctx.trx, name, m, settings)).filter((s) => s.needed).map((s) => s.name);
+  // Asked again only for what's newly needed (a setting that now chooses Xero): the owner already heard of the rest.
+  const fresh = missing.filter((n) => !before.includes(n));
+  if (fresh.length) await ctx.emit("plugin.secrets_needed", { plugin_id: pluginId, names: fresh });
   return missing;
+}
+/** The keys missing that the owner is asked for now, before a change to its settings. */
+async function neededNow(db: Db | Trx, name: string, m: Manifest, settings: Record<string, unknown>) {
+  return (await pluginSecrets(db, name, m, settings)).filter((s) => s.needed).map((s) => s.name);
 }
 
 /** The plan's words for the one address on the club's network a local plugin may reach (club_network.ts). */
@@ -355,7 +362,7 @@ export const pluginInstall = defineAction({
       base_url: base, local_port: port, status: "waiting", settings: JSON.stringify(d.settings), club_network_ip: d.club_network_ip ?? null, agent_id: agentId, role_id: roleId, subscription_id: subId,
       secret_sealed: sealText(secret), secret_last4: secret.slice(-4), registration_sealed: sealText(JSON.stringify({ token: t.token })), registration_attempts: 0,
       registration_next_at: ctx.now, installed_by: ctx.actor.personId, installed_at: ctx.now, updated_at: ctx.now });
-    const missing = await askForKeys(ctx, id, m.name, m);
+    const missing = await askForKeys(ctx, id, m.name, m, d.settings);
     await ctx.emit("plugin.installed", { plugin_id: id, by: ctx.actor.personId });
     return { plugin_id: id, name: m.name, version: m.version, mode: m.run.mode, status: "waiting", keys_needed: missing };
   },
@@ -388,8 +395,11 @@ export const pluginConfigure = defineAction({
   },
   async apply(ctx, i, p) {
     const { values, club_network_ip } = p.details as { values: Record<string, unknown>; club_network_ip?: string | null };
-    const pl = await ctx.trx.selectFrom("plugin").select(["id", "subscription_id", "name"]).where("name", "=", i.plugin).where("status", "!=", "removed").executeTakeFirstOrThrow();
+    const pl = await ctx.trx.selectFrom("plugin").select(["id", "subscription_id", "name", "manifest", "settings"]).where("name", "=", i.plugin).where("status", "!=", "removed").executeTakeFirstOrThrow();
+    const m = pl.manifest as Manifest, was = await neededNow(ctx.trx, pl.name, m, (pl.settings ?? {}) as Record<string, unknown>);
     await ctx.update("plugin", pl.id, { settings: JSON.stringify(values), club_network_ip: club_network_ip ?? null, updated_at: ctx.now });
+    // A setting that now needs a key the owner hasn't added (the accounting system chosen is Xero): the owner hears.
+    await askForKeys(ctx, pl.id, pl.name, m, values, was);
     // The plugin hears at once, signed like its events (it can also read them through the door: plugin_settings).
     if (pl.subscription_id) {
       const body = JSON.stringify({ id: `cfg_${uuidv7()}`, type: PLUGIN_CONFIGURED_TOPIC, created_at: ctx.now.toISOString(), data: { plugin: pl.name, settings: values } });
@@ -447,7 +457,7 @@ export const pluginUpdate = defineAction({
     }
     await ctx.update("plugin", pl.id, { manifest: JSON.stringify(m), manifest_sha256: d.sha, release: m.version, source: d.source, source_url: d.source_url, base_url: base,
       settings: JSON.stringify(d.settings), club_network_ip: d.club_network_ip ?? null, updated_at: ctx.now, ...registration });
-    const missing = await askForKeys(ctx, pl.id, m.name, m);
+    const missing = await askForKeys(ctx, pl.id, m.name, m, d.settings, await neededNow(ctx.trx, pl.name, pl.manifest as Manifest, (pl.settings ?? {}) as Record<string, unknown>));
     return { plugin_id: pl.id, name: m.name, version: m.version, keys_needed: missing };
   },
   async after(db, _i, result) {
@@ -661,19 +671,19 @@ export async function clubPlugins(db: Db | Trx, lang: Lang) {
       registered_at: r.registered_at, registration_error: r.registration_error,
       registration_problem: r.registration_error ? problemText(r.registration_error, hostOf(r.base_url))[lang] : null,
       last_event_at: r.last_event_at, event_error: r.event_error, event_problem: r.event_error ? problemText(r.event_error, hostOf(r.base_url))[lang] : null, last_used_at: r.last_used_at, token_last4: r.token_last4,
-      settings_values: r.settings, keys: (await pluginSecrets(db, r.name, m)).map((k) => ({ name: k.name, vault_name: k.vault_name, label: k.label[lang], where: k.where[lang], added: k.added, last4: k.last4,
+      settings_values: r.settings, keys: (await pluginSecrets(db, r.name, m, (r.settings ?? {}) as Record<string, unknown>)).map((k) => ({ name: k.name, vault_name: k.vault_name, label: k.label[lang], where: k.where[lang], added: k.added, last4: k.last4,
         kept_by_plugin: k.kept_by_plugin, optional: k.optional, needed: k.needed })) });
   }
   return out;
 }
 /** What the owner's vault page shows as requests: each installed plugin's keys that aren't there yet ("asked for by"). */
 export async function pluginKeyRequests(db: Db | Trx, lang: Lang) {
-  const rows = await db.selectFrom("plugin").leftJoin("person", "person.id", "plugin.installed_by").select(["plugin.name", "plugin.manifest", "plugin.installed_at", "person.display_name as by"])
+  const rows = await db.selectFrom("plugin").leftJoin("person", "person.id", "plugin.installed_by").select(["plugin.name", "plugin.manifest", "plugin.settings", "plugin.installed_at", "person.display_name as by"])
     .where("plugin.status", "!=", "removed").orderBy("plugin.installed_at").execute();
   const out = [];
   for (const r of rows) {
     const m = manifestOf(r);
-    const missing = (await pluginSecrets(db, r.name, m)).filter((s) => s.needed);
+    const missing = (await pluginSecrets(db, r.name, m, (r.settings ?? {}) as Record<string, unknown>)).filter((s) => s.needed);
     if (missing.length) out.push({ plugin: r.name, by: r.by, asked_at: r.installed_at, why: m.description[lang], can: m.grants.length ? grantsText(m.grants)[lang] : null,
       keys: missing.map((s) => ({ name: s.name, vault_name: s.vault_name, label: s.label[lang], where: s.where[lang] })) });
   }

@@ -80,6 +80,9 @@ export const manifestSchema = z.strictObject({
     /** Not asked of the owner when it's installed: one the plugin needs only in some setups (a QuickBooks key, for a
      *  club on Xero), and says on its card when it's missing. */
     optional: z.optional(z.boolean()),
+    /** Asked of the owner only when one of the plugin's settings has this value (its Xero keys, when the accounting
+     *  system chosen is Xero); not asked otherwise, like an optional one. */
+    needed_when: z.optional(z.strictObject({ setting: settingKey, is: z.union([z.string().check(z.maxLength(200)), z.boolean(), z.number()]) })),
     /** The plugin's own to write (plugin.secret_keep): a key it's handed and that changes as it's used, such as an
      *  OAuth refresh token. Never asked of the owner; shown as "kept by <plugin>". */
     kept_by_plugin: z.optional(z.boolean()) })).check(z.maxLength(20)),
@@ -120,7 +123,16 @@ export function parseManifest(raw: unknown): Manifest {
   const d4 = dup(m.reads); if (d4) problems.push(`reads: ${d4} twice`);
   const d5 = dup(m.settings.map((f) => f.key)); if (d5) problems.push(`settings: ${d5} twice`);
   if (m.settings.filter((f) => f.type === "string" && f.club_network).length > 1) problems.push("settings: only one may be club_network");
-  for (const k of m.secrets) if (k.kept_by_plugin && k.optional) problems.push(`secrets.${k.name}: kept_by_plugin is never asked for, so it isn't optional too`);
+  for (const k of m.secrets) {
+    if (k.kept_by_plugin && (k.optional || k.needed_when)) problems.push(`secrets.${k.name}: kept_by_plugin is never asked for, so it isn't optional or needed_when too`);
+    if (k.optional && k.needed_when) problems.push(`secrets.${k.name}: needed_when already makes it optional otherwise; not both`);
+    if (k.needed_when) {
+      const f = m.settings.find((x) => x.key === k.needed_when!.setting), is = k.needed_when.is;
+      if (!f) problems.push(`secrets.${k.name}: needed_when names a setting the manifest doesn't have (${k.needed_when.setting})`);
+      else if (f.type === "choice" ? !f.choices.some((c) => c.value === is) : f.type === "boolean" ? typeof is !== "boolean" : f.type === "integer" ? typeof is !== "number" : f.type === "string" ? typeof is !== "string" : true)
+        problems.push(`secrets.${k.name}: needed_when's value isn't one ${k.needed_when.setting} can have`);
+    }
+  }
   for (const f of m.settings) {
     const k = f.key;
     if (f.type === "integer" && f.minimum !== undefined && f.maximum !== undefined && f.minimum > f.maximum) problems.push(`settings.${k}: minimum over maximum`);
@@ -170,11 +182,31 @@ export function grantsText(grants: Manifest["grants"]): Text {
   return each((l) => list(grants.map((g) => `${lower(actionText(g.action)[l])}${g.mode === "ask" ? ` ${both("plan.plugin.asks_first")[l]}` : ""}`)));
 }
 export const areasText = (areas: string[]): Text => each((l) => areas.map((a) => lower(both(`area.${a}` as Key)[l])).join(", "));
-export const secretsText = (m: Pick<Manifest, "secrets">): Text => each((l) => list(m.secrets.map((s) => `${s.label[l]} (${s.name})${s.optional ? ` ${both("plan.plugin.key_optional")[l]}` : ""}`)));
+/** Each key in words: "Xero app's client id (XERO_CLIENT_ID) (only when Accounting system is Xero)". */
+export const secretsText = (m: Pick<Manifest, "secrets"> & Partial<Pick<Manifest, "settings">>): Text => each((l) => list(m.secrets.map((s) => `${s.label[l]} (${s.name})${whenText(m, s, l)}`)));
+function whenText(m: Partial<Pick<Manifest, "settings">>, s: Manifest["secrets"][number], l: "en" | "es"): string {
+  if (s.needed_when) {
+    const f = m.settings?.find((x) => x.key === s.needed_when!.setting);
+    const value = f?.type === "choice" ? f.choices.find((c) => c.value === s.needed_when!.is)?.label[l] ?? String(s.needed_when.is) : String(s.needed_when.is);
+    return ` ${both("plan.plugin.key_when", { setting: f?.label[l] ?? s.needed_when.setting, value })[l]}`;
+  }
+  return s.optional ? ` ${both("plan.plugin.key_optional")[l]}` : "";
+}
+/** A setting's value as the plugin has it: what the club gave, or the manifest's default. */
+const settingValue = (m: Partial<Pick<Manifest, "settings">>, values: Record<string, unknown>, key: string) => {
+  if (Object.hasOwn(values, key) && values[key] !== null && values[key] !== "") return values[key];
+  const f = m.settings?.find((x) => x.key === key);
+  return f && "default" in f ? f.default : undefined;
+};
+/** Whether the owner is asked for this key now, with these settings: never one the plugin keeps; one marked needed_when
+ *  when its setting has that value; an optional one never; any other always. */
+export function keyAsked(m: Partial<Pick<Manifest, "settings">>, s: Manifest["secrets"][number], values: Record<string, unknown> = {}): boolean {
+  if (s.kept_by_plugin) return false;
+  if (s.needed_when) return settingValue(m, values, s.needed_when.setting) === s.needed_when.is;
+  return !s.optional;
+}
 /** The keys the owner adds (not the ones the plugin keeps itself). */
 export const ownerKeys = (m: Pick<Manifest, "secrets">) => m.secrets.filter((s) => !s.kept_by_plugin);
-/** The keys the owner is asked for as it's installed: not optional ones, nor the ones the plugin keeps. */
-export const askedKeys = (m: Pick<Manifest, "secrets">) => m.secrets.filter((s) => !s.kept_by_plugin && !s.optional);
 const keptKeys = (m: Pick<Manifest, "secrets">) => m.secrets.filter((s) => s.kept_by_plugin);
 const hostOf = (url: string) => { try { return new URL(url).host; } catch { return url; } };
 /** Where it runs, in words. */
@@ -192,7 +224,7 @@ export function manifestRows(m: Manifest): { label: Text; text: Text }[] {
   rows.push({ label: both("plan.plugin.row_reads"), text: reads.length ? areasText(reads) : both("plan.plugin.reads_nothing") });
   if (m.events.length) rows.push({ label: both("plan.plugin.row_events"), text: { en: m.events.join(", "), es: m.events.join(", ") } });
   rows.push({ label: both("plan.plugin.row_sends"), text: m.data_out });
-  rows.push({ label: both("plan.plugin.row_needs"), text: ownerKeys(m).length ? both("plan.plugin.needs_keys", { keys: secretsText({ secrets: ownerKeys(m) }) }) : both("plan.plugin.needs_nothing") });
+  rows.push({ label: both("plan.plugin.row_needs"), text: ownerKeys(m).length ? both("plan.plugin.needs_keys", { keys: secretsText({ secrets: ownerKeys(m), settings: m.settings }) }) : both("plan.plugin.needs_nothing") });
   if (keptKeys(m).length) rows.push({ label: both("plan.plugin.row_keeps"), text: both("plan.plugin.keeps_keys", { keys: secretsText({ secrets: keptKeys(m) }) }) });
   rows.push({ label: both("plan.plugin.row_cost"), text: m.cost.charges ? both("plan.plugin.cost_charges", { note: m.cost.note }) : both("plan.plugin.cost_free", { note: m.cost.note }) });
   rows.push({ label: both("plan.plugin.row_runs"), text: runText(m) });
@@ -224,7 +256,7 @@ export function manifestDiff(a: Manifest, b: Manifest): { label: Text; text: Tex
   if (evMore.length) rows.push({ label: both("plan.plugin.diff_events_more"), text: { en: evMore.join(", "), es: evMore.join(", ") } });
   if (evLess.length) rows.push({ label: both("plan.plugin.diff_events_less"), text: { en: evLess.join(", "), es: evLess.join(", ") } });
   const secMore = ownerKeys(b).filter((s) => !a.secrets.some((x) => x.name === s.name));
-  if (secMore.length) rows.push({ label: both("plan.plugin.diff_needs_more"), text: secretsText({ secrets: secMore }) });
+  if (secMore.length) rows.push({ label: both("plan.plugin.diff_needs_more"), text: secretsText({ secrets: secMore, settings: b.settings }) });
   // A key it may now keep itself, that it didn't before (or one the owner added that it may now overwrite).
   const keepsMore = keptKeys(b).filter((s) => !a.secrets.some((x) => x.name === s.name && x.kept_by_plugin));
   if (keepsMore.length) rows.push({ label: both("plan.plugin.row_keeps"), text: both("plan.plugin.keeps_keys", { keys: secretsText({ secrets: keepsMore }) }) });

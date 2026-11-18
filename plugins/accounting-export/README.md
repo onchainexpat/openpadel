@@ -76,8 +76,10 @@ openpadel plugin configure --plugin accounting-export --settings '{"provider": "
 1. At [developer.xero.com](https://developer.xero.com), My Apps, **New app**: a *Web app*, with the **redirect URI**
    the plugin's card on Connectors shows (`https://<the club's staff address>/plugins/accounting-export/callback`).
 2. Copy its **Client id**, and under Configuration **Generate a secret**.
-3. In the club's vault, add them as `accounting-export/XERO_CLIENT_ID` and `accounting-export/XERO_CLIENT_SECRET` (the
-   vault shows the plugin's request), or on the server with `openpadel plugin secret accounting-export XERO_CLIENT_ID`.
+3. In the club's vault, add them as `accounting-export/XERO_CLIENT_ID` and `accounting-export/XERO_CLIENT_SECRET`, or on
+   the server with `openpadel plugin secret accounting-export XERO_CLIENT_ID`. While the `provider` setting is `xero`
+   (the default), the club asks the owner for these two (a vault request, and the plugin's card on Connectors needs
+   attention until they're there); the QuickBooks keys aren't asked for. Choosing `quickbooks` asks for those instead.
 4. On Connectors, press **Connect Xero** on the plugin's card, sign in to Xero and allow the organisation.
 
 The plugin asks for `offline_access accounting.transactions accounting.settings.read`. Xero gives apps made after

@@ -260,7 +260,7 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
       if (!now_) return fail(new KumiError("error.not_found", { thing: both("thing.plugin") }, 404));
       const m = now_.manifest as Manifest;
       return text({ name: now_.name, version: now_.release, status: now_.status, settings: now_.settings, events: m.events,
-        keys: (await pluginSecrets(db, now_.name, m)).map((k) => ({ name: k.name, added: k.added, last4: k.last4, ...(k.kept_by_plugin ? { kept_by_plugin: true } : {}), ...(k.optional ? { optional: true } : {}) })) });
+        keys: (await pluginSecrets(db, now_.name, m, (now_.settings ?? {}) as Record<string, unknown>)).map((k) => ({ name: k.name, added: k.added, last4: k.last4, ...(k.kept_by_plugin ? { kept_by_plugin: true } : {}), ...(k.optional ? { optional: true } : {}) })) });
     });
     server.registerTool("plugin_secret", { title: lang === "es" ? "Una de mis claves" : "One of my keys", description: "One key this plugin's manifest declares, by its name (HA_TOKEN), from the club's vault. Each read is kept on record.",
       inputSchema: { name: z.string().check(z.regex(/^[A-Z][A-Z0-9_]{1,63}$/)) }, annotations: { readOnlyHint: true } }, async (args: { name: string }) => {

@@ -155,10 +155,13 @@
               "en": "Xero app's client id",
               "es": "Client id de la app de Xero"
             },
-            "optional": true,
             "where": {
               "en": "At developer.xero.com: My Apps, New app (Web app), with the redirect address shown on the plugin's card. Copy its Client id.",
               "es": "En developer.xero.com: My Apps, New app (Web app), con la dirección de retorno que muestra la tarjeta del plugin. Copia su Client id."
+            },
+            "needed_when": {
+              "setting": "provider",
+              "is": "xero"
             }
           },
           {
@@ -167,10 +170,13 @@
               "en": "Xero app's client secret",
               "es": "Client secret de la app de Xero"
             },
-            "optional": true,
             "where": {
               "en": "At developer.xero.com, in the same app: Configuration, Generate a secret.",
               "es": "En developer.xero.com, en la misma app: Configuration, Generate a secret."
+            },
+            "needed_when": {
+              "setting": "provider",
+              "is": "xero"
             }
           },
           {
@@ -191,10 +197,13 @@
               "en": "QuickBooks app's client id",
               "es": "Client id de la app de QuickBooks"
             },
-            "optional": true,
             "where": {
               "en": "At developer.intuit.com: Dashboard, create an app for QuickBooks Online Accounting, Keys and credentials (Production), with the redirect address shown on the plugin's card.",
               "es": "En developer.intuit.com: Dashboard, crea una app para QuickBooks Online Accounting, Keys and credentials (Production), con la dirección de retorno que muestra la tarjeta del plugin."
+            },
+            "needed_when": {
+              "setting": "provider",
+              "is": "quickbooks"
             }
           },
           {
@@ -203,10 +212,13 @@
               "en": "QuickBooks app's client secret",
               "es": "Client secret de la app de QuickBooks"
             },
-            "optional": true,
             "where": {
               "en": "At developer.intuit.com, in the same app: Keys and credentials (Production), Client secret.",
               "es": "En developer.intuit.com, en la misma app: Keys and credentials (Production), Client secret."
+            },
+            "needed_when": {
+              "setting": "provider",
+              "is": "quickbooks"
             }
           },
           {

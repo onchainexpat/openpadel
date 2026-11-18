@@ -22,7 +22,7 @@ Words in both languages are written `{ "en": "…", "es": "…" }` (US and Latin
 | `grants` | Its role: the club's actions it may plan, each `{ "action": "court.block", "mode": "allow" \| "ask", "scope": "any" \| "own" }` (scope defaults to `any`). `ask` waits in the club's Approvals for a person. Only actions a club's own role may hold (what a manager does without asking), never one that makes or changes agents, plugins, webhooks, roles, the vault, assistants, support access or the club's settings, and never one only done in the app. Up to 100. |
 | `reads` | The parts of the club it reads beyond what its actions cover: `bookings`, `courts`, `programs`, `members`, `memberships`, `money`, `messages`, `levels`, `coaches`, `settings`. |
 | `events` | The events it's sent (the club's webhook events, [docs/agents/webhooks.md](../agents/webhooks.md)). Each must be in a part of the club it reads. |
-| `secrets` | The keys it needs from the club's vault, each `{ "name": "HA_TOKEN", "label": {…}, "where": {…} }`: a name in capitals, what it is, and where the owner gets it. Up to 20. Two optional marks ([below](#keys-the-owner-adds-and-keys-the-plugin-keeps)): `"optional": true`, not asked for at install, and `"kept_by_plugin": true`, the plugin's own to write. |
+| `secrets` | The keys it needs from the club's vault, each `{ "name": "HA_TOKEN", "label": {…}, "where": {…} }`: a name in capitals, what it is, and where the owner gets it. Up to 20. Optional marks ([below](#keys-the-owner-adds-and-keys-the-plugin-keeps)): `"optional": true`, never asked for; `"needed_when"`, asked for only when a setting has a value; and `"kept_by_plugin": true`, the plugin's own to write. |
 | `settings` | Its options, in the order a person sets them (below). Up to 20. |
 | `data_out` | What member data it sends where, in plain words. It goes into the club's list of services that see member data and its privacy policy's, as it's installed. Say so when it sends nothing about members. |
 | `cost` | `{ "charges": true \| false, "note": {…} }`: whether its service charges, and roughly what. |
@@ -65,12 +65,16 @@ public address needs nothing, and a remote plugin isn't affected: this is only a
 
 Each key in `secrets` is the owner's to add unless it says otherwise:
 
-- `"optional": true`: not asked for when the plugin is installed (no vault request, no doctor warning), because only some
-  setups need it: a QuickBooks key for a club on Xero. The plugin says on its card when it needs it.
+- `"optional": true`: never asked for (no vault request, no doctor warning, no "needs attention"): a key that only
+  makes something extra work. The plugin says on its card when it would use it.
+- `"needed_when": { "setting": "provider", "is": "xero" }`: asked for only while that setting has that value (its
+  default counts when the club hasn't set it), and otherwise treated like an optional key. The setting must be one of the
+  manifest's, and the value one it can have (a choice's value, `true`/`false` for a boolean, a number for an integer).
+  Changing the setting so a key is newly needed sends the owner the vault request then. Not with `optional`.
 - `"kept_by_plugin": true`: the plugin writes it itself, through the door (`plugin_secret_keep_preview`, then
   `plugin_secret_keep_confirm`, [README](README.md#keys-it-keeps)): a key it's handed and that changes as it's used, such
   as an OAuth refresh token. The owner is never asked for it, the install preview lists it under "It keeps itself", and
-  the vault shows it as "kept by <plugin>, ends in 4F2A". It can't also be `optional`.
+  the vault shows it as "kept by <plugin>, ends in 4F2A". It can't also be `optional` or `needed_when`.
 
 ## A browser's way back (`callback`)
 
@@ -116,6 +120,6 @@ are made, moved or cancelled and courts blocked or freed, needs one key, and has
 
 [examples/accounting-export/openpadel-plugin.json](examples/accounting-export/openpadel-plugin.json): each club day's
 takings, refunds, tax, card fees and payouts sent to the club's Xero or QuickBooks as one journal. It changes nothing at
-the club and reads money; its Xero and QuickBooks app keys are `optional` (a club uses one of the two), its refresh
+the club and reads money; its Xero and QuickBooks app keys are `needed_when` its `provider` setting chooses that one, its refresh
 tokens are `kept_by_plugin`, it takes the browser back from Xero's or Intuit's sign-in with `callback`, and it shows a
 card on Connectors and on Money. The plugin itself is [plugins/accounting-export](../../plugins/accounting-export/README.md).
