@@ -11,7 +11,9 @@ example: [examples/court-lights/openpadel-plugin.json](examples/court-lights/ope
 The first real one, court lights for Home Assistant, is [plugins/court-lights](../../plugins/court-lights/README.md): a
 small Node program to read beside this page when writing one. The second, [plugins/accounting-export](../../plugins/accounting-export/README.md),
 sends the club's books to Xero or QuickBooks: it connects by OAuth through the club's own address and keeps its refresh
-token in the club's vault.
+token in the club's vault. The third, [plugins/klaviyo](../../plugins/klaviyo/README.md), keeps the members who said yes
+to club news as a Klaviyo list. To write your own, start from [plugins/template](../../plugins/template/README.md) and
+[writing.md](writing.md).
 
 ## For a club: installing one
 
@@ -68,6 +70,10 @@ So the club's agent can do the installing, and the owner's yes to the preview is
 openPadel, with the court lights example.
 Whatever a catalog lists counts as reviewed, so `openpadel doctor` warns while the server reads one other than
 openPadel's own (`https://plugins.openpadel.org/catalog.json`) or the bundled sample.
+openPadel's catalog is kept as files in [catalog/](../../catalog/README.md): one folder per plugin with its manifest
+and the release it pins, the review checklist a plugin passes before it's listed
+([catalog/CONTRIBUTING.md](../../catalog/CONTRIBUTING.md)), and a build that checks every manifest with the server's own
+parser and writes `catalog.json`.
 
 The list of installed plugins and the catalog are for the owner and managers (and their agents), like Settings, Agents;
 the services that see member data (`openpadel processors`) are for all staff.
@@ -173,6 +179,19 @@ lessons, programs, memberships, after_restore, other; net of tax), `tax`, `credi
 clearing), `cash.in` and `cash.out`, `receivable.up` and `receivable.down`, `refunds_payable`, `adjustment`,
 `brought_in`, `card.fees` with `card.fees_out`, and `bank.payouts` with `card.payouts_out`. Amounts and kinds only:
 nothing in it names a person.
+
+With `club_news` (and only with it), `club_news_list` `{ after?, limit? }` gives the members whose latest answer to club
+news by email is yes, 500 at a time in id order, what a marketing sync sends:
+
+```json
+{ "total": 1204, "next": "0196…", "members": [{ "id": "0195…", "email": "ann@example.com", "first_name": "Ann", "language": "es" }] }
+```
+
+The club filters it on its own server: nobody who said no, never answered, was deleted or is a junior is in it, and
+nothing else about anyone is. Staff read the same list (owners, managers, the front desk, the accountant, and a role
+the club made covering messages); through the door their emails come shortened, and only a plugin whose manifest reads
+`club_news` gets them whole. `club_news.joined` and `club_news.left` (with `why`: `said_no`, `unsubscribed`,
+`text_stop`, `deleted`) say when someone's answer turns: take someone off at once on `left`, and read the list again.
 
 You can't move money (your weekly limit is 0), make webhooks, or install or change plugins.
 
