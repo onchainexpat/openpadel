@@ -283,6 +283,7 @@ a.create-item:hover, button.create-item:hover { border-color: var(--brand-ink); 
 .search-field { flex: 1 1 240px; margin: 0; } .search-field input { margin: 0; }
 .filter-chip { display: inline-flex; align-items: center; gap: 4px; margin: 0; padding: 0 4px 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); font-size: 14px; font-weight: 600; }
 .filter-chip select { width: auto; margin: 0; min-height: 42px; padding: 6px 8px; border: 0; background: none; font-weight: 400; }
+.filter-chip.check { gap: 8px; min-height: 42px; padding: 0 12px; cursor: pointer; } .filter-chip.check input { width: auto; margin: 0; }
 .filter-chip.on { border-color: var(--brand-ink); background: color-mix(in srgb, var(--brand) 10%, var(--card)); }
 .table-box { border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
 table.data { min-width: 760px; font-size: 14px; }
@@ -467,6 +468,8 @@ button.checked { background: #e3f3e8; border-color: #9fd0ae; color: #1e6b3a; }
 @media (prefers-color-scheme: dark) { button.checked { background: #1d3a27; border-color: #3f7a52; color: #bfe6cb; } }
 .check-in h3 .meta { font-weight: 400; margin-left: 6px; }
 .since-list li { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; } .since-list li > .meta { flex: none; min-width: 64px; }
+.since-what { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.since-rest summary { cursor: pointer; } .since-rest p { margin: 4px 0 0; }
 ul.plain li.card.ask, ul.plain li.card.need { padding: 14px 16px; border: 1px solid var(--line); } ul.plain li.card.connector { padding: 14px 16px; }
 .need-items li:last-child { border-bottom: 0; }
 .ask .ask-what { margin: 4px 0; overflow-wrap: anywhere; } .ask p { margin: 4px 0; }

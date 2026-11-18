@@ -194,6 +194,10 @@ slots its manifest declares, and only its own token can: nobody else is offered 
 a court's tile on Today (staff), a game's page (its players in the members' app, and staff on the Schedule), a member's
 profile (the member under Me, staff on their page), the Money page and Connectors. A paused or removed plugin's cards
 don't show. See docs/plugins/README.md, Cards (migration 129).
+A plugin's card updates (court lights says so many times a day) stay in the change log, so they can be undone, but
+out of Today's "since you last looked" and out of Changes unless "Show plugin card updates" is ticked. "Since you last
+looked" shows each change in one short line, its first sentence, with the rest under "The rest": a plugin's install
+names everything it asks for, which was a page.
 
 Court lights, the first real plugin (plugins/court-lights): Home Assistant turns a court's lights on a few minutes
 before each booking, program date or Playtomic booking and off a few minutes after the last one ends, with back-to-back

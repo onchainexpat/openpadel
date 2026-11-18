@@ -124,6 +124,27 @@ test("a plugin puts a card in a slot its manifest declares, previewed in words, 
   assert.ok(runs.every((x) => x.agent_id), "made by the plugin's agent");
 });
 
+test("a plugin's card updates stay out of Today's since list and Changes unless asked; long changes there are one line", async () => {
+  // The put test before this one put two cards: both in the log, neither in sight by default.
+  const since = encodeURIComponent(new Date(Date.now() - 3600_000).toISOString());
+  const today = (await get("Robin", `/staff/today?since=${since}`)).json;
+  const actions = await db.selectFrom("action_run").select(["id", "action"]).where("status", "=", "applied").execute();
+  const cardIds = new Set(actions.filter((a) => a.action.startsWith("plugin.card_")).map((a) => a.id));
+  assert.ok(cardIds.size >= 2);
+  assert.ok(today.since.changes.every((c: any) => !cardIds.has(c.id)), "no card updates in since");
+  assert.equal(today.since.changes.length + today.since.more, actions.length - cardIds.size, "nor in its count");
+  // The install's plan names everything the plugin asks for: since shows its first sentence, the rest apart.
+  const install = actions.find((a) => a.action === "plugin.install")!;
+  const line = today.since.changes.find((c: any) => c.id === install.id);
+  assert.ok(line, "the install is listed");
+  assert.match(line.summary, /^Install the plugin court-lights [0-9.]+[,.]/);
+  assert.ok(line.rest && line.rest.length > 100, "the rest behind a disclosure");
+  const listed = (q: string) => get("Robin", `/staff/changes?limit=200${q}`).then((r) => (r.json as any[]).map((c) => c.id));
+  assert.ok((await listed("")).every((id) => !cardIds.has(id)), "Changes leaves them out by default");
+  const all = await listed("&plugin_cards=1");
+  assert.ok([...cardIds].every((id) => all.includes(id)), "and shows them when asked");
+});
+
 test("what a card may say: its slots only, a subject that fits, six rows of one line each without dashes, and https links", async () => {
   const bad = async (tok: string, args: Record<string, unknown>, why: RegExp) => {
     const r = await call(tok, "plugin_card_put_preview", args);
