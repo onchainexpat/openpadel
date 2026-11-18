@@ -200,13 +200,22 @@ before each booking, program date or Playtomic booking and off a few minutes aft
 bookings keeping them on. It's a small Node program of its own that talks to the club only through its door and to Home
 Assistant through its REST API. It checks the club's signature on its registration and every event, and reads the day
 again on start, every 5 minutes and after each booking or court event, so an event that never arrives is caught. An
-error never turns lights off: lights go off only on a schedule read in the last 15 minutes, and a command Home Assistant
-didn't take is tried again with growing waits. Each court's tile shows "On until 9:30 PM", when they next come on, or
+error never turns lights off during a booking: lights go off on a schedule read in the last 15 minutes, or, while the
+club's door doesn't answer, 2 hours after they were due off for the last booking it knows about (`CUTOFF_MINUTES`), and a
+command Home Assistant didn't take is tried again with growing waits. Each court's tile shows "On until 9:30 PM", when they next come on, or
 that Home Assistant isn't answering, once the club shows plugin cards. It runs on the club's own server from a pinned,
 reproducible release (`node tools/pack.ts`) or on any host as a remote plugin, and its health says when it last heard
 from the club and whether Home Assistant answers. Its manifest gains two settings, the lights for each court (`Court 1 =
-light.court_1`; a court left out uses `light.` and its name) and minutes after a booking (5). A local plugin can't reach
-the club's private network, so it needs Home Assistant's public https address. See plugins/court-lights/README.md.
+light.court_1`; a court left out uses `light.` and its name) and minutes after a booking (5). See
+plugins/court-lights/README.md.
+
+One address on the club's own network for a local plugin: a manifest may mark one text setting `club_network` (court
+lights marks its Home Assistant address). When the club gives it an address on its own network (`http://192.168.1.20:8123`,
+or a name that resolves to one such address), the install, settings or update preview says "It can reach 192.168.1.20 on
+the club's own network (Home Assistant address), and nothing else there", the owner says yes (a manager asks), and
+`openpadel plugin service <name> --apply` lets the plugin's service through to that one IP. This server's own addresses,
+"every address", multicast and a name with several addresses are refused in words; a public address and a remote plugin
+need nothing. See docs/plugins/manifest.md (migration 130).
 
 ### Added
 - Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed

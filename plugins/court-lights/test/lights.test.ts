@@ -235,6 +235,32 @@ test("kept across a restart in a file only it reads, with no token or key in its
   for (const secret of [club.state.token, "whsec_", "opps_", "ha-secret-token"]) assert.ok(!all.includes(secret), `no ${secret.slice(0, 8)} in the log`);
 });
 
+test("the club's door down for good: lights stay on through the last known booking, and go off 2 hours after they were due off", async () => {
+  await start();
+  try {
+    club.state.items = [{ court_id: "c1", start: local(18), end: local(19), kind: "booking" }, { court_id: "c2", start: local(21), end: local(22), kind: "booking" }];
+    await register();
+    await readAt(ms(17, 50));
+    assert.equal(ha.ons().length, 1, "Court 1 on for its booking");
+    club.state.down = true;
+    await readAt(ms(18, 30));
+    await tickAt(ms(19, 6));
+    await tickAt(ms(21, 4));
+    assert.equal(ha.offs().length, 0, "on for 2 hours after 7:05 PM, while the door doesn't answer");
+    // Court 2's booking is still in the last schedule it read: its lights come on and stay on through it.
+    assert.equal(ha.ons().length, 2);
+    await tickAt(ms(21, 6));
+    assert.deepEqual(ha.offs().map((c) => c.entities), [["light.court_1"]], "Court 1 off at the cutoff; Court 2 is mid-booking and stays on");
+    await tickAt(ms(22, 30));
+    assert.equal(ha.offs().length, 1, "Court 2 within 2 hours of its booking: still on");
+    await tickAt(ms(24, 4));
+    assert.equal(ha.offs().length, 1, "Court 2 still within 2 hours of 10:05 PM");
+    await tickAt(ms(24, 6));
+    assert.equal(ha.offs().length, 2, "Court 2 off at its own cutoff, past midnight");
+    assert.ok(logs.some((l) => /cutoff/.test(l)), "it says why, once per court");
+  } finally { await stop(); }
+});
+
 test("restarted with nothing kept (a sandboxed local plugin): a booking that ended a little while ago has its lights turned off", async () => {
   await start();
   try {

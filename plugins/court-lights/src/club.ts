@@ -3,8 +3,9 @@
 //
 // Events only say "something changed": the schedule is always read again through the door (on start, every few
 // minutes, and soon after each event), so a missed event is caught by the next read. Two rules keep the lights safe:
-//   - an error never turns lights off: a failed read keeps the last schedule, and lights are turned off only on a
-//     schedule read in the last FRESH_MS (or they stay on until the door answers again);
+//   - an error never turns lights off during a booking: a failed read keeps the last schedule, and lights are turned off
+//     on a schedule read in the last FRESH_MS, or, while the door doesn't answer, CUTOFF_MINUTES after the last booking
+//     it knows about on that court ended (so a court isn't lit all night because the club's server is down);
 //   - a command Home Assistant didn't take is tried again, the wait doubling from 5 seconds to 5 minutes.
 import { door as openDoor, DoorError, type Door, type Fetch } from "./door.ts";
 import { HomeAssistantError, ping, setLights } from "./home_assistant.ts";
@@ -17,6 +18,8 @@ import { cardFor, type HaProblem } from "./words.ts";
 export const FRESH_MS = 15 * 60_000;
 /** On start, a court whose lights it can't remember turning on is turned off if a booking ended this recently. */
 export const CATCH_UP_MS = 3 * 3600_000;
+/** While the club's door doesn't answer, lights still go off this long after the last booking it knows about ended. */
+export const CUTOFF_MINUTES = 120, CUTOFF_MS = CUTOFF_MINUTES * 60_000;
 export const SEEN_KEPT = 500;
 const CARDS_RECHECK_MS = 3600_000, CARD_RETRY_MS = 5 * 60_000;
 const backoff = (n: number) => Math.min(5_000 * 2 ** Math.max(0, n - 1), 300_000);
@@ -165,7 +168,14 @@ export class ClubRunner {
       let want: "on" | "off" | null = null;
       if (st.on && prev?.state !== "on") want = "on";
       else if (st.on && prev?.state === "on" && c.entities.some((e) => !prev.entities.includes(e))) want = "on";   // a light added to the court
-      else if (!st.on && prev?.state === "on") want = fresh ? "off" : null;
+      else if (!st.on && prev?.state === "on") {
+        // Off on a fresh read; on an old one only once the last known booking is CUTOFF_MINUTES behind (or, with none
+        // known, CUTOFF_MINUTES after it turned them on).
+        const since = st.lastEnded ?? Date.parse(prev.at);
+        const cutoff = !fresh && Number.isFinite(since) && now - since >= CUTOFF_MS;
+        want = fresh || cutoff ? "off" : null;
+        if (cutoff) this.once(`cutoff:${id}`, "warn", "the club's door hasn't answered; turning a court's lights off after the cutoff", { court: id, cutoff_minutes: CUTOFF_MINUTES });
+      }
       else if (!st.on && !prev && fresh && st.lastEnded !== null && now - st.lastEnded < CATCH_UP_MS) want = "off";
       if (want) await this.command(id, want, want === "off" && prev ? [...new Set([...prev.entities, ...c.entities])] : c.entities, now);
       else this.pending.delete(id);

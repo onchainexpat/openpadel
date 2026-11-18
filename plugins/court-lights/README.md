@@ -20,8 +20,10 @@ Home Assistant only which lights to turn on or off: no names, emails or phone nu
   court event (made, moved, cancelled, blocked, freed), it reads today's and tomorrow's schedule for each location with
   lit courts (the `day` read, in that location's own time zone). An event that never arrives is caught by the next read.
   Every event's signature is checked first, and the same event twice is handled once.
-- **An error never turns lights off.** If the club's door doesn't answer, it keeps the last schedule, and it turns
-  lights off only on a schedule read in the last 15 minutes: until the door answers again, lights that are on stay on.
+- **An error never turns lights off during a booking.** If the club's door doesn't answer, it keeps the last schedule,
+  and it turns lights off on a schedule read in the last 15 minutes. While the door stays down, lights that are on stay
+  on until 2 hours (`CUTOFF_MINUTES`, 120, in src/club.ts) after they were due off (the last booking it knows about
+  on that court, plus its minutes after), then go off, so a court isn't lit all night because the club's server is down.
   A command Home Assistant doesn't take is tried again, the wait doubling from 5 seconds to 5 minutes.
 - **After a restart** it remembers what it turned on (when it has somewhere to keep it, below). With nothing kept, a
   court with no booking now whose last booking ended in the past 3 hours has its lights turned off once.
@@ -79,9 +81,13 @@ The service gets `PORT`, `OPENPADEL_URL`, `OPENPADEL_MCP`, `OPENPADEL_TOKEN`, `O
 `OPENPADEL_HOOK_SECRET` in its environment and listens on 127.0.0.1. Its sandbox has nowhere to write, so it keeps
 its state in memory and reads the club again on start.
 
-**Home Assistant on the club's own network:** the local service can't reach private addresses (10.x, 192.168.x and
-the like: the sandbox refuses them). Give it Home Assistant's public https address instead (Home Assistant Cloud's
-`https://....ui.nabu.casa`, or the club's own), or run it in remote mode on a machine that reaches Home Assistant.
+**Home Assistant on the club's own network:** the local service is kept off private addresses (10.x, 192.168.x and
+the like), except one: the Home Assistant address setting is the manifest's `club_network` setting, so when it names an
+address on the club's network (`http://192.168.1.20:8123`, or a name that resolves to one address there), the preview
+says "It can reach 192.168.1.20 on the club's own network", and once the owner says yes `openpadel plugin service
+court-lights --apply` lets the service through to that one IP and nothing else there. Changing the address later is
+a `plugin configure` the owner says yes to, then the service written again. A public https address (Home Assistant
+Cloud's `https://....ui.nabu.casa`, or the club's own) needs none of this.
 
 ### Anywhere else (remote)
 
