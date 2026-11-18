@@ -17,7 +17,18 @@ type View = { summary: Record<ConnectorStatus, number>; built_ins: BuiltIn[]; pl
 /** Opens Ask openPadel over the page (App.tsx listens). */
 const openAsk = () => dispatchEvent(new Event("kumi:ask"));
 
+/** Back from connecting a plugin (the club's /plugins/<name>/callback sends the browser here with ?plugin=&connected=):
+ *  which plugin and whether it worked, read once and taken out of the address so a reload doesn't say it again. */
+function backFromConnect(): { plugin: string; ok: boolean } | null {
+  const q = new URLSearchParams(location.search), plugin = q.get("plugin"), connected = q.get("connected");
+  if (!plugin || !/^[a-z][a-z0-9-]{1,38}[a-z0-9]$/.test(plugin) || (connected !== "0" && connected !== "1")) return null;
+  q.delete("plugin"); q.delete("connected");
+  history.replaceState(history.state, "", `${location.pathname}${q.toString() ? `?${q}` : ""}${location.hash}`);
+  return { plugin, ok: connected === "1" };
+}
+
 export function Connectors() {
+  const [back, setBack] = useState(backFromConnect);
   const [v, setV] = useState<View | null>(null), [failed, setFailed] = useState(false), [asking, setAsking] = useState(false), [browsing, setBrowsing] = useState(false);
   const load = (fresh = false) => api<View>(`/staff/connectors${fresh ? "?fresh=1" : ""}`).then((x) => { setV(x); setFailed(false); }).catch(() => setFailed(true));
   const { preview, sheet } = usePreview(() => { void load(); });
@@ -29,6 +40,9 @@ export function Connectors() {
     <main class="wide">
       <h1>{t("ui.connectors_title")}</h1>
       <p class="meta">{t("ui.connectors_intro")}</p>
+      {back && <p class={`note banner${back.ok ? "" : " error"}`} role="status">
+        {t(back.ok ? "ui.connectors_connected" : "ui.connectors_not_connected", { plugin: back.plugin })}{" "}
+        <button class="small" onClick={() => setBack(null)}>{t("ui.close")}</button></p>}
       {failed && <p class="error" role="alert">{t("ui.connectors_failed")}</p>}
       {!v && !failed && <p>{t("ui.loading")}</p>}
       {v && <>

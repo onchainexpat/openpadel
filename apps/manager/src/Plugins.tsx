@@ -28,10 +28,17 @@ export const STATUS_WORDS: Record<ConnectorStatus, "ui.connector_on" | "ui.conne
 /** The two letters on a connector's card. */
 export const mono = (name: string) => name.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).replace(/^./, (c) => c.toUpperCase());
 
+type Key = Plugin["keys"][number];
+/** A key in words, by what it is: added (its last four), kept by the plugin, not needed now, or still needed. */
+const keyLine = (k: Key) => k.added ? t(k.kept_by_plugin ? "ui.plugin_key_kept" : "ui.plugin_key_added", { name: k.label, last4: k.last4 ?? "" })
+  : k.kept_by_plugin ? t("ui.plugin_key_not_kept_yet", { name: k.label }) : (k.optional ? t("ui.plugin_key_optional", { name: k.label }) : t("ui.plugin_key_needed", { name: k.label }));
+
 /** One installed plugin, as the same kind of card as the built-in services. */
 export function PluginConnector({ p, send }: { p: Plugin; send: Send }) {
   const [setting, setSetting] = useState(false);
-  const needed = p.keys.filter((k) => k.needed ?? !k.added);
+  // Only the keys the owner has to add now are said outright, by what they are; the rest (added, kept by the plugin,
+  // or not needed with these settings) wait behind one short line.
+  const needed = p.keys.filter((k) => k.needed ?? !k.added), others = p.keys.filter((k) => !needed.includes(k));
   const health = [p.health?.state === "ok" ? t("ui.plugin_healthy", { ms: p.health.ms ?? 0 }) : p.health?.state === "down" ? t("ui.plugin_health_down", { error: p.health.problem ?? "" }) : null,
     p.last_event_at ? t("ui.plugin_last_event", { when: ago(p.last_event_at) }) : t("ui.plugin_no_event"),
     p.last_used_at ? t("ui.agents_last_used", { when: ago(p.last_used_at) }) : null].filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase());
@@ -47,9 +54,10 @@ export function PluginConnector({ p, send }: { p: Plugin; send: Send }) {
       <p>{p.description}</p>
       <p class="meta">{health}</p>
       {p.status === "waiting" && p.registration_problem && <p class="meta">{t("ui.plugin_registration_error", { error: p.registration_problem })}</p>}
-      {p.keys.length > 0 && <p class="meta">{t("ui.plugin_keys")}: {p.keys.map((k) => k.added ? t(k.kept_by_plugin ? "ui.plugin_key_kept" : "ui.plugin_key_added", { name: k.name, last4: k.last4 ?? "" })
-        : k.kept_by_plugin ? t("ui.plugin_key_not_kept_yet", { name: k.name }) : k.optional ? t("ui.plugin_key_optional", { name: k.name }) : t("ui.plugin_key_needed", { name: k.name })).join(" · ")}</p>}
+      {needed.length > 0 && <p class="meta">{t("ui.plugin_keys_needed", { list: needed.map((k) => k.label).join(", ") })}</p>}
       {needed.length > 0 && <p class="meta">{owner ? <a href="/vault">{t("ui.plugin_add_keys")}</a> : t("ui.plugin_keys_owner")}</p>}
+      {others.length > 0 && <details><summary>{t(needed.length ? "count.plugin_keys_more" : "count.plugin_keys", { count: others.length })}</summary>
+        <ul class="plain">{p.keys.map((k) => <li class="meta">{keyLine(k)}</li>)}</ul></details>}
       <PluginCards cards={p.cards} bare />
       <details><summary>{t("ui.plugin_what")}</summary>
         <p class="meta">{t("plan.plugin.row_able")}: {p.can}. {t("plan.plugin.row_reads")}: {p.reads}.{p.events.length ? ` ${t("plan.plugin.row_events")}: ${p.events.join(", ")}.` : ""}</p>

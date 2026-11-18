@@ -58,7 +58,8 @@ export function Vault() {
           <li class="row"><span><strong>{x.name}</strong>{" "}<span class="meta">{x.last4 ? t("ui.vault_ending", { last4: x.last4 }) : t("ui.vault_short")}</span>
             {x.note && <><br /><span class="meta">{x.note}</span></>}<br />
             <span class="meta">{x.kept_by_plugin ? t("ui.vault_kept_by_plugin", { plugin: x.kept_by_plugin, when: day(x.updated_at) }) : t("ui.vault_kept", { when: day(x.updated_at), who: x.by ?? "" })}</span></span>
-            <span><ReplaceSecret key={`${x.id}:${n}`} onSend={(value) => send({ kind: "secret", value }, "vault.replace", { item_id: x.id })} />{" "}
+            {/* A key a plugin keeps changes each time it's used: only the plugin writes it, so it can only be taken out. */}
+            <span>{!x.kept_by_plugin && <><ReplaceSecret key={`${x.id}:${n}`} onSend={(value) => send({ kind: "secret", value }, "vault.replace", { item_id: x.id })} />{" "}</>}
               <button class="small" onClick={() => preview("vault.remove", { item_id: x.id })}>{t("ui.vault_remove")}</button></span></li>))}</ul>}
         <AddSecret key={`s${n}`} max={d.limits.secret_chars} onSend={(name, value, note) => send({ kind: "secret", value }, "vault.add", { name, ...(note ? { note } : {}) })} />
       </section>
