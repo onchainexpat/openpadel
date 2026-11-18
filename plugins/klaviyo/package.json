@@ -4,7 +4,7 @@
   "private": true,
   "description": "openPadel's Klaviyo plugin: the members who said yes to club news by email, kept as a Klaviyo list.",
   "type": "module",
-  "license": "AGPL-3.0-only",
+  "license": "MIT",
   "engines": {
     "node": ">=24"
   },

@@ -10,7 +10,7 @@
   "engines": {
     "node": ">=24"
   },
-  "license": "AGPL-3.0-only",
+  "license": "MIT",
   "scripts": {
     "gen:gone": "node tools/gen_gone.ts",
     "test:sweep": "node tools/sweep_test_dbs.ts",

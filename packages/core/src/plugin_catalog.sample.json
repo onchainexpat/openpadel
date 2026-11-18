@@ -12,7 +12,7 @@
         "publisher": "openPadel examples",
         "version": "0.1.0",
         "homepage": "https://github.com/openpadel/plugin-court-lights",
-        "licence": "AGPL-3.0-only",
+        "licence": "MIT",
         "description": {
           "en": "Turns a court's lights on in Home Assistant a few minutes before each booking and off after it ends.",
           "es": "Enciende las luces de una cancha en Home Assistant unos minutos antes de cada reserva y las apaga cuando termina."
@@ -138,7 +138,7 @@
         "publisher": "openPadel examples",
         "version": "0.1.0",
         "homepage": "https://github.com/openpadel/plugin-accounting-export",
-        "licence": "AGPL-3.0-only",
+        "licence": "MIT",
         "description": {
           "en": "Sends each club day's takings, refunds, tax, card fees and payouts to the club's Xero or QuickBooks as one journal, early the next morning.",
           "es": "Envía a Xero o QuickBooks del club un asiento por cada día del club con lo cobrado, las devoluciones, los impuestos, las comisiones de tarjeta y los depósitos, temprano a la mañana siguiente."
@@ -526,7 +526,7 @@
         "publisher": "openPadel examples",
         "version": "0.1.0",
         "homepage": "https://github.com/openpadel/plugin-whatsapp",
-        "licence": "AGPL-3.0-only",
+        "licence": "MIT",
         "description": {
           "en": "Sends the club's messages by WhatsApp to members who said yes in the app, through the club's own WhatsApp Business account, and passes their replies to the front desk.",
           "es": "Envía los mensajes del club por WhatsApp a los miembros que dijeron que sí en la app, con la propia cuenta de WhatsApp Business del club, y pasa sus respuestas a la recepción."
@@ -687,7 +687,7 @@
         "publisher": "openPadel examples",
         "version": "0.1.0",
         "homepage": "https://github.com/openpadel/plugin-court-camera",
-        "licence": "AGPL-3.0-only",
+        "licence": "MIT",
         "description": {
           "en": "Shows the club's court cameras' highlights and game stats on each game's page, for its players and staff. A camera system posts when a clip is ready, and the plugin finds the booking on that court at that time.",
           "es": "Muestra las jugadas destacadas y las estadísticas de las cámaras de las canchas en la página de cada partido, para sus jugadores y el personal. El sistema de cámaras avisa cuando un video está listo, y el plugin encuentra la reserva de esa cancha a esa hora."
@@ -823,7 +823,7 @@
         "publisher": "openPadel examples",
         "version": "0.1.0",
         "homepage": "https://github.com/openpadel/plugin-klaviyo",
-        "licence": "AGPL-3.0-only",
+        "licence": "MIT",
         "description": {
           "en": "Keeps a Klaviyo list of the members who said yes to club news by email: on it when they say yes, off it as soon as they say no or their account is deleted, and checked against the club every day.",
           "es": "Mantiene una lista en Klaviyo con los miembros que dijeron que sí a las novedades del club por correo: entran cuando dicen que sí, salen en cuanto dicen que no o se elimina su cuenta, y se revisa contra el club cada día."

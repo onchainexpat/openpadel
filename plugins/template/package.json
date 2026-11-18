@@ -4,7 +4,7 @@
   "private": true,
   "description": "The smallest working openPadel plugin, to copy: bookings today on the Connectors page.",
   "type": "module",
-  "license": "AGPL-3.0-only",
+  "license": "MIT",
   "engines": {
     "node": ">=24"
   },

@@ -5,7 +5,7 @@
   "publisher": "openPadel examples",
   "version": "0.1.0",
   "homepage": "https://github.com/openpadel/plugin-klaviyo",
-  "licence": "AGPL-3.0-only",
+  "licence": "MIT",
   "description": {
     "en": "Keeps a Klaviyo list of the members who said yes to club news by email: on it when they say yes, off it as soon as they say no or their account is deleted, and checked against the club every day.",
     "es": "Mantiene una lista en Klaviyo con los miembros que dijeron que sí a las novedades del club por correo: entran cuando dicen que sí, salen en cuanto dicen que no o se elimina su cuenta, y se revisa contra el club cada día."

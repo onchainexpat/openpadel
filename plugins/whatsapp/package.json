@@ -4,7 +4,7 @@
   "private": true,
   "description": "openPadel's WhatsApp plugin: the club's messages by WhatsApp (Meta's WhatsApp Cloud API) to members who said yes, and their replies to the front desk.",
   "type": "module",
-  "license": "AGPL-3.0-only",
+  "license": "MIT",
   "engines": {
     "node": ">=24"
   },

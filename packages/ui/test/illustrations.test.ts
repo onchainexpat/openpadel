@@ -24,7 +24,7 @@ test("every drawing named has its file, its size on the page and its mask, and e
     assert.ok(f === "offline.webp" || names.includes(f.replace(".webp", "")), `${f}: used`);
   }
   assert.match(read(`${dir}/README.md`), /original/i, "the README says where they come from");
-  assert.match(read(`${dir}/README.md`), /AGPL-3\.0-only/, "and their licence");
+  assert.match(read(`${dir}/README.md`), /MIT/, "and their licence");
 });
 
 test("drawings are decorative: hidden from screen readers, no motion when less is asked for", () => {

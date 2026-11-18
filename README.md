@@ -1,6 +1,6 @@
 # openPadel
 
-Free and open source padel software (AGPL-3.0) that runs a club: bookings, payments, memberships,
+Free and open source padel software (MIT licence) that runs a club: bookings, payments, memberships,
 open matches, clinics and fair levels, with the club's own app in its name and colour and a staff app that
 works on a phone. Members can ask the club questions in the app, and members and staff can connect
 their own AI assistant (Claude, ChatGPT), or work from a terminal with the `openpadel` command. A club runs it
@@ -218,4 +218,4 @@ for what each release changes.
 
 ## Licence
 
-AGPL-3.0. See `LICENSE`.
+MIT. See `LICENSE`.

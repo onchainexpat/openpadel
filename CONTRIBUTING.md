@@ -50,4 +50,4 @@ sent is the result that matters; a missed one is better than a wrong one.
   would notice the change.
 
 ## The licence
-openPadel is AGPL-3.0. By contributing, you agree your contribution is under the same licence.
+openPadel is under the MIT licence. By contributing, you agree your contribution is under the same licence.

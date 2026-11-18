@@ -5,7 +5,7 @@
   "publisher": "openPadel examples",
   "version": "0.1.0",
   "homepage": "https://github.com/openpadel/plugin-accounting-export",
-  "licence": "AGPL-3.0-only",
+  "licence": "MIT",
   "description": {
     "en": "Sends each club day's takings, refunds, tax, card fees and payouts to the club's Xero or QuickBooks as one journal, early the next morning.",
     "es": "Envía a Xero o QuickBooks del club un asiento por cada día del club con lo cobrado, las devoluciones, los impuestos, las comisiones de tarjeta y los depósitos, temprano a la mañana siguiente."

@@ -18,7 +18,7 @@ offer to sell, import and otherwise transfer your contributions, alone or combin
 them. If someone brings a patent claim saying openPadel or a contribution infringes a patent, the patent licences
 they received under this agreement end on the date the claim is filed.
 
-**4. What stays open.** Whatever is released under the GNU AGPL stays available under it. Your own rights to use your
+**4. What stays open.** Whatever is released under an open source licence (MIT since 18 November 2026, the GNU AGPL before) stays available under it. Your own rights to use your
 contribution elsewhere are unchanged.
 
 **5. What you promise.** Each contribution is your own original work, or you have the right to submit it and you say

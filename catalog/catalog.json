@@ -13,7 +13,7 @@
         "publisher": "openPadel examples",
         "version": "0.1.0",
         "homepage": "https://github.com/openpadel/plugin-accounting-export",
-        "licence": "AGPL-3.0-only",
+        "licence": "MIT",
         "description": {
           "en": "Sends each club day's takings, refunds, tax, card fees and payouts to the club's Xero or QuickBooks as one journal, early the next morning.",
           "es": "Envía a Xero o QuickBooks del club un asiento por cada día del club con lo cobrado, las devoluciones, los impuestos, las comisiones de tarjeta y los depósitos, temprano a la mañana siguiente."
@@ -395,7 +395,7 @@
       },
       "release": {
         "url": "https://github.com/openpadel/plugin-accounting-export/releases/download/v0.1.0/accounting-export-0.1.0.tar.gz",
-        "sha256": "ba1e05f4e6c50ed8634919729d40bce6dfc302e097d06f56a7f63c926c38b620"
+        "sha256": "500ac3ef3b1a0cf76e713daff109762300335528b9673683c26274537d62e28f"
       },
       "reviewed": {
         "by": "openPadel",
@@ -410,7 +410,7 @@
         "publisher": "openPadel examples",
         "version": "0.1.0",
         "homepage": "https://github.com/openpadel/plugin-court-camera",
-        "licence": "AGPL-3.0-only",
+        "licence": "MIT",
         "description": {
           "en": "Shows the club's court cameras' highlights and game stats on each game's page, for its players and staff. A camera system posts when a clip is ready, and the plugin finds the booking on that court at that time.",
           "es": "Muestra las jugadas destacadas y las estadísticas de las cámaras de las canchas en la página de cada partido, para sus jugadores y el personal. El sistema de cámaras avisa cuando un video está listo, y el plugin encuentra la reserva de esa cancha a esa hora."
@@ -540,7 +540,7 @@
       },
       "release": {
         "url": "https://github.com/openpadel/plugin-court-camera/releases/download/v0.1.0/court-camera-0.1.0.tar.gz",
-        "sha256": "6321578fde1cd2c3d53a687546c2ee202323d04bb1f756254d5f5d446ca7484a"
+        "sha256": "1a8ddb5897ba5e303a2d862ec81d43ec7bcab16ef103bb2a5f4a3a6df1a52c23"
       },
       "reviewed": {
         "by": "openPadel",
@@ -555,7 +555,7 @@
         "publisher": "openPadel examples",
         "version": "0.1.0",
         "homepage": "https://github.com/openpadel/plugin-court-lights",
-        "licence": "AGPL-3.0-only",
+        "licence": "MIT",
         "description": {
           "en": "Turns a court's lights on in Home Assistant a few minutes before each booking and off after it ends.",
           "es": "Enciende las luces de una cancha en Home Assistant unos minutos antes de cada reserva y las apaga cuando termina."
@@ -675,7 +675,7 @@
       },
       "release": {
         "url": "https://github.com/openpadel/plugin-court-lights/releases/download/v0.1.0/court-lights-0.1.0.tar.gz",
-        "sha256": "e8b6d45b45ed3d3419b3d635f9b2f54b4df4f0b35166c0ecfa09971608604e82"
+        "sha256": "ee71277fd8f81c4822ac95c68f30c42d121f9f6d0ea75cfa21b2d5fe03fca463"
       },
       "reviewed": {
         "by": "openPadel",
@@ -690,7 +690,7 @@
         "publisher": "openPadel examples",
         "version": "0.1.0",
         "homepage": "https://github.com/openpadel/plugin-klaviyo",
-        "licence": "AGPL-3.0-only",
+        "licence": "MIT",
         "description": {
           "en": "Keeps a Klaviyo list of the members who said yes to club news by email: on it when they say yes, off it as soon as they say no or their account is deleted, and checked against the club every day.",
           "es": "Mantiene una lista en Klaviyo con los miembros que dijeron que sí a las novedades del club por correo: entran cuando dicen que sí, salen en cuanto dicen que no o se elimina su cuenta, y se revisa contra el club cada día."
@@ -760,7 +760,7 @@
       },
       "release": {
         "url": "https://github.com/openpadel/plugin-klaviyo/releases/download/v0.1.0/klaviyo-0.1.0.tar.gz",
-        "sha256": "4efe395f2a657e87e7d72351d8028737d53f2d97f9eec3042d0a2dedf0d15259"
+        "sha256": "895e789c5a0cfdeda62b2d418a50e07f19c1c33e171f28faa5e45202e5c18f63"
       },
       "reviewed": {
         "by": "openPadel",
@@ -775,7 +775,7 @@
         "publisher": "openPadel examples",
         "version": "0.1.0",
         "homepage": "https://github.com/openpadel/plugin-whatsapp",
-        "licence": "AGPL-3.0-only",
+        "licence": "MIT",
         "description": {
           "en": "Sends the club's messages by WhatsApp to members who said yes in the app, through the club's own WhatsApp Business account, and passes their replies to the front desk.",
           "es": "Envía los mensajes del club por WhatsApp a los miembros que dijeron que sí en la app, con la propia cuenta de WhatsApp Business del club, y pasa sus respuestas a la recepción."
@@ -930,7 +930,7 @@
       },
       "release": {
         "url": "https://github.com/openpadel/plugin-whatsapp/releases/download/v0.1.0/whatsapp-0.1.0.tar.gz",
-        "sha256": "e7b996f462fcc3dcc3914a078b46acbea192ad4b9548b907527e71cfd8aa7167"
+        "sha256": "dd515f54819fd8ce44399df19e318b6f1dbdee3f26f5bc0b7fe97aae1942f325"
       },
       "reviewed": {
         "by": "openPadel",

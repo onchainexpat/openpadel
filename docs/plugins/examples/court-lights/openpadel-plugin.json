@@ -5,7 +5,7 @@
   "publisher": "openPadel examples",
   "version": "0.1.0",
   "homepage": "https://github.com/openpadel/plugin-court-lights",
-  "licence": "AGPL-3.0-only",
+  "licence": "MIT",
   "description": {
     "en": "Turns a court's lights on in Home Assistant a few minutes before each booking and off after it ends.",
     "es": "Enciende las luces de una cancha en Home Assistant unos minutos antes de cada reserva y las apaga cuando termina."

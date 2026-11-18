@@ -2,7 +2,7 @@
 
 Original line drawings made for openPadel, from openPadel's own prompts. They show no real club, place or person,
 and contain no third-party artwork. They are part of openPadel and under the same licence as the rest of this
-repository (AGPL-3.0-only, see `LICENSE` at the top).
+repository (MIT, see `LICENSE` at the top).
 
 Each file is an alpha mask: the drawing is the transparency, the colour is ignored. The apps paint them through
 CSS `mask-image` in the club's colour (or the text colour), so one file suits every club, both themes and dark mode

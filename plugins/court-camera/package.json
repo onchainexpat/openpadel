@@ -4,7 +4,7 @@
   "private": true,
   "description": "openPadel's court camera plugin: a camera system's highlights and game stats on the game's page, for its players.",
   "type": "module",
-  "license": "AGPL-3.0-only",
+  "license": "MIT",
   "engines": {
     "node": ">=24"
   },

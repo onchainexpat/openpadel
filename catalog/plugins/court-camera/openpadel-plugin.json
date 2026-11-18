@@ -5,7 +5,7 @@
   "publisher": "openPadel examples",
   "version": "0.1.0",
   "homepage": "https://github.com/openpadel/plugin-court-camera",
-  "licence": "AGPL-3.0-only",
+  "licence": "MIT",
   "description": {
     "en": "Shows the club's court cameras' highlights and game stats on each game's page, for its players and staff. A camera system posts when a clip is ready, and the plugin finds the booking on that court at that time.",
     "es": "Muestra las jugadas destacadas y las estadísticas de las cámaras de las canchas en la página de cada partido, para sus jugadores y el personal. El sistema de cámaras avisa cuando un video está listo, y el plugin encuentra la reserva de esa cancha a esa hora."

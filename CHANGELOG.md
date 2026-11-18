@@ -9,6 +9,8 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+openPadel is now under the MIT licence (it was AGPL-3.0): anyone may use, change and share it, hosted or not, with the copyright notice. Releases made before 18 November 2026 stay available under the AGPL too. The example plugins, the template and the catalog's manifests say MIT, and their releases are pinned again.
+
 Ask openPadel, the hosted assistant, for clubs without an agent of their own. Staff press Ctrl+K (⌘K on a Mac), or the
 button above the menu, on any staff page and ask; members get the club assistant at the top of the Ask tab. It answers
 from what the person could read in the app, and a change comes back as the usual preview ("Ask for a yes" when it needs

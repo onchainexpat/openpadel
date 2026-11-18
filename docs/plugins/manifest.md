@@ -17,7 +17,7 @@ Words in both languages are written `{ "en": "…", "es": "…" }` (US and Latin
 | `publisher` | Who makes it, as the club will read it. |
 | `version` | `1.2.3`, or `1.2.3-beta.1`. A new version is installed with `plugin update`. |
 | `homepage` | Its page (http or https). |
-| `licence` | Its licence, as an SPDX name (`AGPL-3.0-only`, `MIT`). |
+| `licence` | Its licence, as an SPDX name (`MIT`, `AGPL-3.0-only`). |
 | `description` | What it does, in both languages (up to 500 characters each). |
 | `grants` | Its role: the club's actions it may plan, each `{ "action": "court.block", "mode": "allow" \| "ask", "scope": "any" \| "own" }` (scope defaults to `any`). `ask` waits in the club's Approvals for a person. Only actions a club's own role may hold (what a manager does without asking), never one that makes or changes agents, plugins, webhooks, roles, the vault, assistants, support access or the club's settings, and never one only done in the app. Up to 100. |
 | `reads` | The parts of the club it reads beyond what its actions cover: `bookings`, `courts`, `programs`, `members`, `memberships`, `money`, `messages`, `levels`, `coaches`, `settings`; and `club_news`, the club news list: only the members who said yes to club news by email, with their email, first name and language ([README](README.md#acting-at-the-club)). |

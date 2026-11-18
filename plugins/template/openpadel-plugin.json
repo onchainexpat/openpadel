@@ -5,7 +5,7 @@
   "publisher": "Your name or company",
   "version": "0.1.0",
   "homepage": "https://github.com/your-name/openpadel-bookings-today",
-  "licence": "AGPL-3.0-only",
+  "licence": "MIT",
   "description": {
     "en": "Shows on the Connectors page how many bookings each location has today, kept up to date as bookings are made and cancelled.",
     "es": "Muestra en la página de Conectores cuántas reservas tiene hoy cada sede, al día a medida que se hacen y cancelan reservas."

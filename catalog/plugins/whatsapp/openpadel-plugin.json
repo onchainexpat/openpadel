@@ -5,7 +5,7 @@
   "publisher": "openPadel examples",
   "version": "0.1.0",
   "homepage": "https://github.com/openpadel/plugin-whatsapp",
-  "licence": "AGPL-3.0-only",
+  "licence": "MIT",
   "description": {
     "en": "Sends the club's messages by WhatsApp to members who said yes in the app, through the club's own WhatsApp Business account, and passes their replies to the front desk.",
     "es": "Envía los mensajes del club por WhatsApp a los miembros que dijeron que sí en la app, con la propia cuenta de WhatsApp Business del club, y pasa sus respuestas a la recepción."
