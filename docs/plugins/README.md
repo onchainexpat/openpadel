@@ -11,7 +11,9 @@ example: [examples/court-lights/openpadel-plugin.json](examples/court-lights/ope
 The first real one, court lights for Home Assistant, is [plugins/court-lights](../../plugins/court-lights/README.md): a
 small Node program to read beside this page when writing one. The second, [plugins/accounting-export](../../plugins/accounting-export/README.md),
 sends the club's books to Xero or QuickBooks: it connects by OAuth through the club's own address and keeps its refresh
-token in the club's vault.
+token in the club's vault. [plugins/court-camera](../../plugins/court-camera/README.md) shows a court camera system's
+highlights and game stats on each game's page: the one to read for what an outside service posts to `/plugins/<name>/hook`,
+and for a game's card.
 
 ## For a club: installing one
 

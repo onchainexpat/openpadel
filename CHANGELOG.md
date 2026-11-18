@@ -249,6 +249,20 @@ plugin connected after coming back from its sign-in, a plugin's card lists only 
 vault offers only "Take out" for a key a plugin keeps. A local plugin's service now has its own state directory. See docs/plugins/README.md and
 docs/plugins/manifest.md (migration 131).
 
+Court cameras (plugins/court-camera), a generic plugin a camera vendor fills in: when the club's court cameras have a
+highlight or a game's stats ready, they show on that game's page in the members' app for its players, and on the
+booking in the staff Schedule, as a card with the number of clips and their length, up to five stats ("Rallies: 54",
+"Fastest shot: 112 km/h") and a link to watch. The camera system posts to the club's own `/plugins/court-camera/hook`;
+the plugin checks both the club's signature and the vendor's (`CAMERA_WEBHOOK_SECRET` from the vault), reads which court
+the camera films from its settings (`Court 1 = cam-01`), and finds the booking on that court at that time through the
+door, allowing a few minutes either side. A clip for a court nobody had booked is dropped, a clip that comes the next
+day still finds its game, and notices that come while the club's door is down wait for the next read. With
+`tell_cameras` on, it also tells the camera system each booking's camera, start and end (and an id made with its own
+secret), and takes back cancelled ones, retrying with growing waits while the vendor is down: no names, emails or phone
+numbers. A camera system that can post signed JSON works with it as it is (the generic HTTP adapter); one with its own
+API gets a one-file adapter. The video stays the vendor's; the README says what the club tells members and that
+recording signs are the club's. See plugins/court-camera/README.md.
+
 ### Added
 - Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed
   scores, levels to review, members' questions for staff, sessions whose coach is off this week, card charges that
