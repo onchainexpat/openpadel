@@ -1,4 +1,6 @@
 { "extends": "./tsconfig.base.json", "compilerOptions": { "types": ["node"] },
   "include": ["packages/core/src", "packages/core/test", "packages/i18n/src", "packages/i18n/test", "apps/server/src", "apps/server/test",
     "plugins/court-lights/src", "plugins/court-lights/test", "plugins/court-lights/tools",
-    "plugins/accounting-export/src", "plugins/accounting-export/test", "plugins/accounting-export/tools"] }
+    "plugins/accounting-export/src", "plugins/accounting-export/test", "plugins/accounting-export/tools",
+    "plugins/klaviyo/src", "plugins/klaviyo/test", "plugins/klaviyo/tools",
+    "plugins/template/src", "plugins/template/test", "plugins/template/tools", "catalog/tools"] }
