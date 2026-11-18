@@ -71,7 +71,7 @@ test("before the club exists the jobs don't run, fail or say anything; the first
       assert.deepEqual(r.failed, []); assert.equal(r.waiting, true);
     }
     assert.equal(ran, 0, "nothing ran without a club");
-    assert.deepEqual(logged, [], "nothing in the log every 30 seconds");
+    assert.equal(logged.length, 0, "nothing in the log every 30 seconds");
     assert.equal((await heartbeat(empty, "jobs"))?.last_error ?? null, null);
 
     await runAsSystem(empty, "club.setup", { name: "Kestrel Padel", time_zone: "America/Los_Angeles", owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
