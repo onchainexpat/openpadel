@@ -22,13 +22,14 @@ Words in both languages are written `{ "en": "…", "es": "…" }` (US and Latin
 | `grants` | Its role: the club's actions it may plan, each `{ "action": "court.block", "mode": "allow" \| "ask", "scope": "any" \| "own" }` (scope defaults to `any`). `ask` waits in the club's Approvals for a person. Only actions a club's own role may hold (what a manager does without asking), never one that makes or changes agents, plugins, webhooks, roles, the vault, assistants, support access or the club's settings, and never one only done in the app. Up to 100. |
 | `reads` | The parts of the club it reads beyond what its actions cover: `bookings`, `courts`, `programs`, `members`, `memberships`, `money`, `messages`, `levels`, `coaches`, `settings`. |
 | `events` | The events it's sent (the club's webhook events, [docs/agents/webhooks.md](../agents/webhooks.md)). Each must be in a part of the club it reads. |
-| `secrets` | The keys it needs from the club's vault, each `{ "name": "HA_TOKEN", "label": {…}, "where": {…} }`: a name in capitals, what it is, and where the owner gets it. Up to 20. |
+| `secrets` | The keys it needs from the club's vault, each `{ "name": "HA_TOKEN", "label": {…}, "where": {…} }`: a name in capitals, what it is, and where the owner gets it. Up to 20. Two optional marks ([below](#keys-the-owner-adds-and-keys-the-plugin-keeps)): `"optional": true`, not asked for at install, and `"kept_by_plugin": true`, the plugin's own to write. |
 | `settings` | Its options, in the order a person sets them (below). Up to 20. |
 | `data_out` | What member data it sends where, in plain words. It goes into the club's list of services that see member data and its privacy policy's, as it's installed. Say so when it sends nothing about members. |
 | `cost` | `{ "charges": true \| false, "note": {…} }`: whether its service charges, and roughly what. |
 | `cards` | Where it shows something in the apps (rendered by the apps themselves, from data): each `{ "slot": "game" \| "court_tile" \| "member_profile" \| "money" \| "connectors", "title": {…} }`. Up to 10. What each card says, the plugin puts at run time ([README, Cards](README.md#cards)). |
 | `health` | A path on its own address that answers 2xx when it's working (`/health`), for `openpadel doctor` and the club's list. |
 | `hook` | Optional: `{ "from": {…} }`, who posts to `/plugins/<name>/hook` (a camera, Home Assistant). Without it, nothing is passed on. |
+| `callback` | Optional: `{ "for": {…} }`, who sends a browser back to `/plugins/<name>/callback` (an OAuth sign-in's redirect, such as Xero's). Without it, that address is a 404. [Below](#a-browsers-way-back-callback). |
 | `run` | How it runs, below. |
 
 ## `settings`
@@ -60,6 +61,28 @@ refused, with the reason, when it's this server itself (the loopback or one of i
 address (`0.0.0.0`, multicast), a name this server can't find, or a name that answers at more than one address. A
 public address needs nothing, and a remote plugin isn't affected: this is only about the local sandbox.
 
+## Keys the owner adds, and keys the plugin keeps
+
+Each key in `secrets` is the owner's to add unless it says otherwise:
+
+- `"optional": true`: not asked for when the plugin is installed (no vault request, no doctor warning), because only some
+  setups need it: a QuickBooks key for a club on Xero. The plugin says on its card when it needs it.
+- `"kept_by_plugin": true`: the plugin writes it itself, through the door (`plugin_secret_keep_preview`, then
+  `plugin_secret_keep_confirm`, [README](README.md#keys-it-keeps)): a key it's handed and that changes as it's used, such
+  as an OAuth refresh token. The owner is never asked for it, the install preview lists it under "It keeps itself", and
+  the vault shows it as "kept by <plugin>, ends in 4F2A". It can't also be `optional`.
+
+## A browser's way back (`callback`)
+
+A local plugin takes no traffic from outside the club's server, and a remote one may not want to host its own sign-in
+page. With `callback`, the owner's browser can come back from an OAuth sign-in to the club's own address,
+`https://<club>/plugins/<name>/callback?code=…&state=…` (the redirect address to register with the outside service). The
+club passes on only that address's query, as JSON (`{"query": {...}}`, at most 2,000 characters, 20 names), in a POST to
+`<url>/callback`, signed with `hooks.secret` like a hook (`openpadel-signature`, `openpadel-event: plugin.callback`), with
+no cookies or other headers. It answers `{"ok": true}` when it worked. The browser is then sent to the club's own
+Connectors page (`/connectors?plugin=<name>&connected=1`, or `0`): nothing the plugin answers is shown at the club's
+address. Only a GET, only to that path, only while the plugin is on, at most 30 a minute.
+
 ## `run`
 
 **Remote**: it runs at its publisher's address.
@@ -90,3 +113,9 @@ listens on 127.0.0.1 there), `OPENPADEL_URL`, `OPENPADEL_MCP`, `OPENPADEL_TOKEN`
 court's lights on before each booking. It changes nothing at the club, reads bookings and courts, is told when bookings
 are made, moved or cancelled and courts blocked or freed, needs one key, and has five settings. The plugin itself is
 [plugins/court-lights](../../plugins/court-lights/README.md).
+
+[examples/accounting-export/openpadel-plugin.json](examples/accounting-export/openpadel-plugin.json): each club day's
+takings, refunds, tax, card fees and payouts sent to the club's Xero or QuickBooks as one journal. It changes nothing at
+the club and reads money; its Xero and QuickBooks app keys are `optional` (a club uses one of the two), its refresh
+tokens are `kept_by_plugin`, it takes the browser back from Xero's or Intuit's sign-in with `callback`, and it shows a
+card on Connectors and on Money. The plugin itself is [plugins/accounting-export](../../plugins/accounting-export/README.md).

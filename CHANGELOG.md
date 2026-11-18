@@ -221,6 +221,28 @@ the club's own network (Home Assistant address), and nothing else there", the ow
 "every address", multicast and a name with several addresses are refused in words; a public address and a remote plugin
 need nothing. See docs/plugins/manifest.md (migration 130).
 
+Accounting export, the second plugin (plugins/accounting-export): early each morning, each club day's takings by kind
+(courts, lessons, programs, memberships, anything else), refunds, sales tax, card fees, payouts, club credit, gift
+cards and passes go to the club's own Xero or QuickBooks Online as one manual journal, balanced to the cent, on the
+accounts its settings name (anything without an account goes to a suspense account, and its card says so). The owner
+connects Xero or QuickBooks from its card on Connectors with the club's own app keys from the vault; the agent that
+installs it never sees them. A day is never sent twice: the accounting system is asked for the day's reference before
+each send, and each send carries an idempotency key, so a restart or a crash mid-send changes nothing. A refund is in
+the journal of the day it was made; a change dated back to a day already sent becomes one adjusting journal naming the
+day it corrects. Amounts and kinds only leave the club. Its cards on Connectors and Money say when it last sent, when it
+sends next and anything wrong, and its health says the same. See plugins/accounting-export/README.md.
+
+For plugins like it: a plugin may keep a key of its own in the vault (an OAuth refresh token that changes each time
+it's used) when its manifest marks it `kept_by_plugin`. Only its own token can, through `plugin_secret_keep`; the value
+is sealed and never in the change log, the vault shows it as "Kept by the plugin <name>", it stays out of Today and
+Changes like card updates, and `plugin remove --delete-keys` removes it. A key marked `optional` isn't asked of the owner
+at install. A manifest's `callback` lets a browser come back from an OAuth sign-in to the club's own address
+(`/plugins/<name>/callback`): the club passes only the query on to that plugin, signed, and sends the browser to its own
+Connectors page. A new staff read, `openpadel money books` (`money_books` at the door), gives the club's books for each
+club day by kind of account, balanced, with no names: what the export sends, for the club's money people and a plugin
+whose role reads money. A local plugin's service now has its own state directory. See docs/plugins/README.md and
+docs/plugins/manifest.md (migration 131).
+
 ### Added
 - Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed
   scores, levels to review, members' questions for staff, sessions whose coach is off this week, card charges that

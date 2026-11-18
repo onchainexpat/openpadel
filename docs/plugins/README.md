@@ -9,7 +9,9 @@ written in any language.
 Each plugin is declared by a manifest, [`openpadel-plugin.json`](manifest.md), that says exactly what it asks for. An
 example: [examples/court-lights/openpadel-plugin.json](examples/court-lights/openpadel-plugin.json).
 The first real one, court lights for Home Assistant, is [plugins/court-lights](../../plugins/court-lights/README.md): a
-small Node program to read beside this page when writing one.
+small Node program to read beside this page when writing one. The second, [plugins/accounting-export](../../plugins/accounting-export/README.md),
+sends the club's books to Xero or QuickBooks: it connects by OAuth through the club's own address and keeps its refresh
+token in the club's vault.
 
 ## For a club: installing one
 
@@ -96,6 +98,7 @@ A remote plugin has an address (`run.url` in its manifest, say `https://lights.e
 | `<url>/register` | Once, on install (and again with a new token if your address changes): your token and secrets. |
 | `<url>/events` | The events your manifest names, and `plugin.configured` when the club changes your settings. |
 | `<url>/hook` | What an outside service posted to the club at `/plugins/<name>/hook`, passed on as it came. |
+| `<url>/callback` | With the manifest's `callback`: the query of a browser that came back to `/plugins/<name>/callback` (an OAuth sign-in), as `{"query": {...}}` ([manifest.md](manifest.md#a-browsers-way-back-callback)). |
 | `<url><health>` | A GET, for `openpadel doctor` and the club's list: answer 2xx when you're working. |
 
 ### The registration
@@ -153,7 +156,36 @@ and what your manifest says to ask waits in the club's Approvals for a person. T
 - `plugin_secret` with `{ "name": "HA_TOKEN" }`: one of the keys your manifest declares, from the club's vault. Any
   other name is refused. Each read is kept on record.
 
+Reads beyond those are the club's staff reads your manifest's `reads` open: with `money`, `money_books` `{ from, to }`
+gives the club's books for each club day (at most 31), what the accounting export sends:
+
+```json
+{ "currency": "USD", "time_zone": "America/Los_Angeles", "today": "2026-11-17",
+  "days": [{ "date": "2026-11-16", "complete": true, "fees": "known", "payouts": "known",
+             "lines": [{ "key": "takings.courts", "cents": -12000 }, { "key": "card.in", "cents": 12000 }] }] }
+```
+
+Signed cents, positive a debit; each day's lines balance. The keys: `takings.<kind>` and `refunds.<kind>` (courts,
+lessons, programs, memberships, after_restore, other; net of tax), `tax`, `credit.added` and `credit.used`,
+`gift_cards.sold` and `gift_cards.used`, `passes.sold` and `passes.used`, `card.in` and `card.out` (the card provider's
+clearing), `cash.in` and `cash.out`, `receivable.up` and `receivable.down`, `refunds_payable`, `adjustment`,
+`brought_in`, `card.fees` with `card.fees_out`, and `bank.payouts` with `card.payouts_out`. Amounts and kinds only:
+nothing in it names a person.
+
 You can't move money (your weekly limit is 0), make webhooks, or install or change plugins.
+
+### Keys it keeps
+
+A key your manifest marks `"kept_by_plugin": true` is yours to write, because it changes as you use it (an OAuth
+refresh token: each refresh hands out a new one). Keep each new value as soon as you have it, before anything else:
+
+- `plugin_secret_keep_preview` with `{ "name": "XERO_REFRESH_TOKEN", "value": "…" }`, then `plugin_secret_keep_confirm`
+  with its `run_id`. The value is sealed in the preview, never stored in the clear (not in the change log, not in the
+  preview once it's used or expired), and replaces the last one in place. Read it back with `plugin_secret`.
+- Only your own token has these tools, and only for a key your manifest keeps: one the owner adds, one you don't
+  declare, or a call from anyone else (the owner's own assistant included) is refused (`error.plugin_secret_not_kept`).
+- The club shows it as "kept by <plugin>, ends in 4F2A", keeps it out of Today and Changes (like card updates), and,
+  like every key of yours, removes it with the plugin when the owner says `--delete-keys`.
 
 ### Cards
 

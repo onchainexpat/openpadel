@@ -336,6 +336,21 @@ Who may: staff (each sees what their staff screens show).
 openpadel reports --location Main --from 2026-11-20 --to 2026-11-20
 ```
 
+### openpadel money books
+
+The books, day by day. The club's books for each club day between two dates (both included, at most 31): what the ledger moved by kind of account (takings and refunds by kind, tax, club credit, gift cards, passes, card payments, cash, what's owed), the card provider's fees and the payouts that reached the bank. Signed cents (positive a debit), each day balanced; amounts and kinds only, no people.
+
+Who may: staff (each sees what their staff screens show).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--from` | date YYYY-MM-DD | needed | A club date, YYYY-MM-DD |
+| `--to` | date YYYY-MM-DD | needed | A club date, YYYY-MM-DD |
+
+```
+openpadel money books --from 2026-11-20 --to 2026-11-20
+```
+
 ### openpadel memberships
 
 Memberships. The membership plans, how many hold each, and the members on them (emails shortened).
