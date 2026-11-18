@@ -11,6 +11,26 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 Signing in on the club's page to connect an assistant, the command line or an agent's device works again on a club served over https: the page's sign-in form named the club's address as http (as the request reaches openPadel behind the web server), and the sign-in refused it as "This sign-in link isn't complete".
 
+A smoother first setup, from a timed run-through on a fresh server on 18 November. `club.yaml` takes the club's
+currency (`currency: EUR`, before the first payment), each location's opening hours (`hours:`, days as `mon` to `sun`)
+and one court price (`price_per_hour: 32`), set through the same previewed actions as the apps and only while the
+location has none (after that, `setup plan` notes a difference and Settings changes them). The owner's first sign-in
+before email is set up no longer means the agent reading a code out of the server's log: `openpadel sign-in-link
+<owner's email>` on the server prints a link the agent hands over without opening, for owners only, once, for 15
+minutes and only while there's no email service; opening it shows whom it signs in, and its button signs in, so a chat
+app's preview can't use it up (migration 137). `openpadel doctor` has a `practice` check: a warn while practice mode is
+on, saying where real email goes, and ok once the club is live. The 30-second jobs wait for the club to exist, so the
+first doctor after `setup apply` no longer shows "questions: no result" and the new owner's first email isn't "Working
+again". Every command flag that takes JSON (`hours set --days`, `court hours-set --days`, `coach set-hours
+--stretches` and the rest) shows a whole example in `openpadel help` and docs/cli/reference.md, with 0 as Sunday.
+`openpadel keys` prints whether `KUMI_SECRET_KEY` and `KUMI_BACKUP_KEY` are set and each one's last 4 characters only,
+so an owner who copied them from the server provider's web console (docs/setup/accounts/offsite-backups.md, for an
+owner with no shell of their own) can check their copies. The sign-in and consent pages show a plain page in the
+person's language when they can't go on, saying where to start again, instead of raw JSON. The setup guide says to
+clone over https and check out the newest release before reading it, gives a trial on `<ip>.sslip.io` with no domain
+and how to move to the club's domain later, and docs/cli/README.md says where the command line keeps its sign-in on
+the club's own server.
+
 Moving in from CourtReserve, and from Playbypoint beyond its users list. CourtReserve is a source in the guided move-in
 now (Settings, Moving in, Connect): the owner exports its Members, Reservations and Event Registrant Detail reports (as
 Excel or CSV), and "Bring the files in" reads each one on the server, says which column it read as what and lists every
@@ -570,6 +590,8 @@ and people who write one. openPadel's own tests run the template copied out of t
 - Plugins (migration 128): nothing to do; none is installed until the club's agent installs one and the owner says yes.
   The catalog is a sample bundled with openPadel until `KUMI_PLUGIN_CATALOG_URL` names another. The update gives Caddy
   the new /plugins/* path by itself.
+- The owner's sign-in links (migration 137): nothing to do. The `practice` check warns until go-live, as the email
+  check already did.
 - Caddy's admin API moves off 127.0.0.1:2019, where anything on the server could rewrite the club's sites: to a socket
   under /var/lib/caddy that only the caddy user reaches (`systemctl reload caddy` still works through it), and off
   altogether in Docker. The update does it by itself, restarting Caddy once since a reload can't reach the old address.
