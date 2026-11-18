@@ -13,6 +13,7 @@ export { ReceiptSheet, type ReceiptView } from "./Receipt.tsx";
 export { OtherLang, otherLang, savedIn, translationsOf } from "./OtherLang.tsx";
 export { RunsOn } from "./RunsOn.tsx";
 // Plugins' cards in the apps' slots (a court's tile, a game, a profile, Money, Connectors).
+export { FileInput } from "./FileInput.tsx";
 export { PluginCard, PluginCards, usePluginCards, type PluginCardData } from "./PluginCards.tsx";
 export { Illustration, EmptyState, type IllustrationName } from "./Illustration.tsx";
 // The start screen while an app starts, and the short welcome at a first sign-in.

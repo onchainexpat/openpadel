@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, lang, me, t, usePreview, clubTime } from "@kumi/ui";
+import { api, ApiError, clubTime, FileInput, lang, me, t, usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { moveOf } from "./level_moves.ts";
 
@@ -73,7 +73,7 @@ export function BringLevel({ d, send, name, forId }: { d: L; send: (input: Recor
         : p.conf && <label>{t(p.conf === "reliability" ? "ui.level_reliability" : p.conf === "matches" ? "ui.level_matches" : "ui.level_percent")}
           <input type="number" inputMode="numeric" min="0" max={p.conf === "matches" ? 100000 : 100} step="1" value={conf} onInput={(e) => setConf(e.currentTarget.value)} /></label>}
       <label>{t("ui.level_profile")}<input type="url" inputMode="url" maxLength={300} placeholder="https://" value={url} onInput={(e) => setUrl(e.currentTarget.value)} /></label>
-      <label>{t("ui.level_proof")}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)} /></label>
+      <FileInput label={t("ui.level_proof")} accept="image/png,image/jpeg,image/webp" onFile={(f) => setFile(f)} />
       <p class="meta">{t("ui.level_proof_help")}</p>
       {error && <p class="error" role="alert">{error}</p>}
       <button disabled={value === "" || busy} onClick={() => void go()}>{name ? t("ui.bring_level_send_for", { name }) : t("ui.bring_level_send")}</button>

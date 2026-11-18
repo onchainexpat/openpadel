@@ -547,3 +547,6 @@ section.plugin-card:not(.card) { padding: 6px 0 0 10px; }
 .pill-off { --pill-bg: transparent; --pill-ink: var(--muted); border-color: var(--line); }
 @media (prefers-color-scheme: dark) { .pill-attention { --pill-bg: #3d2f17; --pill-ink: #f0bd7e; } .pill-waiting { --pill-bg: #22324d; --pill-ink: #a9c4ff; } }
 .connector-ask code { display: block; overflow-wrap: anywhere; margin: 2px 0; }
+/* FileInput: the app's own words for choosing a file; the real input is in the label, visually hidden. */
+.file-input { display: block; } .file-input-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.file-input:focus-within .button { outline: 2px solid var(--brand); outline-offset: 2px; }

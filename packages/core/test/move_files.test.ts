@@ -136,7 +136,7 @@ test("members: someone already here isn't added twice, and club news comes over 
   const m = await upload("courtreserve", "people", "courtreserve-members-messy.csv");
   const p2 = await run(db, "move.members", ref(m), owner, opts);
   assert.match(p2.plan.summary.en, /4 new people/);
-  assert.match(p2.plan.summary.en, /1 line names someone an earlier line does/);
+  assert.match(p2.plan.summary.en, /1 line is the same person as an earlier line/);
   assert.equal(await news((await personBy("hal@example.test"))!.id), false);
 });
 

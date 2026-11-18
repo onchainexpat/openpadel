@@ -1,7 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { useRoute } from "preact-iso";
-import { api, clubTime, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
+import { api, clubTime, dollars, FileInput, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 
 type Kind = "people" | "bookings" | "programs";
@@ -43,8 +43,7 @@ export function MoveFiles() {
   if (failed) return <main class="card"><p class="error" role="alert">{failed}</p></main>;
   if (!s) return <main class="card"><p>{t("ui.loading")}</p></main>;
   const fmt = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
-  const pick = (kind: Kind) => async (e: Event) => {
-    const input = e.currentTarget as HTMLInputElement, f = input.files?.[0];
+  const pick = (kind: Kind) => async (f: File | null, input: HTMLInputElement) => {
     if (!f) return;
     try { await preview("move.upload", { from, kind, ...(await fileInput(f)), file_name: f.name.slice(0, 200) }); }
     catch (err) { setFailed((err as Error).message); }
@@ -57,7 +56,7 @@ export function MoveFiles() {
     return <section class="card">
       <h2>{t(`ui.move_files_${kind}` as Key)}</h2>
       <p class="meta">{t(`ui.move_files_${s.system}_${kind}` as Key)}</p>
-      <label>{t("ui.move_files_pick")}<input type="file" accept=".csv,.xlsx,text/csv" onChange={pick(kind)} /></label>
+      <FileInput label={t("ui.move_files_pick")} accept=".csv,.xlsx,text/csv" onFile={pick(kind)} />
       {u && <>
         <p>{t("ui.move_files_read", { name: u.file_name ?? "CSV", when: fmt(u.at), by: u.uploaded_by ?? "-", rows: t("count.move_rows", { count: u.rows }) })}</p>
         <p class="meta">{t("ui.move_files_columns", { columns: u.columns.map((c) => `${c.name} (${t(`move.col_${c.what}` as Key)})`).join(", ") })}</p>
