@@ -106,6 +106,22 @@ test("doctor: each check, and what's wrong in production", async () => {
   assert.equal((await checks({ KUMI_PRACTICE: "1" })).email!.state, "warn");
 });
 
+test("doctor: practice mode is said while it's on, in both languages, and ok once the club is live", async () => {
+  const practice = async (env: Record<string, string>) => (await doctor(db, { KUMI_BACKUP_DIR: dir, ...env })).find((c) => c.id === "practice")!;
+  const fresh = await practice({ NODE_ENV: "production", KUMI_PRACTICE: "1" });   // a new server: no email service yet
+  assert.equal(fresh.state, "warn"); assert.equal(fresh.doc, "docs/setup/README.md");
+  assert.match(fresh.text.en, /^Practice mode: on, with no email service yet/); assert.match(fresh.text.es, /^Modo de práctica: activado/);
+  const mail = { NODE_ENV: "production", KUMI_PRACTICE: "1", KUMI_RESEND_API_KEY: "re_x", KUMI_MAIL_FROM: "a@b.example" };
+  const one = await practice({ ...mail, KUMI_MAIL_TEST_TO: "robin@kestrel.example" }), two = await practice({ ...mail, KUMI_MAIL_TEST_TO: "robin@kestrel.example, dana@kestrel.example" });
+  assert.equal(one.state, "warn"); assert.match(one.text.en, /only to the 1 address in KUMI_MAIL_TEST_TO/); assert.match(two.text.en, /only to the 2 addresses/);
+  assert.match(two.text.es, /solo llega a las 2 direcciones de KUMI_MAIL_TEST_TO/);
+  assert.match((await practice(mail)).text.en, /lists nobody/);
+  assert.equal((await practice({})).state, "warn", "outside production it's always practice");
+  const live = await practice({ NODE_ENV: "production", KUMI_RESEND_API_KEY: "re_x", KUMI_MAIL_FROM: "a@b.example" });
+  assert.equal(live.state, "ok"); assert.match(live.text.en, /^Practice mode: off/);
+  for (const c of [fresh, one, two, live]) assert.ok(!/\u2014/.test(c.text.en + c.text.es), "no em dashes");
+});
+
 test("doctor: Apple Pay and Google Pay need the members' domain registered with Stripe", async () => {
   const keys = { KUMI_STRIPE_SECRET_KEY: "sk_test_x", KUMI_STRIPE_PUBLISHABLE_KEY: "pk_test_x", KUMI_PUBLIC_URL: "https://staff.kestrelpadel.com" };
   let domains: any[] = [];

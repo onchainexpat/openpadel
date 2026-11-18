@@ -84,6 +84,13 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   else if (!env.KUMI_MAIL_FROM) add("email", "fail", "email.no_from", {}, "docs/setup/accounts/resend.md");
   else if (!production || env.KUMI_PRACTICE === "1") add("email", "warn", "email.practice", { from: env.KUMI_MAIL_FROM, count: (env.KUMI_MAIL_TEST_TO ?? "").split(",").filter((a) => a.trim()).length });
   else add("email", "ok", "email.ok", { from: env.KUMI_MAIL_FROM });
+  // Practice mode (KUMI_PRACTICE=1, the default on a new server; always outside production): real email only to the test
+  // addresses, texts only to the test numbers. Said while it's on, so an agent setting up a club sees it stays until go-live.
+  const practice = !production || env.KUMI_PRACTICE === "1";
+  const testTo = (env.KUMI_MAIL_TEST_TO ?? "").split(",").filter((a) => a.trim()).length;
+  if (!practice) add("practice", "ok", "practice.off");
+  else if (!env.KUMI_RESEND_API_KEY) add("practice", "warn", "practice.on_log", {}, "docs/setup/README.md");
+  else add("practice", "warn", testTo ? "practice.on" : "practice.on_nobody", { count: testTo }, "docs/setup/README.md");
   // Live, the domain the email comes from must be verified (or it's refused, or lands in spam), and the email
   // service's reports must reach the club (email_events.ts), or it keeps emailing addresses that bounce.
   const mailDomain = env.KUMI_MAIL_FROM ? emailDomain(env.KUMI_MAIL_FROM) : null;
