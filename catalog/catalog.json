@@ -1,0 +1,627 @@
+{
+  "catalog": 1,
+  "name": {
+    "en": "openPadel's reviewed plugin catalog",
+    "es": "El catálogo de plugins revisado de openPadel"
+  },
+  "checklist": 1,
+  "plugins": [
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "name": "accounting-export",
+        "publisher": "openPadel examples",
+        "version": "0.1.0",
+        "homepage": "https://github.com/openpadel/plugin-accounting-export",
+        "licence": "AGPL-3.0-only",
+        "description": {
+          "en": "Sends each club day's takings, refunds, tax, card fees and payouts to the club's Xero or QuickBooks as one journal, early the next morning.",
+          "es": "Envía a Xero o QuickBooks del club un asiento por cada día del club con lo cobrado, las devoluciones, los impuestos, las comisiones de tarjeta y los depósitos, temprano a la mañana siguiente."
+        },
+        "grants": [],
+        "reads": [
+          "money"
+        ],
+        "events": [],
+        "secrets": [
+          {
+            "name": "XERO_CLIENT_ID",
+            "label": {
+              "en": "Xero app's client id",
+              "es": "Client id de la app de Xero"
+            },
+            "where": {
+              "en": "At developer.xero.com: My Apps, New app (Web app), with the redirect address shown on the plugin's card. Copy its Client id.",
+              "es": "En developer.xero.com: My Apps, New app (Web app), con la dirección de retorno que muestra la tarjeta del plugin. Copia su Client id."
+            },
+            "needed_when": {
+              "setting": "provider",
+              "is": "xero"
+            }
+          },
+          {
+            "name": "XERO_CLIENT_SECRET",
+            "label": {
+              "en": "Xero app's client secret",
+              "es": "Client secret de la app de Xero"
+            },
+            "where": {
+              "en": "At developer.xero.com, in the same app: Configuration, Generate a secret.",
+              "es": "En developer.xero.com, en la misma app: Configuration, Generate a secret."
+            },
+            "needed_when": {
+              "setting": "provider",
+              "is": "xero"
+            }
+          },
+          {
+            "name": "XERO_REFRESH_TOKEN",
+            "label": {
+              "en": "Xero connection",
+              "es": "Conexión con Xero"
+            },
+            "kept_by_plugin": true,
+            "where": {
+              "en": "Nothing to add: the plugin keeps it when the owner connects Xero from its card.",
+              "es": "Nada que agregar: el plugin la guarda cuando el dueño conecta Xero desde su tarjeta."
+            }
+          },
+          {
+            "name": "QUICKBOOKS_CLIENT_ID",
+            "label": {
+              "en": "QuickBooks app's client id",
+              "es": "Client id de la app de QuickBooks"
+            },
+            "where": {
+              "en": "At developer.intuit.com: Dashboard, create an app for QuickBooks Online Accounting, Keys and credentials (Production), with the redirect address shown on the plugin's card.",
+              "es": "En developer.intuit.com: Dashboard, crea una app para QuickBooks Online Accounting, Keys and credentials (Production), con la dirección de retorno que muestra la tarjeta del plugin."
+            },
+            "needed_when": {
+              "setting": "provider",
+              "is": "quickbooks"
+            }
+          },
+          {
+            "name": "QUICKBOOKS_CLIENT_SECRET",
+            "label": {
+              "en": "QuickBooks app's client secret",
+              "es": "Client secret de la app de QuickBooks"
+            },
+            "where": {
+              "en": "At developer.intuit.com, in the same app: Keys and credentials (Production), Client secret.",
+              "es": "En developer.intuit.com, en la misma app: Keys and credentials (Production), Client secret."
+            },
+            "needed_when": {
+              "setting": "provider",
+              "is": "quickbooks"
+            }
+          },
+          {
+            "name": "QUICKBOOKS_REFRESH_TOKEN",
+            "label": {
+              "en": "QuickBooks connection",
+              "es": "Conexión con QuickBooks"
+            },
+            "kept_by_plugin": true,
+            "where": {
+              "en": "Nothing to add: the plugin keeps it when the owner connects QuickBooks from its card.",
+              "es": "Nada que agregar: el plugin la guarda cuando el dueño conecta QuickBooks desde su tarjeta."
+            }
+          },
+          {
+            "name": "QUICKBOOKS_COMPANY_ID",
+            "label": {
+              "en": "QuickBooks company",
+              "es": "Empresa de QuickBooks"
+            },
+            "kept_by_plugin": true,
+            "where": {
+              "en": "Nothing to add: the plugin keeps it when the owner connects QuickBooks from its card.",
+              "es": "Nada que agregar: el plugin la guarda cuando el dueño conecta QuickBooks desde su tarjeta."
+            }
+          }
+        ],
+        "settings": [
+          {
+            "key": "provider",
+            "type": "choice",
+            "label": {
+              "en": "Accounting system",
+              "es": "Sistema contable"
+            },
+            "required": true,
+            "default": "xero",
+            "choices": [
+              {
+                "value": "xero",
+                "label": {
+                  "en": "Xero",
+                  "es": "Xero"
+                }
+              },
+              {
+                "value": "quickbooks",
+                "label": {
+                  "en": "QuickBooks Online",
+                  "es": "QuickBooks Online"
+                }
+              }
+            ]
+          },
+          {
+            "key": "send_at",
+            "type": "string",
+            "label": {
+              "en": "Send each day at",
+              "es": "Enviar cada día a las"
+            },
+            "help": {
+              "en": "The time at the club the day before is sent, as 06:00.",
+              "es": "La hora del club en que se envía el día anterior, como 06:00."
+            },
+            "required": false,
+            "default": "06:00",
+            "max_length": 5
+          },
+          {
+            "key": "start_date",
+            "type": "string",
+            "label": {
+              "en": "First day to send",
+              "es": "Primer día a enviar"
+            },
+            "help": {
+              "en": "The first club day sent, as 2026-12-01. Days before it are never sent.",
+              "es": "El primer día del club que se envía, como 2026-12-01. Los días anteriores nunca se envían."
+            },
+            "required": true,
+            "max_length": 10
+          },
+          {
+            "key": "account_courts",
+            "type": "string",
+            "label": {
+              "en": "Account for court takings",
+              "es": "Cuenta para lo cobrado por canchas"
+            },
+            "help": {
+              "en": "An account code in your chart of accounts, as 200. In QuickBooks, its number or its name.",
+              "es": "Un código de tu plan de cuentas, como 200. En QuickBooks, su número o su nombre."
+            },
+            "required": true,
+            "max_length": 40
+          },
+          {
+            "key": "account_lessons",
+            "type": "string",
+            "label": {
+              "en": "Account for lesson takings",
+              "es": "Cuenta para lo cobrado por clases"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_programs",
+            "type": "string",
+            "label": {
+              "en": "Account for program takings",
+              "es": "Cuenta para lo cobrado por programas"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_memberships",
+            "type": "string",
+            "label": {
+              "en": "Account for membership takings",
+              "es": "Cuenta para lo cobrado por membresías"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_other_income",
+            "type": "string",
+            "label": {
+              "en": "Account for other takings",
+              "es": "Cuenta para otros cobros"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_refunds",
+            "type": "string",
+            "label": {
+              "en": "Account for refunds",
+              "es": "Cuenta para devoluciones"
+            },
+            "help": {
+              "en": "Left empty, a refund comes off the account it was taken into.",
+              "es": "Si la dejas vacía, una devolución se resta de la cuenta donde se cobró."
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_tax",
+            "type": "string",
+            "label": {
+              "en": "Account for sales tax",
+              "es": "Cuenta para el impuesto sobre ventas"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_card",
+            "type": "string",
+            "label": {
+              "en": "Account for card payments in transit",
+              "es": "Cuenta para pagos con tarjeta en tránsito"
+            },
+            "help": {
+              "en": "A clearing account for Stripe: card payments in, refunds, fees and payouts out.",
+              "es": "Una cuenta puente para Stripe: entran los pagos con tarjeta y salen devoluciones, comisiones y depósitos."
+            },
+            "required": true,
+            "max_length": 40
+          },
+          {
+            "key": "account_card_fees",
+            "type": "string",
+            "label": {
+              "en": "Account for card fees",
+              "es": "Cuenta para comisiones de tarjeta"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_bank",
+            "type": "string",
+            "label": {
+              "en": "Bank account payouts go to",
+              "es": "Cuenta bancaria de los depósitos"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_cash",
+            "type": "string",
+            "label": {
+              "en": "Account for cash at the desk",
+              "es": "Cuenta para el efectivo de recepción"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_receivable",
+            "type": "string",
+            "label": {
+              "en": "Account for what players owe",
+              "es": "Cuenta para lo que deben los jugadores"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_credit",
+            "type": "string",
+            "label": {
+              "en": "Account for club credit",
+              "es": "Cuenta para el crédito del club"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_gift_cards",
+            "type": "string",
+            "label": {
+              "en": "Account for gift cards",
+              "es": "Cuenta para tarjetas de regalo"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_passes",
+            "type": "string",
+            "label": {
+              "en": "Account for passes",
+              "es": "Cuenta para bonos"
+            },
+            "required": false,
+            "max_length": 40
+          },
+          {
+            "key": "account_other",
+            "type": "string",
+            "label": {
+              "en": "Account for anything else",
+              "es": "Cuenta para todo lo demás"
+            },
+            "help": {
+              "en": "A suspense account: any line without an account of its own goes here, and the card says so.",
+              "es": "Una cuenta transitoria: cualquier línea sin cuenta propia va aquí, y la tarjeta lo dice."
+            },
+            "required": true,
+            "max_length": 40
+          }
+        ],
+        "data_out": {
+          "en": "Each club day's totals by kind (takings for courts, lessons, programs and memberships, refunds, tax, card fees, payouts, club credit, gift cards and passes) go to the club's own Xero or QuickBooks. No names, emails or phone numbers.",
+          "es": "Los totales de cada día del club por tipo (lo cobrado por canchas, clases, programas y membresías, devoluciones, impuestos, comisiones de tarjeta, depósitos, crédito del club, tarjetas de regalo y bonos) van al propio Xero o QuickBooks del club. Sin nombres, correos ni teléfonos."
+        },
+        "cost": {
+          "charges": false,
+          "note": {
+            "en": "Free. Xero or QuickBooks is the club's own subscription.",
+            "es": "Gratis. Xero o QuickBooks es la propia suscripción del club."
+          }
+        },
+        "cards": [
+          {
+            "slot": "connectors",
+            "title": {
+              "en": "Accounting export",
+              "es": "Exportación contable"
+            }
+          },
+          {
+            "slot": "money",
+            "title": {
+              "en": "Accounting",
+              "es": "Contabilidad"
+            }
+          }
+        ],
+        "health": "/health",
+        "callback": {
+          "for": {
+            "en": "Xero or QuickBooks, when the owner connects it",
+            "es": "Xero o QuickBooks, cuando el dueño lo conecta"
+          }
+        },
+        "run": {
+          "mode": "remote",
+          "url": "https://accounting.plugins.openpadel.org/v1"
+        }
+      },
+      "release": {
+        "url": "https://github.com/openpadel/plugin-accounting-export/releases/download/v0.1.0/accounting-export-0.1.0.tar.gz",
+        "sha256": "ba1e05f4e6c50ed8634919729d40bce6dfc302e097d06f56a7f63c926c38b620"
+      },
+      "reviewed": {
+        "by": "openPadel",
+        "on": "2026-11-18",
+        "checklist": 1
+      }
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "name": "court-lights",
+        "publisher": "openPadel examples",
+        "version": "0.1.0",
+        "homepage": "https://github.com/openpadel/plugin-court-lights",
+        "licence": "AGPL-3.0-only",
+        "description": {
+          "en": "Turns a court's lights on in Home Assistant a few minutes before each booking and off after it ends.",
+          "es": "Enciende las luces de una cancha en Home Assistant unos minutos antes de cada reserva y las apaga cuando termina."
+        },
+        "grants": [],
+        "reads": [
+          "bookings",
+          "courts"
+        ],
+        "events": [
+          "booking.cancelled",
+          "booking.created",
+          "booking.moved",
+          "court.blocked",
+          "court.freed"
+        ],
+        "secrets": [
+          {
+            "name": "HA_TOKEN",
+            "label": {
+              "en": "Home Assistant access token",
+              "es": "Token de acceso de Home Assistant"
+            },
+            "where": {
+              "en": "In Home Assistant: your profile, Security, Long-lived access tokens, Create token.",
+              "es": "En Home Assistant: tu perfil, Seguridad, Tokens de acceso de larga duración, Crear token."
+            }
+          }
+        ],
+        "settings": [
+          {
+            "key": "home_assistant_url",
+            "type": "string",
+            "label": {
+              "en": "Home Assistant address",
+              "es": "Dirección de Home Assistant"
+            },
+            "help": {
+              "en": "Where the club's Home Assistant answers, such as https://ha.yourclub.com, or its address on the club's network, such as http://192.168.1.20:8123. A local plugin may reach that one address on the club's network and nothing else there.",
+              "es": "Donde responde el Home Assistant del club, como https://ha.tuclub.com, o su dirección en la red del club, como http://192.168.1.20:8123. Un plugin local puede llegar a esa sola dirección de la red del club y a nada más ahí."
+            },
+            "required": true,
+            "max_length": 200,
+            "club_network": true
+          },
+          {
+            "key": "courts",
+            "type": "courts",
+            "label": {
+              "en": "Courts with lights",
+              "es": "Canchas con luces"
+            },
+            "required": true
+          },
+          {
+            "key": "lights",
+            "type": "string",
+            "label": {
+              "en": "Light for each court",
+              "es": "La luz de cada cancha"
+            },
+            "help": {
+              "en": "Each court and its Home Assistant light, such as Court 1 = light.court_1, Court 2 = light.court_2 (a switch works too: switch.court_3). A court left out uses light. and its name: Court 4 is light.court_4.",
+              "es": "Cada cancha y su luz en Home Assistant, como Cancha 1 = light.cancha_1, Cancha 2 = light.cancha_2 (también sirve un interruptor: switch.cancha_3). Una cancha que no está usa light. y su nombre: Cancha 4 es light.cancha_4."
+            },
+            "required": false,
+            "max_length": 500
+          },
+          {
+            "key": "minutes_before",
+            "type": "integer",
+            "label": {
+              "en": "Minutes before a booking",
+              "es": "Minutos antes de una reserva"
+            },
+            "default": 10,
+            "minimum": 0,
+            "maximum": 30
+          },
+          {
+            "key": "minutes_after",
+            "type": "integer",
+            "label": {
+              "en": "Minutes after a booking",
+              "es": "Minutos después de una reserva"
+            },
+            "default": 5,
+            "minimum": 0,
+            "maximum": 30
+          }
+        ],
+        "data_out": {
+          "en": "Each booking's court, start and end go to the club's own Home Assistant. No names, emails or phone numbers.",
+          "es": "La cancha, el inicio y el fin de cada reserva van al propio Home Assistant del club. Sin nombres, correos ni teléfonos."
+        },
+        "cost": {
+          "charges": false,
+          "note": {
+            "en": "Free. Home Assistant is the club's own.",
+            "es": "Gratis. El Home Assistant es del propio club."
+          }
+        },
+        "cards": [
+          {
+            "slot": "court_tile",
+            "title": {
+              "en": "Lights",
+              "es": "Luces"
+            }
+          }
+        ],
+        "health": "/health",
+        "run": {
+          "mode": "remote",
+          "url": "https://lights.plugins.openpadel.org/v1"
+        }
+      },
+      "release": {
+        "url": "https://github.com/openpadel/plugin-court-lights/releases/download/v0.1.0/court-lights-0.1.0.tar.gz",
+        "sha256": "e8b6d45b45ed3d3419b3d635f9b2f54b4df4f0b35166c0ecfa09971608604e82"
+      },
+      "reviewed": {
+        "by": "openPadel",
+        "on": "2026-11-18",
+        "checklist": 1
+      }
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "name": "klaviyo",
+        "publisher": "openPadel examples",
+        "version": "0.1.0",
+        "homepage": "https://github.com/openpadel/plugin-klaviyo",
+        "licence": "AGPL-3.0-only",
+        "description": {
+          "en": "Keeps a Klaviyo list of the members who said yes to club news by email: on it when they say yes, off it as soon as they say no or their account is deleted, and checked against the club every day.",
+          "es": "Mantiene una lista en Klaviyo con los miembros que dijeron que sí a las novedades del club por correo: entran cuando dicen que sí, salen en cuanto dicen que no o se elimina su cuenta, y se revisa contra el club cada día."
+        },
+        "grants": [],
+        "reads": [
+          "club_news"
+        ],
+        "events": [
+          "club_news.joined",
+          "club_news.left"
+        ],
+        "secrets": [
+          {
+            "name": "KLAVIYO_API_KEY",
+            "label": {
+              "en": "Klaviyo private API key",
+              "es": "Clave privada de API de Klaviyo"
+            },
+            "where": {
+              "en": "In Klaviyo: Settings, Account, API keys, Create Private API Key. Choose Custom Key with Full Access to Lists and Profiles, and to Data Privacy so a deleted member's profile is deleted there too.",
+              "es": "En Klaviyo: Settings, Account, API keys, Create Private API Key. Elige Custom Key con Full Access a Lists y Profiles, y a Data Privacy para que el perfil de un miembro eliminado también se elimine ahí."
+            }
+          }
+        ],
+        "settings": [
+          {
+            "key": "list_id",
+            "type": "string",
+            "label": {
+              "en": "Klaviyo list id",
+              "es": "Id de la lista de Klaviyo"
+            },
+            "help": {
+              "en": "In Klaviyo: Audience, Lists & Segments, Create New, List (call it Club news), then its Settings: List ID, six letters and digits such as Xy12Ab. Use a list only this plugin fills: anyone else on it is taken off at the daily check.",
+              "es": "En Klaviyo: Audience, Lists & Segments, Create New, List (llámala Novedades del club), y luego su Settings: List ID, seis letras y números como Xy12Ab. Usa una lista que solo llene este plugin: cualquier otra persona en ella sale en la revisión diaria."
+            },
+            "required": true,
+            "max_length": 40
+          }
+        ],
+        "data_out": {
+          "en": "The email, first name and language of each member who said yes to club news by email go to the club's own Klaviyo account, passing through wherever the plugin runs, which keeps none of them. Nothing else, and nobody who said no, never answered or is a junior. Whoever says no comes off the list, and a deleted member's profile is deleted in Klaviyo.",
+          "es": "El correo, el nombre y el idioma de cada miembro que dijo que sí a las novedades del club por correo van a la propia cuenta de Klaviyo del club, pasando por donde funciona el plugin, que no guarda ninguno. Nada más, y nadie que dijo que no, que nunca respondió o que es menor. Quien dice que no sale de la lista, y el perfil de un miembro eliminado se elimina en Klaviyo."
+        },
+        "cost": {
+          "charges": true,
+          "note": {
+            "en": "The plugin is free. Klaviyo charges by the number of profiles and emails, with a free plan for small lists.",
+            "es": "El plugin es gratis. Klaviyo cobra por la cantidad de perfiles y correos, con un plan gratis para listas pequeñas."
+          }
+        },
+        "cards": [
+          {
+            "slot": "connectors",
+            "title": {
+              "en": "Klaviyo",
+              "es": "Klaviyo"
+            }
+          }
+        ],
+        "health": "/health",
+        "run": {
+          "mode": "remote",
+          "url": "https://klaviyo.plugins.openpadel.org/v1"
+        }
+      },
+      "release": {
+        "url": "https://github.com/openpadel/plugin-klaviyo/releases/download/v0.1.0/klaviyo-0.1.0.tar.gz",
+        "sha256": "ded68dfda87fccaee8fe2a63fc9df501245f9139b9688721fd6569ea9007d7b0"
+      },
+      "reviewed": {
+        "by": "openPadel",
+        "on": "2026-11-18",
+        "checklist": 1
+      }
+    }
+  ]
+}
