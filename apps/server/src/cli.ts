@@ -10,6 +10,11 @@
 //                                  --take-back takes back what's less in Playtomic now (never while zeroing them there)
 //   kumi move-in memberships [<export.csv>] [--map "<Playtomic name>=<plan name or id|skip>"]... [--apply]
 //                                  Playtomic memberships carried over, paid through Playtomic's date (brought_in.ts)
+//   kumi move-in courtreserve|playbypoint [--members <file>] [--memberships <file>] [--credit <file>] [--bookings <file>]
+//                                  [--programs <file>] [--map "<plan there>=<plan here|skip>"]... [--event "<event>=<program|skip>"]...
+//                                  [--court "<court there>=<court here|skip>"]... [--take-back] [--apply]
+//                                  the files exported there (CSV or Excel), read by the server, then members, memberships,
+//                                  club credit, upcoming bookings and program sign-ups, each a preview unless --apply (move_files.ts)
 //   kumi doctor                    is everything working? each check, and the next step when it isn't
 //   kumi reset-sign-in <email>     start someone's second sign-in step over (a lost phone; an owner locked out)
 //   kumi owner add <email> [--yes] give someone the owner role (a club left with no owner who can sign in)
@@ -235,6 +240,73 @@ async function main(): Promise<number> {
       if (json) { out({ ok: true, applied: apply, summary: say(res.plan.summary), details: res.plan.details }); return 0; }
       console.log(say(res.plan.summary));
       console.log(apply ? t(lang, "cli.move_in_done") : t(lang, "cli.move_in_hint"));
+      return 0;
+    } catch (e) {
+      if (e instanceof KumiError) { console.error(say(e.text)); return 2; }
+      throw e;
+    } finally { await db.destroy(); }
+  }
+  // Moving in from CourtReserve or Playbypoint (move_files.ts): each file the owner exported there is read by the server
+  // (move.upload), then each step previews (or, with --apply, is made) in order: members, memberships, club credit,
+  // upcoming bookings, program sign-ups. As the owner, the same as the staff app's Moving in, Connect.
+  if (cmd === "move-in" && (sub === "courtreserve" || sub === "playbypoint")) {
+    const db = await clubDb();
+    try {
+      const owner = await ownerActor(db, lang);
+      if (!owner) { console.error(t(lang, "doctor.club.missing")); return 2; }
+      const apply = args.includes("--apply");
+      const value = (flag: string) => { const i = args.indexOf(`--${flag}`); return i >= 0 && args[i + 1] && !args[i + 1]!.startsWith("--") ? args[i + 1] : undefined; };
+      const given = { members: value("members"), memberships: value("memberships"), credit: value("credit"), bookings: value("bookings"), programs: value("programs") };
+      if (!Object.values(given).some(Boolean)) { console.error(t(lang, "cli.move_files_usage", { from: sub })); return 2; }
+      // "<name there>=<name or id here|skip>", for --map (plans), --event (programs) and --court (courts).
+      const pairs = async (flag: string, here: { id: string; name: string }[]) => {
+        const map: Record<string, string> = {};
+        for (let k = 0; k < args.length; k++) if (args[k] === `--${flag}` && args[k + 1]) {
+          const at = args[k + 1]!.lastIndexOf("="), from = args[k + 1]!.slice(0, at).trim(), to = args[k + 1]!.slice(at + 1).trim();
+          const id = to === "skip" ? "skip" : here.find((p) => p.id === to || p.name.toLowerCase() === to.toLowerCase())?.id;
+          if (at < 1 || !id) throw new KumiError("cli.move_files_bad_map", { map: args[k + 1]! });
+          map[from] = id;
+        }
+        return map;
+      };
+      const plans = await pairs("map", await db.selectFrom("membership_plan").select(["id", "name"]).where("active", "=", true).execute());
+      const events = await pairs("event", await db.selectFrom("program").select(["id", "name"]).where("status", "!=", "cancelled").execute());
+      const courts = await pairs("court", await db.selectFrom("court").select(["id", "name"]).where("archived_at", "is", null).execute());
+      const report: { file?: string; action: string; summary: string; applied: boolean; error?: string }[] = [];
+      // Each file read once, by the server, whichever steps use it.
+      const read = new Map<string, { upload_id: string; sha256: string; columns: string[] }>();
+      const upload = async (path: string, kind: "people" | "bookings" | "programs") => {
+        const key = `${kind}:${path}`;
+        if (read.has(key)) return read.get(key)!;
+        const bytes = readFileSync(resolve(process.env.KUMI_CALLER_DIR ?? ".", path)), cells = looksLikeXlsx(bytes) ? readXlsx(bytes) : undefined;
+        if (cells === null) throw new KumiError("csv.not_xlsx");
+        const r = await run(db, "move.upload", { from: sub, kind, ...(cells ? { cells } : { csv: bytes.toString("utf8") }), file_name: basename(path).slice(0, 200) }, owner);
+        report.push({ file: path, action: "move.upload", summary: say(r.plan.summary), applied: true });
+        const u = { ...(r.result as { upload_id: string; sha256: string }), columns: ((r.plan.details as { columns: { what: string }[] }).columns ?? []).map((c) => c.what) };
+        read.set(key, u);
+        return u;
+      };
+      const step = async (action: string, path: string | undefined, kind: "people" | "bookings" | "programs", more: Record<string, unknown> = {}, needs?: string) => {
+        if (!path) return;
+        try {
+          const u = await upload(path, kind);
+          if (needs && !u.columns.includes(needs)) return;
+          const input = { upload_id: u.upload_id, sha256: u.sha256, ...more };
+          const res = apply ? await run(db, action, input, owner) : await plan(db, action, input, owner);
+          report.push({ action, summary: say(res.plan.summary), applied: apply });
+        } catch (e) {
+          if (!(e instanceof KumiError)) throw e;
+          report.push({ action, summary: "", applied: false, error: say(e.text) });
+        }
+      };
+      await step("move.members", given.members, "people");
+      await step("move.memberships", given.memberships ?? given.members, "people", { map: plans }, "membership");
+      await step("move.credit", given.credit ?? given.members, "people", args.includes("--take-back") ? { take_back: true } : {}, "credit");
+      await step("move.bookings", given.bookings, "bookings", { courts });
+      await step("move.programs", given.programs, "programs", { map: events });
+      if (json) { out({ ok: !report.some((r) => r.error && r.action === "move.upload"), applied: apply, steps: report }); return 0; }
+      for (const r of report) console.log(`${r.error ? "!" : "-"} ${r.error ?? r.summary}\n`);
+      console.log(apply ? t(lang, "cli.move_in_done") : t(lang, "cli.move_files_hint"));
       return 0;
     } catch (e) {
       if (e instanceof KumiError) { console.error(say(e.text)); return 2; }

@@ -57,6 +57,8 @@ export * from "./level_import.ts";
 export * from "./brought_in.ts";
 export * from "./move_in.ts";
 export * from "./csv_read.ts";
+export * from "./move_read.ts";
+export * from "./move_files.ts";
 export * from "./lessons.ts";
 export * from "./ical.ts";
 export * from "./coach_tools.ts";

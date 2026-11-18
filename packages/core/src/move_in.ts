@@ -1,5 +1,5 @@
 // The guided move-in (docs/setup/moving-in.md): five steps that tie together what openPadel already does to bring a
-// club over from Playtomic, Playbypoint or spreadsheets. 1 Connect the old system, 2 Review what comes across,
+// club over from Playtomic, Playbypoint, CourtReserve or spreadsheets. 1 Connect the old system, 2 Review what comes across,
 // 3 a practice run while players stay on the old system, 4 the switch-over, 5 wrap up. Each step's real work stays in
 // its own actions (person.import, playtomic.upload, credit.bring_in, membership.bring_in, the Playtomic page's links
 // and take-overs); what lives here is where the club is: its source, its step, when it plans to switch, the items
@@ -16,7 +16,7 @@ import { PLAYTOMIC } from "./playtomic.ts";
 
 export const MOVE_STEPS = ["connect", "review", "practice", "switch", "wrap_up"] as const;
 export type MoveStep = (typeof MOVE_STEPS)[number];
-export const MOVE_SOURCES = ["playtomic", "playbypoint", "spreadsheet"] as const;
+export const MOVE_SOURCES = ["playtomic", "playbypoint", "courtreserve", "spreadsheet"] as const;
 export type MoveSource = (typeof MOVE_SOURCES)[number];
 type Who = "you" | "both";
 
@@ -24,15 +24,15 @@ type Who = "you" | "both";
  *  can't see. What it can see (bookings taken over, wallets at zero, members booking here, practice mode off, the
  *  Playtomic keys gone) is read live by the server (/staff/move-in/steps) and never ticked. */
 export const MOVE_CHECKS = {
-  close_bookings: { step: "switch", who: "you", from: ["playtomic", "playbypoint", "spreadsheet"] },
-  renewals_stopped: { step: "switch", who: "you", from: ["playtomic", "playbypoint", "spreadsheet"] },
-  programs_left: { step: "switch", who: "you", from: ["playtomic", "playbypoint", "spreadsheet"] },
-  announced: { step: "switch", who: "you", from: ["playtomic", "playbypoint", "spreadsheet"] },
-  history_downloaded: { step: "wrap_up", who: "you", from: ["playtomic", "playbypoint", "spreadsheet"] },
-  plan_cancelled: { step: "wrap_up", who: "you", from: ["playtomic", "playbypoint", "spreadsheet"] },
-  link_website: { step: "wrap_up", who: "both", from: ["playtomic", "playbypoint", "spreadsheet"] },
-  link_google: { step: "wrap_up", who: "you", from: ["playtomic", "playbypoint", "spreadsheet"] },
-  link_social: { step: "wrap_up", who: "you", from: ["playtomic", "playbypoint", "spreadsheet"] },
+  close_bookings: { step: "switch", who: "you", from: ["playtomic", "playbypoint", "courtreserve", "spreadsheet"] },
+  renewals_stopped: { step: "switch", who: "you", from: ["playtomic", "playbypoint", "courtreserve", "spreadsheet"] },
+  programs_left: { step: "switch", who: "you", from: ["playtomic", "playbypoint", "courtreserve", "spreadsheet"] },
+  announced: { step: "switch", who: "you", from: ["playtomic", "playbypoint", "courtreserve", "spreadsheet"] },
+  history_downloaded: { step: "wrap_up", who: "you", from: ["playtomic", "playbypoint", "courtreserve", "spreadsheet"] },
+  plan_cancelled: { step: "wrap_up", who: "you", from: ["playtomic", "playbypoint", "courtreserve", "spreadsheet"] },
+  link_website: { step: "wrap_up", who: "both", from: ["playtomic", "playbypoint", "courtreserve", "spreadsheet"] },
+  link_google: { step: "wrap_up", who: "you", from: ["playtomic", "playbypoint", "courtreserve", "spreadsheet"] },
+  link_social: { step: "wrap_up", who: "you", from: ["playtomic", "playbypoint", "courtreserve", "spreadsheet"] },
 } satisfies Record<string, { step: MoveStep; who: Who; from: MoveSource[] }>;
 export type MoveCheck = keyof typeof MOVE_CHECKS;
 export const MOVE_CHECK_KEYS = Object.keys(MOVE_CHECKS) as [MoveCheck, ...MoveCheck[]];

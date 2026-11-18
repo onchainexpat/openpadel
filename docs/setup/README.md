@@ -124,10 +124,13 @@ openpadel import members members.csv --apply   # add them
 People already in openPadel keep their name and email, and nobody is emailed: telling members about the
 app is the club's own announcement. Staff can do the same from Customers in the staff app.
 
-**Moving the whole club from Playtomic, Playbypoint or spreadsheets?** The staff app guides it in five steps
-(connect, review, a practice run, the switch-over, the wrap up), and `openpadel moving-in` and `openpadel move ...`
-do the same from the command line: [moving-in.md](moving-in.md). A Playbypoint users list is read by its own preset
-(`--from playbypoint`, or "The file is from" in Customers), not yet checked against a real Playbypoint export.
+**Moving the whole club from Playtomic, CourtReserve, Playbypoint or spreadsheets?** The staff app guides it in five
+steps (connect, review, a practice run, the switch-over, the wrap up), and `openpadel moving-in` and `openpadel move ...`
+do the same from the command line: [moving-in.md](moving-in.md). From CourtReserve or Playbypoint, the owner exports
+their reports and `openpadel move-in courtreserve|playbypoint` brings members, memberships, credit, upcoming bookings
+and sign-ups in, each a preview first: [moving-from-courtreserve.md](moving-from-courtreserve.md). A Playbypoint users
+list is read by its own preset (`--from playbypoint`, or "The file is from" in Customers). None of these files' columns
+have been checked against a real export yet.
 
 **From Playtomic** (the customer export in Playtomic Manager), these columns come in too when the file
 has them. Column names are matched in English or Spanish, ignoring case, spaces and accents:
@@ -884,6 +887,7 @@ an export ask for something: the file's passphrase, typed by the owner (it isn't
 | `openpadel setup plan [file]` | What setting the club up from the file would change. Changes nothing. |
 | `openpadel setup apply [file]` | Makes those changes, through the same checked and audited actions the apps use. |
 | `openpadel import members <file.csv> [--from playbypoint] [--apply]` | Adds members from a spreadsheet (a Playbypoint users list with `--from playbypoint`); a preview unless `--apply`. Emails nobody. |
+| `openpadel move-in courtreserve\|playbypoint --members <file> [--bookings <file>] [--programs <file>] [--map ...] [--apply]` | Brings members, memberships, club credit, upcoming bookings and program sign-ups in from that system's exported reports, each a preview unless `--apply` ([moving-from-courtreserve.md](moving-from-courtreserve.md)). Emails nobody. |
 | `openpadel doctor` | Checks the database, the club, the address, email, texts, ask the club, payments, Apple Pay and Google Pay, Playtomic, backups, the offsite copy, the restore test and the server's key. |
 | `openpadel reset-sign-in <email>` | Starts someone's second sign-in step over: a lost phone, or an owner locked out. |
 | `openpadel texting plan \| apply \| status` | Registers the club's texting with US carriers through its own Twilio account ([accounts/twilio.md](accounts/twilio.md)). `apply --yes` to buy a number. |

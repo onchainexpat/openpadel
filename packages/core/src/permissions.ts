@@ -108,7 +108,9 @@ export const SUPPORT_NEVER = ["support.*", "role.*", "club.payment_*", "club.exp
   "payment.use_pass", "payment.use_promo",
   // Moving in from Playtomic (brought_in.ts): money owed and memberships in bulk from the club's own data, and saying
   // its wallets are at zero, are the club's own, like a members' import.
-  "playtomic.upload", "credit.bring_in", "membership.bring_in", "credit.brought_zeroing", "credit.brought_zeroed"];
+  "playtomic.upload", "credit.bring_in", "membership.bring_in", "credit.brought_zeroing", "credit.brought_zeroed",
+  // And from CourtReserve or Playbypoint's files (move_files.ts).
+  "move.upload", "move.members", "move.memberships", "move.credit", "move.bookings", "move.programs"];
 /** Their own account, which they look after like anyone (their second sign-in step first of all). */
 const SUPPORT_OWN = ["person.factor_*", "person.passkey_*", "person.update_profile"];
 

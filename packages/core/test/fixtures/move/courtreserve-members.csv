@@ -1,0 +1,9 @@
+First Name,Last Name,Email,Member #,Phone Number,Membership Name,Membership Start Date,Membership Next Payment Date,Account Credit,Marketing Email Opt In
+Ann,Lee,ann@example.test,CR-1001,(415) 555-0101,Gold Monthly,10/01/2026,12/01/2026,$25.50,Yes
+Ben,Ross,ben@example.test,CR-1002,415-555-0102,Gold Monthly,09/15/2026,12/15/2026,0,No
+Cal,Diaz,cal@example.test,CR-1003,,Junior Annual,01/01/2026,01/01/2027,"$1,200.00",
+Dee,Park,,CR-1004,,,,,10,Yes
+Zoe,Kim,zoe@example.test,CR-1005,,Gold Monthly,01/01/2026,06/01/2026,5,Yes
+,,,,,,,,,
+Eve,Gray,not-an-email,,,,,,,
+Fay,Wu,,,,,,,,
