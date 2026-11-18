@@ -4,8 +4,9 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, moneyBooks, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db, type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff, clubPhoneShown, moveState, broughtTotals, broughtPeople, upcomingCompared, clubNewsList } from "@kumi/core";
+import { decide, getAction, moneyBooks, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, claimQueue, importOptions, claimProof, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db, type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff, clubPhoneShown, moveState, broughtTotals, broughtPeople, upcomingCompared, clubNewsList } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
+import { proofResponse } from "./level_proof.ts";
 import { shortContact } from "./mcp.ts";
 import { csvCell, readPeopleCsv, readPeopleRows } from "./csv.ts";
 import { looksLikeXlsx, readXlsx } from "./xlsx.ts";
@@ -1075,8 +1076,15 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
 
   // The level review queue: reviews players asked for, and levels that moved a lot.
   // With the numbers the club's level rules run on, for the page's How levels work.
-  app.get("/staff/levels", async (c) => c.json({ ...await levelQueue(db, new Date()), limit: MOVE_LIMIT, days: MOVE_DAYS,
-    rules: { review_days: REVIEW_EVERY_DAYS, self_adjust_games: SELF_ADJUST_GAMES, self_adjust_max: SELF_ADJUST_MAX, import_line: await clubLine(db) } }));
+  // And the levels players brought from other apps, to confirm, change or turn down.
+  app.get("/staff/levels", async (c) => { const q = await levelQueue(db, new Date()), l = lang(c); return c.json({ ...q, claims: (await claimQueue(db)).map((x) => ({ ...x, shown: x.shown[l] })), limit: MOVE_LIMIT, days: MOVE_DAYS,
+    rules: { review_days: REVIEW_EVERY_DAYS, self_adjust_games: SELF_ADJUST_GAMES, self_adjust_max: SELF_ADJUST_MAX, import_line: await clubLine(db) } }); });
+  // A claim's screenshot, for staff who read levels (the area check above), until it's deleted.
+  app.get("/staff/levels/claims/:id/proof", async (c) => {
+    const id = c.req.param("id"), p = /^[0-9a-f-]{36}$/i.test(id) ? await claimProof(db, id) : null;
+    if (!p) throw new KumiError("error.not_found", { thing: { en: "screenshot", es: "la captura" } }, 404);
+    return proofResponse(c, p);
+  });
   // Every player with a level, by name (a search narrows it), a page of 100 at a time: the Levels page's All players.
   const LEVEL_PAGE = 100;
   app.get("/staff/levels/players", async (c) => {
@@ -1146,7 +1154,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const events = await db.selectFrom("rating_event").select(["at", "kind", "level_before", "level_after", "explanation"]).where("person_id", "=", id).orderBy("id", "desc").limit(50).execute();
     const imports = await importOptions(db, id);
     return c.json({ person, rating: rating ?? null, events: events.map((e) => ({ ...e, explanation: (e.explanation as Record<string, string>)[l] ?? "" })),
-      ...imports, import: imports.import ? { ...imports.import, explanation: imports.import.explanation[l] } : null });
+      ...imports, import: imports.import ? { ...imports.import, explanation: imports.import.explanation[l] } : null, claims: imports.claims.map((x) => ({ ...x, shown: x.shown[l] })) });
   });
 
   // The Playtomic mirror: how the last copy went, courts still to link, and bookings that clash with Kumi.

@@ -117,7 +117,8 @@ test("a registered client; a member sees only their own tools, in Spanish, and c
   // A short list: no validation patterns, no default fields, short descriptions.
   const json = JSON.stringify(tools);
   assert.ok(!json.includes("[0-9a-fA-F]{8}") && !json.includes("(?:0[13578]") && !json.includes("$schema") && !json.includes("taskSupport"), "the long patterns stay on the server");
-  assert.ok(json.length < 70_000, `member tool list is ${json.length} bytes`);
+  // 70 KB until 18 Nov 2026, when a member's assistant could bring their level from another app (four more tools).
+  assert.ok(json.length < 75_000, `member tool list is ${json.length} bytes`);
   const book = tools.find((t) => t.name === "booking_request_preview")!;
   assert.deepEqual((book.inputSchema as any).properties.court_id, { type: "string", format: "uuid" });
   assert.equal(book.description, "Book a court: preview. Gives a summary to show the person and a run_id; nothing changes until booking_request_confirm.");
@@ -215,8 +216,9 @@ test("an assistant reads what the person reads, can't raise its own limit or cha
   const [mine, other] = (await db.selectFrom("oauth_grant").select("id").where("person_id", "=", id).orderBy("created_at").execute()).map((g) => g.id);
   const client = await mcp(body.access_token);
   const names = (await client.listTools()).tools.map((t) => t.name);
-  for (const hidden of ["assistant_set_cap_preview", "privacy_erase_preview", "person_factor_remove_preview", "person_passkey_remove_preview", "chat_report_preview"]) assert.ok(!names.includes(hidden), hidden);
-  for (const shown of ["assistant_disconnect_preview", "booking_options", "free_courts", "open_programs", "my_places", "my_level", "club_answers", "lesson_times", "my_chats", "game_chat"]) assert.ok(names.includes(shown), shown);
+  for (const hidden of ["assistant_set_cap_preview", "privacy_erase_preview", "person_factor_remove_preview", "person_passkey_remove_preview", "chat_report_preview", "level_remove_import_preview", "level_queue"]) assert.ok(!names.includes(hidden), hidden);
+  // Bringing their level from another app is theirs to ask for through an assistant (level_claims.ts).
+  for (const shown of ["assistant_disconnect_preview", "booking_options", "free_courts", "open_programs", "my_places", "my_level", "club_answers", "lesson_times", "my_chats", "game_chat", "level_claim_preview", "level_remove_claim_preview"]) assert.ok(names.includes(shown), shown);
   // Chats are read, never posted in: there's no tool that writes one.
   assert.ok(!names.some((n) => n.startsWith("chat_")), "no chat writing tools");
   assert.deepEqual(textOf(await client.callTool({ name: "my_chats", arguments: {} })), { off: false, junior: false, chats: [] });

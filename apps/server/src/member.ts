@@ -1,10 +1,11 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { openCardOnFile, checkCardOnFile, itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, bookingTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf, alertsOf, clubPhoneShown, whatsappCard } from "@kumi/core";
+import { openCardOnFile, checkCardOnFile, itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, stageProof, claimProof, PROOF_MAX_BYTES, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, bookingTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf, alertsOf, clubPhoneShown, whatsappCard } from "@kumi/core";
 import { amenitiesInOrder } from "@kumi/i18n/amenities";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
+import { proofResponse } from "./level_proof.ts";
 import { clubFileStem } from "./file_names.ts";
 import { memberCardRoutes } from "./connectors.ts";
 
@@ -685,7 +686,23 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     const imports = await importOptions(db, pid);
     return c.json({ rating: rating ? { ...rating, floor_since: floorSet?.at ?? null } : null,
       events: events.map((e) => ({ at: e.at, kind: e.kind, level_before: e.level_before, level_after: e.level_after, explanation: (e.explanation as Record<string, string>)[l] ?? "" })),
-      ...await levelOptions(db, pid, new Date()), ...imports, import: imports.import ? { ...imports.import, explanation: imports.import.explanation[l] } : null });
+      ...await levelOptions(db, pid, new Date()), ...imports, import: imports.import ? { ...imports.import, explanation: imports.import.explanation[l] } : null,
+      claims: imports.claims.map((x) => ({ ...x, shown: x.shown[l] })) });
+  });
+  // A screenshot of the other app, sent before the claim that names it (level_claims.ts): their own, or (?for=) a
+  // junior's. Kept sealed; only they and staff who read levels see it, and it's deleted once staff answer or in 60 days.
+  app.post("/my/level/proof", async (c) => {
+    const pid = await forWhom(c), b = await c.req.json().catch(() => ({})) as { data?: unknown };
+    if (typeof b.data !== "string") throw new KumiError("error.invalid_input", {}, 400);
+    if (b.data.length > Math.ceil(PROOF_MAX_BYTES / 3) * 4 + 4) throw new KumiError("error.proof_big", { mb: PROOF_MAX_BYTES / 1_000_000 }, 413);
+    return c.json(await stageProof(db, pid, who(c), Buffer.from(b.data, "base64"), now()));
+  });
+  app.get("/my/level/claims/:id/proof", async (c) => {
+    const pid = await forWhom(c), id = c.req.param("id");
+    const mine = /^[0-9a-f-]{36}$/i.test(id) ? await db.selectFrom("level_claim").select("id").where("id", "=", id).where("person_id", "=", pid).executeTakeFirst() : undefined;
+    const p = mine ? await claimProof(db, id) : null;
+    if (!p) throw new KumiError("error.not_found", { thing: { en: "screenshot", es: "la captura" } }, 404);
+    return proofResponse(c, p);
   });
 
   // ---- Asking the club ----

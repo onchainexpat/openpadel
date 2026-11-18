@@ -109,47 +109,50 @@ test("a parent brings their junior's level from another app on Family; the other
   const first = (await get(`/my/level?for=${mia}`, "pat@example.test")).json;
   assert.deepEqual([first.rating, first.import, first.can_claim], [null, null, true]);
   const low = await post("/actions/level.claim/plan", "pat@example.test", { person_id: mia, platform: "playtomic", value: 2.4 });
-  assert.equal(low.json.summary, "Start Mia's level at 2.40, from Playtomic (2.4). It's provisional: their first games here move it quickly. It can be taken away before 5 rated games.");
+  assert.equal(low.json.summary, "Mia's level from Playtomic (2.4) starts them at 2.40 here, provisional: their first games here move it quickly. It can be taken away before 5 rated games.");
   assert.equal((await post(`/runs/${low.json.run_id}/apply`, "pat@example.test")).status, 200);
   const seen = (await get(`/my/level?for=${mia}`, "sam@example.test")).json;
   assert.equal(seen.rating.level, "2.40");
   assert.match(seen.import.explanation, /Given in the app by Pat on /, "the junior's history says which parent gave it");
   assert.equal((await get("/my/household", "pat@example.test")).json.household.juniors[0].level, 2.4);
-  const rm = await post("/actions/level.remove_import/plan", "sam@example.test", { person_id: mia });
-  assert.equal(rm.json.summary, "Take away Mia's starting level from Playtomic (2.40). With nothing else behind it, they'll have no level until they play here.");
+  assert.deepEqual(seen.claims.map((c: any) => [c.platform, c.status, c.is_start]), [["playtomic", "standing", true]]);
+  const rm = await post("/actions/level.remove_claim/plan", "sam@example.test", { claim_id: seen.claims[0].id });
+  assert.equal(rm.json.summary, "Take away the level from Playtomic (2.4). With nothing else behind it, there's no level until games here.");
   assert.equal((await post(`/runs/${rm.json.run_id}/apply`, "sam@example.test")).status, 200);
   // Above the club's line it waits for staff, and their answer reaches the parents, pointing to Family.
   const high = await post("/actions/level.claim/plan", "pat@example.test", { person_id: mia, platform: "playtomic", value: 5 });
   assert.equal(high.json.summary, "Send Mia's level on Playtomic (5) to the club. Staff check levels above 4.50 first, for example by looking at the app. You'll hear in the app.");
   await post(`/runs/${high.json.run_id}/apply`, "pat@example.test");
-  assert.equal((await get(`/my/level?for=${mia}`, "sam@example.test")).json.review.open.kind, "import");
+  const waiting = (await get(`/my/level?for=${mia}`, "sam@example.test")).json.claims[0];
+  assert.equal(waiting.status, "waiting");
   // Staff hear whose word it is, on Today and in the Levels queue.
   await processOutbox(db, messageHandlers);
   const staff = await db.selectFrom("outbound_message").select(["kind", "body"]).where("person_id", "=", owner.personId!).where("kind", "like", "level_import_claimed%").where("channel", "=", "inbox").execute();
   assert.deepEqual(staff.map((m) => m.kind), ["level_import_claimed_staff_by"]);
   assert.match(staff[0]!.body, /^Pat says Mia's level on Playtomic is 5\./);
   await signIn("robin@example.test");
-  assert.equal((await get("/staff/levels", "robin@example.test")).json.requests.find((r: any) => r.person_id === mia).sent_by, "Pat");
-  await run(db, "level.answer_review", { person_id: mia, outcome: "accept" }, owner);
+  assert.equal((await get("/staff/levels", "robin@example.test")).json.claims.find((r: any) => r.person_id === mia).sent_by, "Pat");
+  await run(db, "level.answer_claim", { claim_id: waiting.id, outcome: "confirm" }, owner);
   await processOutbox(db, messageHandlers);
   assert.match((await get(`/my/level?for=${mia}`, "pat@example.test")).json.import.explanation, /Given in the app by Pat and checked by Robin Hale on /);
-  const told = await db.selectFrom("outbound_message").select(["person_id", "subject", "link"]).where("kind", "=", "level_import_accepted").where("channel", "=", "inbox").execute();
+  const told = await db.selectFrom("outbound_message").select(["person_id", "subject", "link"]).where("kind", "=", "level_claim_confirmed").where("channel", "=", "inbox").execute();
   assert.deepEqual(told.map((m) => [m.person_id === people.Pat || m.person_id === people.Sam, m.subject, m.link]).sort(),
-    [[true, "Mia: Your level starts at 5.00", "/family"], [true, "Mia: Your level starts at 5.00", "/family"]]);
+    [[true, "Mia: Your level from Playtomic is confirmed", "/family"], [true, "Mia: Your level from Playtomic is confirmed", "/family"]]);
   // A parent's own level still reads as theirs.
-  assert.match((await post("/actions/level.claim/plan", "pat@example.test", { person_id: people.Pat, platform: "playtomic", value: 3 })).json.summary, /^Start your level at 3\.00/);
+  assert.match((await post("/actions/level.claim/plan", "pat@example.test", { person_id: people.Pat, platform: "playtomic", value: 3 })).json.summary, /^Your level from Playtomic \(3\) starts you at 3\.00 here/);
 });
 
 test("a junior's level is only their parents': a stranger learns nothing from a preview, a parent who left can't confirm, a kid with a login and the parent who sent it both hear", async () => {
   people.Zed = ((await run(db, "person.create", { display_name: "Zed", email: "zed@example.test" }, owner)).result as any).person_id;
   await signIn("zed@example.test");
   // Mia has a level from Playtomic now: a stranger is refused as for anyone, not told "already brought".
-  for (const [action, input] of [["level.claim", { person_id: mia, platform: "playtomic", value: 3 }], ["level.remove_import", { person_id: mia }], ["level.request_review", { person_id: mia }]] as const) {
+  const miaClaim = (await db.selectFrom("level_claim").select("id").where("person_id", "=", mia).where("status", "=", "confirmed").executeTakeFirstOrThrow()).id;
+  for (const [action, input] of [["level.claim", { person_id: mia, platform: "playtomic", value: 3 }], ["level.remove_claim", { claim_id: miaClaim }], ["level.request_review", { person_id: mia }]] as const) {
     const r = await post(`/actions/${action}/plan`, "zed@example.test", input);
     assert.equal(r.status, 403, action);
   }
   // Sam previews taking Mia's away, leaves the family, and can't confirm it.
-  const take = await post("/actions/level.remove_import/plan", "sam@example.test", { person_id: mia });
+  const take = await post("/actions/level.remove_claim/plan", "sam@example.test", { claim_id: miaClaim });
   assert.equal(take.status, 200);
   await act("sam@example.test", "household.leave", { person_id: people.Sam });
   assert.equal((await post(`/runs/${take.json.run_id}/apply`, "sam@example.test")).status, 403);
@@ -160,9 +163,10 @@ test("a junior's level is only their parents': a stranger learns nothing from a 
   const sent = await post("/actions/level.claim/plan", "pat@example.test", { person_id: leo, platform: "playtomic", value: 5.1 });
   assert.match(sent.json.summary, /^Send Leo's level on Playtomic \(5\.1\) to the club\..* You'll hear in the app\.$/);
   await post(`/runs/${sent.json.run_id}/apply`, "pat@example.test");
-  await run(db, "level.answer_review", { person_id: leo, outcome: "keep", reason: "Let's see a few games first" }, owner);
+  const leoClaim = (await db.selectFrom("level_claim").select("id").where("person_id", "=", leo).executeTakeFirstOrThrow()).id;
+  await run(db, "level.answer_claim", { claim_id: leoClaim, outcome: "reject", reason: "Let's see a few games first" }, owner);
   await processOutbox(db, messageHandlers);
-  const told = await db.selectFrom("outbound_message").select(["person_id", "subject", "link"]).where("kind", "=", "level_import_kept").where("channel", "=", "inbox").orderBy("person_id").execute();
+  const told = await db.selectFrom("outbound_message").select(["person_id", "subject", "link"]).where("kind", "=", "level_claim_rejected").where("channel", "=", "inbox").orderBy("person_id").execute();
   assert.deepEqual(told.map((m) => [m.person_id === leo ? "Leo" : m.person_id === people.Pat ? "Pat" : "someone else", m.subject, m.link]).sort(),
     [["Leo", "Your level from Playtomic", "/level"], ["Pat", "Leo: Your level from Playtomic", "/family"]]);
 });
