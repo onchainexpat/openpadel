@@ -1,0 +1,10 @@
+{
+  "version": "0.1.0",
+  "url": "https://github.com/openpadel/plugin-court-camera/releases/download/v0.1.0/court-camera-0.1.0.tar.gz",
+  "sha256": "6321578fde1cd2c3d53a687546c2ee202323d04bb1f756254d5f5d446ca7484a",
+  "reviewed": {
+    "by": "openPadel",
+    "on": "2026-11-18",
+    "checklist": 1
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "version": "0.1.0",
+  "url": "https://github.com/openpadel/plugin-whatsapp/releases/download/v0.1.0/whatsapp-0.1.0.tar.gz",
+  "sha256": "e7b996f462fcc3dcc3914a078b46acbea192ad4b9548b907527e71cfd8aa7167",
+  "reviewed": {
+    "by": "openPadel",
+    "on": "2026-11-18",
+    "checklist": 1
+  }
+}

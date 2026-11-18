@@ -31,8 +31,8 @@ runs, and what a club can run itself instead.
 | [court-lights](plugins/court-lights) | Court lights in Home Assistant, on before each booking and off after ([source](../plugins/court-lights)). |
 | [accounting-export](plugins/accounting-export) | Each club day's books as one journal in Xero or QuickBooks ([source](../plugins/accounting-export)). |
 | [klaviyo](plugins/klaviyo) | Members who said yes to club news, kept as a Klaviyo list ([source](../plugins/klaviyo)). |
-| whatsapp | WhatsApp messages through Meta's Cloud API: added when its round merges (plugins/whatsapp). |
-| court-camera | Court cameras' highlights and stats on a game's page: added when its round merges (plugins/court-camera). |
+| [whatsapp](plugins/whatsapp) | The club's messages by WhatsApp, through Meta's Cloud API, to members who said yes ([source](../plugins/whatsapp)). |
+| [court-camera](plugins/court-camera) | Court cameras' highlights and stats on a game's page ([source](../plugins/court-camera)). |
 
 ## Building
 
@@ -54,8 +54,8 @@ manifest checks, catalog.json is current, and the manifests are the ones in docs
 2. openPadel reviews it against [CONTRIBUTING.md](CONTRIBUTING.md), and fills in `reviewed`.
 3. `node catalog/tools/build.ts`, and the new catalog.json goes in the same pull request.
 
-The WhatsApp and court camera plugins (rounds whatsapp-28 and cameras-29) are added the same way when they merge:
-copy each one's manifest from `docs/plugins/examples/<name>/`, run `pin`, then build.
+One of this repository's own plugins is added the same way: copy its manifest from `docs/plugins/examples/<name>/`,
+run `pin`, then build.
 
 ## Publishing it (the owner's steps)
 

@@ -406,6 +406,151 @@
     {
       "manifest": {
         "manifest_version": 1,
+        "name": "court-camera",
+        "publisher": "openPadel examples",
+        "version": "0.1.0",
+        "homepage": "https://github.com/openpadel/plugin-court-camera",
+        "licence": "AGPL-3.0-only",
+        "description": {
+          "en": "Shows the club's court cameras' highlights and game stats on each game's page, for its players and staff. A camera system posts when a clip is ready, and the plugin finds the booking on that court at that time.",
+          "es": "Muestra las jugadas destacadas y las estadísticas de las cámaras de las canchas en la página de cada partido, para sus jugadores y el personal. El sistema de cámaras avisa cuando un video está listo, y el plugin encuentra la reserva de esa cancha a esa hora."
+        },
+        "grants": [],
+        "reads": [
+          "bookings",
+          "courts"
+        ],
+        "events": [
+          "booking.cancelled",
+          "booking.created",
+          "booking.moved"
+        ],
+        "secrets": [
+          {
+            "name": "CAMERA_WEBHOOK_SECRET",
+            "label": {
+              "en": "Camera system's signing secret",
+              "es": "Secreto de firma del sistema de cámaras"
+            },
+            "where": {
+              "en": "In your camera system, where you add openPadel (its webhooks or integrations page): the secret it signs what it sends with. Give it https://<your club's address>/plugins/court-camera/hook as the address.",
+              "es": "En tu sistema de cámaras, donde agregas openPadel (su página de webhooks o integraciones): el secreto con el que firma lo que envía. Dale https://<la dirección de tu club>/plugins/court-camera/hook como dirección."
+            }
+          },
+          {
+            "name": "CAMERA_API_KEY",
+            "label": {
+              "en": "Camera system's API key",
+              "es": "Clave de API del sistema de cámaras"
+            },
+            "where": {
+              "en": "In your camera system's settings, its API keys page. Only needed when the cameras are told when bookings start and end.",
+              "es": "En la configuración de tu sistema de cámaras, su página de claves de API. Solo hace falta cuando se avisa a las cámaras cuándo empiezan y terminan las reservas."
+            },
+            "needed_when": {
+              "setting": "tell_cameras",
+              "is": true
+            }
+          }
+        ],
+        "settings": [
+          {
+            "key": "courts",
+            "type": "courts",
+            "label": {
+              "en": "Courts with cameras",
+              "es": "Canchas con cámaras"
+            },
+            "required": true
+          },
+          {
+            "key": "cameras",
+            "type": "string",
+            "label": {
+              "en": "Camera for each court",
+              "es": "La cámara de cada cancha"
+            },
+            "help": {
+              "en": "Each court and its camera's id in the camera system, such as Court 1 = cam-01, Court 2 = cam-02. A court left out uses its name as the id: Court 3 is court_3.",
+              "es": "Cada cancha y el id de su cámara en el sistema de cámaras, como Cancha 1 = cam-01, Cancha 2 = cam-02. Una cancha que no está usa su nombre como id: Cancha 3 es cancha_3."
+            },
+            "required": false,
+            "max_length": 500
+          },
+          {
+            "key": "tell_cameras",
+            "type": "boolean",
+            "label": {
+              "en": "Tell the cameras when bookings start and end",
+              "es": "Avisar a las cámaras cuándo empiezan y terminan las reservas"
+            },
+            "help": {
+              "en": "For a camera system that records only during bookings. It gets each booking's court, start and end, and nothing about who plays.",
+              "es": "Para un sistema de cámaras que graba solo durante las reservas. Recibe la cancha, el inicio y el fin de cada reserva, y nada sobre quién juega."
+            },
+            "default": false
+          },
+          {
+            "key": "vendor_url",
+            "type": "string",
+            "label": {
+              "en": "Camera system address",
+              "es": "Dirección del sistema de cámaras"
+            },
+            "help": {
+              "en": "Where the camera system takes bookings' times, such as https://api.cameras.example/v1, or its address on the club's network, such as http://192.168.1.30. Only needed when the cameras are told about bookings.",
+              "es": "Donde el sistema de cámaras recibe los horarios de las reservas, como https://api.cameras.example/v1, o su dirección en la red del club, como http://192.168.1.30. Solo hace falta cuando se avisa a las cámaras de las reservas."
+            },
+            "required": false,
+            "max_length": 200,
+            "club_network": true
+          }
+        ],
+        "data_out": {
+          "en": "Only when the club turns it on: each booking's court (as its camera), start and end, and an id for it, go to the camera system. No names, emails or phone numbers. The video is recorded and kept by the camera system, under the club's agreement with it; this plugin shows links to it.",
+          "es": "Solo si el club lo activa: la cancha (como su cámara), el inicio y el fin de cada reserva, y un id para ella, van al sistema de cámaras. Sin nombres, correos ni teléfonos. El video lo graba y lo guarda el sistema de cámaras, según el acuerdo del club con él; este plugin muestra enlaces a él."
+        },
+        "cost": {
+          "charges": true,
+          "note": {
+            "en": "The plugin is free. The camera system charges under its own agreement with the club.",
+            "es": "El plugin es gratis. El sistema de cámaras cobra según su propio acuerdo con el club."
+          }
+        },
+        "cards": [
+          {
+            "slot": "game",
+            "title": {
+              "en": "Video and stats",
+              "es": "Video y estadísticas"
+            }
+          }
+        ],
+        "health": "/health",
+        "hook": {
+          "from": {
+            "en": "The club's court cameras, when a highlight or a game's stats are ready",
+            "es": "Las cámaras de las canchas del club, cuando una jugada destacada o las estadísticas de un partido están listas"
+          }
+        },
+        "run": {
+          "mode": "remote",
+          "url": "https://cameras.plugins.openpadel.org/v1"
+        }
+      },
+      "release": {
+        "url": "https://github.com/openpadel/plugin-court-camera/releases/download/v0.1.0/court-camera-0.1.0.tar.gz",
+        "sha256": "6321578fde1cd2c3d53a687546c2ee202323d04bb1f756254d5f5d446ca7484a"
+      },
+      "reviewed": {
+        "by": "openPadel",
+        "on": "2026-11-18",
+        "checklist": 1
+      }
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
         "name": "court-lights",
         "publisher": "openPadel examples",
         "version": "0.1.0",
@@ -616,6 +761,176 @@
       "release": {
         "url": "https://github.com/openpadel/plugin-klaviyo/releases/download/v0.1.0/klaviyo-0.1.0.tar.gz",
         "sha256": "4efe395f2a657e87e7d72351d8028737d53f2d97f9eec3042d0a2dedf0d15259"
+      },
+      "reviewed": {
+        "by": "openPadel",
+        "on": "2026-11-18",
+        "checklist": 1
+      }
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "name": "whatsapp",
+        "publisher": "openPadel examples",
+        "version": "0.1.0",
+        "homepage": "https://github.com/openpadel/plugin-whatsapp",
+        "licence": "AGPL-3.0-only",
+        "description": {
+          "en": "Sends the club's messages by WhatsApp to members who said yes in the app, through the club's own WhatsApp Business account, and passes their replies to the front desk.",
+          "es": "Envía los mensajes del club por WhatsApp a los miembros que dijeron que sí en la app, con la propia cuenta de WhatsApp Business del club, y pasa sus respuestas a la recepción."
+        },
+        "grants": [],
+        "reads": [],
+        "events": [],
+        "secrets": [
+          {
+            "name": "WHATSAPP_ACCESS_TOKEN",
+            "label": {
+              "en": "WhatsApp access token",
+              "es": "Token de acceso de WhatsApp"
+            },
+            "where": {
+              "en": "At business.facebook.com: Business settings, System users, Add (Admin), then Generate new token for the club's WhatsApp app with whatsapp_business_messaging and whatsapp_business_management, set to never expire.",
+              "es": "En business.facebook.com: Configuración del negocio, Usuarios del sistema, Agregar (Admin), luego Generar nuevo token para la app de WhatsApp del club con whatsapp_business_messaging y whatsapp_business_management, sin vencimiento."
+            }
+          },
+          {
+            "name": "WHATSAPP_PHONE_NUMBER_ID",
+            "label": {
+              "en": "WhatsApp phone number id",
+              "es": "Id del número de WhatsApp"
+            },
+            "where": {
+              "en": "At developers.facebook.com: the club's app, WhatsApp, API Setup. Copy the Phone number ID under the club's number (a long number, not the phone number itself).",
+              "es": "En developers.facebook.com: la app del club, WhatsApp, API Setup. Copia el Phone number ID que aparece bajo el número del club (un número largo, no el teléfono)."
+            }
+          },
+          {
+            "name": "WHATSAPP_APP_SECRET",
+            "label": {
+              "en": "Meta app secret",
+              "es": "App secret de Meta"
+            },
+            "where": {
+              "en": "At developers.facebook.com: the club's app, App settings, Basic, App secret (Show). It checks that what reaches the club really comes from Meta.",
+              "es": "En developers.facebook.com: la app del club, Configuración de la app, Básica, App secret (Mostrar). Sirve para comprobar que lo que llega al club viene de Meta."
+            }
+          },
+          {
+            "name": "WHATSAPP_VERIFY_TOKEN",
+            "label": {
+              "en": "Webhook verify token",
+              "es": "Token de verificación del webhook"
+            },
+            "where": {
+              "en": "Make up a long random word and type it here and at developers.facebook.com: the club's app, WhatsApp, Configuration, Webhook, Verify token.",
+              "es": "Inventa una palabra larga al azar y escríbela aquí y en developers.facebook.com: la app del club, WhatsApp, Configuration, Webhook, Verify token."
+            }
+          }
+        ],
+        "settings": [
+          {
+            "key": "club_number",
+            "type": "string",
+            "label": {
+              "en": "The club's WhatsApp number",
+              "es": "Número de WhatsApp del club"
+            },
+            "help": {
+              "en": "The number members write to, with its country code, as +34 600 123 456. The app shows it to members when they link their WhatsApp.",
+              "es": "El número al que escriben los miembros, con su código de país, como +34 600 123 456. La app se lo muestra a los miembros cuando vinculan su WhatsApp."
+            },
+            "required": true,
+            "max_length": 30
+          },
+          {
+            "key": "template_language_en",
+            "type": "string",
+            "label": {
+              "en": "Template language for English",
+              "es": "Idioma de las plantillas en inglés"
+            },
+            "help": {
+              "en": "The language the club's templates were approved in for English, as Meta names it: en_US, en_GB or en.",
+              "es": "El idioma en que se aprobaron las plantillas del club para inglés, como lo llama Meta: en_US, en_GB o en."
+            },
+            "required": false,
+            "default": "en_US",
+            "max_length": 10
+          },
+          {
+            "key": "template_language_es",
+            "type": "string",
+            "label": {
+              "en": "Template language for Spanish",
+              "es": "Idioma de las plantillas en español"
+            },
+            "help": {
+              "en": "The language the club's templates were approved in for Spanish, as Meta names it: es_MX, es_AR, es or another.",
+              "es": "El idioma en que se aprobaron las plantillas del club para español, como lo llama Meta: es_MX, es_AR, es u otro."
+            },
+            "required": false,
+            "default": "es_MX",
+            "max_length": 10
+          },
+          {
+            "key": "per_second",
+            "type": "integer",
+            "label": {
+              "en": "Messages a second, at most",
+              "es": "Mensajes por segundo, como máximo"
+            },
+            "help": {
+              "en": "How fast it sends. Meta allows 80 a second to most numbers; lower it if Meta says the club's number is sending too fast.",
+              "es": "Qué tan rápido envía. Meta permite 80 por segundo a la mayoría de los números; bájalo si Meta avisa que el número del club envía demasiado rápido."
+            },
+            "required": false,
+            "default": 20,
+            "minimum": 1,
+            "maximum": 80
+          }
+        ],
+        "data_out": {
+          "en": "For each member who said yes in the app: their WhatsApp number and each message's words (a booking's court and time, a place offered, the club's name) go to Meta's WhatsApp Cloud API, through the club's own WhatsApp Business account. Their replies come back from Meta and go to the front desk. Nothing about members who didn't say yes.",
+          "es": "Por cada miembro que dijo que sí en la app: su número de WhatsApp y las palabras de cada mensaje (la cancha y la hora de una reserva, un lugar ofrecido, el nombre del club) van a la WhatsApp Cloud API de Meta, con la propia cuenta de WhatsApp Business del club. Sus respuestas vuelven de Meta y van a la recepción. Nada de los miembros que no dijeron que sí."
+        },
+        "cost": {
+          "charges": true,
+          "note": {
+            "en": "Meta charges the club's WhatsApp Business account for each template message, by the member's country (utility messages cost cents or less). Answers within 24 hours of a member's own message are free.",
+            "es": "Meta cobra a la cuenta de WhatsApp Business del club cada mensaje con plantilla, según el país del miembro (los mensajes de servicio cuestan centavos o menos). Las respuestas dentro de las 24 horas siguientes a un mensaje del miembro son gratis."
+          }
+        },
+        "cards": [
+          {
+            "slot": "connectors",
+            "title": {
+              "en": "WhatsApp",
+              "es": "WhatsApp"
+            }
+          }
+        ],
+        "health": "/health",
+        "hook": {
+          "from": {
+            "en": "Meta's WhatsApp Cloud API: members' replies, STOP and how each message went",
+            "es": "la WhatsApp Cloud API de Meta: las respuestas de los miembros, STOP y cómo le fue a cada mensaje"
+          },
+          "challenge": true
+        },
+        "channel": {
+          "kind": "whatsapp",
+          "address_setting": "club_number"
+        },
+        "run": {
+          "mode": "remote",
+          "url": "https://whatsapp.plugins.openpadel.org/v1"
+        }
+      },
+      "release": {
+        "url": "https://github.com/openpadel/plugin-whatsapp/releases/download/v0.1.0/whatsapp-0.1.0.tar.gz",
+        "sha256": "e7b996f462fcc3dcc3914a078b46acbea192ad4b9548b907527e71cfd8aa7167"
       },
       "reviewed": {
         "by": "openPadel",
