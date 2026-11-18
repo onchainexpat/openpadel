@@ -152,6 +152,9 @@ export async function clubAgentOf(db: Db | Trx, personId: string | null | undefi
 /** A channel plugin's reports and what came in on its channel (whatsapp.ts): only one whose manifest declares a channel. */
 export const CHANNEL_OWN = ["plugin.message_status", "plugin.channel_stop", "plugin.channel_reply"];
 export const PLUGIN_OWN = ["plugin.card_put", "plugin.card_clear", "plugin.secret_keep", ...CHANNEL_OWN];
+/** And what only a plugin may do that a person should still see in Today and Changes: a marketing sync saying a member
+ *  unsubscribed on its side (club_news_sync.ts; it checks the plugin reads club_news itself). */
+export const PLUGIN_ONLY = [...PLUGIN_OWN, "club_news.unsubscribed_elsewhere"];
 /** Whether a person row is a live plugin's agent (not paused or removed, its agent not revoked). */
 async function isLivePlugin(db: Db | Trx, personId: string): Promise<boolean> {
   return Boolean(await db.selectFrom("plugin").innerJoin("agent", "agent.id", "plugin.agent_id").select("plugin.id").where("agent.person_id", "=", personId)
@@ -161,7 +164,7 @@ async function isLivePlugin(db: Db | Trx, personId: string): Promise<boolean> {
 export async function decide(db: Db | Trx, action: string, s: Subject): Promise<Decision> {
   if (!s.personId) return { mode: "no", reason: "reason.no_role" };
   // A plugin's own cards: its token alone, on its own rows, whatever any role says.
-  if (PLUGIN_OWN.includes(action)) return (s.ownerIds ?? []).includes(s.personId) && await isLivePlugin(db, s.personId) ? { mode: "allow" } : { mode: "no", reason: "reason.plugin_own" };
+  if (PLUGIN_ONLY.includes(action)) return (s.ownerIds ?? []).includes(s.personId) && await isLivePlugin(db, s.personId) ? { mode: "allow" } : { mode: "no", reason: "reason.plugin_own" };
   // A club agent looks after its own webhooks (its own rows only), whatever its role says.
   if (AGENT_OWN.includes(action) && (s.ownerIds ?? []).includes(s.personId) && await clubAgentOf(db, s.personId)) return { mode: "allow" };
   const own = await decidePerson(db, action, { ...s, personId: s.personId });

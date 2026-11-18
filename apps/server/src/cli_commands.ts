@@ -5,7 +5,7 @@
 // test fails when it's out of date.
 import * as z from "zod/mini";
 import { toJSONSchema } from "zod/v4/core";
-import { actions, PLUGIN_OWN, specificity, type ActionDef } from "@kumi/core";
+import { actions, PLUGIN_ONLY, specificity, type ActionDef } from "@kumi/core";
 import { both, COMMAND, en, type Key, type Params, type Text } from "@kumi/i18n";
 import { doorAction, READS, slim, toolBase } from "./mcp.ts";
 
@@ -58,7 +58,7 @@ export function commands(): Command[] {
   const out: Command[] = [];
   for (const a of actions()) {
     // A plugin's own cards are its token's alone (plugin_cards.ts): never a command a person is offered.
-    if (!doorAction(a) || PLUGIN_OWN.includes(a.name)) continue;
+    if (!doorAction(a) || PLUGIN_ONLY.includes(a.name)) continue;
     const schema = slim(toJSONSchema(a.input as any)) as Record<string, unknown>;
     const planKey = `plan.${a.name}` in en ? (`plan.${a.name}` as Key) : undefined;
     out.push({ kind: "action", words: a.name.split(".").map(kebab), tool: toolBase(a.name), action: a.name, title: titleOf(a.name), description: titleOf(a.name).en,

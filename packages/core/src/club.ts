@@ -398,6 +398,7 @@ export const personImport = defineAction({
       if (r.link) await ctx.trx.insertInto("external_ref").values({ entity: "person", entity_id: id, system: "playtomic", external_id: r.row.playtomic_id! }).execute();
       if (r.news) await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: id, channel: "email", purpose: "club_news", granted: true, source: "import", form_version: null,
         evidence: JSON.stringify({ via: "import", by: ctx.actor.personId }), at: ctx.now }).execute();
+      if (r.news) await ctx.emit("club_news.joined", { person_id: id });
       if (r.level) {
         const platform = r.level.platform ?? "playtomic", conf = r.level.reliability !== undefined && platform === "playtomic" ? { reliability: r.level.reliability } : {};
         await writeImport(ctx, id, { platform, raw: r.level.value, conf, start_level: toKumi(platform, r.level.value)!, sigma: startSigma(platform, "club_data", conf)!, evidence: "club_data",
@@ -493,6 +494,7 @@ export const personSignUp = defineAction({
     const member = await ctx.trx.selectFrom("role").select("id").where("key", "=", "member").executeTakeFirstOrThrow();
     await ctx.insert("person_role", { id: uuidv7(), person_id: id, role_id: member.id, location_id: null });
     if (email) await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: id, channel: "email", purpose: "club_news", granted: i.club_news, source: "sign_up", form_version: SIGN_UP_FORM, evidence: JSON.stringify({ at: ctx.now.toISOString() }) }).execute();
+    if (email && i.club_news) await ctx.emit("club_news.joined", { person_id: id });
     const agreed = (plan.details as { policies: { terms_url: string | null; privacy_policy_url: string | null } | null }).policies;
     if (agreed) await ctx.trx.insertInto("policy_acceptance").values({ id: uuidv7(), person_id: id, ...agreed, lang: i.locale, source: "sign_up", accepted_at: ctx.now }).execute();
     // Their own act: someone whose account here was deleted, signing up again, comes back from today (playtomic_erased.ts).

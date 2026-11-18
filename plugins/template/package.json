@@ -1,0 +1,19 @@
+{
+  "name": "openpadel-plugin-bookings-today",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The smallest working openPadel plugin, to copy: bookings today on the Connectors page.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "openpadel-bookings-today": "bin/start"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test 'test/*.test.ts'",
+    "pack": "node tools/pack.ts"
+  }
+}

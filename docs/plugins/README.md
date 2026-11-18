@@ -14,7 +14,9 @@ sends the club's books to Xero or QuickBooks: it connects by OAuth through the c
 token in the club's vault. The third, [plugins/whatsapp](../../plugins/whatsapp/README.md), is a message channel: the club's messages by
 WhatsApp, with the club deciding who gets what ([A message channel](#a-message-channel), below). [plugins/court-camera](../../plugins/court-camera/README.md) shows a court camera system's
 highlights and game stats on each game's page: the one to read for what an outside service posts to `/plugins/<name>/hook`,
-and for a game's card.
+and for a game's card. [plugins/klaviyo](../../plugins/klaviyo/README.md), keeps the members who said yes
+to club news as a Klaviyo list. To write your own, start from [plugins/template](../../plugins/template/README.md) and
+[writing.md](writing.md).
 
 ## For a club: installing one
 
@@ -71,6 +73,10 @@ So the club's agent can do the installing, and the owner's yes to the preview is
 openPadel, with the court lights example.
 Whatever a catalog lists counts as reviewed, so `openpadel doctor` warns while the server reads one other than
 openPadel's own (`https://plugins.openpadel.org/catalog.json`) or the bundled sample.
+openPadel's catalog is kept as files in [catalog/](../../catalog/README.md): one folder per plugin with its manifest
+and the release it pins, the review checklist a plugin passes before it's listed
+([catalog/CONTRIBUTING.md](../../catalog/CONTRIBUTING.md)), and a build that checks every manifest with the server's own
+parser and writes `catalog.json`.
 
 The list of installed plugins and the catalog are for the owner and managers (and their agents), like Settings, Agents;
 the services that see member data (`openpadel processors`) are for all staff.
@@ -177,6 +183,22 @@ lessons, programs, memberships, after_restore, other; net of tax), `tax`, `credi
 clearing), `cash.in` and `cash.out`, `receivable.up` and `receivable.down`, `refunds_payable`, `adjustment`,
 `brought_in`, `card.fees` with `card.fees_out`, and `bank.payouts` with `card.payouts_out`. Amounts and kinds only:
 nothing in it names a person.
+
+With `club_news` (and only with it), `club_news_list` `{ after?, limit? }` gives the members whose latest answer to club
+news by email is yes, 500 at a time in id order, what a marketing sync sends:
+
+```json
+{ "total": 1204, "next": "0196…", "members": [{ "id": "0195…", "email": "ann@example.com", "first_name": "Ann", "language": "es" }] }
+```
+
+The club filters it on its own server: nobody who said no, never answered, was deleted or is a junior is in it, and
+nothing else about anyone is. Staff read the same list (owners, managers, the front desk, the accountant, and a role
+the club made covering messages); through the door their emails come shortened, and only a plugin whose manifest reads
+`club_news` gets them whole. `club_news.joined` and `club_news.left` (with `why`: `said_no`, `unsubscribed`,
+`text_stop`, `deleted`) say when someone's answer turns: take someone off at once on `left`, and read the list again.
+Never subscribe anyone on the outside service's side, and never put back someone it says unsubscribed or suppressed:
+pass it back instead with `club_news_unsubscribed_elsewhere_preview` `{ person_id, service }` then its confirm, for one
+member the list gave you, and their answer turns to no at the club too (yours alone: only a plugin reading `club_news`).
 
 You can't move money (your weekly limit is 0), make webhooks, or install or change plugins.
 

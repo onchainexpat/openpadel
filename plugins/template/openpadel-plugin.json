@@ -1,0 +1,63 @@
+{
+  "$schema": "https://openpadel.org/schemas/openpadel-plugin.v1.json",
+  "manifest_version": 1,
+  "name": "bookings-today",
+  "publisher": "Your name or company",
+  "version": "0.1.0",
+  "homepage": "https://github.com/your-name/openpadel-bookings-today",
+  "licence": "AGPL-3.0-only",
+  "description": {
+    "en": "Shows on the Connectors page how many bookings each location has today, kept up to date as bookings are made and cancelled.",
+    "es": "Muestra en la página de Conectores cuántas reservas tiene hoy cada sede, al día a medida que se hacen y cancelan reservas."
+  },
+  "grants": [],
+  "reads": [
+    "bookings"
+  ],
+  "events": [
+    "booking.cancelled",
+    "booking.created"
+  ],
+  "secrets": [],
+  "settings": [
+    {
+      "key": "label",
+      "type": "string",
+      "label": {
+        "en": "What to call bookings",
+        "es": "Cómo llamar a las reservas"
+      },
+      "help": {
+        "en": "A word for the card, such as Games. Bookings unless set.",
+        "es": "Una palabra para la tarjeta, como Partidos. Reservas si no se elige."
+      },
+      "required": false,
+      "max_length": 30
+    }
+  ],
+  "data_out": {
+    "en": "Nothing leaves the club: it only counts bookings and shows the count back to the club. No names, emails or phone numbers.",
+    "es": "Nada sale del club: solo cuenta las reservas y le muestra la cuenta al club. Sin nombres, correos ni teléfonos."
+  },
+  "cost": {
+    "charges": false,
+    "note": {
+      "en": "Free.",
+      "es": "Gratis."
+    }
+  },
+  "cards": [
+    {
+      "slot": "connectors",
+      "title": {
+        "en": "Bookings today",
+        "es": "Reservas de hoy"
+      }
+    }
+  ],
+  "health": "/health",
+  "run": {
+    "mode": "remote",
+    "url": "https://bookings-today.example.com/v1"
+  }
+}

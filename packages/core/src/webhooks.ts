@@ -39,6 +39,9 @@ export const WEBHOOK_TOPICS: Record<string, string> = {
   "program.published": "programs", "program.min_cancelled": "programs", "enrolment.booked": "programs", "enrolment.left": "programs",
   "enrolment.removed": "programs", "waitlist.offered": "programs",
   "person.created": "members", "person.signed_up": "members",
+  // Someone's answer to club news by email turned yes, or turned no (they said no, stopped from an email's link or by
+  // texting STOP, or their account was deleted: `why`). Only the person's id: the list itself is a read (club_news).
+  "club_news.joined": "club_news", "club_news.left": "club_news",
   "game.scored": "levels", "result.confirmed": "levels",
 };
 export const WEBHOOK_TOPIC_NAMES = Object.keys(WEBHOOK_TOPICS).sort();

@@ -1,0 +1,19 @@
+{
+  "name": "@openpadel/plugin-klaviyo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "openPadel's Klaviyo plugin: the members who said yes to club news by email, kept as a Klaviyo list.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "openpadel-klaviyo": "bin/start"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test 'test/*.test.ts'",
+    "pack": "node tools/pack.ts"
+  }
+}

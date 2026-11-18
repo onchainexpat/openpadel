@@ -1,0 +1,10 @@
+{
+  "version": "0.1.0",
+  "url": "https://github.com/openpadel/plugin-accounting-export/releases/download/v0.1.0/accounting-export-0.1.0.tar.gz",
+  "sha256": "ba1e05f4e6c50ed8634919729d40bce6dfc302e097d06f56a7f63c926c38b620",
+  "reviewed": {
+    "by": "openPadel",
+    "on": "2026-11-18",
+    "checklist": 1
+  }
+}

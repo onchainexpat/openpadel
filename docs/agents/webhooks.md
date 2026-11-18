@@ -34,6 +34,13 @@ club:
 | Programs | program.published, program.min_cancelled, enrolment.booked, enrolment.left, enrolment.removed, waitlist.offered |
 | Members | person.created, person.signed_up |
 | Levels and scores | game.scored, result.confirmed |
+| The club news list | club_news.joined, club_news.left |
+
+The club news list is whoever said yes to club news by email (the `club_news_list` read): owners, managers, the front
+desk and the accountant read it, a role the club made when it covers messages, and a plugin when its manifest reads
+`club_news`. `club_news.joined` and `club_news.left` carry only the person's id (and for `left`, `why`: `said_no`,
+`unsubscribed` from an email's link, `text_stop`, `unsubscribed_elsewhere` when a marketing sync said they unsubscribed
+there, or `deleted` for an account deleted).
 
 A delivery carries the event's own data (mostly ids, with emails and phone numbers shortened); read what changed through
 the door (`person_page`, `day`, ...) with the agent's own permissions.

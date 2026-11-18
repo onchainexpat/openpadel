@@ -815,6 +815,82 @@
           "url": "https://cameras.plugins.openpadel.org/v1"
         }
       }
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "name": "klaviyo",
+        "publisher": "openPadel examples",
+        "version": "0.1.0",
+        "homepage": "https://github.com/openpadel/plugin-klaviyo",
+        "licence": "AGPL-3.0-only",
+        "description": {
+          "en": "Keeps a Klaviyo list of the members who said yes to club news by email: on it when they say yes, off it as soon as they say no or their account is deleted, and checked against the club every day.",
+          "es": "Mantiene una lista en Klaviyo con los miembros que dijeron que sí a las novedades del club por correo: entran cuando dicen que sí, salen en cuanto dicen que no o se elimina su cuenta, y se revisa contra el club cada día."
+        },
+        "grants": [],
+        "reads": [
+          "club_news"
+        ],
+        "events": [
+          "club_news.joined",
+          "club_news.left"
+        ],
+        "secrets": [
+          {
+            "name": "KLAVIYO_API_KEY",
+            "label": {
+              "en": "Klaviyo private API key",
+              "es": "Clave privada de API de Klaviyo"
+            },
+            "where": {
+              "en": "In Klaviyo: Settings, Account, API keys, Create Private API Key. Choose Custom Key with Full Access to Lists and Profiles, and to Data Privacy so a deleted member's profile is deleted there too.",
+              "es": "En Klaviyo: Settings, Account, API keys, Create Private API Key. Elige Custom Key con Full Access a Lists y Profiles, y a Data Privacy para que el perfil de un miembro eliminado también se elimine ahí."
+            }
+          }
+        ],
+        "settings": [
+          {
+            "key": "list_id",
+            "type": "string",
+            "label": {
+              "en": "Klaviyo list id",
+              "es": "Id de la lista de Klaviyo"
+            },
+            "help": {
+              "en": "In Klaviyo: Audience, Lists & Segments, Create New, List (call it Club news), then its Settings: List ID, six letters and digits such as Xy12Ab. Use a list only this plugin fills: anyone else on it is taken off at the daily check.",
+              "es": "En Klaviyo: Audience, Lists & Segments, Create New, List (llámala Novedades del club), y luego su Settings: List ID, seis letras y números como Xy12Ab. Usa una lista que solo llene este plugin: cualquier otra persona en ella sale en la revisión diaria."
+            },
+            "required": true,
+            "max_length": 40
+          }
+        ],
+        "data_out": {
+          "en": "The email, first name and language of each member who said yes to club news by email go to the club's own Klaviyo account, passing through wherever the plugin runs, which keeps none of them. Nothing else, and nobody who said no, never answered or is a junior. Whoever says no comes off the list, and a deleted member's profile is deleted in Klaviyo.",
+          "es": "El correo, el nombre y el idioma de cada miembro que dijo que sí a las novedades del club por correo van a la propia cuenta de Klaviyo del club, pasando por donde funciona el plugin, que no guarda ninguno. Nada más, y nadie que dijo que no, que nunca respondió o que es menor. Quien dice que no sale de la lista, y el perfil de un miembro eliminado se elimina en Klaviyo."
+        },
+        "cost": {
+          "charges": true,
+          "note": {
+            "en": "The plugin is free. Klaviyo charges by the number of profiles and emails, with a free plan for small lists.",
+            "es": "El plugin es gratis. Klaviyo cobra por la cantidad de perfiles y correos, con un plan gratis para listas pequeñas."
+          }
+        },
+        "cards": [
+          {
+            "slot": "connectors",
+            "title": {
+              "en": "Klaviyo",
+              "es": "Klaviyo"
+            }
+          }
+        ],
+        "health": "/health",
+        "run": {
+          "mode": "remote",
+          "url": "https://klaviyo.plugins.openpadel.org/v1"
+        }
+      }
     }
   ]
 }

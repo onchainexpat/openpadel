@@ -11,7 +11,7 @@ import { actions, appOnly, getAction } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { specificity } from "./permissions.ts";
-import { AREAS, areaOf, grantableActions } from "./roles.ts";
+import { AREAS, EXTRA_READS, areaOf, grantableActions } from "./roles.ts";
 import { WEBHOOK_TOPICS, WEBHOOK_TOPIC_NAMES } from "./webhooks.ts";
 
 export const MANIFEST_FILE = "openpadel-plugin.json";
@@ -22,6 +22,8 @@ export const CARD_SLOTS = ["game", "court_tile", "member_profile", "money", "con
 /** The message channels a plugin may send for the club (whatsapp.ts). */
 export const CHANNEL_KINDS = ["whatsapp"] as const;
 export const AREA_KEYS = AREAS.map((a) => a.key) as [string, ...string[]];
+/** What a manifest's `reads` may name: the areas, and the reads that aren't one (roles.ts EXTRA_READS: `club_news`). */
+export const READ_KEYS = [...AREA_KEYS, ...EXTRA_READS] as [string, ...string[]];
 /** What no plugin is ever given, whatever its manifest says: making or changing agents, plugins, webhooks, the vault,
  *  roles, assistants and support access. Its own webhook and keys come with it, through plugin.* actions a person
  *  confirms. (Most of these aren't in a club's role anyway; this says so even if a club's manager role changes.) */
@@ -76,7 +78,7 @@ export const manifestSchema = z.strictObject({
   /** Its role: the actions it may plan, each outright or asking a person first. */
   grants: z.array(z.strictObject({ action: z.string().check(z.regex(/^[a-z_]+\.[a-z_]+$/)), mode: z.enum(["allow", "ask"]), scope: z.optional(z.enum(["any", "own"])) })).check(z.maxLength(100)),
   /** And the parts of the club it reads (roles.ts AREAS) beyond what its actions cover. */
-  reads: z.array(z.enum(AREA_KEYS)).check(z.maxLength(AREA_KEYS.length)),
+  reads: z.array(z.enum(READ_KEYS)).check(z.maxLength(READ_KEYS.length)),
   events: z.array(z.enum(WEBHOOK_TOPIC_NAMES as [string, ...string[]])).check(z.maxLength(WEBHOOK_TOPIC_NAMES.length)),
   secrets: z.array(z.strictObject({ name: z.string().check(z.regex(/^[A-Z][A-Z0-9_]{1,63}$/)), label: text(80), where: text(300),
     /** Not asked of the owner when it's installed: one the plugin needs only in some setups (a QuickBooks key, for a
@@ -160,7 +162,7 @@ export function manifestSha256(m: Manifest): string {
 /** The parts of the club a plugin reads: its manifest's reads, and the areas its actions are in. */
 export function readsOf(m: Manifest): string[] {
   const all = new Set([...m.reads, ...m.grants.map((g) => areaOf(g.action))]);
-  return AREA_KEYS.filter((k) => all.has(k));
+  return READ_KEYS.filter((k) => all.has(k));
 }
 const never = (action: string) => PLUGIN_NEVER.some((p) => specificity(p, action) >= 0);
 

@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, moneyBooks, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db, type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff, clubPhoneShown, moveState, broughtTotals, broughtPeople, upcomingCompared } from "@kumi/core";
+import { decide, getAction, moneyBooks, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db, type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff, clubPhoneShown, moveState, broughtTotals, broughtPeople, upcomingCompared, clubNewsList } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { shortContact } from "./mcp.ts";
 import { csvCell, readPeopleCsv, readPeopleRows } from "./csv.ts";
@@ -30,7 +30,7 @@ const COACH_ALSO = /^\/staff\/(coach-earnings(\.csv)?|questions\/count)$/;
 const NIGHT_READ = ["draw.generate", "game.score", "level.set_session"];
 const READ_AREAS: [RegExp, string][] = [
   [/^\/staff\/(people\/[^/]+\/level|levels|sessions\/[^/]+\/levels|scores)/, "levels"],
-  [/^\/staff\/(people|tags|chats|customers)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
+  [/^\/staff\/club-news\//, "club_news"], [/^\/staff\/(people|tags|chats|customers)/, "members"], [/^\/staff\/(programs|sessions|roster)/, "programs"], [/^\/staff\/memberships/, "memberships"],
   [/^\/staff\/(reports|money\/books|coach-earnings|payments|receipts|desk|move-in)/, "money"], [/^\/staff\/(settings|roles|vault|usage|plugins|processors|connectors)/, "settings"],
   [/^\/staff\/(questions|facts|broadcast|broadcasts|segments|templates)/, "messages"], [/^\/staff\/(grid|month|quote|lesson-coaches|lesson-times|mirror|alerts|block-series|bookings|weekly-courts)/, "bookings"],
   [/^\/staff\/(coaches|my-schedule|students|calendar-link)/, "coaches"],
@@ -779,6 +779,15 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         // A junior isn't asked about club news (their family is).
         club_news: r.junior || !n ? null : n.granted, ...(levels ? { level: level.find((x) => x.person_id === r.id)?.level ?? null } : {}) };
     }) });
+  });
+  // The club-news list (roles.ts EXTRA_READS, `club_news`): only the members whose latest answer to club news by email is
+  // yes, with their email, first name and language, a page at a time. Filtered here for whoever reads it, a person or a
+  // marketing sync's plugin; through the door a person sees the emails shortened like every staff read, and only a
+  // plugin whose manifest reads club_news gets them whole (mcp.ts).
+  app.get("/staff/club-news/list", async (c) => {
+    const after = c.req.query("after") || null, limit = Number(c.req.query("limit") ?? 0) || undefined;
+    if (after && !isUuid(after)) throw new KumiError("error.not_found", { thing: both("thing.person") }, 404);
+    return c.json(await clubNewsList(db, { after, limit }));
   });
   // Past member imports (the Customers page's Imports tab), newest first: when, who, the file's name, its lines, and what
   // came of them. Read from the imports' own runs (person.import): nothing else is kept, and never the file.

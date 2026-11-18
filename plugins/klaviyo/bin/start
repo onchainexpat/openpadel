@@ -1,0 +1,3 @@
+#!/bin/sh
+# openPadel's Klaviyo plugin. Its settings come from the environment (README.md); it needs Node 24 or later.
+exec node "$(dirname "$0")/../src/main.ts"

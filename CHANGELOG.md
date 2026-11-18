@@ -285,6 +285,33 @@ numbers. A camera system that can post signed JSON works with it as it is (the g
 API gets a one-file adapter. The video stays the vendor's; the README says what the club tells members and that
 recording signs are the club's. See plugins/court-camera/README.md.
 
+Klaviyo, the third plugin (plugins/klaviyo): the members who said yes to club news by email, kept as a list in the
+club's own Klaviyo account so the club can send its newsletters from there. Each member goes with their email, first
+name and language and nothing else; nobody who said no, never answered, was deleted or is a junior. Saying yes puts
+them on within seconds; saying no (in the app, from an email's link, or by texting STOP) takes them off at once; a
+deleted account comes off and its profile is deleted in Klaviyo too. The club's list is read again hourly and the whole
+Klaviyo list checked against it daily, so a missed event or someone added by hand is caught. While Klaviyo isn't
+answering, whoever is waiting to come off is kept and goes first when it's back. Its card on Connectors says how many
+are on the list and anything that needs the owner. It keeps no email or name of its own, only ids. The owner makes the
+list and a private key in Klaviyo (plugins/klaviyo/README.md says what to click). What it reads is new: the club news
+list (`club_news`, `openpadel club-news list` and `club_news_list` at the door), filtered on the club's own server to
+whoever said yes, for the owner, managers, the front desk, the accountant and a role the club made covering messages;
+through the door its emails come shortened, and only a plugin whose manifest reads `club_news` gets them whole. New
+events tell it when an answer turns: `club_news.joined` and `club_news.left` (with why: said no, unsubscribed, STOP,
+deleted, unsubscribed elsewhere). It never subscribes anyone in Klaviyo, never puts back someone Klaviyo says
+unsubscribed or suppressed, and passes that back to the club (`club_news.unsubscribed_elsewhere`, a plugin's own action
+for a plugin reading the list, for one member on it), so their answer turns to no in openPadel too.
+
+The plugin catalog, as files (catalog/): one folder per plugin with its manifest and the release it pins by SHA-256, the
+checklist openPadel reviews a plugin against before listing it (catalog/CONTRIBUTING.md: least privilege, honest data
+out, no member data beyond need, signatures, tests, licence), and a build that checks every manifest with the club
+server's own parser and writes catalog.json. Court lights, accounting export and Klaviyo are in it. It isn't published
+yet: catalog/README.md says what the owner does to make it the catalog every club reads.
+
+Writing a plugin: plugins/template is the smallest working plugin to copy (signed registration and events, the door,
+one card, health, a pinned release, tests against a fake club), and docs/plugins/writing.md the guide for the agents
+and people who write one. openPadel's own tests run the template copied out of the repository, and installed at a club.
+
 ### Added
 - Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed
   scores, levels to review, members' questions for staff, sessions whose coach is off this week, card charges that
