@@ -201,3 +201,18 @@ test("the weekly limit is one of the consent's choices, scope kumi, and the code
   const other = await startDevice("kumi (other)");
   assert.equal((await tokenOf({ device_code: d.device_code, client_id: other.client_id })).error, "expired_token");
 });
+
+test("a sign-in page that can't go on says so on a plain page in the person's language, with what to do; apps still get JSON", async () => {
+  // A sign-in form sent back to an address that isn't one of the club's consent pages (as behind a web server before 761993b).
+  const bad = await req("/oauth/sign-in", { ...form({ email: "robin@example.test", back: "http://elsewhere.example/oauth/device" }), headers: { ...form({}).headers, "accept-language": "es" } });
+  assert.equal(bad.status, 400);
+  assert.match(bad.headers.get("content-type") ?? "", /^text\/html/);
+  const html = await bad.text();
+  assert.match(html, /<html lang="es">/);
+  assert.match(html, /Este enlace de inicio de sesión está incompleto/);
+  assert.match(html, /\(openpadel login\), vuelve a ejecutarla y abre la página nueva que te da/);
+  assert.ok(!html.includes("—") && !html.includes('"error"'));
+  // The token endpoint is for programs: it answers JSON as before.
+  const token = await req("/oauth/token", form({ grant_type: DEVICE_GRANT, device_code: "nope", client_id: "nope" }));
+  assert.match(token.headers.get("content-type") ?? "", /^application\/json/);
+});

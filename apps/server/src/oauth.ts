@@ -162,6 +162,13 @@ function page(lang: Lang, title: string, body: unknown) {
 <body><h1 style="font-size:22px">${title}</h1>${body}</body></html>`;
 }
 
+/** The sign-in and consent pages a person's browser opens (the rest of /oauth/* is for apps and the command line). */
+export const OAUTH_PAGES = new Set(["/oauth/authorize", "/oauth/sign-in", "/oauth/two-step", "/oauth/decide", "/oauth/device", "/oauth/device/decide"]);
+/** What a person sees when one of those pages can't go on: what went wrong, in their language, and what to do now. */
+export function oauthErrorPage(lang: Lang, message: string): string {
+  return String(page(lang, t(lang, "consent.error_title"), html`<p>${message}</p><p>${t(lang, "consent.error_again")}</p>`));
+}
+
 /** Whether the browser's sign-in gave a second step: a passkey, or an emailed code and then the authenticator. */
 export const gaveSecondStep = (me: { method?: string }) => me.method === "passkey" || me.method === "two_factor";
 

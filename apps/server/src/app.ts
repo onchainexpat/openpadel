@@ -19,7 +19,7 @@ import { welcomeDue, greetDue, greeted, connectionReach, anyPhone, promosOn, uns
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, LINK_MINUTES, phoneSignInOn, signInLinkTarget, useSignInLink, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
-import { bearerPerson, defaultFetchMetadata, mcpResourceOf, mcpResources, oauthRoutes, type FetchMetadata } from "./oauth.ts";
+import { bearerPerson, defaultFetchMetadata, mcpResourceOf, mcpResources, OAUTH_PAGES, oauthErrorPage, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { previewWords } from "./preview_words.ts";
 import { assistantRoutes, type ModelClient } from "./assistant.ts";
@@ -207,9 +207,11 @@ export function makeApp(deps: AppDeps) {
   });
 
   app.onError((e, c) => {
-    if (e instanceof KumiError) return c.json({ error: e.code, message: e.text[c.get("lang") ?? "en"] }, e.status as 400);
+    // The sign-in and consent pages are a person's browser, not an app: a plain page in their language, saying what to do.
+    const lang = c.get("lang") ?? "en", onPage = OAUTH_PAGES.has(c.req.path);
+    if (e instanceof KumiError) return onPage ? c.html(oauthErrorPage(lang, e.text[lang]), e.status as 400) : c.json({ error: e.code, message: e.text[lang] }, e.status as 400);
     console.error(e);
-    return c.json({ error: "internal", message: "Something went wrong." }, 500);
+    return onPage ? c.html(oauthErrorPage(lang, t(lang, "consent.error_internal")), 500) : c.json({ error: "internal", message: "Something went wrong." }, 500);
   });
 
   // Bot protection: a challenge to solve before sign-up, sign-in codes and checkout (bot.ts).
