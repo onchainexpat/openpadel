@@ -46,6 +46,10 @@ export interface PaymentProvider {
   /** The club's latest payouts (the provider sending the club's money to its bank), newest first, at most `limit`.
    *  Null while the club has no account there yet. Read only, for the Money page. Optional. */
   listPayouts?(limit: number): Promise<Payout[] | null>;
+  /** What the provider kept in fees on the club's money moved between two times (card payments' fees, less any it gave
+   *  back), in the club's currency's cents. Null while the club has no account there yet. Read only, for the books an
+   *  accounting plugin sends (books.ts). Optional. */
+  feesBetween?(from: Date, to: Date): Promise<number | null>;
 }
 /** A payout as the provider has it: how much, where it stands, and the day it's due in the bank (a date, no time). */
 export interface Payout { ref: string; amountCents: number; currency: string; status: "paid" | "pending" | "in_transit" | "failed" | "canceled";
@@ -73,6 +77,11 @@ export class TestProvider implements PaymentProvider {
   failNextRefund = false;
   /** Payouts at the stand-in provider: none until a test adds some (a club in practice has had none). */
   payouts: Payout[] = [];
+  /** Fees at the stand-in provider, each when it was taken: none until a test adds some. */
+  fees: { at: Date; cents: number }[] = [];
+  async feesBetween(from: Date, to: Date) {
+    return this.fees.filter((f) => f.at >= from && f.at < to).reduce((n, f) => n + f.cents, 0);
+  }
   async createIntent(i: { amountCents: number; currency: string; description: string; idempotencyKey: string; customer?: string; saveCard?: boolean; metadata?: Record<string, string> }) {
     const known = this.byKey.get(i.idempotencyKey);
     if (known) return { ref: known, clientSecret: this.intents.get(known)!.clientSecret, account: null };

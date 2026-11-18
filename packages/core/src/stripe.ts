@@ -228,6 +228,23 @@ export class StripeProvider implements PaymentProvider {
     });
   }
 
+  /** What Stripe kept in fees on the club's balance between two times: its balance transactions' fees (a refund's
+   *  returned fee counts against them), read a hundred at a time, at most 2,000. */
+  async feesBetween(from: Date, to: Date): Promise<number | null> {
+    const account = await this.domainAccount();
+    if (account === undefined) return null;
+    let cents = 0, after: string | null = null;
+    for (let page = 0; page < 20; page++) {
+      const q: string = `/v1/balance_transactions?limit=100&created[gte]=${Math.floor(from.getTime() / 1000)}&created[lt]=${Math.floor(to.getTime() / 1000)}${after ? `&starting_after=${encodeURIComponent(after)}` : ""}`;
+      const d = await this.call("GET", q, undefined, undefined, account);
+      const list: any[] = d?.data ?? [];
+      for (const x of list) cents += Number(x.fee ?? 0);
+      if (!d?.has_more || !list.length) return cents;
+      after = String(list.at(-1).id);
+    }
+    throw new Error("more than 2,000 balance transactions in a day");
+  }
+
   /** The card a payment went through on (its latest charge), for the receipt: brand and last four only. */
   async cardOf(ref: string, account?: string | null) {
     const d = await this.call("GET", `/v1/payment_intents/${encodeURIComponent(ref)}?expand[]=latest_charge`, undefined, undefined, account);

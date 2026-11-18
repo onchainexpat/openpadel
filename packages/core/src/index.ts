@@ -82,6 +82,7 @@ export * from "./plugin_manifest.ts";
 export * from "./plugins.ts";
 export * from "./club_network.ts";
 export * from "./plugin_cards.ts";
+export * from "./books.ts";
 export * from "./ops.ts";
 export * from "./receipts.ts";
 export * from "./charge.ts";

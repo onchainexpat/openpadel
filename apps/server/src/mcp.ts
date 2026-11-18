@@ -84,6 +84,9 @@ export const READS: DoorRead[] = [
     description: "What needs someone at the club now: places left empty at the last minute, questions waiting, money owed, programs short of their minimum, refunds that failed." },
   { name: "reports", staff: true, title: { en: "Reports", es: "Informes" }, input: { location_id: z.uuid(), from: ymd, to: ymd }, path: (a) => `/staff/reports?${qs({ location_id: a.location_id, from: a.from, to: a.to })}`,
     description: "A location's money and use, day by day, between two dates (both included), as the Reports page shows it." },
+  { name: "money_books", words: ["money", "books"], staff: true, title: { en: "The books, day by day", es: "La contabilidad, día por día" }, input: { from: ymd, to: ymd },
+    path: (a) => `/staff/money/books?${qs({ from: a.from, to: a.to })}`,
+    description: "The club's books for each club day between two dates (both included, at most 31): what the ledger moved by kind of account (takings and refunds by kind, tax, club credit, gift cards, passes, card payments, cash, what's owed), the card provider's fees and the payouts that reached the bank. Signed cents (positive a debit), each day balanced; amounts and kinds only, no people." },
   { name: "memberships", staff: true, title: { en: "Memberships", es: "Membresías" }, input: {}, path: () => "/staff/memberships",
     description: "The membership plans, how many hold each, and the members on them (emails shortened)." },
   { name: "questions", staff: true, title: { en: "Members' questions", es: "Preguntas de los miembros" }, input: { view: z.optional(z.enum(["waiting", "answered", "closed"])) }, path: (a) => `/staff/questions?${qs({ view: a.view })}`,
@@ -257,7 +260,7 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
       if (!now_) return fail(new KumiError("error.not_found", { thing: both("thing.plugin") }, 404));
       const m = now_.manifest as Manifest;
       return text({ name: now_.name, version: now_.release, status: now_.status, settings: now_.settings, events: m.events,
-        keys: (await pluginSecrets(db, now_.name, m)).map((k) => ({ name: k.name, added: k.added, last4: k.last4 })) });
+        keys: (await pluginSecrets(db, now_.name, m)).map((k) => ({ name: k.name, added: k.added, last4: k.last4, ...(k.kept_by_plugin ? { kept_by_plugin: true } : {}), ...(k.optional ? { optional: true } : {}) })) });
     });
     server.registerTool("plugin_secret", { title: lang === "es" ? "Una de mis claves" : "One of my keys", description: "One key this plugin's manifest declares, by its name (HA_TOKEN), from the club's vault. Each read is kept on record.",
       inputSchema: { name: z.string().check(z.regex(/^[A-Z][A-Z0-9_]{1,63}$/)) }, annotations: { readOnlyHint: true } }, async (args: { name: string }) => {
