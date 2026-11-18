@@ -4,8 +4,8 @@ openPadel is free and open source padel software that runs a club (see `README.m
 7 November 2026: the `kumi` command still works, and settings, paths and packages keep their `kumi` names. This file is read by
 coding agents such as Claude Code and Codex. There are two jobs, with their own rules:
 
-- **Setting up openPadel for a club** (an owner, or the owner's agent): start at
-  [`docs/setup/README.md`](docs/setup/README.md) and follow the rules just below.
+- **Setting up openPadel for a club** (an owner, or the owner's agent): clone over https, check out the newest
+  release tag, and start at [`docs/setup/README.md`](docs/setup/README.md) in that checkout; follow the rules just below.
 - **Working a club day to day** (an owner's, a desk's or a coach's agent): use the command line first,
   [`docs/cli/README.md`](docs/cli/README.md). `openpadel login <the staff app's address> --device --no-wait --json`
   gives a link and a code for the person to allow, then `openpadel help`. Every change previews first: show the
@@ -21,7 +21,9 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
 2. **Never ask the owner to paste a secret into the chat** (API keys, passwords, codes). Tell them
    which setting it is and where it goes (`/etc/kumi/kumi.env` on the server), and let them type it
    there themselves. Never print the settings file or a key. `openpadel export` and restoring an export ask
-   for the file's passphrase: the owner runs those in their own terminal and types it.
+   for the file's passphrase: the owner runs those in their own terminal and types it. Never read a sign-in
+   code out of the server's log for the owner: before email is set up, `openpadel sign-in-link <owner's email>`
+   prints a one-time link (15 minutes) that you hand them without opening it.
 3. **Never ask for a Social Security number, ID, bank account or card details.** Stripe collects
    those on its own pages, from the owner directly.
 4. **The owner creates every outside account** (domain, server, Stripe, Resend, Playtomic API keys)
@@ -35,7 +37,8 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
    the owner creates the storage and its key; you run `openpadel backup`, `openpadel offsite` and
    `openpadel restore-test` until `openpadel doctor` shows `offsite` and `restore_test` as `ok`. Ask the owner to
    keep `KUMI_BACKUP_KEY` and `KUMI_SECRET_KEY` in a password manager, looking at them in their own
-   terminal; you never read them.
+   terminal (or the server provider's web console); you never read them. `openpadel keys` shows only their last
+   4 characters, for the owner to check their copies.
 8. **Updates go through `deploy/ship.sh`** (or `deploy/docker/update.sh`), which snapshot the database and
    put everything back by themselves if the new release doesn't come up. `sudo openpadel rollback --yes` loses
    what happened since the update: only with the owner's say-so, in their own words.

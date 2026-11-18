@@ -4,6 +4,15 @@ This guide is written for a club owner and for the owner's AI agent (Claude Code
 working together. The agent can do most of it. The owner does the parts that need their identity,
 their payment details or their decision; each step says which is which.
 
+**Agents: read these docs from the release you install, not from main.** Clone over https and check out
+the newest release tag first, then read `AGENTS.md` and this guide from that checkout (main can be ahead of
+the release, and its docs can describe what isn't released yet):
+
+```bash
+git clone https://github.com/onchainexpat/openpadel && cd openpadel
+git checkout "$(git tag --list 'v*' --sort=-v:refname | head -1)"
+```
+
 **Agents:** read the rules at the top of [`AGENTS.md`](../../AGENTS.md) first. Then follow the steps
 below in order, running `openpadel doctor --json` (once the server exists) after each one and fixing any
 `fail`. `off` is an optional piece the club hasn't chosen, and the practice-mode `warn`s stay until
@@ -32,7 +41,7 @@ take a few days.
 |---|---|---|---|---|
 | 1 | Collect the club's details | Agent drafts from the club's website, owner checks | 30 min | [club-packet.md](club-packet.md) |
 | 2 | Create the Stripe account (start now, it's the slowest) | Owner | 20 min, then days of checks | [accounts/stripe.md](accounts/stripe.md), step 1 only |
-| 3 | Domain, server and HTTPS | Owner buys, agent sets up | 1 hour | [accounts/server.md](accounts/server.md) |
+| 3 | Domain, server and HTTPS (no domain yet: a trial address, moved later) | Owner buys, agent sets up | 1 hour | [accounts/server.md](accounts/server.md) |
 | 4 | Describe the club in `club.yaml`, preview, apply | Agent, owner approves the plan | 20 min | below |
 | 5 | Email from the club's domain | Owner signs up, agent sets up | 30 min | [accounts/resend.md](accounts/resend.md) |
 | 5b | Bring in the existing members (optional) | Owner exports a spreadsheet, agent imports | 15 min | below |
@@ -481,8 +490,10 @@ the club owns (Cloudflare R2 or Backblaze B2; both have a free allowance far abo
   `offsite` and `restore_test` as `ok`. The restore test runs by itself once a month from then on.
 - **Owner:** keep `KUMI_BACKUP_KEY` and `KUMI_SECRET_KEY` in a password manager. The agent never reads
   them: the owner looks at them on the server in their own terminal
-  (`sudo grep -E '^KUMI_(BACKUP|SECRET)_KEY=' /etc/kumi/kumi.env`). Without the backup key, the offsite
-  copies can't be opened.
+  (`sudo grep -E '^KUMI_(BACKUP|SECRET)_KEY=' /etc/kumi/kumi.env`), or, with no shell of their own on the
+  server, in the provider's web console ([offsite-backups.md](accounts/offsite-backups.md), "An owner with no
+  shell"). Then `openpadel keys` (the agent can run it) shows each key's last 4 characters, never the key, so
+  the owner checks their copies end the same. Without the backup key, the offsite copies can't be opened.
 
 The owner also has a **vault** in the staff app (Settings, then "The vault"): the club's keys and small
 documents (a supplier login, the alarm code, the insurance certificate, the lease), sealed with the
@@ -911,6 +922,7 @@ an export ask for something: the file's passphrase, typed by the owner (it isn't
 | `openpadel offsite` | What's kept offsite. |
 | `openpadel restore-test` | Restores the newest backup into a scratch database and checks every table. |
 | `openpadel rotate-key` | Seals every secret with `KUMI_SECRET_KEY` (the old key in `KUMI_SECRET_KEY_PREVIOUS`). |
+| `openpadel keys` | Whether `KUMI_SECRET_KEY` and `KUMI_BACKUP_KEY` are set, and each one's last 4 characters (never the key): for the owner to check the copies they keep. |
 | `openpadel export [--out=<folder>]` | Everything the club needs to run somewhere else, in one file sealed with a passphrase the owner types. |
 | `openpadel read-only on \| off \| status` | The host's switch for an account that isn't paid: nothing new is booked or charged; everyone keeps their data. |
 | `openpadel leaving on --date=YYYY-MM-DD [--kept-days=N] \| off \| status` | The day the club's openPadel ends: the owners are told at once, and a week and a day before, to download everything. |

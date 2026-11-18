@@ -26,7 +26,7 @@ On the club's own server, `openpadel doctor`, `openpadel setup`, `openpadel back
 On any computer with Node 24:
 
 ```bash
-git clone <openPadel's repository> openpadel && cd openpadel && npm ci
+git clone https://github.com/onchainexpat/openpadel openpadel && cd openpadel && npm ci
 alias openpadel="node $PWD/apps/server/src/cli.ts"    # or: npm run openpadel -- <command>
 ```
 

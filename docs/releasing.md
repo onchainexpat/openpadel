@@ -12,8 +12,9 @@ Do these once, before the first public release:
 - [ ] **The names:** openPadel for the software (decided 7 November 2026), and the trademark search on "Kumi", the
       hosted service's name, done.
 - [ ] **Real contact addresses:** `security@openpadel.dev` and `conduct@openpadel.dev` forward to an inbox someone
-      reads (send each a test), and the `<your-org>` placeholder in the clone commands (`docs/setup/accounts/server.md`,
-      `deploy/docker/README.md`) with the repository's real address.
+      reads (send each a test). The clone commands (`docs/setup/README.md`, `docs/setup/accounts/server.md`,
+      `deploy/docker/README.md`, `docs/cli/README.md`) name `https://github.com/onchainexpat/openpadel`: change
+      them all if the repository moves (to an `openpadel` organisation, say).
 - [ ] **Tests on every push:** add `push:` to `.github/workflows/test.yml` (public repositories don't use up Actions minutes).
 
 ## Cutting a release

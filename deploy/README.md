@@ -11,7 +11,8 @@ deploy/ship.sh root@your.server.ip
 ```
 
 - **HTTPS** comes from Caddy and Let's Encrypt, for `KUMI_HOST` and `staff.KUMI_HOST`. Point both at the
-  server in DNS first. Without a domain yet, `<ip-with-dashes>.sslip.io` works for a trial.
+  server in DNS first. Without a domain yet, `<ip-with-dashes>.sslip.io` works for a trial (and moving to the
+  club's domain later is in [docs/setup/accounts/server.md](../docs/setup/accounts/server.md), "No domain yet").
 - **Settings** live in `/etc/kumi/kumi.env` (Stripe, Resend, offsite backups): edit, then
   `systemctl restart kumi`. Never commit them. Every setting is in [docs/settings.md](../docs/settings.md).
 - **Practice mode** (`KUMI_PRACTICE=1`, the default here) sends real email only to `KUMI_MAIL_TEST_TO`.

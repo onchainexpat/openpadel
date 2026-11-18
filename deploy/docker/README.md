@@ -7,7 +7,8 @@ Docker and Docker Compose and 2 GB of memory will do. The DNS records are the sa
 [the server guide](../../docs/setup/accounts/server.md).
 
 ```bash
-git clone https://github.com/<your-org>/openpadel && cd openpadel && git checkout vX.Y.Z   # the release, not main
+git clone https://github.com/onchainexpat/openpadel && cd openpadel
+git checkout "$(git tag --list 'v*' --sort=-v:refname | head -1)"   # the newest release, not main
 cp deploy/docker/env.example .env       # fill in KUMI_HOST and KUMI_DB_PASSWORD (openssl rand -hex 24)
 chmod 600 .env                          # it will hold every key the club has: only you read it
 mkdir -p config backups

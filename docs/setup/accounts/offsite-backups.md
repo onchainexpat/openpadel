@@ -30,6 +30,22 @@ own terminal, never through the chat:
 sudo grep -E '^KUMI_(BACKUP|SECRET)_KEY=' /etc/kumi/kumi.env
 ```
 
+**An owner with no shell on the server** (the common case: only the agent's SSH key works there) uses the
+server provider's web console, which signs in to the server in the browser, as root, with nothing passing
+through the agent or the chat:
+
+- **DigitalOcean:** the Droplet, then Access, then "Launch Droplet Console". It needs no password, and text
+  can be copied out of it.
+- **Hetzner:** the server, then the console button (`>_`). It asks for the root password: set one first under
+  Rescue, "Reset root password" (shown to the owner once).
+- **Vultr:** the server, then "View Console"; the root password is on the server's Overview page.
+- **Linode (Akamai):** the Linode, then "Launch LISH Console".
+
+There, the owner types the `grep` line above and copies the two lines into the password manager. A console
+that can't copy text out (some show the screen as a picture) means typing each key over carefully. Either
+way, the agent then runs `openpadel keys`, which prints only each key's last 4 characters, and the owner checks
+their copies end the same. The agent never asks the owner to read a key out, and never reads one itself.
+
 Keep `KUMI_SECRET_KEY` there too. It seals the few secrets inside the database (the vault, staff
 authenticators, the push key). A restore without it brings back everything else, and those few need
 setting up again.

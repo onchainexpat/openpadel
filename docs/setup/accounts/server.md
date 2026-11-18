@@ -8,7 +8,8 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
 **`openpadel doctor` checks:** `database`, `migrations`, `address`, `backups`.
 
 ## Have ready
-- A domain the club controls, or a subdomain of the club's existing one.
+- A domain the club controls, or a subdomain of the club's existing one. No domain yet? A trial can run on
+  a free address made from the server's IP ("No domain yet", below), and move to the club's domain later.
 
 ## Steps
 
@@ -28,9 +29,12 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
 
    DNS at Cloudflare? Set both records to **DNS only** (the grey cloud, not proxied). Caddy on the
    server gets the certificates itself.
-3. **Agent: set up the server**, from a copy of the newest release (its tag in place of `vX.Y.Z`):
+3. **Agent: set up the server**, from a copy of the newest release. Clone over https (it needs no GitHub
+   key; `gh repo clone` uses ssh when gh is set to, and fails without one), check out the newest release
+   tag, and read the setup docs from there on, since main can be ahead of the release:
    ```bash
-   git clone https://github.com/<your-org>/openpadel && cd openpadel && git checkout vX.Y.Z
+   git clone https://github.com/onchainexpat/openpadel && cd openpadel
+   git checkout "$(git tag --list 'v*' --sort=-v:refname | head -1)"
    ssh root@SERVER 'KUMI_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
    deploy/ship.sh root@SERVER
    ```
@@ -41,6 +45,31 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
 4. **Agent: `ssh root@SERVER openpadel doctor`.** It shows `database` ok and `club` missing; that's
    expected. Carry on with `club.yaml` ([README](../README.md), step 4); `address` is checked once the
    club exists.
+
+## No domain yet: a trial address
+For a trial before the club has its domain, skip the DNS records (step 2) and use the server's IP address
+with dashes, followed by `.sslip.io`, as the address: for a server at `203.0.113.7`,
+```bash
+ssh root@SERVER 'KUMI_HOST=203-0-113-7.sslip.io bash -s' < deploy/server-setup.sh
+```
+sslip.io is a free public DNS service that answers any name with the IP written in it, `staff.` in front
+too, so the members' app is `https://203-0-113-7.sslip.io` and the staff app `https://staff.203-0-113-7.sslip.io`,
+with real HTTPS certificates from Caddy. It's for trying openPadel out with the staff, not for members: the
+address names the server, changes if the server does, and depends on a service the club doesn't control.
+
+**Moving to the club's domain later** (before members join, ideally):
+1. **Owner:** add the two DNS records of step 2 for the new address.
+2. **Agent:** change the two addresses in the settings file, without printing it, then set Caddy up for
+   the new names (server-setup.sh is safe to run again) and restart:
+   ```bash
+   ssh root@SERVER "sed -i 's#^KUMI_PUBLIC_URL=.*#KUMI_PUBLIC_URL=https://staff.app.yourclub.com#; s#^KUMI_MEMBER_URL=.*#KUMI_MEMBER_URL=https://app.yourclub.com#' /etc/kumi/kumi.env"
+   ssh root@SERVER 'KUMI_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
+   ssh root@SERVER 'systemctl restart kumi && openpadel doctor'
+   ```
+3. Everyone signs in again at the new address. Passkeys belong to an address, so staff set theirs up again
+   (an authenticator app carries over). Phone apps installed from the trial address are installed again
+   from the new one. If Stripe or Resend were already connected, change their webhook addresses to the new
+   one ([stripe.md](stripe.md), [resend.md](resend.md)); `openpadel doctor` says what's left.
 
 ## The settings file
 `/etc/kumi/kumi.env` holds the server's settings and keys, readable only by root and openPadel. The
