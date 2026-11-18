@@ -1,7 +1,7 @@
 // What a signed-in member reads about themselves and the club's open programs.
 import { Hono, type Context } from "hono";
 import type { Lang } from "@kumi/i18n";
-import { openCardOnFile, checkCardOnFile, itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, bookingTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf, alertsOf, clubPhoneShown } from "@kumi/core";
+import { openCardOnFile, checkCardOnFile, itsTimeNow, messageInLang, readerLang, creditBalance, creditHistory, giftCardsOf, passesFor, passesOf, passProducts, myCompetitions, clubNewsAnswer, icsCalendar, inLang, trSql, lessonCoaches, lessonTimes, levelOptions, importOptions, membersFrom, programPerks, programPrices, checkCardSetup, coveredBy, membershipDue, periodCents, currentWaiver, findFriends, inviteByCode, juniorsOf, manages, householdOf, waiverStatus, friendsOf, personByFriendCode, ENTER_DAYS, isPushEndpoint, levelStakes, pushKeys, subscribePush, unsubscribePush, gameView, joinRule, levelOf, openCardSetup, playerRecord, suggestTeams, bookingTeams, TestProvider, currentPolicy, daysAhead, endDay, freeCourts, KumiError, localDate, planCounts, paidFor, paymentProvider, quote, runAsSystem, shares, type Db, approveKidRequest, checkFamilyCard, familyCardFor, openFamilyCardSetup, kidOf, managersOf, monthSpent, paymentsWhat, deleteCheck, exportData, exportRun, mayCheck, searchFacts, factIn, questionList, questionThread, deadlineSql, findPlayers, assistantsOf, memberPlan, seriesOf, promoOff, welcomeFacts, welcomeSeen, movedIn, textOf, alertsOf, clubPhoneShown, whatsappCard } from "@kumi/core";
 import { amenitiesInOrder } from "@kumi/i18n/amenities";
 import { sql } from "kysely";
 import { chatRoutes } from "./chats.ts";
@@ -148,6 +148,8 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
   });
   // Their answer to club news by email: yes, no, or never asked (null). Changed with consent.club_news.
   app.get("/my/club-news", async (c) => c.json({ granted: await clubNewsAnswer(db, who(c)) }));
+  // The WhatsApp card on the profile (whatsapp.ts): whether the club sends it, their answer, the code to link their number.
+  app.get("/my/whatsapp", async (c) => c.json(await whatsappCard(db, who(c), lang(c), now())));
   // Their connected assistants (the MCP door), each with this week's spending and the cap they set for it.
   // Changed with assistant.set_cap and assistant.disconnect.
   app.get("/my/assistants", async (c) => c.json(await assistantsOf(db, who(c), now())));

@@ -17,6 +17,7 @@ import { managersOf, withManagers } from "./households.ts";
 import { textOf } from "./club_text.ts";
 import { paymentWhat } from "./kids.ts";
 import { TEXT_KINDS, textable, textingOn } from "./texts.ts";
+import { WHATSAPP_KINDS, whatsappable, whatsappOn } from "./whatsapp.ts";
 import { receiptParams } from "./receipts.ts";
 import { roleLabel } from "./roles.ts";
 import { needsTwoFactor } from "./two_factor.ts";
@@ -1272,7 +1273,7 @@ async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<numbe
   if (since && new Date(ev.created_at) < since) return 0;
   const club = await db.selectFrom("club").select(["time_zone", "default_language"]).executeTakeFirstOrThrow();
   const drafts = await forJuniors(db, await composers[ev.topic]!({ db, tz: club.time_zone }, ev.payload));
-  let written = 0;
+  let written = 0, whatsapp: boolean | null = null;
   for (const d of drafts) {
     const person = await db.selectFrom("person").select(["locale", "email", "status", "redacted_at", "created_via"]).where("id", "=", d.to).executeTakeFirst();
     // A club agent (agents.ts) reads no messages: its ask answered, say, is in the change log for it.
@@ -1299,6 +1300,12 @@ async function compose(db: Db, ev: OutboxEvent, now = new Date()): Promise<numbe
       let text = t(lang, `msg.${d.kind}.sms` as Key, d.params);
       if (d.junior) text = t(lang, "msg.for_junior.sms", { name: d.junior, text });
       rows.push({ ...base, body: tidy(text), id: uuidv7(now.getTime()), channel: "sms", status: "waiting", send_after: wait ?? now, sent_at: null as any });
+    }
+    // And by WhatsApp, the same, if the club sends it (a plugin, whatsapp.ts) and they said yes and linked their number.
+    if (d.purpose === "account" && WHATSAPP_KINDS.has(d.kind) && (ev.payload as { by?: unknown } | null)?.by !== d.to && (whatsapp ??= await whatsappOn(db)) && "phone" in await whatsappable(db, d.to)) {
+      let text = t(lang, `msg.${d.kind}.sms` as Key, d.params);
+      if (d.junior) text = t(lang, "msg.for_junior.sms", { name: d.junior, text });
+      rows.push({ ...base, body: tidy(text), id: uuidv7(now.getTime()), channel: "whatsapp", status: "waiting", send_after: wait ?? now, sent_at: null as any });
     }
     if (!rows.length) continue;
     const r = await db.insertInto("outbound_message").values(rows as any).onConflict((oc) => oc.columns(["event_id", "person_id", "kind", "channel"]).doNothing()).execute();

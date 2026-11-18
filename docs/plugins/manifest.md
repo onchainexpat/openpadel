@@ -28,7 +28,8 @@ Words in both languages are written `{ "en": "…", "es": "…" }` (US and Latin
 | `cost` | `{ "charges": true \| false, "note": {…} }`: whether its service charges, and roughly what. |
 | `cards` | Where it shows something in the apps (rendered by the apps themselves, from data): each `{ "slot": "game" \| "court_tile" \| "member_profile" \| "money" \| "connectors", "title": {…} }`. Up to 10. What each card says, the plugin puts at run time ([README, Cards](README.md#cards)). |
 | `health` | A path on its own address that answers 2xx when it's working (`/health`), for `openpadel doctor` and the club's list. |
-| `hook` | Optional: `{ "from": {…} }`, who posts to `/plugins/<name>/hook` (a camera, Home Assistant). Without it, nothing is passed on. |
+| `hook` | Optional: `{ "from": {…} }`, who posts to `/plugins/<name>/hook` (a camera, Home Assistant). Without it, nothing is passed on. With `"challenge": true`, a GET to that address (a sender checking it first, as Meta does) is passed on too: [below](#a-senders-check-of-the-hook-challenge). |
+| `channel` | Optional: `{ "kind": "whatsapp", "address_setting": "club_number" }`: it sends the club's messages on that channel ([README, A message channel](README.md#a-message-channel)). `address_setting` names its `string` setting with the club's own number there, shown to members. Needs a `hook`. One plugin per channel at a club. |
 | `callback` | Optional: `{ "for": {…} }`, who sends a browser back to `/plugins/<name>/callback` (an OAuth sign-in's redirect, such as Xero's). Without it, that address is a 404. [Below](#a-browsers-way-back-callback). |
 | `run` | How it runs, below. |
 
@@ -87,6 +88,16 @@ no cookies or other headers. It answers `{"ok": true}` when it worked. The brows
 Connectors page (`/connectors?plugin=<name>&connected=1`, or `0`): nothing the plugin answers is shown at the club's
 address. Only a GET, only to that path, only while the plugin is on, at most 30 a minute.
 
+## A sender's check of the hook (`challenge`)
+
+Some services check an address before they post to it: Meta sends `GET <address>?hub.mode=subscribe&hub.challenge=…&hub.verify_token=…`
+and wants the challenge back. With `"hook": { "from": {…}, "challenge": true }`, a GET to `/plugins/<name>/hook` passes
+only its query on, as JSON (`{"query": {...}}`, at most 2,000 characters, 20 names), in a POST to `<url>/verify`, signed
+with `hooks.secret` (`openpadel-signature`, `openpadel-event: plugin.hook_check`), with no cookies or other headers. The
+plugin checks the token itself and answers `{"answer": "<the challenge>"}`; the club answers the sender with exactly that,
+as plain text, when it's 1 to 200 letters, digits, dots, dashes or underscores, and with 403 otherwise. Only while the
+plugin is on, at most 30 a minute.
+
 ## `run`
 
 **Remote**: it runs at its publisher's address.
@@ -117,6 +128,11 @@ listens on 127.0.0.1 there), `OPENPADEL_URL`, `OPENPADEL_MCP`, `OPENPADEL_TOKEN`
 court's lights on before each booking. It changes nothing at the club, reads bookings and courts, is told when bookings
 are made, moved or cancelled and courts blocked or freed, needs one key, and has five settings. The plugin itself is
 [plugins/court-lights](../../plugins/court-lights/README.md).
+
+[examples/whatsapp/openpadel-plugin.json](examples/whatsapp/openpadel-plugin.json): the club's messages by WhatsApp. It
+changes and reads nothing at the club; its `channel` makes it the club's WhatsApp channel, its `hook` takes Meta's
+messages and statuses (with `challenge`, Meta's check of the address), and it needs four keys and the club's number. The
+plugin itself is [plugins/whatsapp](../../plugins/whatsapp/README.md).
 
 [examples/accounting-export/openpadel-plugin.json](examples/accounting-export/openpadel-plugin.json): each club day's
 takings, refunds, tax, card fees and payouts sent to the club's Xero or QuickBooks as one journal. It changes nothing at

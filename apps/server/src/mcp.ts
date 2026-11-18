@@ -7,7 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { both, en, isLang, type Key, type Lang, type Text } from "@kumi/i18n";
 import { money } from "@kumi/i18n";
-import { actions, agentActor, agentWeekSpent, AGENT_OWN, PLUGIN_OWN, apply, appOnly, everDoable, plan, pluginOfAgent, pluginSecretFor, pluginSecrets, weekSpent, APP_ONLY_YES, KumiError, type ActionDef, type Actor, type Db, type Limited, type Manifest } from "@kumi/core";
+import { actions, agentActor, agentWeekSpent, AGENT_OWN, PLUGIN_OWN, CHANNEL_OWN, apply, appOnly, everDoable, plan, pluginOfAgent, pluginSecretFor, pluginSecrets, weekSpent, APP_ONLY_YES, KumiError, type ActionDef, type Actor, type Db, type Limited, type Manifest } from "@kumi/core";
 import { VERSION } from "./version.ts";
 
 export const toolBase = (action: string) => action.replace(/\./g, "_");
@@ -287,6 +287,8 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
     // own cards (plugin_cards.ts) are its alone: listed for a plugin, and for nobody else whatever their role holds.
     const own = PLUGIN_OWN.includes(a.name);
     if (plugin ? !own && (a.name.startsWith("webhook.") || a.name.startsWith("plugin.")) : own) continue;
+    // A channel's reports and what comes in on it (whatsapp.ts) are for a plugin whose manifest declares a channel.
+    if (own && CHANNEL_OWN.includes(a.name) && !(plugin?.manifest as Manifest | undefined)?.channel) continue;
     const listed = a.name === "action.undo" || own || may(a.name) || (agent !== null && AGENT_OWN.includes(a.name));
     if (!doorAction(a) || !listed) continue;   // never offered: see APP_ONLY
     const base = toolBase(a.name), title = titleOf(a.name);

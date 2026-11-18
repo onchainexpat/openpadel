@@ -518,6 +518,167 @@
           "url": "https://accounting.plugins.openpadel.org/v1"
         }
       }
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "name": "whatsapp",
+        "publisher": "openPadel examples",
+        "version": "0.1.0",
+        "homepage": "https://github.com/openpadel/plugin-whatsapp",
+        "licence": "AGPL-3.0-only",
+        "description": {
+          "en": "Sends the club's messages by WhatsApp to members who said yes in the app, through the club's own WhatsApp Business account, and passes their replies to the front desk.",
+          "es": "Envía los mensajes del club por WhatsApp a los miembros que dijeron que sí en la app, con la propia cuenta de WhatsApp Business del club, y pasa sus respuestas a la recepción."
+        },
+        "grants": [],
+        "reads": [],
+        "events": [],
+        "secrets": [
+          {
+            "name": "WHATSAPP_ACCESS_TOKEN",
+            "label": {
+              "en": "WhatsApp access token",
+              "es": "Token de acceso de WhatsApp"
+            },
+            "where": {
+              "en": "At business.facebook.com: Business settings, System users, Add (Admin), then Generate new token for the club's WhatsApp app with whatsapp_business_messaging and whatsapp_business_management, set to never expire.",
+              "es": "En business.facebook.com: Configuración del negocio, Usuarios del sistema, Agregar (Admin), luego Generar nuevo token para la app de WhatsApp del club con whatsapp_business_messaging y whatsapp_business_management, sin vencimiento."
+            }
+          },
+          {
+            "name": "WHATSAPP_PHONE_NUMBER_ID",
+            "label": {
+              "en": "WhatsApp phone number id",
+              "es": "Id del número de WhatsApp"
+            },
+            "where": {
+              "en": "At developers.facebook.com: the club's app, WhatsApp, API Setup. Copy the Phone number ID under the club's number (a long number, not the phone number itself).",
+              "es": "En developers.facebook.com: la app del club, WhatsApp, API Setup. Copia el Phone number ID que aparece bajo el número del club (un número largo, no el teléfono)."
+            }
+          },
+          {
+            "name": "WHATSAPP_APP_SECRET",
+            "label": {
+              "en": "Meta app secret",
+              "es": "App secret de Meta"
+            },
+            "where": {
+              "en": "At developers.facebook.com: the club's app, App settings, Basic, App secret (Show). It checks that what reaches the club really comes from Meta.",
+              "es": "En developers.facebook.com: la app del club, Configuración de la app, Básica, App secret (Mostrar). Sirve para comprobar que lo que llega al club viene de Meta."
+            }
+          },
+          {
+            "name": "WHATSAPP_VERIFY_TOKEN",
+            "label": {
+              "en": "Webhook verify token",
+              "es": "Token de verificación del webhook"
+            },
+            "where": {
+              "en": "Make up a long random word and type it here and at developers.facebook.com: the club's app, WhatsApp, Configuration, Webhook, Verify token.",
+              "es": "Inventa una palabra larga al azar y escríbela aquí y en developers.facebook.com: la app del club, WhatsApp, Configuration, Webhook, Verify token."
+            }
+          }
+        ],
+        "settings": [
+          {
+            "key": "club_number",
+            "type": "string",
+            "label": {
+              "en": "The club's WhatsApp number",
+              "es": "Número de WhatsApp del club"
+            },
+            "help": {
+              "en": "The number members write to, with its country code, as +34 600 123 456. The app shows it to members when they link their WhatsApp.",
+              "es": "El número al que escriben los miembros, con su código de país, como +34 600 123 456. La app se lo muestra a los miembros cuando vinculan su WhatsApp."
+            },
+            "required": true,
+            "max_length": 30
+          },
+          {
+            "key": "template_language_en",
+            "type": "string",
+            "label": {
+              "en": "Template language for English",
+              "es": "Idioma de las plantillas en inglés"
+            },
+            "help": {
+              "en": "The language the club's templates were approved in for English, as Meta names it: en_US, en_GB or en.",
+              "es": "El idioma en que se aprobaron las plantillas del club para inglés, como lo llama Meta: en_US, en_GB o en."
+            },
+            "required": false,
+            "default": "en_US",
+            "max_length": 10
+          },
+          {
+            "key": "template_language_es",
+            "type": "string",
+            "label": {
+              "en": "Template language for Spanish",
+              "es": "Idioma de las plantillas en español"
+            },
+            "help": {
+              "en": "The language the club's templates were approved in for Spanish, as Meta names it: es_MX, es_AR, es or another.",
+              "es": "El idioma en que se aprobaron las plantillas del club para español, como lo llama Meta: es_MX, es_AR, es u otro."
+            },
+            "required": false,
+            "default": "es_MX",
+            "max_length": 10
+          },
+          {
+            "key": "per_second",
+            "type": "integer",
+            "label": {
+              "en": "Messages a second, at most",
+              "es": "Mensajes por segundo, como máximo"
+            },
+            "help": {
+              "en": "How fast it sends. Meta allows 80 a second to most numbers; lower it if Meta says the club's number is sending too fast.",
+              "es": "Qué tan rápido envía. Meta permite 80 por segundo a la mayoría de los números; bájalo si Meta avisa que el número del club envía demasiado rápido."
+            },
+            "required": false,
+            "default": 20,
+            "minimum": 1,
+            "maximum": 80
+          }
+        ],
+        "data_out": {
+          "en": "For each member who said yes in the app: their WhatsApp number and each message's words (a booking's court and time, a place offered, the club's name) go to Meta's WhatsApp Cloud API, through the club's own WhatsApp Business account. Their replies come back from Meta and go to the front desk. Nothing about members who didn't say yes.",
+          "es": "Por cada miembro que dijo que sí en la app: su número de WhatsApp y las palabras de cada mensaje (la cancha y la hora de una reserva, un lugar ofrecido, el nombre del club) van a la WhatsApp Cloud API de Meta, con la propia cuenta de WhatsApp Business del club. Sus respuestas vuelven de Meta y van a la recepción. Nada de los miembros que no dijeron que sí."
+        },
+        "cost": {
+          "charges": true,
+          "note": {
+            "en": "Meta charges the club's WhatsApp Business account for each template message, by the member's country (utility messages cost cents or less). Answers within 24 hours of a member's own message are free.",
+            "es": "Meta cobra a la cuenta de WhatsApp Business del club cada mensaje con plantilla, según el país del miembro (los mensajes de servicio cuestan centavos o menos). Las respuestas dentro de las 24 horas siguientes a un mensaje del miembro son gratis."
+          }
+        },
+        "cards": [
+          {
+            "slot": "connectors",
+            "title": {
+              "en": "WhatsApp",
+              "es": "WhatsApp"
+            }
+          }
+        ],
+        "health": "/health",
+        "hook": {
+          "from": {
+            "en": "Meta's WhatsApp Cloud API: members' replies, STOP and how each message went",
+            "es": "la WhatsApp Cloud API de Meta: las respuestas de los miembros, STOP y cómo le fue a cada mensaje"
+          },
+          "challenge": true
+        },
+        "channel": {
+          "kind": "whatsapp",
+          "address_setting": "club_number"
+        },
+        "run": {
+          "mode": "remote",
+          "url": "https://whatsapp.plugins.openpadel.org/v1"
+        }
+      }
     }
   ]
 }

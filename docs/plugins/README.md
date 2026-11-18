@@ -11,7 +11,8 @@ example: [examples/court-lights/openpadel-plugin.json](examples/court-lights/ope
 The first real one, court lights for Home Assistant, is [plugins/court-lights](../../plugins/court-lights/README.md): a
 small Node program to read beside this page when writing one. The second, [plugins/accounting-export](../../plugins/accounting-export/README.md),
 sends the club's books to Xero or QuickBooks: it connects by OAuth through the club's own address and keeps its refresh
-token in the club's vault.
+token in the club's vault. The third, [plugins/whatsapp](../../plugins/whatsapp/README.md), is a message channel: the club's messages by
+WhatsApp, with the club deciding who gets what ([A message channel](#a-message-channel), below).
 
 ## For a club: installing one
 
@@ -98,6 +99,7 @@ A remote plugin has an address (`run.url` in its manifest, say `https://lights.e
 | `<url>/register` | Once, on install (and again with a new token if your address changes): your token and secrets. |
 | `<url>/events` | The events your manifest names, and `plugin.configured` when the club changes your settings. |
 | `<url>/hook` | What an outside service posted to the club at `/plugins/<name>/hook`, passed on as it came. |
+| `<url>/verify` | With the manifest's `hook.challenge`: the query of a GET to `/plugins/<name>/hook` (Meta checking the address), as `{"query": {...}}`; answer `{"answer": "..."}` ([manifest.md](manifest.md#a-senders-check-of-the-hook-challenge)). |
 | `<url>/callback` | With the manifest's `callback`: the query of a browser that came back to `/plugins/<name>/callback` (an OAuth sign-in), as `{"query": {...}}` ([manifest.md](manifest.md#a-browsers-way-back-callback)). |
 | `<url><health>` | A GET, for `openpadel doctor` and the club's list: answer 2xx when you're working. |
 
@@ -211,3 +213,27 @@ Each is a change like any other: previewed, kept in the club's change log as you
 the club's to decide: a court's tile and Money are staff's, a game's card its players' and staff's, a member's profile
 card that member's and staff's, Connectors the owner's and managers'. While you're paused or removed, your cards
 aren't shown. No buttons yet: a card says things and links somewhere.
+
+### A message channel
+
+A plugin whose manifest has `"channel": { "kind": "whatsapp", ... }` sends the club's messages on that channel, beside
+email, push and texts. It never chooses who gets what and never reads members: the club does, as for texts.
+
+- **Members choose it** in the app (Profile, WhatsApp), off until they say yes to the words shown (`consent.whatsapp`, kept
+  with its version, like texts). They link their number by sending the club's number (the setting `address_setting`
+  names) the code the app shows them: that proves it's theirs, in any country. Turning it off in the app unlinks it.
+- **The club decides each message**: what a member needs to know soon (a place offered, a booking or class cancelled or
+  moved), never news of what they did themselves, only to a member who said yes and linked a number, after quiet hours
+  unless it's essential. Each is checked again as it goes (their yes, their number, stale, quiet hours).
+- **It's handed only what it must send**, signed, on its own webhook, as `message.send`: `message_id`, `to` (E.164),
+  `language`, `template` (`name`, and `parameters`: the club's name and the message), `text` (the same as a plain message,
+  for WhatsApp's 24-hour window), `essential`, and `send_before` (don't send after: quiet hours, or no longer news).
+- **It tells the club**, through tools only a channel plugin's own token has, each a preview and a confirm in the club's
+  change log (kept out of Today and Changes, like card updates):
+  - `plugin_message_status` `{ message_id, status: "sent" | "delivered" | "read" | "failed", ref?, error? }`;
+  - `plugin_channel_stop` `{ phone, said, ref? }`: STOP, BAJA or the service's own opt-out. WhatsApp off for whoever has
+    that number, at once, and what waits for it dropped (in the outbox and on its way to the plugin). The result's
+    `reply` is the club's answer to send back.
+  - `plugin_channel_reply` `{ phone, body, ref }`: anything else a member wrote. A code links their number; from a linked
+    member it goes to the front desk as their question to the club; from anyone else it's answered that the number isn't
+    linked. The result says which (`outcome`) and the `reply` to send back. The same `ref` twice is handled once.

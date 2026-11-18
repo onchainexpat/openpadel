@@ -213,6 +213,14 @@ export async function pluginOfAgent(db: Db | Trx, agentId: string) {
   return p ?? null;
 }
 
+/** One plugin per message channel: a second WhatsApp plugin would send each message twice. */
+async function oneChannel(db: Db | Trx, m: Manifest, self?: string) {
+  if (!m.channel) return;
+  const live = await db.selectFrom("plugin").select(["name", "manifest"]).where("status", "!=", "removed").execute();
+  const other = live.find((p) => p.name !== (self ?? m.name) && (p.manifest as Manifest).channel?.kind === m.channel!.kind);
+  if (other) throw new KumiError("error.plugin_channel_taken", { name: other.name });
+}
+
 // ---- Installing ----
 type Source = { source: "catalog" | "url" | "file"; source_url: string | null; manifest: Manifest };
 const installInput = {
@@ -320,6 +328,7 @@ export const pluginInstall = defineAction({
     await checkManifestAtClub(ctx.db, m);
     checkRun(m);
     if (await ctx.db.selectFrom("plugin").select("id").where("name", "=", m.name).where("status", "!=", "removed").executeTakeFirst()) throw new KumiError("error.plugin_installed", { name: m.name });
+    await oneChannel(ctx.db, m);
     await withinInstaller(ctx, m);
     // Settings: checked now when given; required ones not given yet are said, for plugin configure.
     let settings: Record<string, unknown> = {}, setRows: { label: Text; text: Text }[] = [];
@@ -421,6 +430,7 @@ export const pluginUpdate = defineAction({
     if (sha === row.manifest_sha256) throw new KumiError("error.plugin_same_version", { name: m.name, version: m.version });
     await checkManifestAtClub(ctx.db, m);
     checkRun(m);
+    await oneChannel(ctx.db, m, old.name);
     await withinInstaller(ctx, m);
     // Its settings carried over as far as the new schema takes them.
     const before = (row.settings ?? {}) as Record<string, unknown>, kept: Record<string, unknown> = {};
@@ -633,6 +643,16 @@ export async function hookTarget(db: Db, name: string): Promise<{ url: string; s
   const secret = openText(p.secret_sealed);
   // The webhooks' signature (webhooks.ts) over the bytes exactly as they came: "<t>." then the body.
   return { url: `${p.base_url}/hook`, sign: (body, t) => `t=${t},v1=${createHmac("sha256", secret).update(`${t}.`, "utf8").update(body).digest("hex")}`, local: p.mode === "local" };
+}
+
+/** Where a sender's check of the hook address goes (a GET to /plugins/<name>/hook, Meta's webhook check): the plugin's
+ *  own <address>/verify, signed with its own secret like a hook, only its query passed on; null unless the plugin is on
+ *  and its manifest's hook says `challenge`. */
+export async function hookCheckTarget(db: Db, name: string): Promise<{ url: string; sign: (body: Buffer, t: number) => string; local: boolean } | null> {
+  const p = await db.selectFrom("plugin").select(["base_url", "manifest", "secret_sealed", "mode"]).where("name", "=", name).where("status", "=", "on").executeTakeFirst();
+  if (!p || !p.base_url || !manifestOf(p).hook?.challenge) return null;
+  const secret = openText(p.secret_sealed);
+  return { url: `${p.base_url}/verify`, sign: (body, t) => `t=${t},v1=${createHmac("sha256", secret).update(`${t}.`, "utf8").update(body).digest("hex")}`, local: p.mode === "local" };
 }
 
 /** Where a browser's way back to /plugins/<name>/callback goes (an OAuth sign-in's redirect): the plugin's own

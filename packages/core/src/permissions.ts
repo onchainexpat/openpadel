@@ -149,7 +149,9 @@ export async function clubAgentOf(db: Db | Trx, personId: string | null | undefi
 /** What only a plugin's own token may do: put and clear its own cards (plugin_cards.ts), and keep the keys its manifest
  *  says are its to write (plugins.ts, plugin.secret_keep). Nobody's role holds these, not even the owner's "*": a person,
  *  an assistant or another agent is refused, and the door never lists them for one. */
-export const PLUGIN_OWN = ["plugin.card_put", "plugin.card_clear", "plugin.secret_keep"];
+/** A channel plugin's reports and what came in on its channel (whatsapp.ts): only one whose manifest declares a channel. */
+export const CHANNEL_OWN = ["plugin.message_status", "plugin.channel_stop", "plugin.channel_reply"];
+export const PLUGIN_OWN = ["plugin.card_put", "plugin.card_clear", "plugin.secret_keep", ...CHANNEL_OWN];
 /** Whether a person row is a live plugin's agent (not paused or removed, its agent not revoked). */
 async function isLivePlugin(db: Db | Trx, personId: string): Promise<boolean> {
   return Boolean(await db.selectFrom("plugin").innerJoin("agent", "agent.id", "plugin.agent_id").select("plugin.id").where("agent.person_id", "=", personId)

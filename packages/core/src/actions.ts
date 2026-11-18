@@ -322,7 +322,7 @@ export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.
   // export or Playtomic itself, and saying Playtomic's wallets are at zero. Rows an assistant typed could make credit
   // from nothing: the app, or `openpadel playtomic` on the server, which read the file or Playtomic themselves.
   "playtomic.upload", "credit.bring_in", "membership.bring_in", "credit.brought_zeroing", "credit.brought_zeroed"]);
-export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news"]);
+export const APP_ONLY_YES = new Set(["consent.texts", "consent.club_news", "consent.whatsapp"]);
 /** Whether an action is the app's alone, never an assistant's: with `input`, for this input. */
 export function appOnly(def: ActionDef<any>, input?: unknown): boolean {
   return APP_ONLY.has(def.name) || Boolean(def.strongAuth) || (APP_ONLY_YES.has(def.name) && (input as { granted?: unknown } | undefined)?.granted === true);

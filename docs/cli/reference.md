@@ -1260,6 +1260,22 @@ Texts. Who may: owner, manager, member (their own).
 openpadel consent texts --person "Maria Lopez" --granted
 ```
 
+#### openpadel consent whatsapp
+
+WhatsApp messages. Who may: owner, manager, member (their own).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--person` | person: a name or an id | needed |  |
+| `--granted` | yes/no (the flag alone is yes) | needed |  |
+| `--form-version` | text |  |  |
+| `--app` | member \| staff |  |  |
+| `--device` | text |  |  |
+
+```
+openpadel consent whatsapp --person "Maria Lopez" --granted
+```
+
 ### court
 
 #### openpadel court archive

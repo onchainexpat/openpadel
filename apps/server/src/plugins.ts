@@ -6,7 +6,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { Hono, type Context } from "hono";
 import { both, type Lang } from "@kumi/i18n";
-import { callbackTarget, clubPlugins, problemText, rawError, HOOK_MAX_BYTES, HOOK_PER_MINUTE, hookTarget, KumiError, parseManifest, pluginCard, pluginCatalog, pluginKey, processors, searchCatalog, setPluginIo,
+import { callbackTarget, hookCheckTarget, clubPlugins, problemText, rawError, HOOK_MAX_BYTES, HOOK_PER_MINUTE, hookTarget, KumiError, parseManifest, pluginCard, pluginCatalog, pluginKey, processors, searchCatalog, setPluginIo,
   type Db, type Manifest } from "@kumi/core";
 import { publicOnlyLookup, readCapped } from "./oauth.ts";
 import { publicHost } from "./webhooks.ts";
@@ -100,7 +100,7 @@ const NOT_PASSED = new Set(["cookie", "host", "connection", "content-length", "t
 
 export function pluginRoutes(db: Db, o: { production: boolean; now: () => Date }) {
   const app = new Hono();
-  const limit = new RateLimiter(HOOK_PER_MINUTE, 60_000), callbacks = new RateLimiter(CALLBACK_PER_MINUTE, 60_000);
+  const limit = new RateLimiter(HOOK_PER_MINUTE, 60_000), callbacks = new RateLimiter(CALLBACK_PER_MINUTE, 60_000), checks = new RateLimiter(CALLBACK_PER_MINUTE, 60_000);
   // The club's public key for what it sends plugins: a plugin checks a registration's openpadel-signature-ed25519 with it.
   app.get("/.well-known/openpadel-plugin-key", async (c) => {
     const k = await pluginKey(db);
@@ -129,6 +129,33 @@ export function pluginRoutes(db: Db, o: { production: boolean; now: () => Date }
       return new Response(new Uint8Array(r.body), { status: r.status >= 200 && r.status < 600 ? r.status : 502,
         headers: { "content-type": type, "x-content-type-options": "nosniff", "cache-control": "no-store", "content-security-policy": "default-src 'none'; sandbox" } });
     } catch { return c.json({ error: "plugin_unreachable" }, 502); }
+  });
+  // A sender checking the hook's address before it posts there (Meta's webhook check: a GET with hub.mode, hub.challenge
+  // and hub.verify_token). Only for a plugin that's on and whose manifest's hook says `challenge`; only the query is
+  // passed on, as JSON, POSTed to that plugin's own <address>/verify and signed with its secret, like a hook. The plugin
+  // answers { "answer": "..." } (it checks the token itself), and the club answers the sender with exactly that, as
+  // plain text: a short word of letters, digits, dots, dashes and underscores, nothing the club's address would show.
+  app.get("/plugins/:name/hook", async (c) => {
+    const name = c.req.param("name");
+    if (!/^[a-z][a-z0-9-]{1,38}[a-z0-9]$/.test(name)) throw new KumiError("error.not_found", { thing: both("thing.plugin") }, 404);
+    const target = await hookCheckTarget(db, name);
+    if (!target) throw new KumiError("error.not_found", { thing: both("thing.plugin") }, 404);
+    const raw = new URL(c.req.url).search.slice(1);
+    if (raw.length > CALLBACK_MAX_QUERY) throw new KumiError("error.too_big", {}, 413);
+    if (!checks.take(name)) return c.json({ error: "too_many" }, 429, { "retry-after": "60" });
+    const query: Record<string, string> = {};
+    for (const [k, v] of new URLSearchParams(raw)) if (!Object.hasOwn(query, k) && Object.keys(query).length < 20) query[k] = v;
+    const body = Buffer.from(JSON.stringify({ query }));
+    const t = Math.floor(o.now().getTime() / 1000);
+    const plain = (status: number, text: string) => new Response(text, { status, headers: { "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff", "cache-control": "no-store" } });
+    try {
+      const r = await pluginRequest(target.url, { method: "POST", body, max: 4_000, timeoutMs: PLUGIN_TIMEOUT_MS, publicOnly: o.production, loopbackOk: target.local,
+        headers: { "content-type": "application/json", "user-agent": "openPadel-Plugins/1", "openpadel-event": "plugin.hook_check", "openpadel-signature": target.sign(body, t) } });
+      let answer: unknown = null;
+      try { answer = (JSON.parse(r.body.toString("utf8")) as { answer?: unknown }).answer; } catch { /* not JSON: refused below */ }
+      if (r.status < 200 || r.status > 299 || typeof answer !== "string" || !/^[A-Za-z0-9._-]{1,200}$/.test(answer)) return plain(403, "refused");
+      return plain(200, answer);
+    } catch { return plain(502, "plugin unreachable"); }
   });
   // A browser coming back from signing in somewhere for a plugin (Xero's OAuth redirect, say): the narrowest way in for
   // a plugin that can't take traffic itself. Only a GET to this one path, only for a plugin that's on and declares a

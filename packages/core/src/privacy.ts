@@ -144,6 +144,8 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
   const say = (t: unknown) => (t && typeof t === "object" && lang in (t as object)) ? (t as Text)[lang] : t;
 
   const identities = await db.selectFrom("auth_identity").select(["kind", "value", "verified_at", "created_at"]).where("person_id", "=", personId).execute();
+  // The WhatsApp number they linked (whatsapp.ts), with their messages' consents below.
+  const whatsapp = await db.selectFrom("whatsapp_number").select(["phone", "linked_at"]).where("person_id", "=", personId).execute();
   const passkeys = await db.selectFrom("passkey").select(["name", "created_at", "last_used_at", "revoked_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
   const sessions = await db.selectFrom("web_session").select(["created_at", "last_seen_at", "expires_at", "revoked_at", "user_agent", "method"]).where("person_id", "=", personId).orderBy("created_at").execute();
   const agents = await db.selectFrom("oauth_grant").leftJoin("oauth_client", "oauth_client.client_id", "oauth_grant.client_id")
@@ -297,7 +299,7 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     playtomic: await playtomicOf(db, personId, p.email),
     level: rating ?? null, level_history: history.map((h) => ({ at: iso(h.at), kind: h.kind, before: h.level_before, after: h.level_after, why: say(h.explanation) })),
     level_reviews: reviews, games, score_answers: answers,
-    messages, consents, policies_agreed: agreed.map((a) => ({ ...a, accepted_at: iso(a.accepted_at) })), quiet_hours: { from: `${String(QUIET.from).padStart(2, "0")}:00`, until: `${String(QUIET.until).padStart(2, "0")}:00`, set_by: "club" },
+    messages, consents, whatsapp_number: whatsapp.map((w) => ({ phone: w.phone, linked_at: iso(w.linked_at) })), policies_agreed: agreed.map((a) => ({ ...a, accepted_at: iso(a.accepted_at) })), quiet_hours: { from: `${String(QUIET.from).padStart(2, "0")}:00`, until: `${String(QUIET.until).padStart(2, "0")}:00`, set_by: "club" },
     waivers, friends, family, kid_rules: kidRules ?? null, kid_requests: kidRequests.map((k) => ({ ...k, what: say(k.what) })),
     // A device's address names the push service, not the device: only the service is kept here.
     push_devices: devices.map((d) => ({ app: d.app, service: (() => { try { return new URL(d.endpoint).host; } catch { return null; } })(), user_agent: d.user_agent, created_at: iso(d.created_at), last_ok_at: iso(d.last_ok_at), revoked_at: iso(d.revoked_at) })),
@@ -592,6 +594,7 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   if (p.redacted_at) return 0;
   const names = [...new Set([p.display_name, [p.given_name, p.family_name].filter(Boolean).join(" ")].map((n) => n.trim()).filter((n) => n.length >= 2 && n !== FORMER_MEMBER))];
   const identities = await db.selectFrom("auth_identity").select("value").where("person_id", "=", personId).execute();
+  identities.push(...await db.selectFrom("whatsapp_number").select("phone as value").where("person_id", "=", personId).execute());
   const x: Scrub = { emails: [...new Set([p.email, ...identities.filter((v) => v.value.includes("@")).map((v) => v.value)].filter((v): v is string => Boolean(v)).map((v) => v.toLowerCase()))],
     phones: [...new Set([p.phone, ...identities.filter((v) => !v.value.includes("@")).map((v) => v.value)].filter((v): v is string => Boolean(v)))], names };
   const ids = await theirIds(db, personId);
@@ -606,6 +609,8 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   for (const r of await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(["person_role.id", "role.key"]).where("person_role.person_id", "=", personId)
     .where("person_role.active", "=", true).execute()) if (!(o.keepOwner && r.key === "owner")) await ctx.update("person_role", r.id, { active: false });
   await db.deleteFrom("auth_identity").where("person_id", "=", personId).execute();
+  await db.deleteFrom("whatsapp_number").where("person_id", "=", personId).execute();
+  await db.deleteFrom("whatsapp_link_code").where("person_id", "=", personId).execute();
   await db.deleteFrom("auth_challenge").where(sql<boolean>`person_id = ${personId} OR lower(target) = ANY (${[...x.emails, ...x.phones]}::text[])`).execute();
   await db.deleteFrom("web_session").where("person_id", "=", personId).execute();
   await db.deleteFrom("passkey").where("person_id", "=", personId).execute();

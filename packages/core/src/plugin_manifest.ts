@@ -19,6 +19,8 @@ export const MANIFEST_MAX_BYTES = 64_000;
 /** Where a plugin may show a card (Round C renders them): a game's page, a court's tile on Today, a member's profile,
  *  the Money page, the Connectors page. */
 export const CARD_SLOTS = ["game", "court_tile", "member_profile", "money", "connectors"] as const;
+/** The message channels a plugin may send for the club (whatsapp.ts). */
+export const CHANNEL_KINDS = ["whatsapp"] as const;
 export const AREA_KEYS = AREAS.map((a) => a.key) as [string, ...string[]];
 /** What no plugin is ever given, whatever its manifest says: making or changing agents, plugins, webhooks, the vault,
  *  roles, assistants and support access. Its own webhook and keys come with it, through plugin.* actions a person
@@ -94,8 +96,13 @@ export const manifestSchema = z.strictObject({
   cards: z.array(z.strictObject({ slot: z.enum(CARD_SLOTS), title: text(80) })).check(z.maxLength(10)),
   /** Where its health is checked: a path on its own address ("/health"). */
   health: z.string().check(z.regex(/^\/[A-Za-z0-9._~/-]{0,200}$/)),
-  /** What posts to /plugins/<name>/hook, if anything does (a camera saying a highlight is ready). */
-  hook: z.optional(z.strictObject({ from: text(200) })),
+  /** What posts to /plugins/<name>/hook, if anything does (a camera saying a highlight is ready). `challenge`: the
+   *  sender checks the address first with a GET (Meta's webhook check), whose query the club passes on to the plugin. */
+  hook: z.optional(z.strictObject({ from: text(200), challenge: z.optional(z.boolean()) })),
+  /** A message channel it sends for the club (whatsapp.ts): the club decides who gets what (each member's yes, quiet
+   *  hours, STOP) and hands it each message to send. `address_setting`: the string setting with the club's own number on
+   *  that channel, shown to members so they can write to it. */
+  channel: z.optional(z.strictObject({ kind: z.enum(CHANNEL_KINDS), address_setting: settingKey })),
   /** Who sends a browser back to /plugins/<name>/callback (an OAuth sign-in's redirect, such as Xero's), if anyone:
    *  the club passes the address's query on to the plugin and shows its own page, never the plugin's. */
   callback: z.optional(z.strictObject({ for: text(200) })),
@@ -123,6 +130,8 @@ export function parseManifest(raw: unknown): Manifest {
   const d4 = dup(m.reads); if (d4) problems.push(`reads: ${d4} twice`);
   const d5 = dup(m.settings.map((f) => f.key)); if (d5) problems.push(`settings: ${d5} twice`);
   if (m.settings.filter((f) => f.type === "string" && f.club_network).length > 1) problems.push("settings: only one may be club_network");
+  if (m.channel && !m.settings.some((f) => f.key === m.channel!.address_setting && f.type === "string")) problems.push(`channel: address_setting names no string setting (${m.channel.address_setting})`);
+  if (m.channel && !m.hook) problems.push("channel: a channel's replies and STOP come in through its hook, so it needs one");
   for (const k of m.secrets) {
     if (k.kept_by_plugin && (k.optional || k.needed_when)) problems.push(`secrets.${k.name}: kept_by_plugin is never asked for, so it isn't optional or needed_when too`);
     if (k.optional && k.needed_when) problems.push(`secrets.${k.name}: needed_when already makes it optional otherwise; not both`);
@@ -230,6 +239,7 @@ export function manifestRows(m: Manifest): { label: Text; text: Text }[] {
   rows.push({ label: both("plan.plugin.row_runs"), text: runText(m) });
   if (m.hook) rows.push({ label: both("plan.plugin.row_hook"), text: both("plan.plugin.hook", { from: m.hook.from, name: m.name }) });
   if (m.callback) rows.push({ label: both("plan.plugin.row_callback"), text: both("plan.plugin.callback", { for: m.callback.for, name: m.name }) });
+  if (m.channel) rows.push({ label: both("plan.plugin.row_channel"), text: both(`plan.plugin.channel_${m.channel.kind}` as Key) });
   if (m.cards.length) rows.push({ label: both("plan.plugin.row_cards"), text: each((l) => m.cards.map((c) => `${c.title[l]} (${both(`plan.plugin.slot_${c.slot}` as Key)[l]})`).join(", ")) });
   return rows;
 }
@@ -265,6 +275,7 @@ export function manifestDiff(a: Manifest, b: Manifest): { label: Text; text: Tex
   if (JSON.stringify(a.run) !== JSON.stringify(b.run)) rows.push({ label: both("plan.plugin.row_runs"), text: runText(b) });
   if (!a.hook && b.hook) rows.push({ label: both("plan.plugin.row_hook"), text: both("plan.plugin.hook", { from: b.hook.from, name: b.name }) });
   if (!a.callback && b.callback) rows.push({ label: both("plan.plugin.row_callback"), text: both("plan.plugin.callback", { for: b.callback.for, name: b.name }) });
+  if (b.channel && a.channel?.kind !== b.channel.kind) rows.push({ label: both("plan.plugin.row_channel"), text: both(`plan.plugin.channel_${b.channel.kind}` as Key) });
   return rows;
 }
 

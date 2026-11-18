@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { startRegistration } from "@simplewebauthn/browser";
 import { money, type Key, type Lang } from "@kumi/i18n";
-import { api, ApiError, club, emailedNote, farewell, lang, lazyPage, loadMe, me, t } from "./state.ts";
+import { api, ApiError, club, clubTime, emailedNote, farewell, lang, lazyPage, loadMe, me, t } from "./state.ts";
 import { AccountData } from "./AccountData.tsx";
 import { needsStep, useStepUp } from "./Preview.tsx";
 import { PolicyLinks } from "./Policies.tsx";
@@ -131,6 +131,50 @@ function Texts({ personId }: { personId: string }) {
   );
 }
 
+/** WhatsApp, when the club sends it through its WhatsApp plugin (whatsapp.ts): their own yes to the words shown, never
+ *  ticked for them, then their number linked by sending the club's WhatsApp number the code shown here. Any country. */
+function WhatsApp({ personId }: { personId: string }) {
+  type S = { on: boolean; kid: boolean; answer: boolean | null; linked_ending: string | null; club_number: string | null;
+    code: { code: string; expires_at: string; send: string; link: string | null } | null; form: { version: string; words: string } };
+  const [s, setS] = useState<S | null>(null), [yes, setYes] = useState(false);
+  const [pending, setPending] = useState<{ runId: string; summary: string } | null>(null), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  const load = () => api<S>("/my/whatsapp").then((x) => { setS(x); setYes(false); }).catch(() => setS(null));
+  useEffect(() => { void load(); }, []);
+  const guard = (f: () => Promise<void>) => async () => { setBusy(true); setError(null); try { await f(); } catch (e) { setError(e instanceof ApiError ? e.message : String(e)); } finally { setBusy(false); } };
+  const ask = (granted: boolean) => guard(async () => {
+    const p = await api<{ run_id: string; summary: string }>("/actions/consent.whatsapp/plan", { person_id: personId, granted, ...(granted ? { form_version: s!.form.version, app: "member", device: navigator.userAgent.slice(0, 300) } : {}) });
+    setPending({ runId: p.run_id, summary: p.summary });
+  });
+  const confirm = guard(async () => { try { await api(`/runs/${pending!.runId}/apply`, {}, { "idempotency-key": pending!.runId }); } finally { setPending(null); } await load(); });
+  if (!s?.on) return null;
+  if (s.kid) return <section class="card"><h2>{t("ui.whatsapp_title")}</h2><p class="meta">{t("ui.whatsapp_kid")}</p></section>;
+  const waiting = s.answer === true && !s.linked_ending;
+  return (
+    <section class="card" id="whatsapp">
+      <h2>{t("ui.whatsapp_title")}</h2>
+      <p class="meta">{t("ui.whatsapp_hint")}</p>
+      {s.answer === true && s.linked_ending && <p>{t("ui.whatsapp_on", { ending: s.linked_ending })}</p>}
+      {s.answer !== true && s.linked_ending && <p>{t("ui.whatsapp_off_linked", { ending: s.linked_ending })}</p>}
+      {waiting && s.code && <>
+        <p>{s.club_number ? t("ui.whatsapp_link_steps", { number: s.club_number }) : t("ui.whatsapp_link_steps_no_number")}</p>
+        <p><strong>{s.code.send}</strong></p>
+        <p class="meta">{t("ui.whatsapp_code_until", { time: clubTime(s.code.expires_at, { hour: "numeric", minute: "2-digit" }) })}</p>
+        {s.code.link && <p><a class="button primary" href={s.code.link} target="_blank" rel="noopener noreferrer">{t("ui.whatsapp_open")}</a></p>}
+      </>}
+      {!pending && (s.answer === true ? <>
+        {waiting && <p><button disabled={busy} onClick={ask(true)}>{t("ui.whatsapp_new_code")}</button></p>}
+        <button disabled={busy} onClick={ask(false)}>{t("ui.whatsapp_turn_off")}</button>
+      </> : <>
+        <label class="check"><input type="checkbox" checked={yes} onChange={(e) => setYes(e.currentTarget.checked)} /> {s.form.words}</label>
+        <PolicyLinks />
+        <button class="primary" disabled={busy || !yes} onClick={ask(true)}>{t("ui.whatsapp_turn_on")}</button>
+      </>)}
+      {pending && <div class="sheet"><p>{pending.summary}</p><button type="button" class="primary" disabled={busy} onClick={confirm}>{t("ui.confirm")}</button> <button type="button" onClick={() => setPending(null)}>{t("ui.back")}</button></div>}
+      {error && <p class="error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
 /** Their email: added to an account that joined by phone (asked for, never required: receipts and messages
  *  also wait in the app), or changed. Either way a code goes to the new address first (auth.ts); on a change,
  *  the old address is told, with a link that puts it back. */
@@ -231,6 +275,7 @@ export function Profile({ app = "member" }: { app?: "member" | "staff" }) {
       <PushToggle app={app} />
       {app === "member" && !m.kid && <ClubNews personId={m.person.id} />}
       {app === "member" && <Texts personId={m.person.id} />}
+      {app === "member" && <WhatsApp personId={m.person.id} />}
       {app === "member" && <InstallApp />}
       {app === "member" && <CreditCard />}
       {app === "member" && club.value?.gift_cards && <section class="card"><h2>{t("ui.gift_cards_title")}</h2><p><a class="button" href="/gift-cards">{t("ui.gift_cards_title")}</a></p></section>}
