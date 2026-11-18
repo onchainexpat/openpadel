@@ -3,7 +3,7 @@ import { api, clubMoment, clubTime, dollars, lang, mayDo, me, t, usePreview } fr
 import type { Key } from "@kumi/i18n";
 import { around, MOVE_STEPS, stepMarks, type Step } from "./move_steps.ts";
 
-type Source = "playtomic" | "playbypoint" | "spreadsheet";
+type Source = "playtomic" | "playbypoint" | "courtreserve" | "spreadsheet";
 type Check = { key: string; step: Step; who: "you" | "both"; done: boolean; at: string | null; by: string | null; text: string };
 type Seen = { key: string; step: Step; done: boolean; detail: string | null; text: string };
 type Row = { what: "members" | "bookings" | "memberships" | "credit"; theirs: number | null; ours: number; money: boolean; result: "match" | "differs" | "not_yet" | "only_ours" };
@@ -16,9 +16,14 @@ type Steps = {
   practice_run: { compare: Row[]; totals_from: "playtomic" | "file" | null; totals_read_at: string | null; unreadable: number; differences: number | null; checked_at: string;
     last_copy_at: string | null; copy_failed: boolean };
   wrap_up: { people: number; signed_in: number; booked_here: number | null; credit_cents: number; credit_people: number };
+  /** From CourtReserve or Playbypoint: the files read, and what came over from them (move_files.ts). */
+  files: { uploads: Record<"people" | "bookings" | "programs", { file_name: string | null; rows: number; at: string; lines_left: number } | null>;
+    brought: { people_linked: number; credit_cents: number; credit_people: number; memberships: number; bookings: number; places: number } } | null;
 };
 
-const SOURCES: Source[] = ["playtomic", "playbypoint", "spreadsheet"];
+const SOURCES: Source[] = ["playtomic", "courtreserve", "playbypoint", "spreadsheet"];
+/** The sources whose files openPadel reads step by step (MoveFiles.tsx). */
+const FILES = (x: Source | null): x is "courtreserve" | "playbypoint" => x === "courtreserve" || x === "playbypoint";
 
 /** Moving in, guided (move_in.ts): five steps from the old system to openPadel, each tying together the pages that
  *  do the work (Customers import, Playtomic, Moving in: wallets and memberships). The step the club is on, its source,
@@ -90,7 +95,6 @@ export function MoveSteps() {
             {SOURCES.map((x) => <button type="button" role="radio" aria-checked={s.source === x} class={s.source === x ? "move-source on" : "move-source"}
               onClick={() => s.source !== x && preview("move.source", { source: x })}>
               <strong>{t(`ui.moving_source_${x}` as Key)}</strong><span class="meta">{t(`ui.moving_source_${x}_how` as Key)}</span></button>)}
-            <button type="button" class="move-source off" disabled><strong>{t("ui.moving_source_courtreserve")}</strong><span class="meta">{t("ui.moving_not_yet_built")}</span></button>
           </div>
         </section>
         {s.source && <section class="card">
@@ -98,7 +102,7 @@ export function MoveSteps() {
           {(["comes", "file", "never"] as const).map((g) => <>
             <h3>{t(`ui.moving_group_${g}` as Key)}</h3>
             <ul>{t(`ui.moving_${s.source}_${g}` as Key).split("\n").map((line) => <li>{line}</li>)}</ul></>)}
-          {s.source === "playbypoint" && <p class="note">{t("ui.moving_playbypoint_unverified")}</p>}
+          {FILES(s.source) && <p class="note">{t(`ui.moving_${s.source}_unverified` as Key)}</p>}
         </section>}
         {s.source === "playtomic" && <section class="card">
           <h2>{t("ui.moving_keys")}</h2>
@@ -113,8 +117,13 @@ export function MoveSteps() {
           <p class="meta">{t(`ui.moving_files_${s.source}` as Key)}</p>
           {s.connect.imports > 0 && <p>{t("count.moving_imports", { count: s.connect.imports })}{s.connect.imported_at && ` ${t("ui.moving_last_at", { when: fmt(s.connect.imported_at) })}`}</p>}
           {s.source === "playtomic" && s.connect.upload && <p>{t("ui.movein_upload_read", { name: s.connect.upload.file_name ?? "CSV", when: fmt(s.connect.upload.at), by: "-", players: t("count.movein_rows", { count: s.connect.upload.rows }) })}</p>}
+          {FILES(s.source) && s.files && (["people", "bookings", "programs"] as const).map((k) => s.files!.uploads[k] &&
+            <p>{t("ui.move_files_read", { name: s.files!.uploads[k]!.file_name ?? "CSV", when: fmt(s.files!.uploads[k]!.at), by: "-", rows: t("count.move_rows", { count: s.files!.uploads[k]!.rows }) })}</p>)}
           <div class="page-actions">
-            <a class="button" href={s.source === "playbypoint" ? "/people?import=playbypoint" : "/people?import=1"}>{t("ui.moving_import_members")}</a>
+            {FILES(s.source) ? <a class="button primary" href={`/settings/moving-in/${s.source}`}>{t("ui.move_files_open", { from })}</a>
+              : <a class="button" href="/people?import=1">{t("ui.moving_import_members")}</a>}
+            {/* Playbypoint's users list still brings levels (NPRP) in through Customers' import. */}
+            {s.source === "playbypoint" && <a class="button" href="/people?import=playbypoint">{t("ui.moving_import_members")}</a>}
             {s.source === "playtomic" && <a class="button" href="/playtomic/move-in">{t("ui.movein_link")}</a>}
           </div>
         </section>}
@@ -137,6 +146,13 @@ export function MoveSteps() {
             <li class="row"><span>{s.review.wallets_brought_at ? t("ui.movein_credit_so_far", { amount: dollars(s.review.credit_cents, lang.value), people: t("count.people", { count: s.review.credit_people }) }) : t("ui.moving_credit_not_yet")}</span>
               <a href="/playtomic/move-in">{t("ui.moving_see")}</a></li>
             <li class="row"><span>{t("count.movein_kept", { count: s.review.memberships })}</span><a href="/playtomic/move-in">{t("ui.moving_see")}</a></li>
+          </>}
+          {FILES(s.source) && s.files && <>
+            <li class="row"><span>{t("count.movein_kept", { count: s.files.brought.memberships })}</span><a href={`/settings/moving-in/${s.source}`}>{t("ui.moving_see")}</a></li>
+            <li class="row"><span>{t("ui.movein_credit_so_far", { amount: dollars(s.files.brought.credit_cents, lang.value), people: t("count.people", { count: s.files.brought.credit_people }) })}</span>
+              <a href={`/settings/moving-in/${s.source}`}>{t("ui.moving_see")}</a></li>
+            <li class="row"><span>{t("count.move_files_bookings", { count: s.files.brought.bookings })}</span><a href="/bookings">{t("ui.moving_see")}</a></li>
+            <li class="row"><span>{t("count.move_files_places", { count: s.files.brought.places })}</span><a href="/programs">{t("ui.moving_see")}</a></li>
           </>}
         </ul>
         <h3>{t("ui.moving_group_never")}</h3>
@@ -191,6 +207,7 @@ export function MoveSteps() {
             <div><dt>{t("ui.moving_tile_signed_in")}</dt><dd>{t("ui.moving_of", { n: s.wrap_up.signed_in, all: s.wrap_up.people })}</dd></div>
             {s.wrap_up.booked_here !== null && <div><dt>{t("ui.moving_tile_booked")}</dt><dd>{s.wrap_up.booked_here}</dd></div>}
             {s.source === "playtomic" && <div><dt>{t("ui.moving_tile_credit")}</dt><dd>{dollars(s.wrap_up.credit_cents, lang.value)}</dd></div>}
+            {FILES(s.source) && s.files && <div><dt>{t("ui.moving_tile_credit")}</dt><dd>{dollars(s.files.brought.credit_cents, lang.value)}</dd></div>}
           </dl>
         </section>
         <section class="card">
