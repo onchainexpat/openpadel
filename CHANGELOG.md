@@ -7,7 +7,14 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.7.0 (2026-11-18)
+
+Plugins, agents and moving in. The club's own agents and webhooks, and plugins installed from a catalog with the
+owner's yes (court lights, cameras, WhatsApp, Klaviyo and more), each showing cards in the apps and reaching only what
+it was allowed. Moving in from CourtReserve and Playbypoint, players bringing their levels from other apps, and a
+smoother first setup: currency, hours and a price in club.yaml, the owner's first sign-in without a code read out of
+the log, and a practice check in doctor. openPadel is now MIT licensed. Every club should update; the database changes
+apply by themselves, and nothing needs setting (see "When updating").
 
 Signing in on the club's page to connect an assistant, the command line or an agent's device works again on a club served over https: the page's sign-in form named the club's address as http (as the request reaches openPadel behind the web server), and the sign-in refused it as "This sign-in link isn't complete".
 
@@ -590,8 +597,18 @@ and people who write one. openPadel's own tests run the template copied out of t
 - Plugins (migration 128): nothing to do; none is installed until the club's agent installs one and the owner says yes.
   The catalog is a sample bundled with openPadel until `KUMI_PLUGIN_CATALOG_URL` names another. The update gives Caddy
   the new /plugins/* path by itself.
-- The owner's sign-in links (migration 137): nothing to do. The `practice` check warns until go-live, as the email
-  check already did.
+- The database changes since 0.6.3 (migrations 112 to 137; 133 and 134 are unused numbers) apply by themselves when
+  the server starts, and none needs anything set. Those above say what 112, 126 and 128 do; the rest are with what
+  they're for, above, and the newest are:
+  - 129: plugin cards, what a plugin shows in the apps' slots (the court's tile, a game, a member's profile, Money,
+    Connectors).
+  - 130: the one address on the club's own network a local plugin may reach, as the owner allowed it.
+  - 131: a key a plugin keeps itself in the vault (an OAuth refresh token), shown as "kept by" that plugin.
+  - 132: WhatsApp as a message channel sent by a plugin, with its own yes per member, quiet hours and STOP.
+  - 135: the files exported from CourtReserve or Playbypoint, read on the server and kept 30 days, and what came over.
+  - 136: levels players bring from other apps, one claim per app, and the sealed screenshot kept until staff answer.
+  - 137: the owner's one-time sign-in link (`openpadel sign-in-link`), for the first sign-in before email is set up.
+- The new `practice` check in `openpadel doctor` warns until go-live, as the email check already did.
 - Caddy's admin API moves off 127.0.0.1:2019, where anything on the server could rewrite the club's sites: to a socket
   under /var/lib/caddy that only the caddy user reaches (`systemctl reload caddy` still works through it), and off
   altogether in Docker. The update does it by itself, restarting Caddy once since a reload can't reach the old address.
