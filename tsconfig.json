@@ -1,4 +1,5 @@
 { "extends": "./tsconfig.base.json", "compilerOptions": { "types": ["node"] },
   "include": ["packages/core/src", "packages/core/test", "packages/i18n/src", "packages/i18n/test", "apps/server/src", "apps/server/test",
     "plugins/court-lights/src", "plugins/court-lights/test", "plugins/court-lights/tools",
-    "plugins/accounting-export/src", "plugins/accounting-export/test", "plugins/accounting-export/tools"] }
+    "plugins/accounting-export/src", "plugins/accounting-export/test", "plugins/accounting-export/tools",
+    "plugins/whatsapp/src", "plugins/whatsapp/test", "plugins/whatsapp/tools"] }
