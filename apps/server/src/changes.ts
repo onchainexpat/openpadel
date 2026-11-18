@@ -36,6 +36,14 @@ export function shortSummary(summary: string, lang: Lang): { summary: string; re
   return { summary: parts[0]!, rest: parts.slice(1).join(" ") };
 }
 
+/** The list's own line: the first sentence as `short`, and the rest apart, so a long plan (a plugin's install) doesn't fill
+ *  Changes. `summary` stays whole for the sheets that ask for a yes. */
+function shortLine(summary: string | null, lang: Lang): { short: string | null; rest: string | null } {
+  if (!summary) return { short: null, rest: null };
+  const s = shortSummary(summary, lang);
+  return { short: s.summary, rest: s.rest };
+}
+
 /** The asker's own words, where the change has a field for them (a note, a reason, a message they typed). */
 export function saidIn(input: unknown): string | null {
   const i = (input ?? {}) as Record<string, unknown>;
@@ -112,7 +120,7 @@ export function changeRoutes(db: Db, actor: (c: Context<any>) => Actor, lang: (c
     const waiting = r.status === "awaiting_approval", declined = await declinedBy(r);
     const why = undoWhy(r, l, now());
     return { id: r.id, action: r.action, area: areaOf(r.action), status: declined !== null ? "declined" : r.status, by: by(r, l), support: Boolean(r.support_name), via: r.via,
-      summary: (r.plan as StoredPlan | null)?.summary?.[l] ?? null, at: r.applied_at ?? r.created_at,
+      summary: (r.plan as StoredPlan | null)?.summary?.[l] ?? null, ...shortLine((r.plan as StoredPlan | null)?.summary?.[l] ?? null, l), at: r.applied_at ?? r.created_at,
       // Undo is offered only where it can work: a change that kept a way back, still in time. Receipts, alerts,
       // deletions and money sent can't be put back, so the screen doesn't offer to; it says why instead.
       can_undo: r.status === "applied" && why === null, undo_why: why,

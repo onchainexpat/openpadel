@@ -4869,6 +4869,7 @@ export const en = {
   // The club's phone, website and amenities (club.update, migration 124): Settings, members' Home, the public page.
   "field.website": "the website",
   "field.amenities": "what the club has",
+  "field.gift_cards": "gift cards",
   "amenity.parking": "Parking",
   "amenity.showers": "Showers",
   "amenity.changing_rooms": "Changing rooms",

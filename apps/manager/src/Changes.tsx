@@ -8,7 +8,7 @@ import { api, ApiError, dollars, lang, loadMe, needsStep, t, clubTime, useBackCl
 import { SidePanel } from "./Courts.tsx";
 import { viaWords } from "./made_via.ts";
 
-type Change = { id: string; action: string; area: string; status: string; ended?: string | null; by: string; via: string; summary: string | null; at: string;
+type Change = { id: string; action: string; area: string; status: string; ended?: string | null; by: string; via: string; summary: string | null; short?: string | null; rest?: string | null; at: string;
   can_answer: boolean; can_undo: boolean; undo_why: string | null; approved_by: string | null; declined_by: string | null; reason: string | null };
 type Value = string | number | boolean | null;
 type Detail = Change & { yeses?: string[]; title: string; lines: string[]; charge: { label: string; cents: number | null }[]; charge_how: string | null; undo_until: string | null;
@@ -93,7 +93,8 @@ export function Changes() {
   const waiting = rows.filter((r) => r.can_answer), rest = rows.filter((r) => !r.can_answer);
   const row = (r: Change) => (
     <li key={r.id} class="card">
-      <div class="summary">{r.summary ?? r.action}</div>
+      <div class="summary">{r.short ?? r.summary ?? r.action}</div>
+      {r.rest && <details class="since-rest"><summary class="meta">{t("ui.since_rest")}</summary><p>{r.rest}</p></details>}
       <div class="meta">{byline(r)} · {when(r.at)} · <span class={`status ${r.status}`}>{t(`ui.status_${r.status}` as Key)}</span>
         {r.undo_why && <> · <span class="status">{t("ui.change_cant_undo")}</span></>}
         {r.approved_by && <> · {t("ui.approved_by", { name: r.approved_by })}</>}

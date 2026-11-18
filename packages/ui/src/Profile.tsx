@@ -156,10 +156,10 @@ function WhatsApp({ personId }: { personId: string }) {
       {s.answer === true && s.linked_ending && <p>{t("ui.whatsapp_on", { ending: s.linked_ending })}</p>}
       {s.answer !== true && s.linked_ending && <p>{t("ui.whatsapp_off_linked", { ending: s.linked_ending })}</p>}
       {waiting && s.code && <>
-        <p>{s.club_number ? t("ui.whatsapp_link_steps", { number: s.club_number }) : t("ui.whatsapp_link_steps_no_number")}</p>
+        <p>{s.club_number ? t("ui.whatsapp_link_steps", { number: phoneLooks(s.club_number) }) : t("ui.whatsapp_link_steps_no_number")}</p>
         <p><strong>{s.code.send}</strong></p>
         <p class="meta">{t("ui.whatsapp_code_until", { time: clubTime(s.code.expires_at, { hour: "numeric", minute: "2-digit" }) })}</p>
-        {s.code.link && <p><a class="button primary" href={s.code.link} target="_blank" rel="noopener noreferrer">{t("ui.whatsapp_open")}</a></p>}
+        {s.code.link && <p><a class="button primary big" href={s.code.link} target="_blank" rel="noopener noreferrer">{t("ui.whatsapp_open")}</a></p>}
       </>}
       {!pending && (s.answer === true ? <>
         {waiting && <p><button disabled={busy} onClick={ask(true)}>{t("ui.whatsapp_new_code")}</button></p>}
@@ -303,4 +303,12 @@ function CreditCard() {
   useEffect(() => { api<{ cents: number }>("/my/credit").then((c) => setCents(c.cents)).catch(() => {}); }, []);
   if (cents <= 0) return null;
   return <section class="card"><h2>{t("ui.credit_title")}</h2><p>{t("ui.credit_have", { amount: money(cents, lang.value) })}</p><p class="meta">{t("ui.credit_hint")}</p></section>;
+}
+
+/** A number as people read it: +1 (503) 555-0142 for the US and Canada, else the country code apart. */
+function phoneLooks(e164: string): string {
+  const us = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164);
+  if (us) return `+1 (${us[1]}) ${us[2]}-${us[3]}`;
+  const m = /^\+(\d{1,3})(\d+)$/.exec(e164);
+  return m ? `+${m[1]} ${m[2]}` : e164;
 }

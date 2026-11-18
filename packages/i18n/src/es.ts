@@ -4870,6 +4870,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   // The club's phone, website and amenities (club.update, migration 124): Settings, members' Home, the public page.
   "field.website": "el sitio web",
   "field.amenities": "lo que tiene el club",
+  "field.gift_cards": "las tarjetas de regalo",
   "amenity.parking": "Estacionamiento",
   "amenity.showers": "Duchas",
   "amenity.changing_rooms": "Vestidores",
