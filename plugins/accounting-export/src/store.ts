@@ -10,7 +10,9 @@ export type ProviderKind = "xero" | "quickbooks";
 /** What was sent for one club day: each book line's cents (original and adjustments added up), and how many
  *  adjustments. An empty `lines` with `empty` is a day with nothing to send. */
 export interface SentDay { lines: Record<string, number>; adjustments: number; empty?: boolean }
-export interface Books { sent: Record<string, SentDay>; lastSentDay: string | null; lastRunDate: string | null }
+export interface Books { sent: Record<string, SentDay>; lastSentDay: string | null; lastRunDate: string | null;
+  /** The day held back because Stripe's fees or payouts for it couldn't be read, and since when. */
+  waiting?: { day: string; since: number } | null }
 
 export interface ClubRecord {
   club: { name: string; url: string; time_zone: string; language: string };

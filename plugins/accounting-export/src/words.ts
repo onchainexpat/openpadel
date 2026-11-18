@@ -23,7 +23,7 @@ const article = (es: string) => (/^1[:.]/.test(es) ? "la " : "las ") + es;
 /** What a provider or organisation name may say on a card: one line, no dashes, not too long. */
 export const clean = (s: string, max = 80) => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").replace(/[\u2013\u2014]/g, ",").replace(/\s+/g, " ").trim().slice(0, max);
 
-export type Problem = null | "no_keys" | "no_start" | "reconnect" | "down" | "rate" | "rejected" | "door" | "unbalanced" | "no_accounts";
+export type Problem = null | "no_keys" | "no_start" | "reconnect" | "down" | "rate" | "rejected" | "door" | "unbalanced" | "no_accounts" | "stripe" | "stripe_long";
 
 export interface State {
   provider: "xero" | "quickbooks";
@@ -37,12 +37,15 @@ export interface State {
   problem: Problem;
   detail: string | null;
   suspense: number;
+  /** The day held back because the card provider's fees or payouts for it couldn't be read. */
+  waitingDay: string | null;
 }
 
 const NAME = { xero: "Xero", quickbooks: "QuickBooks" } as const;
 
 function problemRow(s: State): Row | null {
   const p = NAME[s.provider], d = s.detail ? clean(s.detail, 100) : null;
+  const wd = s.waitingDay ? dayWords(s.waitingDay) : { en: "a day", es: "un día" };
   const w: Record<Exclude<Problem, null>, Text> = {
     no_keys: { en: `Add ${s.missingKeys.join(" and ")} in the vault`, es: `Agrega ${s.missingKeys.join(" y ")} en la bóveda` },
     no_start: { en: "Set the first day to send in the plugin's settings", es: "Elige el primer día a enviar en la configuración del plugin" },
@@ -53,6 +56,9 @@ function problemRow(s: State): Row | null {
     door: { en: "The club's books couldn't be read; it tries again soon", es: "No se pudieron leer las cuentas del club; se vuelve a intentar pronto" },
     unbalanced: { en: "A day's books didn't balance, so nothing was sent", es: "Las cuentas de un día no cuadraron, así que no se envió nada" },
     no_accounts: { en: "Set the accounts in the plugin's settings", es: "Elige las cuentas en la configuración del plugin" },
+    stripe: { en: `Waiting for Stripe to send ${wd.en}`, es: `Esperando que Stripe envíe ${wd.es}` },
+    stripe_long: { en: `Stripe hasn't answered for 3 days, so ${wd.en} and the days after wait; nothing is sent without its fees and payouts`,
+      es: `Stripe no responde desde hace 3 días, así que ${wd.es} y los días siguientes esperan; nada se envía sin sus comisiones y depósitos` },
   };
   return s.problem ? { label: { en: "Needs a look", es: "Revisa esto" }, text: w[s.problem] } : null;
 }

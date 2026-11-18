@@ -25,6 +25,8 @@ export async function fakeClub(name = "Kestrel Padel") {
     days: new Map<string, { key: string; cents: number }[]>(),
     today: "2026-11-17",
     cards: true, down: false, keepDown: false,
+    /** Days whose Stripe fees and payouts the club couldn't read (money_books says "error"). */
+    stripeDown: new Set<string>(),
     token: "opa_" + randomBytes(24).toString("base64url"),
     webhookSecret: "whsec_" + randomBytes(24).toString("base64url"),
     hookSecret: "opps_" + randomBytes(24).toString("base64url"),
@@ -53,7 +55,8 @@ export async function fakeClub(name = "Kestrel Padel") {
       case "money_books": {
         const out = [];
         for (let d = args.from; d <= args.to; d = new Date(Date.parse(`${d}T12:00:00Z`) + 86400_000).toISOString().slice(0, 10)) {
-          out.push({ date: d, complete: d < state.today, fees: "known", payouts: "known", lines: (state.days.get(d) ?? []).filter((l) => l.cents !== 0) });
+          const stripe = state.stripeDown.has(d) ? "error" : "known";
+          out.push({ date: d, complete: d < state.today, fees: stripe, payouts: stripe, lines: (state.days.get(d) ?? []).filter((l) => l.cents !== 0) });
           if (out.length > 31) return json(200, err(rpc.id, "error.invalid_input", "at most 31 days"));
         }
         return json(200, ok(rpc.id, { currency: "USD", time_zone: TZ, today: state.today, days: out }));

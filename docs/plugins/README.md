@@ -165,7 +165,9 @@ gives the club's books for each club day (at most 31), what the accounting expor
              "lines": [{ "key": "takings.courts", "cents": -12000 }, { "key": "card.in", "cents": 12000 }] }] }
 ```
 
-Signed cents, positive a debit; each day's lines balance. The keys: `takings.<kind>` and `refunds.<kind>` (courts,
+Signed cents, positive a debit; each day's lines balance. `fees` and `payouts` say whether the card provider's fees
+and payouts are in the lines (`known`), there are none to have (`none`: no card provider, or no account there yet), or
+the provider didn't answer (`error`): an export should wait for that day rather than send it without them. The keys: `takings.<kind>` and `refunds.<kind>` (courts,
 lessons, programs, memberships, after_restore, other; net of tax), `tax`, `credit.added` and `credit.used`,
 `gift_cards.sold` and `gift_cards.used`, `passes.sold` and `passes.used`, `card.in` and `card.out` (the card provider's
 clearing), `cash.in` and `cash.out`, `receivable.up` and `receivable.down`, `refunds_payable`, `adjustment`,
@@ -184,8 +186,9 @@ refresh token: each refresh hands out a new one). Keep each new value as soon as
   preview once it's used or expired), and replaces the last one in place. Read it back with `plugin_secret`.
 - Only your own token has these tools, and only for a key your manifest keeps: one the owner adds, one you don't
   declare, or a call from anyone else (the owner's own assistant included) is refused (`error.plugin_secret_not_kept`).
-- The club shows it as "kept by <plugin>, ends in 4F2A", keeps it out of Today and Changes (like card updates), and,
-  like every key of yours, removes it with the plugin when the owner says `--delete-keys`.
+- The club shows it as "kept by <plugin>, ends in 4F2A", keeps it out of Today and Changes (like card updates), and
+  always deletes it when the plugin is removed (the owner's own keys stay unless `--delete-keys`); the remove preview
+  says so.
 
 ### Cards
 

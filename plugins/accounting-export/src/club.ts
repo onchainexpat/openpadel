@@ -24,9 +24,14 @@ export const ADJUST_DAYS = 7;
 export const WINDOW_DAYS = 31;
 const CARDS_RECHECK_MS = 3600_000, CARD_RETRY_MS = 5 * 60_000;
 export const backoff = (n: number) => Math.min(5_000 * 2 ** Math.max(0, n - 1), 300_000);
-const FAILING: Problem[] = ["reconnect", "down", "rate", "rejected", "door", "unbalanced", "no_accounts"];
+const FAILING: Problem[] = ["reconnect", "down", "rate", "rejected", "door", "unbalanced", "no_accounts", "stripe_long"];
 
 class NotReady extends Error { problem: Problem; constructor(p: Problem, m: string) { super(m); this.problem = p; } }
+/** How long the card provider (Stripe) may not answer for a day's fees and payouts before the cards and health say so.
+ *  The day still isn't sent without them, nor any day after it. */
+export const STRIPE_WAIT_SAID_MS = 3 * 86400_000;
+/** Whether the club couldn't read a day's fees or payouts from the card provider (as opposed to having none). */
+const providerMissing = (d: { fees?: string; payouts?: string }) => d.fees === "error" || d.payouts === "error";
 
 export interface ClubHealth { provider: ProviderKind; connected: boolean; last_sent_day: string | null; next_send_at: string | null; failing: string | null }
 
@@ -315,6 +320,14 @@ export class ClubRunner {
       for (const d of [...books.days].sort((x, y) => (x.date < y.date ? -1 : 1))) {
         if (d.date < from || d.date > to) continue;
         if (!d.complete) return;
+        // Never a day without its card fees and payouts: it waits (and every day after it, in order) until the club
+        // can read them from Stripe again.
+        if (providerMissing(d)) {
+          if (b.waiting?.day !== d.date) b.waiting = { day: d.date, since: now };
+          this.save();
+          throw new NotReady(now - b.waiting.since >= STRIPE_WAIT_SAID_MS ? "stripe_long" : "stripe", `Stripe's fees or payouts for ${d.date} couldn't be read`);
+        }
+        if (b.waiting?.day === d.date) b.waiting = null;
         await this.sendDay(now, s, b, d.date, byKey(d.lines));
       }
       from = addDays(to, 1);
@@ -326,7 +339,8 @@ export class ClubRunner {
     if (since > until) return;
     const books = await this.books(since, until);
     for (const d of [...books.days].sort((x, y) => (x.date < y.date ? -1 : 1))) {
-      if (!d.complete || !b.sent[d.date]) continue;
+      // A day whose fees or payouts can't be read now isn't compared: they'd look like a change.
+      if (!d.complete || !b.sent[d.date] || providerMissing(d)) continue;
       await this.adjustDay(now, s, b, d.date, byKey(d.lines), today);
     }
   }
@@ -406,7 +420,7 @@ export class ClubRunner {
     const needLink = withLink && (!connected || this.rec.reconnect) && !missing.length;
     return { provider: s.provider, connected, org: this.rec.link?.provider === s.provider ? this.rec.link.org : null, missingKeys: missing, redirect: this.redirect(),
       connectUrl: needLink ? await this.connectUrl(now) : null, lastSentDay: this.booksOf(s.provider).lastSentDay, next: this.next(now), problem: this.rec.reconnect ? "reconnect" : problem,
-      detail: this.detail, suspense: this.suspense };
+      detail: this.detail, suspense: this.suspense, waitingDay: this.booksOf(s.provider).waiting?.day ?? null };
   }
   cardsNow(now: number) { return this.state(now, true).then((st) => ({ connectors: connectorsCard(st), money: moneyCard(st) })); }
 

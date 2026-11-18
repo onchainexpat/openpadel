@@ -16,7 +16,10 @@ export const BOOKS_MAX_DAYS = 31;
 /** The kinds of takings a line is named for; any other revenue type is "other". */
 export const TAKINGS_TYPES = ["courts", "lessons", "programs", "memberships", "after_restore", "other"] as const;
 export interface BookLine { key: string; cents: number }
-export interface BookDay { date: string; complete: boolean; fees: "known" | "unknown"; payouts: "known" | "unknown"; lines: BookLine[] }
+/** Card fees and payouts: "known" (in the lines), "none" (no card provider, or no account there yet: nothing to wait
+ *  for), or "error" (the provider didn't answer: an export should wait for them rather than send the day without). */
+export type ProviderFigures = "known" | "none" | "error";
+export interface BookDay { date: string; complete: boolean; fees: ProviderFigures; payouts: ProviderFigures; lines: BookLine[] }
 export interface Books { currency: string; time_zone: string; today: string; days: BookDay[] }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,8 +65,10 @@ export async function moneyBooks(db: Db | Trx, from: string, to: string, now = n
     .groupBy(["day", "type", "refund"]).execute();
 
   const provider = paymentProvider();
-  let payouts: { arrivesOn: string; amountCents: number; status: string }[] | null = null;
-  if (provider.listPayouts) { try { payouts = await provider.listPayouts(100); } catch { payouts = null; } }
+  let payouts: { arrivesOn: string; amountCents: number; status: string }[] | null = null, payoutsAre: ProviderFigures = "none";
+  if (provider.listPayouts) {
+    try { payouts = await provider.listPayouts(100); payoutsAre = payouts ? "known" : "none"; } catch { payouts = null; payoutsAre = "error"; }
+  }
 
   const out: BookDay[] = [];
   for (const date of days) {
@@ -75,16 +80,15 @@ export async function moneyBooks(db: Db | Trx, from: string, to: string, now = n
       // Taken: the takings line gives up the tax (a smaller credit) and tax is owed. Refunded: the reverse.
       if (r.refund) { add(`refunds.${r.type}`, -c); add("tax", c); } else { add(`takings.${r.type}`, c); add("tax", -c); }
     }
-    let fees: BookDay["fees"] = "unknown";
+    let fees: ProviderFigures = "none";
     if (provider.feesBetween) {
       try {
         const f = await provider.feesBetween(onDate(date, "00:00", tz), onDate(date, "24:00", tz));
         if (f !== null) { fees = "known"; add("card.fees", f); add("card.fees_out", -f); }
-      } catch { fees = "unknown"; }
+      } catch { fees = "error"; }
     }
-    let paid: BookDay["payouts"] = "unknown";
+    const paid = payoutsAre;
     if (payouts) {
-      paid = "known";
       const cents = payouts.filter((p) => p.status === "paid" && p.arrivesOn === date).reduce((n, p) => n + p.amountCents, 0);
       add("bank.payouts", cents); add("card.payouts_out", -cents);
     }

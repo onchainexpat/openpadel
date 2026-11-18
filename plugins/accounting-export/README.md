@@ -40,6 +40,11 @@ Amounts and kinds only. Each journal line is a total for the day, such as "Court
   sent, the next send, and anything wrong. On Money: where it sends, the last day sent, the next send, lines without
   an account, and anything wrong. Both in English and Spanish. A club whose openPadel doesn't show plugin cards yet is
   asked again hourly; the export works the same without them.
+- **Never a day without Stripe's figures.** When the club can't read a day's card fees or payouts from Stripe
+  (`money_books` says `"error"` for them), that day isn't sent, and nor is any day after it: they wait in order and are
+  tried again with the same backoff. The Money card says "Waiting for Stripe to send Tue, Dec 1" (tone warn). After 3
+  days of it, the card says Stripe hasn't answered for 3 days and health reports it (`failing: "stripe_long"`, HTTP
+  503); days still aren't sent without those figures. A club with no Stripe account sends days without them.
 - **Failures.** A 429 waits out its Retry-After (up to a minute, twice) before giving up for the minute; a provider
   that's down or doesn't answer is tried again after 5 seconds, doubling to 5 minutes; an access token the provider
   refuses is refreshed once; a refresh token it refuses (the app disconnected, or unused for 60 days) makes the
@@ -80,7 +85,8 @@ openpadel plugin configure --plugin accounting-export --settings '{"provider": "
    the server with `openpadel plugin secret accounting-export XERO_CLIENT_ID`. While the `provider` setting is `xero`
    (the default), the club asks the owner for these two (a vault request, and the plugin's card on Connectors needs
    attention until they're there); the QuickBooks keys aren't asked for. Choosing `quickbooks` asks for those instead.
-4. On Connectors, press **Connect Xero** on the plugin's card, sign in to Xero and allow the organisation.
+4. On Connectors, press **Connect Xero** on the plugin's card, sign in to Xero and allow the organisation. The owner or
+   a manager may press it (both see Connectors): whoever signs in to Xero connects the club's organisation.
 
 The plugin asks for `offline_access accounting.transactions accounting.settings.read`. Xero gives apps made after
 March 2026 granular scopes instead; if the app's scopes differ, set `XERO_SCOPES` in the plugin's environment to the

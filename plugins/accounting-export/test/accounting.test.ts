@@ -289,3 +289,45 @@ test("the cards say everything in both languages, one line each, without dashes,
   await stop(r);
   c3.close();
 });
+
+test("Stripe not answering for a day's fees and payouts: that day waits, the days after it wait in order, the card says so, and after 3 days health does too", async () => {
+  const c = await fakeClub("Stork Padel");
+  let r: Run | null = null;
+  try {
+    c.state.settings = { ...XERO_SETTINGS, start_date: "2026-12-01" };
+    c.state.vault.set("XERO_CLIENT_ID", xero.oauth.s.clientId);
+    c.state.vault.set("XERO_CLIENT_SECRET", xero.oauth.s.clientSecret);
+    c.state.today = "2026-12-03";
+    c.state.days.set("2026-12-01", [{ key: "takings.courts", cents: -3000 }, { key: "card.in", cents: 3000 }]);
+    c.state.days.set("2026-12-02", [{ key: "takings.courts", cents: -4000 }, { key: "card.in", cents: 4000 }]);
+    c.state.stripeDown.add("2026-12-01");
+    clock = at("2026-12-03", 5, 0);
+    r = await start(c, { xeroIdentity: xero.url, xeroApi: xero.url });
+    assert.equal((await connect(r, c, xero.oauth)).json.ok, true);
+    const mine = () => xero.state.journals.filter((j) => j.Narration.includes("(Stork Padel)")).map((j) => j.Narration);
+    await tickAt(r, c, at("2026-12-03", 6, 1));
+    assert.deepEqual(mine(), [], "not the 1st without its fees and payouts, and not the 2nd ahead of it");
+    let money = c.state.shown.get("money");
+    assert.equal(money.tone, "warn");
+    assert.match(money.rows.at(-1).text.en, /^Waiting for Stripe to send Tue, Dec 1$/);
+    assert.match(money.rows.at(-1).text.es, /^Esperando que Stripe envíe mar, 1 de dic$/);
+    let h = await health(r);
+    assert.deepEqual([h.status, h.json.failing], [200, null], "a short wait isn't a failure");
+    // Tried again later, and the days after: still nothing, in order.
+    c.state.today = "2026-12-06";
+    await tickAt(r, c, at("2026-12-06", 6, 1));
+    assert.deepEqual(mine(), []);
+    h = await health(r);
+    assert.deepEqual([h.status, h.json.failing], [503, "stripe_long"], "3 days on, health says so");
+    money = c.state.shown.get("money");
+    assert.match(money.rows.at(-1).text.en, /Stripe hasn't answered for 3 days, so Tue, Dec 1 and the days after wait/);
+    assert.ok(money.rows.every((x: any) => !/[\u2014\u2013]/.test(x.text.en + x.text.es)));
+    // Stripe answers again: the 1st, then the 2nd, each with its figures.
+    c.state.stripeDown.clear();
+    await tickAt(r, c, at("2026-12-06", 6, 30));
+    assert.deepEqual(mine(), ["openPadel 2026-12-01 (Stork Padel)", "openPadel 2026-12-02 (Stork Padel)"]);
+    h = await health(r);
+    assert.deepEqual([h.status, h.json.failing, h.json.last_sent_day], [200, null, "2026-12-05"]);
+    assert.doesNotMatch(JSON.stringify(c.state.shown.get("money")), /Stripe/);
+  } finally { if (r) await stop(r); c.close(); }
+});
