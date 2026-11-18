@@ -17,7 +17,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p apps/manager/tsconfig.json && tsc -p apps/member/tsconfig.json",
     "openpadel": "node apps/server/src/cli.ts",
     "kumi": "node apps/server/src/cli.ts",
-    "test": "node --test --test-concurrency=4 'packages/*/test/*.test.ts' 'apps/*/test/*.test.ts'"
+    "test": "node --test --test-concurrency=4 'packages/*/test/*.test.ts' 'apps/*/test/*.test.ts' 'plugins/*/test/*.test.ts'"
   },
   "dependencies": {
     "kysely": "0.29.6",

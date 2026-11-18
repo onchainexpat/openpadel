@@ -67,6 +67,20 @@
             "required": true
           },
           {
+            "key": "lights",
+            "type": "string",
+            "label": {
+              "en": "Light for each court",
+              "es": "La luz de cada cancha"
+            },
+            "help": {
+              "en": "Each court and its Home Assistant light, such as Court 1 = light.court_1, Court 2 = light.court_2 (a switch works too: switch.court_3). A court left out uses light. and its name: Court 4 is light.court_4.",
+              "es": "Cada cancha y su luz en Home Assistant, como Cancha 1 = light.cancha_1, Cancha 2 = light.cancha_2 (también sirve un interruptor: switch.cancha_3). Una cancha que no está usa light. y su nombre: Cancha 4 es light.cancha_4."
+            },
+            "required": false,
+            "max_length": 500
+          },
+          {
             "key": "minutes_before",
             "type": "integer",
             "label": {
@@ -74,6 +88,17 @@
               "es": "Minutos antes de una reserva"
             },
             "default": 10,
+            "minimum": 0,
+            "maximum": 30
+          },
+          {
+            "key": "minutes_after",
+            "type": "integer",
+            "label": {
+              "en": "Minutes after a booking",
+              "es": "Minutos después de una reserva"
+            },
+            "default": 5,
             "minimum": 0,
             "maximum": 30
           }

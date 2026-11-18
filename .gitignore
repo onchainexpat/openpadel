@@ -158,3 +158,6 @@ backups/
 # Docker updates: the release's commit (shown by /health) and what update.sh keeps to go back
 REVISION
 .kumi-release
+
+# A remote plugin run from its folder keeps its registrations here (tokens: never committed)
+plugins/*/state/

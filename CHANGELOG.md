@@ -195,6 +195,19 @@ a court's tile on Today (staff), a game's page (its players in the members' app,
 profile (the member under Me, staff on their page), the Money page and Connectors. A paused or removed plugin's cards
 don't show. See docs/plugins/README.md, Cards (migration 129).
 
+Court lights, the first real plugin (plugins/court-lights): Home Assistant turns a court's lights on a few minutes
+before each booking, program date or Playtomic booking and off a few minutes after the last one ends, with back-to-back
+bookings keeping them on. It's a small Node program of its own that talks to the club only through its door and to Home
+Assistant through its REST API. It checks the club's signature on its registration and every event, and reads the day
+again on start, every 5 minutes and after each booking or court event, so an event that never arrives is caught. An
+error never turns lights off: lights go off only on a schedule read in the last 15 minutes, and a command Home Assistant
+didn't take is tried again with growing waits. Each court's tile shows "On until 9:30 PM", when they next come on, or
+that Home Assistant isn't answering, once the club shows plugin cards. It runs on the club's own server from a pinned,
+reproducible release (`node tools/pack.ts`) or on any host as a remote plugin, and its health says when it last heard
+from the club and whether Home Assistant answers. Its manifest gains two settings, the lights for each court (`Court 1 =
+light.court_1`; a court left out uses `light.` and its name) and minutes after a booking (5). A local plugin can't reach
+the club's private network, so it needs Home Assistant's public https address. See plugins/court-lights/README.md.
+
 ### Added
 - Today in the staff app: what needs a person now (asks waiting for a yes, money owed at the desk today, disputed
   scores, levels to review, members' questions for staff, sessions whose coach is off this week, card charges that

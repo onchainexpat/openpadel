@@ -75,4 +75,5 @@ listens on 127.0.0.1 there), `OPENPADEL_URL`, `OPENPADEL_MCP`, `OPENPADEL_TOKEN`
 
 [examples/court-lights/openpadel-plugin.json](examples/court-lights/openpadel-plugin.json): Home Assistant turning a
 court's lights on before each booking. It changes nothing at the club, reads bookings and courts, is told when bookings
-are made, moved or cancelled and courts blocked or freed, needs one key, and has three settings.
+are made, moved or cancelled and courts blocked or freed, needs one key, and has five settings. The plugin itself is
+[plugins/court-lights](../../plugins/court-lights/README.md).

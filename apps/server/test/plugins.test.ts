@@ -138,7 +138,7 @@ test("installing: the token goes straight to the plugin, signed by the club, and
   token = reg.door.token; hookSecret = reg.hooks.secret;
   assert.match(token, /^opa_[A-Za-z0-9_-]{43}$/);
   assert.equal(reg.door.mcp, MCP);
-  assert.deepEqual(reg.settings, { home_assistant_url: "https://ha.kestrel.test", courts: [courtId], minutes_before: 10 });
+  assert.deepEqual(reg.settings, { home_assistant_url: "https://ha.kestrel.test", courts: [courtId], minutes_before: 10, minutes_after: 5 });
   // Signed with the club's key, published at its own address.
   const key = (await (await app.request(`${BASE}/.well-known/openpadel-plugin-key`)).json() as any).keys[0];
   const [, t, sig] = /^t=(\d+),ed25519=([A-Za-z0-9_-]+)$/.exec(raw.headers["openpadel-signature-ed25519"] ?? "")!.map(String) as [string, string, string];
@@ -200,7 +200,7 @@ test("settings are checked against the manifest's schema, previewed, and sent to
   await no({ courts: "Court 9" }, /Courts with lights: one of those isn't a court here/);
   await assert.rejects(plan(db, "plugin.configure", { plugin: "court-lights", settings: { courts: [courtId] } }, owner), (e: any) => e.code === "error.nothing_changed");
   const p = await plan(db, "plugin.configure", { plugin: "court-lights", settings: { courts: "Court 1, Court 2", minutes_before: "15" } }, owner);
-  assert.match(p.plan.summary.en, /Set up court-lights: Home Assistant address: https:\/\/ha\.kestrel\.test; Courts with lights: Court 1, Court 2; Minutes before a booking: 15\./);
+  assert.match(p.plan.summary.en, /Set up court-lights: Home Assistant address: https:\/\/ha\.kestrel\.test; Courts with lights: Court 1, Court 2; Minutes before a booking: 15; Minutes after a booking: 5\./);
   await apply(db, p.runId, owner);
   const delivered: { url: string; body: string; headers: Record<string, string> }[] = [];
   await sendWebhooks(db, async (url, body, headers) => { delivered.push({ url, body, headers }); return 200; });
