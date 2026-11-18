@@ -11,6 +11,24 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 openPadel is now under the MIT licence (it was AGPL-3.0): anyone may use, change and share it, hosted or not, with the copyright notice. Releases made before 18 November 2026 stay available under the AGPL too. The example plugins, the template and the catalog's manifests say MIT, and their releases are pinned again.
 
+Players bring their levels from other apps (docs/levels-from-other-apps.md), as a club owner asked on 18 November: WPR,
+CourtReserve, MATCHi, Padelmates, Playbypoint and Playtomic, and the LTA rating, PadelLevels or another app. On My level
+("Bring your level from another app"; a parent on Family, and a member who moved in without a level is pointed there),
+while they've played fewer than 5 rated games here, they pick the app, read where its level is (a plain drawing and
+words for each app, in both languages), type the number and how sure the app is of it, and can add a link to their
+profile there and a screenshot. Every claim is kept, one per app, and the start comes from the surest of them; taking
+one away (or staff turning it down) lets the next surest take over, with everyone's games worked out again. The
+screenshot is sealed, seen only by the player, their parent and staff who read levels, and deleted once staff answer
+or after 60 days. Staff and coaches answer each claim on the Levels page or the player's level page: confirm it as seen
+(a surer start), start them at another level, or turn it down, with a reason the player reads in the app. CourtReserve
+has no rating of its own (its ratings are each club's, or WPR's), and Padelmates publishes no scale, so staff give
+those starts; the conversions were checked again against each app's published scale (`interim-2026-11-18`). A
+player's assistant can now bring their level and take one away, through the same preview (`level_claim_preview`,
+`openpadel level claim`); staff agents read the queue (`level_queue`, `person_level`) and answer with
+`level_answer_claim_preview`. No app documents a way for a player to let another app read their rating, so nothing
+reads one; the doc lists what each would need. Claims sent before this release that wait for staff are answered as
+before (migration 136).
+
 Ask openPadel, the hosted assistant, for clubs without an agent of their own. Staff press Ctrl+K (⌘K on a Mac), or the
 button above the menu, on any staff page and ask; members get the club assistant at the top of the Ask tab. It answers
 from what the person could read in the app, and a change comes back as the usual preview ("Ask for a yes" when it needs
