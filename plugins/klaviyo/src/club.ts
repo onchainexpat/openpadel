@@ -7,6 +7,9 @@
 //     removal Klaviyo didn't take is kept and tried again every minute, before anything is added.
 //   - Then the club's list: read whole through the door (on start, soon after any event, and hourly), and anyone new or
 //     changed is put on the list, anyone no longer on the club's list taken off.
+//   - Nobody Klaviyo says unsubscribed or suppressed is put back: this plugin never subscribes anyone (it doesn't touch
+//     consent in Klaviyo), and a profile Klaviyo shows as out of email marketing isn't added to the list again, comes
+//     off it, and is passed back to the club (club_news_unsubscribed_elsewhere) so the member's answer is no there too.
 //   - Once a day the whole Klaviyo list is read and checked against the club's: whoever is on it and shouldn't be (a
 //     missed event, a lost state file, someone added by hand) is taken off, and whoever is missing put back.
 // Events only say "something changed": a missed one is caught by the next read.
@@ -58,7 +61,7 @@ export class ClubRunner {
 
   /** A new registration for the same club (a new token after the club's address changed, or a reinstall). */
   replace(rec: ClubRecord): void {
-    this.rec = { ...rec, seen: this.rec.seen, synced: this.rec.synced, listId: this.rec.listId, removals: this.rec.removals, lastFullAt: this.rec.lastFullAt };
+    this.rec = { ...rec, seen: this.rec.seen, synced: this.rec.synced, listId: this.rec.listId, removals: this.rec.removals, lastFullAt: this.rec.lastFullAt, toReport: this.rec.toReport };
     this.door = openDoor(rec.door.mcp, rec.door.token, this.o.fetch);
     this.key = null;
     this.save();
@@ -130,6 +133,7 @@ export class ClubRunner {
       }
       this.listName = (await k.list(listId)).name || null;
       await this.takeOff(k, listId);
+      await this.report();
       const club = await this.clubList();
       if (o.full || this.rec.lastFullAt === null || now - this.rec.lastFullAt >= FULL_MS) await this.fullCheck(k, listId, club, now);
       else await this.bringUp(k, listId, club);
@@ -207,12 +211,18 @@ export class ClubRunner {
       this.save();
       this.o.log("info", "members no longer on the club's list taken off", { club: this.rec.club.url, count: gone.length });
     }
-    const todo = [...club.values()].filter((m) => this.rec.synced[m.id]?.h !== fingerprint(m));
+    const todo = [...club.values()].filter((m) => this.rec.synced[m.id]?.h !== fingerprint(m) && !this.rec.toReport.includes(m.id));
     let added = 0;
     for (let i = 0; i < todo.length; i += BATCH) {
-      const done: { m: Row; p: string; old: string | null }[] = [];
-      for (const m of todo.slice(i, i + BATCH)) done.push({ m, p: await k.upsert(m), old: this.rec.synced[m.id]?.p ?? null });
-      await k.add(listId, done.map((d) => d.p));
+      const done: { m: Row; p: string; old: string | null }[] = [], left: string[] = [];
+      for (const m of todo.slice(i, i + BATCH)) {
+        const u = await k.upsert(m), old = this.rec.synced[m.id]?.p ?? null;
+        // Out of email marketing in Klaviyo: never put back; off the list if it was there, and the club told.
+        if (u.out) { left.push(...new Set([u.id, ...(old ? [old] : [])])); delete this.rec.synced[m.id]; this.rec.toReport.push(m.id); continue; }
+        done.push({ m, p: u.id, old });
+      }
+      if (left.length) await k.remove(listId, left);
+      if (done.length) await k.add(listId, done.map((d) => d.p));
       // A new email is a new profile in Klaviyo: the old one comes off.
       const stale = done.filter((d) => d.old && d.old !== d.p).map((d) => d.old!);
       if (stale.length) await k.remove(listId, stale);
@@ -220,27 +230,49 @@ export class ClubRunner {
       added += done.length;
       this.save();
     }
+    await this.report();
     if (added) this.o.log("info", "members put on the list or brought up to date", { club: this.rec.club.url, count: added });
   }
 
   /** The whole Klaviyo list against the club's: anyone on it who isn't on the club's comes off; anyone missing goes on. */
   private async fullCheck(k: Klaviyo, listId: string, club: Map<string, Row>, now: number): Promise<void> {
     const on = await k.onList(listId), emails = new Set([...club.values()].map((m) => m.email));
-    const strangers = [...on].filter(([email]) => !emails.has(email)).map(([, p]) => p);
+    // Whoever left email marketing in Klaviyo comes off the list too, and the club hears of the members among them.
+    const strangers = [...on].filter(([email, p]) => !emails.has(email) || p.out).map(([, p]) => p.id);
+    for (const m of club.values()) if (on.get(m.email)?.out && !this.rec.toReport.includes(m.id)) this.rec.toReport.push(m.id);
     if (strangers.length) {
       await k.remove(listId, strangers);
       this.o.log("info", "the daily check took off people who aren't on the club's list", { club: this.rec.club.url, count: strangers.length });
     }
     const synced: ClubRecord["synced"] = {};
     for (const m of club.values()) {
-      const p = on.get(m.email), had = this.rec.synced[m.id];
+      const o = on.get(m.email), had = this.rec.synced[m.id];
       // On the list already: kept as it is when it's the profile it put there, else sent again to bring it up to date.
-      if (p) synced[m.id] = { p, h: had?.p === p ? had.h : "" };
+      if (o && !o.out) synced[m.id] = { p: o.id, h: had?.p === o.id ? had.h : "" };
     }
     this.rec.synced = synced;
     this.save();
     await this.bringUp(k, listId, club);
     this.rec.lastFullAt = now;
+  }
+
+  /** Tells the club each member Klaviyo says unsubscribed or is suppressed, so their answer to club news is no there too.
+   *  One already no (nothing_changed) is done; one the door didn't take is tried again on the next read. */
+  private async report(): Promise<void> {
+    while (this.rec.toReport.length) {
+      const person = this.rec.toReport[0]!;
+      try {
+        const p = await this.door.call<{ run_id?: string; status?: string }>("club_news_unsubscribed_elsewhere_preview", { person_id: person, service: "Klaviyo" });
+        if (!p?.run_id || p.status === "awaiting_approval") throw new DoorError("door_error", "club_news_unsubscribed_elsewhere wasn't planned");
+        await this.door.call("club_news_unsubscribed_elsewhere_confirm", { run_id: p.run_id });
+        this.o.log("info", "a member who unsubscribed in Klaviyo passed back to the club", { club: this.rec.club.url, person });
+      } catch (e) {
+        if (!(e instanceof DoorError) || !["error.nothing_changed", "no_tool"].includes(e.code)) throw e;
+        if (e.code === "no_tool") this.once("report", "warn", "the club can't hear of unsubscribes from Klaviyo yet; they stay off the list", { club: this.rec.club.url });
+      }
+      this.rec.toReport.shift();
+      this.save();
+    }
   }
 
   /** The Connectors card, put again only when what it says changes. A club whose door doesn't offer cards yet is asked

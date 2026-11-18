@@ -192,6 +192,9 @@ nothing else about anyone is. Staff read the same list (owners, managers, the fr
 the club made covering messages); through the door their emails come shortened, and only a plugin whose manifest reads
 `club_news` gets them whole. `club_news.joined` and `club_news.left` (with `why`: `said_no`, `unsubscribed`,
 `text_stop`, `deleted`) say when someone's answer turns: take someone off at once on `left`, and read the list again.
+Never subscribe anyone on the outside service's side, and never put back someone it says unsubscribed or suppressed:
+pass it back instead with `club_news_unsubscribed_elsewhere_preview` `{ person_id, service }` then its confirm, for one
+member the list gave you, and their answer turns to no at the club too (yours alone: only a plugin reading `club_news`).
 
 You can't move money (your weekly limit is 0), make webhooks, or install or change plugins.
 

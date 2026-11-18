@@ -27,6 +27,9 @@ export async function fakeClub() {
     token: "opa_" + "t".repeat(43),
     calls: [] as { tool: string; args: any }[],
     card: null as any,
+    /** Members the plugin said unsubscribed elsewhere (club_news_unsubscribed_elsewhere): their answer turns to no. */
+    reported: [] as { person_id: string; service?: string }[],
+    reports: true,
   };
   const ok = (id: unknown, v: unknown) => ({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(v) }] } });
   const err = (id: unknown, code: string, text: string) => ({ jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text", text }], _meta: { "kumi/error": code } } });
@@ -48,6 +51,19 @@ export async function fakeClub() {
         const sorted = [...state.members].sort((a, b) => a.id.localeCompare(b.id)), from = args.after ? sorted.filter((m) => m.id > args.after) : sorted;
         const page = from.slice(0, state.page);
         return json(200, ok(rpc.id, { total: sorted.length, members: page, next: from.length > state.page ? page.at(-1)!.id : null }));
+      }
+      case "club_news_unsubscribed_elsewhere_preview": {
+        if (!state.reports) break;
+        if (!state.members.some((m) => m.id === args.person_id)) return json(200, err(rpc.id, "error.nothing_changed", "Nothing to change"));
+        const id = `run-${++runs}`; pending.set(id, { tool: name, args });
+        return json(200, ok(rpc.id, { run_id: id, status: "planned", summary: "Club news off" }));
+      }
+      case "club_news_unsubscribed_elsewhere_confirm": {
+        const p = pending.get(args.run_id);
+        if (!p) return json(200, err(rpc.id, "error.not_found", "No such run"));
+        state.reported.push(p.args);
+        state.members = state.members.filter((m) => m.id !== p.args.person_id);
+        return json(200, ok(rpc.id, { done: true }));
       }
       case "plugin_card_put_preview": {
         if (!state.cards) break;
@@ -87,7 +103,9 @@ export async function fakeClub() {
   };
 }
 
-interface Profile { email: string; first_name: string | null; properties: Record<string, unknown>; attributes: string[] }
+interface Profile { email: string; first_name: string | null; properties: Record<string, unknown>; attributes: string[];
+  marketing?: { consent: "SUBSCRIBED" | "UNSUBSCRIBED" | "NEVER_SUBSCRIBED"; suppression: { reason: string }[] } }
+const subs = (p: Profile) => ({ email: { marketing: p.marketing ?? { consent: "NEVER_SUBSCRIBED", suppression: [] } } });
 
 /** Klaviyo, as much as the plugin uses: lists and their profiles, profile-import by email, deletion jobs. */
 export async function fakeKlaviyo() {
@@ -125,14 +143,16 @@ export async function fakeKlaviyo() {
       const size = Number(u.searchParams.get("page[size]") ?? 20), at = Number(u.searchParams.get("page[cursor]") ?? 0), ids = [...l.members];
       const page = ids.slice(at, at + Math.min(size, 3));   // small pages, so the plugin follows `next`
       const base = `http://${req.headers.host}`;
-      return send(200, { data: page.map((id) => ({ type: "profile", id, attributes: { email: state.profiles.get(id)!.email } })),
+      return send(200, { data: page.map((id) => ({ type: "profile", id, attributes: { email: state.profiles.get(id)!.email, subscriptions: subs(state.profiles.get(id)!) } })),
         links: { next: at + page.length < ids.length ? `${base}/api/lists/${m[1]}/profiles?page[cursor]=${at + page.length}&page[size]=${size}` : null } });
     }
     if (req.method === "POST" && path === "/api/profile-import") {
       const a = body.data.attributes, had = byEmail(a.email);
       const id = had ?? `01PROF${String(++n).padStart(6, "0")}`;
-      state.profiles.set(id, { email: a.email, first_name: a.first_name, properties: a.properties ?? {}, attributes: Object.keys(a).sort() });
-      return send(had ? 200 : 201, { data: { type: "profile", id, attributes: a } });
+      if ("subscriptions" in a) return send(400, { errors: [{ detail: "profile-import never sets consent here" }] });
+      const p: Profile = { email: a.email, first_name: a.first_name, properties: a.properties ?? {}, attributes: Object.keys(a).sort(), marketing: had ? state.profiles.get(had)!.marketing : undefined };
+      state.profiles.set(id, p);
+      return send(had ? 200 : 201, { data: { type: "profile", id, attributes: { ...a, subscriptions: subs(p) } } });
     }
     if ((m = /^\/api\/lists\/([^/]+)\/relationships\/profiles$/.exec(path))) {
       const l = state.lists.get(m[1]!);
@@ -154,6 +174,11 @@ export async function fakeKlaviyo() {
     url, state, close: () => server.close(),
     /** The emails on a list now, sorted. */
     emails: (list: string) => [...(state.lists.get(list)?.members ?? [])].map((id) => state.profiles.get(id)?.email ?? `?${id}`).sort(),
+    /** Someone unsubscribing from a Klaviyo email (or suppressed after a bounce or complaint). */
+    leaves(email: string, how: "unsubscribed" | "suppressed" = "unsubscribed") {
+      const p = [...state.profiles.values()].find((x) => x.email === email)!;
+      p.marketing = how === "unsubscribed" ? { consent: "UNSUBSCRIBED", suppression: [] } : { consent: "SUBSCRIBED", suppression: [{ reason: "HARD_BOUNCE" }] };
+    },
     /** Someone put on the list by hand, in Klaviyo. */
     byHand(list: string, email: string) { const id = `01HAND${String(++n).padStart(6, "0")}`; state.profiles.set(id, { email, first_name: null, properties: {}, attributes: ["email"] }); state.lists.get(list)!.members.add(id); return id; },
   };

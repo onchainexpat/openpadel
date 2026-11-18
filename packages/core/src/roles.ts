@@ -9,7 +9,7 @@ import { actions, answerers, defineAction, readRow, type PlanCtx } from "./actio
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { uuidv7 } from "./ids.ts";
-import { specificity, type Asker, type Mode } from "./permissions.ts";
+import { PLUGIN_ONLY, specificity, type Asker, type Mode } from "./permissions.ts";
 
 /** An action in words ("Undo a change"), for a refusal staff read; its name only if the catalogs have no words for it. */
 const actionWords = (name: string): Text => {
@@ -70,7 +70,7 @@ export const exceeds = (want: Held, have: Held | null) => !have || rank[want.mod
 export async function grantableActions(db: Db | Trx): Promise<string[]> {
   const manager = await db.selectFrom("role").select("id").where("key", "=", "manager").executeTakeFirstOrThrow();
   const grants = await grantsOfRole(db, manager.id);
-  return actions().filter((a) => !a.system && !a.internal && !a.name.startsWith("test.") && !a.name.startsWith("role.") && roleAllows(grants, a.name)?.mode === "allow")
+  return actions().filter((a) => !a.system && !a.internal && !a.name.startsWith("test.") && !a.name.startsWith("role.") && !PLUGIN_ONLY.includes(a.name) && roleAllows(grants, a.name)?.mode === "allow")
     .map((a) => a.name).sort();
 }
 

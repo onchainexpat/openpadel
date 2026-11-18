@@ -1,8 +1,10 @@
 // Klaviyo's API (https://developers.klaviyo.com/en/reference/api_overview), the few calls this plugin makes, with the
 // club's private key (`Authorization: Klaviyo-API-Key pk_...`) and a pinned revision:
 //   - GET  /api/lists/{id}                               the list exists and the key reads it (health, the card's name);
-//   - GET  /api/lists/{id}/profiles?fields[profile]=email who's on it now, 100 a page (the daily check);
-//   - POST /api/profile-import                           a member's profile, made or brought up to date by email;
+//   - GET  /api/lists/{id}/profiles?fields[profile]=email who's on it now, 100 a page (the daily check), with their
+//                                                        email marketing subscription;
+//   - POST /api/profile-import                           a member's profile, made or brought up to date by email (it
+//                                                        never sets consent: this plugin subscribes nobody);
 //   - POST /api/lists/{id}/relationships/profiles        onto the list, up to 1000 profiles a call;
 //   - DELETE /api/lists/{id}/relationships/profiles      off the list;
 //   - POST /api/data-privacy-deletion-jobs               a deleted member's profile deleted in Klaviyo too.
@@ -19,6 +21,14 @@ export class KlaviyoError extends Error {
   status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
+
+/** Whether Klaviyo says the profile left email marketing: unsubscribed there, or suppressed (a bounce, a complaint, an
+ *  unsubscribe link). Such a profile is never put back on the list, and the club hears of it. */
+export function optedOut(attributes: any): boolean {
+  const m = attributes?.subscriptions?.email?.marketing;
+  return m?.consent === "UNSUBSCRIBED" || (Array.isArray(m?.suppression) && m.suppression.length > 0);
+}
+const SUBS = "additional-fields[profile]=subscriptions";
 
 /** What's sent for a member: nothing else. */
 export interface Member { email: string; first_name: string; language: string }
@@ -64,15 +74,15 @@ export function klaviyo(o: KlaviyoOpts) {
       const b = await call("GET", `${listPath(id)}?fields[list]=name`);
       return { name: String(b?.data?.attributes?.name ?? "") };
     },
-    /** Everyone on the list now: their email (lowercase) to their profile's id. */
-    async onList(id: string): Promise<Map<string, string>> {
-      const out = new Map<string, string>();
-      let url: string | null = `${listPath(id)}/profiles?fields[profile]=email&page[size]=${PAGE}`;
+    /** Everyone on the list now: their email (lowercase) to their profile's id, and whether they left email marketing. */
+    async onList(id: string): Promise<Map<string, { id: string; out: boolean }>> {
+      const out = new Map<string, { id: string; out: boolean }>();
+      let url: string | null = `${listPath(id)}/profiles?fields[profile]=email,subscriptions&${SUBS}&page[size]=${PAGE}`;
       for (let pages = 0; url && pages < 10_000; pages++) {
         const b = await call("GET", url);
         for (const p of b?.data ?? []) {
           const email = typeof p?.attributes?.email === "string" ? p.attributes.email.trim().toLowerCase() : "";
-          if (typeof p?.id === "string") out.set(email || `#${p.id}`, p.id);
+          if (typeof p?.id === "string") out.set(email || `#${p.id}`, { id: p.id, out: optedOut(p.attributes) });
         }
         const next: unknown = b?.links?.next;
         // Only ever Klaviyo's own next page.
@@ -80,12 +90,12 @@ export function klaviyo(o: KlaviyoOpts) {
       }
       return out;
     },
-    /** The member's profile, made or brought up to date by their email: its id. */
-    async upsert(m: Member): Promise<string> {
-      const b = await call("POST", `${base}/api/profile-import`, { data: { type: "profile", attributes: { email: m.email, first_name: m.first_name || null, properties: { language: m.language } } } });
+    /** The member's profile, made or brought up to date by their email: its id, and whether it left email marketing. */
+    async upsert(m: Member): Promise<{ id: string; out: boolean }> {
+      const b = await call("POST", `${base}/api/profile-import?${SUBS}`, { data: { type: "profile", attributes: { email: m.email, first_name: m.first_name || null, properties: { language: m.language } } } });
       const id = b?.data?.id;
       if (typeof id !== "string" || !id) throw new KlaviyoError(502, "Klaviyo answered without a profile id");
-      return id;
+      return { id, out: optedOut(b?.data?.attributes) };
     },
     async add(listId: string, ids: string[]): Promise<void> {
       for (let i = 0; i < ids.length; i += ADD_MAX) await call("POST", `${listPath(listId)}/relationships/profiles`, refs(ids.slice(i, i + ADD_MAX)));

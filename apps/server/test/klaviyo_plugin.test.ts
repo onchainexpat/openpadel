@@ -23,6 +23,7 @@ const EXAMPLE = JSON.parse(readFileSync(new URL("../../../docs/plugins/examples/
 const LIGHTS = JSON.parse(readFileSync(new URL("../../../docs/plugins/examples/court-lights/openpadel-plugin.json", import.meta.url), "utf8"));
 let db: Db, drop: () => Promise<void>, app: ReturnType<typeof makeApp>, owner: Actor;
 let kl: Awaited<ReturnType<typeof fakeKlaviyo>>, p: Plugin, server: Server, clock = Date.now();
+let lightsToken = "";
 const who: Record<string, string> = {}, cookies: Record<string, string> = {}, logs: string[] = [];
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 const as = (id: string): Actor => ({ personId: id, via: "test", lang: "en", auth: "passkey" });
@@ -161,7 +162,7 @@ test("the plugin installed: only its token gets the list's emails whole; it keep
   await new Promise<void>((ok) => capture.listen(0, "127.0.0.1", ok));
   try {
     await run(db, "plugin.install", { manifest: JSON.stringify({ ...LIGHTS, run: { mode: "remote", url: `http://127.0.0.1:${(capture.address() as { port: number }).port}/p` } }) }, owner);
-    const lights = got.map((b) => JSON.parse(b)).find((b) => b.plugin?.name === "court-lights").door.token;
+    const lights = lightsToken = got.map((b) => JSON.parse(b)).find((b) => b.plugin?.name === "court-lights").door.token;
     assert.match(String((await call(lights, "club_news_list")).error), /staff_only|not found/, "a plugin that doesn't declare club_news");
   } finally { capture.close(); }
 
@@ -177,4 +178,27 @@ test("the plugin installed: only its token gets the list's emails whole; it keep
   assert.deepEqual(kl.emails(LIST), []);
   assert.ok(kl.state.deleted.includes(annProfile));
   assert.ok(!logs.join("\n").includes("@example.test") && !logs.join("\n").includes(kl.state.key), "no email or key in its log");
+});
+
+test("unsubscribed in Klaviyo: the plugin turns the member's answer to no at the club, for one member it was given; nobody else can", async () => {
+  const runner = p.runners.get(BASE)!, token = runner.rec.door.token;
+  const gil = await person("Gil Ono", "gil@example.test", true);
+  await runner.serial(() => runner.sync(clock, { full: true }));
+  assert.deepEqual(kl.emails(LIST), ["gil@example.test"]);
+  // Who may: not a person (not even the owner), not a plugin that doesn't read club_news, not for someone off the list.
+  assert.equal((await call(await tokenFor(owner.personId!), "club_news_unsubscribed_elsewhere_preview", { person_id: gil })).error, "MCP error -32602: Tool club_news_unsubscribed_elsewhere_preview not found");
+  await assert.rejects(run(db, "club_news.unsubscribed_elsewhere", { person_id: gil }, owner), (e: any) => e.code === "error.forbidden_reason");
+  assert.equal((await call(lightsToken, "club_news_unsubscribed_elsewhere_preview", { person_id: gil })).error, "error.forbidden_reason");
+  assert.equal((await call(token, "club_news_unsubscribed_elsewhere_preview", { person_id: who["Cy Park"]! })).error, "error.nothing_changed", "never answered: not on the list");
+  // Gil unsubscribes from a Klaviyo email: the daily check passes it back, and the club's answer is no.
+  kl.leaves("gil@example.test");
+  await runner.serial(() => runner.sync(clock, { full: true }));
+  assert.deepEqual(kl.emails(LIST), []);
+  assert.equal((await clubNewsList(db)).members.some((m) => m.id === gil), false);
+  const c = await db.selectFrom("channel_consent").select(["granted", "source"]).where("person_id", "=", gil).orderBy("at", "desc").orderBy("id", "desc").executeTakeFirstOrThrow();
+  assert.deepEqual(c, { granted: false, source: "plugin" });
+  assert.deepEqual((await topics()).at(-1), ["club_news.left", gil, "unsubscribed_elsewhere"]);
+  const r = await db.selectFrom("action_run").select(["plan"]).where("action", "=", "club_news.unsubscribed_elsewhere").where("status", "=", "applied").executeTakeFirstOrThrow();
+  assert.match((r.plan as any).summary.en, /^klaviyo says Gil Ono unsubscribed in Klaviyo: club news by email turns off/);
+  assert.equal((r.plan as any).undo.kind, "none");
 });

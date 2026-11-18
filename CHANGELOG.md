@@ -262,7 +262,9 @@ list (`club_news`, `openpadel club-news list` and `club_news_list` at the door),
 whoever said yes, for the owner, managers, the front desk, the accountant and a role the club made covering messages;
 through the door its emails come shortened, and only a plugin whose manifest reads `club_news` gets them whole. New
 events tell it when an answer turns: `club_news.joined` and `club_news.left` (with why: said no, unsubscribed, STOP,
-deleted).
+deleted, unsubscribed elsewhere). It never subscribes anyone in Klaviyo, never puts back someone Klaviyo says
+unsubscribed or suppressed, and passes that back to the club (`club_news.unsubscribed_elsewhere`, a plugin's own action
+for a plugin reading the list, for one member on it), so their answer turns to no in openPadel too.
 
 The plugin catalog, as files (catalog/): one folder per plugin with its manifest and the release it pins by SHA-256, the
 checklist openPadel reviews a plugin against before listing it (catalog/CONTRIBUTING.md: least privilege, honest data

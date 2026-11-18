@@ -57,6 +57,7 @@ after(() => { club.close(); kl.close(); });
 beforeEach(() => {
   club.state.members = [ann, bea];
   club.state.settings = { list_id: LIST };
+  club.state.reported = []; club.state.reports = true;
   club.state.key = kl.state.key; club.state.cards = true; club.state.down = false; club.state.calls = []; club.state.card = null;
   kl.state.mode = "ok"; kl.state.busy = 0; kl.state.privacy = true; kl.state.deleted = []; kl.state.calls = [];
   kl.state.lists.clear(); kl.state.profiles.clear();
@@ -225,4 +226,32 @@ test("kept on disk across a restart: 0600, with ids and fingerprints only (no em
     assert.deepEqual(kl.state.calls.filter((c) => c.method !== "GET"), []);
   } finally { await stop(); }
   assert.equal(redact('{"k":"Klaviyo-API-Key pk_abc123","e":"josé@example.test"}'), '{"k":"[hidden]","e":"[hidden]"}');
+});
+
+test("someone who unsubscribes from a Klaviyo email is never put back, comes off the list, and the club's answer turns to no", async () => {
+  await start();
+  try {
+    await register();
+    assert.deepEqual(kl.emails(LIST), ["ann@example.test", "bea@example.test"]);
+    kl.leaves("ann@example.test");
+    // The daily check sees it: off the list, and passed back to the club for Ann alone.
+    await tickAt(clock + FULL_MS);
+    assert.deepEqual(kl.emails(LIST), ["bea@example.test"]);
+    assert.deepEqual(club.state.reported, [{ person_id: ann.id, service: "Klaviyo" }]);
+    assert.equal([...kl.state.profiles.values()].find((x) => x.email === "ann@example.test")!.marketing!.consent, "UNSUBSCRIBED", "her no in Klaviyo stands");
+    // The club not hearing (an older openPadel): still never put back, however often it reads.
+    club.state.reports = false;
+    club.state.members = [ann, bea];
+    await tickAt(clock + SYNC_MS);
+    await tickAt(clock + FULL_MS);
+    assert.deepEqual(kl.emails(LIST), ["bea@example.test"], "an unsubscribed profile isn't added again");
+    // Suppressed (a hard bounce) when it's first sent: not added, and the club told once it can hear.
+    club.state.reports = true;
+    club.state.members = [bea, cal];
+    kl.state.profiles.set("01PRESET", { email: cal.email, first_name: null, properties: {}, attributes: [], marketing: { consent: "SUBSCRIBED", suppression: [{ reason: "HARD_BOUNCE" }] } });
+    assert.equal(await send("club_news.joined", { person_id: cal.id }), 200);
+    assert.ok(!kl.emails(LIST).includes(cal.email));
+    assert.deepEqual(club.state.reported.map((r) => r.person_id).sort(), [ann.id, cal.id].sort());
+    assert.ok(kl.state.calls.every((c) => !c.path.includes("subscription")), "no subscribe job, ever");
+  } finally { await stop(); }
 });

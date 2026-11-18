@@ -33,9 +33,13 @@ of it on disk (below).
 
 **Use a list only this plugin fills.** Anyone else on it (a sign-up form on the club's website, say) is taken off at the
 daily check, since the club hasn't heard their yes. Send the club's newsletters to this list (or a segment of it), and
-keep Klaviyo's own unsubscribe link in each email: someone who unsubscribes in Klaviyo is unsubscribed there, and
-should also say no in the members' app to come off the club's list (the plugin doesn't read Klaviyo's unsubscribes
-back).
+keep Klaviyo's own unsubscribe link in each email.
+
+**An unsubscribe in Klaviyo stands.** The plugin never subscribes anyone in Klaviyo (it adds profiles to the list and
+never touches their email marketing consent). A profile Klaviyo shows as unsubscribed or suppressed (a bounce, a
+complaint) is never put on the list again, comes off it at the daily check, and is passed back to the club
+(`club_news_unsubscribed_elsewhere`), so the member's answer to club news turns to no in openPadel too, recorded as
+the plugin's change.
 
 ## Setting it up at the club
 

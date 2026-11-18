@@ -29,10 +29,12 @@ export interface ClubRecord {
   removals: Removal[];
   /** When it last checked the whole Klaviyo list against the club's (ms). */
   lastFullAt: number | null;
+  /** Members Klaviyo says unsubscribed or are suppressed, until the club has turned their answer to no. */
+  toReport: string[];
 }
 
 export function blankRecord(base: Pick<ClubRecord, "club" | "door" | "webhookSecret" | "hookSecret" | "settings">): ClubRecord {
-  return { ...base, seen: [], synced: {}, listId: null, removals: [], lastFullAt: null };
+  return { ...base, seen: [], synced: {}, listId: null, removals: [], lastFullAt: null, toReport: [] };
 }
 
 export interface Store { load(): ClubRecord[]; save(r: ClubRecord): void; readonly durable: boolean }
