@@ -385,6 +385,21 @@ Who may: staff (each sees what their staff screens show).
 openpadel moving-in
 ```
 
+### openpadel club-news list
+
+The club news list. The members whose latest answer to club news by email is yes (adults with an account and an email), 500 at a time in id order: each one's id, email, first name and language, and nothing else, with how many there are and `next` for the following page. Who said no, never answered, was deleted or is a junior isn't in it. Emails come shortened, except to a plugin whose manifest reads club_news.
+
+Who may: staff (each sees what their staff screens show).
+
+| Flag | Takes | | What it is |
+|---|---|---|---|
+| `--after` | id |  | The `next` of the page before, for the page after it |
+| `--limit` | whole number |  |  |
+
+```
+openpadel club-news list
+```
+
 ### openpadel plugin search
 
 Search the plugin catalog. Plugins in the club's catalog (openPadel's reviewed one) whose name, publisher or description has the words: what each does, whether it charges, whether it's installed, and the command to install it.
@@ -3390,7 +3405,7 @@ Its preview reads: "Send {topics} to {url} as they happen, signed, with only wha
 | Flag | Takes | | What it is |
 |---|---|---|---|
 | `--url` | text | needed | Where to POST each event: an https address (http and the server's own network only outside production) |
-| `--topics` | booking.cancelled \| booking.confirmed \| booking.created \| booking.joined \| booking.moved \| booking.no_show \| booking.player_added \| booking.player_left \| booking.player_removed \| booking.refunded \| court.blocked \| court.freed \| enrolment.booked \| enrolment.left \| enrolment.removed \| game.scored \| membership.cancelled \| membership.ended \| membership.payment_failed \| membership.renewed \| membership.started \| open_match.opened \| payment.failed \| payment.succeeded \| person.created \| person.signed_up \| program.min_cancelled \| program.published \| refund.failed \| result.confirmed \| waitlist.offered | needed |  |
+| `--topics` | booking.cancelled \| booking.confirmed \| booking.created \| booking.joined \| booking.moved \| booking.no_show \| booking.player_added \| booking.player_left \| booking.player_removed \| booking.refunded \| club_news.joined \| club_news.left \| court.blocked \| court.freed \| enrolment.booked \| enrolment.left \| enrolment.removed \| game.scored \| membership.cancelled \| membership.ended \| membership.payment_failed \| membership.renewed \| membership.started \| open_match.opened \| payment.failed \| payment.succeeded \| person.created \| person.signed_up \| program.min_cancelled \| program.published \| refund.failed \| result.confirmed \| waitlist.offered | needed |  |
 | `--agent-id` | id |  | For a club agent (it gets what the agent may read); left out, for whoever subscribes |
 
 ```
@@ -3421,7 +3436,7 @@ Its preview reads: "Change the webhook to {url}:"
 |---|---|---|---|
 | `--subscription-id` | id | needed |  |
 | `--url` | text |  | Where to POST each event: an https address (http and the server's own network only outside production) |
-| `--topics` | booking.cancelled \| booking.confirmed \| booking.created \| booking.joined \| booking.moved \| booking.no_show \| booking.player_added \| booking.player_left \| booking.player_removed \| booking.refunded \| court.blocked \| court.freed \| enrolment.booked \| enrolment.left \| enrolment.removed \| game.scored \| membership.cancelled \| membership.ended \| membership.payment_failed \| membership.renewed \| membership.started \| open_match.opened \| payment.failed \| payment.succeeded \| person.created \| person.signed_up \| program.min_cancelled \| program.published \| refund.failed \| result.confirmed \| waitlist.offered |  |  |
+| `--topics` | booking.cancelled \| booking.confirmed \| booking.created \| booking.joined \| booking.moved \| booking.no_show \| booking.player_added \| booking.player_left \| booking.player_removed \| booking.refunded \| club_news.joined \| club_news.left \| court.blocked \| court.freed \| enrolment.booked \| enrolment.left \| enrolment.removed \| game.scored \| membership.cancelled \| membership.ended \| membership.payment_failed \| membership.renewed \| membership.started \| open_match.opened \| payment.failed \| payment.succeeded \| person.created \| person.signed_up \| program.min_cancelled \| program.published \| refund.failed \| result.confirmed \| waitlist.offered |  |  |
 | `--resume` | yes/no (the flag alone is yes) |  |  |
 
 ```

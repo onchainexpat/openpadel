@@ -590,6 +590,10 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   const db = ctx.trx;
   const p = await db.selectFrom("person").selectAll().where("id", "=", personId).forUpdate().executeTakeFirstOrThrow();
   if (p.redacted_at) return 0;
+  // Off the club-news list: a marketing sync that had them (the Klaviyo plugin) takes them off, and deletes them there.
+  const news = await db.selectFrom("channel_consent").select("granted").where("person_id", "=", personId).where("channel", "=", "email").where("purpose", "=", "club_news")
+    .orderBy("at", "desc").orderBy("id", "desc").limit(1).executeTakeFirst();
+  if (news?.granted) await ctx.emit("club_news.left", { person_id: personId, why: "deleted" });
   const names = [...new Set([p.display_name, [p.given_name, p.family_name].filter(Boolean).join(" ")].map((n) => n.trim()).filter((n) => n.length >= 2 && n !== FORMER_MEMBER))];
   const identities = await db.selectFrom("auth_identity").select("value").where("person_id", "=", personId).execute();
   const x: Scrub = { emails: [...new Set([p.email, ...identities.filter((v) => v.value.includes("@")).map((v) => v.value)].filter((v): v is string => Boolean(v)).map((v) => v.toLowerCase()))],

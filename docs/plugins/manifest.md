@@ -20,7 +20,7 @@ Words in both languages are written `{ "en": "…", "es": "…" }` (US and Latin
 | `licence` | Its licence, as an SPDX name (`AGPL-3.0-only`, `MIT`). |
 | `description` | What it does, in both languages (up to 500 characters each). |
 | `grants` | Its role: the club's actions it may plan, each `{ "action": "court.block", "mode": "allow" \| "ask", "scope": "any" \| "own" }` (scope defaults to `any`). `ask` waits in the club's Approvals for a person. Only actions a club's own role may hold (what a manager does without asking), never one that makes or changes agents, plugins, webhooks, roles, the vault, assistants, support access or the club's settings, and never one only done in the app. Up to 100. |
-| `reads` | The parts of the club it reads beyond what its actions cover: `bookings`, `courts`, `programs`, `members`, `memberships`, `money`, `messages`, `levels`, `coaches`, `settings`. |
+| `reads` | The parts of the club it reads beyond what its actions cover: `bookings`, `courts`, `programs`, `members`, `memberships`, `money`, `messages`, `levels`, `coaches`, `settings`; and `club_news`, the club news list: only the members who said yes to club news by email, with their email, first name and language ([README](README.md#acting-at-the-club)). |
 | `events` | The events it's sent (the club's webhook events, [docs/agents/webhooks.md](../agents/webhooks.md)). Each must be in a part of the club it reads. |
 | `secrets` | The keys it needs from the club's vault, each `{ "name": "HA_TOKEN", "label": {…}, "where": {…} }`: a name in capitals, what it is, and where the owner gets it. Up to 20. Optional marks ([below](#keys-the-owner-adds-and-keys-the-plugin-keeps)): `"optional": true`, never asked for; `"needed_when"`, asked for only when a setting has a value; and `"kept_by_plugin": true`, the plugin's own to write. |
 | `settings` | Its options, in the order a person sets them (below). Up to 20. |
@@ -117,6 +117,12 @@ listens on 127.0.0.1 there), `OPENPADEL_URL`, `OPENPADEL_MCP`, `OPENPADEL_TOKEN`
 court's lights on before each booking. It changes nothing at the club, reads bookings and courts, is told when bookings
 are made, moved or cancelled and courts blocked or freed, needs one key, and has five settings. The plugin itself is
 [plugins/court-lights](../../plugins/court-lights/README.md).
+
+[examples/klaviyo/openpadel-plugin.json](examples/klaviyo/openpadel-plugin.json): the members who said yes to club news
+kept as a Klaviyo list. It changes nothing at the club, reads only the club news list (`club_news`: whoever said yes,
+filtered by the club's server, with their email, first name and language), is told when someone's answer turns yes or
+no, needs one key and one setting, and shows a card on Connectors. The plugin itself is
+[plugins/klaviyo](../../plugins/klaviyo/README.md).
 
 [examples/accounting-export/openpadel-plugin.json](examples/accounting-export/openpadel-plugin.json): each club day's
 takings, refunds, tax, card fees and payouts sent to the club's Xero or QuickBooks as one journal. It changes nothing at

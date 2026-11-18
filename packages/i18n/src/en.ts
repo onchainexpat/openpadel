@@ -3866,6 +3866,7 @@ export const en = {
   "area.levels": "Levels and scores",
   "area.coaches": "Coaches",
   "area.settings": "Settings",
+  "area.club_news": "The club news list (members who said yes to club news by email: their email, first name and language)",
   "ui.roles_title": "Roles",
   "ui.roles_hint": "The built-in roles can't be changed. Make the club's own, from nothing or as a copy of a built-in one, and give it to people on their page.",
   "ui.role_new": "Make a role",

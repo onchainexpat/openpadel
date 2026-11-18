@@ -600,6 +600,25 @@ async function clubNews(db: Db | Trx, personId: string): Promise<boolean | null>
 }
 export { clubNews as clubNewsAnswer };
 
+/** The club-news list (the `club_news` read): adults with an account here and an email whose latest answer to club news
+ *  by email is yes, a page at a time in id order. Each row is their id, email, first name and language, and nothing
+ *  else: it's what a marketing sync (the Klaviyo plugin) is given, filtered here on the server for whoever reads it. */
+export const NEWS_LIST_PAGE = 500;
+export interface NewsListRow { id: string; email: string; first_name: string; language: Lang }
+export async function clubNewsList(db: Db | Trx, o: { after?: string | null; limit?: number } = {}): Promise<{ total: number; members: NewsListRow[]; next: string | null }> {
+  const club = await clubOf(db), limit = Math.min(Math.max(1, Math.floor(o.limit ?? NEWS_LIST_PAGE)), NEWS_LIST_PAGE);
+  const said = sql<boolean>`(SELECT c.granted FROM channel_consent c WHERE c.person_id = person.id AND c.channel = 'email' AND c.purpose = 'club_news'
+    ORDER BY c.at DESC, c.id DESC LIMIT 1) IS TRUE`;
+  const yes = () => db.selectFrom("person").where("status", "!=", "archived").where("redacted_at", "is", null).where("junior", "=", false)
+    .where("email", "is not", null).where("email", "!=", "").where(said);
+  const total = Number((await yes().select((eb) => eb.fn.countAll<string>().as("n")).executeTakeFirstOrThrow()).n);
+  const rows = await yes().select(["id", "email", "display_name", "given_name", "locale"]).$if(Boolean(o.after), (q) => q.where("id", ">", o.after!))
+    .orderBy("id").limit(limit + 1).execute();
+  const page = rows.slice(0, limit);
+  return { total, next: rows.length > limit ? page.at(-1)!.id : null, members: page.map((r) => ({ id: r.id, email: r.email!.trim().toLowerCase(),
+    first_name: r.given_name?.trim() || r.display_name.trim().split(/\s+/)[0] || "", language: pickLang(r.locale, pickLang(club.default_language)) })) };
+}
+
 export const consentClubNews = defineAction({
   name: "consent.club_news", version: 1,
   input: z.object({ person_id: z.uuid(), granted: z.boolean() }),
@@ -612,6 +631,7 @@ export const consentClubNews = defineAction({
   async apply(ctx, i) {
     await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: i.person_id, channel: "email", purpose: "club_news", granted: i.granted, source: "profile", form_version: null,
       evidence: JSON.stringify({ via: ctx.actor.via }), at: ctx.now }).execute();
+    await ctx.emit(i.granted ? "club_news.joined" : "club_news.left", { person_id: i.person_id, ...(i.granted ? {} : { why: "said_no" }) });
     return null;
   },
 });
@@ -631,6 +651,7 @@ export const consentUnsubscribe = defineAction({
     if (await clubNews(ctx.trx, personId) === false) return { already: true, person_id: personId };
     await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: personId, channel: "email", purpose: "club_news", granted: false, source: "unsubscribe_link", form_version: null,
       evidence: JSON.stringify({ how: i.how }), at: ctx.now }).execute();
+    await ctx.emit("club_news.left", { person_id: personId, why: "unsubscribed" });
     return { person_id: personId };
   },
 });

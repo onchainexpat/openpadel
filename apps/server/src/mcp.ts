@@ -93,6 +93,12 @@ export const READS: DoorRead[] = [
     description: "Members' questions to the club: waiting for an answer (the default), answered or closed." },
   { name: "moving_in", staff: true, title: { en: "Moving in", es: "La mudanza" }, input: {}, path: () => "/staff/move-in/steps",
     description: "Where the club is in its move from Playtomic, Playbypoint or spreadsheets (connect, review, practice run, switch-over, wrap up): the step, what each step sees for itself, the items staff tick (move_check_preview), and the practice run's comparison of the old records with what has come over. For the owner and managers." },
+  // The club-news list (reads.ts): who said yes to club news by email. Emails come whole only to a plugin whose manifest
+  // reads club_news (a marketing sync needs the address); everyone else through the door sees them shortened.
+  { name: "club_news_list", words: ["club-news", "list"], staff: true, title: { en: "The club news list", es: "La lista de novedades del club" },
+    input: { after: z.optional(z.uuid().check(z.describe("The `next` of the page before, for the page after it"))), limit: z.optional(z.number().check(z.int(), z.minimum(1), z.maximum(500))) },
+    path: (a) => `/staff/club-news/list?${qs({ after: a.after, limit: a.limit })}`,
+    description: "The members whose latest answer to club news by email is yes (adults with an account and an email), 500 at a time in id order: each one's id, email, first name and language, and nothing else, with how many there are and `next` for the following page. Who said no, never answered, was deleted or is a junior isn't in it. Emails come shortened, except to a plugin whose manifest reads club_news." },
   // Plugins (plugins.ts): the catalog, one plugin in it, what's installed, and the services that see member data.
   { name: "plugin_search", words: ["plugin", "search"], staff: true, title: { en: "Search the plugin catalog", es: "Buscar en el catálogo de plugins" }, input: { q: z.optional(z.string().check(z.maxLength(100), z.describe("Words to look for (cameras, lights, accounting); empty lists them all"))) },
     path: (a) => `/staff/plugins/catalog?${qs({ q: a.q })}`,
@@ -270,11 +276,13 @@ export async function mcpServerFor(db: Db, who: { id: string; display_name: stri
 
   const staff = !memberOnly && readStaff ? Boolean(await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key").where("person_role.person_id", "=", who.id)
     .where("person_role.active", "=", true).where("role.active", "=", true).where("role.key", "!=", "member").executeTakeFirst()) : false;
+  // A plugin whose manifest reads the club-news list gets its emails whole (the read itself checks it reads it).
+  const whole = Boolean(plugin && ((plugin.manifest as Manifest).reads ?? []).includes("club_news"));
   for (const r of READS) {
     const from = r.staff ? (staff ? readStaff : undefined) : read;
     if (!from) continue;
     server.registerTool(r.name, { title: r.title[lang], description: r.description, inputSchema: r.input, annotations: { readOnlyHint: true } }, async (args: unknown) => {
-      try { const v = await from(r.path(args ?? {})); return text(r.staff ? shortenContacts(v) : v); } catch (e) { return fail(e); }
+      try { const v = await from(r.path(args ?? {})); return text(r.staff && !(whole && r.name === "club_news_list") ? shortenContacts(v) : v); } catch (e) { return fail(e); }
     });
   }
 

@@ -212,6 +212,8 @@ export const textStop = defineAction({
     for (const p of people) for (const channel of CHANNELS) for (const purpose of PURPOSES)
       await ctx.trx.insertInto("channel_consent").values({ id: uuidv7(), person_id: p.person_id, channel, purpose, granted: false, source: "text_stop", form_version: null,
         evidence: JSON.stringify({ phone: i.phone, said: i.said }), at: ctx.now }).execute();
+    // Club news by email stops with the rest: a marketing sync (the club_news list's readers) hears it.
+    for (const p of people) await ctx.emit("club_news.left", { person_id: p.person_id, why: "text_stop" });
     return { people: people.length };
   },
 });

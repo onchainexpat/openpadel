@@ -270,6 +270,13 @@ export async function roleText(db: Db | Trx, key: string): Promise<Text> {
   return describe(db, await roleGrantsView(db, key));
 }
 
+/** Reads that aren't an area of actions. `club_news`: the club-news list, the members who said yes to club news by email
+ *  with their email, first name and language and nothing else (broadcasts.ts clubNewsList), what a marketing sync such as
+ *  the Klaviyo plugin is given. The roles that read every area read it; a role the club made reads it when it covers
+ *  messages (whoever sends club news) or names it (a plugin whose manifest reads it). */
+export const EXTRA_READS = ["club_news"];
+const READ_KEYS = () => [...AREAS.map((a) => a.key), ...EXTRA_READS];
+
 /** The staff screens' areas a coach's role reads: their own work (lessons and court time, programs, levels, coaches). */
 export const COACH_AREAS = ["bookings", "programs", "levels", "coaches"];
 /** The built-in roles that read every area: front desk and up, and the accountant. Support access reads as a manager. */
@@ -278,15 +285,21 @@ const ALL_AREAS_ROLES = ["owner", "manager", "front_desk", "accountant"];
  *  and up, the accountant, and `extraKeys`: support access's manager), else `coach` (the coach role, COACH_AREAS) and
  *  `custom`, the areas the roles the club made cover (null when they hold none). */
 export async function staffReach(db: Db | Trx, personId: string, extraKeys: string[] = []): Promise<{ all: boolean; coach: boolean; custom: string[] | null }> {
-  const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(["role.id", "role.key", "role.system", "role.read_areas"])
+  const roles = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select(["role.id", "role.key", "role.system", "role.read_areas", "role.for_plugin"])
     .where("person_role.person_id", "=", personId).where("person_role.active", "=", true).where("role.active", "=", true).execute();
   const all = [...roles.filter((r) => r.system).map((r) => r.key), ...extraKeys].some((k) => ALL_AREAS_ROLES.includes(k));
   const coach = roles.some((r) => r.system && r.key === "coach"), mine = roles.filter((x) => !x.system);
   if (!mine.length) return { all, coach, custom: null };
   const areas = new Set<string>();
   // A plugin's role also reads what its manifest says beyond its actions (plugins.ts).
-  for (const r of mine) { for (const g of await grantsOfRole(db, r.id)) if (g.mode !== "no") areas.add(areaOf(g.pattern)); for (const a of r.read_areas ?? []) areas.add(a); }
-  return { all, coach, custom: AREAS.map((a) => a.key).filter((k) => areas.has(k)) };
+  for (const r of mine) {
+    const own = new Set<string>();
+    for (const g of await grantsOfRole(db, r.id)) if (g.mode !== "no") own.add(areaOf(g.pattern));
+    // Whoever sends club news reads its list; a plugin only when its manifest names it.
+    if (own.has("messages") && !r.for_plugin) own.add("club_news");
+    for (const a of [...own, ...(r.read_areas ?? [])]) areas.add(a);
+  }
+  return { all, coach, custom: READ_KEYS().filter((k) => areas.has(k)) };
 }
 /** The areas a person reads: the union of what each of their roles gives (a coach COACH_AREAS, each role the club made
  *  its own areas), or null for every area (front desk and up, the accountant, support access through `extraKeys`).
@@ -295,7 +308,7 @@ export async function readAreas(db: Db | Trx, personId: string, extraKeys: strin
   const r = await staffReach(db, personId, extraKeys);
   if (r.all) return null;
   const areas = new Set([...(r.coach ? COACH_AREAS : []), ...(r.custom ?? [])]);
-  return AREAS.map((a) => a.key).filter((k) => areas.has(k));
+  return READ_KEYS().filter((k) => areas.has(k));
 }
 
 /** The areas someone holding a role the club made reads (for their menus and reads), with a coach's own areas too when

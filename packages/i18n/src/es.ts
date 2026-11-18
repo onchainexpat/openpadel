@@ -3869,6 +3869,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "area.levels": "Niveles y resultados",
   "area.coaches": "Entrenadores",
   "area.settings": "Configuración",
+  "area.club_news": "La lista de novedades del club (los miembros que dijeron que sí a las novedades por correo: su correo, nombre e idioma)",
   "ui.roles_title": "Roles",
   "ui.roles_hint": "Los roles incluidos no se pueden cambiar. Crea los propios del club, desde cero o copiando uno incluido, y dáselos a las personas en su página.",
   "ui.role_new": "Crear un rol",
