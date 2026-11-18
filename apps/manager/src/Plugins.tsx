@@ -3,7 +3,7 @@
 // on, and Remove, each through the preview like every change. Installing is the club's agent's (openpadel plugin
 // install), so the page gives the command to give it, and the catalog in words.
 import { useEffect, useState } from "preact/hooks";
-import { api, clubTime, lang, PluginCards, serverNow, t, type PluginCardData } from "@kumi/ui";
+import { api, clubTime, lang, me, PluginCards, serverNow, t, type PluginCardData } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 
 type Setting = { key: string; type: "string" | "integer" | "boolean" | "choice" | "courts"; label: string; help: string | null; required: boolean; default: unknown;
@@ -34,7 +34,8 @@ export function PluginConnector({ p, send }: { p: Plugin; send: Send }) {
   const needed = p.keys.filter((k) => !k.added);
   const health = [p.health?.state === "ok" ? t("ui.plugin_healthy", { ms: p.health.ms ?? 0 }) : p.health?.state === "down" ? t("ui.plugin_health_down", { error: p.health.problem ?? "" }) : null,
     p.last_event_at ? t("ui.plugin_last_event", { when: ago(p.last_event_at) }) : t("ui.plugin_no_event"),
-    p.last_used_at ? t("ui.agents_last_used", { when: ago(p.last_used_at) }) : null].filter(Boolean).join(" · ");
+    p.last_used_at ? t("ui.agents_last_used", { when: ago(p.last_used_at) }) : null].filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase());
+  const owner = (me.value?.roles ?? []).some((r) => r.key === "owner");
   return (
     <li class={`card connector status-${p.connector_status}`} id={`plugin-${p.name}`}>
       <div class="connector-head">
@@ -47,7 +48,7 @@ export function PluginConnector({ p, send }: { p: Plugin; send: Send }) {
       <p class="meta">{health}</p>
       {p.status === "waiting" && p.registration_problem && <p class="meta">{t("ui.plugin_registration_error", { error: p.registration_problem })}</p>}
       {p.keys.length > 0 && <p class="meta">{t("ui.plugin_keys")}: {p.keys.map((k) => k.added ? t("ui.plugin_key_added", { name: k.name, last4: k.last4 ?? "" }) : t("ui.plugin_key_needed", { name: k.name })).join(" · ")}</p>}
-      {needed.length > 0 && <p class="meta"><a href="/vault">{t("ui.plugin_add_keys")}</a></p>}
+      {needed.length > 0 && <p class="meta">{owner ? <a href="/vault">{t("ui.plugin_add_keys")}</a> : t("ui.plugin_keys_owner")}</p>}
       <PluginCards cards={p.cards} bare />
       <details><summary>{t("ui.plugin_what")}</summary>
         <p class="meta">{t("plan.plugin.row_able")}: {p.can}. {t("plan.plugin.row_reads")}: {p.reads}.{p.events.length ? ` ${t("plan.plugin.row_events")}: ${p.events.join(", ")}.` : ""}</p>

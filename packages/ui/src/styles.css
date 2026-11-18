@@ -467,7 +467,7 @@ button.checked { background: #e3f3e8; border-color: #9fd0ae; color: #1e6b3a; }
 @media (prefers-color-scheme: dark) { button.checked { background: #1d3a27; border-color: #3f7a52; color: #bfe6cb; } }
 .check-in h3 .meta { font-weight: 400; margin-left: 6px; }
 .since-list li { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; } .since-list li > .meta { flex: none; min-width: 64px; }
-ul.plain li.card.ask, ul.plain li.card.need { padding: 14px 16px; border: 1px solid var(--line); }
+ul.plain li.card.ask, ul.plain li.card.need { padding: 14px 16px; border: 1px solid var(--line); } ul.plain li.card.connector { padding: 14px 16px; }
 .need-items li:last-child { border-bottom: 0; }
 .ask .ask-what { margin: 4px 0; overflow-wrap: anywhere; } .ask p { margin: 4px 0; }
 /* The Schedule's Month view: a calendar of the location's month, each day's load as a bar and a number (never colour

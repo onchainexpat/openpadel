@@ -92,7 +92,7 @@ export async function connectors(db: Db, l: Lang, o: { production: boolean; env?
       weekly_cap_cents: a.weekly_cap_cents, spent_cents: a.spent_cents, webhooks: a.webhooks })),
     assistants: assistants.map((a) => ({ id: a.id, name: a.name, person: a.person, roles: a.roles, last_used_at: a.last_used_at })),
     // What to give the club's agent to connect something, and what to ask Ask openPadel.
-    ask: { commands: ["openpadel plugin search <what>", "openpadel plugin info --name <name>", "openpadel plugin install --name <name>"], prompt: both("connector.ask_prompt")[l] },
+    ask: { commands: pluginCommands(l), prompt: both("connector.ask_prompt")[l] },
   };
 }
 
@@ -153,4 +153,10 @@ export function memberCardRoutes(db: Db, who: (c: Context<any>) => string, lang:
   });
   app.get("/my/cards", async (c) => c.json(await cardsFor(db, "member_profile", [who(c)], lang(c))));
   return app;
+}
+
+/** The commands to give the club's agent, with their blanks in the page's language. */
+function pluginCommands(l: string): string[] {
+  const [what, name] = l === "es" ? ["<qué>", "<nombre>"] : ["<what>", "<name>"];
+  return [`openpadel plugin search ${what}`, `openpadel plugin info --name ${name}`, `openpadel plugin install --name ${name}`];
 }
