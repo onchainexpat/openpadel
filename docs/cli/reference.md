@@ -377,7 +377,7 @@ openpadel questions
 
 ### openpadel moving-in
 
-Moving in. Where the club is in its move from Playtomic, Playbypoint or spreadsheets (connect, review, practice run, switch-over, wrap up): the step, what each step sees for itself, the items staff tick (openpadel move check), and the practice run's comparison of the old records with what has come over. For the owner and managers.
+Moving in. Where the club is in its move from Playtomic, Playbypoint, CourtReserve or spreadsheets (connect, review, practice run, switch-over, wrap up): the step, what each step sees for itself, the items staff tick (openpadel move check), the files read from CourtReserve or Playbypoint and what came over from them, and the practice run's comparison of the old records with what has come over. Bringing members, credit, memberships, bookings and sign-ups in from those files is the staff app's or `openpadel move-in` on the server, not this door. For the owner and managers.
 
 Who may: staff (each sees what their staff screens show).
 
@@ -2463,7 +2463,7 @@ Its preview reads: "The club moves in from {from}. The guide shows that system's
 
 | Flag | Takes | | What it is |
 |---|---|---|---|
-| `--source` | playtomic \| playbypoint \| spreadsheet | needed |  |
+| `--source` | playtomic \| playbypoint \| courtreserve \| spreadsheet | needed |  |
 
 ```
 openpadel move source --source playtomic

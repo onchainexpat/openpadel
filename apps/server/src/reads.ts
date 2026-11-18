@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, moneyBooks, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db, type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff, clubPhoneShown, moveState, broughtTotals, broughtPeople, upcomingCompared, clubNewsList } from "@kumi/core";
+import { decide, getAction, moneyBooks, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db, type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff, clubPhoneShown, moveState, broughtTotals, broughtPeople, upcomingCompared, clubNewsList, moveFilesStatus, MOVE_SYSTEMS, type MoveSystem } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { shortContact } from "./mcp.ts";
 import { csvCell, readPeopleCsv, readPeopleRows } from "./csv.ts";
@@ -1175,6 +1175,31 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       plans: plans.map((p) => ({ id: p.id, name: inLang(p.name, p.translations, "name", l), join_in_app: p.join_in_app })) });
   });
 
+  // Moving in from CourtReserve or Playbypoint (move_files.ts): the latest file of each kind as the server read it, the
+  // names in them staff map (memberships, courts, events), what has come over, and the plans, programs and courts here.
+  // The files' rows never leave the server.
+  app.get("/staff/move-in/files", async (c) => {
+    await ownerOrManager(c);
+    const from = c.req.query("from") ?? "";
+    if (!(MOVE_SYSTEMS as readonly string[]).includes(from)) throw new KumiError("error.not_found", { thing: both("thing.change") }, 404);
+    const l = lang(c);
+    const st = await moveFilesStatus(db, from as MoveSystem, l);
+    const plans = await db.selectFrom("membership_plan").select(["id", "name", "translations", "join_in_app"]).where("active", "=", true).orderBy("sort").execute();
+    const programs = await db.selectFrom("program").select(["id", "name", "kind", "sign_up"]).where("status", "!=", "cancelled").orderBy("id", "desc").limit(200).execute();
+    const courts = await db.selectFrom("court").select(["id", "name"]).where("archived_at", "is", null).orderBy("sort").orderBy("name").execute();
+    return c.json({ ...st, plans: plans.map((p) => ({ id: p.id, name: inLang(p.name, p.translations, "name", l), join_in_app: p.join_in_app })), programs, courts_here: courts });
+  });
+  // An Excel workbook (a CourtReserve report exports as .xlsx), read on the server into its first sheet's cells for
+  // move.upload; nothing is kept.
+  app.post("/staff/move-in/cells", async (c) => {
+    await ownerOrManager(c);
+    const { xlsx } = await c.req.json().catch(() => ({})) as { xlsx?: string };
+    if (typeof xlsx !== "string" || xlsx.length > XLSX_MAX_BASE64) throw new KumiError("error.too_big", {}, 413);
+    const bytes = Buffer.from(xlsx, "base64"), cells = looksLikeXlsx(bytes) ? readXlsx(bytes) : null;
+    if (!cells) return c.json({ fatal: t(lang(c), "csv.not_xlsx") });
+    return c.json({ cells: cells.map((r) => r.map((x) => x.slice(0, 2000))) });
+  });
+
   // The guided move-in (move_in.ts): where the club is in the five steps, what each step can see for itself, and the
   // practice run's comparison of the old system's records with what has come over (counts and totals; nobody named).
   // Each step's work is its own page's (Customers import, Playtomic, Moving in); this only reads.
@@ -1189,7 +1214,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const refs = await db.selectFrom("external_ref").select("external_id").where("system", "=", PLAYTOMIC).where("entity", "=", "court").execute();
     const unlinked = ((status?.unmapped ?? []) as { courtRef: string }[]).filter((u) => !refs.some((r) => r.external_id === u.courtRef)).length;
     const imports = await db.selectFrom("action_run").select([sql<string>`count(*)`.as("n"), sql<Date | null>`max(created_at)`.as("at")])
-      .where("action", "=", "person.import").where("status", "=", "applied").executeTakeFirstOrThrow();
+      .where("action", "in", ["person.import", "move.members"]).where("status", "=", "applied").executeTakeFirstOrThrow();
     const club = await db.selectFrom("club").select(["court_bookings", "currency", "time_zone"]).executeTakeFirstOrThrow(), tz = club.time_zone;
     const people = await broughtPeople(db);
     // The old records as the server last read them: Playtomic's players or the club's export (brought_in.ts).
@@ -1211,7 +1236,14 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     ].map((x) => ({ ...x, text: t(l, `ui.moving_seen_${x.key}` as Key) }));
     const row = (what: string, theirs: number | null, ours: number, money = false) => ({ what, theirs, ours, money,
       result: theirs === null ? "only_ours" : theirs === ours ? "match" : ours === 0 ? "not_yet" : "differs" });
-    const compare = playtomic ? [
+    // From CourtReserve or Playbypoint: the latest files beside what came over (move_files.ts).
+    const fromFiles = st.source === "courtreserve" || st.source === "playbypoint" ? await moveFilesStatus(db, st.source, l) : null;
+    const compare = fromFiles ? [
+      row("members", fromFiles.file?.people ?? null, fromFiles.file?.here ?? people.people),
+      ...(fromFiles.file_bookings !== null ? [row("bookings", fromFiles.file_bookings, fromFiles.brought.bookings)] : []),
+      ...(fromFiles.file ? [row("memberships", fromFiles.file.memberships, fromFiles.brought.memberships)] : []),
+      ...(fromFiles.has_credit ? [row("credit", fromFiles.file!.credit_cents, fromFiles.brought.credit_cents, true)] : []),
+    ] : playtomic ? [
       row("members", totals?.players ?? null, totals?.here ?? people.people),
       ...(upcoming ? [row("bookings", upcoming.theirs, upcoming.ours)] : []),
       row("memberships", totals?.with_membership ?? null, mi.memberships),
@@ -1226,6 +1258,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         credit_cents: mi.credit_cents, credit_people: mi.credit_people, memberships: mi.memberships, wallets_brought_at: mi.wallets_brought_at, wallets_zeroed_at: mi.wallets_zeroed_at },
       practice_run: { compare, totals_from: totals?.from ?? null, totals_read_at: totals?.read_at ?? null, unreadable: totals?.unreadable ?? 0, differences: diffs, checked_at: now,
         last_copy_at: status?.last_ok_at ?? null, copy_failed: Boolean(status?.last_error) },
+      files: fromFiles ? { uploads: Object.fromEntries(Object.entries(fromFiles.uploads).map(([k, u]) => [k, u ? { file_name: u.file_name, rows: u.rows, at: u.at, lines_left: u.lines_left } : null])), brought: fromFiles.brought } : null,
       wrap_up: { people: people.people, signed_in: people.signed_in, booked_here: bookedHere ? Number(bookedHere.n) : null, credit_cents: mi.credit_cents, credit_people: mi.credit_people },
     });
   });
