@@ -55,3 +55,31 @@ test("a single bad run isn't news: nothing is said before it fails three runs in
   await processOutbox(db, messageHandlers);
   assert.equal((await db.selectFrom("outbound_message").select("id").where("kind", "in", ["ops_failed_staff", "ops_cleared_staff"]).execute()).length, 0);
 });
+
+test("before the club exists the jobs don't run, fail or say anything; the first round after setup is clean", async () => {
+  const { db: empty, drop: dropEmpty } = await freshDb();
+  try {
+    const logged: string[] = [];
+    let ran = 0;
+    // As the real jobs do before there's a club: they read its settings and find none.
+    const steps: JobStep[] = [["questions", async () => { ran++; await empty.selectFrom("club").select("question_alert_hours").executeTakeFirstOrThrow(); }]];
+    const state = newJobsState();
+    // An older release's failure from before the club existed is cleared, quietly.
+    await empty.insertInto("ops_heartbeat").values({ name: "jobs", last_run_at: NOW, last_ok_at: null, last_error: "questions: no result" }).execute();
+    for (let i = 0; i < TELL_AFTER + 2; i++) {
+      const r = await runJobs(empty, steps, state, { now: new Date(NOW.getTime() + i * 30_000), log: (l) => logged.push(l) });
+      assert.deepEqual(r.failed, []); assert.equal(r.waiting, true);
+    }
+    assert.equal(ran, 0, "nothing ran without a club");
+    assert.deepEqual(logged, [], "nothing in the log every 30 seconds");
+    assert.equal((await heartbeat(empty, "jobs"))?.last_error ?? null, null);
+
+    await runAsSystem(empty, "club.setup", { name: "Kestrel Padel", time_zone: "America/Los_Angeles", owner_email: "robin@example.test", owner_name: "Robin Hale" }, "setup");
+    const r = await runJobs(empty, steps, state, { now: new Date(NOW.getTime() + 10 * 30_000), log: (l) => logged.push(l) });
+    assert.deepEqual(r.failed, []); assert.equal(ran, 1);
+    assert.equal((await heartbeat(empty, "jobs"))?.last_error ?? null, null);
+    await processOutbox(empty, messageHandlers);
+    const told = await empty.selectFrom("outbound_message").select("kind").where("kind", "in", ["ops_failed_staff", "ops_cleared_staff"]).execute();
+    assert.equal(told.length, 0, "no 'working again' email for the new owner");
+  } finally { await dropEmpty(); }
+});
