@@ -9,6 +9,23 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+Moving in from CourtReserve, and from Playbypoint beyond its users list. CourtReserve is a source in the guided move-in
+now (Settings, Moving in, Connect): the owner exports its Members, Reservations and Event Registrant Detail reports (as
+Excel or CSV), and "Bring the files in" reads each one on the server, says which column it read as what and lists every
+line it couldn't use, then brings the club over one previewed step at a time: members (matched by their CourtReserve
+member number, else email; a yes to club news only where the file says someone opted in), memberships on the plans
+staff choose (paid through the date there, nothing charged now; the owner's, a manager asks), club credit (a liability
+from the "brought in" account, never a payment; only the difference on a newer file; the owner's, a manager asks),
+upcoming bookings (each takes its court time like any booking, the courts locked in id order, so one that clashes is
+listed and left; money paid there stays there) and event sign-ups into programs set up here (marked paid there).
+Playbypoint's Memberships, All Players, Booking Details and Program Attendance reports come over the same way. The same
+steps run on the server as `openpadel move-in courtreserve|playbypoint --members <file> ... [--apply]`, each a preview
+first; like a members' import, they aren't offered through the `/mcp` door, whose `moving_in` read shows the files read
+and what came over, and the practice run compares the files with what's here. Neither system publishes its exports'
+columns: they're read by the names each documents, and haven't been checked against a real export yet (the previews say
+so). Packages and punch cards don't come over yet. Files are kept 30 days and go with an account that's deleted
+(migration 135). See docs/setup/moving-from-courtreserve.md.
+
 openPadel is now under the MIT licence (it was AGPL-3.0): anyone may use, change and share it, hosted or not, with the copyright notice. Releases made before 18 November 2026 stay available under the AGPL too. The example plugins, the template and the catalog's manifests say MIT, and their releases are pinned again.
 
 Ask openPadel, the hosted assistant, for clubs without an agent of their own. Staff press Ctrl+K (⌘K on a Mac), or the

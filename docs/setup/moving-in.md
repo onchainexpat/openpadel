@@ -18,7 +18,8 @@ first; show the person the preview's words and confirm only on their say-so.
 
 | Step | In the staff app | From the command line |
 |---|---|---|
-| Where the club comes from | Connect: Playtomic, Playbypoint or Spreadsheets | `openpadel move source --source playtomic` |
+| Where the club comes from | Connect: Playtomic, CourtReserve, Playbypoint or Spreadsheets | `openpadel move source --source courtreserve` |
+| CourtReserve's or Playbypoint's files, step by step | Connect, "Bring the files in" | `openpadel move-in courtreserve --members members.xlsx [--apply]` (on the server) |
 | Go to a step (forward or back) | The buttons under each step | `openpadel move step --step review` |
 | When to switch over | Switch-over: date and time | `openpadel move switch-at --at "2026-11-17 06:00"` |
 | An item is done (or not) | The checkboxes in Switch-over and Wrap up | `openpadel move check --item close_bookings --done` |
@@ -37,11 +38,17 @@ Choose where the club runs today. The step says what comes across by itself, wha
   `/etc/kumi/kumi.env` themselves ([accounts/playtomic.md](accounts/playtomic.md)); the step shows whether they're on
   the server and how the last copy went, never their values. The customer export brings the members in
   ([README.md, step 5b](README.md#step-5b-members)).
-- **Playbypoint:** there's no connection to Playbypoint. Its users list (Reports, All Users, shown as Player, then the
-  envelope to have it emailed) brings the members in: Customers, Import, with "The file is from: Playbypoint", or
+- **CourtReserve:** there's no connection to CourtReserve; its reports come over as files the owner exports (Members,
+  Reservations, Event Registrant Detail), each read by the server and then brought in step by step, each previewed:
+  members, memberships, club credit, upcoming bookings and event sign-ups. Connect, "Bring the files in from
+  CourtReserve" (`/settings/moving-in/courtreserve`), or `openpadel move-in courtreserve --members members.xlsx ...` on
+  the server. What to ask the owner to export, click by click, and every rule: [moving-from-courtreserve.md](moving-from-courtreserve.md).
+- **Playbypoint:** there's no connection to Playbypoint either. Its reports (Memberships, All Players, Booking
+  Details, Program Attendance) come over the same way: "Bring the files in from Playbypoint", or
+  `openpadel move-in playbypoint ...` ([moving-from-courtreserve.md, Playbypoint](moving-from-courtreserve.md#playbypoint)).
+  Its users list still brings levels (NPRP) in: Customers, Import, with "The file is from: Playbypoint", or
   `openpadel import members users.csv --from playbypoint` on the server. See [Playbypoint's list](#playbypoints-list).
 - **Spreadsheets:** any CSV or Excel file with the members (step 5b).
-- **CourtReserve:** not yet.
 
 ## 2. Review
 
@@ -67,7 +74,9 @@ now" is pressed, in counts and totals, naming nobody:
 
 The source is the one the last credit run used, else Playtomic's players, else the latest upload. Once the Playtomic
 wallets are at zero, Playtomic's credit reads lower than what came over, as expected. The day-by-day differences
-between Playtomic and openPadel stay on the Playtomic page; the step counts this week's. Without Playtomic, only the
+between Playtomic and openPadel stay on the Playtomic page; the step counts this week's. From CourtReserve or
+Playbypoint, the old side is the latest file of each kind: the people in it (and how many of them are here), their
+memberships still running, their credit, and the upcoming bookings, beside what came over. From spreadsheets, only the
 members here are counted (there's nothing of the old system's to read).
 
 ## 4. Switch-over
@@ -108,5 +117,5 @@ picked up.
 | Level (NPRP, 1 to 7) | Playbypoint level, PBP level, NPRP, NPRP level, NPRP rating, Playbypoint rating, Skill level, Level, Rating, Nivel |
 
 A DUPR column is another scale and is never read. The level becomes a provisional start, as Playbypoint's (NPRP is
-openPadel's own 0 to 7 range), never a floor. Memberships, credit, bookings and programs don't come from Playbypoint:
-set them up here.
+openPadel's own 0 to 7 range), never a floor. Memberships, credit, upcoming bookings and program sign-ups come from
+Playbypoint's other reports, step by step: [moving-from-courtreserve.md, Playbypoint](moving-from-courtreserve.md#playbypoint).
