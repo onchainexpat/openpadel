@@ -204,6 +204,8 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
   const rating = await db.selectFrom("rating").select(["level", "rated_games", "provisional", "floor", "floor_reason", "self_adjust_used"]).where("person_id", "=", personId).executeTakeFirst();
   const history = await db.selectFrom("rating_event").select(["at", "kind", "level_before", "level_after", "explanation"]).where("person_id", "=", personId).orderBy("at").execute();
   const reviews = await db.selectFrom("level_review").select(["created_at", "kind", "note", "claim", "status", "level_at", "answer", "answered_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
+  // Levels they brought from other apps (level_claims.ts); a screenshot's picture stays out, as kept only for staff to look.
+  const claims = await db.selectFrom("level_claim").select(["created_at", "platform", "raw", "conf", "start_level", "last_played", "profile_url", "status", "evidence", "proof", "answer", "answered_at"]).where("person_id", "=", personId).orderBy("created_at").execute();
   const sides = await db.selectFrom("game_side").innerJoin("game", "game.id", "game_side.game_id").select(["game.id", "game.played_at", "game.rated", "game.status", "game_side.side"])
     .where("game_side.person_id", "=", personId).orderBy("game.played_at").execute();
   const games = [];
@@ -298,7 +300,7 @@ async function personExport(db: Db | Trx, personId: string, now: Date, lang: Lan
     // brought.
     playtomic: await playtomicOf(db, personId, p.email),
     level: rating ?? null, level_history: history.map((h) => ({ at: iso(h.at), kind: h.kind, before: h.level_before, after: h.level_after, why: say(h.explanation) })),
-    level_reviews: reviews, games, score_answers: answers,
+    level_reviews: reviews, level_claims: claims, games, score_answers: answers,
     messages, consents, whatsapp_number: whatsapp.map((w) => ({ phone: w.phone, linked_at: iso(w.linked_at) })), policies_agreed: agreed.map((a) => ({ ...a, accepted_at: iso(a.accepted_at) })), quiet_hours: { from: `${String(QUIET.from).padStart(2, "0")}:00`, until: `${String(QUIET.until).padStart(2, "0")}:00`, set_by: "club" },
     waivers, friends, family, kid_rules: kidRules ?? null, kid_requests: kidRequests.map((k) => ({ ...k, what: say(k.what) })),
     // A device's address names the push service, not the device: only the service is kept here.
@@ -571,6 +573,7 @@ async function theirIds(db: Trx, personId: string): Promise<string[]> {
   add(await db.selectFrom("payment").select("id").where("person_id", "=", personId).execute());
   add(await db.selectFrom("join_request").select("id").where("person_id", "=", personId).execute());
   add(await db.selectFrom("level_review").select("id").where("person_id", "=", personId).execute());
+  add(await db.selectFrom("level_claim").select("id").where("person_id", "=", personId).execute());
   add(await db.selectFrom("kid_request").select("id").where("person_id", "=", personId).execute());
   add(await db.selectFrom("friend").select("id").where((w) => w.or([w("person_id", "=", personId), w("friend_id", "=", personId)])).execute());
   add(await db.selectFrom("household_member").select("id").where("person_id", "=", personId).execute());
@@ -659,6 +662,9 @@ async function erasePerson(ctx: ApplyCtx, personId: string, o: { at?: Date; keep
   await db.updateTable("join_request").set({ note: null }).where("person_id", "=", personId).execute();
   await db.updateTable("result_answer").set({ note: null }).where("person_id", "=", personId).execute();
   await db.updateTable("level_review").set({ note: null, claim: null }).where("person_id", "=", personId).execute();
+  // A level from another app: the screenshot goes, and so does the link to their profile there.
+  await db.deleteFrom("level_proof").where("person_id", "=", personId).execute();
+  await db.updateTable("level_claim").set({ profile_url: null, proof: sql`CASE WHEN proof = 'kept' THEN 'deleted' ELSE proof END` }).where("person_id", "=", personId).execute();
   await sql`UPDATE missing_feature SET asked = ${REMOVED} WHERE person_id = ${personId}`.execute(db);
   // Their yes and no to messages stay (the record of what they agreed to), without the numbers and addresses kept
   // as evidence (a number changed keeps the old and the new). The table takes no updates otherwise (migration 001).

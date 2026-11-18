@@ -149,6 +149,7 @@ const ENTITIES = {
   friend: { table: "friend", key: "id", retire: { removed_at: "now" } },
   place_offer: { table: "place_offer", key: "id", retire: { status: "withdrawn" } },
   level_review: { table: "level_review", key: "id", retire: null },
+  level_claim: { table: "level_claim", key: "id", retire: null },
   coach: { table: "coach", key: "person_id", retire: { active: false } },
   coach_hours: { table: "coach_hours", key: "id", retire: { active: false } },
   coach_time_off: { table: "coach_time_off", key: "id", retire: { active: false } },
@@ -304,13 +305,16 @@ async function refuse(db: Db, def: ActionDef<any>, input: unknown, actor: Actor,
 
 /** Never through an assistant (permissions.md: an agent can't raise its own limits): what it may spend, the
  *  account's own safety (deleting it, changing how the person signs in), and the person's own say: accepting
- *  a waiver, moving their own level (or claiming one from another app, or taking that away), downloading their data, the family card and saved cards. A parent's say over
+ *  a waiver, moving their own level (or taking away a start staff recorded from another app), downloading their data, the family card and saved cards.
+ *  Bringing a level from another app (level.claim, level.remove_claim) is the player's assistant's too, as the 18 Nov
+ *  owner feedback asked: it previews in the same words, never starts above the club's line without staff, and a
+ *  screenshot can only come from the app. A parent's say over
  *  their children is theirs too: who signs in as a junior, a junior's rules and limits, a charge past them, and
  *  who else is in the family (an invite is a second parent). These are done in the club's app. So is anything
  *  that needs a strong sign-in (strongAuth), money changing hands at the desk (DESK_MONEY: only the person
  *  holding it says so), and saying yes to texts or club news (APP_ONLY_YES): an assistant may still turn them off. */
 export const APP_ONLY = new Set(["assistant.set_cap", "privacy.erase", "privacy.export", "person.factor_add", "person.factor_codes", "person.factor_remove",
-  "person.passkey_add", "person.passkey_remove", "waiver.accept", "level.self_adjust", "level.claim", "level.remove_import", "family_card.start", "family_card.remove", "family_card.open",
+  "person.passkey_add", "person.passkey_remove", "waiver.accept", "level.self_adjust", "level.remove_import", "family_card.start", "family_card.remove", "family_card.open",
   "family_card.saved", "card.open", "card.saved", "card.remove", "membership.card_open", "membership.card_saved", "kid.give_login", "kid.remove_login", "kid.set_rules", "kid.approve_request",
   "household.invite", "household.accept_invite", "household.give_login", "household.leave", "household.remove_junior", ...DESK_MONEY, ...CHAT_ACTIONS, ...CREDIT_MONEY, "payment.use_credit", "gift_card.redeem", "payment.use_pass", "pass_product.set", "promo_code.set",
   // Taking a tournament or league result back undoes later matches too: staff in the app only.

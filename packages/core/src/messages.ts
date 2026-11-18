@@ -683,6 +683,13 @@ const composers: Record<string, (c: Ctx, p: any) => Promise<Draft[]>> = {
     return [{ to: p.person_id, kind: p.outcome === "keep" ? "level_review_kept" : "level_review_changed", purpose: "account" as const, essential: false, email: true, link: "/level",
       params: { before: p.before ?? both("plan.level.no_level"), after: p.after ?? both("plan.level.no_level"), level: p.after ?? both("plan.level.no_level"), note }, parents }];
   },
+  // A level they brought from another app (level_claims.ts), answered by staff: confirmed, given another start, or not
+  // used, with the reason staff gave. The parent who sent a junior's hears too.
+  async "level.claim_answered"(_c, p: { person_id: string; platform: string; outcome: "confirm" | "change" | "reject"; level: string | null; start_level: string | null; reason: string | null; sent_by?: string }) {
+    const kind = p.outcome === "confirm" ? "level_claim_confirmed" : p.outcome === "change" ? "level_claim_changed" : "level_claim_rejected";
+    return [{ to: p.person_id, kind, purpose: "account" as const, essential: false, email: true, link: "/level", parents: p.sent_by ? [p.sent_by] : undefined,
+      params: { source: both(`level_source.${p.platform}` as Key), start: p.start_level ?? "", level: p.level ?? both("plan.level.no_level"), note: p.reason ? both("msg.level_review_note", { note: p.reason }) : NOTHING } }];
+  },
   // ---- Asking the club ----
   async "question.answered"(_c, p: { question_id: string; to: string; by: string; question: string; answer: string }) {
     return [{ to: p.to, kind: "question_answered", params: { by: p.by, question: p.question, answer: p.answer }, purpose: "account" as const, essential: false, email: true, link: `/ask/${p.question_id}` }];

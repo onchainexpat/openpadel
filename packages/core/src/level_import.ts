@@ -1,10 +1,28 @@
-// A starting level from another app (rating-import research, 7 Nov 2026). Nobody signs in to another app through
-// Kumi: staff record what they saw in a player's app or looked up, a player claims their own, and a club moving in
-// brings its own Playtomic levels from its export. Each is a provisional start, a rating event of kind 'import_seed'
-// that the replay treats as an anchor: only while the player has played fewer than 5 rated games here, never a
-// floor, and never more certain than a level staff set (0.6), so the first games here still count fully. A player
-// can take one away while still new. Links where the player approves sharing (WPR, PadelLevels) come later, as the
-// 'partner_link' evidence, once those platforms give API access.
+// A starting level from another app (rating-import research, 7 Nov 2026, checked again 18 Nov 2026). Nobody signs in
+// to another app through openPadel: staff record what they saw in a player's app or looked up, a player claims their
+// own (level_claims.ts: several apps at once, with a screenshot if they like), and a club moving in brings its own
+// Playtomic levels from its export. Each is a provisional start, a rating event of kind 'import_seed' that the replay
+// treats as an anchor: only while the player has played fewer than 5 rated games here, never a floor, and never more
+// certain than a level staff set (0.6), so the first games here still count fully. A player can take one away while
+// still new. No platform documents a way for a player to approve another app reading their rating (18 Nov 2026), so
+// the 'partner_link' evidence stays unbuilt: docs/levels-from-other-apps.md lists what each would need.
+//
+// Sources, each read 18 Nov 2026 (docs/levels-from-other-apps.md has the same list):
+// - Playtomic: 0 to 7 with a reliability percentage, on the player's profile.
+//   https://playerhelp.playtomic.com/hc/en-gb/articles/43310980754193-How-the-Playtomic-level-system-works
+// - Playbypoint's NPRP (National Padel Rating Program, run by Playbypoint): 1.0 to 7.0, active after 20 matches.
+//   https://nprp.io
+// - World Padel Rating: 0 to 21 (Competition, and WPR-s for social play), confidence NC (none: new, a questionnaire's
+//   TEMP rating), LC (from 5%), HC (above 35%, a checkmark in WPR's own app). https://worldpadelrating.com/faq/ and
+//   the WPR guide, https://s3.us-east-1.amazonaws.com/redpadel.com/WPR+Guide.pdf
+// - MATCHi: whole numbers 1 to 10 with a description each, chosen by the player. https://matchi.se/levels
+// - CourtReserve: no rating of its own. A club defines its own "Custom Ratings" (any scale), and CourtReserve shows WPR
+//   (and DUPR, for pickleball) synced from those apps.
+//   https://help.courtreserve.com/en/articles/4147287-custom-ratings and
+//   https://intercom.help/courtreserve/en/articles/15465172-courtreserve-world-padel-rating-wpr-integration
+// - Padelmates: no published scale. An unofficial page says it's an Elo-style 0 to 7 like Playtomic's
+//   (https://www.playskan.com/blog/padel-levels-explained-uk); not checked against the app, so staff decide.
+// - No cross-app conversion is published by any rating body (https://www.bounce.game/padel-rating-converter says so).
 import * as z from "zod/mini";
 import { both, type Key, type Text } from "@kumi/i18n";
 import { defineAction, readRow, type ApplyCtx, type Read } from "./actions.ts";
@@ -12,14 +30,13 @@ import { localDate } from "./clock.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { withManagers } from "./households.ts";
-import { uuidv7 } from "./ids.ts";
 import { MODEL } from "./levels.ts";
 import { SELF_ADJUST_GAMES } from "./level_tools.ts";
 import { dayText } from "./memberships.ts";
 import { loadRating, ratingEvent, recompute, replay, saveRating, type RatingState } from "./ratings.ts";
 
 /** The version of the conversions below: interim guesses until fitted from a club's own members. */
-export const IMPORT_TABLE = "interim-2026-11-07";
+export const IMPORT_TABLE = "interim-2026-11-18";
 
 /** How sure a source says it is: Playtomic's reliability (percent), Playbypoint's matches counted, WPR's
  *  confidence (HC high, LC low, NC none: self-assigned), PadelLevels' confidence (percent). */
@@ -41,8 +58,11 @@ const between = (pts: [number, number][]) => (x: number) => {
   return pts[pts.length - 1]![1];
 };
 // WPR's 0 to 21 (Competition, else Social): midpoints of an unofficial NPRP to WPR table (padelbrowser.com, 1 Jun 2026).
+// Checked 18 Nov 2026 against WPR's own guide (0 to 2.8 starting, 9.8 to 11.2 low to mid advanced): it agrees, and no
+// official table to Playtomic or NPRP exists.
 const WPR: [number, number][] = [[0, 1.5], [2, 2.25], [5, 3.25], [8.5, 4.25], [12.5, 5.25], [15, 6], [21, 7]];
-// MATCHi's 1 to 10, matched by its own descriptions to the LTA's statements.
+// MATCHi's 1 to 10, matched by its own descriptions (https://matchi.se/levels: 1 Newcomer to 10 Professional) to the
+// LTA's statements. MATCHi has chosen PadelLevels for a computed rating: when its app shows that, it's PadelLevels.
 const MATCHI = [0, 1, 2, 2.5, 3, 3.5, 4.25, 4.75, 5.5, 6, 6.5];
 
 export const PLATFORMS = {
@@ -52,7 +72,9 @@ export const PLATFORMS = {
   matchi: { min: 1, max: 10, whole: true, conf: null, convert: (x) => MATCHI[x]!, self: true },
   lta: { min: 1, max: 7, conf: null, convert: (x) => x, self: true },
   padellevels: { min: 0, max: 100, conf: "percent", convert: null },            // its scale isn't published
-  padelmates: { min: 0, max: 100, conf: null, convert: null },
+  padelmates: { min: 0, max: 100, conf: null, convert: null },                 // not published: see above
+  // A club's own Custom Rating, on whatever scale that club chose: staff decide. A WPR shown in CourtReserve is WPR.
+  courtreserve: { min: 0, max: 100, conf: null, convert: null },
   other: { min: 0, max: 100, conf: null, convert: null },
 } satisfies Record<string, PlatformDef>;
 export type Platform = keyof typeof PLATFORMS;
@@ -106,7 +128,8 @@ async function ratingRead(db: Db | Trx, personId: string): Promise<Read[]> {
   return r ? [{ entity: "rating", id: personId, version: r.version }] : [];
 }
 
-export interface ImportFacts { platform: Platform; raw: number; conf: Confidence; start_level: number; sigma: number; evidence: Evidence; external_id?: string | null; last_played?: string | null }
+export interface ImportFacts { platform: Platform; raw: number; conf: Confidence; start_level: number; sigma: number; evidence: Evidence; external_id?: string | null; last_played?: string | null;
+  /** The player's claim it starts from (level_claims.ts), when it came from one. */ claim_id?: string }
 
 /** Imports still standing for a person (not taken away), newest first. */
 export async function activeImports(db: Db | Trx, personId: string) {
@@ -122,36 +145,40 @@ async function importCheck(db: Db | Trx, personId: string, p: Platform, o: { rep
   const r = await loadRating(db, personId);
   if (r.games >= SELF_ADJUST_GAMES) throw new KumiError("error.import_late", { count: SELF_ADJUST_GAMES });
   if (!o.replace && (await activeImports(db, personId)).some((x) => x.factors.platform === p)) throw new KumiError("error.import_already", { source: source(p) });
+  // A claim the player made from that app, waiting or counting (level_claims.ts), is answered there instead.
+  if (!o.replace && await db.selectFrom("level_claim").select("id").where("person_id", "=", personId).where("platform", "=", p).where("status", "in", ["waiting", "standing", "confirmed"]).executeTakeFirst())
+    throw new KumiError("error.import_claim_open");
   return r;
 }
-function readRaw(p: Platform, raw: number, c: Confidence) {
+export function readRaw(p: Platform, raw: number, c: Confidence) {
   const d: PlatformDef = PLATFORMS[p];
   if (raw < d.min || raw > d.max || (d.whole && !Number.isInteger(raw))) throw new KumiError("error.import_range", { source: source(p), min: d.min, max: d.max });
   if (p === "wpr" && c.wpr === "NC") throw new KumiError("error.import_wpr_nc");
 }
 
-/** Write the start: the level (a floor a coach set still holds), its event with where it came from, and nothing else. */
+/** Write the start: the level (a floor a coach set still holds), its event with where it came from, and nothing else.
+ *  Gives the level and the event's id (a claim names its start by it). */
 export async function writeImport(ctx: ApplyCtx, personId: string, f: ImportFacts, how: Text, checkedBy: string | null) {
   const before = await loadRating(ctx.trx, personId);
   const level = round2(Math.max(before.floor ?? -Infinity, f.start_level));
   const after: RatingState = { mu: level, sigma: f.sigma, level, floor: before.floor, games: before.games };
   await saveRating(ctx, personId, after, before.exists);
   const why = both("level.imported", { level: lvl(level), source: source(f.platform), shown: shownText(f.platform, f.raw, f.conf), how });
-  await ratingEvent(ctx, personId, "import_seed", before.exists ? before : null, after, why, {
+  const eventId = await ratingEvent(ctx, personId, "import_seed", before.exists ? before : null, after, why, {
     factors: { platform: f.platform, raw: f.raw, conf: f.conf, start_level: level, sigma: f.sigma, evidence: f.evidence, external_id: f.external_id ?? null,
-      last_played: f.last_played ?? null, checked_by: checkedBy, table: IMPORT_TABLE } });
-  return level;
+      last_played: f.last_played ?? null, checked_by: checkedBy, table: IMPORT_TABLE, ...(f.claim_id ? { claim_id: f.claim_id } : {}) } });
+  return { level, eventId };
 }
 
-const confInput = {
+export const confInput = {
   reliability: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100), z.describe("Playtomic's reliability for the level, in percent, as its app shows it."))),
   matches: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100000), z.describe("Playbypoint: how many matches its rating counts."))),
   wpr: z.optional(z.enum(["HC", "LC", "NC"]).check(z.describe("WPR's confidence: HC high, LC low, NC none (self-assigned, not used)."))),
   percent: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(100), z.describe("PadelLevels' confidence, in percent."))),
 };
-const valueInput = z.number().check(z.minimum(0), z.maximum(100), z.describe("The level as the other app shows it, on its own scale."));
-const dayInput = z.optional(z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/), z.describe("When they last played there, if the app shows it.")));
-const confOf = (i: Confidence): Confidence => Object.fromEntries(Object.entries({ reliability: i.reliability, matches: i.matches, wpr: i.wpr, percent: i.percent }).filter(([, v]) => v !== undefined));
+export const valueInput = z.number().check(z.minimum(0), z.maximum(100), z.describe("The level as the other app shows it, on its own scale."));
+export const dayInput = z.optional(z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/), z.describe("When they last played there, if the app shows it.")));
+export const confOf = (i: Confidence): Confidence => Object.fromEntries(Object.entries({ reliability: i.reliability, matches: i.matches, wpr: i.wpr, percent: i.percent }).filter(([, v]) => v !== undefined));
 
 /** Staff record a start they saw in the player's app, or looked up. They're the check; it applies at once. */
 export const levelImport = defineAction({
@@ -183,47 +210,8 @@ export const levelImport = defineAction({
     const { start_level, sigma } = plan.details as { start_level: number; sigma: number };
     const by = await nameOf(ctx.trx, ctx.actor.personId), date = await today(ctx.trx, ctx.now);
     const how = both(i.evidence === "staff_seen" ? "level_import.how_seen" : "level_import.how_lookup", { by, date });
-    const level = await writeImport(ctx, i.person_id, { platform: i.platform, raw: i.value, conf, start_level, sigma, evidence: i.evidence, external_id: i.external_id ?? null, last_played: i.last_played ?? null }, how, ctx.actor.personId);
+    const { level } = await writeImport(ctx, i.person_id, { platform: i.platform, raw: i.value, conf, start_level, sigma, evidence: i.evidence, external_id: i.external_id ?? null, last_played: i.last_played ?? null }, how, ctx.actor.personId);
     return { level };
-  },
-});
-
-/** A player (or a parent, for their junior) says what their level is on another app. At or below the club's line it
- *  starts at once, as their own word; above it, or from an app whose scale Kumi doesn't convert, it waits for staff. */
-export const levelClaim = defineAction({
-  name: "level.claim", version: 1, clubWide: true,
-  owners: (db, i) => withManagers(db, [i.person_id]),
-  input: z.object({ person_id: z.uuid(), platform: z.enum(PLATFORM_KEYS), value: valueInput, ...confInput, last_played: dayInput }),
-  async plan(ctx, i) {
-    const conf = confOf(i);
-    readRaw(i.platform, i.value, conf);
-    await importCheck(ctx.db, i.person_id, i.platform);
-    if (await ctx.db.selectFrom("level_review").select("id").where("person_id", "=", i.person_id).where("status", "=", "open").executeTakeFirst()) throw new KumiError("error.review_open");
-    const kumi = toKumi(i.platform, i.value), line = await clubLine(ctx.db);
-    const waits = kumi === null || kumi > line + 1e-9;
-    const shown = shownText(i.platform, i.value, conf);
-    // A parent bringing their junior's (Family) reads the junior's name where a player reads "your".
-    const name = ctx.actor.personId === i.person_id ? null : await nameOf(ctx.db, i.person_id), _for = name === null ? "" : "_for";
-    return { title: both("action.level.claim"), reads: await ratingRead(ctx.db, i.person_id), ownerIds: await withManagers(ctx.db, [i.person_id]), undo: { kind: "none" }, details: { waits, kumi },
-      summary: waits ? both(`${kumi === null ? "plan.level.claim_staff" : "plan.level.claim_wait"}${_for}` as Key, { source: source(i.platform), shown, line: lvl(line), name: name ?? "" })
-        : both(`plan.level.claim_now${_for}` as Key, { source: source(i.platform), shown, level: lvl(kumi), games: SELF_ADJUST_GAMES, name: name ?? "" }) };
-  },
-  async apply(ctx, i, plan) {
-    const conf = confOf(i), { waits, kumi } = plan.details as { waits: boolean; kumi: number | null };
-    await importCheck(ctx.trx, i.person_id, i.platform);
-    if (waits) {
-      const id = uuidv7(), claim = { platform: i.platform, raw: i.value, conf, start_level: kumi, last_played: i.last_played ?? null, by: ctx.actor.personId };
-      try { await ctx.insert("level_review", { id, person_id: i.person_id, kind: "import", claim: JSON.stringify(claim), created_at: ctx.now }); }
-      catch (e: any) { if (e?.code === "23505") throw new KumiError("error.review_open"); throw e; }
-      await ctx.emit("level.import_claimed", { review_id: id, person_id: i.person_id, platform: i.platform, shown: shownText(i.platform, i.value, conf), start_level: kumi,
-        ...(ctx.actor.personId && ctx.actor.personId !== i.person_id ? { sent_by: ctx.actor.personId } : {}) });
-      return { review_id: id, waits: true };
-    }
-    // Given by a parent for their junior: the junior's history says who gave it.
-    const how = ctx.actor.personId === i.person_id || !ctx.actor.personId ? both("level_import.how_self", { date: await today(ctx.trx, ctx.now) })
-      : both("level_import.how_parent", { by: await nameOf(ctx.trx, ctx.actor.personId), date: await today(ctx.trx, ctx.now) });
-    const level = await writeImport(ctx, i.person_id, { platform: i.platform, raw: i.value, conf, start_level: kumi!, sigma: startSigma(i.platform, "self", conf)!, evidence: "self", last_played: i.last_played ?? null }, how, null);
-    return { level, waits: false };
   },
 });
 
@@ -235,6 +223,8 @@ export const levelRemoveImport = defineAction({
   async plan(ctx, i) {
     const imp = (await activeImports(ctx.db, i.person_id))[0];
     if (!imp) throw new KumiError("error.no_import");
+    // One the player brought is taken away as their claim (level.remove_claim), so the next surest of theirs takes over.
+    if (imp.factors.claim_id) throw new KumiError("error.import_is_claim");
     const s = await loadRating(ctx.db, i.person_id);
     if (s.games >= SELF_ADJUST_GAMES) throw new KumiError("error.import_remove_late", { count: SELF_ADJUST_GAMES });
     const after = (await replay(ctx.db, { leaveOut: new Set([imp.id]) })).get(i.person_id);
@@ -263,14 +253,21 @@ export async function clubLine(db: Db | Trx): Promise<number> {
   return Number((await db.selectFrom("club").select("level_import_line").executeTakeFirstOrThrow()).level_import_line);
 }
 
-/** For the level pages: where a start came from, and what the person can still do with it. */
+/** For the level pages: where a start came from, every level the player brought (level_claims.ts), and what the person
+ *  can still do with them. */
 export async function importOptions(db: Db | Trx, personId: string) {
   const imp = (await activeImports(db, personId))[0] ?? null, r = await loadRating(db, personId);
+  const rows = await db.selectFrom("level_claim").selectAll().where("person_id", "=", personId).where("status", "!=", "removed").orderBy("created_at", "desc").execute();
+  const live = (s: string) => s === "waiting" || s === "standing" || s === "confirmed";
   return {
-    import: imp ? { at: imp.at, level: imp.level, platform: imp.factors.platform, evidence: imp.factors.evidence, explanation: imp.explanation } : null,
+    import: imp ? { at: imp.at, level: imp.level, platform: imp.factors.platform, evidence: imp.factors.evidence, explanation: imp.explanation, claim_id: imp.factors.claim_id ?? null } : null,
     can_remove: Boolean(imp) && r.games < SELF_ADJUST_GAMES,
     can_claim: r.games < SELF_ADJUST_GAMES,
     games: SELF_ADJUST_GAMES, line: await clubLine(db),
-    platforms: PLATFORM_KEYS.map((k) => { const d: PlatformDef = PLATFORMS[k]; return { key: k, min: d.min, max: d.max, whole: Boolean(d.whole), conf: d.conf, converts: Boolean(d.convert) }; }),
+    claims: rows.map((c) => ({ id: c.id, platform: c.platform as Platform, raw: c.raw, conf: c.conf as Confidence, shown: shownText(c.platform as Platform, c.raw, c.conf as Confidence),
+      start_level: c.start_level === null ? null : Number(c.start_level), status: c.status, evidence: c.evidence, is_start: Boolean(imp && c.event_id === imp.id),
+      profile_url: c.profile_url, proof: c.proof, answer: c.answer, created_at: c.created_at, answered_at: c.answered_at,
+      can_remove: live(c.status) && (c.status === "waiting" || r.games < SELF_ADJUST_GAMES) })),
+    platforms: PLATFORM_KEYS.map((k) => { const d: PlatformDef = PLATFORMS[k]; return { key: k, min: d.min, max: d.max, whole: Boolean(d.whole), conf: d.conf, converts: Boolean(d.convert), self: Boolean(d.self) }; }),
   };
 }
