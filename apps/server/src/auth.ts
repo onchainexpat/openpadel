@@ -100,13 +100,13 @@ export async function verifyEmailCode(db: Db, email: string, code: string, userA
   return { token: await startSession(db, person.id, userAgent, now, ch.id), personId: person.id };
 }
 
-async function startSession(db: Db, personId: string, userAgent: string | null, now: Date, challengeId: string, method: "email_code" | "phone_code" = "email_code"): Promise<string> {
+async function startSession(db: Db, personId: string, userAgent: string | null, now: Date, challengeId: string, method: "email_code" | "phone_code" = "email_code", proves = true): Promise<string> {
   await refuseQueued(db, personId);
   const token = randomBytes(32).toString("base64url");
   await db.transaction().execute(async (trx) => {
     await trx.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", challengeId).execute();
     await trx.insertInto("web_session").values({ token_hash: sha(token), person_id: personId, expires_at: new Date(now.getTime() + SESSION_DAYS * 864e5), last_seen_at: now, user_agent: userAgent, revoked_at: null, method }).execute();
-    if (method === "email_code") {
+    if (method === "email_code" && proves) {
       const proven = await trx.updateTable("auth_identity").set({ verified_at: now }).where("person_id", "=", personId).where("kind", "=", "email").where("verified_at", "is", null).returning("id").execute();
       // The first sign-in that proves an address someone else entered for them (the desk, a parent giving a kid their own
       // login, a junior made an adult, the owner's address at setup): only whoever reads that mailbox can, so it's their
@@ -304,3 +304,49 @@ export async function signOut(db: Db, token: string | undefined, now = new Date(
   if (token) await db.updateTable("web_session").set({ revoked_at: now }).where("token_hash", "=", sha(token)).execute();
 }
 
+
+// ---- An owner's one-time sign-in link, from the server (`openpadel sign-in-link`) ----
+// For an owner's first sign-in while the server has no email service yet (a new club in practice mode): their code would
+// only reach the server's log, which the owner can't read, and the agent would have to read a code out of it and pass it on.
+// Instead, whoever runs the server makes one link for one owner. It works once, for LINK_MINUTES, and only while there's no
+// email service; making a new one ends the one before. Opening it changes nothing (a chat app previewing it can't use it
+// up): the page's button signs in. It counts as one step, like an emailed code (the club's second-step rules apply), and
+// it proves nothing about the mailbox, so the address isn't marked confirmed.
+export const LINK_MINUTES = 15;
+
+async function ownerByEmail(db: Db | Trx, email: string) {
+  return db.selectFrom("person").innerJoin("person_role", "person_role.person_id", "person.id").innerJoin("role", "role.id", "person_role.role_id")
+    .select(["person.id", "person.display_name", "person.locale", "person.email"]).where(sql<boolean>`lower(person.email) = lower(${email.trim()})`)
+    .where("person.status", "!=", "archived").where("person.redacted_at", "is", null).where("role.key", "=", "owner").where("person_role.active", "=", true).executeTakeFirst();
+}
+
+/** A new link for this owner (the token goes in the link only; the database keeps its hash). Null when they aren't an owner. */
+export async function makeSignInLink(db: Db, email: string, now = new Date()): Promise<{ token: string; personId: string; expiresAt: Date } | null> {
+  const owner = await ownerByEmail(db, email);
+  if (!owner) return null;
+  const token = randomBytes(32).toString("base64url"), expiresAt = new Date(now.getTime() + LINK_MINUTES * 60_000);
+  await db.transaction().execute(async (trx) => {
+    await trx.updateTable("auth_challenge").set({ consumed_at: now }).where("kind", "=", "sign_in_link").where("person_id", "=", owner.id).where("consumed_at", "is", null).execute();
+    await trx.insertInto("auth_challenge").values({ id: uuidv7(now.getTime()), kind: "sign_in_link", target: owner.email!, person_id: owner.id, code_hash: sha(token), expires_at: expiresAt, consumed_at: null }).execute();
+  });
+  return { token, personId: owner.id, expiresAt };
+}
+
+/** Whom a link signs in, while it still can: for its page. */
+export async function signInLinkTarget(db: Db, token: string, now = new Date()) {
+  const ch = await db.selectFrom("auth_challenge").select(["person_id", "target"]).where("kind", "=", "sign_in_link").where("code_hash", "=", sha(token))
+    .where("consumed_at", "is", null).where("expires_at", ">", now).executeTakeFirst();
+  const owner = ch ? await ownerByEmail(db, ch.target) : undefined;
+  return owner && owner.id === ch!.person_id ? { personId: owner.id, email: ch!.target, name: owner.display_name, locale: owner.locale } : null;
+}
+
+/** Uses the link up and signs its owner in; null when it's used, ran out, or they're no longer an owner. Of two at once,
+ *  only one gets in. */
+export async function useSignInLink(db: Db, token: string, userAgent: string | null, now = new Date()): Promise<{ token: string; personId: string } | null> {
+  const used = await db.updateTable("auth_challenge").set({ consumed_at: now }).where("kind", "=", "sign_in_link").where("code_hash", "=", sha(token))
+    .where("consumed_at", "is", null).where("expires_at", ">", now).returning(["id", "person_id", "target"]).executeTakeFirst();
+  if (!used) return null;
+  const owner = await ownerByEmail(db, used.target);
+  if (!owner || owner.id !== used.person_id) return null;
+  return { token: await startSession(db, owner.id, userAgent, now, used.id, "email_code", false), personId: owner.id };
+}

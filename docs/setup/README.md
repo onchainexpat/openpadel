@@ -76,9 +76,14 @@ openpadel doctor           # what's next
 Show the owner the plan before applying. Running it again only adds what's new; renaming or
 removing things is done in the staff app, where the preview shows what each change affects.
 
-The owner then signs in to the staff app with their email address. A code arrives by email (or,
-before email is set up, appears in the server log: `journalctl -u kumi | grep '\[mail'`; the sign-in
-page says so then, rather than that it was emailed).
+The owner then signs in to the staff app with their email address, and a code arrives by email. Before
+email is set up (step 5), the code would only reach the server's log, which the owner usually can't read
+and the agent must not pass on. So either set up email first, with the owner's address in
+`KUMI_MAIL_TEST_TO`, or the agent runs `openpadel sign-in-link owner@yourclub.com` on the server and gives the
+owner the link it prints, without opening it. The link works once, for 15 minutes, only for an owner and
+only while the server has no email service; opening it shows a Sign in button, and that signs them in
+([docs/cli/README.md](../cli/README.md), "The owner's first sign-in"). Other staff sign in once email is
+set up.
 
 The emailed code is enough to sign in. A second step is the owner's to add, and the staff app offers
 it the first time it's needed: the club's most sensitive changes (its settings, roles, the payments
@@ -900,6 +905,7 @@ an export ask for something: the file's passphrase, typed by the owner (it isn't
 | `openpadel move-in courtreserve\|playbypoint --members <file> [--bookings <file>] [--programs <file>] [--map ...] [--apply]` | Brings members, memberships, club credit, upcoming bookings and program sign-ups in from that system's exported reports, each a preview unless `--apply` ([moving-from-courtreserve.md](moving-from-courtreserve.md)). Emails nobody. |
 | `openpadel doctor` | Checks the database, the club, the address, email, texts, ask the club, payments, Apple Pay and Google Pay, Playtomic, backups, the offsite copy, the restore test and the server's key. |
 | `openpadel reset-sign-in <email>` | Starts someone's second sign-in step over: a lost phone, or an owner locked out. |
+| `openpadel sign-in-link <email>` | An owner's one-time sign-in link (15 minutes), only before the server has an email service: for the owner's first sign-in, handed over by the agent, never opened by it. |
 | `openpadel texting plan \| apply \| status` | Registers the club's texting with US carriers through its own Twilio account ([accounts/twilio.md](accounts/twilio.md)). `apply --yes` to buy a number. |
 | `openpadel backup` | Tonight's backup now: the dump and its manifest, and the offsite copy if it's set up. |
 | `openpadel offsite` | What's kept offsite. |

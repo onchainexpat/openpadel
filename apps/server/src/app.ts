@@ -18,7 +18,7 @@ import { comingFrom } from "@kumi/i18n/presets";
 import { welcomeDue, greetDue, greeted, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, isYesWaiting, decline, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
-import { completeSignUp, emailUndoTarget, phoneSignInOn, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
+import { completeSignUp, emailUndoTarget, LINK_MINUTES, phoneSignInOn, signInLinkTarget, useSignInLink, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, mcpResourceOf, mcpResources, oauthRoutes, type FetchMetadata } from "./oauth.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { previewWords } from "./preview_words.ts";
@@ -118,7 +118,7 @@ export function makeApp(deps: AppDeps) {
   // the link that puts back an email someone else changed.
   app.use("*", async (c, next) => {
     const path = c.req.path, m = c.req.method;
-    if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && !path.startsWith("/webhooks/") && !path.startsWith("/plugins/") && !path.startsWith("/mcp") && !path.startsWith("/unsubscribe/") && !path.startsWith("/auth/email-undo/")) {
+    if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && !path.startsWith("/webhooks/") && !path.startsWith("/plugins/") && !path.startsWith("/mcp") && !path.startsWith("/unsubscribe/") && !path.startsWith("/auth/email-undo/") && !path.startsWith("/auth/link/")) {
       const site = c.req.header("sec-fetch-site");
       if (site && site !== "same-origin" && site !== "none") throw new KumiError("error.cross_site", {}, 403);
       const type = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
@@ -174,7 +174,7 @@ export function makeApp(deps: AppDeps) {
   app.use("*", async (c, next) => {
     const me = c.get("me"), path = c.req.path;
     if (me?.gate && !(path === "/me" || path === "/club" || path === "/health" || path.startsWith("/manifest/") || path === "/my/two-factor"
-      || HALF_SIGNED_IN.has(path) || path.startsWith("/auth/email-undo/") || (me.gate === "setup" && FIRST_SECOND_STEP.has(path))
+      || HALF_SIGNED_IN.has(path) || path.startsWith("/auth/email-undo/") || path.startsWith("/auth/link/") || (me.gate === "setup" && FIRST_SECOND_STEP.has(path))
       || (path.startsWith("/oauth/") && path !== "/oauth/decide"))) throw new KumiError("error.two_step_needed", {}, 403);
     await next();
   });
@@ -426,6 +426,31 @@ export function makeApp(deps: AppDeps) {
     const same = u?.email?.toLowerCase() === u?.target.toLowerCase();
     if (!u || !(await undoEmailChange(db, mailer, token, now()))) return c.html(undoPage(c.get("lang"), u?.club ?? "", `<p>${esc(t(c.get("lang"), "emailundo.bad"))}</p>`), 404);
     return c.html(undoPage(u.lang, u.club, `<p>${esc(t(u.lang, same ? "emailundo.done_same" : "emailundo.done", { email: u.target }))}</p>`));
+  });
+
+  // An owner's one-time sign-in link (auth.ts, `openpadel sign-in-link`), only while the server has no email service.
+  // Opening it shows whom it signs in and changes nothing (a chat app's preview can't use it up): the button does, then
+  // the staff app opens signed in.
+  const linkPage = (l: Lang, club: string, body: string) => `<!doctype html><html lang="${l}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>${esc(t(l, "signinlink.title", { club }))}</title><style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;line-height:1.5;color:#1d2321;background:#fff}button{font:inherit;padding:.6rem 1.2rem;border-radius:.5rem;border:1px solid #1d2321;background:#1d2321;color:#fff;cursor:pointer}code{background:#eef1f0;padding:0 .25rem;border-radius:.25rem}</style></head>
+<body><h1>${esc(t(l, "signinlink.title", { club }))}</h1>${body}</body></html>`;
+  const linksOn = () => deps.mailReach === "log";
+  const clubName = async () => (await db.selectFrom("club").select("name").executeTakeFirst())?.name ?? "";
+  const linkGone = async (c: Context<Env>) => c.html(linkPage(c.get("lang"), await clubName(), `<p>${esc(t(c.get("lang"), linksOn() ? "signinlink.bad" : "signinlink.email_on", { count: LINK_MINUTES }))}</p>`), 404);
+  app.get("/auth/link/:token", async (c) => {
+    c.header("cache-control", "no-store"); c.header("referrer-policy", "no-referrer");
+    const who = linksOn() ? await signInLinkTarget(db, c.req.param("token"), now()) : null;
+    if (!who) return linkGone(c);
+    const l: Lang = isLang(who.locale) ? who.locale : c.get("lang"), club = await clubName();
+    return c.html(linkPage(l, club, `<p>${esc(t(l, "signinlink.ask", { name: who.name, email: who.email, club }))}</p><form method="post"><button type="submit">${esc(t(l, "signinlink.button"))}</button></form><p>${esc(t(l, "signinlink.not_you"))}</p>`));
+  });
+  app.post("/auth/link/:token", async (c) => {
+    c.header("cache-control", "no-store"); c.header("referrer-policy", "no-referrer");
+    const r = linksOn() ? await useSignInLink(db, c.req.param("token"), c.req.header("user-agent") ?? null, now()) : null;
+    if (!r) return linkGone(c);
+    console.log(`sign-in link: used for an owner (${r.personId})`);
+    setSession(c, r.token, cookieMode);
+    return c.redirect("/", 303);
   });
 
   app.post("/auth/sign-up", async (c) => {

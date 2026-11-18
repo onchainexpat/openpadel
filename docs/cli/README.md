@@ -80,6 +80,27 @@ openpadel login https://staff.yourclub.com --device --json
 
 The agent never sees a password or a code from an email. The person types those on the club's page.
 
+**The owner's first sign-in, before the club's email is set up.** With no email service on the server yet, a sign-in
+code only reaches the server's log, which the owner usually can't read (only the agent's SSH key works there), and the
+agent must not read a code out of it and pass it on. Either set up email first ([resend.md](../setup/accounts/resend.md),
+with the owner's address in `KUMI_MAIL_TEST_TO` while practice mode is on), or, on the server:
+
+```bash
+openpadel sign-in-link owner@yourclub.com      # prints a link for that owner; --json for {"url": ..., "expires_at": ...}
+```
+
+The agent gives the owner that link (in the chat is fine) and never opens it itself. It's the one thing passed on, and
+it's made to be: it works once, for 15 minutes, only for an owner, and only while the server has no email service (with
+one, the command and the link both refuse, and the code goes by email). Opening it only shows whom it signs in; its
+button signs in, so a chat app previewing the link can't use it up. Making a new one ends the one before. Once the
+owner is in, they allow the agent's `--device` code as above.
+
+**On the club's own server.** `openpadel login ... --device` works there too (run it as root, as the server's other
+commands are): the server's `openpadel` runs as the openPadel service user, so the sign-in is kept in
+`/var/lib/kumi/.config/kumi/secrets.json` (that user's home, readable by it and root only), not in root's home. Anyone
+with root on the server can use it, so sign in there as the person whose agent works on the server, and `openpadel logout`
+when that work is done.
+
 `openpadel login` signs in only at the club's own addresses: the sign-in server the club names must be the club's own host
 or its staff app beside it (`staff.<host>`), over https (http only on this computer), with every endpoint on it.
 Working on openPadel itself, where the two apps run on `localhost` ports of their own (5173 and 5174) and not as

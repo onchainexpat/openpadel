@@ -73,7 +73,9 @@ doesn't come up. Database changes apply when the server starts. To go back later
 [`deploy/README.md`](../../../deploy/README.md)).
 
 ## Logs
-`journalctl -u kumi -f` shows what openPadel is doing. Until email is set up, sign-in codes appear there.
+`journalctl -u kumi -f` shows what openPadel is doing. Until email is set up, sign-in codes appear there:
+the agent doesn't read them out to anyone. For the owner's first sign-in, `openpadel sign-in-link <their email>`
+gives a one-time link instead ([README](../README.md), step 4).
 
 ## Common problems
 - **`address` fails with a certificate or connection error:** the DNS records don't point at the

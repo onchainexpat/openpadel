@@ -17,6 +17,8 @@
 //                                  club credit, upcoming bookings and program sign-ups, each a preview unless --apply (move_files.ts)
 //   kumi doctor                    is everything working? each check, and the next step when it isn't
 //   kumi reset-sign-in <email>     start someone's second sign-in step over (a lost phone; an owner locked out)
+//   kumi sign-in-link <email>      an owner's one-time sign-in link (15 minutes), only while there's no email service yet:
+//                                  for the owner's first sign-in on a new server, so nobody reads a code out of the log (auth.ts)
 //   kumi owner add <email> [--yes] give someone the owner role (a club left with no owner who can sign in)
 //   kumi backup [--label=<name>]   tonight's backup now: the dump and its manifest, and the offsite copy if set up
 //                                  (--scheduled: only when it's due, 3:17 on the club's clock; the hourly timer runs this)
@@ -124,7 +126,7 @@ async function formatOf(url: string): Promise<void> {
 
 /** The commands that run on the club's server itself, against its database. Everything else is the club's own
  *  commands, from any computer signed in to the club (cli_remote.ts: kumi login, kumi help). */
-const ON_SERVER = new Set(["setup", "import", "move-in", "texting", "usage", "export", "moved", "read-only", "leaving", "held", "doctor", "reset-sign-in", "owner", "backup",
+const ON_SERVER = new Set(["setup", "import", "move-in", "texting", "usage", "export", "moved", "read-only", "leaving", "held", "doctor", "reset-sign-in", "sign-in-link", "owner", "backup",
   "offsite", "pitr", "restore", "restore-test", "rotate-key", "update", "rollback", "releases"]);
 
 async function main(): Promise<number> {
@@ -570,6 +572,25 @@ async function main(): Promise<number> {
       const r = await runAsSystem(db, "person.reset_sign_in", { person_id: person.id }, "cli");
       if (json) { out({ ok: true, summary: say(r.plan.summary) }); return 0; }
       console.log(say(r.plan.summary));
+      return 0;
+    } finally { await db.destroy(); }
+  }
+  // An owner's one-time sign-in link (auth.ts): only before the server has an email service, when their code would only
+  // reach this server's log. Printed for whoever runs the server to hand to the owner; it works once, for LINK_MINUTES.
+  if (cmd === "sign-in-link" && sub) {
+    const fail = (key: "cli.link_email_on" | "cli.link_no_url" | "cli.link_not_owner", code = 2) => { if (json) out({ ok: false, error: t(lang, key, { email: sub }) }); else console.error(t(lang, key, { email: sub })); return code; };
+    if (process.env.KUMI_RESEND_API_KEY || (process.env.NODE_ENV === "production" && process.env.KUMI_PRACTICE !== "1")) return fail("cli.link_email_on");
+    const base = process.env.KUMI_PUBLIC_URL?.replace(/\/$/, "");
+    if (!base) return fail("cli.link_no_url");
+    const db = await clubDb();
+    try {
+      const { makeSignInLink, LINK_MINUTES } = await import("./auth.ts");
+      const link = await makeSignInLink(db, sub);
+      if (!link) return fail("cli.link_not_owner");
+      const person = await db.selectFrom("person").select(["display_name", "email"]).where("id", "=", link.personId).executeTakeFirstOrThrow();
+      const url = `${base}/auth/link/${link.token}`;
+      if (json) { out({ ok: true, email: person.email, url, works_once: true, expires_at: link.expiresAt.toISOString() }); return 0; }
+      console.log(t(lang, "cli.link_made", { name: person.display_name, email: person.email ?? sub, url, count: LINK_MINUTES }));
       return 0;
     } finally { await db.destroy(); }
   }
