@@ -270,3 +270,15 @@ test("two commands at once share one refresh of the sign-in; logout ends the con
   const after = await c.kumi("whoami", "--json");
   assert.equal(after.code, EXIT.signed_out);
 });
+
+test("behind the web server (the request says http and the server's own host), the sign-in form still goes back to the club's https page", async () => {
+  // Caddy passes the request on over http to 127.0.0.1: the page's own form must name the club's address, or the
+  // sign-in refuses it ("This sign-in link isn't complete"), as it did for every https club until 18 Nov 2026.
+  const s = (await computer().kumi("login", BASE, "--device", "--no-wait", "--json")).json();
+  const page = await (await req("http://127.0.0.1:8790/oauth/device", form({ code: s.code }))).text();
+  assert.match(page, /name="back"/, "not signed in: the page asks for the sign-in first");
+  const back = page.match(/name="back" value="([^"]+)"/)![1]!.replaceAll("&amp;", "&");
+  assert.equal(new URL(back).origin, BASE);
+  assert.equal(new URL(back).pathname, "/oauth/device");
+  assert.equal((await req("/oauth/sign-in", form({ back, email: MEMBER }))).status, 303, "the form as the page wrote it is taken");
+});

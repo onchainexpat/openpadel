@@ -207,7 +207,7 @@ export function oauthRoutes(deps: OAuthDeps) {
    *  account made only for support access. Null once the person may see the consent screen. */
   async function beforeConsent(c: Context, lang: Lang, clubName: string, me: ReturnType<OAuthDeps["me"]>): Promise<Response | null> {
     if (!me) {
-      const back = c.req.url, sent = Boolean(c.req.query("sent")), byPhone = c.req.query("by") === "phone" && phoneOn();
+      const back = here(c), sent = Boolean(c.req.query("sent")), byPhone = c.req.query("by") === "phone" && phoneOn();
       const other = new URL(back); other.searchParams.delete("sent"); other.searchParams.delete("email"); other.searchParams.delete("phone");
       if (byPhone) other.searchParams.delete("by"); else other.searchParams.set("by", "phone");
       const code = html`<label>${t(lang, byPhone ? "consent.text_code_label" : "consent.code_label")}<input name="code" inputmode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code"></label><button class="primary">${t(lang, "consent.verify")}</button>`;
@@ -223,7 +223,7 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     // (with only a passkey, or nothing set up yet) the club's app first.
     if (me.gate) {
       if (me.gate === "verify" && await activeFactor(deps.db, me.id)) return c.html(page(lang, t(lang, "consent.two_step_title"), html`
-<form method="post" action="/oauth/two-step"><input type="hidden" name="back" value="${c.req.url}">
+<form method="post" action="/oauth/two-step"><input type="hidden" name="back" value="${here(c)}">
 <label>${t(lang, "consent.two_step_label")}<input name="code" inputmode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code"></label><button class="primary">${t(lang, "consent.verify")}</button></form>`));
       return c.html(page(lang, t(lang, "consent.two_step_title"), html`<p>${t(lang, "consent.two_step_in_app", { club: clubName })}</p>`));
     }
@@ -232,6 +232,9 @@ ${phoneOn() ? html`<p><a href="${other.pathname}${other.search}">${t(lang, byPho
     if (await supportOnly(deps.db, me.id)) return c.html(page(lang, t(lang, "consent.support_title"), html`<p>${t(lang, "consent.support_only", { club: clubName })}</p>`), 403);
     return null;
   }
+  /** This page's own address as people reach it: the club's address with the page's path and query. Behind the web
+   *  server the request itself says http and the server's own host, which the check below would refuse. */
+  const here = (c: Context) => { const u = new URL(c.req.url); return new URL(u.pathname + u.search, issuer).toString(); };
   /** The sign-in and second-step forms go back only to this club's own consent screens. */
   const backTo = (raw: unknown) => {
     const u = new URL(String(raw ?? ""), issuer);

@@ -9,6 +9,8 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+Signing in on the club's page to connect an assistant, the command line or an agent's device works again on a club served over https: the page's sign-in form named the club's address as http (as the request reaches openPadel behind the web server), and the sign-in refused it as "This sign-in link isn't complete".
+
 Moving in from CourtReserve, and from Playbypoint beyond its users list. CourtReserve is a source in the guided move-in
 now (Settings, Moving in, Connect): the owner exports its Members, Reservations and Event Registrant Detail reports (as
 Excel or CSV), and "Bring the files in" reads each one on the server, says which column it read as what and lists every
