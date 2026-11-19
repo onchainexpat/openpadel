@@ -7,6 +7,26 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## 0.7.2 (2026-11-18)
+
+The owner's first sign-in by a one-time link now asks for a second step straight away. Every club set up with
+`openpadel sign-in-link` should update before using it again.
+
+### Changed
+- Signing in by an owner's sign-in link (`openpadel sign-in-link`, 0.7.0 on) went straight into the staff app with
+  one step, though the link passes through an agent and a chat. Such a session now owes a second step whatever the
+  club's sign-in rules say: with none set up, the staff app's two-step screen asks for a passkey on that device or an
+  authenticator app (with ten recovery codes) before any page or change works; with one, the owner gives it. The
+  device and consent pages say to finish signing in in the app first. After that the session is two-step, as after an
+  emailed code and an authenticator. The link's page tells the owner to have their phone at hand, and the setup guide
+  and docs/cli/README.md say so too. Signing in by an emailed code is unchanged.
+
+### When updating
+- The database change (migration 138, a mark on sessions started by a sign-in link) applies by itself when the server
+  starts. Nothing to set: `deploy/ship.sh`, or on Docker `deploy/docker/update.sh v0.7.2`. A link session started
+  before the update isn't marked and keeps working as it did: an owner who signed in that way and has no second
+  step yet can set one up in Profile, or sign out and back in.
+
 ## 0.7.1 (2026-11-18)
 
 Small fixes from the second timed setup run on a fresh server: fewer things that look wrong on a first install and
