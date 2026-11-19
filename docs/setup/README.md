@@ -69,6 +69,12 @@ to `sun`; a day no line names is closed) and one simple court price (`price_per_
 currency, for every court every day at every hour), and the staff with their roles. No secrets go in
 this file.
 
+Only the club's `name` and `time_zone` and the owner's `name` and `email` are needed (and a `name` for
+each location and member of staff given). Everything else is optional and marked so in the example: the
+language, the currency, a location's `address`, its courts, hours and price, the staff, `texting`, and
+the commented lines. Leave out what the owner hasn't given rather than guessing; it's set later in the
+staff app's Settings (a location's address too).
+
 What club.yaml doesn't carry is set in the staff app's Settings (step 5c) or with the command line
 ([docs/cli/reference.md](../cli/reference.md)): peak and off-peak prices and member prices
 (`openpadel price rule-set`), a court's own week (`openpadel court hours-set`), special days, the sales tax and
