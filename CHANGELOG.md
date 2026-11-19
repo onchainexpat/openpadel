@@ -7,6 +7,30 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## 0.7.1 (2026-11-18)
+
+Small fixes from the second timed setup run on a fresh server: fewer things that look wrong on a first install and
+aren't. Nothing changes for a club that's already running; update when convenient.
+
+### Fixed
+- `server-setup.sh` printed "Job for caddy.service failed" near the end of a fresh install, though it finished fine:
+  it asked Caddy to reload through its admin socket before Caddy had started with the config that makes that socket
+  (0.7.0 on). It restarts Caddy then instead, quietly.
+- `openpadel doctor`'s `backups` check said only "none" next to the snapshot an update had just written to the same
+  folder. That snapshot still doesn't count (it has no check of its rows, no offsite copy and no restore test; it's
+  kept to undo the update), and the check now says so and that `openpadel backup` takes one now.
+- The `pitr_test` check said to run the point-in-time test now on a new server, where it can't run until 11 minutes
+  after the first base backup. Until then it says from what time, on the club's clock.
+
+### Changed
+- docs/setup/accounts/server.md: SSH options (a key file, a jump host, an ssh config) go after the target for
+  `deploy/ship.sh`, with an example.
+- `club.example.yaml` and setup step 4 mark what's needed (the club's name and time zone, the owner's name and email)
+  and what's optional, a location's address among them.
+
+### When updating
+- No database change and nothing to set: `deploy/ship.sh`, or on Docker `deploy/docker/update.sh v0.7.1`.
+
 ## 0.7.0 (2026-11-18)
 
 Plugins, agents and moving in. The club's own agents and webhooks, and plugins installed from a catalog with the
